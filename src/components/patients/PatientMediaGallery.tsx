@@ -28,7 +28,7 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { addDoc, deleteDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { storage } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-import { logActivity } from "@/lib/logging";
+import { logActivity } from "@/lib/logger";
 import { useUI } from "@/context/UIContext";
 
 export interface MediaItem {
@@ -223,7 +223,7 @@ export default function PatientMediaGallery({
       }
 
       await logActivity(
-        { uid: user?.uid, name: user?.name, role: user?.role },
+        { uid: user?.uid || "", name: user?.name || "", role: user?.role || "" },
         "Media Uploaded",
         `Uploaded ${stagingFiles.length} photo(s) for patient ${patientName}`
       );
