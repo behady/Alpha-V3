@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* Pastel Mint Theme Palette */
+  --color-mint-light: #E8F0ED;
+  --color-mint-base: #C8E5DA;
+  --color-mint-dark: #8DE3C4;
+  --color-charcoal-base: #2D3748;
+  --color-charcoal-dark: #1A202C;
+  --color-pink-base: #F6A5C0;
+
+  /* Map Neutrals (Slate/Gray) to the Pastel vibe */
+  --color-slate-50: #F4F7F6;
+  --color-slate-100: #E8F0ED;
+  --color-slate-200: #DBEFE8;
+  --color-slate-300: #C8E5DA;
+  --color-slate-400: #A0AAB2;
+  --color-slate-500: #718096;
+  --color-slate-600: #4A5568;
+  --color-slate-700: #2D3748;
+  --color-slate-800: #1A202C;
+  --color-slate-900: #111827;
+  
+  --color-gray-50: #F4F7F6;
+  --color-gray-100: #E8F0ED;
+  --color-gray-800: #1A202C;
+  --color-gray-900: #111827;
+
+  /* Primary mapped to Charcoal/Black elements */
+  --color-primary-50: #F4F7F6;
+  --color-primary-100: #E8F0ED;
+  --color-primary-500: #2D3748;
+  --color-primary-600: #1A202C;
+  --color-primary-700: #111827;
+  
+  /* Greens mapped to Mint tags */
+  --color-green-50: #E8F0ED;
+  --color-green-100: #DBEFE8;
+  --color-green-400: #8DE3C4;
+  --color-green-500: #6BCAA6;
+  --color-emerald-50: #E8F0ED;
+  --color-emerald-500: #8DE3C4;
+
+  /* Reds/Pink mapped to Pink tags */
+  --color-red-50: #FDF2F8;
+  --color-red-500: #F6A5C0;
+  --color-rose-50: #FDF2F8;
+  --color-rose-500: #F6A5C0;
+  --color-orange-50: #FDF2F8;
+  --color-orange-500: #F6A5C0;
+  --color-amber-50: #FDF2F8;
+  --color-amber-500: #F6A5C0;
+
+  /* Blues mapped to Mint base */
+  --color-blue-50: #E8F0ED;
+  --color-blue-500: #C8E5DA;
+  --color-cyan-50: #E8F0ED;
+  --color-cyan-500: #C8E5DA;
+}
+
+:root {
+  --background: #E8F0ED;
+  --foreground: #2D3748;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Hide scrollbar for a cleaner look on horizontally scrollable tab rows */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A5 portrait;
+    margin: 0mm;
+  }
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    background-color: #E8F0ED !important;
+  }
+}

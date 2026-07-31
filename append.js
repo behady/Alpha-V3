@@ -1,0 +1,1 @@
+const fs = require('fs'); let content = fs.readFileSync('src/lib/bookingService.ts', 'utf8'); content += \\nexport async function updateBookingTime(id: string, newDate: string, newTime: string): Promise<void> {\n  const ref = doc(db, 'bookings', id);\n  await updateDoc(ref, { date: newDate, time: newTime });\n}\n\; fs.writeFileSync('src/lib/bookingService.ts', content);

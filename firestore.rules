@@ -1,0 +1,90 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- HELPER FUNCTIONS ---
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    function isSuperAdmin() {
+      let userData = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return isAuth() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && (userData.get('isSuperAdmin', false) == true || userData.get('isSuperAdmin', 'false') == 'true');
+    }
+
+    function getClinicRole(clinicId) {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('clinicRoles', {}).get(clinicId, null);
+    }
+
+    function hasClinicRole(clinicId) {
+      return isAuth() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('clinicRoles', {}).keys().hasAny([clinicId]);
+    }
+
+    function isClinicAdmin(clinicId) {
+      return hasClinicRole(clinicId) && getClinicRole(clinicId) == 'Admin';
+    }
+
+    function isClinicActive(clinicId) {
+      let clinic = get(/databases/$(database)/documents/clinics/$(clinicId)).data;
+      // Also allow creation / free trial when expiresAt is not strictly enforced yet, 
+      // but generally ensure it's active.
+      return clinic.get('status', 'Active') == 'Active';
+    }
+
+    // =====================================================================
+    // --- GLOBAL COLLECTIONS ---
+    // =====================================================================
+
+    match /users/{userId} {
+      allow read: if isAuth(); // Users need to read other users to display names, or at least their own
+      allow update: if isAuth() && request.auth.uid == userId; // Users can update themselves
+      allow create: if isAuth() && request.auth.uid == userId;
+      allow delete: if isSuperAdmin();
+    }
+
+    match /join_requests/{requestId} {
+      allow read: if isAuth();
+      allow create: if isAuth();
+      // Only Clinic Admins of the requested clinic or Super Admins can update/delete
+      allow update, delete: if isSuperAdmin() || (isAuth() && isClinicAdmin(resource.data.clinicId));
+    }
+
+    // =====================================================================
+    // --- CLINICS MULTI-TENANCY ---
+    // =====================================================================
+
+    match /clinics/{clinicId} {
+      allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+      allow create: if isAuth(); // Any authenticated user can create a free trial clinic
+      allow update: if isSuperAdmin() || isClinicAdmin(clinicId);
+      allow delete: if isSuperAdmin();
+
+      // --- ALL CLINIC SUBCOLLECTIONS ---
+      // We allow read/write to any subcollection if the user has ANY role in this clinic.
+      // We also enforce that the clinic is active for WRITE operations (except Super Admins).
+      match /{document=**} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow write: if isSuperAdmin() || (hasClinicRole(clinicId) && isClinicActive(clinicId));
+      }
+
+      // --- SPECIFIC SUBCOLLECTION OVERRIDES ---
+      // If you need more granular permissions (e.g. only Admins can delete staff)
+      match /staff/{staffId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow write: if isSuperAdmin() || (isClinicAdmin(clinicId) && isClinicActive(clinicId));
+      }
+      
+      match /settings/{docId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow write: if isSuperAdmin() || (isClinicAdmin(clinicId) && isClinicActive(clinicId));
+      }
+    }
+    
+    // --- LEGACY SETTINGS OVERRIDE ---
+    match /settings/wapilot {
+      allow read, write: if false; // Only Admin SDK
+    }
+  }
+}

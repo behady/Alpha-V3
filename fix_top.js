@@ -1,0 +1,1 @@
+const fs = require('fs'); let content = fs.readFileSync('src/components/dashboard/DesktopDashboard.tsx', 'utf8'); content = content.replace('idx === 0 ? \'top-3\' :', 'idx === 0 ? \'top-5\' :'); fs.writeFileSync('src/components/dashboard/DesktopDashboard.tsx', content);
