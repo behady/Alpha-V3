@@ -6,6 +6,7 @@ import { db } from "@/lib/firebase";
 import { Timestamp, addDoc, collection, deleteDoc, doc, getDocs, orderBy, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
+import { useClinic } from "@/context/ClinicContext";
 import PermissionGuard from "@/components/PermissionGuard";
 import Protect from "@/components/Protect";
 import { useUI } from "@/context/UIContext";
@@ -858,9 +859,8 @@ export default function InventoryPage() {
                 ))}
               </div>
             </div>
-            )}
           </div>
-
+        )}
         </div>
       </div>
     </PermissionGuard>

@@ -182,7 +182,7 @@ export default function SettingsPage() {
           );
           
           if (result.isNewUser === false) {
-             showToast(result.message, "warning");
+             showToast(result.message, "info");
           } else {
              showToast(result.message || "Account created!", "success");
           }

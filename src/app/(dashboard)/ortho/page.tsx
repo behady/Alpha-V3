@@ -204,6 +204,7 @@ export default function OrthoDashboard() {
           </div>
         )}
       </div>
+      </div>
     </PermissionGuard>
   );
 }
