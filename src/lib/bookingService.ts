@@ -15,8 +15,50 @@ import {
 } from "firebase/firestore";
 import { logActivity } from "@/lib/logger";
 import { sendPatientAppointmentWhatsApp } from "@/lib/sendPatientAppointmentWhatsAppClient";
-import type { BookingSavePayload } from "@/lib/appointmentBookingSync";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+
+export interface BookingSavePayload {
+  patientId: string;
+  patientName: string;
+  isNewPatient?: boolean;
+  newPatientPhone?: string;
+  newPatientDob?: string;
+  newPatientAddress?: string;
+  newPatientSource?: string;
+  newPatientGender?: string;
+  treatment: string;
+  doctor: string;
+  date: string;
+  time: string;
+  duration: number;
+  type?: string;
+  notes?: string;
+  cost: number;
+  clinicalNoteId?: string | null;
+  newProcedureName?: string | null;
+  serviceId?: string | null;
+  serviceName?: string | null;
+  chargeForVisit?: boolean;
+  listPrice?: number;
+  discountMode?: string;
+  discountPercent?: number | null;
+  discountFixed?: number | null;
+  discountAmount?: number | null;
+  sessionProcedures?: { name: string; cost: number; addToLedger: boolean }[];
+  status?: string;
+  delayedPromptUntil?: number | null;
+  services?: Array<{
+    serviceId: string | null;
+    serviceName: string;
+    cost: number;
+    listPrice?: number;
+    discountAmount?: number;
+    clinicalNoteId?: string;
+    ledgerId?: string;
+    status?: "Planned" | "Completed";
+  }>;
+  discountDistribution?: "total" | "each";
+}
 
 export function normalizeDateKey(value?: string): string {
   if (!value) return "";

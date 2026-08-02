@@ -307,58 +307,6 @@ export async function receiptElementToPdfBlob(element: HTMLElement): Promise<Blo
   return html2pdf().set(opt).from(element).outputPdf("blob") as Promise<Blob>;
 }
 
-export async function dentalReceiptSrcDocToPdfBlob(srcDoc: string): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const iframe = document.createElement("iframe");
-    iframe.setAttribute("title", "dental-receipt-pdf");
-    iframe.setAttribute("aria-hidden", "true");
-
-    // We must give the iframe a physical width so the CSS grid and tables calculate correctly
-    // before taking the snapshot. A4 width is 210mm.
-    iframe.style.cssText =
-      "position:fixed;left:-10000px;top:0;width:210mm;height:297mm;border:0;opacity:0;pointer-events:none;z-index:-1;";
-
-    document.body.appendChild(iframe);
-
-    iframe.onload = async () => {
-      try {
-        const doc = iframe.contentDocument || iframe.contentWindow?.document;
-        if (!doc) throw new Error("Iframe document not found");
-
-        // CRUCIAL: Force the iframe document to wait for the Tajawal font to fully load
-        // before we even attempt to take a canvas snapshot. This fixes the broken Arabic.
-        if (doc.fonts && doc.fonts.ready) {
-          await doc.fonts.ready;
-        }
-
-        // Add a tiny buffer to allow the browser's paint engine to apply the RTL shaping
-        await new Promise((r) => setTimeout(r, 600));
-
-        const root = doc.getElementById("dental-receipt-container");
-        if (!root) throw new Error("Receipt PDF root not found in iframe");
-
-        // Generate the high-res Blob
-        const blob = await receiptElementToPdfBlob(root);
-
-        // Cleanup
-        document.body.removeChild(iframe);
-        resolve(blob);
-      } catch (e) {
-        document.body.removeChild(iframe);
-        reject(e instanceof Error ? e : new Error("PDF generation failed"));
-      }
-    };
-
-    iframe.onerror = () => {
-      document.body.removeChild(iframe);
-      reject(new Error("Failed to load receipt iframe"));
-    };
-
-    // Write the document to the iframe
-    iframe.srcdoc = srcDoc;
-  });
-}
-
 /** Uses the browser's Native Print Engine */
 export function downloadDentalReceiptPdf(payload: DentalReceiptPdfPayload, filename?: string): void {
   const srcDoc = buildDentalReceiptSrcDoc(payload);

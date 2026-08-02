@@ -1,1 +1,0 @@
-const fs = require('fs'); let content = fs.readFileSync('src/components/dashboard/WeeklyScheduleView.tsx', 'utf8'); content = content.replace('idx === 0 ? \'top-2\' :', 'idx === 0 ? \'top-4\' :'); fs.writeFileSync('src/components/dashboard/WeeklyScheduleView.tsx', content);

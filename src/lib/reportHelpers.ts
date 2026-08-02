@@ -6,7 +6,3 @@ export function cleanName(value: unknown, fallback = "Unknown"): string {
   if (!v || v === "undefined" || v === "null") return fallback;
   return v;
 }
-
-export function normalizeDoctorName(value: string) {
-  return cleanName(value, "").replace(/^dr\.?\s*/i, "").toLowerCase();
-}

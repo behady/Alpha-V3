@@ -13,8 +13,3 @@ export function getWaitingMoodEmoji(mood?: string | null): string {
   return WAITING_MOODS.find((m) => m.key === mood)?.emoji ?? "";
 }
 
-export function getWaitingMoodLabel(mood: string, language: "en" | "ar"): string {
-  const row = WAITING_MOODS.find((m) => m.key === mood);
-  if (!row) return mood;
-  return language === "ar" ? row.labelAr : row.labelEn;
-}

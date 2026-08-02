@@ -22,10 +22,6 @@ export function normalizeToE164WithCountryCode(raw: string): string {
   return normalized;
 }
 
-export function hasCountryCode(raw: string): boolean {
-  return normalizeToE164WithCountryCode(raw) !== "";
-}
-
 export const COUNTRY_CODE_OPTIONS = [
   { code: "+20", label: "Egypt (+20)" },
   { code: "+966", label: "Saudi Arabia (+966)" },

@@ -99,30 +99,3 @@ export async function syncProcedureAndPaymentsFromClinicalNote(
     })
   );
 }
-
-/** @deprecated Use syncProcedureAndPaymentsFromClinicalNote */
-export async function syncFirstPaymentLabFromProcedure(
-  procedureLedgerId: string,
-  labFee: number,
-  commissionPct: number
-): Promise<boolean> {
-  const payments = await fetchProcedurePayments(procedureLedgerId);
-  const first = payments[0];
-  if (!first) return false;
-
-  const paidAmount = Number(first.paid || first.amount || 0);
-  const { doctorCommissionAmount, clinicProfit } = recalcCommissionFromPayment(
-    paidAmount,
-    labFee,
-    commissionPct
-  );
-
-  await updateDoc(getClinicDoc("ledger", first.id), {
-    labFee,
-    doctorCommissionPercentage: commissionPct,
-    doctorCommissionAmount,
-    clinicProfit,
-  });
-
-  return true;
-}
