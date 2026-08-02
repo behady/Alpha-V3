@@ -10,9 +10,6 @@ import { pickPatientPhone } from "@/lib/patientPhone";
 import { DIAGNOSIS_OPTIONS } from "@/lib/diagnosisCatalog";
 import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 
-const TELEGRAM_BOT_TOKEN = "8290832720:AAHxKXNzNMJ9-FT85Yde3MdlVTpP6Me9ZqM";
-const TELEGRAM_CHAT_ID = "-5020625144";
-
 const ALPHA_DATABASE_SCHEMAS = `CRITICAL DATABASE SCHEMAS (Strictly use these exact fields):
 1. patients: name(REQ, full string), phone(REQ, E.164 +20...), address, dateOfBirth, gender, referral, medicalHistory, status, teethData (odontogram chart). NEVER drop user-provided fields!
 2. appointments: patientId(REQ), patientName, treatment, doctor, date, time(hh:mm AM/PM), duration, status, notes
@@ -191,18 +188,6 @@ export async function POST(req: Request) {
           }, 
           required: ["collection", "documentId"] 
         },
-      },
-      {
-        name: "send_custom_telegram",
-        description: "Sends a custom HTML-formatted message to the clinic's internal Telegram group.",
-        parameters: {
-          type: SchemaType.OBJECT,
-          properties: {
-            title: { type: SchemaType.STRING },
-            messageHtml: { type: SchemaType.STRING }
-          },
-          required: ["title", "messageHtml"]
-        }
       },
       {
         name: "trigger_whatsapp_appointment",
@@ -432,23 +417,6 @@ export async function POST(req: Request) {
              
              toolResult = { success: true, message: `Permanently deleted document ${id} from ${col}` };
 
-          } else if (call.name === "send_custom_telegram") {
-             const title = (call.args as any).title;
-             const messageHtml = (call.args as any).messageHtml;
-             
-             const formattedMessage = `🤖 <b>Alpha AI | ${title}</b>\n\n${messageHtml}`;
-             
-             await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-               method: 'POST',
-               headers: { 'Content-Type': 'application/json' },
-               body: JSON.stringify({
-                 chat_id: TELEGRAM_CHAT_ID,
-                 text: formattedMessage,
-                 parse_mode: 'HTML'
-               })
-             });
-             
-             toolResult = { success: true, message: "Custom Telegram message sent successfully." };
           } else if (call.name === "trigger_whatsapp_appointment") {
              const { patientId, doctor, date, time, type } = call.args as any;
              const patientSnap = await db.collection("patients").doc(patientId).get();

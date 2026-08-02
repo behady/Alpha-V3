@@ -71,7 +71,7 @@ export default function SettingsPage() {
   // Shared Core Settings State
   const [clinicData, setClinicData] = useState({
     name: "", doctorName: "", phone: "", address: "", email: "",
-    currency: "EGP", rxHeader: "", telegramGroupId: "",
+    currency: "EGP", rxHeader: "",
     attendanceLat: "", attendanceLng: "", attendanceRadius: "50"
   });
   const [schedule, setSchedule] = useState({ start: "09:00", end: "21:00", slotDuration: "30", offDays: [] as string[] });

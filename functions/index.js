@@ -26,195 +26,16 @@ const PDFMAKE_FONTS = {
 pdfMake.setFonts(PDFMAKE_FONTS);
 pdfMake.setUrlAccessPolicy(() => false);
 
-// ==========================================
-// TELEGRAM SECRETS
-// ==========================================
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "8290832720:AAHxKXNzNMJ9-FT85Yde3MdlVTpP6Me9ZqM";
-
-const TELEGRAM_EVENT_DEFAULTS = {
-  newBooking: true,
-  reschedule: true,
-  cancellation: true,
-  appointmentDeleted: true,
-  finance: true,
-  lowInventory: true,
-  hr: true,
-  lab: true,
-};
-
-function telegramEventKeyFromContext(type) {
-  const map = {
-    newAppointment: "newBooking",
-    reschedule: "reschedule",
-    cancellation: "cancellation",
-    appointmentDeleted: "appointmentDeleted",
-    finance: "finance",
-    lowInventory: "lowInventory",
-    hr: "hr",
-    lab: "lab",
-  };
-  return map[type] || null;
-}
-
-function mergeTelegramTemplateString(template, vars) {
-  if (template == null || template === "") return "";
-  let s = String(template);
-  const safe = vars && typeof vars === "object" ? vars : {};
-  for (const [k, val] of Object.entries(safe)) {
-    if (val === undefined || val === null) continue;
-    s = s.split(`{{${k}}}`).join(String(val));
-  }
-  return s;
-}
-
-function resolveClinicTelegramEventToggles(settings) {
-  const out = { ...TELEGRAM_EVENT_DEFAULTS };
-  const raw = settings.telegramEventToggles;
-  if (raw && typeof raw === "object") {
-    for (const k of Object.keys(TELEGRAM_EVENT_DEFAULTS)) {
-      if (raw[k] === true || raw[k] === false) out[k] = raw[k];
-    }
-    return out;
-  }
-  const leg = settings.alertPreferences && settings.alertPreferences.telegram;
-  if (!leg || typeof leg !== "object") return out;
-  if (leg.newBooking === false) out.newBooking = false;
-  if (leg.cancellations === false) {
-    out.cancellation = false;
-    out.reschedule = false;
-    out.appointmentDeleted = false;
-  }
-  if (leg.lowInventory === false) out.lowInventory = false;
-  return out;
-}
-
-function applyTelegramTemplates(settings, eventKey, title, body, templateVars) {
-  if (!eventKey) return { finalTitle: title, finalBody: body };
-  const templates = settings.telegramTemplates || {};
-  const tpl = templates[eventKey] || {};
-  const vars = { ...(templateVars || {}), title, body };
-  let finalTitle = title;
-  let finalBody = body;
-  if (tpl.title != null && String(tpl.title).trim()) {
-    finalTitle = mergeTelegramTemplateString(tpl.title, vars);
-  }
-  if (tpl.body != null && String(tpl.body).trim()) {
-    finalBody = mergeTelegramTemplateString(tpl.body, vars);
-  }
-  return { finalTitle, finalBody };
-}
-
-function apptTemplateVars(appt) {
-  if (!appt || typeof appt !== "object") return {};
-  return {
-    patientName: appt.patientName || "",
-    phone: appt.phone || appt.patientPhone || "",
-    doctor: appt.doctor || "",
-    treatment: appt.treatment || appt.service || appt.notes || "",
-    date: appt.date || "",
-    time: appt.time || "",
-    by: appt.addedBy || appt.modifiedBy || "",
-  };
-}
-
 /**
- * Advanced Routing sendAlert function
- * @param {Object} eventContext - Contains { type, actorId, targetDoctorId, amount, role, templateVars? }
+ * Writes an in-app notification-bell entry for staff.
+ * @param {Object} eventContext - Contains { type }
  */
 async function sendAlert(title, body, eventContext, actionUrl = "") {
   try {
-    // 1. Save to in-app notifications
     await admin.firestore().collection("notifications").add({
       title, body, eventType: eventContext.type, actionUrl,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(), read: false 
+      createdAt: admin.firestore.FieldValue.serverTimestamp(), read: false
     });
-
-    if (!TELEGRAM_BOT_TOKEN) return;
-
-    const settingsSnap = await admin.firestore().collection("settings").doc("clinic_info").get();
-    const settings = settingsSnap.exists ? settingsSnap.data() : {};
-
-    if (settings.telegramNotificationsEnabled === false) return;
-
-    const eventKey = telegramEventKeyFromContext(eventContext.type);
-    const clinicToggles = resolveClinicTelegramEventToggles(settings);
-    if (eventKey && clinicToggles[eventKey] === false) return;
-
-    const { finalTitle, finalBody } = applyTelegramTemplates(
-      settings,
-      eventKey,
-      title,
-      body,
-      eventContext.templateVars
-    );
-
-    const telegramGroupId = settings.telegramGroupId || null;
-
-    const staffSnap = await admin.firestore().collection("staff").get();
-    const recipients = [];
-    if (telegramGroupId) recipients.push(telegramGroupId);
-
-    staffSnap.forEach(doc => {
-      const staff = doc.data();
-      const prefs = staff.notificationPreferences;
-
-      if (prefs && prefs.telegramChatId) {
-        const events = prefs.events || {};
-        const filters = prefs.filters || { targetDoctors: ["all"], hrRoles: [], mutedActors: [], financeMinAmount: 0 };
-
-        let isEventEnabled = false;
-        if (eventContext.type === "newAppointment" || eventContext.type === "reschedule") isEventEnabled = !!events.bookings;
-        if (eventContext.type === "cancellation" || eventContext.type === "appointmentDeleted") isEventEnabled = !!events.cancellations;
-        if (eventContext.type === "finance") isEventEnabled = !!events.finance;
-        if (eventContext.type === "hr") isEventEnabled = !!events.hr;
-        if (eventContext.type === "lowInventory") isEventEnabled = !!events.inventory;
-        if (eventContext.type === "lab") isEventEnabled = events.lab !== false;
-
-        if (isEventEnabled) {
-          let passesFilters = true;
-
-          if (eventContext.actorId && filters.mutedActors.includes(eventContext.actorId)) {
-            passesFilters = false;
-          }
-
-          if (passesFilters && ["newAppointment", "reschedule", "cancellation", "appointmentDeleted", "finance"].includes(eventContext.type)) {
-            if (!filters.targetDoctors.includes("all")) {
-               if (eventContext.targetDoctorId && !filters.targetDoctors.includes(eventContext.targetDoctorId)) {
-                 passesFilters = false;
-               }
-            }
-          }
-
-          if (passesFilters && eventContext.type === "finance") {
-             if (eventContext.amount && eventContext.amount < (filters.financeMinAmount || 0)) {
-               passesFilters = false;
-             }
-          }
-
-          if (passesFilters && eventContext.type === "hr") {
-             if (eventContext.role && !filters.hrRoles.includes(eventContext.role)) {
-               passesFilters = false;
-             }
-          }
-
-          if (passesFilters) recipients.push(prefs.telegramChatId);
-        }
-      }
-    });
-
-    const uniqueRecipients = [...new Set(recipients)];
-    const message = `🔔 <b>${finalTitle}</b>\n\n${finalBody}`;
-
-    const sendPromises = uniqueRecipients.map(chatId => 
-      fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' })
-      }).catch(err => console.error(`Failed to send to ${chatId}:`, err))
-    );
-
-    await Promise.all(sendPromises);
-
   } catch (error) {
     console.error("Alert Error:", error);
   }
@@ -725,18 +546,8 @@ async function handlePatientWhatsAppPayment(ledgerData) {
 
 exports.notifyDoctorOnNewAppointment = onDocumentCreated("appointments/{appointmentId}", async (event) => {
   const newAppt = event.data.data();
-  // We need to try to find the doctor's ID if we only have their name
-  let docId = newAppt.doctorId || null; 
-  if (!docId && newAppt.doctor) {
-     const staffSnap = await admin.firestore().collection("staff").where("name", "==", newAppt.doctor).limit(1).get();
-     if (!staffSnap.empty) docId = staffSnap.docs[0].id;
-  }
-  
   await sendAlert("New Booking | حجز جديد 📅", formatApptMessage(newAppt), {
     type: "newAppointment",
-    actorId: newAppt.addedById,
-    targetDoctorId: docId,
-    templateVars: apptTemplateVars(newAppt),
   }, `/patients/${newAppt.patientId}`);
   await handlePatientWhatsAppFormatted(newAppt, "new");
   return null;
@@ -745,29 +556,15 @@ exports.notifyDoctorOnNewAppointment = onDocumentCreated("appointments/{appointm
 exports.notifyDoctorOnUpdateAppointment = onDocumentUpdated("appointments/{appointmentId}", async (event) => {
   const before = event.data.before.data();
   const after = event.data.after.data();
-  
-  let docId = after.doctorId || null;
-  if (!docId && after.doctor) {
-     const staffSnap = await admin.firestore().collection("staff").where("name", "==", after.doctor).limit(1).get();
-     if (!staffSnap.empty) docId = staffSnap.docs[0].id;
-  }
-
-  const context = { actorId: after.modifiedById, targetDoctorId: docId };
 
   if (after.status === "Cancelled" && before.status !== "Cancelled") {
-    context.type = "cancellation";
-    context.templateVars = apptTemplateVars(after);
-    await sendAlert("Cancelled | إلغاء موعد ❌", formatApptMessage(after), context, `/patients/${after.patientId}`);
+    await sendAlert("Cancelled | إلغاء موعد ❌", formatApptMessage(after), { type: "cancellation" }, `/patients/${after.patientId}`);
     await handlePatientWhatsAppFormatted(after, "cancel");
   } else if (after.status === "Delayed" && before.status !== "Delayed") {
-    context.type = "reschedule";
-    context.templateVars = apptTemplateVars(after);
-    await sendAlert("Delayed | تأخير ⚠️", formatApptMessage(after), context, `/patients/${after.patientId}`);
+    await sendAlert("Delayed | تأخير ⚠️", formatApptMessage(after), { type: "reschedule" }, `/patients/${after.patientId}`);
     await handlePatientWhatsAppFormatted(after, "edit");
   } else if (after.status !== "Cancelled" && (before.date !== after.date || before.time !== after.time)) {
-    context.type = "reschedule";
-    context.templateVars = apptTemplateVars(after);
-    await sendAlert("Rescheduled | إعادة جدولة 🔄", formatApptMessage(after), context, `/patients/${after.patientId}`);
+    await sendAlert("Rescheduled | إعادة جدولة 🔄", formatApptMessage(after), { type: "reschedule" }, `/patients/${after.patientId}`);
     await handlePatientWhatsAppFormatted(after, "edit");
   }
   return null;
@@ -775,18 +572,7 @@ exports.notifyDoctorOnUpdateAppointment = onDocumentUpdated("appointments/{appoi
 
 exports.notifyDoctorOnDeleteAppointment = onDocumentDeleted("appointments/{appointmentId}", async (event) => {
   const deletedAppt = event.data.data();
-  let docId = deletedAppt.doctorId || null;
-  if (!docId && deletedAppt.doctor) {
-     const staffSnap = await admin.firestore().collection("staff").where("name", "==", deletedAppt.doctor).limit(1).get();
-     if (!staffSnap.empty) docId = staffSnap.docs[0].id;
-  }
-
-  await sendAlert("Deleted | حذف موعد 🗑️", formatApptMessage(deletedAppt), {
-    type: "appointmentDeleted",
-    actorId: null,
-    targetDoctorId: docId,
-    templateVars: apptTemplateVars(deletedAppt),
-  }, `/appointments`);
+  await sendAlert("Deleted | حذف موعد 🗑️", formatApptMessage(deletedAppt), { type: "appointmentDeleted" }, `/appointments`);
   await handlePatientWhatsAppFormatted(deletedAppt, "cancel");
   return null;
 });
@@ -799,15 +585,7 @@ exports.notifyOnLowInventory = onDocumentUpdated("inventory/{itemId}", async (ev
     await sendAlert(
       "Low Stock | نواقص المخزون ⚠️",
       `📦 <b>Item:</b> ${after.name}\n📉 <b>Dropped to:</b> ${after.stock} ${after.unit}\n💡 <b>Threshold:</b> ${threshold}`,
-      {
-        type: "lowInventory",
-        templateVars: {
-          itemName: after.name || "",
-          stock: String(after.stock ?? ""),
-          unit: after.unit || "",
-          threshold: String(threshold),
-        },
-      },
+      { type: "lowInventory" },
       `/inventory`
     );
   }
@@ -826,25 +604,8 @@ exports.notifyOnNewPayment = onDocumentCreated("ledger/{ledgerId}", async (event
     if (data.description) msg += `📝 <b>Note:</b> ${data.description}\n`;
     if (data.addedBy) msg += `\n\n✍️ <b>By:</b> ${data.addedBy}`;
 
-    // Try to figure out doctor from ledger data (often saved as doctorName or doctorId)
-    let docId = data.doctorId || null;
-    if (!docId && data.doctorName) {
-       const staffSnap = await admin.firestore().collection("staff").where("name", "==", data.doctorName).limit(1).get();
-       if (!staffSnap.empty) docId = staffSnap.docs[0].id;
-    }
-
     await sendAlert(data.type === 'payment' ? "Payment Received | تم الدفع 💵" : "Expense Logged | مصروف جديد 🔻", msg, {
        type: "finance",
-       actorId: data.addedById,
-       targetDoctorId: docId,
-       amount: Number(data.paid || data.amount || 0),
-       templateVars: {
-         patientName: data.patientName || "",
-         amount: String(data.paid || data.amount || 0),
-         method: data.method || "",
-         description: data.description || "",
-         by: data.addedBy || "",
-       },
     }, `/patients/${data.patientId}`);
 
     if (data.type === "payment" && data.patientId) {
@@ -860,17 +621,7 @@ exports.notifyOnClockIn = onDocumentCreated("attendance/{recordId}", async (even
       const title = data.type === 'clock_in' ? "Clock In | تسجيل حضور 🟢" : "Clock Out | تسجيل انصراف 🔴";
       const msg = `👤 <b>Staff:</b> ${data.staffName}\n⌚ <b>Time:</b> ${data.time}\n📍 <b>Status:</b> ${data.status || 'On Time'}`;
       
-      await sendAlert(title, msg, {
-         type: "hr",
-         actorId: data.staffId,
-         role: data.staffRole,
-         templateVars: {
-           staffName: data.staffName || "",
-           time: data.time || "",
-           status: data.status || "On Time",
-           role: data.staffRole || "",
-         },
-      }, '/reports');
+      await sendAlert(title, msg, { type: "hr" }, '/reports');
    }
    return null;
 });
@@ -879,16 +630,7 @@ exports.notifyOnLabOrder = onDocumentCreated("lab_orders/{orderId}", async (even
   const data = event.data.data();
   const msg = `🦷 <b>New Lab Case Required</b>\n\n👤 <b>Patient:</b> ${data.patientName || 'Unknown'}\n👨‍⚕️ <b>Doctor:</b> ${data.doctorName || 'Unknown'}\n⚙️ <b>Procedure:</b> ${data.serviceName}\n💰 <b>Estimated Lab Fee:</b> ${data.labFee} EGP`;
 
-  // Sends to the global group
-  await sendAlert("Lab Case Required 🔬", msg, {
-    type: "lab",
-    templateVars: {
-      patientName: data.patientName || "",
-      doctorName: data.doctorName || "",
-      serviceName: data.serviceName || "",
-      labFee: data.labFee != null ? String(data.labFee) : "",
-    },
-  }, `/patients/${data.patientId}`);
+  await sendAlert("Lab Case Required 🔬", msg, { type: "lab" }, `/patients/${data.patientId}`);
   return null;
 });
 

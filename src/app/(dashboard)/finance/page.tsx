@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { TrendingUp, TrendingDown, DollarSign, PieChart, Download, Plus, Search, Edit2, Trash2, Send, Loader2, X, Save, CalendarDays, CalendarClock, Users, ChevronLeft, ChevronRight, SlidersHorizontal, ChevronDown, ChevronUp, Bell, Wallet, FileText } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, PieChart, Download, Plus, Search, Edit2, Trash2, Loader2, X, Save, CalendarDays, CalendarClock, Users, ChevronLeft, ChevronRight, SlidersHorizontal, ChevronDown, ChevronUp, Bell, Wallet, FileText } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, query, orderBy, serverTimestamp, deleteDoc, doc, updateDoc, where, getDoc, getDocs, onSnapshot } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
@@ -78,7 +78,7 @@ export default function FinancePage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
-  const [exportTarget, setExportTarget] = useState<'download' | 'telegram' | null>(null);
+  const [exportTarget, setExportTarget] = useState<'download' | null>(null);
 
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
   const [pdfSections, setPdfSections] = useState({ kpis: true, income: true, expenses: true, commissions: true, charts: true });
@@ -117,10 +117,9 @@ export default function FinancePage() {
     let endDateStr = dateRange;
     if (timeView === "monthly") {
       startDateStr = `${dateRange}-01`;
-      const [year, month] = dateRange.split("-");
-      const nextMonthDate = new Date(Number(year), Number(month), 1);
-      nextMonthDate.setDate(nextMonthDate.getDate() - 1);
-      endDateStr = nextMonthDate.toISOString().split("T")[0];
+      const [year, month] = dateRange.split("-").map(Number);
+      const lastDay = new Date(year, month, 0).getDate();
+      endDateStr = `${dateRange}-${String(lastDay).padStart(2, "0")}`;
     } else if (timeView === "range") {
       startDateStr = customStartDate || dateRange;
       endDateStr = customEndDate || customStartDate || dateRange;
@@ -341,7 +340,7 @@ export default function FinancePage() {
     setIsPdfModalOpen(true);
   };
 
-  const handleExport = async (target: 'download' | 'telegram') => {
+  const handleExport = async (target: 'download') => {
     setIsExporting(true); setExportTarget(target);
     try {
       // Filter transactions by the selected pdf date range
@@ -548,22 +547,6 @@ export default function FinancePage() {
           `Downloaded finance report: ${fileName}`
         );
         showToast("Report Downloaded!", "success");
-      } else if (target === 'telegram') {
-        const TELEGRAM_BOT_TOKEN = "8290832720:AAHxKXNzNMJ9-FT85Yde3MdlVTpP6Me9ZqM";
-        const TELEGRAM_CHAT_ID = "-5020625144";
-        const formData = new FormData();
-        formData.append('chat_id', TELEGRAM_CHAT_ID);
-        formData.append('document', pdfBlob, fileName);
-        const caption = `📊 <b>Financial Report</b>\nPeriod: ${from === to ? from : `${from} → ${to}`}\n\n💰 Cash In: +${totalIncome.toLocaleString()} EGP\n📉 Expenses: -${totalExpenses.toLocaleString()} EGP\n💵 Net: ${netProfit.toLocaleString()} EGP\n\n<i>by ${user?.name || 'Admin'}</i>`;
-        formData.append('caption', caption);
-        formData.append('parse_mode', 'HTML');
-        await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument`, { method: 'POST', body: formData });
-        await logActivity(
-          { uid: user?.uid, name: user?.name, role: user?.role },
-          "Finance Report Shared",
-          `Sent finance report to Telegram: ${fileName}`
-        );
-        showToast("Report Sent to Telegram!", "success");
       }
       setIsPdfModalOpen(false);
     } catch (error) { 
@@ -1244,15 +1227,6 @@ export default function FinancePage() {
 
                 {/* Action buttons */}
                 <div className="flex gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => handleExport('telegram')}
-                    disabled={isExporting || isLoading}
-                    className="flex-1 inline-flex justify-center items-center gap-2 bg-[#E8F7F0] text-[#1E5631] hover:bg-[#A7E2C3] px-4 py-3 rounded-xl font-bold text-xs border border-[#A7E2C3] disabled:opacity-50 transition-colors"
-                  >
-                    {isExporting && exportTarget === 'telegram' ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-                    Telegram
-                  </button>
                   <button
                     type="button"
                     onClick={() => handleExport('download')}
