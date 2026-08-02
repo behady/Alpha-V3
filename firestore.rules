@@ -46,10 +46,9 @@ service cloud.firestore {
         && request.resource.data.get('isSuperAdmin', false) == false
         && request.resource.data.get('clinicRoles', {}) == {};
 
-      // Users can update their own profile fields, but can NEVER touch isSuperAdmin or
-      // clinicRoles on themselves — those are platform/clinic-admin-controlled only
-      // (clinicRoles is granted server-side via Admin SDK: staff invite / self-signup routes).
-      // Super admins may update any user doc (e.g. toggling isSuperAdmin on someone else).
+      // Users may edit their own profile fields, but never isSuperAdmin or clinicRoles.
+      // Roles are granted server-side via Admin SDK (staff invite / self-signup routes).
+      // Superadmins may update any user doc (e.g. toggling isSuperAdmin on someone else).
       allow update: if isSuperAdmin()
         || (isAuth() && request.auth.uid == userId
             && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isSuperAdmin', 'clinicRoles']));
@@ -75,24 +74,18 @@ service cloud.firestore {
 
     match /clinics/{clinicId} {
       allow read: if isSuperAdmin() || hasClinicRole(clinicId);
-      // Free-trial self-signup is created server-side via Admin SDK (see
-      // /api/onboarding/create-clinic), which bypasses these rules entirely — so client-side
-      // create/update of the clinic doc itself (tier, status, pricing, feature flags) is
-      // superadmin-only. Legitimate clinic self-service profile edits (name/phone/logo) live
-      // in the separate clinics/{clinicId}/settings/clinicProfile document below, unaffected.
+      // Tier/status/pricing/features are superadmin-only. Self-signup creates clinics
+      // server-side via Admin SDK (/api/onboarding/create-clinic), which bypasses rules.
+      // Clinic self-service profile edits live in settings/clinicProfile below.
       allow create: if isSuperAdmin();
       allow update: if isSuperAdmin();
       allow delete: if isSuperAdmin();
 
       // --- ALL CLINIC SUBCOLLECTIONS ---
-      // We allow read/write to any subcollection if the user has ANY role in this clinic.
-      // We also enforce that the clinic is active for WRITE operations (except Super Admins).
-      // NOTE: the path here is /{subcollection}/{document=**}, NOT /{document=**} directly under
-      // clinics/{clinicId} — a recursive wildcard placed directly under the parent also matches the
-      // parent document itself (zero extra segments), which would silently re-grant write access to
-      // the clinic doc above (rules are OR'd across all matching blocks) and undo the superadmin-only
-      // restriction on `clinics/{clinicId}` itself. Requiring an explicit {subcollection} segment
-      // first means this can only ever match clinics/{clinicId}/<something>/..., never the parent.
+      // Any role in the clinic can read/write subcollections; writes also require an active clinic.
+      // IMPORTANT: keep the {subcollection} segment. A bare /{document=**} here would also match
+      // the parent clinic doc (wildcards can match zero segments), and since rules OR together it
+      // would silently undo the superadmin-only restriction above.
       match /{subcollection}/{document=**} {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
         allow write: if isSuperAdmin() || (hasClinicRole(clinicId) && isClinicActive(clinicId));
