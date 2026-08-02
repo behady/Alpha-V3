@@ -51,6 +51,25 @@ export async function requireStaffUser(request: Request, clinicId?: string) {
   }
 }
 
+/**
+ * Verifies the caller's ID token without requiring any existing clinic role —
+ * for endpoints a brand-new user (no clinicRoles yet) must be able to call, e.g. self-signup.
+ */
+export async function requireAuthedUser(request: Request) {
+  const authHeader = request.headers.get("authorization") || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!token) {
+    return { ok: false as const, response: NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 }) };
+  }
+  try {
+    const decoded = await adminAuth().verifyIdToken(token);
+    return { ok: true as const, uid: decoded.uid };
+  } catch (error) {
+    console.error("requireAuthedUser verifyIdToken failed", error);
+    return { ok: false as const, response: NextResponse.json({ ok: false, error: "Invalid token" }, { status: 401 }) };
+  }
+}
+
 export async function requireAdminUser(request: Request, clinicId?: string) {
   const staff = await requireStaffUser(request, clinicId);
   if (!staff.ok) return staff;

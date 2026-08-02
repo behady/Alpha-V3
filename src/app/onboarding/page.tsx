@@ -3,9 +3,9 @@
 import React, { useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
-import { db } from "@/lib/firebase";
-import { collection, doc, setDoc, serverTimestamp, updateDoc } from "firebase/firestore";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { auth } from "@/lib/firebase";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { getClinicCollection } from "@/lib/db-utils";
 
 export default function OnboardingPage() {
   const { user, logout } = useAuth();
@@ -22,25 +22,22 @@ export default function OnboardingPage() {
     if (!clinicName.trim()) return alert("Clinic name is required");
     setLoading(true);
     try {
-      // 1. Create the new clinic document
-      const newClinicRef = doc(getClinicCollection("clinics"));
-      const clinicId = newClinicRef.id;
-      
-      await setDoc(newClinicRef, {
-        name: clinicName,
-        ownerId: user.uid,
-        subscriptionTier: 'Free Trial',
-        status: 'Active',
-        createdAt: serverTimestamp(),
+      // Clinic creation + self Admin-role grant happens server-side (Admin SDK) —
+      // Firestore rules lock direct client writes to `clinics` and `users.clinicRoles`
+      // down to superadmin-only, so this can't be done with a plain client-side write.
+      const idToken = await auth.currentUser?.getIdToken();
+      const res = await fetch("/api/onboarding/create-clinic", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ clinicName }),
       });
-
-      // 2. Update user profile to add this clinic as Admin
-      const userRef = getClinicDoc("users", user.uid);
-      const updatedRoles = { ...user.clinicRoles, [clinicId]: 'Admin' };
-      await updateDoc(userRef, {
-        clinicRoles: updatedRoles,
-        defaultClinicId: clinicId
-      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || "Failed to create clinic");
+      }
 
       alert("Clinic created successfully!");
       router.push("/");
