@@ -1,5 +1,6 @@
 "use client";
 
+// Super Admin Platform Control Center (Updated with Manual Pricing)
 import React, { useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase";
@@ -280,6 +281,11 @@ export default function SuperAdminDashboard() {
                                 <option value="Pro">Pro</option>
                                 <option value="Premium">Premium</option>
                               </select>
+                              {clinic.customPrice !== undefined && clinic.customPrice > 0 && (
+                                <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded">
+                                  ${clinic.customPrice} ({clinic.billingCycle || 'Monthly'})
+                                </span>
+                              )}
                             </div>
                           </td>
                           <td className="px-6 py-4">

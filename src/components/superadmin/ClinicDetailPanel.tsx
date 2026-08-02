@@ -1,8 +1,9 @@
 "use client";
 
+// Clinic Detail Drawer Panel (With Manual Pricing & Financials)
 import React, { useState } from "react";
 import { Clinic, SubscriptionTier } from "@/types/saas";
-import { X, Building2, Save, Users, ShieldAlert, KeyRound, CalendarDays } from "lucide-react";
+import { X, Building2, Save, Users, ShieldAlert, KeyRound, CalendarDays, DollarSign, CreditCard } from "lucide-react";
 import { TIER_LIMITS, getAiCreditLimit } from "@/lib/subscriptions";
 
 interface ClinicDetailPanelProps {
@@ -144,6 +145,94 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
                 />
               </div>
             </div>
+          </div>
+        </section>
+
+        {/* Pricing & Financial Setup */}
+        <section className="space-y-4">
+          <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+            <DollarSign size={16} className="text-emerald-500" /> Pricing & Financials
+          </h3>
+          <div className="bg-emerald-50/40 rounded-2xl p-4 border border-emerald-200/60 space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Billing Cycle</label>
+                <select
+                  value={clinic.billingCycle || 'Monthly'}
+                  onChange={(e) => {
+                    onUpdateClinic(clinic.id, { 
+                      billingCycle: e.target.value as 'Monthly' | 'Yearly' | '2-Yearly' 
+                    });
+                  }}
+                  className="w-full bg-white border border-slate-200 text-slate-700 text-xs font-bold rounded-xl px-2.5 py-2 outline-none focus:border-emerald-500 shadow-sm"
+                >
+                  <option value="Monthly">Monthly</option>
+                  <option value="Yearly">Yearly (1 Yr)</option>
+                  <option value="2-Yearly">2-Yearly (2 Yrs)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Agreed Price ($)</label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="0"
+                  value={clinic.customPrice ?? ''}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    onUpdateClinic(clinic.id, { customPrice: isNaN(val) ? 0 : val });
+                  }}
+                  className="w-full bg-white border border-slate-200 text-slate-700 text-xs font-bold rounded-xl px-2.5 py-2 outline-none focus:border-emerald-500 shadow-sm"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 block mb-1">Amount Paid ($)</label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="0"
+                  value={clinic.amountPaid ?? ''}
+                  onChange={(e) => {
+                    const val = parseFloat(e.target.value);
+                    onUpdateClinic(clinic.id, { amountPaid: isNaN(val) ? 0 : val });
+                  }}
+                  className="w-full bg-white border border-slate-200 text-slate-700 text-xs font-bold rounded-xl px-2.5 py-2 outline-none focus:border-emerald-500 shadow-sm"
+                />
+              </div>
+            </div>
+
+            {/* Live Calculation Summary */}
+            {(() => {
+              const cycle = clinic.billingCycle || 'Monthly';
+              const price = clinic.customPrice || 0;
+              const paid = clinic.amountPaid || 0;
+              const monthlyMrr = cycle === '2-Yearly' ? price / 24 : cycle === 'Yearly' ? price / 12 : price;
+              const balance = price - paid;
+
+              return (
+                <div className="p-3.5 bg-white border border-emerald-100 rounded-xl flex items-center justify-between text-xs shadow-sm">
+                  <div>
+                    <span className="text-slate-500 font-semibold block">Calculated Monthly MRR:</span>
+                    <strong className="text-emerald-700 font-black text-sm">${Math.round(monthlyMrr * 100) / 100} / mo</strong>
+                    <span className="text-slate-400 text-[10px] block">({cycle})</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-slate-500 font-semibold block">Payment Status:</span>
+                    {balance <= 0 ? (
+                      <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 font-bold rounded-lg inline-block text-xs">
+                        Fully Paid (${paid})
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-1 bg-amber-100 text-amber-900 font-bold rounded-lg inline-block text-xs">
+                        ${balance} Unpaid
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </section>
 

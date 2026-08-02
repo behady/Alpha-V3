@@ -37,25 +37,46 @@ export function AnalyticsTab({ clinics }: AnalyticsTabProps) {
     let basicRev = 0, proRev = 0, premiumRev = 0;
     clinics.forEach(c => {
       if (c.status === 'Active') {
-        if (c.subscriptionTier === 'Basic') basicRev += 50;
-        else if (c.subscriptionTier === 'Pro') proRev += 150;
-        else if (c.subscriptionTier === 'Premium') premiumRev += 300;
+        let rev = 0;
+        if (c.customPrice !== undefined && c.customPrice !== null) {
+          const cycle = c.billingCycle || 'Monthly';
+          const price = Number(c.customPrice) || 0;
+          rev = cycle === '2-Yearly' ? price / 24 : cycle === 'Yearly' ? price / 12 : price;
+        } else {
+          if (c.subscriptionTier === 'Basic') rev = 50;
+          else if (c.subscriptionTier === 'Pro') rev = 150;
+          else if (c.subscriptionTier === 'Premium') rev = 300;
+        }
+
+        if (c.subscriptionTier === 'Basic') basicRev += rev;
+        else if (c.subscriptionTier === 'Pro') proRev += rev;
+        else if (c.subscriptionTier === 'Premium') premiumRev += rev;
       }
     });
 
     const revenueData = [
-      { name: 'Basic', value: basicRev },
-      { name: 'Pro', value: proRev },
-      { name: 'Premium', value: premiumRev },
+      { name: 'Basic', value: Math.round(basicRev) },
+      { name: 'Pro', value: Math.round(proRev) },
+      { name: 'Premium', value: Math.round(premiumRev) },
     ].filter(d => d.value > 0);
 
-    // 3. Top Clinics (Mock ranking by active status and tier weight)
+    // 3. Top Clinics (Ranking by MRR contribution & total paid)
+    const getClinicMonthlyMrr = (c: Clinic) => {
+      if (c.status !== 'Active') return 0;
+      if (c.customPrice !== undefined && c.customPrice !== null) {
+        const cycle = c.billingCycle || 'Monthly';
+        const price = Number(c.customPrice) || 0;
+        return cycle === '2-Yearly' ? price / 24 : cycle === 'Yearly' ? price / 12 : price;
+      }
+      const weight = { 'Premium': 300, 'Pro': 150, 'Basic': 50, 'Free Trial': 0 };
+      return weight[c.subscriptionTier] || 0;
+    };
+
     const sorted = [...clinics].sort((a, b) => {
-      const weight = { 'Premium': 3, 'Pro': 2, 'Basic': 1, 'Free Trial': 0 };
-      const wa = weight[a.subscriptionTier] || 0;
-      const wb = weight[b.subscriptionTier] || 0;
-      if (wa !== wb) return wb - wa;
-      return 0; // fallback
+      const ma = getClinicMonthlyMrr(a);
+      const mb = getClinicMonthlyMrr(b);
+      if (ma !== mb) return mb - ma;
+      return (Number(b.amountPaid) || 0) - (Number(a.amountPaid) || 0);
     });
 
     return {

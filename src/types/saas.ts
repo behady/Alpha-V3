@@ -17,6 +17,9 @@ export interface Clinic {
     extraAiCredits?: number;
     maxStaff?: number;
   };
+  billingCycle?: 'Monthly' | 'Yearly' | '2-Yearly';
+  customPrice?: number;
+  amountPaid?: number;
   adminNotes?: string;
 }
 
