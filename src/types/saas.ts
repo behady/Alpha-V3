@@ -13,6 +13,12 @@ export interface Clinic {
     inventory?: boolean;
     attendance?: boolean;
     aiChat?: boolean;
+    /** Tier 3: scheduled/background AI analysis the system runs without being asked. */
+    aiProactive?: boolean;
+    /** Tier 3: AI summaries embedded across the app rather than in the chat bubble. */
+    aiEmbedded?: boolean;
+    /** Tier 3: dictated clinical notes structured into records. */
+    aiVoice?: boolean;
     aiMonthlyCredits?: number;
     extraAiCredits?: number;
     maxStaff?: number;

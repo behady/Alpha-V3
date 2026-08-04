@@ -7,7 +7,14 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
     whatsappIntegration: boolean;
     inventory: boolean;
     attendance: boolean;
+    /** Reactive assistant — the chat bubble. A human asks, the AI answers. */
     aiChat: boolean;
+    /** Proactive intelligence — scans and analyses the system runs on its own initiative. */
+    aiProactive: boolean;
+    /** AI summaries rendered inline across the app instead of inside the bubble. */
+    aiEmbedded: boolean;
+    /** Dictated clinical notes transcribed and structured into records. */
+    aiVoice: boolean;
   }
 }> = {
   'Free Trial': {
@@ -18,6 +25,9 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       inventory: false,
       attendance: false,
       aiChat: true,
+      aiProactive: false,
+      aiEmbedded: false,
+      aiVoice: false,
     }
   },
   'Basic': {
@@ -28,6 +38,9 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       inventory: false,
       attendance: false,
       aiChat: false,
+      aiProactive: false,
+      aiEmbedded: false,
+      aiVoice: false,
     }
   },
   'Pro': {
@@ -38,6 +51,9 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       inventory: true,
       attendance: true,
       aiChat: true,
+      aiProactive: false,
+      aiEmbedded: false,
+      aiVoice: false,
     }
   },
   'Premium': {
@@ -48,6 +64,9 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       inventory: true,
       attendance: true,
       aiChat: true,
+      aiProactive: true,
+      aiEmbedded: true,
+      aiVoice: true,
     }
   }
 };

@@ -5,7 +5,7 @@ import { Plus_Jakarta_Sans, Cairo } from "next/font/google";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { 
-  LayoutDashboard, Users, Calendar, Wallet, Settings, 
+  LayoutDashboard, Users, Calendar, Wallet, Settings, Sparkles, 
   FileBarChart, Menu, X, LogOut, Loader2, Languages, 
   Package, ChevronLeft, ChevronRight, Clock, FlaskConical, MessageCircle, ShieldCheck
 } from "lucide-react";
@@ -90,6 +90,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { key: "appointments", href: "/appointments", icon: Calendar },
     { key: "inventory", href: "/inventory", icon: Package },
     { key: "finance", href: "/finance", icon: Wallet },
+    { key: "revenueRecovery", href: "/ai/revenue", icon: Sparkles },
     { key: "reports", href: "/reports", icon: FileBarChart },
     { key: "attendance", href: "/attendance", icon: Clock },
   ];
@@ -103,6 +104,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     // Tier based gating
     if (key === 'inventory' && !hasFeature(clinic, 'inventory')) return false;
     if (key === 'attendance' && !hasFeature(clinic, 'attendance')) return false;
+
+    // Premium-only, and admin-only: the report lists every outstanding balance in the clinic
+    // plus procedures charged below list price, which effectively audits the team's own billing.
+    if (key === 'revenueRecovery') {
+      if (!hasFeature(clinic, 'aiProactive')) return false;
+      return isAdmin;
+    }
 
     return canAccessNavItem(key, user, isAdmin);
   }, [user, isAdmin, appointmentsVisibility, clinic]);

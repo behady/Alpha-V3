@@ -9,6 +9,43 @@ import { resolveWhatsappTemplateForPatient } from "@/lib/whatsappDefaultBodies";
 import { pickPatientPhone } from "@/lib/patientPhone";
 import { DIAGNOSIS_OPTIONS } from "@/lib/diagnosisCatalog";
 import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
+import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
+import { requireStaffUser } from "@/lib/apiStaffAuth";
+
+/**
+ * Collections the AI is permitted to touch.
+ *
+ * The collection name in db_read/db_write/db_delete comes from the model, and the model's context
+ * includes untrusted text (patient names, note bodies). Without an allowlist, a crafted value in
+ * any patient field could steer it at data it should never reach. Everything here is clinic-scoped
+ * at access time, so this list can only ever address the caller's own tenant.
+ */
+const AI_READABLE_COLLECTIONS = new Set([
+  "patients",
+  "appointments",
+  "tickets",
+  "services",
+  "ledger",
+  "clinical_notes",
+  "inventory",
+  "inventory_transactions",
+  "lab_orders",
+  "staff",
+  "expenses",
+]);
+
+/** Deleting financial or clinical history is not something a chat turn should be able to do. */
+const AI_DELETABLE_COLLECTIONS = new Set(["appointments", "tickets", "ledger", "inventory_transactions"]);
+
+function assertCollectionAllowed(collection: string, mode: "read" | "write" | "delete"): void {
+  const name = String(collection || "").trim();
+  if (!AI_READABLE_COLLECTIONS.has(name)) {
+    throw new Error(`The assistant is not permitted to access the "${name}" collection.`);
+  }
+  if (mode === "delete" && !AI_DELETABLE_COLLECTIONS.has(name)) {
+    throw new Error(`Records in "${name}" cannot be deleted by the assistant. Please delete it from that page directly.`);
+  }
+}
 
 const ALPHA_DATABASE_SCHEMAS = `CRITICAL DATABASE SCHEMAS (Strictly use these exact fields):
 1. patients: name(REQ, full string), phone(REQ, E.164 +20...), address, dateOfBirth, gender, referral, medicalHistory, status, teethData (odontogram chart). NEVER drop user-provided fields!
@@ -45,12 +82,34 @@ export async function POST(req: Request) {
     const genAI = new GoogleGenerativeAI(apiKey);
     const db = adminDb();
     const body = await req.json();
-    
-    const { prompt, image, history, userId, userName, systemInstruction, clinicId } = body;
+
+    const { prompt, image, history, userName, systemInstruction, clinicId } = body;
     const currentDate = new Date().toLocaleString("en-US", { timeZone: "Africa/Cairo" });
 
+    // A clinicId is mandatory. Every tool below is scoped by it, and the previous `if (clinicId)`
+    // guard meant a request that simply omitted it skipped the plan check and the credit meter
+    // entirely.
+    if (!clinicId || typeof clinicId !== "string") {
+      return NextResponse.json({ error: "clinicId is required." }, { status: 400 });
+    }
+
+    // This endpoint reads and writes patient records, so it must prove who is calling. It
+    // previously trusted clinicId and userId straight from the request body with no token at all.
+    const authz = await requireStaffUser(req, clinicId);
+    if (!authz.ok) return authz.response;
+
+    // Identity comes from the verified token, never the body — otherwise a caller could attribute
+    // their actions and learned facts to any colleague.
+    const userId = authz.uid;
+
+    // Images cost more to process, so they draw more credits.
+    const requiredCredits = image ? 3 : 1;
+
+    // Set by the quota check below, invoked only once the turn has produced a real result.
+    let chargeCredits: (() => Promise<void>) | null = null;
+
     // Hybrid Subscription & Monthly Credit Limit Check
-    if (clinicId) {
+    {
       try {
         const clinicSnap = await db.collection("clinics").doc(clinicId).get();
         if (clinicSnap.exists) {
@@ -63,7 +122,6 @@ export async function POST(req: Request) {
             );
           }
 
-          const requiredCredits = image ? 3 : 1;
           const monthKey = new Date().toISOString().slice(0, 7);
           const usageRef = db.collection("clinics").doc(clinicId).collection("ai_usage").doc(monthKey);
           const usageSnap = await usageRef.get();
@@ -77,31 +135,48 @@ export async function POST(req: Request) {
             );
           }
 
-          await usageRef.set(
-            {
-              monthKey,
-              creditsUsed: FieldValue.increment(requiredCredits),
-              updatedAt: FieldValue.serverTimestamp(),
-            },
-            { merge: true }
-          );
+          // Deliberately NOT charged here. Billing on entry means a clinic pays for requests that
+          // error out or time out, which is the kind of charge that generates support tickets.
+          // chargeCredits() runs once the turn has actually produced something.
+          chargeCredits = async () => {
+            await usageRef.set(
+              {
+                monthKey,
+                creditsUsed: FieldValue.increment(requiredCredits),
+                updatedAt: FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+          };
         }
       } catch (err) {
+        // Fail closed: this block enforces both the plan gate and the spend cap, so swallowing an
+        // error here would hand out unmetered AI to anyone whose clinic doc happened to fail a read.
         console.error("AI usage quota check failed:", err);
+        return NextResponse.json(
+          { error: "Could not verify your AI plan or usage. Please try again." },
+          { status: 503 }
+        );
       }
     }
 
-    let userPreferences = "1. Diagnosis for braces is 150, not 50.\n";
-    if (userId) {
+    // Learned rules are clinic-scoped. They were previously read from a root `ai_preferences`
+    // collection, which meant one clinic's pricing rules and staff schedules would surface in
+    // every other clinic's assistant. (A hardcoded braces price used to live here for the same
+    // reason — removed, since it was one clinic's rule applied to all tenants.)
+    let userPreferences = "";
+    if (userId && clinicId) {
       try {
-        const prefDoc = await db.collection("ai_preferences").doc(userId).get();
-        if (prefDoc.exists && prefDoc.data()?.facts) {
-          userPreferences += prefDoc.data()?.facts.map((f: string, i: number) => `${i + 2}. ${f}`).join("\n");
+        const prefDoc = await adminClinicDoc(clinicId, "ai_preferences", userId).get();
+        const facts = prefDoc.exists ? prefDoc.data()?.facts : null;
+        if (Array.isArray(facts) && facts.length > 0) {
+          userPreferences = facts.map((f: string, i: number) => `${i + 1}. ${f}`).join("\n");
         }
       } catch (e) {
-        console.error("Failed to load user preferences.");
+        console.error("Failed to load clinic AI preferences.", e);
       }
     }
+    if (!userPreferences) userPreferences = "(No custom rules saved yet.)";
 
     let formattedHistory: any[] = [];
     if (history && Array.isArray(history)) {
@@ -353,14 +428,15 @@ export async function POST(req: Request) {
         try {
           if (call.name === "db_read") {
              const col = (call.args as any).collection;
+             assertCollectionAllowed(col, "read");
              const lim = (call.args as any).limit || 100;
              const wField = (call.args as any).whereField;
              const wOp = (call.args as any).whereOperator;
              const wVal = (call.args as any).whereValue;
              const startDate = (call.args as any).startDate;
              const endDate = (call.args as any).endDate;
-             
-             let queryRef: any = db.collection(col);
+
+             let queryRef: any = adminClinicCollection(clinicId, col);
              if (wField && wOp && wVal) {
                  queryRef = queryRef.where(wField, wOp as any, wVal);
              }
@@ -374,14 +450,15 @@ export async function POST(req: Request) {
              
           } else if (call.name === "db_write") {
              const col = (call.args as any).collection;
+             assertCollectionAllowed(col, "write");
              const data = JSON.parse((call.args as any).dataJson);
-             
+
              if (data.duration) data.duration = Number(data.duration);
              if (data.cost) data.cost = Number(data.cost);
              if (data.amount) data.amount = Number(data.amount);
              if (data.paid) data.paid = Number(data.paid);
 
-             const newRef = db.collection(col).doc();
+             const newRef = adminClinicCollection(clinicId, col).doc();
              await newRef.set({ 
                ...data, 
                id: newRef.id, 
@@ -393,15 +470,16 @@ export async function POST(req: Request) {
 
           } else if (call.name === "db_update") {
              const col = (call.args as any).collection;
+             assertCollectionAllowed(col, "write");
              const id = (call.args as any).documentId;
              const data = JSON.parse((call.args as any).dataJson);
-             
+
              if (data.duration) data.duration = Number(data.duration);
              if (data.cost) data.cost = Number(data.cost);
              if (data.amount) data.amount = Number(data.amount);
              if (data.paid) data.paid = Number(data.paid);
 
-             await db.collection(col).doc(id).set({ 
+             await adminClinicDoc(clinicId, col, id).set({
                ...data, 
                modifiedBy: "Alpha AI", 
                updatedAt: FieldValue.serverTimestamp() 
@@ -411,20 +489,34 @@ export async function POST(req: Request) {
 
           } else if (call.name === "db_delete") {
              const col = (call.args as any).collection;
+             assertCollectionAllowed(col, "delete");
              const id = (call.args as any).documentId;
-             
-             await db.collection(col).doc(id).delete();
-             
-             toolResult = { success: true, message: `Permanently deleted document ${id} from ${col}` };
+
+             // Snapshot before deleting so an AI-driven removal is reversible from the audit log.
+             const targetRef = adminClinicDoc(clinicId, col, id);
+             const before = await targetRef.get();
+             if (!before.exists) {
+                toolResult = { success: false, error: `No document ${id} in ${col}.` };
+             } else {
+                await adminClinicCollection(clinicId, "ai_deletion_log").add({
+                   collection: col,
+                   documentId: id,
+                   deletedBy: userName || userId || "Alpha AI",
+                   snapshot: before.data(),
+                   deletedAt: FieldValue.serverTimestamp(),
+                });
+                await targetRef.delete();
+                toolResult = { success: true, message: `Deleted ${id} from ${col}. A copy was kept in the deletion log.` };
+             }
 
           } else if (call.name === "trigger_whatsapp_appointment") {
              const { patientId, doctor, date, time, type } = call.args as any;
-             const patientSnap = await db.collection("patients").doc(patientId).get();
+             const patientSnap = await adminClinicDoc(clinicId, "patients", patientId).get();
              if (!patientSnap.exists) {
                 toolResult = { success: false, error: "Patient not found" };
              } else {
                  const patient = patientSnap.data() as any;
-                 const settingsSnap = await db.collection("settings").doc("whatsapp").get();
+                 const settingsSnap = await adminClinicDoc(clinicId, "settings", "whatsapp").get();
                  const settings = settingsSnap.exists ? settingsSnap.data() : {};
                  const tplText = resolveWhatsappTemplateForPatient(settings?.templates as any, type);
                  
@@ -443,8 +535,8 @@ export async function POST(req: Request) {
                             time: time || "—",
                             google_link: "—"
                          });
-                         await sendWhatsApp({ to: phone, text: merged });
-                         await db.collection("whatsapp_logs").add({
+                         await sendWhatsApp({ to: phone, text: merged, clinicId });
+                         await adminClinicCollection(clinicId, "whatsapp_logs").add({
                             patientId,
                             type: `appointment_${type}`,
                             message: merged,
@@ -461,7 +553,7 @@ export async function POST(req: Request) {
              const patientId = (call.args as any).patientId;
              const updates = (call.args as any).updates || [];
              
-             const patientRef = db.collection("patients").doc(patientId);
+             const patientRef = adminClinicDoc(clinicId, "patients", patientId);
              const snap = await patientRef.get();
              
              if (!snap.exists) {
@@ -508,9 +600,9 @@ export async function POST(req: Request) {
              }
           } else if (call.name === "learn_fact") {
              const fact = (call.args as any).fact;
-             const targetId = userId || "global_clinic";
-             const prefRef = db.collection("ai_preferences").doc(targetId);
-             
+             const targetId = userId || "clinic_shared";
+             const prefRef = adminClinicDoc(clinicId, "ai_preferences", targetId);
+
              await db.runTransaction(async (t) => {
                  const doc = await t.get(prefRef);
                  if (doc.exists) {
@@ -524,7 +616,7 @@ export async function POST(req: Request) {
              toolResult = { success: true, message: "Fact permanently saved to memory." };
           } else if (call.name === "find_duplicate_ledger_entries") {
              const patientId = (call.args as any).patientId;
-             const snap = await db.collection("ledger").where("patientId", "==", patientId).get();
+             const snap = await adminClinicCollection(clinicId, "ledger").where("patientId", "==", patientId).get();
              const docs = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
              
              const duplicates: any[] = [];
@@ -546,16 +638,18 @@ export async function POST(req: Request) {
              let reason = (call.args as any).reason;
              if (!reason || !reason.trim()) reason = `Navigating to ${path}...`;
              // Intercept execution and return the navigation command directly to frontend
+             await chargeCredits?.();
              return NextResponse.json({ reply: reason, navigateTo: path });
           } else if (call.name === "trigger_pdf_generation") {
              const title = (call.args as any).title;
              const content = (call.args as any).content;
+             await chargeCredits?.();
              return NextResponse.json({ reply: `Generating PDF for: ${title}`, triggerPdf: { title, content } });
           } else if (call.name === "generate_financial_summary") {
              const startDate = (call.args as any).startDate;
              const endDate = (call.args as any).endDate;
              
-             const snap = await db.collection("ledger")
+             const snap = await adminClinicCollection(clinicId, "ledger")
                 .where("date", ">=", startDate)
                 .where("date", "<=", endDate)
                 .get();
@@ -598,7 +692,7 @@ export async function POST(req: Request) {
              };
           } else if (call.name === "find_patient") {
              const searchQuery = (call.args as any).searchQuery;
-             const snap = await db.collection("patients").get();
+             const snap = await adminClinicCollection(clinicId, "patients").get();
              const q = (searchQuery || "").trim().toLowerCase();
              
              const matches = snap.docs
@@ -635,6 +729,7 @@ export async function POST(req: Request) {
          replyText = "Done.";
       }
 
+      await chargeCredits?.();
       return NextResponse.json({ reply: replyText });
 
   } catch (error: any) {

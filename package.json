@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:rules": "npx firebase-tools emulators:exec --only firestore \"node tests/firestore.rules.test.mjs\""
+    "test:rules": "npx firebase-tools emulators:exec --only firestore \"node tests/firestore.rules.test.mjs\"",
+    "test:recovery": "npx tsx tests/revenueRecovery.test.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

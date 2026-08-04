@@ -9,6 +9,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { getClinicDoc } from "@/lib/db-utils";
+import { auth } from "@/lib/firebase";
 import { onSnapshot } from "firebase/firestore";
 
 interface ChatMessage {
@@ -79,13 +80,20 @@ export default function AiChatWidget() {
     setMessages((prev) => [...prev, userMsg]);
 
     try {
+      // The API verifies this token and derives the caller's identity from it, so userId is no
+      // longer sent in the body — the server would ignore it anyway.
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) throw new Error(isAr ? "انتهت الجلسة. سجّل الدخول مرة أخرى." : "Session expired. Please sign in again.");
+
       const response = await fetch("/api/gemini", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
+        },
         body: JSON.stringify({
           prompt: textToSend,
           clinicId,
-          userId: user?.uid,
           userName: user?.name,
           history: messages.map(m => ({ role: m.role, parts: [{ text: m.content }] }))
         })
