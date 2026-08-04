@@ -535,7 +535,7 @@ export async function POST(req: Request) {
                             time: time || "—",
                             google_link: "—"
                          });
-                         await sendWhatsApp({ to: phone, text: merged, clinicId });
+                         await sendWhatsApp({ to: phone, text: merged });
                          await adminClinicCollection(clinicId, "whatsapp_logs").add({
                             patientId,
                             type: `appointment_${type}`,
