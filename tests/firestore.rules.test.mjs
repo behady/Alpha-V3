@@ -68,6 +68,9 @@ async function main() {
     await setDoc(doc(db, "users/admin1"), {
       clinicRoles: { clinicA: "Admin" },
     });
+    await setDoc(doc(db, "users/assistant1"), {
+      clinicRoles: { clinicA: "Assistant" },
+    });
     await setDoc(doc(db, "users/super1"), {
       isSuperAdmin: true,
     });
@@ -86,9 +89,17 @@ async function main() {
       action: "Patient created",
       userName: "admin1",
     });
+    await setDoc(doc(db, "clinics/clinicA/staff/staffDoc1"), {
+      name: "Dr. Ahmed",
+      commissionPercentage: 40,
+    });
+    await setDoc(doc(db, "clinics/clinicA/settings/whatsapp"), {
+      templates: [],
+    });
   });
 
   const admin1 = testEnv.authenticatedContext("admin1").firestore();
+  const assistant1 = testEnv.authenticatedContext("assistant1").firestore();
   const super1 = testEnv.authenticatedContext("super1").firestore();
   const rando1 = testEnv.authenticatedContext("rando1").firestore();
   const self1 = testEnv.authenticatedContext("self1").firestore();
@@ -219,6 +230,35 @@ async function main() {
     "superadmin can edit a log entry",
     updateDoc(doc(super1, "clinics/clinicA/system_logs/log1"), { action: "corrected by support" }),
     "allow"
+  );
+
+  console.log("clinics/{clinicId}/staff/{staffId}");
+  await check(
+    "clinic Admin can edit a staff record",
+    updateDoc(doc(admin1, "clinics/clinicA/staff/staffDoc1"), { commissionPercentage: 45 }),
+    "allow"
+  );
+  await check(
+    "a non-Admin clinic member cannot edit a staff record (e.g. their own commission)",
+    updateDoc(doc(assistant1, "clinics/clinicA/staff/staffDoc1"), { commissionPercentage: 99 }),
+    "deny"
+  );
+  await check(
+    "a non-Admin clinic member can still read staff records",
+    getDoc(doc(assistant1, "clinics/clinicA/staff/staffDoc1")),
+    "allow"
+  );
+
+  console.log("clinics/{clinicId}/settings/{docId}");
+  await check(
+    "clinic Admin can edit clinic settings",
+    updateDoc(doc(admin1, "clinics/clinicA/settings/whatsapp"), { templates: ["x"] }),
+    "allow"
+  );
+  await check(
+    "a non-Admin clinic member cannot edit clinic settings",
+    updateDoc(doc(assistant1, "clinics/clinicA/settings/whatsapp"), { templates: ["hijacked"] }),
+    "deny"
   );
 
   await testEnv.cleanup();

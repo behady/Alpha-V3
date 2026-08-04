@@ -87,14 +87,18 @@ service cloud.firestore {
       // the parent clinic doc (wildcards can match zero segments), and since rules OR together it
       // would silently undo the superadmin-only restriction above.
       //
-      // system_logs is carved out of the general write grant here because Firestore rules OR
-      // together: a narrower `allow write` in the system_logs-specific match below can only ever
-      // add permissions, never take away what this block already granted. Without excluding it
-      // here, "only a superadmin can edit/delete a log entry" below would be silently overridden
-      // by "any clinic member can write" up here — confirmed by test, not just reasoned about.
+      // system_logs, staff, and settings are carved out of the general write grant here because
+      // Firestore rules OR together: a narrower `allow write` in a more specific match block below
+      // can only ever add permissions, never take away what this block already granted. Without
+      // excluding them here, the "Admin only" restrictions on staff/settings and the "superadmin
+      // only can edit/delete" restriction on system_logs below would all be silently overridden by
+      // "any clinic member can write" up here. staff/settings had this exact bug live in production
+      // — the override blocks looked like they restricted access but never actually did anything.
       match /{subcollection}/{document=**} {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
-        allow write: if isSuperAdmin() || (hasClinicRole(clinicId) && isClinicActive(clinicId) && subcollection != 'system_logs');
+        allow write: if isSuperAdmin()
+          || (hasClinicRole(clinicId) && isClinicActive(clinicId)
+              && subcollection != 'system_logs' && subcollection != 'staff' && subcollection != 'settings');
       }
 
       // --- SPECIFIC SUBCOLLECTION OVERRIDES ---
@@ -103,7 +107,7 @@ service cloud.firestore {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
         allow write: if isSuperAdmin() || (isClinicAdmin(clinicId) && isClinicActive(clinicId));
       }
-      
+
       match /settings/{docId} {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
         allow write: if isSuperAdmin() || (isClinicAdmin(clinicId) && isClinicActive(clinicId));
