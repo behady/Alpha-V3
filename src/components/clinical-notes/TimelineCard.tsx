@@ -30,12 +30,20 @@ export default function TimelineCard({
     emptyList: language === "ar" ? "لا توجد إجراءات مسجلة بعد." : "No procedures recorded yet.",
   };
 
-  // Sort services chronologically (newest first). 
-  // We use createdAt if available, otherwise fallback to date
+  // Sort services chronologically (newest first) by the treatment date the user actually chose,
+  // not by when it was typed into the computer — a procedure backdated to correct a late entry
+  // should sit at its real place in the timeline, not jump to the top because it was saved today.
+  // createdAt is the fallback for the rare note with no date at all, and the tiebreaker for same-day
+  // entries (best available signal for entry order within a day).
   const sortedServices = [...services].sort((a, b) => {
-    const timeA = a.createdAt?.toMillis?.() || new Date(a.date || 0).getTime();
-    const timeB = b.createdAt?.toMillis?.() || new Date(b.date || 0).getTime();
-    return timeB - timeA; // Descending (newest on top)
+    const dateOnlyA = a.date ? new Date(`${a.date}T00:00:00`).getTime() : NaN;
+    const dateOnlyB = b.date ? new Date(`${b.date}T00:00:00`).getTime() : NaN;
+    const createdA = a.createdAt?.toMillis?.() ?? 0;
+    const createdB = b.createdAt?.toMillis?.() ?? 0;
+    const keyA = Number.isNaN(dateOnlyA) ? createdA : dateOnlyA;
+    const keyB = Number.isNaN(dateOnlyB) ? createdB : dateOnlyB;
+    if (keyA !== keyB) return keyB - keyA; // Descending (newest on top)
+    return createdB - createdA;
   });
 
   return (
@@ -75,14 +83,32 @@ export default function TimelineCard({
             
             <div className="space-y-6">
               {sortedServices.map((note, idx) => {
-                // Extract formatted date and time
-                let displayDate = note.date || "";
+                // The treatment date the user picked always wins — createdAt only fills in when a
+                // note has no date at all. Previously createdAt was shown whenever it existed,
+                // which silently replaced a backdated procedure's real date with today's, the
+                // moment it was typed in.
+                let displayDate = "";
                 let displayTime = "";
-                
-                if (note.createdAt && typeof note.createdAt.toDate === 'function') {
-                  const dateObj = note.createdAt.toDate();
-                  displayDate = dateObj.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { day: 'numeric', month: 'short', year: 'numeric' });
-                  displayTime = dateObj.toLocaleTimeString(language === 'ar' ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' });
+
+                if (note.date) {
+                  const dateObj = new Date(`${note.date}T00:00:00`);
+                  if (!Number.isNaN(dateObj.getTime())) {
+                    displayDate = dateObj.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+                  }
+                }
+
+                const createdAtDate = note.createdAt && typeof note.createdAt.toDate === 'function' ? note.createdAt.toDate() : null;
+
+                if (!displayDate && createdAtDate) {
+                  // No date field on this note at all — fall back to when it was recorded.
+                  displayDate = createdAtDate.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+                }
+
+                // Only show a time when it's for the same calendar day as the displayed date —
+                // pairing today's entry-time with a different, backdated date would misleadingly
+                // suggest the treatment happened at that time on that day.
+                if (createdAtDate && createdAtDate.toISOString().slice(0, 10) === note.date) {
+                  displayTime = createdAtDate.toLocaleTimeString(language === 'ar' ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit' });
                 }
 
                 return (
