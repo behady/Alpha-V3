@@ -17,8 +17,7 @@ import type {
 } from "@/types/whatsapp";
 import { WHATSAPP_SETTINGS_DOC_REF } from "@/types/whatsapp";
 import { WHATSAPP_DEFAULT_BODIES } from "@/lib/whatsappDefaultBodies";
-import type { WhatsAppCloudStatus } from "@/types/whatsappCloud";
-import { useClinic } from "@/context/ClinicContext";
+import type { WapilotConfigStatus } from "@/types/wapilot";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 
 
@@ -123,8 +122,7 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
 export default function WhatsAppSettings() {
   const { language, isRTL } = useLanguage();
   const { user } = useAuth();
-  const { showToast, confirm } = useUI();
-  const { clinicId } = useClinic();
+  const { showToast } = useUI();
 
   const [hasLoaded, setHasLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -144,12 +142,14 @@ export default function WhatsAppSettings() {
   const [testMessage, setTestMessage] = useState("");
   const [testSending, setTestSending] = useState(false);
 
-  const [metaPhoneNumberId, setMetaPhoneNumberId] = useState("");
-  const [metaWabaId, setMetaWabaId] = useState("");
-  const [metaTokenDraft, setMetaTokenDraft] = useState("");
-  const [metaStatus, setMetaStatus] = useState<WhatsAppCloudStatus | null>(null);
-  const [metaLoading, setMetaLoading] = useState(true);
-  const [metaSaving, setMetaSaving] = useState(false);
+  const [wapilotInstanceId, setWapilotInstanceId] = useState("");
+  const [wapilotTokenDraft, setWapilotTokenDraft] = useState("");
+  const [wapilotApiBaseUrl, setWapilotApiBaseUrl] = useState("");
+  const [wapilotPhoneHint, setWapilotPhoneHint] = useState("");
+  const [wapilotStatus, setWapilotStatus] = useState<WapilotConfigStatus | null>(null);
+  const [wapilotLoading, setWapilotLoading] = useState(true);
+  const [wapilotSaving, setWapilotSaving] = useState(false);
+  const [showAdvancedWapilot, setShowAdvancedWapilot] = useState(false);
 
   const testDial = useMemo(() => WHATSAPP_DIAL_COUNTRIES.find((c) => c.iso === testCountryIso)?.dial ?? "20", [testCountryIso]);
   const testE164Preview = useMemo(() => buildE164FromDialAndNational(testDial, testNational), [testDial, testNational]);
@@ -219,159 +219,123 @@ export default function WhatsAppSettings() {
       testFail: language === "ar" ? "فشل الإرسال" : "Send failed",
       testNeedPhone: language === "ar" ? "أدخل رقمًا صالحًا" : "Enter a valid number",
       testNeedAuth: language === "ar" ? "سجّل الدخول أولاً" : "Sign in required",
-      metaCard: language === "ar" ? "ربط واتساب" : "WhatsApp connection",
-      metaHint:
+      wapilotCard: language === "ar" ? "اتصال Wapilot" : "Wapilot connection",
+      wapilotHint:
         language === "ar"
-          ? "اربط رقم واتساب الأعمال الخاص بعيادتك من Meta. تُحفظ البيانات لهذه العيادة وحدها."
-          : "Connect your clinic’s own WhatsApp Business number from Meta. Credentials are stored for this clinic only.",
-      phoneNumberId: language === "ar" ? "معرّف رقم الهاتف" : "Phone Number ID",
-      wabaId: language === "ar" ? "معرّف حساب الأعمال (اختياري)" : "Business Account ID (optional)",
-      accessToken: language === "ar" ? "رمز الوصول" : "Access token",
+          ? "يُحفظ في قاعدة بيانات العيادة (لا حاجة لإعادة نشر Vercel عند تغيير التوكن). متغيرات البيئة اختيارية كنسخة احتياطية."
+          : "Saved in this clinic’s database (no Vercel redeploy when you rotate the token). Environment variables are optional fallback.",
+      instanceId: language === "ar" ? "معرّف المثيل (Instance ID)" : "Instance ID",
+      apiToken: language === "ar" ? "رمز API (Token)" : "API token",
       tokenPlaceholder:
         language === "ar"
-          ? metaStatus?.tokenSet
-            ? "اتركه فارغاً للإبقاء على الرمز الحالي"
-            : "الصق الرمز من لوحة Meta"
-          : metaStatus?.tokenSet
+          ? wapilotStatus?.tokenSet
+            ? "اتركه فارغاً للإبقاء على التوكن الحالي"
+            : "الصق التوكن من لوحة Wapilot"
+          : wapilotStatus?.tokenSet
             ? "Leave blank to keep current token"
-            : "Paste token from the Meta console",
-      connect: language === "ar" ? "ربط والتحقق" : "Connect and verify",
-      disconnect: language === "ar" ? "فصل" : "Disconnect",
-      connectionSaved: language === "ar" ? "تم ربط واتساب بنجاح" : "WhatsApp connected",
-      disconnected: language === "ar" ? "تم فصل واتساب" : "WhatsApp disconnected",
-      statusClinic: language === "ar" ? "متصل" : "Connected",
-      statusEnv: language === "ar" ? "يستخدم الرقم التجريبي المشترك" : "Using shared test number",
-      statusNone: language === "ar" ? "غير مُعدّ" : "Not connected",
-      testNumberWarning:
-        language === "ar"
-          ? "الرقم التجريبي يرسل إلى 5 أرقام مسجلة فقط، والرمز ينتهي خلال 24 ساعة."
-          : "The test number only sends to 5 registered recipients, and its token expires in 24 hours.",
-      needClinic: language === "ar" ? "اختر عيادة أولاً" : "Select a clinic first",
+            : "Paste token from Wapilot dashboard",
+      saveConnection: language === "ar" ? "حفظ الاتصال" : "Save connection",
+      connectionSaved: language === "ar" ? "تم حفظ اتصال Wapilot" : "Wapilot connection saved",
+      advanced: language === "ar" ? "إعدادات متقدمة" : "Advanced",
+      apiBaseUrl: language === "ar" ? "رابط API (اختياري)" : "API base URL (optional)",
+      phoneHint: language === "ar" ? "رقم واتساب المرسل (للعرض فقط)" : "Sender WhatsApp number (display only)",
+      statusFirestore: language === "ar" ? "محفوظ في قاعدة البيانات" : "Saved in database",
+      statusEnv: language === "ar" ? "يستخدم متغيرات Vercel" : "Using Vercel env fallback",
+      statusNone: language === "ar" ? "غير مُعدّ" : "Not configured",
     }),
-    [language, metaStatus?.tokenSet]
+    [language, wapilotStatus?.tokenSet]
   );
 
-  const loadMetaStatus = useCallback(async () => {
+  const loadWapilotStatus = useCallback(async () => {
     const firebaseUser = auth.currentUser;
-    if (!firebaseUser || !clinicId) {
-      setMetaLoading(false);
+    if (!firebaseUser) {
+      setWapilotLoading(false);
       return;
     }
-    setMetaLoading(true);
+    setWapilotLoading(true);
     try {
       const idToken = await firebaseUser.getIdToken();
-      const res = await fetch(`/api/admin/whatsapp-connection?clinicId=${encodeURIComponent(clinicId)}`, {
+      const res = await fetch("/api/admin/wapilot-config", {
         headers: { Authorization: `Bearer ${idToken}` },
       });
       const data = await res.json();
       if (!res.ok || !data?.ok) throw new Error(data?.error || "Failed to load");
-
-      setMetaStatus(data as WhatsAppCloudStatus);
-      setMetaPhoneNumberId(typeof data.phoneNumberId === "string" ? data.phoneNumberId : "");
-      setMetaWabaId(typeof data.wabaId === "string" ? data.wabaId : "");
-      // Never prefill the token — the API only ever returns whether one is set, not its value.
-      setMetaTokenDraft("");
+      const status: WapilotConfigStatus = {
+        configured: Boolean(data.configured),
+        source: data.source || "none",
+        instanceId: typeof data.instanceId === "string" ? data.instanceId : "",
+        tokenSet: Boolean(data.tokenSet),
+        apiBaseUrl: data.apiBaseUrl,
+        sendPath: data.sendPath,
+        sendDocumentPath: data.sendDocumentPath,
+        connectedPhoneHint: data.connectedPhoneHint,
+        updatedAt: data.updatedAt,
+      };
+      setWapilotStatus(status);
+      setWapilotInstanceId(status.instanceId);
+      setWapilotApiBaseUrl(status.apiBaseUrl || "");
+      setWapilotPhoneHint(status.connectedPhoneHint || "");
+      setWapilotTokenDraft("");
     } catch (e) {
       console.error(e);
-      setMetaStatus(null);
+      setWapilotStatus(null);
     } finally {
-      setMetaLoading(false);
+      setWapilotLoading(false);
     }
-  }, [clinicId]);
+  }, []);
 
   useEffect(() => {
-    void loadMetaStatus();
-  }, [loadMetaStatus]);
+    void loadWapilotStatus();
+  }, [loadWapilotStatus]);
 
-  const handleConnectMeta = async () => {
+  const handleSaveWapilotConnection = async () => {
     const firebaseUser = auth.currentUser;
     if (!firebaseUser) {
       showToast(txt.testNeedAuth, "error");
       return;
     }
-    if (!clinicId) {
-      showToast(txt.needClinic, "error");
+    if (!wapilotInstanceId.trim()) {
+      showToast(language === "ar" ? "أدخل معرّف المثيل" : "Enter Instance ID", "error");
       return;
     }
-    if (!metaPhoneNumberId.trim()) {
-      showToast(language === "ar" ? "أدخل معرّف رقم الهاتف" : "Enter the Phone Number ID", "error");
+    if (!wapilotStatus?.tokenSet && !wapilotTokenDraft.trim()) {
+      showToast(language === "ar" ? "أدخل رمز API" : "Enter API token", "error");
       return;
     }
-    if (!metaTokenDraft.trim()) {
-      showToast(language === "ar" ? "أدخل رمز الوصول" : "Enter the access token", "error");
-      return;
-    }
-
-    setMetaSaving(true);
+    setWapilotSaving(true);
     try {
       const idToken = await firebaseUser.getIdToken();
-      const res = await fetch("/api/admin/whatsapp-connection", {
+      const res = await fetch("/api/admin/wapilot-config", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${idToken}`,
         },
         body: JSON.stringify({
-          clinicId,
-          phoneNumberId: metaPhoneNumberId.trim(),
-          wabaId: metaWabaId.trim() || undefined,
-          accessToken: metaTokenDraft.trim(),
+          instanceId: wapilotInstanceId.trim(),
+          apiToken: wapilotTokenDraft.trim() || undefined,
+          apiBaseUrl: wapilotApiBaseUrl.trim() || undefined,
+          connectedPhoneHint: wapilotPhoneHint.trim() || undefined,
         }),
       });
       const data = await res.json();
-      // The API verifies against Meta before saving, so a failure here means the credentials are
-      // genuinely wrong — surface Meta's reason rather than a generic "save failed".
-      if (!res.ok || !data?.ok) throw new Error(data?.error || "Connection failed");
-
-      showToast(`${txt.connectionSaved}${data.displayPhoneNumber ? ` — ${data.displayPhoneNumber}` : ""}`, "success");
-      setMetaTokenDraft("");
-      await loadMetaStatus();
+      if (!res.ok || !data?.ok) throw new Error(data?.error || "Save failed");
+      showToast(txt.connectionSaved, "success");
+      setWapilotTokenDraft("");
+      await loadWapilotStatus();
       await logActivity(
         { uid: user?.uid, name: user?.name, role: user?.role },
-        "WhatsApp connected",
-        `clinic ${clinicId}`
+        "Wapilot connection updated",
+        "settings/wapilot"
       );
     } catch (e) {
       console.error(e);
-      showToast(e instanceof Error ? e.message : language === "ar" ? "فشل الربط" : "Connection failed", "error");
-    } finally {
-      setMetaSaving(false);
-    }
-  };
-
-  const handleDisconnectMeta = async () => {
-    const firebaseUser = auth.currentUser;
-    if (!firebaseUser || !clinicId) return;
-
-    const ok = await confirm(
-      language === "ar"
-        ? "سيتوقف إرسال أي رسائل واتساب من هذه العيادة. متابعة؟"
-        : "This clinic will stop sending any WhatsApp messages. Continue?"
-    );
-    if (!ok) return;
-
-    setMetaSaving(true);
-    try {
-      const idToken = await firebaseUser.getIdToken();
-      const res = await fetch(`/api/admin/whatsapp-connection?clinicId=${encodeURIComponent(clinicId)}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${idToken}` },
-      });
-      const data = await res.json();
-      if (!res.ok || !data?.ok) throw new Error(data?.error || "Disconnect failed");
-
-      showToast(txt.disconnected, "success");
-      await loadMetaStatus();
-      await logActivity(
-        { uid: user?.uid, name: user?.name, role: user?.role },
-        "WhatsApp disconnected",
-        `clinic ${clinicId}`
+      showToast(
+        `${language === "ar" ? "فشل الحفظ" : "Save failed"}: ${e instanceof Error ? e.message : ""}`.trim(),
+        "error"
       );
-    } catch (e) {
-      console.error(e);
-      showToast(e instanceof Error ? e.message : "Disconnect failed", "error");
     } finally {
-      setMetaSaving(false);
+      setWapilotSaving(false);
     }
   };
 
@@ -517,16 +481,16 @@ export default function WhatsAppSettings() {
           <div className="flex items-center gap-2 text-violet-700">
             <Plug size={18} />
             <div>
-              <h3 className="text-sm font-black uppercase tracking-wider text-slate-800">{txt.metaCard}</h3>
-              <p className="text-xs text-slate-500 font-medium mt-0.5 max-w-xl">{txt.metaHint}</p>
+              <h3 className="text-sm font-black uppercase tracking-wider text-slate-800">{txt.wapilotCard}</h3>
+              <p className="text-xs text-slate-500 font-medium mt-0.5 max-w-xl">{txt.wapilotHint}</p>
             </div>
           </div>
-          {metaLoading ? (
+          {wapilotLoading ? (
             <Loader2 size={18} className="animate-spin text-violet-500" />
-          ) : metaStatus?.configured ? (
+          ) : wapilotStatus?.configured ? (
             <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full">
               <CheckCircle2 size={14} />
-              {metaStatus.source === "clinic" ? txt.statusClinic : txt.statusEnv}
+              {wapilotStatus.source === "firestore" ? txt.statusFirestore : txt.statusEnv}
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-full">
@@ -536,83 +500,69 @@ export default function WhatsAppSettings() {
           )}
         </div>
 
-        {/* Once connected, show what Meta reported back — this is the clinic's proof that the
-            number the app sends from is the one they expect. */}
-        {metaStatus?.configured && metaStatus.displayPhoneNumber && (
-          <div className="rounded-xl bg-emerald-50/60 border border-emerald-200 px-4 py-3">
-            <p className="text-sm font-bold text-emerald-900">{metaStatus.displayPhoneNumber}</p>
-            {metaStatus.verifiedName && (
-              <p className="text-xs font-semibold text-emerald-700 mt-0.5">{metaStatus.verifiedName}</p>
-            )}
-          </div>
-        )}
-
-        {metaStatus?.source === "env" && (
-          <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 flex items-start gap-2.5">
-            <AlertCircle size={15} className="text-amber-600 shrink-0 mt-0.5" />
-            <p className="text-xs font-semibold text-amber-900 leading-relaxed">{txt.testNumberWarning}</p>
-          </div>
-        )}
-
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label className="block">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.phoneNumberId}</span>
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.instanceId}</span>
             <input
-              value={metaPhoneNumberId}
-              onChange={(e) => setMetaPhoneNumberId(e.target.value)}
-              inputMode="numeric"
-              autoComplete="off"
+              value={wapilotInstanceId}
+              onChange={(e) => setWapilotInstanceId(e.target.value)}
               className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-500/15"
-              placeholder="1142062985667803"
+              placeholder="e.g. your-wapilot-instance-id"
             />
           </label>
           <label className="block">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.wabaId}</span>
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.apiToken}</span>
             <input
-              value={metaWabaId}
-              onChange={(e) => setMetaWabaId(e.target.value)}
-              inputMode="numeric"
-              autoComplete="off"
+              type="password"
+              value={wapilotTokenDraft}
+              onChange={(e) => setWapilotTokenDraft(e.target.value)}
+              autoComplete="new-password"
               className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-500/15"
-              placeholder="28691607737106880"
+              placeholder={txt.tokenPlaceholder}
             />
           </label>
         </div>
 
-        <label className="block">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.accessToken}</span>
-          <input
-            type="password"
-            value={metaTokenDraft}
-            onChange={(e) => setMetaTokenDraft(e.target.value)}
-            autoComplete="new-password"
-            className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-500/15"
-            placeholder={txt.tokenPlaceholder}
-          />
-        </label>
+        <button
+          type="button"
+          onClick={() => setShowAdvancedWapilot((v) => !v)}
+          className="text-xs font-bold text-violet-600 hover:text-violet-800"
+        >
+          {txt.advanced} {showAdvancedWapilot ? "▲" : "▼"}
+        </button>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={() => void handleConnectMeta()}
-            disabled={metaSaving || metaLoading}
-            className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-violet-600 text-white text-xs font-black uppercase tracking-widest hover:bg-violet-700 disabled:opacity-50 transition-all"
-          >
-            {metaSaving ? <Loader2 size={16} className="animate-spin" /> : <Plug size={16} />}
-            {txt.connect}
-          </button>
+        {showAdvancedWapilot && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <label className="block">
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.apiBaseUrl}</span>
+              <input
+                value={wapilotApiBaseUrl}
+                onChange={(e) => setWapilotApiBaseUrl(e.target.value)}
+                className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-violet-500"
+                placeholder="https://api.wapilot.net/api/v2"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.phoneHint}</span>
+              <input
+                value={wapilotPhoneHint}
+                onChange={(e) => setWapilotPhoneHint(e.target.value)}
+                className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-violet-500"
+                placeholder="+20..."
+              />
+            </label>
+          </div>
+        )}
 
-          {metaStatus?.source === "clinic" && (
-            <button
-              type="button"
-              onClick={() => void handleDisconnectMeta()}
-              disabled={metaSaving || metaLoading}
-              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl border border-slate-200 text-slate-600 hover:border-rose-300 hover:text-rose-600 text-xs font-black uppercase tracking-widest disabled:opacity-50 transition-all"
-            >
-              {txt.disconnect}
-            </button>
-          )}
-        </div>
+        <button
+          type="button"
+          onClick={() => void handleSaveWapilotConnection()}
+          disabled={wapilotSaving || wapilotLoading}
+          className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-violet-600 text-white text-xs font-black uppercase tracking-widest hover:bg-violet-700 disabled:opacity-50 transition-all"
+        >
+          {wapilotSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+          {txt.saveConnection}
+        </button>
       </section>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
