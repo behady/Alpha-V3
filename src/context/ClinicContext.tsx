@@ -32,6 +32,16 @@ export function ClinicProvider({ children }: { children: React.ReactNode }) {
     if (authLoading) return;
 
     if (!user) {
+      // Logout is a client-side navigation, so this module is never reloaded — the tenant
+      // pointer in db-utils survives into the next user's session unless we clear it here.
+      // Without this, the next login reads from the previous user's clinic until this effect
+      // re-runs and re-points it. Nulling it makes getClinicCollection() throw loudly instead
+      // of silently building a path into someone else's tenant.
+      setGlobalClinicId(null);
+      if (typeof window !== "undefined") {
+        sessionStorage.removeItem("superAdminClinicId");
+        sessionStorage.removeItem("preferredClinicId");
+      }
       setClinicIdState(null);
       setClinic(null);
       setLoading(false);
@@ -84,7 +94,14 @@ export function ClinicProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (!targetClinicId && userClinics.length > 0) {
-        targetClinicId = user.defaultClinicId || userClinics[0];
+        // A clinic entered on the login form wins over the stored default, but only if the user
+        // genuinely holds a role in it — the login page already checked this, and re-checking here
+        // means a hand-edited sessionStorage value falls back to the default instead of parking
+        // clinicId on a clinic whose reads will just be denied.
+        const requested = typeof window !== "undefined" ? sessionStorage.getItem("preferredClinicId") : null;
+        targetClinicId = (requested && userClinics.includes(requested))
+          ? requested
+          : (user.defaultClinicId || userClinics[0]);
         setClinicIdState(targetClinicId);
       }
 
@@ -109,6 +126,15 @@ export function ClinicProvider({ children }: { children: React.ReactNode }) {
   }, [user, authLoading, clinicId, pathname, router]);
 
   const setClinicId = (id: string) => {
+    // Only switch into a clinic the user actually belongs to. Firestore rules would reject the
+    // reads anyway, but without this the app lands in a broken half-state: clinicId points at a
+    // clinic whose doc read is denied, so `clinic` stays null and downstream checks like
+    // isReadOnly silently evaluate against nothing.
+    const isMember = Boolean(user?.clinicRoles?.[id]);
+    if (!user?.isSuperAdmin && !isMember) {
+      console.warn(`Refused to switch to clinic "${id}": current user has no role in it.`);
+      return;
+    }
     setClinicIdState(id);
   };
 

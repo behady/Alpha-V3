@@ -2,10 +2,15 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Mail, Lock, ArrowRight, Loader2, ShieldCheck, KeyRound, AlertCircle, CheckCircle2 } from "lucide-react";
-import { signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { Mail, Lock, ArrowRight, Loader2, ShieldCheck, KeyRound, AlertCircle, CheckCircle2, Building2 } from "lucide-react";
+import { signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, sendPasswordResetEmail, signOut } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
 import { useLanguage } from "@/context/LanguageContext";
+
+// Where the login page hands the chosen workspace to ClinicContext. Mirrors the existing
+// superAdminClinicId pattern; ClinicContext clears both on logout.
+const PREFERRED_CLINIC_KEY = "preferredClinicId";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -14,6 +19,7 @@ export default function LoginPage() {
   const [isResetMode, setIsResetMode] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [clinicId, setClinicId] = useState("");
   const [loading, setLoading] = useState(false);
   
   // Status states
@@ -33,6 +39,10 @@ export default function LoginPage() {
     forgotPass: language === 'ar' ? "نسيت كلمة المرور؟" : "Forgot Password?",
     backToLogin: language === 'ar' ? "العودة لتسجيل الدخول" : "Back to Sign In",
     successReset: language === 'ar' ? "تم إرسال رابط الاستعادة! تفقد بريدك الإلكتروني." : "Reset link sent! Please check your inbox.",
+    clinicId: language === 'ar' ? "رقم العيادة (اختياري)" : "Clinic ID (optional)",
+    clinicHint: language === 'ar'
+      ? "اتركه فارغاً للدخول إلى عيادتك الافتراضية."
+      : "Leave blank to open your default clinic.",
   };
 
   // --- SMART ERROR TRANSLATOR ---
@@ -53,13 +63,46 @@ export default function LoginPage() {
     }
   };
 
+  // Confirms the signed-in account actually holds a role in the requested clinic, and records the
+  // choice for ClinicContext to pick up. Note this is a routing guard, not an auth factor: Firebase
+  // authenticates on the credential alone, and Firestore rules are what actually keep one clinic's
+  // data out of another's. This exists so a multi-clinic user lands in the workspace they asked for
+  // and gets a clear message when they typo the ID — instead of silently opening the wrong clinic.
+  const applyClinicSelection = async (uid: string): Promise<boolean> => {
+    const requested = clinicId.trim();
+    if (!requested) {
+      sessionStorage.removeItem(PREFERRED_CLINIC_KEY);
+      return true;
+    }
+
+    const snap = await getDoc(doc(db, "users", uid));
+    const data = snap.exists() ? snap.data() : null;
+    const hasRole = Boolean(data?.clinicRoles?.[requested]);
+
+    if (!hasRole && data?.isSuperAdmin !== true) {
+      await signOut(auth);
+      sessionStorage.removeItem(PREFERRED_CLINIC_KEY);
+      setErrorMsg(
+        language === "ar"
+          ? "هذا الحساب لا يملك صلاحية على هذه العيادة. تأكد من رقم العيادة."
+          : "This account has no access to that clinic. Check the Clinic ID."
+      );
+      setLoading(false);
+      return false;
+    }
+
+    sessionStorage.setItem(PREFERRED_CLINIC_KEY, requested);
+    return true;
+  };
+
   const handleGoogleLogin = async () => {
     setErrorMsg("");
     setLoading(true);
 
     try {
       const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
+      const cred = await signInWithPopup(auth, provider);
+      if (!(await applyClinicSelection(cred.user.uid))) return;
       router.push("/"); // Redirect to dashboard on success
     } catch (error: any) {
       console.error(error);
@@ -75,7 +118,8 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      if (!(await applyClinicSelection(cred.user.uid))) return;
       router.push("/");
     } catch (error: any) {
       console.error(error);
@@ -187,9 +231,27 @@ export default function LoginPage() {
               </div>
             </div>
             
+            <div>
+              <div className="relative">
+                <Building2 size={20} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`} />
+                <input
+                  type="text"
+                  value={clinicId}
+                  onChange={(e) => setClinicId(e.target.value)}
+                  placeholder={txt.clinicId}
+                  autoComplete="off"
+                  spellCheck={false}
+                  className={`w-full py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-slate-300 focus:bg-white outline-none transition-all ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'}`}
+                />
+              </div>
+              <p className={`text-xs font-medium text-slate-400 mt-2 ${isRTL ? 'pr-2' : 'pl-2'}`}>
+                {txt.clinicHint}
+              </p>
+            </div>
+
             <div className={`flex ${isRTL ? 'justify-start' : 'justify-end'} pt-1`}>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={() => { setIsResetMode(true); setErrorMsg(""); setSuccessMsg(""); }}
                 className="text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors"
               >
