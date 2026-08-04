@@ -86,9 +86,15 @@ service cloud.firestore {
       // IMPORTANT: keep the {subcollection} segment. A bare /{document=**} here would also match
       // the parent clinic doc (wildcards can match zero segments), and since rules OR together it
       // would silently undo the superadmin-only restriction above.
+      //
+      // system_logs is carved out of the general write grant here because Firestore rules OR
+      // together: a narrower `allow write` in the system_logs-specific match below can only ever
+      // add permissions, never take away what this block already granted. Without excluding it
+      // here, "only a superadmin can edit/delete a log entry" below would be silently overridden
+      // by "any clinic member can write" up here — confirmed by test, not just reasoned about.
       match /{subcollection}/{document=**} {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
-        allow write: if isSuperAdmin() || (hasClinicRole(clinicId) && isClinicActive(clinicId));
+        allow write: if isSuperAdmin() || (hasClinicRole(clinicId) && isClinicActive(clinicId) && subcollection != 'system_logs');
       }
 
       // --- SPECIFIC SUBCOLLECTION OVERRIDES ---
@@ -102,11 +108,27 @@ service cloud.firestore {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
         allow write: if isSuperAdmin() || (isClinicAdmin(clinicId) && isClinicActive(clinicId));
       }
+
+      // Audit trail: append-only. Any clinic member can read the log and add an entry (that's
+      // what every action in the app does via logActivity()), but nothing in the app ever
+      // updates or deletes a log entry — not even a Clinic Admin can rewrite or erase history.
+      // That's what makes it worth trusting as a record of what actually happened.
+      match /system_logs/{logId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow create: if isSuperAdmin() || (hasClinicRole(clinicId) && isClinicActive(clinicId));
+        allow update, delete: if isSuperAdmin();
+      }
     }
     
-    // --- LEGACY SETTINGS OVERRIDE ---
-    match /settings/wapilot {
-      allow read, write: if false; // Only Admin SDK
+    // --- PER-CLINIC SECRETS ---
+    // WhatsApp access tokens and any future third-party credentials live here, NOT under
+    // clinics/{clinicId}/. That subtree is covered by `match /{subcollection}/{document=**}`
+    // above, which grants read to every member of the clinic — so a receptionist could read a
+    // token that sends WhatsApp messages as the clinic. Rules OR together, so a narrower deny
+    // inside that subtree cannot take the access back; a separate top-level collection can.
+    // Server-only: written and read exclusively via the Admin SDK, which bypasses rules.
+    match /clinic_secrets/{clinicId} {
+      allow read, write: if false;
     }
   }
 }

@@ -16,7 +16,7 @@ import {
   assertSucceeds,
   assertFails,
 } from "@firebase/rules-unit-testing";
-import { doc, setDoc, updateDoc, setLogLevel } from "firebase/firestore";
+import { doc, setDoc, updateDoc, deleteDoc, getDoc, setLogLevel } from "firebase/firestore";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rulesPath = join(__dirname, "..", "firestore.rules");
@@ -81,6 +81,10 @@ async function main() {
       clinicId: "clinicA",
       userId: "rando1",
       status: "Pending",
+    });
+    await setDoc(doc(db, "clinics/clinicA/system_logs/log1"), {
+      action: "Patient created",
+      userName: "admin1",
     });
   });
 
@@ -178,6 +182,43 @@ async function main() {
     "clinic Admin cannot rewrite a request's clinicId while approving",
     updateDoc(doc(admin1, "join_requests/req1"), { clinicId: "clinicB" }),
     "deny"
+  );
+
+  console.log("clinics/{clinicId}/system_logs/{logId}");
+  await check(
+    "clinic member can read the audit log",
+    getDoc(doc(admin1, "clinics/clinicA/system_logs/log1")),
+    "allow"
+  );
+  await check(
+    "non-member cannot read the audit log",
+    getDoc(doc(rando1, "clinics/clinicA/system_logs/log1")),
+    "deny"
+  );
+  await check(
+    "clinic member can append a new log entry",
+    setDoc(doc(admin1, "clinics/clinicA/system_logs/log2"), { action: "Payment recorded", userName: "admin1" }),
+    "allow"
+  );
+  await check(
+    "non-member cannot append a log entry",
+    setDoc(doc(rando1, "clinics/clinicA/system_logs/log3"), { action: "spoofed", userName: "rando1" }),
+    "deny"
+  );
+  await check(
+    "even a clinic Admin cannot edit an existing log entry",
+    updateDoc(doc(admin1, "clinics/clinicA/system_logs/log1"), { action: "tampered" }),
+    "deny"
+  );
+  await check(
+    "even a clinic Admin cannot delete a log entry",
+    deleteDoc(doc(admin1, "clinics/clinicA/system_logs/log1")),
+    "deny"
+  );
+  await check(
+    "superadmin can edit a log entry",
+    updateDoc(doc(super1, "clinics/clinicA/system_logs/log1"), { action: "corrected by support" }),
+    "allow"
   );
 
   await testEnv.cleanup();
