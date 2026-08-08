@@ -7,7 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { 
   LayoutDashboard, Users, Calendar, Wallet, Settings, Sparkles, 
   FileBarChart, Menu, X, LogOut, Loader2, Languages, 
-  Package, ChevronLeft, ChevronRight, Clock, FlaskConical, MessageCircle, ShieldCheck, UserPlus, CalendarClock
+  Package, ChevronLeft, ChevronRight, Clock, FlaskConical, MessageCircle, ShieldCheck, UserPlus, CalendarClock, UserCheck
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { auth } from "@/lib/firebase";
@@ -94,6 +94,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { key: "revenueRecovery", href: "/ai/revenue", icon: Sparkles },
     { key: "reactivation", href: "/ai/reactivation", icon: UserPlus },
     { key: "operations", href: "/ai/operations", icon: CalendarClock },
+    { key: "attendanceAi", href: "/ai/attendance", icon: UserCheck },
     { key: "reports", href: "/reports", icon: FileBarChart },
     { key: "attendance", href: "/attendance", icon: Clock },
   ];

@@ -13,6 +13,7 @@ import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { logAiAction } from "@/lib/serverLogger";
 import { createPendingAiDelete, type PendingActionPreview } from "@/lib/aiPendingActions";
+import { runClinicReport } from "@/lib/automation/clinicReports";
 
 /**
  * Collections the AI is permitted to touch.
@@ -95,6 +96,11 @@ ODONTOGRAM WORKFLOW (X-Rays & Clinical Diagnosis):
 - Step 2: STRICTLY differentiate between "Existing Findings" (what is currently in the mouth) and "Proposed Treatments". The odontogram is ONLY for current findings (e.g., previous endo, existing caries). DO NOT log proposed treatments (like "needs a crown") as a status.
 - Step 3: If the image is blurry, or you are unsure about a restoration (e.g., distinguishing a large radiopaque filling from a full crown), you MUST stop and ask the user to confirm before proceeding.
 - Step 4: Use 'update_odontogram' to save the verified status IDs and notes to the patient's record.
+
+REPORTING ("how many / how much"):
+- ALWAYS use 'run_clinic_report'. Never count rows yourself from db_read and never estimate — a number someone acts on has to be reproducible.
+- The result has a 'coverage' section. If 'unattributed' is above zero, say plainly that the breakdown excludes that many records and therefore adds up to less than the total. If 'unmatchedProcedureNames' is non-empty, name them as uncounted.
+- Never present a partial figure as if it were the complete picture, and never fill a gap with an estimate.
 
 CONTINUOUS LEARNING & MEMORY:
 - If the user explicitly corrects your behavior, tells you a new clinic rule (e.g., "Dr. Ahmed doesn't work Tuesdays"), or tells you to remember something, you MUST autonomously call the 'learn_fact' tool to save it permanently. Do not just say "I will remember that", you MUST actually use the tool.`;
@@ -354,6 +360,27 @@ export async function POST(req: Request) {
         }
       },
       {
+        name: "run_clinic_report",
+        description:
+          "Counts procedures, appointments or revenue over a date range, optionally broken down by dentist or by procedure type. USE THIS for any 'how many / how much' question (e.g. 'how many crowns did Dr Ahmed do this month'). The totals are computed from the records, not estimated — never do this arithmetic yourself. The result includes a coverage section; if it reports unattributed records or unmatched procedure names you MUST mention that the figure excludes them rather than presenting it as complete.",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            metric: {
+              type: SchemaType.STRING,
+              description: "'procedure_count' for procedures performed, 'appointment_count' for visits, 'revenue' for money billed."
+            },
+            groupBy: {
+              type: SchemaType.STRING,
+              description: "'doctor' to break down per dentist, 'service' per procedure type, 'none' for a single total."
+            },
+            startDate: { type: SchemaType.STRING, description: "Start date (YYYY-MM-DD)" },
+            endDate: { type: SchemaType.STRING, description: "End date (YYYY-MM-DD)" }
+          },
+          required: ["metric", "groupBy", "startDate", "endDate"]
+        }
+      },
+      {
         name: "get_diagnosis_catalog",
         description: "Returns the strict list of allowed diagnosis status IDs and their labels. Always use this to find the correct status ID before calling update_odontogram.",
         parameters: { type: SchemaType.OBJECT, properties: {} }
@@ -608,6 +635,18 @@ export async function POST(req: Request) {
                      }
                  }
              }
+          } else if (call.name === "run_clinic_report") {
+             const { metric, groupBy, startDate, endDate } = call.args as any;
+             const allowedMetrics = ["procedure_count", "appointment_count", "revenue"];
+             const allowedGroupBy = ["doctor", "service", "none"];
+
+             if (!allowedMetrics.includes(metric) || !allowedGroupBy.includes(groupBy)) {
+                toolResult = { success: false, error: `metric must be one of ${allowedMetrics.join(", ")} and groupBy one of ${allowedGroupBy.join(", ")}.` };
+             } else {
+                const report = await runClinicReport({ clinicId, metric, groupBy, startDate, endDate });
+                toolResult = { success: true, report };
+             }
+
           } else if (call.name === "get_diagnosis_catalog") {
              toolResult = { success: true, catalog: DIAGNOSIS_OPTIONS.map(o => ({ id: o.id, category: o.cat, label: o.labelEn })) };
           } else if (call.name === "update_odontogram") {
