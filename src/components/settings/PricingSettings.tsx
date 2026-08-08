@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Search, Plus, Edit2, Trash2, Tag, DollarSign, X, Save } from "lucide-react";
+import { Search, Plus, Edit2, Trash2, Tag, DollarSign, X, Save, Clock } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, onSnapshot, query, orderBy, deleteDoc, updateDoc, doc, addDoc } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
@@ -18,7 +18,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
   
   const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
   const [editingService, setEditingService] = useState<any>(null); 
-  const [serviceForm, setServiceForm] = useState({ name: "", price: "", requiresLab: false, estimatedLabFee: "" });
+  const [serviceForm, setServiceForm] = useState({ name: "", price: "", requiresLab: false, estimatedLabFee: "", durationMinutes: "" });
 
   const txt = {
     searchTreatments: language === 'ar' ? "البحث في العلاجات..." : "Search treatments...",
@@ -32,7 +32,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
     return () => unsub();
   }, []);
 
-  const openAddService = () => { setEditingService(null); setServiceForm({ name: "", price: "", requiresLab: false, estimatedLabFee: "" }); setIsServiceModalOpen(true); }
+  const openAddService = () => { setEditingService(null); setServiceForm({ name: "", price: "", requiresLab: false, estimatedLabFee: "", durationMinutes: "" }); setIsServiceModalOpen(true); }
   
   const openEditService = (s: any) => { 
       setEditingService(s); 
@@ -40,7 +40,8 @@ export default function PricingSettings({ currency }: { currency: string }) {
           name: s.name, 
           price: s.price.toString(),
           requiresLab: s.requiresLab || false,
-          estimatedLabFee: s.estimatedLabFee ? s.estimatedLabFee.toString() : ""
+          estimatedLabFee: s.estimatedLabFee ? s.estimatedLabFee.toString() : "",
+          durationMinutes: s.durationMinutes ? s.durationMinutes.toString() : ""
       }); 
       setIsServiceModalOpen(true); 
   }
@@ -51,6 +52,9 @@ export default function PricingSettings({ currency }: { currency: string }) {
       
       const priceVal = Number(serviceForm.price);
       const labFeeVal = Number(serviceForm.estimatedLabFee) || 0;
+      // Optional. Left null rather than defaulted, so slot suggestions can tell "this takes 60
+      // minutes" from "nobody said how long this takes" instead of assuming one standard slot.
+      const durationVal = Number(serviceForm.durationMinutes) > 0 ? Number(serviceForm.durationMinutes) : null;
       
       try {
         if (editingService) {
@@ -58,7 +62,8 @@ export default function PricingSettings({ currency }: { currency: string }) {
                 name: serviceForm.name, 
                 price: priceVal,
                 requiresLab: serviceForm.requiresLab,
-                estimatedLabFee: labFeeVal
+                estimatedLabFee: labFeeVal,
+                durationMinutes: durationVal
             });
             showToast("Treatment updated", "success");
         } else {
@@ -67,6 +72,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
                 price: priceVal, 
                 requiresLab: serviceForm.requiresLab,
                 estimatedLabFee: labFeeVal,
+                durationMinutes: durationVal,
                 createdAt: new Date().toISOString() 
             });
             showToast("Treatment added", "success");
@@ -157,6 +163,15 @@ export default function PricingSettings({ currency }: { currency: string }) {
                       <DollarSign size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`}/>
                       <input required type="number" value={serviceForm.price} onChange={e => setServiceForm({...serviceForm, price: e.target.value})} placeholder="0.00" className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-primary-500 transition-all ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}/>
                     </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>Typical duration (minutes) — optional</label>
+                    <div className="relative">
+                      <Clock size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`}/>
+                      <input type="number" min={5} step={5} value={serviceForm.durationMinutes} onChange={e => setServiceForm({...serviceForm, durationMinutes: e.target.value})} placeholder="e.g. 45" className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-primary-500 transition-all ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}/>
+                    </div>
+                    <p className="text-[11px] font-medium text-slate-400 leading-relaxed">Recorded against the treatment for scheduling. Leave blank if it varies.</p>
                   </div>
 
                   <div className="flex items-center gap-3 pt-4 mt-2 border-t border-slate-100">
