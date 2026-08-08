@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { adminDb, adminMessaging } from "@/lib/firebaseAdmin";
+import { adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 
 export async function POST(request: Request) {
   const authz = await requireStaffUser(request);
@@ -14,7 +15,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "summonId required" }, { status: 400 });
     }
 
-    const summonSnap = await adminDb().collection("staff_summons").doc(summonId).get();
+    // lib/staffSummon writes these via getClinicCollection, i.e. clinics/{clinicId}/staff_summons.
+    // Reading at the root found nothing, so every summon push silently 404'd.
+    const clinicId = await resolveUserClinicId(authz.uid);
+    const summonSnap = await adminClinicDoc(clinicId, "staff_summons", summonId).get();
     if (!summonSnap.exists) {
       return NextResponse.json({ ok: false, error: "Summon not found" }, { status: 404 });
     }

@@ -107,7 +107,7 @@ export default function AppointmentsPage() {
 
   const isAppointmentLate = (appt: Appointment) => {
     if (!latePatientTrackerEnabled) return false;
-    const activeStatuses = ["Checked In", "In Chair", "In Progress", "Completed", "Checking Out", "Cancelled", "No Show", "Delayed"];
+    const activeStatuses = ["Checked In", "In Chair", "Completed", "Checking Out", "Cancelled", "No Show", "Delayed"];
     if (activeStatuses.includes(appt.status || '')) return false;
     
     // Parse appointment date/time
@@ -894,7 +894,7 @@ export default function AppointmentsPage() {
                <div className="pt-2 px-1">
                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Status</p>
                  <div className="space-y-3 mb-6">
-                     {['Scheduled', 'Checked In', 'In Progress', 'Completed', 'Cancelled', 'Delayed', 'No Show'].map(status => {
+                     {['Scheduled', 'Checked In', 'In Chair', 'Completed', 'Cancelled', 'Delayed', 'No Show'].map(status => {
                         const isSelected = selectedStatuses.includes(status);
                         return (
                           <label key={status} className="flex items-center gap-3 text-sm font-bold text-slate-600 cursor-pointer group hover:text-slate-800 transition-colors" onClick={() => toggleStatusFilter(status)}>

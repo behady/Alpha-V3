@@ -134,6 +134,8 @@ export default function DesktopDashboard() {
     endMinute: 0,
     slotDuration: 30,
     offDays: [],
+    // Placeholder until the clinic's own settings load.
+    isConfigured: false,
   });
   const [selectedAppointment, setSelectedAppointment] = useState<DashboardAppointment | null>(null);
   const [appointmentToEdit, setAppointmentToEdit] = useState<BookingEditSnapshot | null>(null);
@@ -155,7 +157,7 @@ export default function DesktopDashboard() {
 
   const isAppointmentLate = (appt: any) => {
     if (!latePatientTrackerEnabled) return false;
-    const activeStatuses = ["Checked In", "In Chair", "In Progress", "Completed", "Checking Out", "Cancelled", "No Show", "Delayed"];
+    const activeStatuses = ["Checked In", "In Chair", "Completed", "Checking Out", "Cancelled", "No Show", "Delayed"];
     if (activeStatuses.includes(appt.status)) return false;
     if (!appt.date || !appt.time) return false;
     
@@ -1388,9 +1390,12 @@ export default function DesktopDashboard() {
                                                                     <div className="flex items-center gap-0.5 shrink-0 z-20">
                                                                         {(() => {
                                                                            const getAction = () => {
-                                                                               if (apt.status === "Scheduled") return { label: language === 'ar' ? 'وصول' : 'Arrive', next: "Arrived" };
-                                                                               if (apt.status === "Arrived") return { label: language === 'ar' ? 'دخول' : 'Seat', next: "Seated" };
-                                                                               if (apt.status === "Seated") return { label: language === 'ar' ? 'خروج' : 'Check Out', next: "Checking Out" };
+                                                                               // Must be the canonical stage values: handleStatusChange keys the checkInTime stamp
+                                                                               // and the attendance record off the exact string "Checked In", so the old
+                                                                               // "Arrived"/"Seated" pair silently skipped both.
+                                                                               if (apt.status === "Scheduled" || apt.status === "Confirmed") return { label: language === 'ar' ? 'وصول' : 'Arrive', next: "Checked In" };
+                                                                               if (apt.status === "Checked In") return { label: language === 'ar' ? 'دخول' : 'Seat', next: "In Chair" };
+                                                                               if (apt.status === "In Chair") return { label: language === 'ar' ? 'خروج' : 'Check Out', next: "Checking Out" };
                                                                                return null;
                                                                            };
                                                                            const action = getAction();

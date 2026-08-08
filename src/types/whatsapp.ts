@@ -10,7 +10,8 @@ export type WhatsAppTemplateType =
   | "invoice"
   | "treatment"
   | "reminder24h"
-  | "google_review";
+  | "google_review"
+  | "reactivation";
 
 export interface WhatsAppMessageTemplate {
   id: string;

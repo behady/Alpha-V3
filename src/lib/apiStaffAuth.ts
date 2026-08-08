@@ -2,10 +2,18 @@ import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 
 /**
- * Resolves the effective role for a user. Checks:
- * 1. The legacy flat `role` field on the root user doc.
- * 2. The `clinicRoles` map — if a specific clinicId is provided, checks that entry;
- *    otherwise checks if the user is Admin in ANY clinic.
+ * Resolves the effective role for a user.
+ *
+ * When a clinicId is named, a role in THAT clinic is the only thing that grants access.
+ * This previously fell through to "is this user an Admin in any clinic at all?", which meant
+ * the Admin of one clinic was handed Admin on every other clinic they had no role in. The
+ * clinicId arrives in a request body, so it is caller-controlled — `gemini/route.ts` reads it
+ * straight off `body` — and that fallback turned it into a cross-tenant read/write of patient
+ * records. Superadmins are allowed through explicitly instead, matching `resolveUserClinicId`
+ * in lib/adminClinicDb and the `isSuperAdmin()` rule in firestore.rules.
+ *
+ * The legacy flat `role` field and the admin-anywhere check still apply to clinic-agnostic
+ * calls, where there is no specific tenant to check membership against.
  */
 function resolveRole(data: Record<string, unknown>, clinicId?: string): string | null {
   // Legacy flat role
@@ -14,8 +22,11 @@ function resolveRole(data: Record<string, unknown>, clinicId?: string): string |
   // Multi-clinic roles
   const clinicRoles = (data.clinicRoles || {}) as Record<string, string>;
 
-  if (clinicId && clinicRoles[clinicId]) {
-    return clinicRoles[clinicId];
+  // Stored as a boolean, but tolerate the string form the rules file also accepts.
+  if (data.isSuperAdmin === true || data.isSuperAdmin === "true") return "Admin";
+
+  if (clinicId) {
+    return clinicRoles[clinicId] || null;
   }
 
   // Check if admin in any clinic

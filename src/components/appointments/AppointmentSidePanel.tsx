@@ -512,8 +512,14 @@ export default function AppointmentSidePanel({
                                     unitsCount: 1,
                                     pricingFormula: `${numCost}*1`,
                                     note: "",
-                                    doctor: selectedAppointment.doctorName || user?.uid || "System",
-                                    doctorId: selectedAppointment.doctorId || user?.uid || "system",
+                                    // Appointments store the display name on `doctor`, not
+                                    // `doctorName` — reading the wrong field meant this fell through
+                                    // to the editing user's raw uid, so notes surfaced under a
+                                    // "doctor" named like x7Kd9.... Attribution belongs to the
+                                    // treating dentist on the appointment, never to whoever is
+                                    // clicking, so there is no user fallback.
+                                    doctor: selectedAppointment.doctor || "Unassigned",
+                                    doctorId: selectedAppointment.doctorId || null,
                                     date: localDate,
                                     status: "Completed",
                                     ledgerId: newLedgerId,

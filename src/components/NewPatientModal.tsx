@@ -36,6 +36,8 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess }: Props) {
   const [dob, setDob] = useState("");
   const [gender, setGender] = useState("Male");
   const [referral, setReferral] = useState("");
+  const [allergies, setAllergies] = useState("");
+  const [medicalHistory, setMedicalHistory] = useState("");
   const [loading, setLoading] = useState(false);
   const [sourcesOptions, setSourcesOptions] = useState<string[]>(["Walk-in", "Social Media", "Friend / Family", "Other Doctor", "Google"]);
 
@@ -145,7 +147,11 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess }: Props) {
         dateOfBirth: dob,
         gender,
         referral,
-        medicalHistory: "None (Healthy)",
+        allergies: allergies.trim(),
+        // Blank means "not asked yet", which is the truth for a patient nobody has screened.
+        // This used to be hardcoded to "None (Healthy)" — an assertion of absence no clinician
+        // ever made, indistinguishable downstream from a real negative screening.
+        medicalHistory: medicalHistory.trim(),
         status: "New",
         createdAt: serverTimestamp(),
         teethData: {} 
@@ -163,7 +169,8 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess }: Props) {
       
       // Reset State
       setName(""); setCountryCode(DEFAULT_COUNTRY_CODE); setPhone(""); setAddress(""); setDob(""); 
-      setGender("Male"); setReferral(""); setDuplicateWarning(null); setAllowDuplicatePhone(false);
+      setGender("Male"); setReferral(""); setAllergies(""); setMedicalHistory("");
+      setDuplicateWarning(null); setAllowDuplicatePhone(false);
       
     } catch (error: any) {
       if (error.message === "DUPLICATE_PHONE") {
@@ -296,6 +303,30 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess }: Props) {
                  ))}
               </select>
               <ChevronDown size={14} className="absolute end-4 top-9 text-gray-400 pointer-events-none"/>
+           </div>
+
+           <div>
+              <label className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-1 block">
+                 {language === 'ar' ? 'الحساسية' : 'Allergies'}
+              </label>
+              <input
+                 value={allergies}
+                 onChange={e => setAllergies(e.target.value)}
+                 placeholder={language === 'ar' ? 'مثال: بنسلين — اتركه فارغاً إن لم يُسأل' : 'e.g. Penicillin — leave blank if not asked'}
+                 className="w-full p-3 border-2 border-rose-100 rounded-xl font-bold text-rose-900 outline-none focus:border-rose-400 bg-rose-50/40 transition-colors placeholder:font-medium placeholder:text-rose-300"
+              />
+           </div>
+
+           <div>
+              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">
+                 {language === 'ar' ? 'التاريخ الطبي' : 'Medical history'}
+              </label>
+              <input
+                 value={medicalHistory}
+                 onChange={e => setMedicalHistory(e.target.value)}
+                 placeholder={language === 'ar' ? 'مثال: سكري، ضغط — اتركه فارغاً إن لم يُسأل' : 'e.g. Diabetes, hypertension — leave blank if not asked'}
+                 className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-gray-900 outline-none focus:border-primary-500 bg-white transition-colors placeholder:font-medium placeholder:text-gray-300"
+              />
            </div>
 
            {/* SUBMIT BUTTON */}

@@ -7,6 +7,16 @@ export type ClinicScheduleConfig = {
   endMinute: number;
   slotDuration: number;
   offDays: string[];
+  /**
+   * Whether these values came from the clinic or from the fallbacks below.
+   *
+   * Nothing seeds settings/clinic_info at onboarding, so a clinic that never opened the Schedule
+   * tab still parses as "open 09:00-21:00, seven days a week" — and until this flag existed there
+   * was no way to tell that apart from a clinic that genuinely runs those hours. Anything that
+   * reasons about availability has to be able to say "not configured" instead of quietly
+   * suggesting a Friday evening slot to a clinic that closes at five.
+   */
+  isConfigured: boolean;
 };
 
 function parseHM(s: unknown, fallbackH: number, fallbackM: number): { h: number; m: number } {
@@ -22,6 +32,12 @@ function parseHM(s: unknown, fallbackH: number, fallbackM: number): { h: number;
 
 export function parseClinicSchedule(data: Record<string, unknown> | undefined | null): ClinicScheduleConfig {
   const sched = (data?.schedule as Record<string, unknown>) || {};
+  // Saving the Schedule tab stamps configuredAt. Start/end being present is accepted too, so a
+  // clinic that configured its hours before this flag existed is not told to do it again.
+  const isConfigured =
+    Boolean(sched.configuredAt) ||
+    (typeof sched.start === "string" && sched.start.trim() !== "" &&
+     typeof sched.end === "string" && sched.end.trim() !== "");
   const start = parseHM(sched.start, 9, 0);
   const end = parseHM(sched.end, 21, 0);
   let slotDuration = parseInt(String(sched.slotDuration ?? "30"), 10);
@@ -36,6 +52,7 @@ export function parseClinicSchedule(data: Record<string, unknown> | undefined | 
     endMinute: end.m,
     slotDuration,
     offDays,
+    isConfigured,
   };
 }
 

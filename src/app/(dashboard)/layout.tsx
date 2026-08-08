@@ -7,7 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { 
   LayoutDashboard, Users, Calendar, Wallet, Settings, Sparkles, 
   FileBarChart, Menu, X, LogOut, Loader2, Languages, 
-  Package, ChevronLeft, ChevronRight, Clock, FlaskConical, MessageCircle, ShieldCheck
+  Package, ChevronLeft, ChevronRight, Clock, FlaskConical, MessageCircle, ShieldCheck, UserPlus, CalendarClock
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { auth } from "@/lib/firebase";
@@ -86,11 +86,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const allNavItems = [
     { key: "dashboard", href: "/", icon: LayoutDashboard },
+    { key: "briefing", href: "/ai/briefing", icon: Sparkles },
     { key: "patients", href: "/patients", icon: Users },
     { key: "appointments", href: "/appointments", icon: Calendar },
     { key: "inventory", href: "/inventory", icon: Package },
     { key: "finance", href: "/finance", icon: Wallet },
     { key: "revenueRecovery", href: "/ai/revenue", icon: Sparkles },
+    { key: "reactivation", href: "/ai/reactivation", icon: UserPlus },
+    { key: "operations", href: "/ai/operations", icon: CalendarClock },
     { key: "reports", href: "/reports", icon: FileBarChart },
     { key: "attendance", href: "/attendance", icon: Clock },
   ];
@@ -108,6 +111,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     // Premium-only, and admin-only: the report lists every outstanding balance in the clinic
     // plus procedures charged below list price, which effectively audits the team's own billing.
     if (key === 'revenueRecovery') {
+      if (!hasFeature(clinic, 'aiProactive')) return false;
+      return isAdmin;
+    }
+
+    // Same gating: the scan lists every lapsed patient in the clinic, and running it queues
+    // messages that go out in the clinic's name. Reviewing and sending an individual draft is
+    // staff-level — that happens on the page itself, not here.
+    if (key === 'reactivation') {
       if (!hasFeature(clinic, 'aiProactive')) return false;
       return isAdmin;
     }
@@ -157,6 +168,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const mobileCandidates = [
     { key: "dashboard", href: "/", icon: LayoutDashboard },
+    { key: "briefing", href: "/ai/briefing", icon: Sparkles },
     { key: "appointments", href: "/appointments", icon: Calendar },
     { key: "finance", href: "/finance", icon: Wallet },
     { key: "reports", href: "/reports", icon: FileBarChart },

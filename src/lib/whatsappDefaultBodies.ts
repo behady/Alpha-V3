@@ -79,6 +79,16 @@ If you have a moment, we would appreciate your review:
 
 Thank you!
 شكراً لثقتكم.`,
+
+  reactivation: `🦷 *We miss you | نفتقدك*
+
+Hi {{patient_name}},
+
+It has been a while since your last visit to *{{clinic_name}}*.
+Regular check-ups keep small problems small — we would be glad to see you again.
+
+Reply to this message to book a time that suits you.
+يسعدنا حجز موعد في الوقت المناسب لك.`,
 };
 
 /**

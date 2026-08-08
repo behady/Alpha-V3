@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
-import { adminDb, adminBucket } from "@/lib/firebaseAdmin";
+import { adminBucket } from "@/lib/firebaseAdmin";
+import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { sendWhatsAppPdfFromUrl } from "@/lib/whatsapp";
 import { pickPatientPhone } from "@/lib/patientPhone";
 
@@ -20,6 +21,11 @@ export async function POST(request: Request) {
   if (!authz.ok) return authz.response;
 
   try {
+    // Clinic data lives under clinics/{clinicId}/. These reads were hitting root-level
+    // collections that do not exist, so they silently resolved to empty and this route
+    // could never find the record it was asked to send.
+    const clinicId = await resolveUserClinicId(authz.uid);
+
     const body = (await request.json().catch(() => ({}))) as {
       patientId?: string;
       pdfBase64?: string;
@@ -45,7 +51,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "File is not a valid PDF" }, { status: 400 });
     }
 
-    const patientSnap = await adminDb().collection("patients").doc(patientId).get();
+    const patientSnap = await adminClinicDoc(clinicId, "patients", patientId).get();
     if (!patientSnap.exists) {
       return NextResponse.json({ ok: false, error: "Patient not found" }, { status: 404 });
     }
@@ -64,7 +70,7 @@ export async function POST(request: Request) {
 
     let clinicName = "Alpha Dental";
     try {
-      const clinicSnap = await adminDb().collection("settings").doc("clinic_info").get();
+      const clinicSnap = await adminClinicDoc(clinicId, "settings", "clinic_info").get();
       const c = clinicSnap.data();
       if (c && typeof c.clinicName === "string" && c.clinicName.trim()) clinicName = c.clinicName.trim();
       else if (c && typeof c.name === "string" && c.name.trim()) clinicName = c.name.trim();
@@ -102,7 +108,7 @@ export async function POST(request: Request) {
         filename: pdfFilename,
         caption,
       });
-      await adminDb().collection("whatsapp_logs").add({
+      await adminClinicCollection(clinicId, "whatsapp_logs").add({
         patientId,
         type: "prescription_pdf",
         message: caption,
@@ -113,7 +119,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Send failed";
-      await adminDb().collection("whatsapp_logs").add({
+      await adminClinicCollection(clinicId, "whatsapp_logs").add({
         patientId,
         type: "prescription_pdf",
         message: caption,

@@ -364,8 +364,12 @@ export default function WhatsAppSettings() {
   const persist = async (next: WhatsAppSettingsDocument, toastMode: "default" | "template" | "silent" | "none" = "default") => {
     setSaving(true);
     try {
+      // Must be the same doc the listener above reads (settings/whatsapp). This wrote to
+      // `whatsappSettings/config` — a path with no readers anywhere in the app or the API
+      // routes — so every template and owner-alert toggle saved here was silently discarded,
+      // and the assistant's trigger_whatsapp_appointment tool always loaded an empty config.
       await setDoc(
-        getClinicDoc("whatsappSettings", "config"),
+        getClinicDoc(WHATSAPP_SETTINGS_DOC_REF.collection, WHATSAPP_SETTINGS_DOC_REF.docId),
         {
           ...next,
           updatedAt: new Date().toISOString(),

@@ -20,6 +20,7 @@ import UserManagement from "@/components/settings/UserManagement";
 import DatabaseRepairBot from "@/components/settings/DatabaseRepairBot";
 import AttendanceSettings from "@/components/settings/AttendanceSettings";
 import ScheduleSettings from "@/components/settings/ScheduleSettings";
+import RecallSettings from "@/components/settings/RecallSettings";
 import PrescriptionSettings from "@/components/settings/PrescriptionSettings";
 import PricingSettings from "@/components/settings/PricingSettings";
 import AppearanceSettings from "@/components/settings/AppearanceSettings";
@@ -41,6 +42,15 @@ export default function SettingsPage() {
   const { showToast } = useUI();
 
   const [activeTab, setActiveTab] = useState("general");
+
+  // Lets other screens link straight to a tab (e.g. the recalls page pointing at ?tab=recall when
+  // no interval is configured). Read from the URL rather than useSearchParams so this does not
+  // need a Suspense boundary.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const requested = new URLSearchParams(window.location.search).get("tab");
+    if (requested) setActiveTab(requested);
+  }, []);
   const [isTopMenuOpen, setIsTopMenuOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -54,6 +64,7 @@ export default function SettingsPage() {
     { id: "general", label: language === 'ar' ? "الملف الشخصي" : "Profile", icon: User },
     { id: "attendance", label: language === 'ar' ? "الحضور" : "Attendance", icon: MapPin, adminOnly: true },
     { id: "clinical", label: language === 'ar' ? "الجدول" : "Schedule", icon: Clock },
+    { id: "recall", label: language === 'ar' ? "المتابعة" : "Recall", icon: Clock, adminOnly: true },
     { id: "prescriptions", label: language === 'ar' ? "الوصفات" : "Prescriptions", icon: Pill },
     { id: "services", label: language === 'ar' ? "الأسعار" : "Prices", icon: Stethoscope },
     { id: "users", label: language === 'ar' ? "المستخدمين" : "Users", icon: Users, adminOnly: true },
@@ -129,7 +140,16 @@ export default function SettingsPage() {
     if(e) e.preventDefault();
     setLoading(true);
     try {
-      await setDoc(getClinicDoc("settings", "clinic_info"), { ...clinicData, schedule, updatedAt: new Date().toISOString() }, { merge: true });
+      // configuredAt is what lets availability features tell a real setting from the defaults.
+      await setDoc(
+        getClinicDoc("settings", "clinic_info"),
+        {
+          ...clinicData,
+          schedule: { ...schedule, configuredAt: new Date().toISOString() },
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
       await logActivity(
         { uid: user?.uid, name: user?.name, role: user?.role },
         "Settings Updated",
@@ -341,6 +361,7 @@ export default function SettingsPage() {
             
             {activeTab === 'attendance' && <AttendanceSettings clinicData={clinicData} setClinicData={setClinicData} handleSaveClinic={handleSaveClinic} />}
             {activeTab === 'clinical' && <ScheduleSettings schedule={schedule} setSchedule={setSchedule} handleSaveClinic={handleSaveClinic} />}
+            {activeTab === 'recall' && isAdmin && <RecallSettings />}
             {activeTab === 'prescriptions' && <PrescriptionSettings />}
             {activeTab === 'services' && <PricingSettings currency={clinicData.currency} />}
             {activeTab === 'users' && isAdmin && (

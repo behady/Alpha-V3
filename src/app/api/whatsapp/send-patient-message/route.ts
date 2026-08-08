@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { adminDb } from "@/lib/firebaseAdmin";
+import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { mergeWhatsAppTemplate } from "@/lib/whatsappTemplateMerge";
 import { pickPatientPhone } from "@/lib/patientPhone";
@@ -62,9 +63,9 @@ function isDeletedLedger(d: Record<string, unknown>) {
   return d.status === "deleted" || d.status === "cancelled";
 }
 
-async function getLedgerDocWithRetry(ledgerId: string, attempts = 4, delayMs = 150) {
+async function getLedgerDocWithRetry(clinicId: string, ledgerId: string, attempts = 4, delayMs = 150) {
   for (let i = 0; i < attempts; i++) {
-    const snap = await adminDb().collection("ledger").doc(ledgerId).get();
+    const snap = await adminClinicDoc(clinicId, "ledger", ledgerId).get();
     if (snap.exists) return snap;
     if (i < attempts - 1) {
       await new Promise((r) => setTimeout(r, delayMs));
@@ -73,8 +74,8 @@ async function getLedgerDocWithRetry(ledgerId: string, attempts = 4, delayMs = 1
   return null;
 }
 
-async function computePatientBalance(patientId: string): Promise<number> {
-  const snap = await adminDb().collection("ledger").where("patientId", "==", patientId).get();
+async function computePatientBalance(clinicId: string, patientId: string): Promise<number> {
+  const snap = await adminClinicCollection(clinicId, "ledger").where("patientId", "==", patientId).get();
   let billed = 0;
   let paid = 0;
   snap.forEach((doc) => {
@@ -86,13 +87,13 @@ async function computePatientBalance(patientId: string): Promise<number> {
   return billed - paid;
 }
 
-async function computeLedgerSummary(patientId: string): Promise<{
+async function computeLedgerSummary(clinicId: string, patientId: string): Promise<{
   billed: number;
   paid: number;
   balance: number;
   recentRows: LedgerSummaryRow[];
 }> {
-  const snap = await adminDb().collection("ledger").where("patientId", "==", patientId).get();
+  const snap = await adminClinicCollection(clinicId, "ledger").where("patientId", "==", patientId).get();
   let billed = 0;
   let paid = 0;
   const rows: LedgerSummaryRow[] = [];
@@ -136,7 +137,9 @@ export async function POST(request: Request) {
   // SUBSCRIPTION ENFORCEMENT
   const userSnap = await adminDb().collection("users").doc(authz.uid).get();
   const userData = userSnap.data();
-  const clinicId = userData?.defaultClinicId || Object.keys(userData?.clinicRoles || {})[0];
+  // Was derived loosely from the user doc and used only for the plan check. It now also
+  // scopes every data read below, so resolve it through the membership-checking helper.
+  const clinicId = await resolveUserClinicId(authz.uid);
   if (clinicId) {
     const clinicSnap = await adminDb().collection("clinics").doc(clinicId).get();
     const clinic = clinicSnap.data();
@@ -182,13 +185,13 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: false, error: "appointmentTemplate must be new, edit, or cancel" }, { status: 400 });
       }
 
-      const patientSnap = await adminDb().collection("patients").doc(patientId).get();
+      const patientSnap = await adminClinicDoc(clinicId, "patients", patientId).get();
       if (!patientSnap.exists) {
         return NextResponse.json({ ok: false, error: "Patient not found" }, { status: 404 });
       }
       const patient = patientSnap.data() as Record<string, unknown>;
 
-      const settingsSnap = await adminDb().collection("settings").doc("whatsapp").get();
+      const settingsSnap = await adminClinicDoc(clinicId, "settings", "whatsapp").get();
       const settings = settingsSnap.exists ? settingsSnap.data() : {};
       if (!Boolean(settings?.isPatientAutomationEnabled)) {
         return NextResponse.json({ ok: true, skipped: true, reason: "patient_automation_disabled" });
@@ -209,10 +212,10 @@ export async function POST(request: Request) {
       }
 
       const patientName = typeof patient.name === "string" ? patient.name : "Patient";
-      const profile = await getClinicProfileAdmin();
+      const profile = await getClinicProfileAdmin(clinicId);
       let clinicName = (profile?.clinicName && profile.clinicName.trim()) || "";
       if (!clinicName) {
-        const ci = await adminDb().collection("settings").doc("clinic_info").get();
+        const ci = await adminClinicDoc(clinicId, "settings", "clinic_info").get();
         const d = ci.data() as Record<string, unknown> | undefined;
         clinicName =
           (typeof d?.clinicName === "string" && d.clinicName.trim()) ||
@@ -235,7 +238,7 @@ export async function POST(request: Request) {
 
       try {
         await sendWhatsApp({ to: phone, text: merged });
-        await adminDb().collection("whatsapp_logs").add({
+        await adminClinicCollection(clinicId, "whatsapp_logs").add({
           patientId,
           type: logType,
           message: merged,
@@ -245,7 +248,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: true });
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : "Send failed";
-        await adminDb().collection("whatsapp_logs").add({
+        await adminClinicCollection(clinicId, "whatsapp_logs").add({
           patientId,
           type: logType,
           message: merged,
@@ -260,7 +263,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "Invalid kind" }, { status: 400 });
     }
 
-    const patientSnap = await adminDb().collection("patients").doc(patientId).get();
+    const patientSnap = await adminClinicDoc(clinicId, "patients", patientId).get();
     if (!patientSnap.exists) {
       return NextResponse.json({ ok: false, error: "Patient not found" }, { status: 404 });
     }
@@ -282,7 +285,7 @@ export async function POST(request: Request) {
 
     let clinicName = "Alpha Dental";
     try {
-      const clinicSnap = await adminDb().collection("settings").doc("clinic_info").get();
+      const clinicSnap = await adminClinicDoc(clinicId, "settings", "clinic_info").get();
       const c = clinicSnap.data();
       if (c && typeof c.clinicName === "string" && c.clinicName.trim()) clinicName = c.clinicName.trim();
       else if (c && typeof c.name === "string" && c.name.trim()) clinicName = c.name.trim();
@@ -299,7 +302,7 @@ export async function POST(request: Request) {
       if (clientMsg) {
         merged = clientMsg;
       } else {
-        const summary = await computeLedgerSummary(patientId);
+        const summary = await computeLedgerSummary(clinicId, patientId);
         const now = new Date();
         const dateLabel = now.toLocaleDateString("ar-EG");
         const amountFmt = (n: number) => n.toLocaleString("en-US");
@@ -322,7 +325,7 @@ export async function POST(request: Request) {
         ].join("\n");
       }
     } else if (kind === "invoice" || kind === "treatment") {
-      const settingsSnap = await adminDb().collection("settings").doc("whatsapp").get();
+      const settingsSnap = await adminClinicDoc(clinicId, "settings", "whatsapp").get();
       const settings = settingsSnap.exists ? settingsSnap.data() : {};
 
       if (automation && !Boolean(settings?.isPatientAutomationEnabled)) {
@@ -347,8 +350,8 @@ export async function POST(request: Request) {
           return NextResponse.json({ ok: false, error: "ledgerId required for invoice" }, { status: 400 });
         }
         const ledgerSnap = automation
-          ? await getLedgerDocWithRetry(ledgerId)
-          : await adminDb().collection("ledger").doc(ledgerId).get();
+          ? await getLedgerDocWithRetry(clinicId, ledgerId)
+          : await adminClinicDoc(clinicId, "ledger", ledgerId).get();
         if (!ledgerSnap?.exists) {
           if (automation) {
             return NextResponse.json({ ok: true, skipped: true, reason: "ledger_not_ready" });
@@ -377,7 +380,7 @@ export async function POST(request: Request) {
               ? Number(L.cost) || 0
               : Number(L.paid || L.amount || L.cost) || 0;
 
-        const balance = await computePatientBalance(patientId);
+        const balance = await computePatientBalance(clinicId, patientId);
 
         merged = mergeWhatsAppTemplate(tplText, {
           patient_name: patientName,
@@ -395,7 +398,7 @@ export async function POST(request: Request) {
         if (!clinicalNoteId) {
           return NextResponse.json({ ok: false, error: "clinicalNoteId required for treatment" }, { status: 400 });
         }
-        const noteSnap = await adminDb().collection("clinical_notes").doc(clinicalNoteId).get();
+        const noteSnap = await adminClinicDoc(clinicId, "clinical_notes", clinicalNoteId).get();
         if (!noteSnap.exists) {
           return NextResponse.json({ ok: false, error: "Clinical note not found" }, { status: 404 });
         }
@@ -414,7 +417,7 @@ export async function POST(request: Request) {
 
         const lastApptId = typeof N.lastAppointmentId === "string" ? N.lastAppointmentId : "";
         if (lastApptId) {
-          const apptSnap = await adminDb().collection("appointments").doc(lastApptId).get();
+          const apptSnap = await adminClinicDoc(clinicId, "appointments", lastApptId).get();
           if (apptSnap.exists) {
             const A = apptSnap.data() as Record<string, unknown>;
             appointment_date = String(A.date || appointment_date);
@@ -460,7 +463,7 @@ export async function POST(request: Request) {
 
     try {
       await sendWhatsApp({ to: phone, text: merged });
-      await adminDb().collection("whatsapp_logs").add({
+      await adminClinicCollection(clinicId, "whatsapp_logs").add({
         patientId,
         type: kind,
         message: merged,
@@ -470,7 +473,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Send failed";
-      await adminDb().collection("whatsapp_logs").add({
+      await adminClinicCollection(clinicId, "whatsapp_logs").add({
         patientId,
         type: kind,
         message: merged,

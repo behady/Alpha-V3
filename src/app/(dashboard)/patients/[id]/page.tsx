@@ -222,6 +222,7 @@ export default function PatientProfile() {
   const [editGender, setEditGender] = useState("Male");
   const [editStatus, setEditStatus] = useState("Active");
   const [historyTags, setHistoryTags] = useState<string[]>([]);
+  const [editMedicalHistory, setEditMedicalHistory] = useState("");
 
   // Set the SMART default tab based on roles
   useEffect(() => {
@@ -309,6 +310,9 @@ export default function PatientProfile() {
         
         if (data.medicalHistory && data.medicalHistory !== "None (Healthy)") {
           setHistoryTags(data.medicalHistory.split(', ').filter((s: string) => s.trim() !== ""));
+          // "None (Healthy)" was written automatically for every patient, so it is not a real
+          // clinician statement — show the field as empty rather than carrying it forward.
+          setEditMedicalHistory(data.medicalHistory === "None (Healthy)" ? "" : data.medicalHistory);
         } else {
           setHistoryTags([]);
         }
@@ -490,7 +494,10 @@ export default function PatientProfile() {
         return;
       }
       const combinedName = `${editFirstName} ${editLastName}`.trim();
-      const finalHistory = historyTags.length > 0 ? historyTags.join(', ') : "None (Healthy)";
+      // historyTags is only ever populated from the loaded record and no control mutates it, so
+      // this previously reset medicalHistory to "None (Healthy)" on every save — overwriting
+      // whatever was recorded at intake with a clean bill of health nobody gave.
+      const finalHistory = editMedicalHistory.trim();
       await updateDoc(getClinicDoc("patients", id), {
         name: combinedName,
         phone: normalizedPhone,
@@ -763,6 +770,12 @@ export default function PatientProfile() {
 
   const displayAge = patient.dateOfBirth ? calculateAge(patient.dateOfBirth) : (patient.age || "N/A");
   const hasAlerts = patient.allergies || (patient.medicalHistory && patient.medicalHistory !== "None (Healthy)");
+  /**
+   * Nothing on file is not the same as nothing wrong. Intake did not ask for allergies or history
+   * until recently, so a blank record means "never screened" for most existing patients — showing
+   * no banner at all would read as a clean bill of health.
+   */
+  const medicalNotScreened = !patient.allergies && (!patient.medicalHistory || patient.medicalHistory === "None (Healthy)");
   const initials = (patient.name || "?")
     .split(" ")
     .filter(Boolean)
@@ -998,6 +1011,27 @@ export default function PatientProfile() {
                   </div>
               </div>
               <button onClick={() => setDismissedAlert(true)} className="p-1.5 text-rose-200 hover:bg-white/20 rounded-lg transition-colors shrink-0"><X size={16}/></button>
+          </div>
+        )}
+
+        {/* NOT-SCREENED NOTICE — deliberately distinct from the red alert above: this says we do
+            not know, which is a different clinical statement from "no known issues". */}
+        {medicalNotScreened && !dismissedAlert && (
+          <div className="max-w-[1600px] mx-auto mb-6 bg-amber-50 text-amber-900 border border-amber-200 px-6 py-4 rounded-3xl flex items-start gap-4">
+              <div className="bg-amber-100 text-amber-600 p-2 rounded-xl shrink-0">
+                <AlertCircle size={20}/>
+              </div>
+              <div className="flex-1 min-w-0 pt-0.5">
+                  <h4 className="font-bold text-amber-700 text-[11px] uppercase tracking-wider mb-1">
+                    {language === 'ar' ? 'لم يتم تسجيل التاريخ الطبي' : 'Medical history not recorded'}
+                  </h4>
+                  <p className="text-sm font-medium leading-relaxed">
+                    {language === 'ar'
+                      ? 'لا توجد بيانات حساسية أو تاريخ طبي لهذا المريض. هذا لا يعني عدم وجود حساسية — اسأل المريض وسجّل الإجابة قبل وصف أي دواء.'
+                      : 'No allergies or medical history on file for this patient. This does not mean there are none — ask and record the answer before prescribing.'}
+                  </p>
+              </div>
+              <button onClick={() => setDismissedAlert(true)} className="p-1.5 text-amber-400 hover:bg-amber-100 rounded-lg transition-colors shrink-0"><X size={16}/></button>
           </div>
         )}
 
@@ -1878,7 +1912,11 @@ export default function PatientProfile() {
                     </div>
                     <div>
                         <label className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-2 flex items-center gap-1.5"><AlertCircle size={12}/> {t('allergies') || "Allergies"}</label>
-                        <input value={editAllergies} onChange={e => setEditAllergies(e.target.value)} placeholder={t('allergyPlaceholder') || "e.g. Penicillin"} className="w-full px-4 py-3 bg-rose-50/50 border border-rose-200 rounded-xl font-bold text-rose-900 outline-none focus:bg-white focus:ring-4 focus:ring-rose-500/10 focus:border-rose-400 transition-all placeholder:font-medium placeholder:text-rose-300"/>
+                        <input value={editAllergies} onChange={e => setEditAllergies(e.target.value)} placeholder={language === 'ar' ? 'مثال: بنسلين — اتركه فارغاً إن لم يُسأل' : 'e.g. Penicillin — leave blank if not asked'} className="w-full px-4 py-3 bg-rose-50/50 border border-rose-200 rounded-xl font-bold text-rose-900 outline-none focus:bg-white focus:ring-4 focus:ring-rose-500/10 focus:border-rose-400 transition-all placeholder:font-medium placeholder:text-rose-300"/>
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{language === 'ar' ? 'التاريخ الطبي' : 'Medical history'}</label>
+                        <input value={editMedicalHistory} onChange={e => setEditMedicalHistory(e.target.value)} placeholder={language === 'ar' ? 'مثال: سكري، ضغط — اتركه فارغاً إن لم يُسأل' : 'e.g. Diabetes, hypertension — leave blank if not asked'} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:ring-4 focus:ring-primary-500/10 focus:border-primary-400 transition-all placeholder:font-medium placeholder:text-slate-300"/>
                     </div>
                     
                     <div className="flex gap-4 pt-6 border-t border-slate-100 mt-6">

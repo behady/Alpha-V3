@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { db } from "@/lib/firebase";
 import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
-import { ClipboardList, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { ClipboardList, Search, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 
@@ -17,6 +17,8 @@ type ActivityLog = {
   details?: string;
   severity?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   module?: string;
+  /** "ai" when the assistant performed the action on the user's behalf; absent for manual work. */
+  actor?: string;
   date?: string;
   timestamp?: { toDate?: () => Date };
 };
@@ -28,6 +30,7 @@ export default function ActivityLogs() {
   const [queryText, setQueryText] = useState("");
   const [severityFilter, setSeverityFilter] = useState("all");
   const [moduleFilter, setModuleFilter] = useState("all");
+  const [actorFilter, setActorFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 50;
 
@@ -49,12 +52,14 @@ export default function ActivityLogs() {
     return logs.filter((log) => {
       if (severityFilter !== "all" && (log.severity || "LOW") !== severityFilter) return false;
       if (moduleFilter !== "all" && (log.module || "system") !== moduleFilter) return false;
+      if (actorFilter === "ai" && log.actor !== "ai") return false;
+      if (actorFilter === "staff" && log.actor === "ai") return false;
       if (!term) return true;
       return [log.userName, log.user, log.userRole, log.action, log.details, log.severity, log.module]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(term));
     });
-  }, [logs, queryText, severityFilter, moduleFilter]);
+  }, [logs, queryText, severityFilter, moduleFilter, actorFilter]);
 
   const modules = useMemo(
     () => Array.from(new Set(logs.map((log) => log.module || "system"))).sort(),
@@ -70,7 +75,7 @@ export default function ActivityLogs() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [queryText, severityFilter, moduleFilter]);
+  }, [queryText, severityFilter, moduleFilter, actorFilter]);
 
   return (
     <div className="space-y-6 animate-in fade-in" dir={isRTL ? "rtl" : "ltr"}>
@@ -117,6 +122,15 @@ export default function ActivityLogs() {
                 {module}
               </option>
             ))}
+          </select>
+          <select
+            value={actorFilter}
+            onChange={(e) => setActorFilter(e.target.value)}
+            className="py-3 px-4 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-primary-500 transition-all"
+          >
+            <option value="all">{language === "ar" ? "الكل" : "Everyone"}</option>
+            <option value="staff">{language === "ar" ? "إجراءات يدوية" : "Done manually"}</option>
+            <option value="ai">{language === "ar" ? "إجراءات المساعد الذكي" : "Done by Alpha AI"}</option>
           </select>
           <select
             value={severityFilter}
@@ -166,7 +180,18 @@ export default function ActivityLogs() {
                   const when = log.timestamp?.toDate ? log.timestamp.toDate() : null;
                   return (
                     <tr key={log.id} className="bg-white hover:bg-slate-50/50">
-                      <td className="px-4 py-3 text-sm font-bold text-slate-900">{log.userName || log.user || "Unknown"}</td>
+                      <td className="px-4 py-3 text-sm font-bold text-slate-900">
+                        <span className="flex items-center gap-2">
+                          {log.userName || log.user || "Unknown"}
+                          {log.actor === "ai" && (
+                            // The person stays accountable, but it should be obvious at a glance
+                            // that the change came through the assistant rather than by hand.
+                            <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-200 text-[9px] font-black uppercase tracking-widest">
+                              <Sparkles size={9} /> AI
+                            </span>
+                          )}
+                        </span>
+                      </td>
                       <td className="px-4 py-3 text-xs font-semibold text-slate-600">{log.userRole || "-"}</td>
                       <td className="px-4 py-3 text-[11px] font-black text-slate-600 uppercase">{log.module || "system"}</td>
                       <td className="px-4 py-3 text-[11px] font-black uppercase">

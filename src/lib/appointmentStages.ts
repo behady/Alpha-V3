@@ -13,6 +13,32 @@ export const APPOINTMENT_STAGES = [
 
 export type AppointmentStageValue = (typeof APPOINTMENT_STAGES)[number]["value"];
 
+/**
+ * Status values that were written by some paths but are not part of the workflow above.
+ *
+ * The dashboard's one-click Arrive/Seat buttons wrote "Arrived"/"Seated", and the public booking
+ * endpoint wrote "Pending". None of the three appear in APPOINTMENT_STAGES, so they fell through
+ * the stage styling, were excluded from the "active" filters, and — because the check-in side
+ * effects key off the exact string "Checked In" — an arriving patient got no checkInTime and no
+ * attendance row. Those writers now use the canonical values; this mapping keeps records created
+ * before that fix readable instead of requiring a migration to display correctly.
+ *
+ * "In Progress" was only ever offered as a filter option; nothing wrote it, so selecting it
+ * matched nothing. It maps to the stage that actually represents that state.
+ */
+const LEGACY_STATUS_ALIASES: Record<string, AppointmentStageValue> = {
+  Arrived: "Checked In",
+  Seated: "In Chair",
+  Pending: "Scheduled",
+  "In Progress": "In Chair",
+};
+
+/** Canonical form of a stored status. Unknown values are returned untouched. */
+export function normalizeAppointmentStatus(status: string | undefined | null): string {
+  if (!status) return "Scheduled";
+  return LEGACY_STATUS_ALIASES[status] || status;
+}
+
 const STAGE_LABELS: Record<string, { en: string; ar: string }> = {
   Scheduled: { en: "Unconfirmed", ar: "غير مؤكد" },
   Confirmed: { en: "Confirmed", ar: "مؤكد" },
@@ -34,7 +60,7 @@ export function getAppointmentStageLabel(
   language: "en" | "ar"
 ): string {
   if (!status) return language === "ar" ? "غير مؤكد" : "Unconfirmed";
-  const row = STAGE_LABELS[status];
+  const row = STAGE_LABELS[normalizeAppointmentStatus(status)];
   if (row) return language === "ar" ? row.ar : row.en;
   return status;
 }
@@ -47,7 +73,9 @@ export type AppointmentStatusStyle = {
 };
 
 export function getAppointmentStatusStyles(status?: string): AppointmentStatusStyle {
-  switch (status) {
+  // Normalized so a legacy "Arrived"/"Seated" row is styled as the stage it means rather than
+  // falling through to the default grey.
+  switch (normalizeAppointmentStatus(status)) {
     case "Scheduled":
       return {
         card: "bg-slate-100 border-0 shadow-[0_4px_15px_rgba(0,0,0,0.05)] text-slate-800",

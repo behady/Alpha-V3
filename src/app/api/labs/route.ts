@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
-import { adminDb } from "@/lib/firebaseAdmin";
+import { adminClinicCollection, resolveUserClinicId } from "@/lib/adminClinicDb";
 
 type LabServicePrice = {
   name: string;
@@ -14,7 +14,9 @@ export async function GET(request: Request) {
   if (!authz.ok) return authz.response;
 
   try {
-    const snap = await adminDb().collection("labs").orderBy("name").get();
+    // Root-level `labs` would be one shared list across every tenant; each clinic keeps its own.
+    const clinicId = await resolveUserClinicId(authz.uid);
+    const snap = await adminClinicCollection(clinicId, "labs").orderBy("name").get();
     const labs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     return NextResponse.json({ ok: true, labs });
   } catch (e: unknown) {
@@ -28,6 +30,8 @@ export async function POST(request: Request) {
   if (!authz.ok) return authz.response;
 
   try {
+    const clinicId = await resolveUserClinicId(authz.uid);
+
     const body = (await request.json().catch(() => ({}))) as {
       id?: string;
       name?: string;
@@ -66,11 +70,11 @@ export async function POST(request: Request) {
     };
 
     if (id) {
-      await adminDb().collection("labs").doc(id).set(payload, { merge: true });
+      await adminClinicCollection(clinicId, "labs").doc(id).set(payload, { merge: true });
       return NextResponse.json({ ok: true, id });
     }
 
-    const ref = await adminDb().collection("labs").add({
+    const ref = await adminClinicCollection(clinicId, "labs").add({
       ...payload,
       createdAt: FieldValue.serverTimestamp(),
       createdBy: authz.uid || "unknown",

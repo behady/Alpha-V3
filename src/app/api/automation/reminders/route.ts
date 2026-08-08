@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
-import { adminDb } from "@/lib/firebaseAdmin";
+import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
+import { forEachActiveClinic } from "@/lib/automation/forEachActiveClinic";
 import { clinicTimeZone, tomorrowYmdInTimeZone } from "@/lib/clinicDate";
 import { pickPatientPhone } from "@/lib/patientPhone";
 import { resolveWhatsappTemplateForPatient } from "@/lib/whatsappDefaultBodies";
@@ -29,8 +30,10 @@ function isCronAuthorized(request: Request): boolean {
 }
 
 async function authorize(request: Request) {
-  if (isCronAuthorized(request)) return { ok: true as const };
-  return requireStaffUser(request);
+  if (isCronAuthorized(request)) return { ok: true as const, cron: true as const };
+  const staff = await requireStaffUser(request);
+  if (!staff.ok) return staff;
+  return { ok: true as const, cron: false as const, uid: staff.uid };
 }
 
 function fallbackReminderMessage(args: {
@@ -44,11 +47,11 @@ function fallbackReminderMessage(args: {
   return `مرحباً ${name}، تذكير بموعدك غداً ${date} الساعة ${time}${doctor ? ` مع د. ${doctor}` : ""} في ${clinicName}.`;
 }
 
-async function getClinicDisplayName(): Promise<string> {
-  const profile = await getClinicProfileAdmin();
+async function getClinicDisplayName(clinicId: string): Promise<string> {
+  const profile = await getClinicProfileAdmin(clinicId);
   let name = (profile?.clinicName && profile.clinicName.trim()) || "";
   if (!name) {
-    const ci = await adminDb().collection("settings").doc("clinic_info").get();
+    const ci = await adminClinicDoc(clinicId, "settings", "clinic_info").get();
     const d = ci.data() as Record<string, unknown> | undefined;
     name =
       (typeof d?.clinicName === "string" && d.clinicName.trim()) ||
@@ -58,8 +61,8 @@ async function getClinicDisplayName(): Promise<string> {
   return name;
 }
 
-async function getAppointmentById(appointmentId: string): Promise<AppointmentRecord | null> {
-  const snap = await adminDb().collection("appointments").doc(appointmentId).get();
+async function getAppointmentById(clinicId: string, appointmentId: string): Promise<AppointmentRecord | null> {
+  const snap = await adminClinicDoc(clinicId, "appointments", appointmentId).get();
   if (!snap.exists) return null;
   const data = snap.data() || {};
   return {
@@ -74,10 +77,11 @@ async function getAppointmentById(appointmentId: string): Promise<AppointmentRec
 }
 
 async function getPatientContactForAppointment(
+  clinicId: string,
   appointment: AppointmentRecord
 ): Promise<{ phone: string; optOut: boolean; patientName: string }> {
   if (appointment.patientId) {
-    const patientSnap = await adminDb().collection("patients").doc(appointment.patientId).get();
+    const patientSnap = await adminClinicDoc(clinicId, "patients", appointment.patientId).get();
     if (patientSnap.exists) {
       const data = patientSnap.data() || {};
       return {
@@ -90,8 +94,7 @@ async function getPatientContactForAppointment(
   }
 
   if (appointment.patientName) {
-    const byName = await adminDb()
-      .collection("patients")
+    const byName = await adminClinicCollection(clinicId, "patients")
       .where("name", "==", appointment.patientName)
       .limit(1)
       .get();
@@ -109,11 +112,12 @@ async function getPatientContactForAppointment(
 }
 
 async function buildReminderText(
+  clinicId: string,
   appointment: AppointmentRecord,
   patientName: string,
   clinicName: string
 ): Promise<{ text: string; skipped?: string }> {
-  const settingsSnap = await adminDb().collection("settings").doc("whatsapp").get();
+  const settingsSnap = await adminClinicDoc(clinicId, "settings", "whatsapp").get();
   const settings = settingsSnap.exists ? settingsSnap.data() : {};
 
   if (!Boolean(settings?.isPatientAutomationEnabled)) {
@@ -135,19 +139,19 @@ async function buildReminderText(
   return { text: merged };
 }
 
-async function sendForAppointment(appointment: AppointmentRecord, force = false) {
+async function sendForAppointment(clinicId: string, appointment: AppointmentRecord, force = false) {
   if (appointment.status === "Cancelled") {
     return { status: "skipped", reason: "cancelled", appointmentId: appointment.id };
   }
 
   const reminderDocId = `${appointment.id}_24h`;
-  const reminderRef = adminDb().collection("appointment_reminders").doc(reminderDocId);
+  const reminderRef = adminClinicDoc(clinicId, "appointment_reminders", reminderDocId);
   const already = await reminderRef.get();
   if (already.exists && !force) {
     return { status: "skipped", reason: "already_sent", appointmentId: appointment.id };
   }
 
-  const { phone, optOut, patientName } = await getPatientContactForAppointment(appointment);
+  const { phone, optOut, patientName } = await getPatientContactForAppointment(clinicId, appointment);
   if (optOut) {
     return { status: "skipped", reason: "whatsapp_opt_out", appointmentId: appointment.id };
   }
@@ -162,8 +166,8 @@ async function sendForAppointment(appointment: AppointmentRecord, force = false)
     };
   }
 
-  const clinicName = await getClinicDisplayName();
-  const { text, skipped } = await buildReminderText(appointment, patientName, clinicName);
+  const clinicName = await getClinicDisplayName(clinicId);
+  const { text, skipped } = await buildReminderText(clinicId, appointment, patientName, clinicName);
   if (skipped) {
     return { status: "skipped", reason: skipped, appointmentId: appointment.id };
   }
@@ -188,7 +192,7 @@ async function sendForAppointment(appointment: AppointmentRecord, force = false)
   });
 
   if (appointment.patientId) {
-    await adminDb().collection("whatsapp_logs").add({
+    await adminClinicCollection(clinicId, "whatsapp_logs").add({
       patientId: appointment.patientId,
       type: "reminder24h",
       message: msg,
@@ -203,12 +207,11 @@ async function sendForAppointment(appointment: AppointmentRecord, force = false)
 /**
  * Appointments on **tomorrow's calendar date** in the clinic timezone (~24h before visit day).
  */
-async function runUpcoming24h() {
+async function runUpcoming24hForClinic(clinicId: string) {
   const tz = clinicTimeZone();
   const tomorrowStr = tomorrowYmdInTimeZone(tz);
 
-  const appointmentsSnap = await adminDb()
-    .collection("appointments")
+  const appointmentsSnap = await adminClinicCollection(clinicId, "appointments")
     .where("date", "==", tomorrowStr)
     .get();
 
@@ -231,9 +234,31 @@ async function runUpcoming24h() {
 
   const results = [];
   for (const appointment of candidates) {
-    results.push(await sendForAppointment(appointment, false));
+    results.push(await sendForAppointment(clinicId, appointment, false));
   }
   return { results, tomorrowStr, timeZone: tz };
+}
+
+/**
+ * Cron has no user to resolve a clinic from, so it sweeps every active clinic. A staff member
+ * triggering the same sweep manually only ever acts on their own clinic.
+ */
+async function runUpcoming24h(authz: { cron: boolean; uid?: string }) {
+  if (!authz.cron) {
+    const clinicId = await resolveUserClinicId(authz.uid as string);
+    const run = await runUpcoming24hForClinic(clinicId);
+    return { clinics: [{ clinicId, ok: true, result: run }], ...run };
+  }
+
+  const clinics = await forEachActiveClinic((clinicId) => runUpcoming24hForClinic(clinicId));
+  const results = clinics.flatMap((c) => c.result?.results ?? []);
+  const first = clinics.find((c) => c.result)?.result;
+  return {
+    clinics,
+    results,
+    tomorrowStr: first?.tomorrowStr ?? "",
+    timeZone: first?.timeZone ?? "",
+  };
 }
 
 export async function GET(request: Request) {
@@ -241,9 +266,9 @@ export async function GET(request: Request) {
   if (!authz.ok) return authz.response;
 
   try {
-    const { results, tomorrowStr, timeZone } = await runUpcoming24h();
+    const { results, tomorrowStr, timeZone, clinics } = await runUpcoming24h(authz);
     const sent = results.filter((r) => r.status === "sent").length;
-    return NextResponse.json({ ok: true, mode: "upcoming24h", sent, tomorrowStr, timeZone, results });
+    return NextResponse.json({ ok: true, mode: "upcoming24h", sent, tomorrowStr, timeZone, clinics, results });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
@@ -266,17 +291,23 @@ export async function POST(request: Request) {
       if (!body.appointmentId) {
         return NextResponse.json({ ok: false, error: "appointmentId is required for single mode" }, { status: 400 });
       }
-      const appointment = await getAppointmentById(body.appointmentId);
+      // Sending one reminder is always a staff action against their own clinic — cron only ever
+      // runs the sweep, so there is no tenant to infer for a cron-authorized single send.
+      if (authz.cron) {
+        return NextResponse.json({ ok: false, error: "single mode requires a signed-in staff user" }, { status: 400 });
+      }
+      const clinicId = await resolveUserClinicId(authz.uid as string);
+      const appointment = await getAppointmentById(clinicId, body.appointmentId);
       if (!appointment) {
         return NextResponse.json({ ok: false, error: "Appointment not found" }, { status: 404 });
       }
-      const result = await sendForAppointment(appointment, Boolean(body.force));
+      const result = await sendForAppointment(clinicId, appointment, Boolean(body.force));
       return NextResponse.json({ ok: true, mode, result });
     }
 
-    const { results, tomorrowStr, timeZone } = await runUpcoming24h();
+    const { results, tomorrowStr, timeZone, clinics } = await runUpcoming24h(authz);
     const sent = results.filter((r) => r.status === "sent").length;
-    return NextResponse.json({ ok: true, mode, sent, tomorrowStr, timeZone, results });
+    return NextResponse.json({ ok: true, mode, sent, tomorrowStr, timeZone, clinics, results });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });

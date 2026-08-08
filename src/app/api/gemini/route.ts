@@ -11,6 +11,8 @@ import { DIAGNOSIS_OPTIONS } from "@/lib/diagnosisCatalog";
 import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
+import { logAiAction } from "@/lib/serverLogger";
+import { createPendingAiDelete, type PendingActionPreview } from "@/lib/aiPendingActions";
 
 /**
  * Collections the AI is permitted to touch.
@@ -34,6 +36,28 @@ const AI_READABLE_COLLECTIONS = new Set([
   "expenses",
 ]);
 
+/**
+ * Reading is broad; writing is deliberately narrower.
+ *
+ * `staff` holds payroll (baseSalary, commissionPercentage) and `services` is the price list —
+ * firestore.rules restricts both to Clinic Admins, but this route runs on the Admin SDK, which
+ * bypasses rules entirely. Write access was previously checked against AI_READABLE_COLLECTIONS,
+ * so any staff member with chat access could ask the assistant to edit their own salary. This
+ * set is the only thing standing in for those rules, so it lists exactly the collections the
+ * documented assistant workflows actually write. `services` being read-only here also matches
+ * what the schema block below already tells the model.
+ */
+const AI_WRITABLE_COLLECTIONS = new Set([
+  "patients",
+  "appointments",
+  "tickets",
+  "ledger",
+  "clinical_notes",
+  "inventory",
+  "inventory_transactions",
+  "lab_orders",
+]);
+
 /** Deleting financial or clinical history is not something a chat turn should be able to do. */
 const AI_DELETABLE_COLLECTIONS = new Set(["appointments", "tickets", "ledger", "inventory_transactions"]);
 
@@ -42,21 +66,24 @@ function assertCollectionAllowed(collection: string, mode: "read" | "write" | "d
   if (!AI_READABLE_COLLECTIONS.has(name)) {
     throw new Error(`The assistant is not permitted to access the "${name}" collection.`);
   }
+  if ((mode === "write" || mode === "delete") && !AI_WRITABLE_COLLECTIONS.has(name)) {
+    throw new Error(`Records in "${name}" cannot be changed by the assistant. Please edit it from that page directly.`);
+  }
   if (mode === "delete" && !AI_DELETABLE_COLLECTIONS.has(name)) {
     throw new Error(`Records in "${name}" cannot be deleted by the assistant. Please delete it from that page directly.`);
   }
 }
 
 const ALPHA_DATABASE_SCHEMAS = `CRITICAL DATABASE SCHEMAS (Strictly use these exact fields):
-1. patients: name(REQ, full string), phone(REQ, E.164 +20...), address, dateOfBirth, gender, referral, medicalHistory, status, teethData (odontogram chart). NEVER drop user-provided fields!
-2. appointments: patientId(REQ), patientName, treatment, doctor, date, time(hh:mm AM/PM), duration, status, notes
+1. patients: name(REQ, full string), phone(REQ, E.164 +20...), address, dateOfBirth, gender, referral, medicalHistory, allergies, status, teethData (odontogram chart). NEVER drop user-provided fields! A blank medicalHistory or allergies means NOBODY HAS ASKED — it does NOT mean the patient has none. Never state or imply a patient has no allergies or a clear medical history based on a blank field; say it has not been recorded.
+2. appointments: patientId(REQ), patientName, treatment, doctor (display name), doctorId (staff id — prefer this for grouping/counting by dentist, as display names vary), date, time(hh:mm AM/PM), duration, status, notes. Valid status values are ONLY: Scheduled, Confirmed, Delayed, Cancelled, Checked In, In Chair, Checking Out, Completed, No Show. Older records may still hold Arrived (=Checked In), Seated (=In Chair) or Pending (=Scheduled) — count them as their modern equivalent.
 3. tickets: patientId(REQ), patientName, patientPhone, reason(REQ), serviceName, preferredDate, preferredTimeSlot, status, source
 4. services (READ-ONLY): name, price, requiresLab, estimatedLabFee. ALWAYS db_read this before guessing prices!
 5. ledger:
  - procedure: patientId(REQ), patientName, type="procedure", category, amount, cost, unitCost, unitsCount, pricingFormula, description, doctorName, date
  - payment: patientId(REQ), patientName, type="payment", paid, method, description, date
-6. clinical_notes: patientId(REQ), date, doctor, procedure, tooth, cost, unitCost, unitsCount, pricingFormula, note, status, ledgerId
-7. inventory: name, category, quantity, minStock, unit, expiryDate
+6. clinical_notes: patientId(REQ), date, doctor (display name), doctorId (staff id — prefer for per-dentist grouping), procedure (FREE TEXT, do not count on it), serviceIds (ids from the services collection that the procedures resolved to — USE THIS to count procedures by type), serviceId, serviceName, unmatchedProcedures (names that matched no price-list entry), tooth, cost, unitCost, unitsCount, pricingFormula, note, status, ledgerId. When counting procedures, group on serviceIds and report anything in unmatchedProcedures as uncounted rather than guessing. Notes written before this was added have no serviceIds — say so rather than reporting a total as complete.
+7. inventory: name, category, subCategory, stock (NOT "quantity"), minStock, costPerUnit, unit, isPercentage. There is no expiryDate field — do not claim an item is expiring. A minStock of 0 usually means no reorder threshold was ever configured, NOT that the item is healthy: say so rather than reporting "nothing is low".
 8. lab_orders: patientId(REQ), patientName, labName, type, shade, teeth, sendDate, dueDate, status, cost
 
 CRITICAL WORKFLOW (ADD SERVICE):
@@ -417,6 +444,10 @@ export async function POST(req: Request) {
     }
 
     let callCount = 0;
+
+    // Set when a tool stages a destructive action instead of performing it. Travels out of the
+    // tool loop so the final reply can carry the confirmation prompt to the widget.
+    let pendingAction: PendingActionPreview | null = null;
     
     while (result.response.functionCalls() && callCount < 5) {
       const calls = result.response.functionCalls()!;
@@ -459,13 +490,18 @@ export async function POST(req: Request) {
              if (data.paid) data.paid = Number(data.paid);
 
              const newRef = adminClinicCollection(clinicId, col).doc();
-             await newRef.set({ 
-               ...data, 
-               id: newRef.id, 
-               addedBy: "Alpha AI", 
-               createdAt: FieldValue.serverTimestamp() 
+             await newRef.set({
+               ...data,
+               id: newRef.id,
+               addedBy: "Alpha AI",
+               createdAt: FieldValue.serverTimestamp()
              });
-             
+
+             await logAiAction({
+               clinicId, kind: "create", collection: col, documentId: newRef.id,
+               userId, userName, userRole: authz.role, after: data,
+             });
+
              toolResult = { success: true, message: `Created document ${newRef.id}`, id: newRef.id };
 
           } else if (call.name === "db_update") {
@@ -479,12 +515,23 @@ export async function POST(req: Request) {
              if (data.amount) data.amount = Number(data.amount);
              if (data.paid) data.paid = Number(data.paid);
 
-             await adminClinicDoc(clinicId, col, id).set({
-               ...data, 
-               modifiedBy: "Alpha AI", 
-               updatedAt: FieldValue.serverTimestamp() 
+             // Read first so the audit entry can say what the values actually were. Without this
+             // the log records that a price or a dose changed but not what it changed from.
+             const updateRef = adminClinicDoc(clinicId, col, id);
+             const priorSnap = await updateRef.get();
+
+             await updateRef.set({
+               ...data,
+               modifiedBy: "Alpha AI",
+               updatedAt: FieldValue.serverTimestamp()
              }, { merge: true });
-             
+
+             await logAiAction({
+               clinicId, kind: "update", collection: col, documentId: id,
+               userId, userName, userRole: authz.role,
+               before: priorSnap.exists ? priorSnap.data() : null, after: data,
+             });
+
              toolResult = { success: true, message: `Updated document ${id}` };
 
           } else if (call.name === "db_delete") {
@@ -492,21 +539,35 @@ export async function POST(req: Request) {
              assertCollectionAllowed(col, "delete");
              const id = (call.args as any).documentId;
 
-             // Snapshot before deleting so an AI-driven removal is reversible from the audit log.
-             const targetRef = adminClinicDoc(clinicId, col, id);
-             const before = await targetRef.get();
-             if (!before.exists) {
-                toolResult = { success: false, error: `No document ${id} in ${col}.` };
+             // Deleting clinical and financial records is an Admin decision. Every staff role
+             // shares one chat surface, so without this a receptionist had exactly the delete
+             // reach an Admin has — and the Admin SDK means Firestore rules never see it.
+             if (authz.role !== "Admin") {
+                toolResult = {
+                   success: false,
+                   error: "Only a Clinic Admin can delete records through the assistant.",
+                };
              } else {
-                await adminClinicCollection(clinicId, "ai_deletion_log").add({
-                   collection: col,
-                   documentId: id,
-                   deletedBy: userName || userId || "Alpha AI",
-                   snapshot: before.data(),
-                   deletedAt: FieldValue.serverTimestamp(),
+                // Staged, not executed. The user confirms in a second request — see
+                // lib/aiPendingActions and /api/gemini/confirm-action.
+                const staged = await createPendingAiDelete({
+                   clinicId, collection: col, documentId: id,
+                   userId, userName, userRole: authz.role,
                 });
-                await targetRef.delete();
-                toolResult = { success: true, message: `Deleted ${id} from ${col}. A copy was kept in the deletion log.` };
+
+                if (!staged) {
+                   toolResult = { success: false, error: `No document ${id} in ${col}.` };
+                } else {
+                   pendingAction = staged;
+                   toolResult = {
+                      success: true,
+                      awaitingConfirmation: true,
+                      message:
+                         "A confirmation prompt has been shown to the user. The record has NOT been deleted yet " +
+                         "and will only be removed if they approve. Tell them you need their confirmation — do " +
+                         "not say the record was deleted.",
+                   };
+                }
              }
 
           } else if (call.name === "trigger_whatsapp_appointment") {
@@ -561,7 +622,10 @@ export async function POST(req: Request) {
              } else {
                 const data = snap.data() || {};
                 const currentTeethData = data.teethData || {};
-                
+                // teethData is overwritten wholesale with no per-tooth history, so the pre-change
+                // chart is only recoverable from this snapshot.
+                const teethBefore = JSON.parse(JSON.stringify(currentTeethData));
+
                 for (const update of updates) {
                    const { toothId, statuses, notes, overwrite } = update;
                    const existingTooth = currentTeethData[toothId] || {};
@@ -596,6 +660,11 @@ export async function POST(req: Request) {
                 }
                 
                 await patientRef.update({ teethData: currentTeethData });
+                await logAiAction({
+                   clinicId, kind: "update", collection: "patients", documentId: patientId,
+                   userId, userName, userRole: authz.role,
+                   before: { teethData: teethBefore }, after: { teethData: currentTeethData },
+                });
                 toolResult = { success: true, message: `Odontogram updated for ${updates.length} teeth.` };
              }
           } else if (call.name === "learn_fact") {
@@ -730,7 +799,7 @@ export async function POST(req: Request) {
       }
 
       await chargeCredits?.();
-      return NextResponse.json({ reply: replyText });
+      return NextResponse.json({ reply: replyText, pendingAction });
 
   } catch (error: any) {
     console.error("API Error:", error);

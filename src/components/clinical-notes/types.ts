@@ -16,6 +16,10 @@ export interface Note {
   status?: 'Planned' | 'Ongoing' | 'Completed'; 
   serviceName?: string | null;
   serviceId?: string | null;
+  /** Every price-list entry the free-text procedure names resolved to (a note can hold several). */
+  serviceIds?: string[];
+  /** Procedure names that matched no price-list entry, so reports can disclose what they missed. */
+  unmatchedProcedures?: string[];
   beforeImage?: string;
   afterImage?: string;
   needsLabOrder?: boolean;

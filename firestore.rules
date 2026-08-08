@@ -98,7 +98,9 @@ service cloud.firestore {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
         allow write: if isSuperAdmin()
           || (hasClinicRole(clinicId) && isClinicActive(clinicId)
-              && subcollection != 'system_logs' && subcollection != 'staff' && subcollection != 'settings');
+              && subcollection != 'system_logs' && subcollection != 'staff' && subcollection != 'settings'
+              && subcollection != 'ai_deletion_log' && subcollection != 'ai_pending_actions'
+              && subcollection != 'message_drafts');
       }
 
       // --- SPECIFIC SUBCOLLECTION OVERRIDES ---
@@ -121,6 +123,33 @@ service cloud.firestore {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
         allow create: if isSuperAdmin() || (hasClinicRole(clinicId) && isClinicActive(clinicId));
         allow update, delete: if isSuperAdmin();
+      }
+
+      // Pre-delete snapshots taken when the assistant deletes a record. Written only by the
+      // Gemini route via the Admin SDK, which bypasses rules — so no client ever needs write
+      // access here, and denying it outright is what makes this a record of AI deletions that
+      // the person who triggered them cannot then erase. Staff can still read it to review.
+      match /ai_deletion_log/{entryId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow write: if false;
+      }
+
+      // Destructive assistant actions awaiting the user's confirmation. Both staging and
+      // approval go through API routes on the Admin SDK, so the client never needs to write
+      // here — and must not, since editing a staged action's target between being shown the
+      // prompt and approving it would make the confirmation meaningless.
+      match /ai_pending_actions/{actionId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow write: if false;
+      }
+
+      // Outbound messages drafted automatically and held for review. Staff read the queue here,
+      // but approving goes through /api/message-drafts on the Admin SDK — if the client could
+      // write, someone could change a draft's recipient or body after it was reviewed, or flip a
+      // status to 'sent' without anything actually being sent.
+      match /message_drafts/{draftId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow write: if false;
       }
     }
     

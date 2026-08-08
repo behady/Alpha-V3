@@ -2,8 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronUp, Edit2, Filter, Layers, Loader2, Package, Plus, RotateCcw, Save, Search, Trash2, TrendingDown, TrendingUp, Download, BookOpen, Send } from "lucide-react";
-import { db } from "@/lib/firebase";
-import { Timestamp, addDoc, collection, deleteDoc, doc, getDocs, orderBy, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
+// Inventory used root-level `inventory` / `inventory_transactions` / `categories` collections,
+// which no Firestore rule grants access to and which the rest of the app (and the assistant,
+// which reads clinics/{clinicId}/inventory) never sees. Reads there resolve to an empty set
+// rather than an error, so low-stock checks silently reported "nothing is low".
+import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { Timestamp, addDoc, deleteDoc, getDocs, orderBy, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
@@ -59,6 +63,20 @@ function lineValue(item: Material) {
   return qty * toNumber(item.costPerUnit);
 }
 
+/**
+ * A reorder threshold of 0 means nobody ever set one — it is the field's old default, not a
+ * deliberate "alert me only when this hits empty". Treating it as a real threshold made every
+ * unconfigured item permanently "in stock", so a low-stock check reported all-clear over a
+ * shelf nobody had configured. Items without a threshold are surfaced as their own count.
+ */
+function hasThreshold(item: Material): boolean {
+  return toNumber(item.minStock) > 0;
+}
+
+function isLowStock(item: Material): boolean {
+  return hasThreshold(item) && toNumber(item.stock) <= toNumber(item.minStock);
+}
+
 function csvEscape(v: unknown): string {
   const s = String(v ?? "");
   if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
@@ -101,7 +119,7 @@ export default function InventoryPage() {
   const [formCategory, setFormCategory] = useState("General");
   const [formSubCategory, setFormSubCategory] = useState("");
   const [formStock, setFormStock] = useState("0");
-  const [formMinStock, setFormMinStock] = useState("0");
+  const [formMinStock, setFormMinStock] = useState("");
   const [formCost, setFormCost] = useState("0");
   const [formUnit, setFormUnit] = useState("pcs");
   const [formIsPercentage, setFormIsPercentage] = useState(false);
@@ -114,7 +132,7 @@ export default function InventoryPage() {
     const from = new Date(`${startDate}T00:00:00`);
     const to = new Date(`${endDate}T23:59:59.999`);
     const q = query(
-      collection(db, "inventory_transactions"),
+      getClinicCollection("inventory_transactions"),
       where("date", ">=", Timestamp.fromDate(from)),
       where("date", "<=", Timestamp.fromDate(to)),
       orderBy("date", "desc")
@@ -140,8 +158,8 @@ export default function InventoryPage() {
     setLoading(true);
     try {
       const [invSnap, catSnap] = await Promise.all([
-        getDocs(query(collection(db, "inventory"), orderBy("name"))),
-        getDocs(query(collection(db, "categories"), orderBy("name"))),
+        getDocs(query(getClinicCollection("inventory"), orderBy("name"))),
+        getDocs(query(getClinicCollection("categories"), orderBy("name"))),
       ]);
       setInventory(
         invSnap.docs.map((d) => {
@@ -206,8 +224,8 @@ export default function InventoryPage() {
     }
     if (selectedCategory !== "All") rows = rows.filter((i) => i.category === selectedCategory);
     if (selectedSubCategory !== "All") rows = rows.filter((i) => i.subCategory === selectedSubCategory);
-    if (stockStatusFilter === "low") rows = rows.filter((i) => toNumber(i.stock) <= toNumber(i.minStock));
-    if (stockStatusFilter === "ok") rows = rows.filter((i) => toNumber(i.stock) > toNumber(i.minStock));
+    if (stockStatusFilter === "low") rows = rows.filter(isLowStock);
+    if (stockStatusFilter === "ok") rows = rows.filter((i) => hasThreshold(i) && !isLowStock(i));
     if (trackingFilter === "qty") rows = rows.filter((i) => !i.isPercentage);
     if (trackingFilter === "pct") rows = rows.filter((i) => i.isPercentage);
 
@@ -232,7 +250,10 @@ export default function InventoryPage() {
 
   const stockSummary = useMemo(() => ({
     totalItems: filteredInventory.length,
-    lowStock: filteredInventory.filter((i) => toNumber(i.stock) <= toNumber(i.minStock)).length,
+    lowStock: filteredInventory.filter(isLowStock).length,
+    // Counted and shown separately: an item with no reorder threshold can never be "low", so
+    // without this a shelf full of unconfigured items reads as a clean bill of health.
+    noThreshold: filteredInventory.filter((i) => !hasThreshold(i)).length,
     totalValue: filteredInventory.reduce((sum, i) => sum + lineValue(i), 0),
   }), [filteredInventory]);
 
@@ -301,6 +322,17 @@ export default function InventoryPage() {
       showToast(language === "ar" ? "اسم الصنف مطلوب" : "Item name is required", "error");
       return;
     }
+    // Without a real threshold this item can never trigger a low-stock alert, and a silent 0
+    // is indistinguishable from a deliberate one — so it has to be stated.
+    if (!formMinStock.trim() || toNumber(formMinStock) <= 0) {
+      showToast(
+        language === "ar"
+          ? "حدّ إعادة الطلب مطلوب (أكبر من صفر) حتى تعمل تنبيهات النقص"
+          : "A reorder threshold above zero is required for low-stock alerts to work",
+        "error"
+      );
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
@@ -315,9 +347,9 @@ export default function InventoryPage() {
         updatedAt: serverTimestamp(),
       };
       if (editingItem) {
-        await updateDoc(doc(db, "inventory", editingItem.id), payload);
+        await updateDoc(getClinicDoc("inventory", editingItem.id), payload);
       } else {
-        await addDoc(collection(db, "inventory"), { ...payload, createdAt: serverTimestamp() });
+        await addDoc(getClinicCollection("inventory"), { ...payload, createdAt: serverTimestamp() });
       }
       await logActivity({ uid: user?.uid, name: user?.name, role: user?.role }, editingItem ? "Inventory item updated" : "Inventory item created", formName.trim());
       resetForm();
@@ -333,8 +365,8 @@ export default function InventoryPage() {
 
   const handleQuickAdjust = async (item: Material, delta: number) => {
     try {
-      await updateDoc(doc(db, "inventory", item.id), { stock: Math.max(0, toNumber(item.stock) + delta), updatedAt: serverTimestamp() });
-      await addDoc(collection(db, "inventory_transactions"), {
+      await updateDoc(getClinicDoc("inventory", item.id), { stock: Math.max(0, toNumber(item.stock) + delta), updatedAt: serverTimestamp() });
+      await addDoc(getClinicCollection("inventory_transactions"), {
         itemId: item.id,
         itemName: item.name,
         change: delta,
@@ -353,20 +385,20 @@ export default function InventoryPage() {
   const handleDelete = async (item: Material) => {
     const ok = await confirm(language === "ar" ? "هل تريد حذف هذا الصنف نهائيًا؟" : "Delete this item permanently?");
     if (!ok) return;
-    await deleteDoc(doc(db, "inventory", item.id));
+    await deleteDoc(getClinicDoc("inventory", item.id));
     await fetchData();
   };
 
   const handleAddCategory = async () => {
     if (!newCategoryName.trim()) return;
-    await addDoc(collection(db, "categories"), { name: newCategoryName.trim(), parentId: null });
+    await addDoc(getClinicCollection("categories"), { name: newCategoryName.trim(), parentId: null });
     setNewCategoryName("");
     await fetchData();
   };
 
   const handleAddSubCategory = async () => {
     if (!newSubCategoryName.trim() || !subCategoryParent) return;
-    await addDoc(collection(db, "categories"), { name: newSubCategoryName.trim(), parentId: subCategoryParent });
+    await addDoc(getClinicCollection("categories"), { name: newSubCategoryName.trim(), parentId: subCategoryParent });
     setNewSubCategoryName("");
     await fetchData();
   };
@@ -515,9 +547,20 @@ export default function InventoryPage() {
                     <AlertTriangle size={22} />
                   </div>
                 </div>
+                {/* A count of items, not a money value — this ran through formatCurrency and
+                    rendered "3 items low" as a price. */}
                 <p className="text-2xl xl:text-3xl font-black text-amber-600 tabular-nums mt-4">
-                  {formatCurrency(stockSummary.lowStock)}
+                  {stockSummary.lowStock}
                 </p>
+                {stockSummary.noThreshold > 0 && (
+                  // Without this, items that can never trigger an alert are invisible and the
+                  // zero above reads as "everything is fine".
+                  <p className="text-[11px] font-bold text-slate-400 mt-1 leading-snug">
+                    {language === "ar"
+                      ? `${stockSummary.noThreshold} صنف بدون حد لإعادة الطلب — لن تظهر في التنبيهات`
+                      : `${stockSummary.noThreshold} item${stockSummary.noThreshold === 1 ? "" : "s"} have no reorder threshold — they can never appear here`}
+                  </p>
+                )}
               </div>
 
               <div className="rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
@@ -673,7 +716,7 @@ export default function InventoryPage() {
                  </thead>
                  <tbody className="divide-y divide-slate-100">
                    {paginatedRows.map((item) => {
-                     const isLow = toNumber(item.stock) <= toNumber(item.minStock);
+                     const isLow = isLowStock(item);
                      return (
                        <tr key={item.id} className="hover:bg-slate-50/80 transition-colors group">
                          <td className="py-4 px-6 align-top min-w-[200px]">

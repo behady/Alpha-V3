@@ -52,6 +52,8 @@ interface AppointmentData {
   newPatientGender?: string;
   treatment: string;
   doctor: string;
+  /** Staff id of the dentist; `doctor` is a display name and not a stable grouping key. */
+  doctorId?: string | null;
   date: string;
   time: string;
   duration: number;
@@ -83,6 +85,7 @@ export type BookingEditSnapshot = {
   patientName: string;
   treatment?: string;
   doctor?: string;
+  doctorId?: string | null;
   date?: string;
   time?: string;
   duration?: number;
@@ -157,6 +160,7 @@ export default function BookingModal({
     endMinute: settingsConfig?.endMinute ?? 0,
     slotDuration: settingsConfig?.slotDuration ?? 30,
     offDays: settingsConfig?.offDays ?? [],
+    isConfigured: settingsConfig?.isConfigured ?? false,
   };
 
   const getLocalDate = () => {
@@ -506,6 +510,9 @@ export default function BookingModal({
         newPatientGender: isNewPatient ? newPatientGender : undefined,
         treatment: treatment.trim(),
         doctor,
+        // Resolved from the same list the picker renders, so reports can group on a stable id
+        // instead of a display string.
+        doctorId: doctors.find((d) => d.name === doctor)?.id || editAppointment?.doctorId || null,
         date,
         time,
         duration,

@@ -175,6 +175,8 @@ export default function MobileDashboard() {
     endMinute: 0,
     slotDuration: 30,
     offDays: [],
+    // Placeholder until the clinic's own settings load.
+    isConfigured: false,
   });
   const [selectedAppointment, setSelectedAppointment] = useState<DashboardAppointment | null>(null);
   const [appointmentToEdit, setAppointmentToEdit] = useState<BookingEditSnapshot | null>(null);
@@ -223,7 +225,7 @@ export default function MobileDashboard() {
 
   const isAppointmentLate = (appt: any) => {
     if (!latePatientTrackerEnabled) return false;
-    const activeStatuses = ["Checked In", "In Chair", "In Progress", "Completed", "Checking Out", "Cancelled", "No Show", "Delayed"];
+    const activeStatuses = ["Checked In", "In Chair", "Completed", "Checking Out", "Cancelled", "No Show", "Delayed"];
     if (activeStatuses.includes(appt.status)) return false;
     if (!appt.date || !appt.time) return false;
 

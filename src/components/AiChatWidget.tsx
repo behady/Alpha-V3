@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { 
-  Sparkles, X, Send, Loader2, Bot, Trash2, CheckCircle2, UserPlus, Zap
+  Sparkles, X, Send, Loader2, Bot, Trash2, CheckCircle2, UserPlus, Zap, AlertTriangle
 } from "lucide-react";
 import { useClinic } from "@/context/ClinicContext";
 import { useAuth } from "@/context/AuthContext";
@@ -19,6 +19,19 @@ interface ChatMessage {
   timestamp: Date;
 }
 
+/**
+ * A destructive action the assistant has staged but not performed. The summary comes from the
+ * stored document, not from the model's description of it, so what is shown here is the record
+ * that will actually be deleted.
+ */
+interface PendingAction {
+  id: string;
+  kind: "delete";
+  collection: string;
+  documentId: string;
+  summary: Record<string, unknown>;
+}
+
 export default function AiChatWidget() {
   const { clinic, clinicId } = useClinic();
   const { user } = useAuth();
@@ -29,7 +42,9 @@ export default function AiChatWidget() {
   const [inputMessage, setInputMessage] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+  const [resolvingAction, setResolvingAction] = useState(false);
+
   const [creditsUsed, setCreditsUsed] = useState<number>(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -62,6 +77,46 @@ export default function AiChatWidget() {
   }, [messages, isOpen, isLoading]);
 
   if (!canUseAi) return null;
+
+  const handleResolveAction = async (decision: "approve" | "reject") => {
+    if (!pendingAction || resolvingAction) return;
+    setResolvingAction(true);
+
+    try {
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) throw new Error(isAr ? "انتهت الجلسة. سجّل الدخول مرة أخرى." : "Session expired. Please sign in again.");
+
+      const response = await fetch("/api/gemini/confirm-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ clinicId, actionId: pendingAction.id, decision, userName: user?.name }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || "Could not complete that action.");
+
+      setMessages((prev) => [...prev, {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content:
+          decision === "approve"
+            ? (isAr ? "✅ تم حذف السجل." : "✅ Record deleted.")
+            : (isAr ? "تم الإلغاء. لم يتم حذف أي شيء." : "Cancelled — nothing was deleted."),
+        timestamp: new Date(),
+      }]);
+      setPendingAction(null);
+    } catch (err: any) {
+      setMessages((prev) => [...prev, {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: `⚠️ ${err.message || (isAr ? "حدث خطأ غير متوقع" : "An unexpected error occurred")}`,
+        timestamp: new Date(),
+      }]);
+      // Clear either way: a failed confirmation must not leave a button that looks actionable.
+      setPendingAction(null);
+    } finally {
+      setResolvingAction(false);
+    }
+  };
 
   const handleSendMessage = async (e?: React.FormEvent, customText?: string) => {
     if (e) e.preventDefault();
@@ -118,6 +173,10 @@ export default function AiChatWidget() {
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
+
+      // The server stages deletions rather than performing them; nothing is removed until this
+      // prompt is answered.
+      if (data.pendingAction) setPendingAction(data.pendingAction as PendingAction);
     } catch (err: any) {
       const errorMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -194,7 +253,7 @@ export default function AiChatWidget() {
               </strong>
             </span>
             <button
-              onClick={() => setMessages([])}
+              onClick={() => { setMessages([]); setPendingAction(null); }}
               title={isAr ? "مسح المحادثة" : "Clear Chat"}
               className="text-slate-400 hover:text-rose-500 transition-colors p-1 rounded"
             >
@@ -238,6 +297,60 @@ export default function AiChatWidget() {
                 </div>
               </div>
             ))}
+            {pendingAction && (
+              <div className="flex gap-3">
+                <div className="shrink-0 w-8 h-8 rounded-full bg-rose-100 text-rose-600 border border-rose-200 flex items-center justify-center shadow-sm">
+                  <AlertTriangle size={16} />
+                </div>
+                <div className="max-w-[85%] bg-white border border-rose-200 rounded-2xl rounded-tl-sm shadow-sm overflow-hidden">
+                  <div className="px-4 py-2.5 bg-rose-50 border-b border-rose-100">
+                    <p className="text-[11px] font-black uppercase tracking-widest text-rose-600">
+                      {isAr ? "تأكيد الحذف" : "Confirm deletion"}
+                    </p>
+                  </div>
+                  <div className="px-4 py-3 space-y-2">
+                    <p className="text-[12px] text-slate-600 leading-relaxed">
+                      {isAr
+                        ? "سيتم حذف هذا السجل نهائياً. راجع التفاصيل قبل التأكيد:"
+                        : "This record will be permanently deleted. Check the details before confirming:"}
+                    </p>
+                    <div className="rounded-xl bg-slate-50 border border-slate-200/60 px-3 py-2 space-y-1">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                        {pendingAction.collection}
+                      </p>
+                      {Object.entries(pendingAction.summary).length === 0 ? (
+                        <p className="text-[12px] font-mono text-slate-500">{pendingAction.documentId}</p>
+                      ) : (
+                        Object.entries(pendingAction.summary).map(([key, value]) => (
+                          <div key={key} className="flex gap-2 text-[12px]">
+                            <span className="text-slate-400 shrink-0">{key}</span>
+                            <span className="font-bold text-slate-700 break-all">{String(value)}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={() => handleResolveAction("approve")}
+                        disabled={resolvingAction}
+                        className="flex-1 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white px-3 py-2 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.98]"
+                      >
+                        {resolvingAction
+                          ? (isAr ? "..." : "...")
+                          : (isAr ? "حذف" : "Delete")}
+                      </button>
+                      <button
+                        onClick={() => handleResolveAction("reject")}
+                        disabled={resolvingAction}
+                        className="flex-1 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-700 border border-slate-200 px-3 py-2 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.98]"
+                      >
+                        {isAr ? "إلغاء" : "Cancel"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
             {isLoading && (
               <div className="flex gap-3">
                 <div className="shrink-0 w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 border border-indigo-200 flex items-center justify-center shadow-sm">

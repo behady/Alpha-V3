@@ -12,6 +12,7 @@ import { useAuth } from "@/context/AuthContext";
 import { logActivity } from "@/lib/logger";
 import { resolveProcedureLedgerIdForNote, syncProcedureAndPaymentsFromClinicalNote } from "@/lib/syncProcedurePaymentLabFee";
 import ServiceCombobox from "@/components/shared/ServiceCombobox";
+import TeethChart from "@/components/TeethChart";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { Note, Service, Staff, LabInfo } from "./types";
 import { ALL_TEETH, UPPER_LEFT_TEETH, UPPER_RIGHT_TEETH, LOWER_LEFT_TEETH, LOWER_RIGHT_TEETH, IMPRESSION_TYPES, compressImage, computeProcedureLabFee, labServiceUnitPrice, parseTeethString, normalizeImpressionType } from "./utils";
@@ -154,12 +155,22 @@ export default function ServiceEditorDrawer({
           unitCost,
           unitsCount: pricingUnits,
           pricingFormula,
-          note: noteText, 
-          doctor: docName, 
+          note: noteText,
+          doctor: docName,
           doctorId: selectedDoctorId,
-          date, 
+          // `procedure` is free text, so counting "how many crowns this month" meant string
+          // matching against whatever was typed. These are the ids of the price-list entries the
+          // procedure names actually resolved to, so procedures can be grouped on a stable key.
+          // serviceId/serviceName were declared on the note type but no write site ever set them.
+          serviceIds: matchedServices.map((s) => s.id),
+          serviceId: matchedServices[0]?.id || null,
+          serviceName: matchedServices[0]?.name || null,
+          // Names that matched no price-list entry. Recorded rather than dropped so a report can
+          // say what it could not classify instead of silently undercounting.
+          unmatchedProcedures: procedures.filter((name) => !servicesList.some((s) => s.name === name)),
+          date,
           status: procedureStatus,
-      }; 
+      };
 
       const { labFee, labFeePerUnit, reqLab } = computeProcedureLabFee({
         needsLabOrderNow: false, formLabId: "", formLabService: "", labs: [], matchedServices, pricingUnits,
@@ -313,47 +324,40 @@ export default function ServiceEditorDrawer({
   };
 
   const TeethChartSelector = ({ selected, onToggle }: { selected: string[]; onToggle: (toothCode: string) => void }) => {
-    const activeClass = "bg-blue-600 text-white border-blue-600";
-    const idleClass = "bg-white text-slate-600 border-slate-200 hover:border-blue-300";
-
-    const Row = ({ left, right }: { left: string[]; right: string[] }) => (
-      <div className="flex items-center gap-2">
-        <div className="grid flex-1 grid-cols-8 gap-1">
-          {left.map((toothCode) => (
-            <button
-              key={toothCode} type="button" onClick={() => onToggle(toothCode)}
-              className={`text-[10px] font-black py-1.5 rounded-md border transition-colors ${selected.includes(toothCode) ? activeClass : idleClass}`}
-            >
-              {toothCode}
-            </button>
-          ))}
-        </div>
-        <div className="w-3 h-0.5 bg-slate-300 rounded-full shrink-0" />
-        <div className="grid flex-1 grid-cols-8 gap-1">
-          {right.map((toothCode) => (
-            <button
-              key={toothCode} type="button" onClick={() => onToggle(toothCode)}
-              className={`text-[10px] font-black py-1.5 rounded-md border transition-colors ${selected.includes(toothCode) ? activeClass : idleClass}`}
-            >
-              {toothCode}
-            </button>
-          ))}
-        </div>
-      </div>
-    );
-
+    // Convert string array to number array for TeethChart
+    const selectedNumbers = selected.map(s => parseInt(s, 10)).filter(n => !isNaN(n));
+    
+    const handleSelectArch = (arch: "upper" | "lower") => {
+      const archTeeth = arch === "upper" 
+        ? [...UPPER_RIGHT_TEETH, ...UPPER_LEFT_TEETH] 
+        : [...LOWER_RIGHT_TEETH, ...LOWER_LEFT_TEETH];
+      
+      const allSelected = archTeeth.every(t => selected.includes(t));
+      
+      if (allSelected) {
+        // Deselect all in arch
+        setSelectedTeeth(prev => prev.filter(t => !archTeeth.includes(t)));
+      } else {
+        // Select all in arch
+        setSelectedTeeth(prev => {
+          const newSet = new Set([...prev, ...archTeeth]);
+          return Array.from(newSet);
+        });
+      }
+    };
+    
     return (
-      <div className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-2xl min-w-0">
-        <p className="text-[10px] font-bold text-slate-500 mb-2">Select teeth from chart</p>
-        <div className="space-y-2 max-h-[156px] overflow-y-auto pr-1">
-          <div>
-            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">Upper jaw</p>
-            <Row left={UPPER_LEFT_TEETH} right={UPPER_RIGHT_TEETH} />
-          </div>
-          <div>
-            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">Lower jaw</p>
-            <Row left={LOWER_LEFT_TEETH} right={LOWER_RIGHT_TEETH} />
-          </div>
+      <div className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl min-w-0">
+        <p className="text-[10px] font-bold text-slate-500 mb-4">{language === "ar" ? "اختر الأسنان من المخطط" : "Select teeth from chart"}</p>
+        <div className="max-h-[300px] overflow-y-auto no-scrollbar rounded-xl border border-slate-200 bg-white shadow-inner">
+          <TeethChart
+            data={{}}
+            selectionMode={true}
+            compactMode={true}
+            selectedTeeth={selectedNumbers}
+            onToggleTooth={(id) => onToggle(id.toString())}
+            onSelectArch={handleSelectArch}
+          />
         </div>
       </div>
     );

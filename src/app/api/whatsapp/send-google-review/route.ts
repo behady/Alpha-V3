@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
-import { adminDb } from "@/lib/firebaseAdmin";
+import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { mergeWhatsAppTemplate } from "@/lib/whatsappTemplateMerge";
 import { resolveWhatsappTemplateForPatient } from "@/lib/whatsappDefaultBodies";
@@ -13,13 +13,18 @@ export async function POST(request: Request) {
   if (!authz.ok) return authz.response;
 
   try {
+    // Every collection below lives under clinics/{clinicId}/. Reading them at the root returned
+    // an empty snapshot rather than an error, so this route reported "Patient not found" for
+    // every patient that exists. Membership is proven here, not taken from the request body.
+    const clinicId = await resolveUserClinicId(authz.uid);
+
     const body = (await request.json().catch(() => ({}))) as { patientId?: string };
     const patientId = typeof body.patientId === "string" ? body.patientId.trim() : "";
     if (!patientId) {
       return NextResponse.json({ ok: false, error: "patientId required" }, { status: 400 });
     }
 
-    const patientSnap = await adminDb().collection("patients").doc(patientId).get();
+    const patientSnap = await adminClinicDoc(clinicId, "patients", patientId).get();
     if (!patientSnap.exists) {
       return NextResponse.json({ ok: false, error: "Patient not found" }, { status: 404 });
     }
@@ -33,7 +38,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "Patient has no phone number" }, { status: 400 });
     }
 
-    const settingsSnap = await adminDb().collection("settings").doc("whatsapp").get();
+    const settingsSnap = await adminClinicDoc(clinicId, "settings", "whatsapp").get();
     const settings = settingsSnap.exists ? settingsSnap.data() : {};
     const tplText = resolveWhatsappTemplateForPatient(settings?.templates, "google_review");
     if (!tplText?.trim()) {
@@ -45,7 +50,7 @@ export async function POST(request: Request) {
 
     const needsGoogleLink = tplText.includes("{{google_link}}");
 
-    const profile = await getClinicProfileAdmin();
+    const profile = await getClinicProfileAdmin(clinicId);
     const reviewUrl = String(profile?.googleReviewUrl || "").trim();
     const mapsUrl = String(profile?.googleMapsUrl || "").trim();
     /** Prefer dedicated review URL; fall back to legacy single Maps field if review URL was never saved. */
@@ -63,7 +68,7 @@ export async function POST(request: Request) {
 
     let clinicName = (profile?.clinicName && profile.clinicName.trim()) || "";
     if (!clinicName) {
-      const ci = await adminDb().collection("settings").doc("clinic_info").get();
+      const ci = await adminClinicDoc(clinicId, "settings", "clinic_info").get();
       const d = ci.data() as Record<string, unknown> | undefined;
       clinicName =
         (typeof d?.clinicName === "string" && d.clinicName.trim()) ||
@@ -79,7 +84,7 @@ export async function POST(request: Request) {
     });
 
     await sendWhatsApp({ to: phone, text: merged });
-    await adminDb().collection("whatsapp_logs").add({
+    await adminClinicCollection(clinicId, "whatsapp_logs").add({
       patientId,
       type: "google_review",
       message: merged,

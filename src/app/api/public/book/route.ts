@@ -61,7 +61,10 @@ export async function POST(request: Request) {
       duration: duration || 30,
       doctor: doctor || "Any",
       treatment: reason || "Consultation",
-      status: "Pending",
+      // "Pending" is not one of the workflow stages, so these requests were invisible to
+      // every status filter. "Scheduled" already renders as "Unconfirmed", which is what an
+      // online request is; source:"online" below keeps the distinction.
+      status: "Scheduled",
       source: "online",
       notes: "Online Booking Request",
       createdAt: FieldValue.serverTimestamp()

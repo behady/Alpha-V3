@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
-import { adminDb } from "@/lib/firebaseAdmin";
+import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { sendWhatsApp } from "@/lib/whatsapp";
 
 function normalizeProcedureText(
@@ -20,13 +20,18 @@ export async function POST(request: Request) {
   if (!authz.ok) return authz.response;
 
   try {
+    // Clinic data lives under clinics/{clinicId}/. These reads were hitting root-level
+    // collections that do not exist, so they silently resolved to empty and this route
+    // could never find the record it was asked to send.
+    const clinicId = await resolveUserClinicId(authz.uid);
+
     const body = (await request.json().catch(() => ({}))) as { orderId?: string };
     const orderId = typeof body.orderId === "string" ? body.orderId.trim() : "";
     if (!orderId) {
       return NextResponse.json({ ok: false, error: "orderId is required" }, { status: 400 });
     }
 
-    const orderSnap = await adminDb().collection("lab_orders").doc(orderId).get();
+    const orderSnap = await adminClinicDoc(clinicId, "lab_orders", orderId).get();
     if (!orderSnap.exists) {
       return NextResponse.json({ ok: false, error: "Lab order not found" }, { status: 404 });
     }
@@ -67,21 +72,21 @@ export async function POST(request: Request) {
 
     try {
       await sendWhatsApp({ to: labPhone, text: msg });
-      await adminDb().collection("whatsapp_logs").add({
+      await adminClinicCollection(clinicId, "whatsapp_logs").add({
         patientId: String(order.patientId || ""),
         type: "lab_order",
         message: msg,
         status: "success",
         createdAt: FieldValue.serverTimestamp(),
       });
-      await adminDb().collection("lab_orders").doc(orderId).update({
+      await adminClinicDoc(clinicId, "lab_orders", orderId).update({
         whatsappSentAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       });
       return NextResponse.json({ ok: true });
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Send failed";
-      await adminDb().collection("whatsapp_logs").add({
+      await adminClinicCollection(clinicId, "whatsapp_logs").add({
         patientId: String(order.patientId || ""),
         type: "lab_order",
         message: msg,

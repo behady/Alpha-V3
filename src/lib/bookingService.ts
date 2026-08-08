@@ -28,6 +28,12 @@ export interface BookingSavePayload {
   newPatientGender?: string;
   treatment: string;
   doctor: string;
+  /**
+   * Staff id of the treating dentist. `doctor` is a display name and is not a stable key —
+   * it has been observed holding an email address in real records, and renaming a dentist
+   * silently orphans every row keyed on the old string.
+   */
+  doctorId?: string | null;
   date: string;
   time: string;
   duration: number;
@@ -163,7 +169,8 @@ export async function saveBooking(
       dateOfBirth: data.newPatientDob || "",
       gender: data.newPatientGender || "Male",
       referral: data.newPatientSource || "",
-      medicalHistory: "None (Healthy)",
+      // Left blank rather than asserting health nobody screened for. See NewPatientModal.
+      medicalHistory: "",
       status: "New",
       balance: 0,
       totalSpent: 0,
@@ -297,7 +304,7 @@ export async function saveBooking(
           pricingFormula: `${sp.cost}*1`,
           note: "",
           doctor: data.doctor || userCtx.name || "System",
-          doctorId: data.doctor || userCtx.uid || "system",
+          doctorId: data.doctorId || null,
           date: normalizedDate || data.date,
           status: "Completed",
           ledgerId: newLedgerId,
@@ -320,6 +327,7 @@ export async function saveBooking(
     patientName: data.patientName,
     treatment: data.treatment,
     doctor: data.doctor,
+    doctorId: data.doctorId || null,
     date: normalizedDate || data.date,
     time: normalizedTime || data.time,
     duration: Number(data.duration) || 30,
@@ -383,7 +391,7 @@ export async function saveBooking(
         pricingFormula: `${sp.cost}*1`,
         note: "",
         doctor: data.doctor || userCtx.name || "System",
-        doctorId: data.doctor || userCtx.uid || "system",
+        doctorId: data.doctorId || null,
         date: normalizedDate || data.date,
         status: "Completed",
         ledgerId: newLedgerId,
