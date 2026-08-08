@@ -14,6 +14,7 @@ import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { logAiAction } from "@/lib/serverLogger";
 import { createPendingAiDelete, type PendingActionPreview } from "@/lib/aiPendingActions";
 import { runClinicReport } from "@/lib/automation/clinicReports";
+import { suggestSlots } from "@/lib/automation/slotSuggestions";
 
 /**
  * Collections the AI is permitted to touch.
@@ -96,6 +97,11 @@ ODONTOGRAM WORKFLOW (X-Rays & Clinical Diagnosis):
 - Step 2: STRICTLY differentiate between "Existing Findings" (what is currently in the mouth) and "Proposed Treatments". The odontogram is ONLY for current findings (e.g., previous endo, existing caries). DO NOT log proposed treatments (like "needs a crown") as a status.
 - Step 3: If the image is blurry, or you are unsure about a restoration (e.g., distinguishing a large radiopaque filling from a full crown), you MUST stop and ask the user to confirm before proceeding.
 - Step 4: Use 'update_odontogram' to save the verified status IDs and notes to the patient's record.
+
+SCHEDULING ("when is X free", "book me a slot"):
+- ALWAYS use 'suggest_appointment_slots'. Never infer availability from db_read on appointments — you would miss the clinic's opening hours, days off, and the dentist's own schedule.
+- If 'doctorResolved' is false, you did NOT get that dentist's availability, only the clinic's. Say so and ask which dentist they mean.
+- Repeat every caveat in 'notes'. Offering a time without mentioning that the clinic's hours were never configured is how someone books a patient for a day the clinic is shut.
 
 REPORTING ("how many / how much"):
 - ALWAYS use 'run_clinic_report'. Never count rows yourself from db_read and never estimate — a number someone acts on has to be reproducible.
@@ -381,6 +387,21 @@ export async function POST(req: Request) {
         }
       },
       {
+        name: "suggest_appointment_slots",
+        description:
+          "Finds free appointment times on a given date, taking the clinic's opening hours, the dentist's working hours, existing bookings and the treatment's duration into account. USE THIS instead of guessing availability. The result includes a 'basis' section and 'notes'; you MUST repeat any caveat there — especially when clinic hours were never configured, the dentist has no hours on file, or the treatment has no recorded duration — because each of those means the times are partly assumed.",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            date: { type: SchemaType.STRING, description: "The date to check (YYYY-MM-DD)" },
+            doctorName: { type: SchemaType.STRING, description: "Optional. Dentist's name; matched against the staff list." },
+            serviceName: { type: SchemaType.STRING, description: "Optional. Treatment name, used to look up how long it takes." },
+            durationMinutes: { type: SchemaType.NUMBER, description: "Optional. Overrides the treatment's duration when the user states one." }
+          },
+          required: ["date"]
+        }
+      },
+      {
         name: "get_diagnosis_catalog",
         description: "Returns the strict list of allowed diagnosis status IDs and their labels. Always use this to find the correct status ID before calling update_odontogram.",
         parameters: { type: SchemaType.OBJECT, properties: {} }
@@ -635,6 +656,48 @@ export async function POST(req: Request) {
                      }
                  }
              }
+          } else if (call.name === "suggest_appointment_slots") {
+             const { date, doctorName: askedDoctor, serviceName: askedService, durationMinutes } = call.args as any;
+
+             // The user says a name; the scheduler needs an id. Resolved here rather than making
+             // the model chain a db_read and risk it inventing an id that looks plausible.
+             let resolvedDoctorId: string | null = null;
+             if (askedDoctor && String(askedDoctor).trim()) {
+                const needle = String(askedDoctor).trim().toLowerCase();
+                const staffSnap = await adminClinicCollection(clinicId, "staff").limit(500).get();
+                const match = staffSnap.docs.find((d) => {
+                   const n = String((d.data() || {}).name || "").toLowerCase();
+                   return n === needle || n.includes(needle) || needle.includes(n);
+                });
+                resolvedDoctorId = match ? match.id : null;
+             }
+
+             let resolvedServiceId: string | null = null;
+             if (askedService && String(askedService).trim()) {
+                const needle = String(askedService).trim().toLowerCase();
+                const svcSnap = await adminClinicCollection(clinicId, "services").limit(1000).get();
+                const match = svcSnap.docs.find((d) => String((d.data() || {}).name || "").toLowerCase() === needle)
+                   || svcSnap.docs.find((d) => String((d.data() || {}).name || "").toLowerCase().includes(needle));
+                resolvedServiceId = match ? match.id : null;
+             }
+
+             const suggestion = await suggestSlots({
+                clinicId,
+                date,
+                doctorId: resolvedDoctorId,
+                serviceId: resolvedServiceId,
+                durationMinutes: Number(durationMinutes) > 0 ? Number(durationMinutes) : null,
+             });
+
+             toolResult = {
+                success: true,
+                suggestion,
+                // Said plainly so the model does not quietly present clinic-wide availability as
+                // that specific dentist's.
+                doctorResolved: askedDoctor ? Boolean(resolvedDoctorId) : null,
+                serviceResolved: askedService ? Boolean(resolvedServiceId) : null,
+             };
+
           } else if (call.name === "run_clinic_report") {
              const { metric, groupBy, startDate, endDate } = call.args as any;
              const allowedMetrics = ["procedure_count", "appointment_count", "revenue"];
