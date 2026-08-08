@@ -124,6 +124,8 @@ export type ToothData = {
   statuses?: string[];
   notes?: string;
   imageUrl?: string;
+  /** Surfaces affected by a given diagnosis (e.g. { "caries_enamel": ["M", "O"] }) */
+  surfaces?: Record<string, string[]>;
 };
 
 /**
@@ -142,6 +144,7 @@ export function normalizeToothData(raw: any): ToothData {
   }
   if (typeof raw.notes === "string") out.notes = raw.notes;
   if (typeof raw.imageUrl === "string") out.imageUrl = raw.imageUrl;
+  if (typeof raw.surfaces === "object" && raw.surfaces !== null) out.surfaces = raw.surfaces;
   return out;
 }
 

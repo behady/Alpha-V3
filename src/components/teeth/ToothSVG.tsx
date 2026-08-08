@@ -1,11 +1,21 @@
 "use client";
 
+import Image from "next/image";
 import {
   getPrimaryCategoryForStatuses,
   isMissingStatus,
 } from "@/lib/diagnosisCatalog";
 
+import ToothSurfaces, { ToothSurface } from "./ToothSurfaces";
+
 export type ToothType = "incisor" | "canine" | "premolar" | "molar";
+
+const OCCLUSAL_IMAGES: Record<ToothType, string> = {
+  incisor: "/teeth/occlusal_incisor.png",
+  canine: "/teeth/realistic_canine.png",
+  premolar: "/teeth/realistic_premolar.png",
+  molar: "/teeth/realistic_molar.png",
+};
 
 export function toothTypeFromFDI(fdi: number): ToothType {
   const position = fdi % 10;
@@ -27,57 +37,7 @@ export function isUpperFDI(fdi: number): boolean {
   return q === 1 || q === 2 || q === 5 || q === 6;
 }
 
-export const TOOTH_BODY = "#ffffff";
-export const TOOTH_STROKE = "#94a3b8";
-
-// All paths are drawn for a tooth in Quadrant 1 (e.g., tooth 14).
-// Buccal is UP (y=0), Lingual is DOWN (y=100)
-// Mesial is RIGHT (x=100), Distal is LEFT (x=0)
-
-export type ShapeBundle = {
-  paths: { id: string; d: string }[];
-};
-
-export function occlusalShapeFor(type: ToothType): ShapeBundle {
-  switch (type) {
-    case "incisor":
-      return {
-        paths: [
-          // A curved crescent representing the incisal edge and lingual cingulum
-          { id: "full", d: "M 10 40 C 30 10, 70 10, 90 40 C 70 60, 30 60, 10 40 Z" }
-        ]
-      };
-    case "canine":
-      return {
-        paths: [
-          // A pointed diamond/crescent
-          { id: "full", d: "M 15 45 C 30 15, 70 15, 85 45 C 70 75, 30 75, 15 45 Z" }
-        ]
-      };
-    case "premolar":
-      return {
-        paths: [
-          // An oval with a central groove
-          { id: "buccal", d: "M 15 50 C 15 15, 85 15, 85 50 C 70 55, 30 55, 15 50 Z" },
-          { id: "lingual", d: "M 15 50 C 30 45, 70 45, 85 50 C 85 85, 15 85, 15 50 Z" }
-        ]
-      };
-    case "molar":
-    default:
-      return {
-        paths: [
-          // 5-surface representation (O, B, L, M, D)
-          { id: "occlusal", d: "M 30 30 L 70 30 L 70 70 L 30 70 Z" },
-          { id: "buccal", d: "M 10 10 C 30 0, 70 0, 90 10 L 70 30 L 30 30 Z" },
-          { id: "lingual", d: "M 30 70 L 70 70 L 90 90 C 70 100, 30 100, 10 90 Z" },
-          { id: "distal", d: "M 10 10 L 30 30 L 30 70 L 10 90 C 0 70, 0 30, 10 10 Z" },
-          { id: "mesial", d: "M 90 10 C 100 30, 100 70, 90 90 L 70 70 L 70 30 Z" }
-        ]
-      };
-  }
-}
-
-interface ToothSVGProps {
+export interface ToothSVGProps {
   fdi: number;
   type: ToothType;
   isUpper: boolean;
@@ -86,69 +46,110 @@ interface ToothSVGProps {
   isHover?: boolean;
   hasNotes?: boolean;
   size?: number;
+  viewType?: "buccal" | "occlusal";
   ariaLabel?: string;
+  activeSurfaces?: ToothSurface[];
+  surfaceColors?: Record<string, string>;
+  onSurfaceClick?: (surface: ToothSurface) => void;
 }
 
 export default function ToothSVG({
   fdi,
   type,
   isUpper,
-  statuses,
+  statuses = [],
   isActive = false,
   isHover = false,
   hasNotes = false,
-  size,
+  size = 50,
+  viewType = "buccal",
   ariaLabel,
+  activeSurfaces = [],
+  surfaceColors = {},
+  onSurfaceClick,
 }: ToothSVGProps) {
-  const { paths } = occlusalShapeFor(type);
   const missing = isMissingStatus(statuses);
   const primaryCat = getPrimaryCategoryForStatuses(statuses);
   
-  const accent = primaryCat?.color ?? TOOTH_STROKE;
-  const fillAccent = primaryCat ? `${primaryCat.color}40` : TOOTH_BODY;
-  
-  const baseStroke = isActive ? "#3b82f6" : isHover ? "#64748b" : accent;
-  const strokeWidth = isActive ? 3 : 2;
-
-  // Mirroring logic
+  // Base transforms for realistic mirroring
   const q = Math.floor(fdi / 10);
   const scaleX = (q === 2 || q === 3 || q === 6 || q === 7) ? -1 : 1;
   const scaleY = (q === 3 || q === 4 || q === 7 || q === 8) ? -1 : 1;
 
+  // CSS Drop Shadow based on Clinical Status
+  let filterStyle = "";
+  if (isActive) {
+    filterStyle = `drop-shadow(0 0 8px #3b82f6) drop-shadow(0 0 3px #3b82f6)`;
+  } else if (primaryCat) {
+    filterStyle = `drop-shadow(0 0 6px ${primaryCat.color}) drop-shadow(0 0 2px ${primaryCat.color})`;
+  } else if (isHover) {
+    filterStyle = `drop-shadow(0 0 4px #94a3b8)`;
+  } else {
+    filterStyle = `drop-shadow(0 2px 4px rgba(0,0,0,0.1))`;
+  }
+
+  // Check if tooth has a crown restoration
+  const hasCrown = statuses.includes("rest_crown");
+  
+  const isOcclusal = viewType === "occlusal";
+  
+  let baseSrc = `/teeth/${type}.png`;
+  if (isOcclusal) {
+    baseSrc = OCCLUSAL_IMAGES[type];
+  } else if (hasCrown) {
+    baseSrc = `/teeth/crown_${type}.png`;
+  }
+  
+  const imageSrc = `${baseSrc}?v=1`; // Cache buster
+
+  // The CSS hacks are only needed if we are faking the occlusal view using the buccal image
+  const isFakedOcclusal = isOcclusal && type !== "incisor"; 
+
   return (
-    <svg
-      width="100%"
-      height="100%"
-      viewBox="0 0 100 100"
-      className="drop-shadow-sm transition-all"
-      style={{ overflow: "visible" }}
+    <div 
+      className="relative w-full h-full transition-all duration-300 flex items-center justify-center group"
+      title={ariaLabel}
     >
-      <g transform={`translate(50, 50) scale(${scaleX}, ${scaleY}) translate(-50, -50)`}>
-        {missing ? (
-          <>
-            {paths.map((p) => (
-               <path key={p.id} d={p.d} fill="transparent" stroke="#cbd5e1" strokeWidth={1} strokeDasharray="4 4" />
-            ))}
-            <line x1="10" y1="10" x2="90" y2="90" stroke="#94a3b8" strokeWidth={3} />
-            <line x1="90" y1="10" x2="10" y2="90" stroke="#94a3b8" strokeWidth={3} />
-          </>
-        ) : (
-          paths.map((p) => (
-            <path
-              key={p.id}
-              d={p.d}
-              fill={primaryCat ? fillAccent : TOOTH_BODY}
-              stroke={baseStroke}
-              strokeWidth={strokeWidth}
-              strokeLinejoin="round"
-              className="transition-colors duration-200"
-            />
-          ))
+      <div 
+        className={`absolute inset-0 transition-transform duration-300 ${isFakedOcclusal ? "scale-[0.6] opacity-80" : ""}`}
+        style={{
+           transform: isOcclusal ? undefined : `scale(${scaleX}, ${scaleY})`,
+           filter: filterStyle,
+           opacity: missing ? 0.15 : (isFakedOcclusal ? 0.6 : 1),
+           borderRadius: isFakedOcclusal ? "50%" : undefined,
+           overflow: isFakedOcclusal ? "hidden" : "visible",
+           boxShadow: isFakedOcclusal && !missing ? "inset 0 0 10px rgba(0,0,0,0.1)" : undefined
+        }}
+      >
+        <Image 
+          src={imageSrc}
+          alt={hasCrown ? `${type} crown` : type}
+          fill
+          className={`object-contain ${isFakedOcclusal ? "scale-150" : ""}`}
+          unoptimized
+        />
+        
+        {/* The interactive surface overlay layer */}
+        {!missing && (
+          <ToothSurfaces 
+            activeSurfaces={activeSurfaces}
+            surfaceColors={surfaceColors}
+            onSurfaceClick={onSurfaceClick}
+            viewType={viewType}
+            isUpper={isUpper}
+          />
         )}
-      </g>
-      {hasNotes && (
-        <circle cx="85" cy="15" r="6" fill="#f59e0b" stroke="#ffffff" strokeWidth={1.5} />
+      </div>
+
+      {missing && (
+         <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
+            <div className="w-[80%] h-0.5 bg-red-400 rotate-45 rounded-full shadow-sm" />
+         </div>
       )}
-    </svg>
+
+      {hasNotes && (
+        <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-amber-500 border-2 border-white shadow-sm z-20" />
+      )}
+    </div>
   );
 }

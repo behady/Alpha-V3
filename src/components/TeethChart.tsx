@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { useLanguage } from "@/context/LanguageContext";
 import {
   Activity,
@@ -23,8 +23,10 @@ import {
   findOption,
   getStatusesFromTooth,
   type ToothData,
+  normalizeToothData,
 } from "@/lib/diagnosisCatalog";
 import ToothSVG, { isUpperFDI, toothTypeFromFDI, toothTypeFromPrimaryFDI } from "@/components/teeth/ToothSVG";
+import { type ToothSurface } from "./teeth/ToothSurfaces";
 
 const Q1 = [18, 17, 16, 15, 14, 13, 12, 11];
 const Q2 = [21, 22, 23, 24, 25, 26, 27, 28];
@@ -36,70 +38,19 @@ const ChildQ2 = [61, 62, 63, 64, 65];
 const ChildQ4 = [85, 84, 83, 82, 81];
 const ChildQ3 = [71, 72, 73, 74, 75];
 
-const ADULT_POSITIONS: Record<number, { left: string; top: string; rotate: string }> = {
-  18: { left: "15%", top: "43%", rotate: "-80deg" },
-  17: { left: "17%", top: "34%", rotate: "-65deg" },
-  16: { left: "21%", top: "25%", rotate: "-50deg" },
-  15: { left: "27%", top: "17%", rotate: "-35deg" },
-  14: { left: "34%", top: "11%", rotate: "-20deg" },
-  13: { left: "41%", top: "6%", rotate: "-10deg" },
-  12: { left: "46%", top: "3%", rotate: "-5deg" },
-  11: { left: "49%", top: "2%", rotate: "0deg" },
-  21: { left: "51%", top: "2%", rotate: "0deg" },
-  22: { left: "54%", top: "3%", rotate: "5deg" },
-  23: { left: "59%", top: "6%", rotate: "10deg" },
-  24: { left: "66%", top: "11%", rotate: "20deg" },
-  25: { left: "73%", top: "17%", rotate: "35deg" },
-  26: { left: "79%", top: "25%", rotate: "50deg" },
-  27: { left: "83%", top: "34%", rotate: "65deg" },
-  28: { left: "85%", top: "43%", rotate: "80deg" },
-  38: { left: "85%", top: "57%", rotate: "100deg" },
-  37: { left: "83%", top: "66%", rotate: "115deg" },
-  36: { left: "79%", top: "75%", rotate: "130deg" },
-  35: { left: "73%", top: "83%", rotate: "145deg" },
-  34: { left: "66%", top: "89%", rotate: "160deg" },
-  33: { left: "59%", top: "94%", rotate: "170deg" },
-  32: { left: "54%", top: "97%", rotate: "175deg" },
-  31: { left: "51%", top: "98%", rotate: "180deg" },
-  41: { left: "49%", top: "98%", rotate: "180deg" },
-  42: { left: "46%", top: "97%", rotate: "185deg" },
-  43: { left: "41%", top: "94%", rotate: "190deg" },
-  44: { left: "34%", top: "89%", rotate: "200deg" },
-  45: { left: "27%", top: "83%", rotate: "215deg" },
-  46: { left: "21%", top: "75%", rotate: "230deg" },
-  47: { left: "17%", top: "66%", rotate: "245deg" },
-  48: { left: "15%", top: "57%", rotate: "260deg" },
-};
 
-const PRIMARY_POSITIONS: Record<number, { left: string; top: string; rotate: string }> = {
-  55: { left: "25%", top: "38%", rotate: "-60deg" },
-  54: { left: "31%", top: "26%", rotate: "-40deg" },
-  53: { left: "38%", top: "15%", rotate: "-20deg" },
-  52: { left: "44%", top: "8%", rotate: "-10deg" },
-  51: { left: "49%", top: "5%", rotate: "0deg" },
-  61: { left: "51%", top: "5%", rotate: "0deg" },
-  62: { left: "56%", top: "8%", rotate: "10deg" },
-  63: { left: "62%", top: "15%", rotate: "20deg" },
-  64: { left: "69%", top: "26%", rotate: "40deg" },
-  65: { left: "75%", top: "38%", rotate: "60deg" },
-  75: { left: "75%", top: "62%", rotate: "120deg" },
-  74: { left: "69%", top: "74%", rotate: "140deg" },
-  73: { left: "62%", top: "85%", rotate: "160deg" },
-  72: { left: "56%", top: "92%", rotate: "170deg" },
-  71: { left: "51%", top: "95%", rotate: "180deg" },
-  81: { left: "49%", top: "95%", rotate: "180deg" },
-  82: { left: "44%", top: "92%", rotate: "190deg" },
-  83: { left: "38%", top: "85%", rotate: "200deg" },
-  84: { left: "31%", top: "74%", rotate: "220deg" },
-  85: { left: "25%", top: "62%", rotate: "240deg" },
-};
 
 interface TeethChartProps {
-  data: Record<string, ToothData>;
-  onUpdateTooth?: (id: number, statuses: string[], notes: string, imageUrl?: string) => void;
+  data?: Record<string, ToothData>;
+  onUpdateTooth?: (id: number, statuses: string[], notes: string, imageUrl?: string, surfaces?: Record<string, string[]>) => void;
   onToothClick?: (id: number) => void;
   isPrimary?: boolean;
   readOnly?: boolean;
+  selectionMode?: boolean;
+  selectedTeeth?: number[];
+  onToggleTooth?: (id: number) => void;
+  compactMode?: boolean;
+  onSelectArch?: (arch: "upper" | "lower") => void;
 }
 
 export type { ToothData };
@@ -110,6 +61,11 @@ export default function TeethChart({
   onToothClick,
   isPrimary = false,
   readOnly = false,
+  selectionMode = false,
+  selectedTeeth = [],
+  onToggleTooth,
+  compactMode = false,
+  onSelectArch,
 }: TeethChartProps) {
   const { language, isRTL } = useLanguage();
   const [activeTooth, setActiveTooth] = useState<number | null>(null);
@@ -117,6 +73,7 @@ export default function TeethChart({
 
   // Modal/draft state
   const [draftStatuses, setDraftStatuses] = useState<string[]>([]);
+  const [draftSurfaces, setDraftSurfaces] = useState<Record<string, string[]>>({});
   const [draftNotes, setDraftNotes] = useState<string>("");
   const [draftImage, setDraftImage] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<string>("caries");
@@ -127,10 +84,6 @@ export default function TeethChart({
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
 
-  const Q1_Active = isPrimary ? ChildQ1 : Q1;
-  const Q2_Active = isPrimary ? ChildQ2 : Q2;
-  const Q3_Active = isPrimary ? ChildQ3 : Q3;
-  const Q4_Active = isPrimary ? ChildQ4 : Q4;
 
   const filteredOptions = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -145,14 +98,22 @@ export default function TeethChart({
   }, [activeCategory, search]);
 
   const openToothModal = (id: number) => {
+    if (selectionMode) {
+      onToggleTooth?.(id);
+      return;
+    }
     if (readOnly) return;
     onToothClick?.(id);
 
     const raw = data[String(id)];
-    const statuses = getStatusesFromTooth(raw);
+    // Need to use normalizeToothData here to safely get surfaces since it might be raw legacy data
+    const normalized = normalizeToothData(raw);
+    const statuses = normalized.statuses || [];
+    
     setDraftStatuses(statuses);
-    setDraftNotes((raw && typeof raw.notes === "string") ? raw.notes : "");
-    setDraftImage((raw && typeof raw.imageUrl === "string") ? raw.imageUrl : null);
+    setDraftSurfaces(normalized.surfaces || {});
+    setDraftNotes(normalized.notes || "");
+    setDraftImage(normalized.imageUrl || null);
     setUploadProgress(0);
     setIsUploading(false);
     setSearch("");
@@ -166,19 +127,42 @@ export default function TeethChart({
   };
 
   const toggleDraftStatus = (id: string) => {
-    setDraftStatuses(prev => (prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]));
+    setDraftStatuses(prev => {
+      const isSelected = prev.includes(id);
+      if (isSelected) {
+        // Remove surfaces when deselecting
+        setDraftSurfaces(s => {
+          const next = { ...s };
+          delete next[id];
+          return next;
+        });
+        return prev.filter(s => s !== id);
+      }
+      return [...prev, id];
+    });
+  };
+
+  const toggleSurface = (statusId: string, surface: ToothSurface) => {
+    setDraftSurfaces(prev => {
+      const active = prev[statusId] || [];
+      const isSelected = active.includes(surface);
+      return {
+        ...prev,
+        [statusId]: isSelected ? active.filter(s => s !== surface) : [...active, surface]
+      };
+    });
   };
 
   const handleSaveDiagnosis = () => {
     if (activeTooth && typeof onUpdateTooth === "function") {
-      onUpdateTooth(activeTooth, draftStatuses, draftNotes.trim(), draftImage || undefined);
+      onUpdateTooth(activeTooth, draftStatuses, draftNotes.trim(), draftImage || undefined, draftSurfaces);
     }
     setActiveTooth(null);
   };
 
   const handleClearTooth = () => {
     if (activeTooth && typeof onUpdateTooth === "function") {
-      onUpdateTooth(activeTooth, [], "", undefined);
+      onUpdateTooth(activeTooth, [], "", undefined, {});
     }
     setActiveTooth(null);
   };
@@ -242,40 +226,73 @@ export default function TeethChart({
     }
   };
 
-  const renderTooth = (id: number) => {
+  const renderTooth = (id: number, viewType: "buccal" | "occlusal" = "buccal") => {
     const raw = data[String(id)];
-    const statuses = getStatusesFromTooth(raw);
-    const isActive = activeTooth === id;
-    const isHover = hoverTooth === id;
-    const hasNotes = !!(raw && (raw.notes || raw.imageUrl));
+    const normalized = normalizeToothData(raw);
+    const statuses = normalized.statuses || [];
+    const hasNotes = !!normalized.notes;
     const isUpper = isUpperFDI(id);
     const type = isPrimary ? toothTypeFromPrimaryFDI(id) : toothTypeFromFDI(id);
 
-    // Hover tooltip text — full english labels of all statuses (or AR)
-    const tooltipLines = statuses
-      .map(s => findOption(s))
-      .filter((o): o is NonNullable<typeof o> => !!o)
-      .map(o => (language === "ar" ? o.labelAr : o.labelEn));
+    const isActive = activeTooth === id;
+    const isHover = hoverTooth === id;
 
-    const pos = isPrimary ? PRIMARY_POSITIONS[id] : ADULT_POSITIONS[id];
+    // Build surface data for the rendering engine
+    const activeSurfaces = new Set<ToothSurface>();
+    const surfaceColors: Record<string, string> = {};
+    if (normalized.surfaces) {
+      Object.entries(normalized.surfaces).forEach(([statusId, surfs]) => {
+        const cat = findOption(statusId)?.cat;
+        const color = findCategory(cat)?.color || "#ef4444";
+        surfs.forEach(surf => {
+          activeSurfaces.add(surf as ToothSurface);
+          // If multiple diagnoses on same surface, last one wins for color
+          surfaceColors[surf] = color;
+        });
+      });
+    }
+
+    const tooltipLines = statuses
+      .map(s => {
+        const o = findOption(s);
+        if (!o) return "";
+        let line = language === "ar" ? o.labelAr : o.labelEn;
+        const surfs = normalized.surfaces?.[s];
+        if (surfs && surfs.length > 0) {
+           line += ` (${surfs.join("")})`;
+        }
+        return line;
+      })
+      .filter(Boolean);
 
     return (
       <div
-        key={id}
-        className="absolute flex flex-col items-center justify-center gap-1 cursor-pointer"
-        style={{
-          left: pos?.left,
-          top: pos?.top,
-          transform: `translate(${isUpper ? "-100%" : "0%"}, -50%) rotate(${pos?.rotate || "0deg"})`,
-          marginLeft: isUpper ? "-2%" : "2%", 
-        }}
+        key={`${id}-${viewType}`}
+        className={`group relative flex flex-col items-center justify-center ${compactMode ? "mx-[-1px] sm:mx-0.5" : "m-0.5 sm:m-1"} cursor-pointer ${
+          selectionMode ? "cursor-pointer" : readOnly ? "cursor-default" : "cursor-pointer"
+        }`}
         onClick={() => openToothModal(id)}
         onMouseEnter={() => setHoverTooth(id)}
         onMouseLeave={() => setHoverTooth(prev => (prev === id ? null : prev))}
       >
+        {/* Tooth number for Buccal upper (above tooth if we wanted, but we place it centrally) */}
+        {!isUpper && viewType === "buccal" && (
+           <div className={`text-[10px] sm:text-xs font-bold tabular-nums tracking-tight transition-colors ${isActive ? "text-blue-600" : "text-slate-400 group-hover:text-slate-600"} mt-2`}>
+             {id}
+           </div>
+        )}
+
         <div
-          className={`transition-all duration-150 ${isActive ? "scale-125 z-10 shadow-xl rounded-full" : isHover ? "scale-110 z-10" : ""}`}
-          style={{ height: isPrimary ? 34 : 42, width: isPrimary ? 30 : 38 }}
+          className={`transition-all duration-200 ${
+            selectionMode && selectedTeeth.includes(id) 
+              ? "scale-110 z-10 shadow-[0_0_15px_rgba(37,99,235,0.5)] bg-blue-500/10 rounded-full" 
+              : isActive 
+                ? "scale-110 z-10 shadow-lg rounded-full" 
+                : isHover 
+                  ? "scale-105 z-10" 
+                  : "scale-100"
+          }`}
+          style={{ height: isPrimary ? 44 : 52, width: isPrimary ? 36 : 42 }}
         >
           <ToothSVG
             fdi={id}
@@ -285,15 +302,25 @@ export default function TeethChart({
             isActive={isActive}
             isHover={isHover}
             hasNotes={hasNotes}
-            size={isPrimary ? 38 : 34}
-            ariaLabel={`Tooth ${id}${tooltipLines.length ? ` — ${tooltipLines.join(", ")}` : ""}`}
+            size={isPrimary ? 44 : 52}
+            viewType={viewType}
+            ariaLabel={`Tooth ${id} ${viewType}${tooltipLines.length ? ` — ${tooltipLines.join(", ")}` : ""}`}
+            activeSurfaces={Array.from(activeSurfaces)}
+            surfaceColors={surfaceColors}
           />
         </div>
+
+        {/* Tooth number for Buccal upper */}
+        {isUpper && viewType === "buccal" && (
+           <div className={`text-[10px] sm:text-xs font-bold tabular-nums tracking-tight transition-colors ${isActive ? "text-blue-600" : "text-slate-400 group-hover:text-slate-600"} mb-2`}>
+             {id}
+           </div>
+        )}
 
         {/* Tooltip */}
         {isHover && tooltipLines.length > 0 && (
           <div
-            className={`absolute z-30 ${isUpper ? "top-full mt-1.5" : "bottom-full mb-1.5"} left-1/2 -translate-x-1/2 px-2.5 py-1.5 rounded-lg bg-slate-900 text-white text-[11px] font-semibold whitespace-nowrap shadow-lg pointer-events-none animate-in fade-in duration-100`}
+            className={`absolute z-30 ${isUpper ? "top-full mt-2" : "bottom-full mb-2"} left-1/2 -translate-x-1/2 px-2.5 py-1.5 rounded-lg bg-slate-900 text-white text-[11px] font-semibold whitespace-nowrap shadow-lg pointer-events-none animate-in fade-in duration-100`}
           >
             <div className="text-[10px] opacity-70 mb-0.5">FDI {id}</div>
             {tooltipLines.slice(0, 3).map((l, i) => (
@@ -304,19 +331,6 @@ export default function TeethChart({
             )}
           </div>
         )}
-
-        {/* Number outside arch */}
-        <div
-          className={`absolute text-[9px] md:text-[10px] font-bold tabular-nums tracking-tight ${
-            isActive ? "text-blue-600" : "text-slate-400"
-          }`}
-          style={{
-            top: isUpper ? "-45%" : "135%",
-            transform: `rotate(calc(-1 * ${pos?.rotate || "0deg"}))`,
-          }}
-        >
-          {id}
-        </div>
       </div>
     );
   };
@@ -339,27 +353,142 @@ export default function TeethChart({
             <span>{language === "ar" ? "يسار" : "Left"}</span>
           </div>
 
-          {/* Chart canvas (Arch Layout) */}
-          <div className="relative rounded-3xl border border-slate-100 bg-white shadow-sm px-2 md:px-6 py-5 md:py-7 flex justify-center items-center">
-            <div className="relative w-full max-w-[400px] aspect-[3/4]">
-               {/* Center divider line */}
-               <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 border-l border-dashed border-slate-200/60 z-0"></div>
-               {/* Horizontal mid line */}
-               <div className="absolute top-1/2 left-10 right-10 -translate-y-1/2 border-t border-dashed border-slate-200/60 z-0"></div>
+          {/* Chart canvas (Grid Layout) */}
+          <div className="rounded-3xl border border-slate-100 bg-white shadow-sm px-2 md:px-6 py-6 md:py-8 flex flex-col items-center justify-center overflow-hidden">
+            <div className="flex flex-col gap-6 md:gap-8 w-full max-w-3xl items-center relative">
                
-               {[...Q1_Active, ...Q2_Active, ...Q4_Active, ...Q3_Active].map(renderTooth)}
+               {/* Global cross dividers for the entire grid */}
+               <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 border-l-2 border-slate-100/80 z-0"></div>
+               {/* Upper Arch (Buccal Row) */}
+               <div className="flex w-full justify-center relative z-10 pb-2">
+                 <div className="flex flex-row w-full justify-center gap-0.5 md:gap-1 px-1 md:px-2">
+                   <div className="flex justify-end gap-0 w-full">
+                     { (isPrimary ? ChildQ1 : Q1).map((id, index) => (
+                        <div key={`u-buc-${id}`} style={{ transform: `translateY(${(isPrimary ? 5 - index : 8 - index) * 3}px)` }}>
+                          {renderTooth(id, "buccal")}
+                        </div>
+                     )) }
+                   </div>
+                   <div className="w-1 md:w-2 shrink-0" />
+                   <div className="flex justify-start gap-0 w-full">
+                     { (isPrimary ? ChildQ2 : Q2).map((id, index) => (
+                        <div key={`u-buc-${id}`} style={{ transform: `translateY(${(index + 1) * 3}px)` }}>
+                          {renderTooth(id, "buccal")}
+                        </div>
+                     )) }
+                   </div>
+                 </div>
+               </div>
+
+               {/* Upper Arch (Occlusal Row) */}
+               {!compactMode && (
+                 <div className="flex w-full justify-center relative z-10 pb-4">
+                   <div className="flex flex-row w-full justify-center gap-0.5 md:gap-1 px-1 md:px-2">
+                     <div className="flex justify-end gap-0 w-full">
+                       { (isPrimary ? ChildQ1 : Q1).map((id, index) => (
+                          <div key={`u-occ-${id}`} style={{ transform: `translateY(${(isPrimary ? 5 - index : 8 - index) * 1}px)` }}>
+                            {renderTooth(id, "occlusal")}
+                          </div>
+                       )) }
+                     </div>
+                     <div className="w-1 md:w-2 shrink-0" />
+                     <div className="flex justify-start gap-0 w-full">
+                       { (isPrimary ? ChildQ2 : Q2).map((id, index) => (
+                          <div key={`u-occ-${id}`} style={{ transform: `translateY(${(index + 1) * 1}px)` }}>
+                            {renderTooth(id, "occlusal")}
+                          </div>
+                       )) }
+                     </div>
+                   </div>
+                 </div>
+               )}
+
+               {/* Center Numbers / Divider Area */}
+               <div className="absolute top-1/2 left-0 right-0 -translate-y-1/2 flex items-center justify-center z-0 gap-2">
+                 <div className="flex-1 border-t-2 border-slate-100/80"></div>
+                 {selectionMode && onSelectArch && (
+                   <div className="flex gap-2">
+                     <button
+                       type="button"
+                       onClick={(e) => { e.stopPropagation(); onSelectArch("upper"); }}
+                       className="text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-full border border-blue-200 transition-colors"
+                     >
+                       {language === "ar" ? "تحديد الفك العلوي" : "Select Upper Arch"}
+                     </button>
+                     <button
+                       type="button"
+                       onClick={(e) => { e.stopPropagation(); onSelectArch("lower"); }}
+                       className="text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-full border border-blue-200 transition-colors"
+                     >
+                       {language === "ar" ? "تحديد الفك السفلي" : "Select Lower Arch"}
+                     </button>
+                   </div>
+                 )}
+                 <div className="flex-1 border-t-2 border-slate-100/80"></div>
+                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 border-l-2 border-slate-100/80 h-full"></div>
+               </div>
+
+               {/* Lower Arch (Occlusal Row) */}
+               {!compactMode && (
+                 <div className="flex w-full justify-center relative z-10 pt-4">
+                   <div className="flex flex-row w-full justify-center gap-0.5 md:gap-1 px-1 md:px-2">
+                     <div className="flex justify-end gap-0 w-full">
+                       { (isPrimary ? ChildQ4 : Q4).map((id, index) => (
+                          <div key={`l-occ-${id}`} style={{ transform: `translateY(-${(isPrimary ? 5 - index : 8 - index) * 1}px)` }}>
+                            {renderTooth(id, "occlusal")}
+                          </div>
+                       )) }
+                     </div>
+                     <div className="w-1 md:w-2 shrink-0" />
+                     <div className="flex justify-start gap-0 w-full">
+                       { (isPrimary ? ChildQ3 : Q3).map((id, index) => (
+                          <div key={`l-occ-${id}`} style={{ transform: `translateY(-${(index + 1) * 1}px)` }}>
+                            {renderTooth(id, "occlusal")}
+                          </div>
+                       )) }
+                     </div>
+                   </div>
+                 </div>
+               )}
+
+               {/* Lower Arch (Buccal Row) */}
+               <div className="flex w-full justify-center relative z-10 pt-2">
+                 <div className="flex flex-row w-full justify-center gap-0.5 md:gap-1 px-1 md:px-2">
+                   <div className="flex justify-end gap-0 w-full">
+                     { (isPrimary ? ChildQ4 : Q4).map((id, index) => (
+                        <div key={`l-buc-${id}`} style={{ transform: `translateY(-${(isPrimary ? 5 - index : 8 - index) * 3}px)` }}>
+                          {renderTooth(id, "buccal")}
+                        </div>
+                     )) }
+                   </div>
+                   <div className="w-1 md:w-2 shrink-0" />
+                   <div className="flex justify-start gap-0 w-full">
+                     { (isPrimary ? ChildQ3 : Q3).map((id, index) => (
+                        <div key={`l-buc-${id}`} style={{ transform: `translateY(-${(index + 1) * 3}px)` }}>
+                          {renderTooth(id, "buccal")}
+                        </div>
+                     )) }
+                   </div>
+                 </div>
+               </div>
+
             </div>
           </div>
 
-          {/* Color legend */}
-          <div className="mt-3 flex flex-wrap items-center justify-center gap-x-3 gap-y-1.5 text-[10px] font-semibold text-slate-500">
-            {DIAGNOSIS_CATEGORIES.filter(c => c.id !== "healthy").map(cat => (
-              <div key={cat.id} className="inline-flex items-center gap-1">
-                <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: cat.color, opacity: 0.7 }} />
-                <span>{language === "ar" ? cat.labelAr : cat.labelEn}</span>
-              </div>
-            ))}
-          </div>
+          {/* Legend */}
+          {!compactMode && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-y-2 gap-x-4 pt-4 border-t border-slate-100 px-2 mt-4 text-[10px] md:text-xs">
+              {DIAGNOSIS_CATEGORIES.filter(c => c.id !== "healthy").map(cat => (
+                <div key={cat.id} className="flex items-center gap-1.5 whitespace-nowrap">
+                  <div
+                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                    style={{ backgroundColor: cat.color }}
+                  />
+                  <span className="text-slate-500 font-medium">{language === "ar" ? cat.labelAr : cat.labelEn}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -531,39 +660,66 @@ export default function TeethChart({
                         const isSelected = draftStatuses.includes(opt.id);
                         const cat = findCategory(opt.cat);
                         return (
-                          <button
-                            key={opt.id}
-                            onClick={() => toggleDraftStatus(opt.id)}
-                            className="flex items-center gap-3 p-3 rounded-xl border-2 transition-all duration-150 text-left bg-white hover:shadow-sm"
-                            style={{
-                              borderColor: isSelected ? cat?.color : "#e2e8f0",
-                              backgroundColor: isSelected ? `${cat?.color}10` : "#ffffff",
-                            }}
-                          >
-                            <div
-                              className="w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors"
+                          <React.Fragment key={opt.id}>
+                            <button
+                              onClick={() => toggleDraftStatus(opt.id)}
+                              className="flex items-center gap-3 p-3 rounded-xl border-2 transition-all duration-150 text-left bg-white hover:shadow-sm"
                               style={{
-                                borderColor: isSelected ? cat?.color : "#cbd5e1",
-                                backgroundColor: isSelected ? cat?.color : "#ffffff",
+                                borderColor: isSelected ? cat?.color : "#e2e8f0",
+                                backgroundColor: isSelected ? `${cat?.color}10` : "#ffffff",
                               }}
                             >
-                              {isSelected && (
-                                <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth={3} className="w-3 h-3">
-                                  <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                              )}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className={`text-sm leading-snug ${isSelected ? "font-bold text-slate-900" : "font-semibold text-slate-600"}`}>
-                                {language === "ar" ? opt.labelAr : opt.labelEn}
+                              <div
+                                className="w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors"
+                                style={{
+                                  borderColor: isSelected ? cat?.color : "#cbd5e1",
+                                  backgroundColor: isSelected ? cat?.color : "#ffffff",
+                                }}
+                              >
+                                {isSelected && (
+                                  <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth={3} className="w-3 h-3">
+                                    <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+                                  </svg>
+                                )}
                               </div>
-                              {search && cat && (
-                                <div className="text-[10px] font-semibold mt-0.5" style={{ color: cat.color }}>
-                                  {language === "ar" ? cat.labelAr : cat.labelEn}
+                              <div className="min-w-0 flex-1">
+                                <div className={`text-sm leading-snug ${isSelected ? "font-bold text-slate-900" : "font-semibold text-slate-600"}`}>
+                                  {language === "ar" ? opt.labelAr : opt.labelEn}
                                 </div>
-                              )}
-                            </div>
-                          </button>
+                                {search && cat && (
+                                  <div className="text-[10px] font-semibold mt-0.5" style={{ color: cat.color }}>
+                                    {language === "ar" ? cat.labelAr : cat.labelEn}
+                                  </div>
+                                )}
+                              </div>
+                            </button>
+                            
+                            {/* Surface Selector for active diagnoses */}
+                            {isSelected && (
+                              <div className="md:col-span-1 md:col-start-2 bg-slate-50 border-2 border-slate-200 border-t-0 -mt-3 pt-4 pb-2 px-3 rounded-b-xl flex items-center justify-between gap-1 mb-1">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase">{language === "ar" ? "الأسطح" : "Surfaces"}</span>
+                                <div className="flex items-center gap-1">
+                                  {(["M", "O", "D", "B", "L"] as ToothSurface[]).map(surf => {
+                                    const isActive = (draftSurfaces[opt.id] || []).includes(surf);
+                                    return (
+                                      <button
+                                        key={surf}
+                                        type="button"
+                                        onClick={() => toggleSurface(opt.id, surf)}
+                                        className={`w-7 h-7 rounded-md text-xs font-bold transition-all ${
+                                          isActive 
+                                            ? "bg-blue-600 text-white shadow-sm" 
+                                            : "bg-white text-slate-500 border border-slate-200 hover:border-blue-300"
+                                        }`}
+                                      >
+                                        {surf}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </React.Fragment>
                         );
                       })}
                       {filteredOptions.length === 0 && (

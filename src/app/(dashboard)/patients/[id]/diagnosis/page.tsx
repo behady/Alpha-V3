@@ -84,18 +84,27 @@ export default function DiagnosisPage() {
     }
   };
 
-  const handleUpdateTooth = (toothId: number, statuses: string[], notes: string, imageUrl?: string) => {
+  const handleUpdateTooth = async (
+    toothId: number, 
+    statuses: string[], 
+    notes: string, 
+    imageUrl?: string,
+    surfaces?: Record<string, string[]>
+  ) => {
     const next: Record<string, ToothData> = { ...teethData };
-    const cleaned = statuses.filter(s => s && s !== "healthy");
-    if (cleaned.length === 0 && !notes && !imageUrl) {
-      delete next[toothId];
+    
+    // If clearing everything
+    if (statuses.length === 0 && !notes && !imageUrl) {
+      delete next[toothId.toString()];
     } else {
-      const payload: ToothData = { statuses: cleaned };
+      const payload: ToothData = { statuses };
       if (notes) payload.notes = notes;
       if (imageUrl) payload.imageUrl = imageUrl;
-      next[toothId] = payload;
+      if (surfaces && Object.keys(surfaces).length > 0) payload.surfaces = surfaces;
+      next[toothId.toString()] = payload;
     }
-    persist(next);
+    
+    await persist(next);
   };
 
   const deleteDiagnosis = (toothId: number) => {

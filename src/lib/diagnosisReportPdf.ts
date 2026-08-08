@@ -9,12 +9,44 @@ import {
   type ToothData,
 } from "@/lib/diagnosisCatalog";
 import {
-  occlusalShapeFor,
   toothTypeFromFDI,
   toothTypeFromPrimaryFDI,
-  TOOTH_BODY,
-  TOOTH_STROKE,
+  type ToothType,
 } from "@/components/teeth/ToothSVG";
+
+export const TOOTH_BODY = "#ffffff";
+export const TOOTH_STROKE = "#94a3b8";
+
+export function occlusalShapeFor(type: ToothType): { paths: { id: string; d: string }[] } {
+  switch (type) {
+    case "incisor":
+      return {
+        paths: [{ id: "full", d: "M 10 40 C 30 10, 70 10, 90 40 C 70 60, 30 60, 10 40 Z" }]
+      };
+    case "canine":
+      return {
+        paths: [{ id: "full", d: "M 15 45 C 30 15, 70 15, 85 45 C 70 75, 30 75, 15 45 Z" }]
+      };
+    case "premolar":
+      return {
+        paths: [
+          { id: "buccal", d: "M 15 50 C 15 15, 85 15, 85 50 C 70 55, 30 55, 15 50 Z" },
+          { id: "lingual", d: "M 15 50 C 30 45, 70 45, 85 50 C 85 85, 15 85, 15 50 Z" }
+        ]
+      };
+    case "molar":
+    default:
+      return {
+        paths: [
+          { id: "occlusal", d: "M 30 30 L 70 30 L 70 70 L 30 70 Z" },
+          { id: "buccal", d: "M 10 10 C 30 0, 70 0, 90 10 L 70 30 L 30 30 Z" },
+          { id: "lingual", d: "M 30 70 L 70 70 L 90 90 C 70 100, 30 100, 10 90 Z" },
+          { id: "distal", d: "M 10 10 L 30 30 L 30 70 L 10 90 C 0 70, 0 30, 10 10 Z" },
+          { id: "mesial", d: "M 90 10 C 100 30, 100 70, 90 90 L 70 70 L 70 30 Z" }
+        ]
+      };
+  }
+}
 
 function isUpperFDI(fdi: number): boolean {
   const q = Math.floor(fdi / 10);
