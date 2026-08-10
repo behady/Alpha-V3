@@ -16,6 +16,12 @@ import {
 import { logActivity } from "@/lib/logger";
 import { sendPatientAppointmentWhatsApp } from "@/lib/sendPatientAppointmentWhatsAppClient";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import {
+  normalizeDateKey,
+  normalizeTimeKey,
+  parseApptTimeToMinutes,
+  minutesToTimeKey,
+} from "@/lib/appointmentTime";
 
 export interface BookingSavePayload {
   patientId: string;
@@ -66,63 +72,11 @@ export interface BookingSavePayload {
   discountDistribution?: "total" | "each";
 }
 
-export function normalizeDateKey(value?: string): string {
-  if (!value) return "";
-  const trimmed = value.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
-  const parsed = new Date(trimmed);
-  if (Number.isNaN(parsed.getTime())) return trimmed;
-  const local = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60000);
-  return local.toISOString().split("T")[0];
-}
-
-export function normalizeTimeKey(value?: string): string {
-  if (!value) return "";
-  const normalized = value
-    .trim()
-    .replace(/\s+/g, " ")
-    .replace("ص", "AM")
-    .replace("م", "PM")
-    .toUpperCase();
-
-  const twelveHour = normalized.match(/^(\d{1,2}):(\d{2})\s?(AM|PM)$/);
-  if (twelveHour) {
-    const hours = Number(twelveHour[1]);
-    const mins = Number(twelveHour[2]);
-    if (hours >= 1 && hours <= 12 && mins >= 0 && mins <= 59) {
-      return `${hours.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")} ${twelveHour[3]}`;
-    }
-  }
-
-  const twentyFourHour = normalized.match(/^(\d{1,2}):(\d{2})$/);
-  if (twentyFourHour) {
-    const hours24 = Number(twentyFourHour[1]);
-    const mins = Number(twentyFourHour[2]);
-    if (hours24 >= 0 && hours24 <= 23 && mins >= 0 && mins <= 59) {
-      const ampm = hours24 >= 12 ? "PM" : "AM";
-      let hours12 = hours24 % 12;
-      if (hours12 === 0) hours12 = 12;
-      return `${hours12.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")} ${ampm}`;
-    }
-  }
-
-  return normalized;
-}
-
-export function parseApptTimeToMinutes(timeStr?: string): number {
-  if (!timeStr) return 0;
-  const normalized = normalizeTimeKey(timeStr);
-  const match = normalized.match(/^(\d{1,2}):(\d{2})\s?(AM|PM)$/i);
-  if (match) {
-    let h = parseInt(match[1], 10);
-    const m = parseInt(match[2], 10);
-    const ampm = match[3].toUpperCase();
-    if (ampm === "PM" && h < 12) h += 12;
-    if (ampm === "AM" && h === 12) h = 0;
-    return h * 60 + m;
-  }
-  return 0;
-}
+/**
+ * Moved to lib/appointmentTime.ts so server code can use them without importing the client
+ * Firebase SDK that this module pulls in. Re-exported here so existing imports keep working.
+ */
+export { normalizeDateKey, normalizeTimeKey, parseApptTimeToMinutes, minutesToTimeKey };
 
 export interface BookingUserContext {
   uid: string;

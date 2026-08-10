@@ -102,6 +102,7 @@ export async function POST(request: Request) {
 
     try {
       await sendWhatsAppPdfFromUrl({
+        clinicId,
         to: phone,
         fileUrl: signedUrl,
         pdfBytes: buffer,

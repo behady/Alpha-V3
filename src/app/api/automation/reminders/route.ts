@@ -10,6 +10,15 @@ import { mergeWhatsAppTemplate } from "@/lib/whatsappTemplateMerge";
 import { normalizeToE164, sendWhatsApp } from "@/lib/whatsapp";
 import { getClinicProfileAdmin } from "@/lib/clinicProfileServer";
 
+/**
+ * The nightly run walks every active clinic and sends one message per patient booked tomorrow, so
+ * its length grows with the number of clinics on the platform, not with any one clinic's size.
+ * Being cut off halfway means some clinics' patients are reminded and others silently are not —
+ * the kind of failure nobody notices until a clinic asks why Tuesday had three empty chairs.
+ * Requires a Vercel Pro plan to take effect.
+ */
+export const maxDuration = 300;
+
 type AppointmentRecord = {
   id: string;
   patientId?: string;
@@ -182,7 +191,7 @@ async function sendForAppointment(clinicId: string, appointment: AppointmentReco
       clinicName,
     });
 
-  await sendWhatsApp({ to: e164, text: msg });
+  await sendWhatsApp({ clinicId, to: e164, text: msg });
   await reminderRef.set({
     appointmentId: appointment.id,
     sentAt: new Date().toISOString(),

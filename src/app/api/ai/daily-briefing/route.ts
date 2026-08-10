@@ -6,6 +6,8 @@ import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/** Only today's schedule plus stale balances, but the balance check still walks the ledger. */
+export const maxDuration = 60;
 
 /**
  * Today at a glance.

@@ -7,6 +7,8 @@ import { scanNoShowRisk } from "@/lib/automation/noShowRisk";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/** Reads the full appointment history to score no-show risk. See revenue-recovery for why. */
+export const maxDuration = 120;
 
 /** The only two answers to "did they come?" that this endpoint will record. */
 const ALLOWED_OUTCOMES = new Set(["Completed", "No Show"]);

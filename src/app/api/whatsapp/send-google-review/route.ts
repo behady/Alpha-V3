@@ -83,7 +83,7 @@ export async function POST(request: Request) {
       google_link: googleLink,
     });
 
-    await sendWhatsApp({ to: phone, text: merged });
+    await sendWhatsApp({ clinicId, to: phone, text: merged });
     await adminClinicCollection(clinicId, "whatsapp_logs").add({
       patientId,
       type: "google_review",

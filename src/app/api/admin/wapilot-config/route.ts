@@ -2,31 +2,48 @@ import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
+import { resolveUserClinicId } from "@/lib/adminClinicDb";
 import { clearWapilotConfigCache, loadWapilotConfig } from "@/lib/wapilotConfig";
 import {
-  WAPILOT_SETTINGS_DOC_REF,
+  CLINIC_SECRETS_COLLECTION,
+  WAPILOT_SECRET_FIELD,
   type WapilotConfigStatus,
 } from "@/types/wapilot";
 
-const getDocRef = () => adminDb()
-  .collection(WAPILOT_SETTINGS_DOC_REF.collection)
-  .doc(WAPILOT_SETTINGS_DOC_REF.docId);
+/**
+ * A clinic's own WhatsApp connection.
+ *
+ * This route used to read and write ONE platform-wide document. Since it is reachable by any
+ * clinic Admin, that meant every clinic Admin could read whether the shared token was set, point
+ * the whole platform's WhatsApp at their own gateway instance, or break messaging for every other
+ * clinic by saving bad credentials. Now everything is scoped to the caller's own clinic and
+ * stored in `clinic_secrets/{clinicId}`, which no client can read at all.
+ */
 
-function statusFromConfig(): WapilotConfigStatus {
-  const envInstance = process.env.WAPILOT_INSTANCE_ID?.trim() ?? "";
-  const envToken =
-    process.env.WAPILOT_API_TOKEN?.trim() ||
-    process.env.WAPILOT_ACCESS_TOKEN?.trim() ||
-    "";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
+const secretDocRef = (clinicId: string) =>
+  adminDb().collection(CLINIC_SECRETS_COLLECTION).doc(clinicId);
+
+/** Never returns the token itself — only whether one is stored. */
+function statusFromStored(data: Record<string, unknown> | undefined): WapilotConfigStatus | null {
+  if (!data) return null;
+  const instanceId = typeof data.instanceId === "string" ? data.instanceId.trim() : "";
+  const tokenSet = typeof data.apiToken === "string" && data.apiToken.trim().length > 0;
+  if (!instanceId || !tokenSet) return null;
+
+  const opt = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
   return {
-    configured: false,
-    source: "none",
-    instanceId: envInstance,
-    tokenSet: Boolean(envToken),
-    apiBaseUrl: process.env.WAPILOT_API_BASE_URL?.trim() || undefined,
-    sendPath: process.env.WAPILOT_SEND_PATH?.trim() || undefined,
-    sendDocumentPath: process.env.WAPILOT_SEND_DOCUMENT_PATH?.trim() || undefined,
+    configured: true,
+    source: "clinic",
+    instanceId,
+    tokenSet: true,
+    apiBaseUrl: opt(data.apiBaseUrl),
+    sendPath: opt(data.sendPath),
+    sendDocumentPath: opt(data.sendDocumentPath),
+    connectedPhoneHint: opt(data.connectedPhoneHint),
+    updatedAt: opt(data.updatedAt),
   };
 }
 
@@ -35,54 +52,43 @@ export async function GET(request: Request) {
   if (!authz.ok) return authz.response;
 
   try {
-    const snap = await getDocRef().get();
-    const base = statusFromConfig();
-
-    if (snap.exists) {
-      const d = snap.data() || {};
-      const instanceId = typeof d.instanceId === "string" ? d.instanceId.trim() : "";
-      const tokenSet = typeof d.apiToken === "string" && d.apiToken.trim().length > 0;
-
-      if (instanceId && tokenSet) {
-        return NextResponse.json({
-          ok: true,
-          configured: true,
-          source: "firestore" as const,
-          instanceId,
-          tokenSet: true,
-          apiBaseUrl: typeof d.apiBaseUrl === "string" ? d.apiBaseUrl : undefined,
-          sendPath: typeof d.sendPath === "string" ? d.sendPath : undefined,
-          sendDocumentPath:
-            typeof d.sendDocumentPath === "string" ? d.sendDocumentPath : undefined,
-          connectedPhoneHint:
-            typeof d.connectedPhoneHint === "string" ? d.connectedPhoneHint : undefined,
-          updatedAt: typeof d.updatedAt === "string" ? d.updatedAt : undefined,
-        });
-      }
+    const clinicId = await resolveUserClinicId(authz.uid);
+    if (!clinicId) {
+      return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });
     }
 
-    const live = await loadWapilotConfig(true);
-    if (live.source === "env" && live.instanceId && live.token) {
+    const snap = await secretDocRef(clinicId).get();
+    const own = statusFromStored(
+      snap.exists ? (snap.data()?.[WAPILOT_SECRET_FIELD] as Record<string, unknown> | undefined) : undefined
+    );
+    if (own) return NextResponse.json({ ok: true, ...own });
+
+    // No connection of its own. Say plainly whether a shared platform number is carrying this
+    // clinic's messages, because "configured" and "configured as you" are different answers and
+    // the clinic owner needs to know which one applies to them.
+    const live = await loadWapilotConfig(clinicId, true);
+    if (live.source === "platform" && live.instanceId && live.token) {
       return NextResponse.json({
         ok: true,
         configured: true,
-        source: "env",
+        source: "platform",
         instanceId: live.instanceId,
         tokenSet: true,
         apiBaseUrl: live.apiRoot,
         sendPath: live.sendPathTemplate,
         sendDocumentPath: live.sendDocumentPathTemplate,
-      });
+      } satisfies WapilotConfigStatus & { ok: true });
     }
 
     return NextResponse.json({
       ok: true,
-      ...base,
       configured: false,
       source: "none",
-    });
+      instanceId: "",
+      tokenSet: false,
+    } satisfies WapilotConfigStatus & { ok: true });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed to load Wapilot config";
+    const message = e instanceof Error ? e.message : "Failed to load WhatsApp connection";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }
@@ -92,6 +98,11 @@ export async function POST(request: Request) {
   if (!authz.ok) return authz.response;
 
   try {
+    const clinicId = await resolveUserClinicId(authz.uid);
+    if (!clinicId) {
+      return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });
+    }
+
     const body = (await request.json().catch(() => ({}))) as {
       instanceId?: string;
       apiToken?: string;
@@ -103,22 +114,20 @@ export async function POST(request: Request) {
 
     const instanceId = typeof body.instanceId === "string" ? body.instanceId.trim() : "";
     if (!instanceId) {
-      return NextResponse.json(
-        { ok: false, error: "Instance ID is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "Instance ID is required" }, { status: 400 });
     }
 
-    const existing = await getDocRef().get();
-    const existingToken =
-      existing.exists && typeof existing.data()?.apiToken === "string"
-        ? String(existing.data()?.apiToken).trim()
-        : "";
+    const ref = secretDocRef(clinicId);
+    const existingSnap = await ref.get();
+    const existing = existingSnap.exists
+      ? ((existingSnap.data()?.[WAPILOT_SECRET_FIELD] as Record<string, unknown> | undefined) ?? {})
+      : {};
 
+    const existingToken = typeof existing.apiToken === "string" ? existing.apiToken.trim() : "";
+    // An empty token field means "leave the stored one alone" — the UI never shows it back, so
+    // re-saving any other field must not wipe the credential.
     const newToken =
-      typeof body.apiToken === "string" && body.apiToken.trim()
-        ? body.apiToken.trim()
-        : existingToken;
+      typeof body.apiToken === "string" && body.apiToken.trim() ? body.apiToken.trim() : existingToken;
 
     if (!newToken) {
       return NextResponse.json(
@@ -127,45 +136,39 @@ export async function POST(request: Request) {
       );
     }
 
-    const patch: Record<string, unknown> = {
+    const optionalString = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+    const hadSecret = Object.keys(existing).length > 0;
+
+    const wapilot: Record<string, unknown> = {
       instanceId,
       apiToken: newToken,
       updatedAt: new Date().toISOString(),
       updatedBy: authz.uid,
     };
 
-    const optionalString = (v: unknown) =>
-      typeof v === "string" && v.trim() ? v.trim() : undefined;
+    const assign = (key: string, value: string | undefined) => {
+      if (value) wapilot[key] = value;
+      else if (hadSecret) wapilot[key] = FieldValue.delete();
+    };
 
-    const apiBaseUrl = optionalString(body.apiBaseUrl);
-    const sendPath = optionalString(body.sendPath);
-    const sendDocumentPath = optionalString(body.sendDocumentPath);
-    const connectedPhoneHint = optionalString(body.connectedPhoneHint);
+    assign("apiBaseUrl", optionalString(body.apiBaseUrl));
+    assign("sendPath", optionalString(body.sendPath));
+    assign("sendDocumentPath", optionalString(body.sendDocumentPath));
+    assign("connectedPhoneHint", optionalString(body.connectedPhoneHint));
 
-    if (apiBaseUrl) patch.apiBaseUrl = apiBaseUrl;
-    else if (existing.exists) patch.apiBaseUrl = FieldValue.delete();
-
-    if (sendPath) patch.sendPath = sendPath;
-    else if (existing.exists) patch.sendPath = FieldValue.delete();
-
-    if (sendDocumentPath) patch.sendDocumentPath = sendDocumentPath;
-    else if (existing.exists) patch.sendDocumentPath = FieldValue.delete();
-
-    if (connectedPhoneHint) patch.connectedPhoneHint = connectedPhoneHint;
-    else if (existing.exists) patch.connectedPhoneHint = FieldValue.delete();
-
-    await getDocRef().set(patch, { merge: true });
-    clearWapilotConfigCache();
+    // Merged at the nested-field level so other secrets in this document are untouched.
+    await ref.set({ [WAPILOT_SECRET_FIELD]: wapilot }, { merge: true });
+    clearWapilotConfigCache(clinicId);
 
     return NextResponse.json({
       ok: true,
       configured: true,
-      source: "firestore",
+      source: "clinic",
       instanceId,
       tokenSet: true,
-    });
+    } satisfies WapilotConfigStatus & { ok: true });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Failed to save Wapilot config";
+    const message = e instanceof Error ? e.message : "Failed to save WhatsApp connection";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

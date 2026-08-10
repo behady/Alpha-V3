@@ -38,11 +38,27 @@ export type OwnerAlertKey =
 
 export type WhatsAppOwnerAlerts = Partial<Record<OwnerAlertKey | string, boolean>>;
 
+/**
+ * How this clinic's messages actually leave.
+ *
+ * `auto`   — the gateway sends them unattended.
+ * `manual` — the message is prepared and WhatsApp opens with it typed; a person presses send.
+ *
+ * Manual is not a degraded mode. A clinic with no commercial registration cannot be verified for
+ * the official WhatsApp Business API at all, and automating an ordinary WhatsApp account risks
+ * that number being restricted — which for a clinic means losing contact with its own patients.
+ * Click-to-send avoids both, at the cost of a tap per message.
+ *
+ * Absent, the server decides: manual when no gateway is configured, auto when one is.
+ */
+export type WhatsAppDeliveryMode = "auto" | "manual";
+
 export interface WhatsAppSettingsDocument {
   isPatientAutomationEnabled: boolean;
   templates: WhatsAppMessageTemplate[];
   ownerNumber: string;
   ownerAlerts: WhatsAppOwnerAlerts;
+  deliveryMode?: WhatsAppDeliveryMode;
   updatedAt?: string;
 }
 

@@ -2,12 +2,20 @@ import { normalizeToE164WithCountryCode } from "@/lib/phoneNumber";
 import { loadWapilotConfig, wapilotConfigErrorMessage } from "@/lib/wapilotConfig";
 import type { WapilotConfig } from "@/types/wapilot";
 
+/**
+ * `clinicId` decides which WhatsApp number the message goes out from, and is required for that
+ * reason: credentials are per clinic (see lib/wapilotConfig). Before, there was no such argument,
+ * which is how every clinic on the platform ended up messaging its patients from one shared
+ * number that any clinic Admin could change.
+ */
 type WhatsAppSendArgs = {
+  clinicId: string;
   to: string;
   text: string;
 };
 
 type WhatsAppPdfSendArgs = {
+  clinicId: string;
   to: string;
   fileUrl?: string;
   pdfBytes?: Uint8Array;
@@ -45,10 +53,10 @@ function buildSendUrl(apiRoot: string, instanceId: string, template: string): st
  * Uses: `POST {WAPILOT_API_BASE_URL}/{instanceId}/send-message` with header `Token` and JSON body
  * `{ chat_id: "<countrycode+number>@c.us", text: "..." }`.
  *
- * Credentials: Firestore `settings/wapilot` (Settings → WhatsApp) or `WAPILOT_*` env fallback.
+ * Credentials: `clinic_secrets/{clinicId}.wapilot`, falling back to the shared platform number.
  */
-export async function sendWhatsApp({ to, text }: WhatsAppSendArgs) {
-  const config = await loadWapilotConfig();
+export async function sendWhatsApp({ clinicId, to, text }: WhatsAppSendArgs) {
+  const config = await loadWapilotConfig(clinicId);
   assertWapilotReady(config);
   const { instanceId, token, apiRoot, sendUrlOverride, sendPathTemplate } = config;
 
@@ -86,8 +94,15 @@ export async function sendWhatsApp({ to, text }: WhatsAppSendArgs) {
  * Default endpoint path is `/{instanceId}/send-file` and can be overridden with:
  * `WAPILOT_SEND_DOCUMENT_URL` or `WAPILOT_SEND_DOCUMENT_PATH`.
  */
-export async function sendWhatsAppPdfFromUrl({ to, fileUrl, pdfBytes, filename, caption }: WhatsAppPdfSendArgs) {
-  const config = await loadWapilotConfig();
+export async function sendWhatsAppPdfFromUrl({
+  clinicId,
+  to,
+  fileUrl,
+  pdfBytes,
+  filename,
+  caption,
+}: WhatsAppPdfSendArgs) {
+  const config = await loadWapilotConfig(clinicId);
   assertWapilotReady(config);
   const { instanceId, token, apiRoot, sendDocumentUrlOverride, sendDocumentPathTemplate } = config;
 

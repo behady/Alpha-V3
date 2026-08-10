@@ -1,12 +1,14 @@
 import { auth } from "@/lib/firebase";
-
-/** Fire-and-forget patient automation for booking templates (`new` / `edit` / `cancel`) — see `/api/whatsapp/send-patient-message`. */
+import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
+/** Fire-and-forget patient automation for booking templates (`new` / `edit` / `cancel`) — see `/api/whatsapp/send-patient-message`. */
 export async function sendPatientAppointmentWhatsApp(args: {
   template: "new" | "edit" | "cancel";
   patientId: string;
   date: string;
   time: string;
   doctor: string;
+  /** Only used to name the patient in the click-to-send prompt. */
+  patientName?: string;
 }): Promise<void> {
   const u = auth.currentUser;
   if (!u) return;
@@ -25,6 +27,9 @@ export async function sendPatientAppointmentWhatsApp(args: {
       }),
     });
     const data = await res.json().catch(() => ({}));
+    // No gateway configured, or the clinic sends by hand: the server returns the composed
+    // message instead of an error, and this offers to open WhatsApp with it ready to send.
+    if (res.ok) handleWhatsAppApiResult(data, args.patientName);
     if (!res.ok && !data?.skipped) {
       console.warn("Patient appointment WhatsApp:", data?.error || res.statusText);
     }

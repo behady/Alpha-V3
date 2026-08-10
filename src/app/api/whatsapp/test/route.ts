@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
+import { resolveUserClinicId } from "@/lib/adminClinicDb";
 import { buildE164FromDialAndNational } from "@/lib/whatsappDialCountries";
 import { sendWhatsApp } from "@/lib/whatsapp";
 
@@ -32,7 +33,10 @@ export async function POST(request: Request) {
         ? body.message.trim()
         : "Alpha Dental — WhatsApp API test message. If you received this, the integration works.";
 
-    const result = await sendWhatsApp({ to, text });
+    // The test has to go out over the same credentials the clinic's real messages use, or it
+    // proves nothing about whether that clinic can actually send.
+    const clinicId = await resolveUserClinicId(authz.uid);
+    const result = await sendWhatsApp({ clinicId, to, text });
     return NextResponse.json({ ok: true, to, result });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "Send failed";

@@ -29,15 +29,19 @@ import {
   type PaymentLedgerRow,
 } from "@/lib/ledgerCommission";
 import { getStoredDeviceId, persistDeviceId } from "@/lib/attendanceDeviceId";
+import {
+  acquireBestPosition,
+  isUsableGeofence,
+  judgeGeofence,
+  locationFailureMessage,
+} from "@/lib/attendanceLocation";
+import { localYmd } from "@/lib/clinicDate";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 
 // --- HELPERS ---
-function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const R = 6371e3; const p1 = lat1 * Math.PI / 180; const p2 = lat2 * Math.PI / 180;
-  const dp = (lat2 - lat1) * Math.PI / 180; const dl = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dp / 2) * Math.sin(dp / 2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
-  return Math.round(R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))));
-}
+// Distance is now measured by metresBetween() in lib/attendanceLocation, alongside the accuracy
+// handling it has to be judged with. Kept together so nobody compares a raw distance to the
+// geofence again without accounting for how uncertain the reading is.
 
 function timeToMins(timeStr: string) {
     if (!timeStr) return 0; const [h, m] = timeStr.split(':').map(Number); return (h * 60) + m;
@@ -116,6 +120,8 @@ export default function AttendancePage() {
   const [viewMode, setViewMode] = useState<'personal' | 'team'>('personal');
   
   const [clinicGeofence, setClinicGeofence] = useState<{lat: number, lng: number, radius: number} | null>(null);
+  /** Distinguishes "settings have not arrived yet" from "the admin never set a location". */
+  const [geofenceLoaded, setGeofenceLoaded] = useState(false);
   
   // PERSONAL STATE
   const [activeSession, setActiveSession] = useState<any | null>(null);
@@ -151,10 +157,22 @@ export default function AttendancePage() {
     let unsubStaff: any; let unsubLogs: any;
 
     const fetchGeofence = async () => {
-        const settingsSnap = await getDoc(getClinicDoc("settings", "clinic_info"));
-        if (settingsSnap.exists()) {
-            const data = settingsSnap.data();
-            if (data.attendanceLat && data.attendanceLng) setClinicGeofence({ lat: parseFloat(data.attendanceLat), lng: parseFloat(data.attendanceLng), radius: parseInt(data.attendanceRadius) || 50 });
+        try {
+            const settingsSnap = await getDoc(getClinicDoc("settings", "clinic_info"));
+            if (settingsSnap.exists()) {
+                const data = settingsSnap.data();
+                if (data.attendanceLat && data.attendanceLng) {
+                    setClinicGeofence({
+                        lat: parseFloat(data.attendanceLat),
+                        lng: parseFloat(data.attendanceLng),
+                        radius: parseInt(data.attendanceRadius) || 50,
+                    });
+                }
+            }
+        } finally {
+            // Set even on failure: a punch attempt should then report "location not set" rather
+            // than sit forever behind a loading flag that never clears.
+            setGeofenceLoaded(true);
         }
     };
     fetchGeofence();
@@ -197,14 +215,6 @@ export default function AttendancePage() {
 
     return () => { if (unsubStaff) unsubStaff(); if (unsubLogs) unsubLogs(); };
   }, [user]);
-
-  if (!hasFeature(clinic, 'attendance')) {
-    return (
-      <div className="p-4 lg:p-8">
-        <UpgradeRequired featureName="Attendance & Staff Tracking" minTier="Pro" />
-      </div>
-    );
-  }
 
   useEffect(() => {
       if (!canAdmin) setLedgerCommissionPaymentRows([]);
@@ -582,8 +592,14 @@ export default function AttendancePage() {
   // --- ACTIONS ---
 
   const handlePunch = async (type: 'in' | 'out') => {
+      const isAr = language === 'ar';
       if (!myProfile?.id || !user?.uid) {
-          showToast("Error: Staff Profile not found. Please ask Admin to verify your account email.", "error");
+          showToast(
+              isAr
+                  ? "ملفك الوظيفي مش موجود. اطلب من المدير يتأكد من بريدك الإلكتروني في إعدادات المستخدمين."
+                  : "Your staff profile was not found. Ask an Admin to check your account email in User settings.",
+              "error"
+          );
           return;
       }
       setActionLoading(true);
@@ -615,21 +631,26 @@ export default function AttendancePage() {
               }
 
               if (!session?.id || !session.checkIn) {
-                  showToast("No active shift to clock out.", "info");
+                  showToast(isAr ? "مفيش وردية شغالة عشان تقفلها." : "No active shift to clock out.", "info");
                   finish();
                   return;
               }
               sessionForOut = session;
           } else {
               if (activeSession) {
-                  showToast("You are already clocked in. Use Clock Out first.", "info");
+                  showToast(
+                      isAr ? "إنت مسجل دخول بالفعل. اعمل تسجيل خروج الأول." : "You are already clocked in. Clock out first.",
+                      "info"
+                  );
                   finish();
                   return;
               }
 
               if (liveProfile?.registeredDeviceId && liveProfile.registeredDeviceId !== currentDeviceId) {
                   showToast(
-                      "Unrecognized device. Ask Admin to unlink your device in Attendance → Team → Settings, then clock in again on this phone.",
+                      isAr
+                          ? "الجهاز ده مش المسجّل باسمك. اطلب من المدير يفك ارتباط جهازك من الحضور ← الفريق ← الإعدادات، وبعدين سجّل من الموبايل ده."
+                          : "This is not the device registered to you. Ask an Admin to unlink your device in Attendance → Team → Settings, then clock in again on this phone.",
                       "error"
                   );
                   finish();
@@ -637,90 +658,104 @@ export default function AttendancePage() {
               }
           }
 
-          if (!clinicGeofence) {
-              showToast("Admin GPS not set.", "error");
+          // "Still loading" and "never configured" are different problems with different fixes,
+          // and telling a receptionist the admin has not set GPS when the settings simply had not
+          // arrived yet sends them to bother someone for no reason.
+          if (!geofenceLoaded) {
+              showToast(
+                  isAr ? "لسه بنحمّل إعدادات العيادة. ثانية وجرّب تاني." : "Still loading clinic settings — try again in a moment.",
+                  "info"
+              );
               finish();
               return;
           }
-          if (!navigator.geolocation) {
-              showToast("GPS not supported.", "error");
+          if (!isUsableGeofence(clinicGeofence)) {
+              showToast(
+                  isAr
+                      ? "موقع العيادة مش متسجّل. المدير لازم يحدده من الإعدادات ← الحضور."
+                      : "The clinic's location is not set. An Admin needs to set it in Settings → Attendance.",
+                  "error"
+              );
               finish();
               return;
           }
 
-          navigator.geolocation.getCurrentPosition(
-              async (position) => {
-                  const distance = getDistanceInMeters(
-                      position.coords.latitude,
-                      position.coords.longitude,
-                      clinicGeofence.lat,
-                      clinicGeofence.lng
-                  );
-                  if (distance > clinicGeofence.radius) {
-                      showToast(
-                          type === 'out'
-                              ? `You must be at the clinic to clock out. You are ${distance}m away (limit: ${clinicGeofence.radius}m).`
-                              : `Too far! You are ${distance}m away (Limit: ${clinicGeofence.radius}m).`,
-                          "error"
-                      );
-                      finish();
-                      return;
+          // Takes a few seconds: it keeps improving the fix rather than trusting the first,
+          // coarse one. That wait is the whole reason this stopped failing at random.
+          const located = await acquireBestPosition();
+          if (!located.ok) {
+              showToast(locationFailureMessage(located.failure, isAr), "error");
+              finish();
+              return;
+          }
+
+          const verdict = judgeGeofence({ reading: located.reading, clinic: clinicGeofence });
+          if (!verdict.inside) {
+              showToast(
+                  isAr
+                      ? `إنت بعيد عن العيادة بحوالي ${verdict.effectiveDistance} متر (المسموح ${clinicGeofence.radius} متر). لو إنت جوه العيادة فعلاً، قرّب من شباك وجرّب تاني.`
+                      : `You appear to be about ${verdict.effectiveDistance}m from the clinic (limit ${clinicGeofence.radius}m). If you are inside, move near a window and try again.`,
+                  "error"
+              );
+              finish();
+              return;
+          }
+
+          try {
+              if (type === 'out' && sessionForOut) {
+                  const checkInDate =
+                      sessionForOut.checkIn &&
+                      typeof (sessionForOut.checkIn as Timestamp).toDate === "function"
+                          ? (sessionForOut.checkIn as Timestamp).toDate()
+                          : new Date(sessionForOut.checkIn as string | Date);
+                  const diffMins = Math.max(0, Math.round((Date.now() - checkInDate.getTime()) / 60000));
+
+                  await updateDoc(getClinicDoc("attendance", sessionForOut.id), {
+                      checkOut: serverTimestamp(),
+                      durationMinutes: diffMins,
+                      status: 'completed',
+                      // Kept so a disputed shift can be examined rather than argued about.
+                      checkOutDistanceM: verdict.distance,
+                      checkOutAccuracyM: verdict.accuracy,
+                  });
+                  showToast(isAr ? "تم تسجيل الخروج!" : "Clocked out!", "success");
+              } else {
+                  if (!liveProfile?.registeredDeviceId) {
+                      persistDeviceId(currentDeviceId);
+                      await updateDoc(staffRef, { registeredDeviceId: currentDeviceId });
                   }
 
-                  try {
-                      if (type === 'out' && sessionForOut) {
-                          const checkInDate =
-                              sessionForOut.checkIn &&
-                              typeof (sessionForOut.checkIn as Timestamp).toDate === "function"
-                                  ? (sessionForOut.checkIn as Timestamp).toDate()
-                                  : new Date(sessionForOut.checkIn as string | Date);
-                          const diffMins = Math.max(0, Math.round((Date.now() - checkInDate.getTime()) / 60000));
-
-                          await updateDoc(getClinicDoc("attendance", sessionForOut.id), {
-                              checkOut: serverTimestamp(),
-                              durationMinutes: diffMins,
-                              status: 'completed',
-                          });
-                          showToast("Clocked Out!", "success");
-                      } else {
-                          if (!liveProfile?.registeredDeviceId) {
-                              persistDeviceId(currentDeviceId);
-                              await updateDoc(staffRef, { registeredDeviceId: currentDeviceId });
-                          }
-
-                          await addDoc(getClinicCollection("attendance"), {
-                              userId: user.uid,
-                              userName: user?.name,
-                              staffId: myProfile.id,
-                              date: new Date().toISOString().split('T')[0],
-                              checkIn: serverTimestamp(),
-                              checkOut: null,
-                              durationMinutes: 0,
-                              status: 'active',
-                          });
-                          showToast("Clocked In!", "success");
-                      }
-                  } catch (error) {
-                      console.error(error);
-                      showToast("Error saving to database.", "error");
-                  } finally {
-                      finish();
-                  }
-              },
-              () => {
-                  showToast(
-                      type === 'out'
-                          ? "Enable location permissions to clock out at the clinic."
-                          : "Enable location permissions to clock in.",
-                      "error"
-                  );
-                  finish();
-              },
-              { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
-          );
+                  await addDoc(getClinicCollection("attendance"), {
+                      userId: user.uid,
+                      userName: user?.name,
+                      staffId: myProfile.id,
+                      // Local date, not UTC: a shift punched after midnight in Egypt was being
+                      // filed under the previous day.
+                      date: localYmd(),
+                      checkIn: serverTimestamp(),
+                      checkOut: null,
+                      durationMinutes: 0,
+                      status: 'active',
+                      checkInDistanceM: verdict.distance,
+                      checkInAccuracyM: verdict.accuracy,
+                  });
+                  showToast(isAr ? "تم تسجيل الدخول!" : "Clocked in!", "success");
+              }
+          } catch (error) {
+              console.error(error);
+              showToast(
+                  isAr ? "معرفناش نحفظ التسجيل. اتأكد من الإنترنت وجرّب تاني." : "Could not save. Check your connection and try again.",
+                  "error"
+              );
+          } finally {
+              finish();
+          }
       } catch (error) {
           console.error(error);
-          showToast("Failed to verify security credentials.", "error");
+          showToast(
+              isAr ? "حصلت مشكلة أثناء التسجيل. جرّب تاني." : "Something went wrong while recording your punch. Try again.",
+              "error"
+          );
           finish();
       }
   };
@@ -742,7 +777,9 @@ export default function AttendancePage() {
   const handleUpdateLog = async (logId: string, checkInStr: string, checkOutStr: string) => {
       try {
           const inDate = new Date(checkInStr);
-          const updates: any = { checkIn: Timestamp.fromDate(inDate), date: inDate.toISOString().split('T')[0] };
+          // Local date, matching how a punch is filed — otherwise correcting a late-evening shift
+          // silently moves it to another day.
+          const updates: any = { checkIn: Timestamp.fromDate(inDate), date: localYmd(inDate) };
 
           if (checkOutStr) {
               const outDate = new Date(checkOutStr);
@@ -1099,6 +1136,28 @@ export default function AttendancePage() {
   const isDeviceMismatch = Boolean(
       myProfile?.registeredDeviceId && myProfile.registeredDeviceId !== currentDevId
   );
+
+  /**
+   * The subscription gate must stay HERE, below every hook — not near the top where it used to be.
+   *
+   * `clinic` is null on the first render while ClinicContext loads, and hasFeature(null, …) is
+   * false. So the first render took the early return and ran only the four hooks above it; once
+   * the clinic arrived, the render continued past that point and ran eight more. React counts
+   * hooks per render and throws "rendered more hooks than during the previous render" when the
+   * number grows — the whole attendance screen crashed.
+   *
+   * Whether it crashed depended on whether the clinic document happened to resolve before the
+   * first paint, which is why it failed on a cold load or a slow connection and worked on a warm
+   * one. That is the "clock-in sometimes doesn't work" the team reported: not the button, the
+   * entire page.
+   */
+  if (!hasFeature(clinic, 'attendance')) {
+    return (
+      <div className="p-4 lg:p-8">
+        <UpgradeRequired featureName="Attendance & Staff Tracking" minTier="Pro" />
+      </div>
+    );
+  }
 
   if (loading && !personalLogs.length && !allLogs.length) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-[#60d297]" size={40}/></div>;
 

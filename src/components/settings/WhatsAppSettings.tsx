@@ -18,10 +18,7 @@ import type {
 import { WHATSAPP_SETTINGS_DOC_REF } from "@/types/whatsapp";
 import { WHATSAPP_DEFAULT_BODIES } from "@/lib/whatsappDefaultBodies";
 import type { WapilotConfigStatus } from "@/types/wapilot";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-
-
-const OWNER_ALERT_MATRIX: { module: "appointments" | "finance"; labelEn: string; labelAr: string; keys: OwnerAlertKey[] }[] = [
+import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";const OWNER_ALERT_MATRIX: { module: "appointments" | "finance"; labelEn: string; labelAr: string; keys: OwnerAlertKey[] }[] = [
   {
     module: "appointments",
     labelEn: "Appointments",
@@ -163,6 +160,17 @@ export default function WhatsAppSettings() {
           : "Patient automation & owner alerts",
       patientCard: language === "ar" ? "أتمتة رسائل المرضى" : "Patient automation",
       patientToggle: language === "ar" ? "تفعيل الرسائل التلقائية للمرضى" : "Enable automated patient messages",
+      deliveryTitle: language === "ar" ? "طريقة الإرسال" : "How messages are sent",
+      deliveryAuto: language === "ar" ? "إرسال تلقائي" : "Send automatically",
+      deliveryAutoHint:
+        language === "ar"
+          ? "النظام يبعت الرسالة لوحده. محتاج اتصال واتساب مفعّل."
+          : "The system sends on its own. Requires a connected WhatsApp gateway.",
+      deliveryManual: language === "ar" ? "فتح واتساب للإرسال" : "Open WhatsApp to send",
+      deliveryManualHint:
+        language === "ar"
+          ? "النظام يجهّز الرسالة ويفتح واتساب، والموظف يضغط إرسال. مناسب للعيادات من غير سجل تجاري، ومفيش خطر إيقاف الرقم."
+          : "The system writes the message and opens WhatsApp; your staff press send. Works with no commercial registration, and nothing can get the number banned.",
       templateType: language === "ar" ? "نوع القالب" : "Template type",
       templateHint:
         language === "ar"
@@ -239,9 +247,14 @@ export default function WhatsAppSettings() {
       advanced: language === "ar" ? "إعدادات متقدمة" : "Advanced",
       apiBaseUrl: language === "ar" ? "رابط API (اختياري)" : "API base URL (optional)",
       phoneHint: language === "ar" ? "رقم واتساب المرسل (للعرض فقط)" : "Sender WhatsApp number (display only)",
-      statusFirestore: language === "ar" ? "محفوظ في قاعدة البيانات" : "Saved in database",
-      statusEnv: language === "ar" ? "يستخدم متغيرات Vercel" : "Using Vercel env fallback",
+      statusClinic: language === "ar" ? "رقم العيادة الخاص" : "This clinic's own number",
+      statusPlatform:
+        language === "ar" ? "رقم مشترك — وصّل رقم العيادة" : "Shared number — connect your own",
       statusNone: language === "ar" ? "غير مُعدّ" : "Not configured",
+      sharedWarning:
+        language === "ar"
+          ? "رسائل المرضى بتتبعت دلوقتي من رقم مشترك، مش رقم العيادة. المريض هيشوف رقم مش معروف له، وأي رد منه مش هيوصلك. وصّل رقم العيادة من تحت."
+          : "Patient messages are going out from a shared number, not this clinic's. Patients see a number they don't recognise, and their replies never reach you. Connect the clinic's own number below.",
     }),
     [language, wapilotStatus?.tokenSet]
   );
@@ -491,10 +504,17 @@ export default function WhatsAppSettings() {
           </div>
           {wapilotLoading ? (
             <Loader2 size={18} className="animate-spin text-violet-500" />
-          ) : wapilotStatus?.configured ? (
+          ) : wapilotStatus?.source === "clinic" ? (
             <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full">
               <CheckCircle2 size={14} />
-              {wapilotStatus.source === "firestore" ? txt.statusFirestore : txt.statusEnv}
+              {txt.statusClinic}
+            </span>
+          ) : wapilotStatus?.source === "platform" ? (
+            // Deliberately not green. Messages do go out, but from a number that is not this
+            // clinic's — that is a problem to fix, not a healthy state to reassure someone about.
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-full">
+              <AlertCircle size={14} />
+              {txt.statusPlatform}
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-full">
@@ -503,6 +523,12 @@ export default function WhatsAppSettings() {
             </span>
           )}
         </div>
+
+        {wapilotStatus?.source === "platform" && (
+          <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 leading-relaxed">
+            {txt.sharedWarning}
+          </p>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label className="block">
@@ -597,6 +623,41 @@ export default function WhatsAppSettings() {
           <p className="text-xs text-slate-600 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5 leading-relaxed">
             {txt.paymentAutomationHint}
           </p>
+
+          {/* How messages leave. See WhatsAppDeliveryMode for why manual is a first-class choice. */}
+          <div className="space-y-2">
+            <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">{txt.deliveryTitle}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {(["auto", "manual"] as const).map((mode) => {
+                const active = (state.deliveryMode ?? "auto") === mode;
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() =>
+                      setState((s) => {
+                        const next = { ...s, deliveryMode: mode };
+                        void persist(next, "silent");
+                        return next;
+                      })
+                    }
+                    className={`text-start rounded-xl border px-4 py-3 transition-all ${
+                      active
+                        ? "border-primary-500 bg-primary-50 ring-1 ring-primary-200"
+                        : "border-slate-200 bg-slate-50/80 hover:border-slate-300"
+                    }`}
+                  >
+                    <span className="block text-sm font-bold text-slate-800">
+                      {mode === "auto" ? txt.deliveryAuto : txt.deliveryManual}
+                    </span>
+                    <span className="block text-xs text-slate-500 mt-1 leading-relaxed">
+                      {mode === "auto" ? txt.deliveryAutoHint : txt.deliveryManualHint}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           <div className="space-y-3">
             <label className="block">

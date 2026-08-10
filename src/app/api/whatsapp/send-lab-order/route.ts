@@ -71,7 +71,7 @@ export async function POST(request: Request) {
       .join("\n");
 
     try {
-      await sendWhatsApp({ to: labPhone, text: msg });
+      await sendWhatsApp({ clinicId, to: labPhone, text: msg });
       await adminClinicCollection(clinicId, "whatsapp_logs").add({
         patientId: String(order.patientId || ""),
         type: "lab_order",

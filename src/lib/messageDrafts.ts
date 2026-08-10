@@ -151,7 +151,7 @@ export async function resolveMessageDraft(args: {
   if (!phone) return { ok: false, error: "This patient has no usable phone number." };
 
   try {
-    await sendWhatsApp({ to: phone, text: body });
+    await sendWhatsApp({ clinicId, to: phone, text: body });
   } catch (error: unknown) {
     // Left as failed rather than sent, so the queue reflects what actually went out.
     await ref.update({

@@ -6,6 +6,8 @@ import { scanInventoryAlerts } from "@/lib/automation/inventoryAlerts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/** Reads every patient's last visit plus the whole inventory. See revenue-recovery for why. */
+export const maxDuration = 120;
 
 /**
  * Operational checks that read the clinic's own configuration: who is due for a check-up, and

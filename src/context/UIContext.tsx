@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import { X, CheckCircle2, AlertCircle, Info, AlertTriangle } from "lucide-react";
+import { openWhatsAppWithText, registerWhatsAppManualHandler } from "@/lib/whatsappManual";
 
 // --- TYPES ---
 type ToastType = "success" | "error" | "info";
@@ -32,6 +33,16 @@ interface UIContextType {
   setClinicalEditorMode: (mode: 'modal' | 'drawer') => void;
   appointmentEditorMode: 'modal' | 'drawer';
   setAppointmentEditorMode: (mode: 'modal' | 'drawer') => void;
+  /** Which panel fills the column beside the schedule when an appointment is selected. */
+  appointmentPanelMode: 'editor' | 'avatar';
+  setAppointmentPanelMode: (mode: 'editor' | 'avatar') => void;
+  /**
+   * True while the reception assistant panel is on screen. The floating Gemini bubble is fixed to
+   * the bottom corner and sat on top of that panel's composer; it reads this to move to the
+   * opposite corner rather than being hidden, so both assistants stay reachable.
+   */
+  receptionPanelActive: boolean;
+  setReceptionPanelActive: (active: boolean) => void;
   appointmentsVisibility: 'all' | 'desktop' | 'hidden';
   setAppointmentsVisibility: (visibility: 'all' | 'desktop' | 'hidden') => void;
   latePatientTrackerEnabled: boolean;
@@ -47,6 +58,8 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   
   const [clinicalEditorMode, setClinicalEditorModeState] = useState<'modal' | 'drawer'>('modal');
   const [appointmentEditorMode, setAppointmentEditorModeState] = useState<'modal' | 'drawer'>('modal');
+  const [appointmentPanelMode, setAppointmentPanelModeState] = useState<'editor' | 'avatar'>('editor');
+  const [receptionPanelActive, setReceptionPanelActive] = useState(false);
   const [appointmentsVisibility, setAppointmentsVisibilityState] = useState<'all' | 'desktop' | 'hidden'>('desktop');
   const [latePatientTrackerEnabledState, setLatePatientTrackerEnabledState] = useState<boolean>(true);
 
@@ -65,6 +78,9 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
       
       const savedApptMode = localStorage.getItem("appointmentEditorMode") as 'modal' | 'drawer';
       if (savedApptMode) setAppointmentEditorModeState(savedApptMode);
+
+      const savedPanelMode = localStorage.getItem("appointmentPanelMode");
+      if (savedPanelMode === "avatar" || savedPanelMode === "editor") setAppointmentPanelModeState(savedPanelMode);
 
       const savedApptsVis = localStorage.getItem("appointmentsVisibility") as 'all' | 'desktop' | 'hidden';
       if (savedApptsVis) setAppointmentsVisibilityState(savedApptsVis);
@@ -87,6 +103,13 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
     setAppointmentEditorModeState(mode);
     try {
       localStorage.setItem("appointmentEditorMode", mode);
+    } catch (e) {}
+  }, []);
+
+  const setAppointmentPanelMode = useCallback((mode: 'editor' | 'avatar') => {
+    setAppointmentPanelModeState(mode);
+    try {
+      localStorage.setItem("appointmentPanelMode", mode);
     } catch (e) {}
   }, []);
 
@@ -136,6 +159,32 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  /**
+   * Click-to-send WhatsApp.
+   *
+   * When a clinic has no gateway configured — which is most of them at first, and permanently for
+   * any clinic without the commercial papers the official WhatsApp API demands — the server hands
+   * the finished message back instead of failing. This turns it into a prompt, and the button in
+   * that prompt is what opens WhatsApp: browsers only allow a new window during a real click, and
+   * by this point the click that started the save is long gone.
+   *
+   * One dialog at a time, so two messages produced by the same action would show the second only.
+   * In practice a save produces one message; if that stops being true this needs a queue.
+   */
+  useEffect(() => {
+    registerWhatsAppManualHandler((message) => {
+      const who = message.patientName ? ` — ${message.patientName}` : "";
+      void confirm(`الرسالة جاهزة${who}. تفتح واتساب عشان تبعتها؟`, {
+        title: "إرسال على واتساب",
+        confirmLabel: "افتح واتساب",
+        cancelLabel: "مش دلوقتي",
+      }).then((ok) => {
+        if (ok) openWhatsAppWithText(message.phone, message.text);
+      });
+    });
+    return () => registerWhatsAppManualHandler(null);
+  }, [confirm]);
+
   const handleConfirm = (result: boolean) => {
     setConfirmState({
       isOpen: false,
@@ -151,7 +200,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <UIContext.Provider value={{ showToast, confirm, clinicalEditorMode, setClinicalEditorMode, appointmentEditorMode, setAppointmentEditorMode, appointmentsVisibility, setAppointmentsVisibility, latePatientTrackerEnabled: latePatientTrackerEnabledState, setLatePatientTrackerEnabled }}>
+    <UIContext.Provider value={{ showToast, confirm, clinicalEditorMode, setClinicalEditorMode, appointmentEditorMode, setAppointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode, receptionPanelActive, setReceptionPanelActive, appointmentsVisibility, setAppointmentsVisibility, latePatientTrackerEnabled: latePatientTrackerEnabledState, setLatePatientTrackerEnabled }}>
       {children}
 
       {/* --- TOAST CONTAINER (Smartphone Style) --- */}

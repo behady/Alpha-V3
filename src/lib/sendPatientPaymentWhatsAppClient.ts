@@ -1,10 +1,12 @@
 import { auth } from "@/lib/firebase";
-
-/** Patient receipt after a payment is posted (`invoice` template). */
+import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
+/** Patient receipt after a payment is posted (`invoice` template). */
 export async function sendPatientPaymentWhatsApp(args: {
   patientId: string;
   ledgerId: string;
-}): Promise<{ sent: boolean; skipped?: string; error?: string }> {
+  /** Only used to name the patient in the click-to-send prompt. */
+  patientName?: string;
+}): Promise<{ sent: boolean; skipped?: string; error?: string; manual?: boolean }> {
   const u = auth.currentUser;
   if (!u) return { sent: false, skipped: "not_signed_in" };
   try {
@@ -24,7 +26,14 @@ export async function sendPatientPaymentWhatsApp(args: {
       skipped?: boolean;
       reason?: string;
       error?: string;
+      manual?: boolean;
     };
+    // No gateway configured, or the clinic sends by hand: offer to open WhatsApp with the
+    // message already written rather than reporting a failure nobody can act on.
+    if (res.ok && data.manual) {
+      handleWhatsAppApiResult(data, args.patientName);
+      return { sent: false, manual: true };
+    }
     if (res.ok && data.ok && !data.skipped) return { sent: true };
     if (data.skipped) return { sent: false, skipped: data.reason || "skipped" };
     const err = typeof data.error === "string" ? data.error : res.statusText;

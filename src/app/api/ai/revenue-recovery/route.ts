@@ -7,6 +7,14 @@ import type { Clinic } from "@/types/saas";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/**
+ * This scan reads a clinic's entire ledger and patient list, so it grows with the clinic's
+ * history. The platform default (10s on Vercel's Hobby plan) is far below what a clinic with a
+ * year of records needs, and the failure is silent — the request is killed mid-scan and the user
+ * sees a generic error rather than a partial result. Requires a Vercel Pro plan; on Hobby this
+ * declaration is ignored and the scan will still be cut short.
+ */
+export const maxDuration = 300;
 
 /**
  * Revenue Recovery scan — a Tier 3 (Premium) capability.

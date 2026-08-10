@@ -45,7 +45,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "message is required" }, { status: 400 });
     }
 
-    const result = await sendOwnerWhatsAppAlertIfEnabled(alertKey as OwnerAlertKey, message);
+    if (!clinicId) {
+      return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });
+    }
+
+    const result = await sendOwnerWhatsAppAlertIfEnabled(clinicId, alertKey as OwnerAlertKey, message);
     return NextResponse.json({ ok: true, ...result });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "Send failed";

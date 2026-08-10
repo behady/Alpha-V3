@@ -12,6 +12,8 @@ import type { Clinic } from "@/types/saas";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/** Scans every patient and drafts a message per lapsed one — grows with clinic size. See revenue-recovery. */
+export const maxDuration = 300;
 
 /** Fallback only. The real threshold is the clinic's own setting — see below. */
 const DEFAULT_THRESHOLD_DAYS = 180;
