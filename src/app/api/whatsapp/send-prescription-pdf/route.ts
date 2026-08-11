@@ -4,6 +4,7 @@ import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { adminBucket } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { sendWhatsAppPdfFromUrl } from "@/lib/whatsapp";
+import { resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
 import { pickPatientPhone } from "@/lib/patientPhone";
 
 const MAX_PDF_BYTES = 6 * 1024 * 1024;
@@ -101,6 +102,32 @@ export async function POST(request: Request) {
     const pdfFilename = `${safeName}_prescription.pdf`;
 
     try {
+      // Click-to-send cannot carry an attachment: a wa.me link only accepts text. So when there
+      // is no gateway to send the file through, the patient gets the same caption plus a link to
+      // the PDF instead. The link is the signed URL generated above and expires in 7 days, which
+      // is why the file is NOT deleted on this path — deleting it would break the link the moment
+      // the message was sent.
+      const mode = await resolveWhatsappDeliveryMode(clinicId);
+      if (mode === "manual") {
+        const textWithLink = `${caption}\n\n${signedUrl}`;
+        await adminClinicCollection(clinicId, "whatsapp_logs").add({
+          patientId,
+          type: "prescription_pdf",
+          message: textWithLink,
+          storagePath,
+          status: "manual",
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        return NextResponse.json({
+          ok: true,
+          manual: true,
+          phone,
+          text: textWithLink,
+          // Lets the screen tell the user the patient will receive a link, not a file.
+          asLink: true,
+        });
+      }
+
       await sendWhatsAppPdfFromUrl({
         clinicId,
         to: phone,

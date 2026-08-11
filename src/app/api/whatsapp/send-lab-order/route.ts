@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
-import { sendWhatsApp } from "@/lib/whatsapp";
+import { deliverWhatsAppMessage } from "@/lib/whatsappDelivery";
 
 function normalizeProcedureText(
   procedure: unknown,
@@ -71,19 +71,24 @@ export async function POST(request: Request) {
       .join("\n");
 
     try {
-      await sendWhatsApp({ clinicId, to: labPhone, text: msg });
+      const delivery = await deliverWhatsAppMessage({ clinicId, to: labPhone, text: msg });
       await adminClinicCollection(clinicId, "whatsapp_logs").add({
         patientId: String(order.patientId || ""),
         type: "lab_order",
         message: msg,
-        status: "success",
+        status: delivery.mode === "manual" ? "manual" : "success",
         createdAt: FieldValue.serverTimestamp(),
       });
-      await adminClinicDoc(clinicId, "lab_orders", orderId).update({
-        whatsappSentAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-      return NextResponse.json({ ok: true });
+      // whatsappSentAt is only stamped on a real send. In manual mode nothing has reached the
+      // lab yet, and marking the order as sent would hide it from anyone chasing it.
+      if (delivery.mode === "auto") {
+        await adminClinicDoc(clinicId, "lab_orders", orderId).update({
+          whatsappSentAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        return NextResponse.json({ ok: true });
+      }
+      return NextResponse.json({ ok: true, manual: true, phone: delivery.phone, text: delivery.text });
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Send failed";
       await adminClinicCollection(clinicId, "whatsapp_logs").add({

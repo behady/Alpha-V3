@@ -8,6 +8,7 @@ import { pickPatientPhone } from "@/lib/patientPhone";
 import { resolveWhatsappTemplateForPatient } from "@/lib/whatsappDefaultBodies";
 import { mergeWhatsAppTemplate } from "@/lib/whatsappTemplateMerge";
 import { normalizeToE164, sendWhatsApp } from "@/lib/whatsapp";
+import { resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
 import { getClinicProfileAdmin } from "@/lib/clinicProfileServer";
 
 /**
@@ -190,6 +191,19 @@ async function sendForAppointment(clinicId: string, appointment: AppointmentReco
       time: appointment.time || "",
       clinicName,
     });
+
+  // Click-to-send has no meaning here. This runs unattended at 07:00, so there is nobody to open
+  // WhatsApp and press send. Rather than fake a success or throw a confusing gateway error, the
+  // reminder is reported as not sent and NO reminder record is written — so it is retried on the
+  // next run instead of being permanently marked as done for an appointment nobody was told about.
+  const mode = await resolveWhatsappDeliveryMode(clinicId);
+  if (mode === "manual") {
+    return {
+      status: "skipped",
+      reason: "no_whatsapp_connection",
+      appointmentId: appointment.id,
+    };
+  }
 
   await sendWhatsApp({ clinicId, to: e164, text: msg });
   await reminderRef.set({

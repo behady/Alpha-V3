@@ -23,9 +23,8 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import PermissionGuard from "@/components/PermissionGuard";
 import { hasFeature } from "@/lib/subscriptions";
-import type { DormancyReport, DormantPatient } from "@/lib/automation/dormantPatients";
-
-type Draft = {
+import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
+import type { DormancyReport, DormantPatient } from "@/lib/automation/dormantPatients";type Draft = {
   id: string;
   patientId: string;
   patientName: string;
@@ -129,6 +128,20 @@ export default function ReactivationPage() {
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || "Could not update that draft");
+
+      if (data.status === "manual") {
+        // Deliberately left in the queue: nothing has reached the patient yet, and removing the
+        // card would make it look handled. It disappears once a message actually goes out.
+        handleWhatsAppApiResult(
+          { manual: true, phone: data.phone, text: data.body },
+          draft.patientName
+        );
+        showToast(
+          isAr ? "افتح واتساب من الرسالة عشان تبعت" : "Open WhatsApp from the prompt to send it",
+          "info"
+        );
+        return;
+      }
 
       showToast(
         decision === "approve"

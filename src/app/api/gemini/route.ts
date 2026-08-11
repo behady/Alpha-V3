@@ -4,6 +4,7 @@ import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { sendWhatsApp } from "@/lib/whatsapp";
+import { resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
 import { mergeWhatsAppTemplate } from "@/lib/whatsappTemplateMerge";
 import { resolveWhatsappTemplateForPatient } from "@/lib/whatsappDefaultBodies";
 import { pickPatientPhone } from "@/lib/patientPhone";
@@ -1066,15 +1067,37 @@ export async function POST(req: Request) {
                             time: time || "—",
                             google_link: "—"
                          });
-                         await sendWhatsApp({ clinicId, to: phone, text: merged });
-                         await adminClinicCollection(clinicId, "whatsapp_logs").add({
-                            patientId,
-                            type: `appointment_${type}`,
-                            message: merged,
-                            status: "success",
-                            createdAt: FieldValue.serverTimestamp(),
-                         });
-                         toolResult = { success: true, message: "Templated WhatsApp message sent successfully." };
+                         // The assistant has no way to open WhatsApp on the user's device, so it
+                         // must not claim to have sent anything. It reports the truth and tells
+                         // the user where the button is; saying "sent" here would be the one
+                         // failure mode that costs a clinic a patient without anyone noticing.
+                         const deliveryMode = await resolveWhatsappDeliveryMode(clinicId);
+                         if (deliveryMode === "manual") {
+                            await adminClinicCollection(clinicId, "whatsapp_logs").add({
+                               patientId,
+                               type: `appointment_${type}`,
+                               message: merged,
+                               status: "manual",
+                               createdAt: FieldValue.serverTimestamp(),
+                            });
+                            toolResult = {
+                               success: false,
+                               error:
+                                  "This clinic has no WhatsApp number connected, so I cannot send it myself. " +
+                                  "Tell the user the message is ready and they can send it from the patient's page, " +
+                                  "or connect a number in Settings → WhatsApp.",
+                            };
+                         } else {
+                            await sendWhatsApp({ clinicId, to: phone, text: merged });
+                            await adminClinicCollection(clinicId, "whatsapp_logs").add({
+                               patientId,
+                               type: `appointment_${type}`,
+                               message: merged,
+                               status: "success",
+                               createdAt: FieldValue.serverTimestamp(),
+                            });
+                            toolResult = { success: true, message: "Templated WhatsApp message sent successfully." };
+                         }
                      }
                  }
              }

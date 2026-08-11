@@ -1,11 +1,22 @@
 import { adminClinicDoc } from "@/lib/adminClinicDb";
 import { normalizeToE164, sendWhatsApp } from "@/lib/whatsapp";
+import { resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
 import type { OwnerAlertKey } from "@/types/whatsapp";
 import { WHATSAPP_SETTINGS_DOC_REF } from "@/types/whatsapp";
 
 export type OwnerAlertSendResult =
   | { sent: true }
-  | { sent: false; reason: "no_settings" | "no_owner_number" | "disabled" | "invalid_owner_phone" };
+  | {
+      sent: false;
+      reason:
+        | "no_settings"
+        | "no_owner_number"
+        | "disabled"
+        | "invalid_owner_phone"
+        /** No gateway connected. Click-to-send makes no sense here — an owner alert fires as a
+         *  side effect of someone else's action, so there is no one to prompt. */
+        | "no_whatsapp_connection";
+    };
 
 /**
  * Sends a WhatsApp to `ownerNumber` when `ownerAlerts[alertKey]` is true (Settings → WhatsApp).
@@ -48,6 +59,12 @@ export async function sendOwnerWhatsAppAlertIfEnabled(
   const to = normalizeToE164(ownerNumber);
   if (!to) {
     return { sent: false, reason: "invalid_owner_phone" };
+  }
+
+  // Skip rather than throw: this fires as a side effect of saving an appointment or a payment,
+  // and an unconfigured gateway must not turn into an error on the action the user actually took.
+  if ((await resolveWhatsappDeliveryMode(clinicId)) === "manual") {
+    return { sent: false, reason: "no_whatsapp_connection" };
   }
 
   await sendWhatsApp({ clinicId, to, text: message.trim() });

@@ -1,6 +1,7 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { normalizeToE164, sendWhatsApp } from "@/lib/whatsapp";
+import { resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
 
 /**
  * Outbound messages drafted automatically, held for a human to approve before they send.
@@ -106,6 +107,12 @@ export async function listMessageDrafts(clinicId: string, status?: DraftStatus):
 export type ResolveDraftResult =
   | { ok: true; status: "sent" }
   | { ok: true; status: "rejected" }
+  /**
+   * Approved, but there is no gateway to send through. The finished message is returned so the
+   * reviewer can open WhatsApp and send it themselves. The draft deliberately stays in the
+   * pending queue until something actually goes out.
+   */
+  | { ok: true; status: "manual"; phone: string; body: string }
   | { ok: false; error: string };
 
 /**
@@ -149,6 +156,20 @@ export async function resolveMessageDraft(args: {
 
   const phone = normalizeToE164(String(draft.phone || ""));
   if (!phone) return { ok: false, error: "This patient has no usable phone number." };
+
+  // No gateway connected: hand the finished message back so a person can send it, and leave the
+  // draft in the queue. Marking it "sent" here would be the worst outcome — the patient never
+  // hears from the clinic, and the queue says they did, so nobody ever chases it.
+  const mode = await resolveWhatsappDeliveryMode(clinicId);
+  if (mode === "manual") {
+    await ref.update({
+      body,
+      reviewedByUserId: userId,
+      reviewedByName: userName || null,
+      reviewedAt: FieldValue.serverTimestamp(),
+    });
+    return { ok: true, status: "manual", phone, body };
+  }
 
   try {
     await sendWhatsApp({ clinicId, to: phone, text: body });

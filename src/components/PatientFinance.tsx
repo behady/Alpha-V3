@@ -32,10 +32,9 @@ import {
 } from "@/lib/receiptPdfHtml";
 import { parseLedgerProcedureDescription } from "@/lib/ledgerProcedureParse";
 import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClient";
+import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
 import { syncProcedureAndPaymentsFromClinicalNote } from "@/lib/syncProcedurePaymentLabFee";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-
-function formatWhatsAppLedgerMessage(
+import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";function formatWhatsAppLedgerMessage(
   patientName: string,
   clinicName: string,
   totalTreatment: number,
@@ -212,6 +211,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
     sendWhatsapp: language === 'ar' ? "واتساب" : "WhatsApp",
     sendReceiptWhatsapp: language === 'ar' ? "إرسال كشف حساب واتساب" : "Send Receipt on WhatsApp",
     whatsappSent: language === 'ar' ? "تم الإرسال عبر واتساب" : "Sent on WhatsApp",
+    whatsappManual: language === 'ar' ? "افتح واتساب من الرسالة اللي هتظهر عشان تبعت" : "Open WhatsApp from the prompt to send it",
     receiptWhatsappSent: language === 'ar' ? "تم إرسال كشف الحساب عبر واتساب" : "Receipt sent on WhatsApp",
     whatsappFail: language === 'ar' ? "فشل إرسال واتساب" : "WhatsApp send failed",
     receiptWhatsappFail: language === 'ar' ? "فشل إرسال كشف الحساب" : "Receipt send failed",
@@ -590,7 +590,16 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) throw new Error(typeof data?.error === "string" ? data.error : "Request failed");
-      showToast(txt.whatsappSent, "success");
+      // "ok: true" here does not mean the patient received anything yet. Without a WhatsApp
+      // gateway connected, the server hands back the composed message instead of sending it, and
+      // this call used to report success regardless — the toast said "Sent" while nothing had
+      // gone anywhere, which is exactly what was reported: a success message with no delivery.
+      if (data.manual) {
+        handleWhatsAppApiResult(data, patientName);
+        showToast(txt.whatsappManual, "info");
+      } else {
+        showToast(txt.whatsappSent, "success");
+      }
     } catch (e) {
       showToast(`${txt.whatsappFail}: ${e instanceof Error ? e.message : ""}`.trim(), "error");
     } finally {
@@ -626,7 +635,12 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) throw new Error(typeof data?.error === "string" ? data.error : "Request failed");
-      showToast(txt.receiptWhatsappSent, "success");
+      if (data.manual) {
+        handleWhatsAppApiResult(data, patientName);
+        showToast(txt.whatsappManual, "info");
+      } else {
+        showToast(txt.receiptWhatsappSent, "success");
+      }
     } catch (e) {
       showToast(`${txt.receiptWhatsappFail}: ${e instanceof Error ? e.message : ""}`.trim(), "error");
     } finally {

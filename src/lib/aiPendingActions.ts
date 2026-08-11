@@ -2,6 +2,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { logAiAction } from "@/lib/serverLogger";
 import { sendWhatsApp } from "@/lib/whatsapp";
+import { resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
 import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
 
 /**
@@ -292,6 +293,8 @@ export type ResolveResult =
       ok: true; status: "approved"; kind: PendingActionKind; collection: string; documentId: string; message: string;
       /** Set only when a reschedule created a second document — the id the client should switch to. */
       newAppointmentId?: string;
+      /** The composed message, when there is no gateway and a person has to send it themselves. */
+      manual?: { phone: string; text: string };
     }
   | { ok: true; status: "rejected" }
   | { ok: false; error: string };
@@ -549,6 +552,31 @@ export async function resolvePendingAiAction(args: {
 
   // --- WhatsApp -------------------------------------------------------------------------------
   if (kind === "whatsapp") {
+    // The person approving this is sitting in front of the screen, so when there is no gateway
+    // the honest outcome is to hand them the finished message rather than fail. The log records
+    // "manual", not "success", because nothing has reached the patient yet.
+    const mode = await resolveWhatsappDeliveryMode(clinicId);
+    if (mode === "manual") {
+      const logRef = await adminClinicCollection(clinicId, "whatsapp_logs").add({
+        patientId: payload.patientId,
+        type: `assistant_${payload.messageType}`,
+        message: payload.body,
+        status: "manual",
+        sentBy: userName || userId,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      await markApproved();
+      return {
+        ok: true,
+        status: "approved",
+        kind,
+        collection: "whatsapp_logs",
+        documentId: logRef.id,
+        message: "Message ready — open WhatsApp to send it.",
+        manual: { phone: String(payload.phone), text: String(payload.body) },
+      };
+    }
+
     // Marked approved only after the send returns, so a failed send can never be logged as sent.
     try {
       await sendWhatsApp({ clinicId, to: String(payload.phone), text: String(payload.body) });

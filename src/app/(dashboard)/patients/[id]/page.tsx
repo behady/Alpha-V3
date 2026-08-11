@@ -26,6 +26,7 @@ import PatientTimeTrackerWidget from "@/components/patient/PatientTimeTrackerWid
 import PatientTimelineTab from "@/components/patients/PatientTimelineTab";
 import PatientMediaGallery from "@/components/patients/PatientMediaGallery";
 import { buildPrescriptionSrcDoc, prescriptionSrcDocToPdfBlob, type RxItem } from "@/lib/prescriptionPdfHtml";
+import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
 import {
   DEFAULT_COUNTRY_CODE,
   COUNTRY_CODE_OPTIONS,
@@ -271,7 +272,15 @@ export default function PatientProfile() {
       if (!res.ok || !data?.ok) {
         throw new Error(typeof data?.error === "string" ? data.error : "Request failed");
       }
-      showToast(language === "ar" ? "تم إرسال طلب التقييم" : "Review request sent", "success");
+      if (data.manual) {
+        handleWhatsAppApiResult(data, patient?.name);
+        showToast(
+          language === "ar" ? "افتح واتساب من الرسالة عشان تبعت" : "Open WhatsApp from the prompt to send it",
+          "info"
+        );
+      } else {
+        showToast(language === "ar" ? "تم إرسال طلب التقييم" : "Review request sent", "success");
+      }
     } catch (e) {
       showToast(e instanceof Error ? e.message : language === "ar" ? "فشل الإرسال" : "Send failed", "error");
     } finally {
@@ -657,10 +666,22 @@ export default function PatientProfile() {
       if (!res.ok || !data?.ok) {
         throw new Error(typeof data?.error === "string" ? data.error : "WhatsApp send failed");
       }
-      showToast(
-        language === "ar" ? "تم إرسال الوصفة على واتساب" : "Prescription PDF sent on WhatsApp.",
-        "success"
-      );
+      if (data.manual) {
+        handleWhatsAppApiResult(data, patient?.name);
+        // Said explicitly, because this is the one case where manual delivers something
+        // different from automatic: a download link rather than the PDF as an attachment.
+        showToast(
+          language === "ar"
+            ? "افتح واتساب من الرسالة عشان تبعت — المريض هيستلم رابط الروشتة"
+            : "Open WhatsApp from the prompt — the patient will receive a link to the prescription",
+          "info"
+        );
+      } else {
+        showToast(
+          language === "ar" ? "تم إرسال الوصفة على واتساب" : "Prescription PDF sent on WhatsApp.",
+          "success"
+        );
+      }
       setSelectedPrescription(null);
     } catch (e) {
       showToast(

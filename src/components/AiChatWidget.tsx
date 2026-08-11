@@ -7,12 +7,12 @@ import {
 import { useClinic } from "@/context/ClinicContext";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { useUI } from "@/context/UIContext";
 import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { getClinicDoc } from "@/lib/db-utils";
 import { auth } from "@/lib/firebase";
-import { onSnapshot } from "firebase/firestore";
-
-interface ChatMessage {
+import { handleManualWhatsApp } from "@/lib/whatsappManual";
+import { onSnapshot } from "firebase/firestore";interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
@@ -36,7 +36,19 @@ export default function AiChatWidget() {
   const { clinic, clinicId } = useClinic();
   const { user } = useAuth();
   const { language, isRTL } = useLanguage();
+  const { receptionPanelActive } = useUI();
   const isAr = language === "ar";
+
+  /**
+   * Which corner this widget lives in.
+   *
+   * It normally sits opposite the reading direction (bottom-right in LTR). The reception assistant
+   * fills that same corner with its composer, so while that panel is open this moves to the other
+   * side — hiding it would take away the clinic-wide assistant on the one screen people use most.
+   */
+  const onFarSide = receptionPanelActive ? !isRTL : isRTL;
+  const cornerClass = onFarSide ? "left-4 sm:left-6" : "right-4 sm:right-6";
+  const launcherCornerClass = onFarSide ? "left-5" : "right-5";
 
   const [isOpen, setIsOpen] = useState(false);
   const [inputMessage, setInputMessage] = useState("");
@@ -94,13 +106,23 @@ export default function AiChatWidget() {
       const data = await response.json();
       if (!response.ok || !data.ok) throw new Error(data.error || "Could not complete that action.");
 
+      // A staged WhatsApp message on a clinic with no gateway comes back approved but unsent,
+      // carrying the composed text. Offer to open WhatsApp instead of claiming it went out.
+      if (data.manual?.phone && data.manual?.text) {
+        handleManualWhatsApp({ phone: data.manual.phone, text: data.manual.text });
+      }
+
       setMessages((prev) => [...prev, {
         id: (Date.now() + 1).toString(),
         role: "assistant",
         content:
-          decision === "approve"
-            ? (isAr ? "✅ تم حذف السجل." : "✅ Record deleted.")
-            : (isAr ? "تم الإلغاء. لم يتم حذف أي شيء." : "Cancelled — nothing was deleted."),
+          decision !== "approve"
+            ? (isAr ? "تم الإلغاء. لم يتم حذف أي شيء." : "Cancelled — nothing was deleted.")
+            : data.manual
+              ? (isAr
+                  ? "✅ الرسالة جاهزة — افتح واتساب من التنبيه عشان تبعتها."
+                  : "✅ Message ready — open WhatsApp from the prompt to send it.")
+              : (isAr ? "✅ تم تنفيذ الطلب." : "✅ Done."),
         timestamp: new Date(),
       }]);
       setPendingAction(null);
@@ -193,7 +215,7 @@ export default function AiChatWidget() {
   return (
     <>
       {/* Floating Trigger Button */}
-      <div className={`fixed bottom-5 ${isRTL ? "left-5" : "right-5"} z-50`}>
+      <div className={`fixed bottom-5 ${launcherCornerClass} z-50 transition-all duration-300`}>
         <button
           onClick={() => setIsOpen((prev) => !prev)}
           className="group relative flex items-center gap-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-extrabold px-4 py-3.5 rounded-full shadow-2xl transition-all duration-300 hover:scale-105 active:scale-95 border border-indigo-500/40"
@@ -218,7 +240,7 @@ export default function AiChatWidget() {
       {/* Slide-out Gemini Assistant Drawer Panel */}
       {isOpen && (
         <div
-          className={`fixed bottom-20 ${isRTL ? "left-4 sm:left-6" : "right-4 sm:right-6"} z-50 w-[calc(100vw-2rem)] sm:w-[420px] h-[560px] max-h-[80vh] bg-white rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200`}
+          className={`fixed bottom-20 ${cornerClass} z-50 w-[calc(100vw-2rem)] sm:w-[420px] h-[560px] max-h-[80vh] bg-white rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200`}
           dir={isRTL ? "rtl" : "ltr"}
         >
           {/* Header */}

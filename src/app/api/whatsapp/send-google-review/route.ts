@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
-import { sendWhatsApp } from "@/lib/whatsapp";
+import { deliverWhatsAppMessage } from "@/lib/whatsappDelivery";
 import { mergeWhatsAppTemplate } from "@/lib/whatsappTemplateMerge";
 import { resolveWhatsappTemplateForPatient } from "@/lib/whatsappDefaultBodies";
 import { pickPatientPhone } from "@/lib/patientPhone";
@@ -83,15 +83,18 @@ export async function POST(request: Request) {
       google_link: googleLink,
     });
 
-    await sendWhatsApp({ clinicId, to: phone, text: merged });
+    const delivery = await deliverWhatsAppMessage({ clinicId, to: phone, text: merged });
     await adminClinicCollection(clinicId, "whatsapp_logs").add({
       patientId,
       type: "google_review",
       message: merged,
-      status: "success",
+      status: delivery.mode === "manual" ? "manual" : "success",
       createdAt: FieldValue.serverTimestamp(),
     });
 
+    if (delivery.mode === "manual") {
+      return NextResponse.json({ ok: true, manual: true, phone: delivery.phone, text: delivery.text });
+    }
     return NextResponse.json({ ok: true });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "Send failed";
