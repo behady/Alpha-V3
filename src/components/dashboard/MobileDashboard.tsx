@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Calendar, Plus, ChevronRight, ChevronLeft, Wallet, User, Clock, Check,
   Loader2, Edit, Printer, UserX, MessageCircle, Pill, Receipt,
-  X, Save, Trash2, FileText, ChevronDown, Bell, UserPlus
+  X, Save, Trash2, FileText, ChevronDown, Bell, UserPlus, AlertCircle
 } from "lucide-react";
 import { db, auth } from "@/lib/firebase";
 import {
