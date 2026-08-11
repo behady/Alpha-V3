@@ -11,9 +11,7 @@ import TimelineCard from "./TimelineCard";
 import ServiceEditorDrawer from "./ServiceEditorDrawer";
 import TransferServiceModal from "./TransferServiceModal";
 import { resolveProcedureLedgerIdForNote } from "@/lib/syncProcedurePaymentLabFee";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-
-export default function ClinicalNotesContainer({ patientId, onWriteRx }: { patientId: string, onWriteRx?: () => void }) {
+import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";export default function ClinicalNotesContainer({ patientId, onWriteRx }: { patientId: string, onWriteRx?: () => void }) {
   const { language } = useLanguage();
   const { showToast, confirm, clinicalEditorMode } = useUI();
 

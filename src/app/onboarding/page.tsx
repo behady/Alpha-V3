@@ -5,9 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
-import { getClinicCollection } from "@/lib/db-utils";
-
-export default function OnboardingPage() {
+import { getClinicCollection } from "@/lib/db-utils";export default function OnboardingPage() {
   const { user, logout } = useAuth();
   const router = useRouter();
   const [clinicName, setClinicName] = useState("");

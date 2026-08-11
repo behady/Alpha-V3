@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <style name="Theme.AlphaDental" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/brand_charcoal</item>
+        <item name="colorPrimaryDark">@color/brand_charcoal</item>
+        <item name="colorAccent">@color/brand_mint</item>
+        <item name="android:windowBackground">@color/app_background</item>
+
+        <!-- The app draws its own content behind the system bars. -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>
+        <item name="android:enforceStatusBarContrast" tools:targetApi="q">false</item>
+        <item name="android:enforceNavigationBarContrast" tools:targetApi="q">false</item>
+    </style>
+
+    <!-- Shown for the fraction of a second before the WebView has anything to
+         draw, so the app never opens on a blank white flash. -->
+    <style name="Theme.AlphaDental.Splash" parent="Theme.AlphaDental">
+        <item name="android:windowBackground">@drawable/splash_background</item>
+    </style>
+
+</resources>

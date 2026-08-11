@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Alpha Dental</string>
+
+    <string name="action_retry">Try again</string>
+    <string name="action_open">Open</string>
+    <string name="action_share">Share</string>
+    <string name="action_close">Close</string>
+
+    <string name="press_back_again">Press back again to close Alpha Dental</string>
+    <string name="error_offline">Alpha Dental could not be reached.\n\nCheck the internet connection and try again.</string>
+
+    <string name="file_chooser_title">Choose a file</string>
+    <string name="no_app_for_link">No app on this phone can open that link.</string>
+    <string name="no_app_for_file">No app on this phone can open that file.</string>
+    <string name="no_app_for_files">No file picker is available on this phone.</string>
+
+    <string name="google_signin_title">Use your email to sign in</string>
+    <string name="google_signin_message">Google does not allow its sign-in page inside an app like this one.\n\nPlease sign in with your email address and password instead. If you only have a Google login, open Alpha Dental in your phone\'s browser once and set a password from there.</string>
+
+    <string name="download_started">Downloading %1$s…</string>
+    <string name="download_saved_title">Saved to Downloads</string>
+    <string name="download_saved_message">%1$s is now in your Downloads folder.</string>
+    <string name="download_failed">The file could not be saved. %1$s</string>
+    <string name="download_unsupported">This type of download is not supported in the app.</string>
+
+    <string name="storage_permission_granted">Storage access allowed. Tap the download again.</string>
+    <string name="storage_permission_denied">Without storage access the app cannot save files.</string>
+</resources>

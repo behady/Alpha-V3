@@ -11,42 +11,7 @@ import {
 import {
   toothTypeFromFDI,
   toothTypeFromPrimaryFDI,
-  type ToothType,
 } from "@/components/teeth/ToothSVG";
-
-export const TOOTH_BODY = "#ffffff";
-export const TOOTH_STROKE = "#94a3b8";
-
-export function occlusalShapeFor(type: ToothType): { paths: { id: string; d: string }[] } {
-  switch (type) {
-    case "incisor":
-      return {
-        paths: [{ id: "full", d: "M 10 40 C 30 10, 70 10, 90 40 C 70 60, 30 60, 10 40 Z" }]
-      };
-    case "canine":
-      return {
-        paths: [{ id: "full", d: "M 15 45 C 30 15, 70 15, 85 45 C 70 75, 30 75, 15 45 Z" }]
-      };
-    case "premolar":
-      return {
-        paths: [
-          { id: "buccal", d: "M 15 50 C 15 15, 85 15, 85 50 C 70 55, 30 55, 15 50 Z" },
-          { id: "lingual", d: "M 15 50 C 30 45, 70 45, 85 50 C 85 85, 15 85, 15 50 Z" }
-        ]
-      };
-    case "molar":
-    default:
-      return {
-        paths: [
-          { id: "occlusal", d: "M 30 30 L 70 30 L 70 70 L 30 70 Z" },
-          { id: "buccal", d: "M 10 10 C 30 0, 70 0, 90 10 L 70 30 L 30 30 Z" },
-          { id: "lingual", d: "M 30 70 L 70 70 L 90 90 C 70 100, 30 100, 10 90 Z" },
-          { id: "distal", d: "M 10 10 L 30 30 L 30 70 L 10 90 C 0 70, 0 30, 10 10 Z" },
-          { id: "mesial", d: "M 90 10 C 100 30, 100 70, 90 90 L 70 70 L 70 30 Z" }
-        ]
-      };
-  }
-}
 
 function isUpperFDI(fdi: number): boolean {
   const q = Math.floor(fdi / 10);
@@ -77,105 +42,108 @@ const CATEGORY_PLAIN: Record<string, { en: string; ar: string }> = {
 
 const esc = (s: string) => (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-function toothMarkup(
-  fdi: number,
-  isPrimary: boolean,
-  statuses: string[],
-  x: number,
-  rowTop: number,
-  s: number,
-  toothW: number
-): { defs: string; body: string } {
-  const type = isPrimary ? toothTypeFromPrimaryFDI(fdi) : toothTypeFromFDI(fdi);
-  const upper = isUpperFDI(fdi);
-  const missing = isMissingStatus(statuses);
-  const primaryCat = getPrimaryCategoryForStatuses(statuses);
-  
-  const accent = primaryCat?.color ?? TOOTH_STROKE;
-  const fillAccent = primaryCat ? `${primaryCat.color}40` : TOOTH_BODY;
-
-  const { paths } = occlusalShapeFor(type);
-
-  const q = Math.floor(fdi / 10);
-  const scaleX = (q === 2 || q === 3 || q === 6 || q === 7) ? -1 : 1;
-  const scaleY = (q === 3 || q === 4 || q === 7 || q === 8) ? -1 : 1;
-
-  let inner = "";
-  if (missing) {
-    inner = paths.map((p) => `<path d="${p.d}" fill="transparent" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="4 4" />`).join("") +
-            `<line x1="10" y1="10" x2="90" y2="90" stroke="#94a3b8" stroke-width="3" />
-             <line x1="90" y1="10" x2="10" y2="90" stroke="#94a3b8" stroke-width="3" />`;
-  } else {
-    inner = paths.map((p) => `<path d="${p.d}" fill="${primaryCat ? fillAccent : TOOTH_BODY}" stroke="${accent}" stroke-width="2" stroke-linejoin="round"/>`).join("");
-  }
-
-  const body = `
-    <g transform="translate(${x}, ${rowTop}) scale(${s})">
-      <g transform="translate(50, 50) scale(${scaleX}, ${scaleY}) translate(-50, -50)">
-        ${inner}
-      </g>
-    </g>`;
-  
-  const numY = rowTop + 100 * s + 11;
-  const numX = x + (toothW / 2);
-  const numberLabel = `<text x="${numX}" y="${numY}" font-family="system-ui, -apple-system, sans-serif" font-size="9" font-weight="700" fill="#64748b" text-anchor="middle">${fdi}</text>`;
-
-  return { defs: "", body: body + numberLabel };
-}
-
-function buildOdontogramSvg(
+function buildOdontogramHtml(
   teethData: Record<string, ToothData>,
   isPrimary: boolean,
   language: string
-): { svg: string; width: number; height: number } {
+): string {
   const upperList = isPrimary ? [...CQ1, ...CQ2] : [...Q1, ...Q2];
   const lowerList = isPrimary ? [...CQ4, ...CQ3] : [...Q4, ...Q3];
-  const half = upperList.length / 2;
-
-  const toothW = 44;
-  const cellW = 50;
-  const s = toothW / 100;
-  const spacer = 16;
-  const marginX = 24;
-  const width = marginX * 2 + upperList.length * cellW + spacer;
-
-  const labelH = 26;
-  const rowTooth = 100 * s; 
-  const numH = 16;
-  const rowGap = 26;
-  const upperTop = labelH;
-  const lowerTop = upperTop + rowTooth + numH + rowGap;
-  const height = lowerTop + rowTooth + numH + 8;
-
-  const defsArr: string[] = [];
-  const bodyArr: string[] = [];
-
-  const place = (list: number[], rowTop: number) => {
-    list.forEach((fdi, i) => {
-      const x = marginX + i * cellW + (i >= half ? spacer : 0);
-      const statuses = getStatusesFromTooth(teethData[String(fdi)]);
-      const { defs, body } = toothMarkup(fdi, isPrimary, statuses, x, rowTop, s, toothW);
-      defsArr.push(defs);
-      bodyArr.push(body);
-    });
-  };
-  place(upperList, upperTop);
-  place(lowerList, lowerTop);
-
-  const midY = upperTop + rowTooth + numH + rowGap / 2;
+  
   const rightLbl = language === "ar" ? "يمين" : "RIGHT";
   const leftLbl = language === "ar" ? "يسار" : "LEFT";
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="100%" viewBox="0 0 ${width} ${height}" style="max-width: ${width}px;">
-    <rect x="0" y="0" width="${width}" height="${height}" fill="#ffffff"/>
-    <defs>${defsArr.join("")}</defs>
-    <text x="${marginX}" y="16" font-family="system-ui, -apple-system, sans-serif" font-size="10" font-weight="700" fill="#94a3b8" text-anchor="start">${rightLbl}</text>
-    <text x="${width - marginX}" y="16" font-family="system-ui, -apple-system, sans-serif" font-size="10" font-weight="700" fill="#94a3b8" text-anchor="end">${leftLbl}</text>
-    <line x1="${marginX}" y1="${midY}" x2="${width - marginX}" y2="${midY}" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="4 4"/>
-    ${bodyArr.join("")}
-  </svg>`;
+  const renderTooth = (fdi: number) => {
+    const type = isPrimary ? toothTypeFromPrimaryFDI(fdi) : toothTypeFromFDI(fdi);
+    const isUpper = isUpperFDI(fdi);
+    const statuses = getStatusesFromTooth(teethData[String(fdi)]);
+    const missing = isMissingStatus(statuses);
+    
+    let hasCrown = false;
+    statuses.forEach(s => {
+      const opt = findOption(s);
+      if (opt?.cat === "restoration" && (s === "rest_crown" || s === "rest_implant")) {
+         hasCrown = true;
+      }
+    });
+    
+    let baseSrc = `/teeth/${type}.png`;
+    if (hasCrown) {
+      baseSrc = `/teeth/crown_${type}.png`;
+    }
 
-  return { svg, width, height };
+    const q = Math.floor(fdi / 10);
+    const scaleX = (q === 2 || q === 3 || q === 6 || q === 7) ? -1 : 1;
+    const scaleY = (q === 3 || q === 4 || q === 7 || q === 8) ? -1 : 1;
+
+    const surfaces = teethData[String(fdi)]?.surfaces || {};
+    let surfaceHtml = "";
+    
+    if (!missing && Object.keys(surfaces).length > 0) {
+      const surfaceColors: Record<string, string> = {};
+      const activeS: string[] = [];
+      Object.entries(surfaces).forEach(([surf, sids]) => {
+         if (sids.length > 0) {
+           activeS.push(surf);
+           const cat = findOption(sids[0])?.cat;
+           const cObj = findCategory(cat || "");
+           if (cObj) surfaceColors[surf] = cObj.color;
+         }
+      });
+      
+      let paths = "";
+      if (activeS.includes("O") && surfaceColors["O"]) {
+         paths += `<path d="${isUpper ? 'M 50 50 L 50 10' : 'M 50 50 L 50 90'}" stroke="${surfaceColors['O']}" stroke-width="8" stroke-linecap="round" fill="none" />`;
+      }
+      if (activeS.includes("B") && surfaceColors["B"]) {
+         paths += `<path d="${isUpper ? 'M 20 50 C 20 80, 80 80, 80 50 Z' : 'M 20 50 C 20 20, 80 20, 80 50 Z'}" fill="${surfaceColors['B']}" opacity="0.7" />`;
+      }
+      if (paths) {
+         surfaceHtml = `<svg viewBox="0 0 100 100" style="position:absolute;inset:0;width:100%;height:100%;z-index:20;opacity:0.8;mix-blend-mode:multiply;">${paths}</svg>`;
+      }
+    }
+
+    return `
+      <div style="display:flex;flex-direction:column;align-items:center;width:40px;">
+        <div style="position:relative;width:34px;height:60px;display:flex;align-items:center;justify-content:center;opacity:${missing ? 0.2 : 1};">
+           <img src="${baseSrc}" style="position:absolute;width:100%;height:100%;object-fit:contain;transform:scale(${scaleX}, ${scaleY});" />
+           ${surfaceHtml}
+        </div>
+        <div style="font-size:11px;font-weight:bold;color:#64748b;margin-top:4px;">${fdi}</div>
+      </div>
+    `;
+  };
+
+  const renderRow = (list: number[]) => {
+    const half = list.length / 2;
+    const left = list.slice(0, half);
+    const right = list.slice(half);
+    return `
+      <div style="display:flex;justify-content:center;gap:4px;width:100%;">
+        <div style="display:flex;gap:4px;">
+           ${left.map(fdi => renderTooth(fdi)).join("")}
+        </div>
+        <div style="width:24px;"></div>
+        <div style="display:flex;gap:4px;">
+           ${right.map(fdi => renderTooth(fdi)).join("")}
+        </div>
+      </div>
+    `;
+  };
+
+  return `
+    <div style="border:1px solid #e2e8f0;border-radius:12px;padding:24px;background:#ffffff;position:relative;">
+      <div style="display:flex;justify-content:space-between;color:#94a3b8;font-size:10px;font-weight:bold;margin-bottom:16px;">
+        <span>${rightLbl}</span>
+        <span>${leftLbl}</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:32px;">
+        ${renderRow(upperList)}
+        <div style="border-top:1px dashed #cbd5e1;width:100%;"></div>
+        ${renderRow(lowerList)}
+      </div>
+    </div>
+  `;
 }
 
 export interface DiagnosisReportInput {
@@ -191,7 +159,7 @@ export async function generateDiagnosisReport(input: DiagnosisReportInput): Prom
   const isAr = language === "ar";
   const dir = isAr ? "rtl" : "ltr";
 
-  const { svg } = buildOdontogramSvg(teethData, isPrimary, language);
+  const odontogramHtml = buildOdontogramHtml(teethData, isPrimary, language);
 
   const presentCats = DIAGNOSIS_CATEGORIES.filter(c => c.id !== "healthy").filter(cat =>
     Object.values(teethData).some(d =>
@@ -217,22 +185,53 @@ export async function generateDiagnosisReport(input: DiagnosisReportInput): Prom
       else if (hasRoot) area = isAr ? "الجذر / الداخل" : "Root / inside";
       else if (hasCrown) area = isAr ? "السطح / التاج" : "Surface / crown";
 
-      const byCat = new Map<string, string[]>();
+      const byCat = new Map<string, any[]>();
       statuses.forEach(sid => {
         const opt = findOption(sid);
         if (!opt) return;
-        const label = isAr ? opt.labelAr : opt.labelEn;
         const arr = byCat.get(opt.cat) || [];
-        arr.push(label);
+        arr.push(opt);
         byCat.set(opt.cat, arr);
       });
-      const findings = Array.from(byCat.entries())
-        .map(([catId, labels]) => {
+      let findings = Array.from(byCat.entries())
+        .map(([catId, opts]) => {
           const plain = CATEGORY_PLAIN[catId];
           const head = plain ? (isAr ? plain.ar : plain.en) : findCategory(catId)?.labelEn || catId;
-          return `<strong>${esc(head)}:</strong> ${esc(labels.join(", "))}`;
+          const itemsHtml = opts.map((opt: any) => {
+            const label = isAr ? opt.labelAr : opt.labelEn;
+            let res = `<div style="margin-top: 4px;">&bull; <strong>${esc(label)}</strong></div>`;
+            
+            const desc = isAr ? opt.descAr : opt.descEn;
+            if (desc) {
+              res += `<div style="font-size: 10px; color: #64748b; margin-left: ${isAr ? '0' : '10px'}; margin-right: ${isAr ? '10px' : '0'}; line-height: 1.3;">${esc(desc)}</div>`;
+            }
+            
+            const tx = isAr ? opt.treatmentsAr : opt.treatmentsEn;
+            if (tx && tx.length > 0) {
+              res += `<div style="font-size: 10px; color: #475569; margin-left: ${isAr ? '0' : '10px'}; margin-right: ${isAr ? '10px' : '0'}; margin-top: 2px;">
+                        <span style="background: #f1f5f9; padding: 1px 4px; border-radius: 3px; font-weight: bold;">
+                          ${isAr ? "العلاج المقترح:" : "Suggested Tx:"}
+                        </span> ${esc(tx.join(" | "))}
+                      </div>`;
+            }
+            return res;
+          }).join("");
+          return `<div style="margin-bottom: 6px;"><strong>[${esc(head)}]</strong>${itemsHtml}</div>`;
         })
-        .join("<br>");
+        .join("");
+
+      // Append Perio data if exists
+      if (data?.perio) {
+        const b = data.perio.buccal;
+        const l = data.perio.lingual;
+        if (b || l) {
+          findings += `<div style="margin-top: 8px; font-size: 10px; color: #475569; background: #f8fafc; padding: 6px; border-radius: 4px; border: 1px solid #e2e8f0;">
+            <strong style="color: #334155;">${isAr ? "قياسات اللثة (GM/PD)" : "Periodontal Probing (GM/PD)"}</strong><br/>
+            ${b ? `<div style="margin-top: 2px;">${isAr ? "الشدقي (Buccal)" : "Buccal"} &rarr; GM: [${b.gm.join(", ")}] | PD: [${b.pd.join(", ")}]</div>` : ""}
+            ${l ? `<div style="margin-top: 2px;">${isAr ? "اللساني (Lingual)" : "Lingual"} &rarr; GM: [${l.gm.join(", ")}] | PD: [${l.pd.join(", ")}]</div>` : ""}
+          </div>`;
+        }
+      }
 
       rows.push(`
         <tr>
@@ -263,8 +262,8 @@ export async function generateDiagnosisReport(input: DiagnosisReportInput): Prom
       </div>
 
       <h3 style="font-size:14px;font-weight:800;color:#334155;margin:0 0 10px;border-bottom:2px solid #e2e8f0;padding-bottom:6px;">${isAr ? "خريطة الأسنان" : "Tooth map"}</h3>
-      <div style="margin-bottom:16px;text-align:center;background:white;padding:16px;border:1px solid #e2e8f0;border-radius:12px;">
-        ${svg}
+      <div style="margin-bottom:16px;">
+        ${odontogramHtml}
       </div>
 
       ${presentCats.length ? `
@@ -280,13 +279,13 @@ export async function generateDiagnosisReport(input: DiagnosisReportInput): Prom
 
       <h3 style="font-size:14px;font-weight:800;color:#334155;margin:0 0 10px;border-bottom:2px solid #e2e8f0;padding-bottom:6px;">${isAr ? "ملخص التشخيصات" : "Findings summary"}</h3>
       ${rows.length > 0 ? `
-        <table style="width:100%;border-collapse:collapse;margin-bottom:30px;font-size:11px;">
+        <table style="width:100%;border-collapse:collapse;margin-bottom:30px;font-size:12px;box-shadow: 0 1px 3px rgba(0,0,0,0.05);border-radius:8px;overflow:hidden;">
           <thead>
             <tr>
-              <th style="border:1px solid #e2e8f0;padding:10px;text-align:${isAr ? "right" : "left"};background:#0f172a;color:white;font-weight:bold;width:40px;text-align:center;">${isAr ? "السن" : "Tooth"}</th>
-              <th style="border:1px solid #e2e8f0;padding:10px;text-align:${isAr ? "right" : "left"};background:#0f172a;color:white;font-weight:bold;width:100px;">${isAr ? "المنطقة" : "Area"}</th>
-              <th style="border:1px solid #e2e8f0;padding:10px;text-align:${isAr ? "right" : "left"};background:#0f172a;color:white;font-weight:bold;">${isAr ? "التشخيص" : "Findings"}</th>
-              <th style="border:1px solid #e2e8f0;padding:10px;text-align:${isAr ? "right" : "left"};background:#0f172a;color:white;font-weight:bold;width:25%;">${isAr ? "ملاحظات" : "Notes"}</th>
+              <th style="border-bottom:2px solid #e2e8f0;padding:12px;text-align:center;background:#f8fafc;color:#475569;font-weight:800;width:40px;">${isAr ? "السن" : "Tooth"}</th>
+              <th style="border-bottom:2px solid #e2e8f0;padding:12px;text-align:${isAr ? "right" : "left"};background:#f8fafc;color:#475569;font-weight:800;width:100px;">${isAr ? "المنطقة" : "Area"}</th>
+              <th style="border-bottom:2px solid #e2e8f0;padding:12px;text-align:${isAr ? "right" : "left"};background:#f8fafc;color:#475569;font-weight:800;">${isAr ? "التشخيص" : "Findings"}</th>
+              <th style="border-bottom:2px solid #e2e8f0;padding:12px;text-align:${isAr ? "right" : "left"};background:#f8fafc;color:#475569;font-weight:800;width:25%;">${isAr ? "ملاحظات" : "Notes"}</th>
             </tr>
           </thead>
           <tbody>
@@ -296,17 +295,17 @@ export async function generateDiagnosisReport(input: DiagnosisReportInput): Prom
       ` : `
         <p style="color: #94a3b8; font-style: italic;">${isAr ? "لا توجد تشخيصات مسجلة." : "No diagnoses recorded."}</p>
       `}
-
-      <div style="text-align:center;font-size:10px;color:#94a3b8;margin-top:40px;border-top:1px solid #e2e8f0;padding-top:16px;">
-        ${isAr ? "هذا التقرير هو ملخص سريري ولا يغني عن استشارة طبيب الأسنان الخاص بك." : "This report is a clinical summary and does not replace a consultation with your dentist."}
-      </div>
     </div>
   `;
 
   try {
     // Dynamic import to avoid SSR issues
-    const { htmlToPdfBlob } = await import("@/components/reports/reportPdfHtmlUtils");
-    const blob = await htmlToPdfBlob(html, "diagnosis-container");
+    const { htmlToPdfBlob, buildReportHtmlBase } = await import("@/components/reports/reportPdfHtmlUtils");
+    
+    // Wrap the raw inner HTML with our styled template base (includes Tajawal font)
+    const fullHtml = buildReportHtmlBase(isAr ? "تقرير التشخيص السني" : "Dental Diagnosis Report", language, html);
+    
+    const blob = await htmlToPdfBlob(fullHtml, "diagnosis-container");
 
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");

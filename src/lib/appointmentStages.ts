@@ -146,6 +146,14 @@ export function getAppointmentStatusStyles(status?: string): AppointmentStatusSt
         pill: "bg-rose-200 text-rose-800 font-bold",
         dot: "bg-rose-500",
       };
+    case "Rescheduled":
+      // A distinct hue from Cancelled — it needs to read as "moved elsewhere", not "did not happen".
+      return {
+        card: "bg-violet-50 border-0 shadow-[0_4px_15px_rgba(0,0,0,0.05)] text-slate-600 opacity-80",
+        accent: "bg-violet-300",
+        pill: "bg-violet-100 text-violet-600 font-bold",
+        dot: "bg-violet-300",
+      };
     default:
       return {
         card: "bg-slate-100 border-0 shadow-[0_4px_15px_rgba(0,0,0,0.05)] text-slate-800",

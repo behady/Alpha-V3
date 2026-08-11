@@ -32,16 +32,10 @@ export async function POST(request: Request) {
   const authz = await requireStaffUser(request, clinicId);
   if (!authz.ok) return authz.response;
 
-  // Approving is itself a delete, so it carries the same Admin requirement the tool does. Staging
-  // already checks this, but a stored action must not become a way around the gate if the user's
-  // role changed in between.
-  if (decision === "approve" && authz.role !== "Admin") {
-    return NextResponse.json(
-      { ok: false, error: "Only a Clinic Admin can confirm a deletion." },
-      { status: 403 }
-    );
-  }
-
+  // The Admin requirement is specific to deletions and now lives in resolvePendingAiAction, which
+  // is the only place that knows which kind of action is being approved. It used to be enforced
+  // here for every approval, which was correct while deleting was the only staged action — but
+  // would now stop a receptionist confirming the check-in or payment they themselves asked for.
   try {
     const result = await resolvePendingAiAction({
       clinicId,

@@ -11,9 +11,7 @@ import { logActivity } from "@/lib/logger";
 import { PERMISSIONS_CATALOG, getAllPermissionIds, type PermissionCatalogGroup } from "@/config/permissionsCatalog";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import UserAccessModal from "./UserAccessModal";
-import Protect from "@/components/Protect";
-
-type StaffMember = { id: string; uid?: string; [k: string]: unknown };
+import Protect from "@/components/Protect";type StaffMember = { id: string; uid?: string; [k: string]: unknown };
 type UserRow = {
   id: string;
   uid?: string;

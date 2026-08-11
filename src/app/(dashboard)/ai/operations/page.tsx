@@ -18,9 +18,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import PermissionGuard from "@/components/PermissionGuard";
 import type { RecallReport } from "@/lib/automation/recallDue";
-import type { InventoryAlertReport } from "@/lib/automation/inventoryAlerts";
-
-/**
+import type { InventoryAlertReport } from "@/lib/automation/inventoryAlerts";/**
  * Recall list and low-stock alerts on one page.
  *
  * Both are "config-first" features: they read a number the clinic has to state, and when it is

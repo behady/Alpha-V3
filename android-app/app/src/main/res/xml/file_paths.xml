@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Photos taken by the camera on their way into an upload field. -->
+    <cache-path
+        name="uploads"
+        path="uploads/" />
+    <!-- Saved reports on Android 8/9, so "Open" and "Share" can reach them. -->
+    <external-path
+        name="downloads"
+        path="Download/" />
+</paths>

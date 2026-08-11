@@ -1,6 +1,6 @@
 "use client";
 
-import { Monitor, SquareTerminal, PanelRight, Calendar, AlertTriangle } from "lucide-react";
+import { Monitor, SquareTerminal, PanelRight, Calendar, AlertTriangle, PencilLine, Sparkles } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 
@@ -9,6 +9,7 @@ export default function InterfaceSettings() {
   const { 
     clinicalEditorMode, setClinicalEditorMode, 
     appointmentEditorMode, setAppointmentEditorMode,
+    appointmentPanelMode, setAppointmentPanelMode,
     appointmentsVisibility, setAppointmentsVisibility,
     latePatientTrackerEnabled, setLatePatientTrackerEnabled
   } = useUI();
@@ -21,6 +22,18 @@ export default function InterfaceSettings() {
     appointmentEditorDesc: language === 'ar' ? "اختر كيف تريد عرض نموذج حجز وتعديل المواعيد." : "Choose how you want to display the appointment booking and editing form.",
     modal: language === 'ar' ? "نافذة منبثقة" : "Pop-up Modal",
     drawer: language === 'ar' ? "شريط جانبي" : "Side Drawer",
+    panelModeLabel: language === 'ar' ? "لوحة الموعد المحدد" : "Selected Appointment Panel",
+    panelModeDesc: language === 'ar'
+      ? "عند اختيار موعد، اختر ما يظهر بجانب الجدول: نموذج التعديل أم مساعد الاستقبال الذكي. يمكنك التبديل بينهما في أي وقت من زر أعلى اللوحة."
+      : "When you click an appointment, choose what appears beside the schedule: the edit form, or the AI reception assistant. You can flip between them at any time from a button at the top of the panel.",
+    panelEditor: language === 'ar' ? "محرر التفاصيل" : "Details Editor",
+    panelEditorHint: language === 'ar'
+      ? "الحقول والسجل المالي وزر الدفع، كما هو."
+      : "The fields, ledger and payment button, exactly as now.",
+    panelAvatar: language === 'ar' ? "مساعد الاستقبال" : "Reception Assistant",
+    panelAvatarHint: language === 'ar'
+      ? "اسأله عن المريض، أو اطلب منه الحضور والتغيير والدفع — بتأكيدك دائماً."
+      : "Ask about the patient, or have it check in, reschedule, take a payment or message them — always on your confirmation.",
   };
 
   return (
@@ -109,6 +122,52 @@ export default function InterfaceSettings() {
             <span className={`text-lg font-black ${appointmentEditorMode === 'drawer' ? 'text-primary-700' : 'text-slate-600'}`}>
               {txt.drawer}
             </span>
+          </button>
+        </div>
+      </div>
+
+      {/* SELECTED-APPOINTMENT PANEL: EDITOR OR AI RECEPTIONIST */}
+      <div className="bg-white p-8 md:p-10 rounded-3xl border border-slate-200/50 shadow-sm">
+        <div className="mb-8">
+          <h3 className="text-xl font-black text-slate-900 flex items-center gap-3">
+            <PanelRight className="text-primary-500" /> {txt.panelModeLabel}
+          </h3>
+          <p className="text-sm font-medium text-slate-500 mt-2">{txt.panelModeDesc}</p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          <button
+            onClick={() => setAppointmentPanelMode('editor')}
+            className={`p-8 rounded-3xl border-2 flex flex-col items-center justify-center gap-4 transition-all ${
+              appointmentPanelMode === 'editor'
+                ? 'border-primary-500 bg-primary-50 shadow-md scale-[1.02]'
+                : 'border-slate-100 bg-slate-50 hover:border-slate-300 hover:bg-white'
+            }`}
+          >
+            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center shadow-sm ${appointmentPanelMode === 'editor' ? 'bg-primary-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
+              <PencilLine size={32} />
+            </div>
+            <span className={`text-lg font-black ${appointmentPanelMode === 'editor' ? 'text-primary-700' : 'text-slate-600'}`}>
+              {txt.panelEditor}
+            </span>
+            <span className="text-xs font-bold text-slate-400 text-center leading-relaxed">{txt.panelEditorHint}</span>
+          </button>
+
+          <button
+            onClick={() => setAppointmentPanelMode('avatar')}
+            className={`p-8 rounded-3xl border-2 flex flex-col items-center justify-center gap-4 transition-all ${
+              appointmentPanelMode === 'avatar'
+                ? 'border-primary-500 bg-primary-50 shadow-md scale-[1.02]'
+                : 'border-slate-100 bg-slate-50 hover:border-slate-300 hover:bg-white'
+            }`}
+          >
+            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center shadow-sm ${appointmentPanelMode === 'avatar' ? 'bg-primary-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
+              <Sparkles size={32} />
+            </div>
+            <span className={`text-lg font-black ${appointmentPanelMode === 'avatar' ? 'text-primary-700' : 'text-slate-600'}`}>
+              {txt.panelAvatar}
+            </span>
+            <span className="text-xs font-bold text-slate-400 text-center leading-relaxed">{txt.panelAvatarHint}</span>
           </button>
         </div>
       </div>

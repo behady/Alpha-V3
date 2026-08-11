@@ -1,8 +1,6 @@
 import { getToken, isSupported, onMessage, type Messaging } from "firebase/messaging";
 import { getMessagingInstance } from "@/lib/firebase";
-import { auth } from "@/lib/firebase";
-
-const SW_PATH = "/firebase-messaging-sw.js";
+import { auth } from "@/lib/firebase";const SW_PATH = "/firebase-messaging-sw.js";
 
 function vapidKey(): string {
   return process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY?.trim() || "";

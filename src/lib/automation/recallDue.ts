@@ -123,7 +123,9 @@ export async function scanRecallDue(clinicId: string): Promise<RecallReport> {
     const status = normalizeAppointmentStatus(typeof d.status === "string" ? d.status : "");
     const dateStr = typeof d.date === "string" ? d.date : "";
 
-    if (dateStr >= todayKey && status !== "Cancelled" && status !== "No Show") {
+    // A "Rescheduled" marker sits on a slot the patient is not actually coming to — the real
+    // upcoming visit is a separate document that will set this on its own.
+    if (dateStr >= todayKey && status !== "Cancelled" && status !== "No Show" && status !== "Rescheduled") {
       hasUpcoming.add(patientId);
     }
     if (ATTENDED.has(status)) remember(patientId, parseDate(d.date), "appointments", doc.id);

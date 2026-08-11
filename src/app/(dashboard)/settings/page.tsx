@@ -33,9 +33,7 @@ import PatientSourcesSettings from "@/components/settings/PatientSourcesSettings
 import VisitReasonsSettings from "@/components/settings/VisitReasonsSettings";
 import OnlineBookingSettings from "@/components/settings/OnlineBookingSettings";
 import { logActivity } from "@/lib/logger";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-
-export default function SettingsPage() {
+import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";export default function SettingsPage() {
   const { language, isRTL } = useLanguage();
   const { user, loading: authLoading } = useAuth(); 
   const { clinic, clinicId, isAdmin } = useClinic();

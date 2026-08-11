@@ -6,9 +6,7 @@ import { AlertCircle, ArrowUpRight, CalendarDays, Loader2, Sparkles, Wallet } fr
 import { auth } from "@/lib/firebase";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
-import type { DailyBriefing } from "@/lib/automation/dailyBriefing";
-
-/**
+import type { DailyBriefing } from "@/lib/automation/dailyBriefing";/**
  * The day's schedule plus balances that have gone quiet.
  *
  * Scope is narrower than a "morning briefing" usually implies, on purpose — see the comment in

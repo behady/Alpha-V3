@@ -10,6 +10,7 @@ import BookingModal from "@/components/BookingModal";
 import NewPatientModal from "@/components/NewPatientModal";
 import AppointmentDetailsModal from "@/components/AppointmentDetailsModal";
 import AppointmentSidePanel from "@/components/appointments/AppointmentSidePanel";
+import AppointmentAvatarPanel from "@/components/appointments/AppointmentAvatarPanel";
 import LateAppointmentPrompt from "@/components/appointments/LateAppointmentPrompt";
 import PatientHistoryDrawer from "@/components/appointments/PatientHistoryDrawer";
 import { db, auth } from "@/lib/firebase";
@@ -25,9 +26,7 @@ import { useUI } from "@/context/UIContext";
 import { useClinic } from "@/context/ClinicContext";
 import PermissionGuard from "@/components/PermissionGuard"; 
 import { isDentistStaff } from "@/lib/staffRoles";
-import { getAppointmentStatusStyles } from "@/lib/appointmentStages";
-
-interface Appointment {
+import { getAppointmentStatusStyles } from "@/lib/appointmentStages";interface Appointment {
   id: string;
   patientId: string;
   patientName: string;
@@ -47,7 +46,7 @@ interface Appointment {
 
 export default function AppointmentsPage() {
   const { language } = useLanguage();
-  const { showToast, confirm, latePatientTrackerEnabled } = useUI();
+  const { showToast, confirm, latePatientTrackerEnabled, appointmentPanelMode, setAppointmentPanelMode } = useUI();
   const { user } = useAuth();
   const { isAdmin } = useClinic();
   const router = useRouter();
@@ -107,7 +106,9 @@ export default function AppointmentsPage() {
 
   const isAppointmentLate = (appt: Appointment) => {
     if (!latePatientTrackerEnabled) return false;
-    const activeStatuses = ["Checked In", "In Chair", "Completed", "Checking Out", "Cancelled", "No Show", "Delayed"];
+    // "Rescheduled" is a resolved marker left on the original slot — never late, since the real
+    // visit is a different document now.
+    const activeStatuses = ["Checked In", "In Chair", "Completed", "Checking Out", "Cancelled", "No Show", "Delayed", "Rescheduled"];
     if (activeStatuses.includes(appt.status || '')) return false;
     
     // Parse appointment date/time
@@ -870,9 +871,24 @@ export default function AppointmentsPage() {
                        servicesList={servicesList}
                     />
                  </div>
+               ) : appointmentPanelMode === 'avatar' ? (
+                  <AppointmentAvatarPanel
+                     selectedAppointment={selectedAppt}
+                     onClose={() => setSelectedAppt(null)}
+                     onEditFull={(appt) => {
+                        setAppointmentToEdit(appt);
+                        setIsBookingModalOpen(true);
+                     }}
+                     onDelete={handleDeleteBooking}
+                     onSaveBooking={handleSaveBooking}
+                     doctorsList={doctorsList}
+                     onSwitchToEditor={() => setAppointmentPanelMode('editor')}
+                     onAppointmentReplaced={(newAppt) => setSelectedAppt(newAppt)}
+                  />
                ) : (
                   <AppointmentSidePanel
                      selectedAppointment={selectedAppt}
+                     onSwitchToAvatar={() => setAppointmentPanelMode('avatar')}
                      onClose={() => setSelectedAppt(null)}
                      onEditFull={(appt) => {
                         setAppointmentToEdit(appt);
@@ -894,7 +910,7 @@ export default function AppointmentsPage() {
                <div className="pt-2 px-1">
                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Status</p>
                  <div className="space-y-3 mb-6">
-                     {['Scheduled', 'Checked In', 'In Chair', 'Completed', 'Cancelled', 'Delayed', 'No Show'].map(status => {
+                     {['Scheduled', 'Checked In', 'In Chair', 'Completed', 'Cancelled', 'Delayed', 'No Show', 'Rescheduled'].map(status => {
                         const isSelected = selectedStatuses.includes(status);
                         return (
                           <label key={status} className="flex items-center gap-3 text-sm font-bold text-slate-600 cursor-pointer group hover:text-slate-800 transition-colors" onClick={() => toggleStatusFilter(status)}>

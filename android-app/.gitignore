@@ -1,0 +1,21 @@
+# Build output
+.gradle/
+build/
+app/build/
+
+# Machine-specific SDK location
+local.properties
+
+# Signing material — NEVER commit these.
+# Keep a backup of alpha-dental-release.jks somewhere safe (see README.md).
+keystore.properties
+*.jks
+*.keystore
+
+# Editor
+.idea/
+*.iml
+.DS_Store
+
+# The built app itself (rebuild it with build-apk.bat)
+*.apk

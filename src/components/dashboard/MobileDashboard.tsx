@@ -51,10 +51,7 @@ import { printPatientReceipt } from "@/lib/printPatientReceipt";
 
 import { getAppointmentStatusStyles, getAppointmentStageLabel } from "@/lib/appointmentStages";
 import UserClockWidget from "@/components/dashboard/UserClockWidget";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-
-
-function getLocalDateKey(): string {
+import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";function getLocalDateKey(): string {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split("T")[0];
 }
@@ -225,7 +222,9 @@ export default function MobileDashboard() {
 
   const isAppointmentLate = (appt: any) => {
     if (!latePatientTrackerEnabled) return false;
-    const activeStatuses = ["Checked In", "In Chair", "Completed", "Checking Out", "Cancelled", "No Show", "Delayed"];
+    // "Rescheduled" is a resolved marker left on the original slot — never late, since the real
+    // visit is a different document now.
+    const activeStatuses = ["Checked In", "In Chair", "Completed", "Checking Out", "Cancelled", "No Show", "Delayed", "Rescheduled"];
     if (activeStatuses.includes(appt.status)) return false;
     if (!appt.date || !appt.time) return false;
 
@@ -481,7 +480,7 @@ export default function MobileDashboard() {
 
 
   const summaryStats = useMemo(() => {
-    let confirmed = 0, delayed = 0, canceled = 0, checkedIn = 0, inChair = 0, checkingOut = 0, completed = 0;
+    let confirmed = 0, delayed = 0, canceled = 0, checkedIn = 0, inChair = 0, checkingOut = 0, completed = 0, rescheduled = 0;
     appointments.forEach(app => {
       const s = app.status?.toLowerCase();
       if (s === 'confirmed') confirmed++;
@@ -491,9 +490,14 @@ export default function MobileDashboard() {
       else if (s === 'in chair') inChair++;
       else if (s === 'checking out') checkingOut++;
       else if (s === 'completed') completed++;
+      else if (s === 'rescheduled') rescheduled++;
     });
-    return { confirmed, delayed, canceled, checkedIn, inChair, checkingOut, completed };
+    return { confirmed, delayed, canceled, checkedIn, inChair, checkingOut, completed, rescheduled };
   }, [appointments]);
+
+  // A "Rescheduled" marker stays visible on its original day but isn't a real visit anymore, so
+  // it must not inflate the headline count or the progress-bar percentages below.
+  const activeAppointmentsCount = appointments.length - summaryStats.rescheduled;
 
   const handleSaveBooking = async (data: any) => {
     await executeSaveBooking(data);
@@ -829,7 +833,7 @@ export default function MobileDashboard() {
   }, [scheduleViewDate, language]);
 
   return (
-    <div className={`min-h-screen lg:min-h-0 lg:h-full relative overflow-hidden pb-24 lg:pb-0 font-sans text-[#1E293B] lg:text-white ${isRTL ? 'text-right' : 'text-left'}`}>
+    <div className={`min-h-screen lg:min-h-0 lg:h-full relative overflow-hidden pb-24 lg:pb-0 font-sans text-[#1E293B] lg:text-white bg-gradient-to-br from-[#E2F2E2]/60 to-[#F0FAF0] lg:from-transparent lg:to-transparent ${isRTL ? 'text-right' : 'text-left'}`}>
       <div className="relative z-10 w-full max-w-[1920px] mx-auto p-4 md:p-6 md:pt-8 lg:p-4 lg:pt-3 space-y-3 md:space-y-4 lg:space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:h-full lg:flex lg:flex-col">
 
         {/* === DESKTOP: High Contrast Greeting Bar === */}
@@ -870,20 +874,20 @@ export default function MobileDashboard() {
           {/* Total Appointments - Floating Huge Number */}
           <div className="flex flex-col justify-center px-4">
             <span className="text-sm font-medium text-slate-500 mb-1">{language === 'ar' ? 'المواعيد' : 'Appointments'}</span>
-            <span className="text-5xl font-light text-slate-800 tracking-tighter leading-none">{appointments.length}</span>
+            <span className="text-5xl font-light text-slate-800 tracking-tighter leading-none">{activeAppointmentsCount}</span>
           </div>
 
           {/* Status Distribution - Abstract Chart */}
           <div className="flex flex-col justify-center px-4 flex-1 max-w-sm">
             <div className="flex items-center justify-between text-sm font-medium text-slate-500 mb-3">
               <span>{language === 'ar' ? 'حالة المواعيد' : 'Status Distribution'}</span>
-              <span>{Math.round(((summaryStats.confirmed + summaryStats.checkedIn + summaryStats.inChair + summaryStats.completed) / (appointments.length || 1)) * 100)}%</span>
+              <span>{Math.round(((summaryStats.confirmed + summaryStats.checkedIn + summaryStats.inChair + summaryStats.completed) / (activeAppointmentsCount || 1)) * 100)}%</span>
             </div>
             <div className="w-full h-3 bg-white/60 backdrop-blur-md rounded-full overflow-hidden flex shadow-inner">
-              <div style={{ width: `${(summaryStats.confirmed / (appointments.length || 1)) * 100}%` }} className="h-full bg-slate-800" title="Confirmed" />
-              <div style={{ width: `${((summaryStats.checkedIn + summaryStats.inChair + summaryStats.checkingOut) / (appointments.length || 1)) * 100}%` }} className="h-full bg-cyan-400" title="In Progress" />
-              <div style={{ width: `${(summaryStats.completed / (appointments.length || 1)) * 100}%` }} className="h-full bg-emerald-400" title="Completed" />
-              <div style={{ width: `${(summaryStats.delayed / (appointments.length || 1)) * 100}%` }} className="h-full bg-amber-400" title="Delayed" />
+              <div style={{ width: `${(summaryStats.confirmed / (activeAppointmentsCount || 1)) * 100}%` }} className="h-full bg-slate-800" title="Confirmed" />
+              <div style={{ width: `${((summaryStats.checkedIn + summaryStats.inChair + summaryStats.checkingOut) / (activeAppointmentsCount || 1)) * 100}%` }} className="h-full bg-cyan-400" title="In Progress" />
+              <div style={{ width: `${(summaryStats.completed / (activeAppointmentsCount || 1)) * 100}%` }} className="h-full bg-emerald-400" title="Completed" />
+              <div style={{ width: `${(summaryStats.delayed / (activeAppointmentsCount || 1)) * 100}%` }} className="h-full bg-amber-400" title="Delayed" />
             </div>
             <div className="flex items-center gap-4 mt-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
               <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-slate-800" /> {language === 'ar' ? 'مؤكد' : 'Confirmed'}</span>
@@ -897,79 +901,113 @@ export default function MobileDashboard() {
 
 
         {/* === MOBILE: Compact Header Layout === */}
-        <div className="flex flex-col gap-3 lg:hidden shrink-0">
-          {/* Greeting & Date + Inline Daily Income */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-xl font-bold text-slate-800 tracking-tight leading-tight">
-                {language === 'ar' ? 'أهلاً بك، ' : 'Welcome, '}{getWelcomeName(user?.name)}
-              </h1>
-              <p className="text-xs text-slate-500 font-semibold mt-0.5">
-                <DashboardClockWidget language={language} showTime={false} />
-              </p>
-            </div>
-
-            {/* Daily Income Pill */}
-            <div className="bg-white/90 backdrop-blur-xl border border-white/60 shadow-[0_4px_20px_rgb(0,0,0,0.02)] rounded-2xl px-4 py-2 flex items-center gap-2">
-              <Wallet size={16} className="text-[#27ae60] shrink-0" />
-              <div className="flex flex-col">
-                <span className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wider leading-none mb-0.5">{language === 'ar' ? 'دخل اليوم' : 'Income'}</span>
-                <span className="text-xs font-black text-slate-800 leading-none">
-                  {dailyIncome === null ? <Loader2 className="w-3 h-3 animate-spin text-slate-500" /> : `${dailyIncome.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')} ${language === 'ar' ? 'ج.م' : 'EGP'}`}
-                </span>
+        <div className="flex flex-col gap-4 lg:hidden shrink-0">
+          
+          {/* 1. Floating Header with Profile Pic */}
+          <div className="flex items-center justify-between bg-white/80 backdrop-blur-xl border border-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-full p-1.5 mx-1 mt-1">
+            <div className="flex items-center gap-2">
+              <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-emerald-400 to-teal-400 p-[1.5px] shadow-sm shrink-0">
+                <div className="w-full h-full rounded-full bg-white flex items-center justify-center overflow-hidden border-2 border-white">
+                  {/* Fallback to initials if no avatar */}
+                  <span className="text-emerald-600 font-black text-sm">
+                    {getWelcomeName(user?.name).charAt(0).toUpperCase()}
+                  </span>
+                </div>
               </div>
+              <div className="flex flex-col min-w-0 pr-2 justify-center">
+                <h1 className="text-[15px] font-black text-slate-800 tracking-tight leading-none truncate">
+                  {getWelcomeName(user?.name)}
+                </h1>
+              </div>
+            </div>
+            {/* Minimal Time display */}
+            <div className="text-right shrink-0 px-3 border-l border-slate-100 flex flex-col justify-center">
+                <div className="text-[11px] font-black text-slate-700 leading-none">
+                   <DashboardClockWidget language={language} showTime={false} />
+                </div>
             </div>
           </div>
 
-          {/* Quick Actions Row */}
-          <div className="grid grid-cols-3 gap-2">
+          {/* 2. Daily Overview (Stats + Income) */}
+          <div className="flex flex-col gap-2 mx-1">
+             <div className="flex items-center justify-between px-2">
+                 <h3 className="text-[10px] font-black text-slate-800 uppercase tracking-widest">{language === 'ar' ? 'نظرة عامة' : 'Daily Overview'}</h3>
+             </div>
+             
+             <div className="grid grid-cols-2 gap-2">
+                {/* Income Card (Spans half) */}
+                <div className="bg-[#0a0a0a] rounded-[1.5rem] p-4 text-white shadow-lg flex flex-col relative overflow-hidden">
+                    <div className="flex justify-between items-start w-full relative z-10">
+                       <span className="text-[10px] font-bold text-white uppercase tracking-widest">{language === 'ar' ? 'دخل اليوم' : 'Today\'s Income'}</span>
+                       <Wallet size={14} className="text-white" />
+                    </div>
+                    <div className="flex-1 flex flex-col items-center justify-center relative z-10 min-h-[80px]">
+                        {dailyIncome === null ? (
+                            <Loader2 className="w-5 h-5 animate-spin text-white" />
+                        ) : (
+                            <div className="flex items-baseline justify-center gap-1.5 w-full">
+                                <span className="text-4xl font-black tracking-tighter leading-none truncate text-center text-white">{dailyIncome.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}</span>
+                                <span className="text-[10px] font-bold text-white uppercase tracking-widest shrink-0">{language === 'ar' ? 'ج.م' : 'EGP'}</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Status Cards (2x2 grid inside the other half) - Cleaner palette with icons */}
+                <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-white/60 backdrop-blur-xl border border-white rounded-[1.2rem] p-3 flex flex-col justify-center items-center shadow-[0_4px_20px_rgb(0,0,0,0.03)]">
+                        <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest mb-1 flex items-center gap-1.5"><Check size={12} strokeWidth={3} className="text-sky-500" /> {language === 'ar' ? 'مؤكد' : 'Confirm'}</span>
+                        <span className="text-2xl font-black text-slate-900 leading-none mt-0.5">{summaryStats.confirmed}</span>
+                    </div>
+                    <div className="bg-white/60 backdrop-blur-xl border border-white rounded-[1.2rem] p-3 flex flex-col justify-center items-center shadow-[0_4px_20px_rgb(0,0,0,0.03)]">
+                        <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest mb-1 flex items-center gap-1.5"><Clock size={12} strokeWidth={3} className="text-amber-500" /> {language === 'ar' ? 'متأخر' : 'Delay'}</span>
+                        <span className="text-2xl font-black text-slate-900 leading-none mt-0.5">{summaryStats.delayed}</span>
+                    </div>
+                    <div className="bg-white/60 backdrop-blur-xl border border-white rounded-[1.2rem] p-3 flex flex-col justify-center items-center shadow-[0_4px_20px_rgb(0,0,0,0.03)]">
+                        <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest mb-1 flex items-center gap-1.5"><Check size={12} strokeWidth={3} className="text-emerald-500" /> {language === 'ar' ? 'تمت' : 'Done'}</span>
+                        <span className="text-2xl font-black text-slate-900 leading-none mt-0.5">{summaryStats.completed}</span>
+                    </div>
+                    <div className="bg-white/60 backdrop-blur-xl border border-white rounded-[1.2rem] p-3 flex flex-col justify-center items-center shadow-[0_4px_20px_rgb(0,0,0,0.03)]">
+                        <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest mb-1 flex items-center gap-1.5"><X size={12} strokeWidth={3} className="text-rose-500" /> {language === 'ar' ? 'ملغي' : 'Cancel'}</span>
+                        <span className="text-2xl font-black text-slate-900 leading-none mt-0.5">{summaryStats.canceled}</span>
+                    </div>
+                </div>
+             </div>
+          </div>
+
+          {/* Clock In / Attendance widget (Hidden on Mobile for now) */}
+          {/* <div className="mt-1 mx-1">
+            <UserClockWidget mobileVariant={true} />
+          </div> */}
+
+          {/* 3. Vertical Quick Actions Stack (Moved down) */}
+          <div className="flex flex-col gap-2 px-1 pb-1 mt-2">
             <button
               onClick={() => setActiveModal('patient')}
-              className="flex items-center justify-center gap-2 py-3.5 px-2 rounded-2xl bg-emerald-50 border border-emerald-100/80 backdrop-blur-xl text-emerald-800 transition-all shadow-[0_4px_12px_rgba(16,185,129,0.08)] active:scale-95 transition-transform"
+              className="w-full flex items-center py-3 px-4 rounded-[1.2rem] bg-white/60 backdrop-blur-xl border border-white shadow-[0_4px_20px_rgb(0,0,0,0.03)] active:scale-[0.98] transition-transform"
             >
-              <User size={16} className="text-emerald-600 shrink-0" strokeWidth={2.5} />
-              <span className="text-[11px] font-bold leading-none">{language === 'ar' ? 'مريض جديد' : 'New Patient'}</span>
+              <div className="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center shrink-0"><User size={16} strokeWidth={2.5} className="text-slate-800" /></div>
+              <span className="text-lg font-black text-slate-800 flex-1 text-center">{language === 'ar' ? 'مريض جديد' : 'New Patient'}</span>
+              <div className="w-8 h-8 shrink-0"></div>
             </button>
 
             <button
               onClick={() => { setAppointmentToEdit(null); setActiveModal('booking'); }}
-              className="flex items-center justify-center gap-2 py-3.5 px-2 rounded-2xl bg-indigo-50 border border-indigo-100/80 backdrop-blur-xl text-indigo-800 transition-all shadow-[0_4px_12px_rgba(99,102,241,0.08)] active:scale-95 transition-transform"
+              className="w-full flex items-center py-3 px-4 rounded-[1.2rem] bg-white/60 backdrop-blur-xl border border-white shadow-[0_4px_20px_rgb(0,0,0,0.03)] active:scale-[0.98] transition-transform"
             >
-              <Calendar size={16} className="text-indigo-600 shrink-0" strokeWidth={2.5} />
-              <span className="text-[11px] font-bold leading-none">{language === 'ar' ? 'حجز موعد' : 'New Visit'}</span>
+              <div className="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center shrink-0"><Calendar size={16} strokeWidth={2.5} className="text-slate-800" /></div>
+              <span className="text-lg font-black text-slate-800 flex-1 text-center">{language === 'ar' ? 'حجز موعد' : 'New Visit'}</span>
+              <div className="w-8 h-8 shrink-0"></div>
             </button>
 
             <button
               onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }}
-              className="flex items-center justify-center gap-2 py-3.5 px-2 rounded-2xl bg-amber-50 border border-amber-100/80 backdrop-blur-xl text-amber-800 transition-all shadow-[0_4px_12px_rgba(245,158,11,0.08)] active:scale-95 transition-transform"
+              className="w-full flex items-center py-3 px-4 rounded-[1.2rem] bg-white/60 backdrop-blur-xl border border-white shadow-[0_4px_20px_rgb(0,0,0,0.03)] active:scale-[0.98] transition-transform"
             >
-              <Wallet size={16} className="text-amber-600 shrink-0" strokeWidth={2.5} />
-              <span className="text-[11px] font-bold leading-none">{language === 'ar' ? 'دفع سريع' : 'Quick Pay'}</span>
+              <div className="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center shrink-0"><Wallet size={16} strokeWidth={2.5} className="text-slate-800" /></div>
+              <span className="text-lg font-black text-slate-800 flex-1 text-center">{language === 'ar' ? 'دفع سريع' : 'Quick Pay'}</span>
+              <div className="w-8 h-8 shrink-0"></div>
             </button>
-          </div>
-
-          {/* Quick Stats Distribution Banner */}
-          <div className="flex items-center justify-between w-full bg-white/90 border border-white/60 backdrop-blur-xl shadow-[0_4px_20px_rgb(0,0,0,0.02)] rounded-2xl py-2 px-4 text-[11px] md:text-xs font-bold text-slate-500">
-            <div className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-slate-800" />
-              <span>{language === 'ar' ? 'مؤكد:' : 'Confirmed:'}</span>
-              <span className="font-black text-slate-800">{summaryStats.confirmed}</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-pulse" />
-              <span>{language === 'ar' ? 'متأخر:' : 'Delayed:'}</span>
-              <span className="font-black text-slate-800">{summaryStats.delayed}</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-rose-600" />
-              <span>{language === 'ar' ? 'ملغي:' : 'Canceled:'}</span>
-              <span className="font-black text-slate-800">{summaryStats.canceled}</span>
-            </div>
-          </div>
-
-          {/* Clock In / Attendance widget */}
-          <div className="mt-1">
-            <UserClockWidget />
           </div>
         </div>
 
@@ -1142,7 +1180,7 @@ export default function MobileDashboard() {
                     id={`day-btn-${dateKey}`}
                     onClick={() => setScheduleViewDate(dateKey)}
                     className={`flex-shrink-0 w-12 h-14 flex flex-col items-center justify-center gap-1 rounded-2xl transition-all ${isSelected
-                        ? 'bg-emerald-600 text-white font-extrabold shadow-md shadow-emerald-600/25 scale-[1.03]'
+                        ? 'bg-slate-900 text-white font-extrabold shadow-md shadow-slate-900/20 scale-[1.03]'
                         : 'text-slate-500 hover:text-slate-900 bg-slate-50/50 hover:bg-slate-50 border border-slate-100/50'
                       }`}
                   >
@@ -1184,8 +1222,60 @@ export default function MobileDashboard() {
                     const showRedLine = isToday && currentMinutes >= bounds.start && currentMinutes <= bounds.end;
                     const redLineTop = showRedLine ? (currentMinutes - bounds.start) * pixelsPerMinute : 0;
 
+                    const activeMobileAppts = appointments.filter(a => !["Rescheduled"].includes(a.status || ""));
+                    const upNextAppt = isToday ? activeMobileAppts.find(a => (a.status === "In Chair" || a.status === "Checked In") || (parseApptTimeToMinutes(a.time) >= currentMinutes && !["Completed", "Canceled", "Cancelled"].includes(a.status || ""))) : null;
+
                     return (
-                      <div className="relative min-w-0 lg:min-w-[600px] bg-white/40 backdrop-blur-xl rounded-[2rem] border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.02)] overflow-hidden" style={{ height: `${containerHeight + 40}px` }}>
+                      <>
+                      {/* === MOBILE: Chronological List View === */}
+                      <div className="lg:hidden flex flex-col gap-4 p-2 pb-24">
+
+                        <div className="flex flex-col gap-3 px-1">
+                          {activeMobileAppts.length === 0 ? (
+                            <div className="text-center py-10 text-slate-400 font-bold text-sm">
+                              {language === 'ar' ? 'لا توجد مواعيد' : 'No appointments'}
+                            </div>
+                          ) : activeMobileAppts.map(apt => {
+                            const aptStyles = getAppointmentStatusStyles(apt.status);
+                            const isLate = isAppointmentLate(apt);
+                            return (
+                              <div
+                                key={apt.id}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (isLate) {
+                                    setLateApptToPrompt(apt);
+                                    return;
+                                  }
+                                  handleSelectAppointmentWrapper(apt);
+                                }}
+                                className={`flex bg-white rounded-3xl border border-slate-100 shadow-sm p-4 gap-4 items-center transition-transform active:scale-[0.98] ${selectedAppointment?.id === apt.id ? 'ring-2 ring-emerald-500 shadow-md' : ''}`}
+                              >
+                                <div className="flex flex-col items-center justify-center shrink-0 w-16">
+                                  <span className="text-sm font-black text-slate-800 leading-none mb-1">{apt.time?.split(" ")[0]}</span>
+                                  <span className="text-[10px] font-bold text-slate-400 uppercase">{apt.time?.split(" ")[1]}</span>
+                                </div>
+                                <div className={`w-1 h-12 rounded-full shrink-0 ${aptStyles.accent}`}></div>
+                                <div className="flex-1 flex justify-between items-center min-w-0 gap-2">
+                                  <div className="flex flex-col min-w-0">
+                                    <h4 className="text-base font-black text-slate-800 truncate mb-1">{apt.patientName}</h4>
+                                    <span className="text-[11px] font-bold text-slate-500 truncate">{apt.treatment || '-'}</span>
+                                  </div>
+                                  <div className="flex flex-col items-end shrink-0 gap-1.5">
+                                     <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest bg-slate-50 border border-slate-100 px-2 py-1 rounded-full whitespace-nowrap">
+                                       {getAppointmentStageLabel(apt.status, language)}
+                                     </span>
+                                     {isLate && <AlertCircle size={14} className="text-rose-500 animate-pulse" />}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* === DESKTOP: Timeline Grid === */}
+                      <div className="hidden lg:block relative min-w-0 lg:min-w-[600px] bg-white/40 backdrop-blur-xl rounded-[2rem] border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.02)] overflow-hidden" style={{ height: `${containerHeight + 40}px` }}>
                         <div className="absolute top-[20px] bottom-[20px] left-0 right-0 flex flex-col pointer-events-none">
                           {timeSlots.map((slot, idx) => {
                             const isHourSlot = slot.minutes % 60 === 0;
@@ -1332,6 +1422,7 @@ export default function MobileDashboard() {
                           })()}
                         </div>
                       </div>
+                      </>
                     );
                   })()}
                 </div>

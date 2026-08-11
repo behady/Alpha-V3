@@ -4,9 +4,7 @@ import { useState } from "react";
 import { Wrench, Loader2, CheckCircle, AlertTriangle } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { useUI } from "@/context/UIContext";
-import { useClinic } from "@/context/ClinicContext";
-
-export default function DatabaseRepairBot() {
+import { useClinic } from "@/context/ClinicContext";export default function DatabaseRepairBot() {
   const { showToast, confirm } = useUI();
   const { clinicId } = useClinic();
   const [isScanning, setIsScanning] = useState(false);

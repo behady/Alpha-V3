@@ -32,6 +32,7 @@ import LateAppointmentPrompt from "@/components/appointments/LateAppointmentProm
 import NewPatientModal from "@/components/NewPatientModal";
 import QuickPaymentModal from "@/components/QuickPaymentModal";
 import AppointmentSidePanel from "@/components/appointments/AppointmentSidePanel";
+import AppointmentAvatarPanel from "@/components/appointments/AppointmentAvatarPanel";
 import AppointmentStagePicker from "@/components/appointments/AppointmentStagePicker";
 import PrescriptionPrintFinderModal from "@/components/PrescriptionPrintFinderModal";
 import WaitingMoodPicker from "@/components/appointments/WaitingMoodPicker";
@@ -53,10 +54,7 @@ import { printPatientReceipt } from "@/lib/printPatientReceipt";
 import ReceptionSummonPanel from "@/components/summon/ReceptionSummonPanel";
 import { getAppointmentStatusStyles } from "@/lib/appointmentStages";
 import UserClockWidget from "@/components/dashboard/UserClockWidget";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-
-
-function getLocalDateKey(): string {
+import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";function getLocalDateKey(): string {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split("T")[0];
 }
@@ -102,7 +100,7 @@ type DashboardAppointment = {
 export default function DesktopDashboard() {
   const { language, isRTL, t } = useLanguage();
   const { user } = useAuth(); 
-  const { showToast, confirm, appointmentEditorMode, latePatientTrackerEnabled } = useUI();
+  const { showToast, confirm, appointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode, latePatientTrackerEnabled } = useUI();
   const router = useRouter();
 
   const [allAppointments, setAllAppointments] = useState<any[]>([]);
@@ -157,7 +155,9 @@ export default function DesktopDashboard() {
 
   const isAppointmentLate = (appt: any) => {
     if (!latePatientTrackerEnabled) return false;
-    const activeStatuses = ["Checked In", "In Chair", "Completed", "Checking Out", "Cancelled", "No Show", "Delayed"];
+    // "Rescheduled" is a resolved marker left on the original slot — the visit that was actually
+    // going to happen is a different document now, so this one is never late.
+    const activeStatuses = ["Checked In", "In Chair", "Completed", "Checking Out", "Cancelled", "No Show", "Delayed", "Rescheduled"];
     if (activeStatuses.includes(appt.status)) return false;
     if (!appt.date || !appt.time) return false;
     
@@ -457,7 +457,7 @@ export default function DesktopDashboard() {
 
 
   const summaryStats = useMemo(() => {
-    let confirmed = 0, delayed = 0, canceled = 0, checkedIn = 0, inChair = 0, checkingOut = 0, completed = 0, unconfirmed = 0;
+    let confirmed = 0, delayed = 0, canceled = 0, checkedIn = 0, inChair = 0, checkingOut = 0, completed = 0, unconfirmed = 0, rescheduled = 0;
     appointments.forEach(app => {
       const s = app.status?.toLowerCase();
       if (s === 'confirmed') confirmed++;
@@ -467,10 +467,19 @@ export default function DesktopDashboard() {
       else if (s === 'in chair') inChair++;
       else if (s === 'checking out') checkingOut++;
       else if (s === 'completed') completed++;
+      // A "Rescheduled" marker is kept visible on its original day on purpose (so the slot doesn't
+      // look like it was never booked), but it is not a real visit anymore — the catch-all
+      // "unconfirmed" bucket exists to flag bookings that still need action, and this one doesn't.
+      else if (s === 'rescheduled') rescheduled++;
       else unconfirmed++;
     });
-    return { confirmed, delayed, canceled, checkedIn, inChair, checkingOut, completed, unconfirmed };
+    return { confirmed, delayed, canceled, checkedIn, inChair, checkingOut, completed, unconfirmed, rescheduled };
   }, [appointments]);
+
+  // "Appointments today" and the status breakdown should count real visits, not a moved-away
+  // booking's leftover marker — otherwise a reschedule inflates today's count right after the
+  // whole point was to make the schedule honest about what's actually happening.
+  const activeAppointmentsCount = appointments.length - summaryStats.rescheduled;
 
   const handleSaveBooking = async (data: any) => {
     await executeSaveBooking(data);
@@ -813,22 +822,22 @@ export default function DesktopDashboard() {
         {!isFullScreen && (
           <div className="hidden lg:flex items-end justify-between shrink-0 pt-4 pb-2">
             <div className="flex flex-col min-w-0">
-            <h1 className="text-4xl font-light text-slate-800 tracking-tight">
-              {language === 'ar' ? 'أهلاً بك،' : 'Welcome in,'} <span className="font-normal text-slate-900">{getWelcomeName(user?.name)}</span>
+            <h1 className="text-5xl font-light text-slate-800 tracking-tight mb-1">
+              {language === 'ar' ? 'أهلاً بك،' : 'Welcome in,'} <span className="font-medium text-slate-900">{getWelcomeName(user?.name)}</span>
             </h1>
-            <p className="flex items-center gap-3 text-sm font-medium text-slate-500 mt-2">
-              <span className="flex items-center gap-1.5"><Calendar size={14} className="text-slate-400" /> {currentTime.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
-              <span className="w-1 h-1 rounded-full bg-slate-300"></span>
-              <span className="flex items-center gap-1.5"><Clock size={14} className="text-slate-400" /> {currentTime.toLocaleTimeString(language === 'ar' ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>
+            <p className="flex items-center gap-3 text-base font-medium text-slate-500 mt-2">
+              <span className="flex items-center gap-1.5"><Calendar size={18} className="text-slate-400" /> {currentTime.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
+              <span className="flex items-center gap-1.5"><Clock size={18} className="text-slate-400" /> {currentTime.toLocaleTimeString(language === 'ar' ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>
             </p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
-            <button onClick={() => setActiveModal('patient')} className="group flex items-center gap-2 bg-white/90 backdrop-blur-md text-slate-700 font-bold text-sm px-6 py-3.5 rounded-full hover:-translate-y-0.5 transition-all duration-300 shadow-[0_4px_20px_rgb(0,0,0,0.04)] border border-white/50">
-              <div className="text-slate-500 group-hover:scale-110 group-hover:text-[#2D3748] transition-all"><Plus size={18} strokeWidth={2.5} /></div>
+            <button onClick={() => setActiveModal('patient')} className="group flex items-center gap-2 bg-white/90 backdrop-blur-md text-slate-700 font-bold text-base px-6 py-3.5 rounded-full hover:-translate-y-0.5 transition-all duration-300 shadow-[0_4px_20px_rgb(0,0,0,0.04)] border border-white/50">
+              <div className="text-slate-500 group-hover:scale-110 group-hover:text-[#2D3748] transition-all"><Plus size={20} strokeWidth={2.5} /></div>
               {language === 'ar' ? 'مريض جديد' : 'New Patient'}
             </button>
-            <button onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }} className="group flex items-center gap-2 bg-[#2D3748] text-white font-bold text-sm px-6 py-3.5 rounded-full hover:-translate-y-0.5 transition-all duration-300 shadow-[0_8px_20px_rgba(45,55,72,0.2)] border border-[#2D3748]">
-              <div className="text-white group-hover:scale-110 transition-transform"><Wallet size={18} strokeWidth={2.5} /></div>
+            <button onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }} className="group flex items-center gap-2 bg-[#2D3748] text-white font-bold text-base px-6 py-3.5 rounded-full hover:-translate-y-0.5 transition-all duration-300 shadow-[0_8px_20px_rgba(45,55,72,0.2)] border border-[#2D3748]">
+              <div className="text-white group-hover:scale-110 transition-transform"><Wallet size={20} strokeWidth={2.5} /></div>
               {language === 'ar' ? 'دفع سريع' : 'Quick Pay'}
             </button>
           </div>
@@ -841,28 +850,28 @@ export default function DesktopDashboard() {
           {/* Daily Income - Dark Contrast Card -> Updated to Mint Style */}
           <div className="bg-white/90 backdrop-blur-xl text-slate-800 border border-white/60 p-5 rounded-[2rem] shadow-[0_12px_40px_rgba(0,0,0,0.04)] flex flex-col min-w-[200px] hover:scale-[1.02] transition-transform">
             <div className="flex items-center justify-between mb-4">
-              <span className="text-sm font-medium text-slate-500">{language === 'ar' ? 'دخل اليوم' : 'Daily Income'}</span>
-              <Wallet size={18} className="text-slate-400" />
+              <span className="text-base font-medium text-slate-500">{language === 'ar' ? 'دخل اليوم' : 'Daily Income'}</span>
+              <Wallet size={22} className="text-slate-400" />
             </div>
-            <span className="text-3xl font-light tracking-tight text-slate-800">
-              {dailyIncome === null ? <Loader2 className="w-6 h-6 animate-spin text-slate-500" /> : <><span className="font-normal">{dailyIncome?.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}</span> <span className="text-lg text-slate-400">{language === 'ar' ? 'ج.م' : 'EGP'}</span></>}
+            <span className="text-4xl font-light tracking-tight text-slate-800">
+              {dailyIncome === null ? <Loader2 className="w-6 h-6 animate-spin text-slate-500" /> : <><span className="font-normal">{dailyIncome?.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}</span> <span className="text-xl text-slate-400">{language === 'ar' ? 'ج.م' : 'EGP'}</span></>}
             </span>
           </div>
           
           {/* Total Appointments - Floating Huge Number */}
           <div className="flex flex-col justify-center px-4">
-            <span className="text-sm font-medium text-slate-500 mb-1">{language === 'ar' ? 'المواعيد' : 'Appointments'}</span>
-            <span className="text-5xl font-light text-[#2D3748] tracking-tighter leading-none">{appointments.length}</span>
+            <span className="text-base font-medium text-slate-500 mb-1">{language === 'ar' ? 'المواعيد' : 'Appointments'}</span>
+            <span className="text-6xl font-light text-[#2D3748] tracking-tighter leading-none">{activeAppointmentsCount}</span>
           </div>
 
           {/* Live Patient Flow - Custom Widget */}
           <div className="flex flex-col justify-center px-4 flex-1 max-w-sm bg-white/90 backdrop-blur-xl border border-white/60 p-5 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
-            <div className="flex items-center justify-between text-xs font-bold text-slate-600 mb-2">
+            <div className="flex items-center justify-between text-sm font-bold text-slate-600 mb-2">
               <span className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 {language === 'ar' ? 'حالة المواعيد' : 'Appointments Status'}
               </span>
-              <span className="text-[10px] text-slate-400">
+              <span className="text-xs text-slate-400">
                 {language === 'ar' ? 'اليوم' : 'Today'}
               </span>
             </div>
@@ -870,16 +879,16 @@ export default function DesktopDashboard() {
             {/* Stats Row */}
             <div className="grid grid-cols-3 gap-2 mb-2">
               <div className="bg-slate-100/50 rounded-xl p-2 text-center flex flex-col justify-center">
-                <span className="text-[10px] text-slate-500 font-medium mb-0.5">{language === 'ar' ? 'مؤكد' : 'Confirmed'}</span>
-                <span className="text-lg font-extrabold text-[#1A2130] leading-none">{summaryStats.confirmed}</span>
+                <span className="text-xs text-slate-500 font-medium mb-1">{language === 'ar' ? 'مؤكد' : 'Confirmed'}</span>
+                <span className="text-2xl font-extrabold text-[#1A2130] leading-none">{summaryStats.confirmed}</span>
               </div>
               <div className="bg-slate-100/50 rounded-xl p-2 text-center flex flex-col justify-center">
-                <span className="text-[10px] text-slate-500 font-medium mb-0.5">{language === 'ar' ? 'غير مؤكد' : 'Unconfirmed'}</span>
-                <span className="text-lg font-extrabold text-amber-600 leading-none">{summaryStats.unconfirmed}</span>
+                <span className="text-xs text-slate-500 font-medium mb-1">{language === 'ar' ? 'غير مؤكد' : 'Unconfirmed'}</span>
+                <span className="text-2xl font-extrabold text-amber-600 leading-none">{summaryStats.unconfirmed}</span>
               </div>
               <div className="bg-slate-100/50 rounded-xl p-2 text-center flex flex-col justify-center">
-                <span className="text-[10px] text-slate-500 font-medium mb-0.5">{language === 'ar' ? 'مكتمل' : 'Completed'}</span>
-                <span className="text-lg font-extrabold text-emerald-600 leading-none">{summaryStats.completed}</span>
+                <span className="text-xs text-slate-500 font-medium mb-1">{language === 'ar' ? 'مكتمل' : 'Completed'}</span>
+                <span className="text-2xl font-extrabold text-emerald-600 leading-none">{summaryStats.completed}</span>
               </div>
             </div>
 
@@ -901,8 +910,8 @@ export default function DesktopDashboard() {
 
               if (waitingTooLongCount > 0) {
                 return (
-                  <div className="flex items-center gap-1.5 bg-rose-50 border border-rose-100 text-rose-700 px-2 py-1 rounded-xl text-[10px] font-bold animate-pulse shadow-sm">
-                    <AlertCircle size={12} className="shrink-0 text-rose-500" />
+                  <div className="flex items-center gap-1.5 bg-rose-50 border border-rose-100 text-rose-700 px-3 py-1.5 rounded-xl text-xs font-bold animate-pulse shadow-sm mt-1">
+                    <AlertCircle size={14} className="shrink-0 text-rose-500" />
                     <span>
                       {language === 'ar' 
                         ? `${waitingTooLongCount} مريض ينتظر لأكثر من ٢٠ دقيقة!` 
@@ -913,8 +922,8 @@ export default function DesktopDashboard() {
               }
 
               return (
-                <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-100 text-emerald-700 px-2 py-1 rounded-xl text-[10px] font-bold shadow-sm">
-                  <CheckCircle size={12} className="shrink-0 text-emerald-500" />
+                <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-100 text-emerald-700 px-3 py-1.5 rounded-xl text-xs font-bold shadow-sm mt-1">
+                  <CheckCircle size={14} className="shrink-0 text-emerald-500" />
                   <span>
                     {language === 'ar' ? 'حالة التدفق ممتازة ومستقرة' : 'Flow is smooth & steady'}
                   </span>
@@ -1464,23 +1473,42 @@ export default function DesktopDashboard() {
 
             {/* 6. PATIENT LEDGER / EDIT PANEL */}
             <div className="hidden lg:flex w-full lg:w-[400px] xl:w-[450px] shrink-0 flex-col gap-4 z-20">
-               {selectedAppointment ? (
-                   <AppointmentSidePanel
-                       selectedAppointment={selectedAppointment}
-                       onClose={() => handleSelectAppointmentWrapper(null)}
-                       onEditFull={(appt) => {
-                           setAppointmentToEdit(appt);
-                           setActiveModal("booking");
-                       }}
-                       onDelete={(id) => handleDeleteAppointment(null, id)}
-                       onSaveBooking={handleSaveBooking}
-                       onQuickPay={(pid, pname) => {
-                           setPaymentPatient({ id: pid, name: pname });
-                           setActiveModal("payment");
-                       }}
-                       doctorsList={doctorsList}
-                       servicesList={servicesList}
-                    />
+               {/* The assistant stays available with nothing selected — that is when you ask it to
+                   find an appointment. The editor has nothing to show without one, so it keeps the
+                   original empty state. */}
+               {selectedAppointment || (appointmentPanelMode === 'avatar' && activeModal !== 'booking') ? (
+                   (() => {
+                       // Both panels take the same props and fill the same column, so which one
+                       // renders is purely the user's preference — nothing else shifts.
+                       const panelProps = {
+                           selectedAppointment,
+                           onClose: () => handleSelectAppointmentWrapper(null),
+                           onEditFull: (appt: any) => {
+                               setAppointmentToEdit(appt);
+                               setActiveModal("booking");
+                           },
+                           onDelete: (id: string) => handleDeleteAppointment(null, id),
+                           onSaveBooking: handleSaveBooking,
+                           onQuickPay: (pid: string, pname: string) => {
+                               setPaymentPatient({ id: pid, name: pname });
+                               setActiveModal("payment");
+                           },
+                           doctorsList,
+                           servicesList,
+                       };
+                       return appointmentPanelMode === 'avatar' ? (
+                           <AppointmentAvatarPanel
+                               {...panelProps}
+                               onSwitchToEditor={() => setAppointmentPanelMode('editor')}
+                               onAppointmentReplaced={(newAppt) => setSelectedAppointment(newAppt)}
+                           />
+                       ) : (
+                           <AppointmentSidePanel
+                               {...panelProps}
+                               onSwitchToAvatar={() => setAppointmentPanelMode('avatar')}
+                           />
+                       );
+                   })()
                ) : activeModal === 'booking' && appointmentEditorMode === 'drawer' ? (
                         <BookingModal 
                             isOpen={activeModal === 'booking'} 

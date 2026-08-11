@@ -7,14 +7,15 @@ import {
 } from "@/lib/diagnosisCatalog";
 
 import ToothSurfaces, { ToothSurface } from "./ToothSurfaces";
+import { ToothRootSVG } from "./ToothRootSVG";
 
 export type ToothType = "incisor" | "canine" | "premolar" | "molar";
 
 const OCCLUSAL_IMAGES: Record<ToothType, string> = {
   incisor: "/teeth/occlusal_incisor.png",
-  canine: "/teeth/realistic_canine.png",
-  premolar: "/teeth/realistic_premolar.png",
-  molar: "/teeth/realistic_molar.png",
+  canine: "/teeth/occlusal_canine.png",
+  premolar: "/teeth/occlusal_premolar.png",
+  molar: "/teeth/occlusal_molar.png",
 };
 
 export function toothTypeFromFDI(fdi: number): ToothType {
@@ -51,6 +52,7 @@ export interface ToothSVGProps {
   activeSurfaces?: ToothSurface[];
   surfaceColors?: Record<string, string>;
   onSurfaceClick?: (surface: ToothSurface) => void;
+  showRoot?: boolean;
 }
 
 export default function ToothSVG({
@@ -67,6 +69,7 @@ export default function ToothSVG({
   activeSurfaces = [],
   surfaceColors = {},
   onSurfaceClick,
+  showRoot = false,
 }: ToothSVGProps) {
   const missing = isMissingStatus(statuses);
   const primaryCat = getPrimaryCategoryForStatuses(statuses);
@@ -77,6 +80,9 @@ export default function ToothSVG({
   const scaleY = (q === 3 || q === 4 || q === 7 || q === 8) ? -1 : 1;
 
   // CSS Drop Shadow based on Clinical Status
+  // Check if tooth has a crown restoration
+  const hasCrown = statuses.includes("rest_crown");
+  
   let filterStyle = "";
   if (isActive) {
     filterStyle = `drop-shadow(0 0 8px #3b82f6) drop-shadow(0 0 3px #3b82f6)`;
@@ -88,10 +94,12 @@ export default function ToothSVG({
     filterStyle = `drop-shadow(0 2px 4px rgba(0,0,0,0.1))`;
   }
 
-  // Check if tooth has a crown restoration
-  const hasCrown = statuses.includes("rest_crown");
-  
   const isOcclusal = viewType === "occlusal";
+  
+  // Apply a metallic tint if it's an occlusal view of a crown
+  if (isOcclusal && hasCrown) {
+    filterStyle += " sepia(100%) hue-rotate(180deg) saturate(0) brightness(0.8) contrast(1.2)";
+  }
   
   let baseSrc = `/teeth/${type}.png`;
   if (isOcclusal) {
@@ -102,30 +110,27 @@ export default function ToothSVG({
   
   const imageSrc = `${baseSrc}?v=1`; // Cache buster
 
-  // The CSS hacks are only needed if we are faking the occlusal view using the buccal image
-  const isFakedOcclusal = isOcclusal && type !== "incisor"; 
-
   return (
     <div 
       className="relative w-full h-full transition-all duration-300 flex items-center justify-center group"
       title={ariaLabel}
     >
+      {showRoot && !isOcclusal && !missing && (
+        <ToothRootSVG type={type} isUpper={isUpper} />
+      )}
       <div 
-        className={`absolute inset-0 transition-transform duration-300 ${isFakedOcclusal ? "scale-[0.6] opacity-80" : ""}`}
+        className={`absolute inset-0 transition-transform duration-300`}
         style={{
            transform: isOcclusal ? undefined : `scale(${scaleX}, ${scaleY})`,
            filter: filterStyle,
-           opacity: missing ? 0.15 : (isFakedOcclusal ? 0.6 : 1),
-           borderRadius: isFakedOcclusal ? "50%" : undefined,
-           overflow: isFakedOcclusal ? "hidden" : "visible",
-           boxShadow: isFakedOcclusal && !missing ? "inset 0 0 10px rgba(0,0,0,0.1)" : undefined
+           opacity: missing ? 0.15 : 1,
         }}
       >
         <Image 
           src={imageSrc}
           alt={hasCrown ? `${type} crown` : type}
           fill
-          className={`object-contain ${isFakedOcclusal ? "scale-150" : ""}`}
+          className="object-contain"
           unoptimized
         />
         

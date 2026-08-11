@@ -27,6 +27,10 @@ export type DiagnosisOption = {
   cat: string;
   labelEn: string;
   labelAr: string;
+  descEn?: string;
+  descAr?: string;
+  treatmentsEn?: string[];
+  treatmentsAr?: string[];
 };
 
 export const DIAGNOSIS_CATEGORIES: DiagnosisCategory[] = [
@@ -47,7 +51,16 @@ export const DIAGNOSIS_OPTIONS: DiagnosisOption[] = [
   { id: "healthy",                cat: "healthy",     labelEn: "Healthy / No Pathology",                 labelAr: "سليم" },
 
   { id: "caries_incipient",       cat: "caries",      labelEn: "Incipient (Enamel only)",                labelAr: "تسوس مبدئي (طبقة المينا)" },
-  { id: "caries_moderate",        cat: "caries",      labelEn: "Moderate (Dentin involved)",             labelAr: "تسوس متوسط (طبقة العاج)" },
+  { 
+    id: "caries_moderate",        
+    cat: "caries",      
+    labelEn: "Moderate (Dentin involved)",             
+    labelAr: "تسوس متوسط (طبقة العاج)",
+    descEn: "Decay has progressed beyond the enamel and into the softer dentin layer. The tooth may become sensitive to sweet, hot, or cold foods and drinks.",
+    descAr: "تجاوز التسوس طبقة المينا ووصل إلى طبقة العاج الأكثر ليونة. قد يصبح السن حساساً للأطعمة والمشروبات الحلوة أو الساخنة أو الباردة.",
+    treatmentsEn: ["Composite Filling", "Amalgam Filling"],
+    treatmentsAr: ["حشوة تجميلية", "حشوة أملغم"]
+  },
   { id: "caries_severe",          cat: "caries",      labelEn: "Severe (Approaching pulp)",              labelAr: "تسوس عميق (قريب من العصب)" },
   { id: "caries_secondary",       cat: "caries",      labelEn: "Secondary / Recurrent",                  labelAr: "تسوس ثانوي (تحت حشوة)" },
   { id: "caries_arrested",        cat: "caries",      labelEn: "Arrested",                               labelAr: "تسوس متوقف" },
@@ -57,7 +70,16 @@ export const DIAGNOSIS_OPTIONS: DiagnosisOption[] = [
   { id: "pulp_reversible",        cat: "pulp",        labelEn: "Reversible Pulpitis",                    labelAr: "التهاب عصب قابل للشفاء" },
   { id: "pulp_irreversible_symp", cat: "pulp",        labelEn: "Symptomatic Irreversible Pulpitis",      labelAr: "التهاب عصب غير قابل للشفاء (بأعراض)" },
   { id: "pulp_irreversible_asymp",cat: "pulp",        labelEn: "Asymptomatic Irreversible Pulpitis",     labelAr: "التهاب عصب غير قابل للشفاء (بدون أعراض)" },
-  { id: "pulp_necrosis",          cat: "pulp",        labelEn: "Pulp Necrosis",                          labelAr: "تموت العصب" },
+  { 
+    id: "pulp_necrosis",          
+    cat: "pulp",        
+    labelEn: "Pulp Necrosis",                          
+    labelAr: "تموت العصب",
+    descEn: "Death of the dental pulp, often resulting from bacterial infection, trauma, or chemical irritation. It may be asymptomatic or present with pain, swelling, or discoloration.",
+    descAr: "موت اللب السني (العصب)، وغالباً ما ينتج عن عدوى بكتيرية أو صدمة. قد يكون بدون أعراض أو يصاحبه ألم أو تورم أو تغير في لون السن.",
+    treatmentsEn: ["Root Canal Treatment", "Extraction"],
+    treatmentsAr: ["علاج العصب", "خلع السن"]
+  },
   { id: "pulp_prev_treated",      cat: "pulp",        labelEn: "Previously Treated",                     labelAr: "معالج عصبياً مسبقاً" },
   { id: "pulp_prev_initiated",    cat: "pulp",        labelEn: "Previously Initiated Therapy",           labelAr: "علاج عصب غير مكتمل" },
 
@@ -107,8 +129,26 @@ export const DIAGNOSIS_OPTIONS: DiagnosisOption[] = [
 
   { id: "rest_composite",         cat: "restoration", labelEn: "Composite Filling",                      labelAr: "حشوة تجميلية سليمة" },
   { id: "rest_amalgam",           cat: "restoration", labelEn: "Amalgam Filling",                        labelAr: "حشوة أملغم سليمة" },
-  { id: "rest_crown",             cat: "restoration", labelEn: "Crown",                                  labelAr: "تاج / طربوش سليم" },
-  { id: "rest_implant",           cat: "restoration", labelEn: "Implant",                                labelAr: "زراعة سنية" },
+  { 
+    id: "rest_crown",             
+    cat: "restoration", 
+    labelEn: "Crown",                                  
+    labelAr: "تاج / طربوش سليم",
+    descEn: "A tooth-shaped 'cap' that is placed over a tooth to cover the tooth to restore its shape and size, strength, and improve its appearance.",
+    descAr: "غطاء على شكل سن يوضع فوق السن لاستعادة شكله وحجمه وقوته وتحسين مظهره.",
+    treatmentsEn: ["Crown Recementation", "Crown Replacement", "Periodic Evaluation"],
+    treatmentsAr: ["إعادة تثبيت التاج", "استبدال التاج", "فحص دوري"]
+  },
+  { 
+    id: "rest_implant",           
+    cat: "restoration", 
+    labelEn: "Implant",                                
+    labelAr: "زرعة سنية",
+    descEn: "A titanium post surgically positioned into the jawbone beneath the gum line that allows the dentist to mount replacement teeth or a bridge into that area.",
+    descAr: "دعامة من التيتانيوم تُزرع جراحياً في عظم الفك أسفل خط اللثة للسماح بتركيب أسنان بديلة أو جسر في تلك المنطقة.",
+    treatmentsEn: ["Implant Crown Placement", "Implant Maintenance", "Peri-implantitis Treatment"],
+    treatmentsAr: ["تركيب تاج على الزرعة", "صيانة الزرعة", "علاج التهاب ما حول الزرعة"]
+  },
   { id: "rest_fractured",         cat: "restoration", labelEn: "Fractured Restoration",                  labelAr: "كسر في الحشوة/التاج" },
   { id: "rest_debonded",          cat: "restoration", labelEn: "Debonded / Missing Restoration",         labelAr: "سقوط الحشوة/التاج" },
   { id: "rest_overhang",          cat: "restoration", labelEn: "Overhanging Margin",                     labelAr: "حواف حشوة زائدة" },
@@ -117,7 +157,12 @@ export const DIAGNOSIS_OPTIONS: DiagnosisOption[] = [
   { id: "surg_missing",           cat: "surgery",     labelEn: "Missing / Extracted",                    labelAr: "مفقود / مخلوع" },
 ];
 
-export type ToothData = {
+export interface PerioMetrics {
+  pd: [number, number, number]; // Probing Depths (Distal, Mid, Mesial)
+  gm: [number, number, number]; // Gingival Margin (Distal, Mid, Mesial)
+}
+
+export interface ToothData {
   /** Legacy field for backward compatibility. */
   status?: string;
   /** New: multiple diagnoses can be applied to the same tooth. */
@@ -126,7 +171,11 @@ export type ToothData = {
   imageUrl?: string;
   /** Surfaces affected by a given diagnosis (e.g. { "caries_enamel": ["M", "O"] }) */
   surfaces?: Record<string, string[]>;
-};
+  perio?: {
+    buccal: PerioMetrics;
+    lingual: PerioMetrics;
+  };
+}
 
 /**
  * Normalize a tooth entry into the new multi-status shape without losing legacy data.

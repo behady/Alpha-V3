@@ -13,6 +13,7 @@ import {
   Save,
   Search,
   X,
+  Stethoscope,
 } from "lucide-react";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { storage } from "@/lib/firebase";
@@ -27,6 +28,7 @@ import {
 } from "@/lib/diagnosisCatalog";
 import ToothSVG, { isUpperFDI, toothTypeFromFDI, toothTypeFromPrimaryFDI } from "@/components/teeth/ToothSVG";
 import { type ToothSurface } from "./teeth/ToothSurfaces";
+import PerioOverlay from "./perio/PerioOverlay";
 
 const Q1 = [18, 17, 16, 15, 14, 13, 12, 11];
 const Q2 = [21, 22, 23, 24, 25, 26, 27, 28];
@@ -51,6 +53,8 @@ interface TeethChartProps {
   onToggleTooth?: (id: number) => void;
   compactMode?: boolean;
   onSelectArch?: (arch: "upper" | "lower") => void;
+  perioMode?: boolean;
+  onPerioToothClick?: (id: number) => void;
 }
 
 export type { ToothData };
@@ -66,10 +70,15 @@ export default function TeethChart({
   onToggleTooth,
   compactMode = false,
   onSelectArch,
+  perioMode = false,
+  onPerioToothClick,
 }: TeethChartProps) {
   const { language, isRTL } = useLanguage();
   const [activeTooth, setActiveTooth] = useState<number | null>(null);
   const [hoverTooth, setHoverTooth] = useState<number | null>(null);
+
+  const upperRowRef = useRef<HTMLDivElement>(null);
+  const lowerRowRef = useRef<HTMLDivElement>(null);
 
   // Modal/draft state
   const [draftStatuses, setDraftStatuses] = useState<string[]>([]);
@@ -103,6 +112,10 @@ export default function TeethChart({
       return;
     }
     if (readOnly) return;
+    if (perioMode && onPerioToothClick) {
+      onPerioToothClick(id);
+      return;
+    }
     onToothClick?.(id);
 
     const raw = data[String(id)];
@@ -268,6 +281,7 @@ export default function TeethChart({
     return (
       <div
         key={`${id}-${viewType}`}
+        data-tooth={id}
         className={`group relative flex flex-col items-center justify-center ${compactMode ? "mx-[-1px] sm:mx-0.5" : "m-0.5 sm:m-1"} cursor-pointer ${
           selectionMode ? "cursor-pointer" : readOnly ? "cursor-default" : "cursor-pointer"
         }`}
@@ -275,8 +289,24 @@ export default function TeethChart({
         onMouseEnter={() => setHoverTooth(id)}
         onMouseLeave={() => setHoverTooth(prev => (prev === id ? null : prev))}
       >
-        {/* Tooth number for Buccal upper (above tooth if we wanted, but we place it centrally) */}
-        {!isUpper && viewType === "buccal" && (
+        {/* Perio Numbers (Upper) */}
+        {perioMode && isUpper && viewType === "buccal" && (
+          <div className="flex flex-col text-[7px] sm:text-[9px] items-center mb-1 font-mono tracking-tighter w-full justify-center">
+             <div className="flex justify-between w-full text-blue-500">
+               <span>{normalized.perio?.buccal.gm[0] ?? "-"}</span>
+               <span>{normalized.perio?.buccal.gm[1] ?? "-"}</span>
+               <span>{normalized.perio?.buccal.gm[2] ?? "-"}</span>
+             </div>
+             <div className="flex justify-between w-full text-red-500">
+               <span>{normalized.perio?.buccal.pd[0] ?? "-"}</span>
+               <span>{normalized.perio?.buccal.pd[1] ?? "-"}</span>
+               <span>{normalized.perio?.buccal.pd[2] ?? "-"}</span>
+             </div>
+          </div>
+        )}
+
+        {/* Tooth number for Buccal upper */}
+        {!isUpper && viewType === "buccal" && !perioMode && (
            <div className={`text-[10px] sm:text-xs font-bold tabular-nums tracking-tight transition-colors ${isActive ? "text-blue-600" : "text-slate-400 group-hover:text-slate-600"} mt-2`}>
              {id}
            </div>
@@ -284,6 +314,10 @@ export default function TeethChart({
 
         <div
           className={`transition-all duration-200 ${
+            isPrimary 
+              ? "w-[16px] h-[22px] sm:w-[24px] sm:h-[32px] md:w-[36px] md:h-[44px]" 
+              : "w-[19px] h-[26px] sm:w-[28px] sm:h-[36px] md:w-[42px] md:h-[52px]"
+          } ${
             selectionMode && selectedTeeth.includes(id) 
               ? "scale-110 z-10 shadow-[0_0_15px_rgba(37,99,235,0.5)] bg-blue-500/10 rounded-full" 
               : isActive 
@@ -292,7 +326,6 @@ export default function TeethChart({
                   ? "scale-105 z-10" 
                   : "scale-100"
           }`}
-          style={{ height: isPrimary ? 44 : 52, width: isPrimary ? 36 : 42 }}
         >
           <ToothSVG
             fdi={id}
@@ -307,11 +340,28 @@ export default function TeethChart({
             ariaLabel={`Tooth ${id} ${viewType}${tooltipLines.length ? ` — ${tooltipLines.join(", ")}` : ""}`}
             activeSurfaces={Array.from(activeSurfaces)}
             surfaceColors={surfaceColors}
+            showRoot={perioMode}
           />
         </div>
 
-        {/* Tooth number for Buccal upper */}
-        {isUpper && viewType === "buccal" && (
+        {/* Perio Numbers (Lower) */}
+        {perioMode && !isUpper && viewType === "buccal" && (
+          <div className="flex flex-col text-[7px] sm:text-[9px] items-center mt-1 font-mono tracking-tighter w-full justify-center">
+             <div className="flex justify-between w-full text-red-500">
+               <span>{normalized.perio?.buccal.pd[0] ?? "-"}</span>
+               <span>{normalized.perio?.buccal.pd[1] ?? "-"}</span>
+               <span>{normalized.perio?.buccal.pd[2] ?? "-"}</span>
+             </div>
+             <div className="flex justify-between w-full text-blue-500">
+               <span>{normalized.perio?.buccal.gm[0] ?? "-"}</span>
+               <span>{normalized.perio?.buccal.gm[1] ?? "-"}</span>
+               <span>{normalized.perio?.buccal.gm[2] ?? "-"}</span>
+             </div>
+          </div>
+        )}
+
+        {/* Tooth number for lower (below tooth) */}
+        {isUpper && viewType === "buccal" && !perioMode && (
            <div className={`text-[10px] sm:text-xs font-bold tabular-nums tracking-tight transition-colors ${isActive ? "text-blue-600" : "text-slate-400 group-hover:text-slate-600"} mb-2`}>
              {id}
            </div>
@@ -341,7 +391,7 @@ export default function TeethChart({
   return (
     <div className="w-full" dir={isRTL ? "rtl" : "ltr"}>
       <div className="w-full overflow-x-auto no-scrollbar" dir="ltr">
-        <div className="min-w-[620px] md:min-w-0 max-w-5xl mx-auto">
+        <div className="w-full max-w-5xl mx-auto">
           {/* Arch label header */}
           <div className="flex items-center justify-between px-3 mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
             <span>{language === "ar" ? "يمين" : "Right"}</span>
@@ -359,8 +409,12 @@ export default function TeethChart({
                
                {/* Global cross dividers for the entire grid */}
                <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 border-l-2 border-slate-100/80 z-0"></div>
+               
                {/* Upper Arch (Buccal Row) */}
-               <div className="flex w-full justify-center relative z-10 pb-2">
+               <div ref={upperRowRef} className="flex w-full justify-center relative z-10 pb-2">
+                 {perioMode && (
+                   <PerioOverlay arch={[...(isPrimary ? ChildQ1 : Q1), ...(isPrimary ? ChildQ2 : Q2)]} data={data} isUpper={true} containerRef={upperRowRef} />
+                 )}
                  <div className="flex flex-row w-full justify-center gap-0.5 md:gap-1 px-1 md:px-2">
                    <div className="flex justify-end gap-0 w-full">
                      { (isPrimary ? ChildQ1 : Q1).map((id, index) => (
@@ -380,28 +434,7 @@ export default function TeethChart({
                  </div>
                </div>
 
-               {/* Upper Arch (Occlusal Row) */}
-               {!compactMode && (
-                 <div className="flex w-full justify-center relative z-10 pb-4">
-                   <div className="flex flex-row w-full justify-center gap-0.5 md:gap-1 px-1 md:px-2">
-                     <div className="flex justify-end gap-0 w-full">
-                       { (isPrimary ? ChildQ1 : Q1).map((id, index) => (
-                          <div key={`u-occ-${id}`} style={{ transform: `translateY(${(isPrimary ? 5 - index : 8 - index) * 1}px)` }}>
-                            {renderTooth(id, "occlusal")}
-                          </div>
-                       )) }
-                     </div>
-                     <div className="w-1 md:w-2 shrink-0" />
-                     <div className="flex justify-start gap-0 w-full">
-                       { (isPrimary ? ChildQ2 : Q2).map((id, index) => (
-                          <div key={`u-occ-${id}`} style={{ transform: `translateY(${(index + 1) * 1}px)` }}>
-                            {renderTooth(id, "occlusal")}
-                          </div>
-                       )) }
-                     </div>
-                   </div>
-                 </div>
-               )}
+
 
                {/* Center Numbers / Divider Area */}
                <div className="absolute top-1/2 left-0 right-0 -translate-y-1/2 flex items-center justify-center z-0 gap-2">
@@ -428,31 +461,13 @@ export default function TeethChart({
                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 border-l-2 border-slate-100/80 h-full"></div>
                </div>
 
-               {/* Lower Arch (Occlusal Row) */}
-               {!compactMode && (
-                 <div className="flex w-full justify-center relative z-10 pt-4">
-                   <div className="flex flex-row w-full justify-center gap-0.5 md:gap-1 px-1 md:px-2">
-                     <div className="flex justify-end gap-0 w-full">
-                       { (isPrimary ? ChildQ4 : Q4).map((id, index) => (
-                          <div key={`l-occ-${id}`} style={{ transform: `translateY(-${(isPrimary ? 5 - index : 8 - index) * 1}px)` }}>
-                            {renderTooth(id, "occlusal")}
-                          </div>
-                       )) }
-                     </div>
-                     <div className="w-1 md:w-2 shrink-0" />
-                     <div className="flex justify-start gap-0 w-full">
-                       { (isPrimary ? ChildQ3 : Q3).map((id, index) => (
-                          <div key={`l-occ-${id}`} style={{ transform: `translateY(-${(index + 1) * 1}px)` }}>
-                            {renderTooth(id, "occlusal")}
-                          </div>
-                       )) }
-                     </div>
-                   </div>
-                 </div>
-               )}
+
 
                {/* Lower Arch (Buccal Row) */}
-               <div className="flex w-full justify-center relative z-10 pt-2">
+               <div ref={lowerRowRef} className="flex w-full justify-center relative z-10 pt-2">
+                 {perioMode && (
+                   <PerioOverlay arch={[...(isPrimary ? ChildQ4 : Q4), ...(isPrimary ? ChildQ3 : Q3)]} data={data} isUpper={false} containerRef={lowerRowRef} />
+                 )}
                  <div className="flex flex-row w-full justify-center gap-0.5 md:gap-1 px-1 md:px-2">
                    <div className="flex justify-end gap-0 w-full">
                      { (isPrimary ? ChildQ4 : Q4).map((id, index) => (

@@ -287,15 +287,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {/* MOBILE MENU OVERLAY */}
         {isOpen && (
-           <div className="lg:hidden fixed inset-0 z-[100] bg-[#AFDDE5] flex flex-col animate-in fade-in slide-in-from-bottom-8 duration-300">
-              <div className="flex items-center justify-between p-5 border-b border-[#003135]/10">
-                 <div className="w-10 h-10 bg-[#003135] text-[#AFDDE5] rounded-xl flex items-center justify-center rounded-tr-3xl shadow-sm">
+           <div className="lg:hidden fixed inset-0 z-[100] bg-white flex flex-col animate-in fade-in slide-in-from-bottom-8 duration-300">
+              <div className="flex items-center justify-between p-5 border-b border-slate-100">
+                 <div className="w-10 h-10 bg-[#0a0a0a] text-white rounded-xl flex items-center justify-center rounded-tr-3xl shadow-sm">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
                  </div>
-                 <button onClick={() => setIsOpen(false)} className="p-2 bg-[#AFDDE5] text-[#003135] rounded-full hover:bg-[#003135]/10"><X size={20}/></button>
+                 <button onClick={() => setIsOpen(false)} className="p-2 bg-slate-100 text-slate-800 rounded-full hover:bg-slate-200"><X size={20}/></button>
               </div>
               
-              <div className="px-5 pt-4 pb-2 border-b border-[#003135]/10 flex items-center justify-center">
+              <div className="px-5 pt-4 pb-2 border-b border-slate-100 flex items-center justify-center">
                  <ClinicSwitcher />
               </div>
 
@@ -309,19 +309,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                          key={item.href} 
                          href={item.href}
                          onClick={() => setIsOpen(false)}
-                         className={`flex items-center gap-4 px-5 py-3.5 rounded-2xl font-bold transition-all ${isActive ? 'bg-[#003135] text-[#AFDDE5] shadow-sm' : 'text-[#003135]/70 hover:bg-[#003135]/5'}`}
+                         className={`flex items-center gap-4 px-5 py-3.5 rounded-2xl font-bold transition-all ${isActive ? 'bg-[#0a0a0a] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
                        >
                          <item.icon size={22} />
                          <span className="text-base">{label}</span>
                        </Link>
                     )
                  })}
-                 <button onClick={() => { toggleLanguage(); setIsOpen(false); }} className="flex items-center w-full gap-4 px-5 py-3.5 rounded-xl font-bold text-[#003135]/70 hover:bg-[#003135]/5 transition-all">
+                 <button onClick={() => { toggleLanguage(); setIsOpen(false); }} className="flex items-center w-full gap-4 px-5 py-3.5 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition-all">
                     <Languages size={22} />
                     <span className="text-base">{language === 'en' ? 'Switch to Arabic' : 'English'}</span>
                  </button>
                  {showSettings && (
-                   <Link href="/settings" onClick={() => setIsOpen(false)} className={`flex items-center gap-4 px-5 py-3.5 rounded-2xl font-bold transition-all ${pathname.startsWith('/settings') ? 'bg-[#003135] text-[#AFDDE5] shadow-sm' : 'text-[#003135]/70 hover:bg-[#003135]/5'}`}>
+                   <Link href="/settings" onClick={() => setIsOpen(false)} className={`flex items-center gap-4 px-5 py-3.5 rounded-2xl font-bold transition-all ${pathname.startsWith('/settings') ? 'bg-[#0a0a0a] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}>
                       <Settings size={22} />
                       <span className="text-base">{t('settings' as any) || (language === 'ar' ? 'الإعدادات' : 'Settings')}</span>
                    </Link>
@@ -368,12 +368,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </div>
 
       {/* MOBILE BOTTOM NAVIGATION BAR */}
-      <div className="lg:hidden fixed bottom-4 left-4 right-4 h-16 rounded-[2rem] bg-[#003135] backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.08)] z-[80] px-6 flex justify-between items-center">
+      <div className="lg:hidden fixed bottom-4 left-4 right-4 h-16 rounded-[2rem] bg-[#0a0a0a] backdrop-blur-xl shadow-[0_8px_30px_rgb(0,0,0,0.2)] z-[80] px-6 flex justify-between items-center border border-white/10">
           {mobileNavItems.map((item) => {
              if (item.key === 'menu') {
                  return (
                     <button key="menu" onClick={() => setIsOpen(true)} className="flex items-center justify-center transition-all active:scale-95 group outline-none">
-                       <div className="p-2.5 rounded-full text-[#AFDDE5]/60 group-hover:bg-[#0FA4AF] group-hover:text-[#AFDDE5] transition-all">
+                       <div className="p-2.5 rounded-full text-white/50 group-hover:bg-white/10 group-hover:text-white transition-all">
                           <Menu size={24} strokeWidth={2.5} />
                        </div>
                     </button>
@@ -382,7 +382,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
              const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
              return (
                 <Link key={item.key} href={item.href} className="flex items-center justify-center transition-all active:scale-95 group outline-none">
-                   <div className={`p-2.5 rounded-full transition-all duration-300 flex items-center justify-center ${isActive ? 'bg-[#AFDDE5] text-[#003135] scale-110' : 'text-[#AFDDE5]/60 group-hover:bg-[#0FA4AF] group-hover:text-[#AFDDE5]'}`}>
+                   <div className={`p-2.5 rounded-full transition-all duration-300 flex items-center justify-center ${isActive ? 'bg-white text-black scale-110 shadow-sm' : 'text-white/50 group-hover:bg-white/10 group-hover:text-white'}`}>
                       <item.icon size={24} strokeWidth={isActive ? 2.5 : 2} />
                    </div>
                 </Link>

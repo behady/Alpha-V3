@@ -21,9 +21,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import PermissionGuard from "@/components/PermissionGuard";
 import { hasFeature } from "@/lib/subscriptions";
-import type { FindingKind, RecoveryFinding, RecoveryReport } from "@/lib/revenueRecovery";
-
-const KIND_META: Record<
+import type { FindingKind, RecoveryFinding, RecoveryReport } from "@/lib/revenueRecovery";const KIND_META: Record<
   FindingKind,
   { icon: typeof Wallet; en: string; ar: string; tone: string; explainEn: string; explainAr: string }
 > = {

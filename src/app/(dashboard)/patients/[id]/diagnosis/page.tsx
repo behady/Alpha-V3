@@ -24,6 +24,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import PermissionGuard from "@/components/PermissionGuard";
 import TeethChart from "@/components/TeethChart";
+import PerioInputModal from "@/components/perio/PerioInputModal";
 import {
   DIAGNOSIS_CATEGORIES,
   findCategory,
@@ -48,6 +49,8 @@ export default function DiagnosisPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [chartMode, setChartMode] = useState<"adult" | "pedo">("adult");
+  const [perioMode, setPerioMode] = useState(false);
+  const [perioToothId, setPerioToothId] = useState<number | null>(null);
   const [filterCat, setFilterCat] = useState<string | "all">("all");
   const [search, setSearch] = useState("");
   const [viewingImage, setViewingImage] = useState<string | null>(null);
@@ -104,6 +107,13 @@ export default function DiagnosisPage() {
       next[toothId.toString()] = payload;
     }
     
+    await persist(next);
+  };
+
+  const handleUpdatePerio = async (toothId: number, data: Partial<ToothData>) => {
+    const next = { ...teethData };
+    const existing = next[toothId.toString()] || {};
+    next[toothId.toString()] = { ...existing, ...data };
     await persist(next);
   };
 
@@ -287,11 +297,27 @@ export default function DiagnosisPage() {
                 <span className="text-[10px] font-bold text-slate-400 sm:hidden">
                   {language === "ar" ? "لمس السن للتشخيص" : "Tap a tooth"}
                 </span>
+                <div className="flex bg-slate-100/50 p-1 rounded-xl">
+                  <button
+                    onClick={() => setPerioMode(false)}
+                    className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${!perioMode ? "bg-white text-slate-800 shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
+                  >
+                    Clinical
+                  </button>
+                  <button
+                    onClick={() => setPerioMode(true)}
+                    className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${perioMode ? "bg-white text-blue-600 shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
+                  >
+                    Perio
+                  </button>
+                </div>
               </div>
               <TeethChart
                 data={teethData}
                 onUpdateTooth={handleUpdateTooth}
                 isPrimary={chartMode === "pedo"}
+                perioMode={perioMode}
+                onPerioToothClick={setPerioToothId}
               />
             </div>
 
@@ -384,6 +410,14 @@ export default function DiagnosisPage() {
               </div>
             </div>
           </section>
+
+          <PerioInputModal
+            isOpen={perioToothId !== null}
+            onClose={() => setPerioToothId(null)}
+            toothId={perioToothId}
+            initialData={perioToothId ? teethData[perioToothId.toString()] : undefined}
+            onSave={handleUpdatePerio}
+          />
         </main>
 
         {/* Lightbox */}
@@ -460,29 +494,53 @@ function DiagnosisRow({
       </div>
 
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap gap-1 mb-1.5">
+        <div className="flex flex-col gap-3 mb-1.5">
           {row.statuses.map(sid => {
             const opt = findOption(sid);
             const cat = findCategory(opt?.cat);
             if (!opt) return null;
             return (
-              <span
-                key={sid}
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold border"
-                style={{
-                  color: cat?.color,
-                  borderColor: `${cat?.color}40`,
-                  backgroundColor: `${cat?.color}10`,
-                }}
-              >
-                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cat?.color }} />
-                {language === "ar" ? opt.labelAr : opt.labelEn}
-              </span>
+              <div key={sid} className="flex flex-col items-start gap-1">
+                <span
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold border"
+                  style={{
+                    color: cat?.color,
+                    borderColor: `${cat?.color}40`,
+                    backgroundColor: `${cat?.color}10`,
+                  }}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cat?.color }} />
+                  {language === "ar" ? opt.labelAr : opt.labelEn}
+                </span>
+                
+                {/* Description */}
+                {(opt.descEn || opt.descAr) && (
+                  <p className="text-xs text-slate-500 font-medium leading-relaxed mt-1">
+                    {language === "ar" ? opt.descAr : opt.descEn}
+                  </p>
+                )}
+
+                {/* Suggested Treatments */}
+                {(opt.treatmentsEn || opt.treatmentsAr) && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mr-1">
+                      {language === "ar" ? "العلاج المقترح:" : "Suggested Tx:"}
+                    </span>
+                    {(language === "ar" ? (opt.treatmentsAr || []) : (opt.treatmentsEn || [])).map((tx: string, idx: number) => (
+                      <span key={idx} className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200 font-semibold">
+                        {tx}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>
         {row.notes && (
-          <p className="text-xs text-slate-600 font-medium leading-snug line-clamp-2">"{row.notes}"</p>
+          <div className="mt-2 p-2 bg-yellow-50/50 border border-yellow-100 rounded-lg">
+            <p className="text-xs text-yellow-800 font-medium leading-snug break-words">📝 {row.notes}</p>
+          </div>
         )}
         {row.imageUrl && (
           <button

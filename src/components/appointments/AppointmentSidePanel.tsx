@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { 
   X, Save, Trash2, Wallet, User, Edit, Clock, FileText, Loader2, DollarSign, Check, Plus, CheckCircle2,
-  Stethoscope, Activity, Calendar, Hourglass, ClipboardList, ChevronDown
+  Stethoscope, Activity, Calendar, Hourglass, ClipboardList, ChevronDown, Sparkles
 } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { 
@@ -28,6 +28,12 @@ interface AppointmentSidePanelProps {
   onQuickPay?: (patientId: string, patientName: string) => void;
   doctorsList: any[];
   servicesList?: any[];
+  /**
+   * Flips to the AI reception assistant. The mirror of the assistant's own flip-to-editor button —
+   * without it, switching to this panel was a one-way door that also rewrote the saved preference,
+   * so the only way back was Settings.
+   */
+  onSwitchToAvatar?: () => void;
 }
 
 export default function AppointmentSidePanel({
@@ -38,7 +44,8 @@ export default function AppointmentSidePanel({
   onSaveBooking,
   onQuickPay,
   doctorsList,
-  servicesList = []
+  servicesList = [],
+  onSwitchToAvatar
 }: AppointmentSidePanelProps) {
   const { language } = useLanguage();
   const { user } = useAuth();
@@ -287,7 +294,18 @@ export default function AppointmentSidePanel({
                         <p className="text-xs font-medium text-slate-500 mt-0.5">{language === 'ar' ? selectedAppointment.time?.replace('AM', 'ص').replace('PM', 'م') : selectedAppointment.time} • {selectedAppointment.date}</p>
                       </div>
                   </div>
-                  <button onClick={handleClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"><X size={18}/></button>
+                  <div className="flex items-center shrink-0">
+                    {onSwitchToAvatar && (
+                      <button
+                        onClick={onSwitchToAvatar}
+                        title={language === 'ar' ? 'التبديل إلى مساعد الاستقبال' : 'Switch to the reception assistant'}
+                        className="p-2 text-slate-400 hover:text-teal-700 hover:bg-teal-50 rounded-full transition-colors"
+                      >
+                        <Sparkles size={17}/>
+                      </button>
+                    )}
+                    <button onClick={handleClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"><X size={18}/></button>
+                  </div>
                 </div>
 
                 {/* Inline Edit Form */}
@@ -349,6 +367,12 @@ export default function AppointmentSidePanel({
                           <Activity size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-500 pointer-events-none" />
                           <ChevronDown size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                           <select value={inlineEdit.status || 'Scheduled'} onChange={e => setInlineEdit(p => ({...p, status: e.target.value}))} className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 pl-10 pr-10 text-xs font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 appearance-none shadow-sm">
+                              {/* Not a normal workflow stage — it is a marker the reception assistant leaves on a
+                                  moved appointment's original slot, so it is shown only when that is what this
+                                  record already is, never offered as something to switch a live appointment to. */}
+                              {inlineEdit.status === 'Rescheduled' && (
+                                <option value="Rescheduled">{getAppointmentStageLabel('Rescheduled', language)}</option>
+                              )}
                               {APPOINTMENT_STAGES.map(s => <option key={s.value} value={s.value}>{getAppointmentStageLabel(s.value, language)}</option>)}
                           </select>
                         </div>

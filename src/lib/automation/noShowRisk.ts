@@ -101,8 +101,11 @@ export async function scanNoShowRisk(clinicId: string): Promise<NoShowReport> {
 
     const status = normalizeAppointmentStatus(typeof d.status === "string" ? d.status : "");
     // A cancellation is a patient who told you in advance. Counting it as a no-show would
-    // penalise exactly the behaviour a clinic wants to encourage.
-    if (status === "Cancelled") return;
+    // penalise exactly the behaviour a clinic wants to encourage. "Rescheduled" is the same case
+    // — a marker left on a moved booking's original slot, not a visit that was ever going to
+    // happen on this date — and letting it inflate totalPast would quietly understate the
+    // clinic's real resolved rate.
+    if (status === "Cancelled" || status === "Rescheduled") return;
 
     totalPast++;
     const row = stats.get(patientId) || { attended: 0, missed: 0, unresolved: 0 };

@@ -19,9 +19,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import PermissionGuard from "@/components/PermissionGuard";
 import type { UnresolvedReport } from "@/lib/automation/unresolvedAppointments";
-import type { NoShowReport, RiskBand } from "@/lib/automation/noShowRisk";
-
-const BAND_TONE: Record<Exclude<RiskBand, "insufficient_data">, string> = {
+import type { NoShowReport, RiskBand } from "@/lib/automation/noShowRisk";const BAND_TONE: Record<Exclude<RiskBand, "insufficient_data">, string> = {
   high: "text-rose-700 bg-rose-50 border-rose-200",
   elevated: "text-amber-700 bg-amber-50 border-amber-200",
   low: "text-emerald-700 bg-emerald-50 border-emerald-200",

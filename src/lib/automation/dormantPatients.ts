@@ -120,8 +120,10 @@ export async function scanDormantPatients(
     const status = normalizeAppointmentStatus(typeof d.status === "string" ? d.status : "");
     const dateStr = typeof d.date === "string" ? d.date : "";
 
-    // Anything booked from today onward means they are already returning.
-    if (dateStr >= todayKey && status !== "Cancelled" && status !== "No Show") {
+    // Anything booked from today onward means they are already returning. A "Rescheduled" marker
+    // is excluded alongside Cancelled/No Show — it sits on a slot the patient is not actually
+    // coming to, and the real upcoming visit is a separate document that will set this on its own.
+    if (dateStr >= todayKey && status !== "Cancelled" && status !== "No Show" && status !== "Rescheduled") {
       hasUpcoming.add(patientId);
     }
 
