@@ -1,18 +1,53 @@
 "use client";
 
-import { Monitor, SquareTerminal, PanelRight, Calendar, AlertTriangle, PencilLine, Sparkles } from "lucide-react";
+import {
+  Monitor, SquareTerminal, PanelRight, Calendar, AlertTriangle, PencilLine, Sparkles,
+  ListOrdered, ArrowDownWideNarrow, ArrowUpNarrowWide, MoveVertical, Rows3, CalendarDays, AlignJustify, LayoutList,
+} from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 
 export default function InterfaceSettings() {
   const { language } = useLanguage();
-  const { 
-    clinicalEditorMode, setClinicalEditorMode, 
+  const {
+    clinicalEditorMode, setClinicalEditorMode,
     appointmentEditorMode, setAppointmentEditorMode,
     appointmentPanelMode, setAppointmentPanelMode,
     appointmentsVisibility, setAppointmentsVisibility,
-    latePatientTrackerEnabled, setLatePatientTrackerEnabled
+    latePatientTrackerEnabled, setLatePatientTrackerEnabled,
+    clinicalNoteSort, setClinicalNoteSort,
+    clinicalNoteGrouping, setClinicalNoteGrouping,
+    clinicalNoteDensity, setClinicalNoteDensity,
   } = useUI();
+
+  const isAr = language === 'ar';
+
+  /** One option tile. Same shape as the cards above, at a size that fits three or four across. */
+  const OptionTile = ({
+    active, onClick, icon: Icon, label, hint,
+  }: {
+    active: boolean;
+    onClick: () => void;
+    icon: typeof Monitor;
+    label: string;
+    hint: string;
+  }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`p-5 rounded-3xl border-2 flex flex-col items-center justify-start gap-3 text-center transition-all ${
+        active
+          ? 'border-primary-500 bg-primary-50 shadow-md scale-[1.02]'
+          : 'border-slate-100 bg-slate-50 hover:border-slate-300 hover:bg-white'
+      }`}
+    >
+      <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm shrink-0 ${active ? 'bg-primary-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
+        <Icon size={24} />
+      </div>
+      <span className={`text-sm font-black ${active ? 'text-primary-700' : 'text-slate-600'}`}>{label}</span>
+      <span className="text-xs font-bold text-slate-400 leading-relaxed">{hint}</span>
+    </button>
+  );
 
   const txt = {
     title: language === 'ar' ? "واجهة الاستخدام" : "Interface Settings",
@@ -79,6 +114,105 @@ export default function InterfaceSettings() {
               {txt.drawer}
             </span>
           </button>
+        </div>
+      </div>
+
+      {/* CLINICAL NOTE — HOW SERVICES ARE ARRANGED */}
+      <div className="bg-white p-8 md:p-10 rounded-3xl border border-slate-200/50 shadow-sm">
+        <div className="mb-8">
+          <h3 className="text-xl font-black text-slate-900 flex items-center gap-3">
+            <ListOrdered className="text-primary-500" /> {isAr ? 'ترتيب الإجراءات في الملف السريري' : 'Services in the Clinical Note'}
+          </h3>
+          <p className="text-sm font-medium text-slate-500 mt-2">
+            {isAr
+              ? 'اختر كيف تُعرض الإجراءات داخل ملف المريض: ترتيبها، وتجميعها حسب الزيارة، وحجم عرضها.'
+              : 'Choose how procedures are laid out inside a patient file: their order, whether they cluster by visit, and how much detail each one shows.'}
+          </p>
+        </div>
+
+        <div className="space-y-8">
+          {/* Order */}
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-widest text-slate-400 mb-3">
+              {isAr ? 'الترتيب' : 'Order'}
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <OptionTile
+                active={clinicalNoteSort === 'newest'}
+                onClick={() => setClinicalNoteSort('newest')}
+                icon={ArrowDownWideNarrow}
+                label={isAr ? 'الأحدث أولاً' : 'Newest first'}
+                hint={isAr ? 'آخر إجراء في الأعلى. الوضع الافتراضي.' : 'The most recent procedure sits on top. The default.'}
+              />
+              <OptionTile
+                active={clinicalNoteSort === 'oldest'}
+                onClick={() => setClinicalNoteSort('oldest')}
+                icon={ArrowUpNarrowWide}
+                label={isAr ? 'الأقدم أولاً' : 'Oldest first'}
+                hint={isAr ? 'يُقرأ كقصة علاج من البداية.' : 'Reads as a treatment story from the beginning.'}
+              />
+              <OptionTile
+                active={clinicalNoteSort === 'manual'}
+                onClick={() => setClinicalNoteSort('manual')}
+                icon={MoveVertical}
+                label={isAr ? 'ترتيب يدوي' : 'Manual order'}
+                hint={isAr ? 'رتّبها بنفسك بالسحب أو بالأسهم. الترتيب يراه كل الفريق.' : 'Arrange them yourself by dragging or with arrows. The whole team sees that order.'}
+              />
+            </div>
+            {clinicalNoteSort === 'manual' && (
+              <p className="mt-3 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 leading-relaxed">
+                {isAr
+                  ? 'ملاحظة: الترتيب اليدوي محفوظ على ملف المريض نفسه، لذلك يظهر لكل من يفتحه — وليس لك وحدك. الإجراءات الجديدة تُضاف في نهاية القائمة حتى ترتّبها.'
+                  : 'Note: manual order is saved onto the patient file, so everyone who opens it sees the same arrangement — not just you. New procedures land at the end of the list until you place them.'}
+              </p>
+            )}
+          </div>
+
+          {/* Grouping */}
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-widest text-slate-400 mb-3">
+              {isAr ? 'التجميع' : 'Grouping'}
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <OptionTile
+                active={clinicalNoteGrouping === 'flat'}
+                onClick={() => setClinicalNoteGrouping('flat')}
+                icon={Rows3}
+                label={isAr ? 'قائمة زمنية واحدة' : 'One flat timeline'}
+                hint={isAr ? 'كل الإجراءات في خط زمني واحد متصل.' : 'Every procedure on a single continuous timeline.'}
+              />
+              <OptionTile
+                active={clinicalNoteGrouping === 'visit'}
+                onClick={() => setClinicalNoteGrouping('visit')}
+                icon={CalendarDays}
+                label={isAr ? 'مجمّعة حسب الزيارة' : 'Grouped by visit'}
+                hint={isAr ? 'كل زيارة في صندوق بتاريخها وطبيبها.' : 'Each visit in its own box, with its date and doctor.'}
+              />
+            </div>
+          </div>
+
+          {/* Density */}
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-widest text-slate-400 mb-3">
+              {isAr ? 'حجم العرض' : 'Detail shown'}
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <OptionTile
+                active={clinicalNoteDensity === 'detailed'}
+                onClick={() => setClinicalNoteDensity('detailed')}
+                icon={LayoutList}
+                label={isAr ? 'تفصيلي' : 'Detailed'}
+                hint={isAr ? 'بطاقة كاملة: الحالة، السن، الطبيب، الملاحظات، التكلفة.' : 'The full card: status, tooth, doctor, notes and cost.'}
+              />
+              <OptionTile
+                active={clinicalNoteDensity === 'compact'}
+                onClick={() => setClinicalNoteDensity('compact')}
+                icon={AlignJustify}
+                label={isAr ? 'مختصر' : 'Compact'}
+                hint={isAr ? 'سطر واحد لكل إجراء — مفيد للملفات الطويلة.' : 'One line per procedure — useful on long files.'}
+              />
+            </div>
+          </div>
         </div>
       </div>
 

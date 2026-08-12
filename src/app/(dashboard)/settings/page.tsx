@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { 
   Building, Building2, MapPin, Clock, Pill, Stethoscope, Users, Bell, Palette, ChevronDown, 
-  X, User, Mail, Lock, Badge, Save, MessageCircle, Monitor, CalendarDays
+  X, User, Mail, Lock, Badge, Save, MessageCircle, Monitor, CalendarDays, MessagesSquare
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
@@ -29,6 +29,7 @@ import InterfaceSettings from "@/components/settings/InterfaceSettings";
 import JoinRequests from "@/components/settings/JoinRequests";
 import ActivityLogs from "@/components/settings/ActivityLogs";
 import WhatsAppSettings from "@/components/settings/WhatsAppSettings";
+import SmsSettings from "@/components/settings/SmsSettings";
 import PatientSourcesSettings from "@/components/settings/PatientSourcesSettings";
 import VisitReasonsSettings from "@/components/settings/VisitReasonsSettings";
 import OnlineBookingSettings from "@/components/settings/OnlineBookingSettings";
@@ -70,6 +71,9 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";export defau
     { id: "logs", label: language === 'ar' ? "سجل النشاط" : "Activity Logs", icon: Clock, adminOnly: true },
     { id: "notifications", label: language === 'ar' ? "التنبيهات" : "Alerts", icon: Bell, adminOnly: true },
     ...(hasFeature(clinic, "whatsappIntegration") ? [{ id: "whatsapp", label: language === 'ar' ? "واتساب" : "WhatsApp", icon: MessageCircle, adminOnly: true }] : []),
+    // Not gated on whatsappIntegration: sending from the clinic's own SIM needs no gateway and no
+    // paid integration — it is the fallback for clinics that cannot have one.
+    { id: "sms", label: language === 'ar' ? "رسائل نصية" : "SMS", icon: MessagesSquare, adminOnly: true },
     { id: "appearance", label: language === 'ar' ? "المظهر" : "Theme", icon: Palette },
     { id: "interface", label: language === 'ar' ? "واجهة الاستخدام" : "Interface", icon: Monitor },
     { id: "online_booking", label: language === 'ar' ? "الحجز الإلكتروني" : "Online Booking", icon: CalendarDays, adminOnly: true },
@@ -334,7 +338,7 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";export defau
                   {language === 'ar' ? 'النظام والأتمتة' : 'System & Automation'}
                 </h3>
                 <div className="flex flex-col gap-1">
-                  {tabs.filter(t => ['whatsapp', 'notifications', 'logs'].includes(t.id)).map(tab => {
+                  {tabs.filter(t => ['whatsapp', 'sms', 'notifications', 'logs'].includes(t.id)).map(tab => {
                     const isActive = activeTab === tab.id;
                     return (
                       <button
@@ -380,6 +384,7 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";export defau
               <NotificationSettings clinicData={clinicData} setClinicData={setClinicData} handleSaveClinic={handleSaveClinic} />
             )}
             {activeTab === 'whatsapp' && <WhatsAppSettings />}
+            {activeTab === 'sms' && isAdmin && <SmsSettings />}
             {activeTab === 'appearance' && <AppearanceSettings />}
             {activeTab === 'interface' && <InterfaceSettings />}
             {activeTab === 'online_booking' && <OnlineBookingSettings />}

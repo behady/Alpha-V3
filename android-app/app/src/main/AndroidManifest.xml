@@ -13,6 +13,29 @@
          is handed to the phone's own camera app, which needs no permission
          from us. Fewer permissions = fewer questions from clinic staff. -->
 
+    <!-- Lets THIS phone send the clinic's appointment reminders from its own SIM,
+         for clinics that cannot get a WhatsApp Business account or a messaging
+         gateway. Only ever requested when an Admin pairs this handset from
+         Settings → SMS; the app never asks for it on first launch, and never
+         reads, receives or stores any message.
+
+         Note this permission puts the app outside Google Play's SMS policy, which
+         only permits it for a phone's default messaging app. That is not a problem
+         here because Alpha Dental is installed by sideloading the APK, not through
+         the Play Store — but it does mean this app cannot be published there while
+         this permission is declared. -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
+
+    <!-- The reminder poller is rescheduled after a restart, so a clinic phone that
+         reboots overnight is still sending at 07:00 without anyone touching it. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Only present so a phone without a SIM (a tablet on wifi) can still install
+         and be used as an ordinary client. -->
+    <uses-feature
+        android:name="android.hardware.telephony"
+        android:required="false" />
+
     <queries>
         <intent>
             <action android:name="android.intent.action.VIEW" />

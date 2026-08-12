@@ -31,6 +31,14 @@ export interface Note {
   createdAt?: any;
   appointmentId?: string | null;
   isContinued?: boolean;
+  /**
+   * Position when the timeline is set to manual order, written by drag-and-drop.
+   *
+   * Stored on the note rather than in a per-user preference because the order a doctor arranges
+   * their treatment plan into is clinical information — the assistant opening the same patient
+   * needs to see the same sequence, not their own.
+   */
+  sortIndex?: number;
 }
 
 export interface RelatedAppointment {

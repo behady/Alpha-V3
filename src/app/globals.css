@@ -85,6 +85,58 @@ body {
   display: none;
 }
 
+/* ============================================================================
+   MOBILE TYPE SCALE
+   ============================================================================
+
+   The interface was drawn on a desktop screen, where 10px badge text sits a
+   forearm's length from the eye. On a phone the same 10px is genuinely hard to
+   read, and this app is used one-handed between patients — so every size below
+   the `md` breakpoint is stepped up.
+
+   Only font-size (and line-height where Tailwind sets one) is touched. Padding,
+   gaps and widths are deliberately left alone, so nothing reflows or overflows:
+   the text grows inside the layout that already fits the screen.
+
+   These rules sit outside Tailwind's `@layer utilities`, and unlayered CSS beats
+   layered CSS regardless of order, so they win without `!important`. The one
+   knock-on: a `sm:text-*` utility (640–767px) also loses to these. That affects
+   about a dozen elements across the app, and the effect there is the same one
+   intended everywhere else — slightly larger text on a small screen.
+
+   To make phone text bigger or smaller across the whole app, change the numbers
+   in this one block. Nothing else needs editing.
+   ========================================================================== */
+@media (max-width: 767px) {
+  /* Tailwind's named sizes. Line-height moves with the font so lines do not crowd. */
+  .text-xs   { font-size: 0.845rem; line-height: 1.15rem; }  /* 12px  -> 13.5px */
+  .text-sm   { font-size: 0.97rem;  line-height: 1.375rem; } /* 14px  -> 15.5px */
+  .text-base { font-size: 1.09rem;  line-height: 1.625rem; } /* 16px  -> 17.5px */
+  .text-lg   { font-size: 1.22rem;  line-height: 1.8rem; }   /* 18px  -> 19.5px */
+  .text-xl   { font-size: 1.345rem; line-height: 1.85rem; }  /* 20px  -> 21.5px */
+  .text-2xl  { font-size: 1.565rem; line-height: 2.05rem; }  /* 24px  -> 25px   */
+
+  /* The hard-coded pixel sizes used for badges, chips and table captions. These
+     are the ones staff actually complain about, and there are ~550 of them. */
+  .text-\[7px\]  { font-size: 9px; }
+  .text-\[8px\]  { font-size: 10px; }
+  .text-\[9px\]  { font-size: 11px; }
+  .text-\[10px\] { font-size: 12px; }
+  .text-\[11px\] { font-size: 13px; }
+  .text-\[12px\] { font-size: 13.5px; }
+  .text-\[13px\] { font-size: 14.5px; }
+  .text-\[15px\] { font-size: 16.5px; }
+
+  /* An input below 16px makes iOS Safari zoom the whole page in on focus, which
+     then leaves the layout scrolled sideways. Holding the floor at 16px is the
+     documented way to stop that, and it happens to be more legible anyway. */
+  input,
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+  }
+}
+
 @media print {
   @page {
     size: A5 portrait;

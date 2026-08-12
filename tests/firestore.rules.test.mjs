@@ -157,6 +157,12 @@ async function main() {
       collection: "ledger",
       documentId: "ledA1",
     });
+    await setDoc(doc(db, "clinics/clinicA/sms_outbox/apptA1_24h"), {
+      to: "+201000000001",
+      text: "Reminder: your appointment is tomorrow.",
+      status: "queued",
+      attempts: 0,
+    });
     await setDoc(doc(db, "clinics/clinicB/patients/patB1"), { name: "Youssef" });
 
     // The WhatsApp gateway credentials. Whoever holds this token can message every patient in
@@ -439,6 +445,48 @@ async function main() {
   await check(
     "nobody can change a draft's recipient after it was reviewed",
     updateDoc(doc(admin1, "clinics/clinicA/message_drafts/draftA1"), { phone: "+20111" }),
+    "deny"
+  );
+
+  // The SMS queue: staff need to see what went out and what is stuck, but only the server may
+  // write. If the client could, anyone could redirect a queued reminder to another number, or
+  // mark an unsent one as delivered and hide that a patient was never told.
+  await check(
+    "staff can read the SMS queue",
+    getDoc(doc(admin1, "clinics/clinicA/sms_outbox/apptA1_24h")),
+    "allow"
+  );
+  await check(
+    "nobody can redirect a queued text message from the browser",
+    updateDoc(doc(admin1, "clinics/clinicA/sms_outbox/apptA1_24h"), { to: "+20111" }),
+    "deny"
+  );
+  await check(
+    "nobody can mark an unsent reminder as sent",
+    updateDoc(doc(admin1, "clinics/clinicA/sms_outbox/apptA1_24h"), { status: "sent" }),
+    "deny"
+  );
+  await check(
+    "nobody can queue a text message from the browser",
+    setDoc(doc(admin1, "clinics/clinicA/sms_outbox/forged"), { to: "+20111", text: "hi", status: "queued" }),
+    "deny"
+  );
+
+  // A device token lets a phone text every patient as the clinic. Same reasoning as
+  // clinic_secrets: it lives at the root so the blanket clinic-member read grant cannot reach it.
+  await check(
+    "a clinic Admin cannot read a paired phone's token",
+    getDoc(doc(admin1, "sms_devices/devA1")),
+    "deny"
+  );
+  await check(
+    "nobody can register a sender phone from the browser",
+    setDoc(doc(admin1, "sms_devices/forged"), { clinicId: "clinicA", secretHash: "x" }),
+    "deny"
+  );
+  await check(
+    "nobody can mint themselves a pairing code from the browser",
+    setDoc(doc(admin1, "sms_pairing_codes/AAAA-BBBB"), { clinicId: "clinicA" }),
     "deny"
   );
 

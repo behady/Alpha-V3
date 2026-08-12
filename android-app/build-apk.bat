@@ -37,7 +37,20 @@ if errorlevel 1 (
     exit /b 1
 )
 
-copy /y "app\build\outputs\apk\release\AlphaDental-release-1.0.0.apk" "AlphaDental.apk" >nul
+REM Copy whatever release APK the build just produced. The filename carries the
+REM version number, so naming it here means every version bump silently breaks
+REM this line and leaves an old AlphaDental.apk sitting next to a fresh build.
+for %%F in ("app\build\outputs\apk\release\AlphaDental-release-*.apk") do (
+    copy /y "%%F" "AlphaDental.apk" >nul
+)
+
+if not exist "AlphaDental.apk" (
+    echo.
+    echo   BUILD FAILED - no release APK was produced.
+    echo.
+    pause
+    exit /b 1
+)
 
 echo.
 echo   ==================================================================

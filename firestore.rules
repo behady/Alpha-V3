@@ -100,7 +100,7 @@ service cloud.firestore {
           || (hasClinicRole(clinicId) && isClinicActive(clinicId)
               && subcollection != 'system_logs' && subcollection != 'staff' && subcollection != 'settings'
               && subcollection != 'ai_deletion_log' && subcollection != 'ai_pending_actions'
-              && subcollection != 'message_drafts');
+              && subcollection != 'message_drafts' && subcollection != 'sms_outbox');
       }
 
       // --- SPECIFIC SUBCOLLECTION OVERRIDES ---
@@ -151,6 +151,16 @@ service cloud.firestore {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
         allow write: if false;
       }
+
+      // Text messages waiting for the clinic's own phone to send them. Staff read the queue to see
+      // what went out and what is stuck, but every write comes from an API route on the Admin SDK:
+      // the server queues, and only the paired handset may say a message was sent. If the client
+      // could write here, anyone in the clinic could change a queued message's recipient or body
+      // after it was composed, or mark an unsent reminder as delivered.
+      match /sms_outbox/{messageId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow write: if false;
+      }
     }
     
     // --- PER-CLINIC SECRETS ---
@@ -161,6 +171,20 @@ service cloud.firestore {
     // inside that subtree cannot take the access back; a separate top-level collection can.
     // Server-only: written and read exclusively via the Admin SDK, which bypasses rules.
     match /clinic_secrets/{clinicId} {
+      allow read, write: if false;
+    }
+
+    // --- SMS SENDER PHONES ---
+    // A device token lets a phone send text messages to every patient from the clinic's own
+    // number, and a pairing code is one step away from being such a token. Both live at the root
+    // for the same reason as clinic_secrets above: everything under clinics/{clinicId}/ is
+    // readable by every member of that clinic, and rules OR together so a narrower deny inside
+    // that subtree cannot take the access back. Server-only, via the Admin SDK.
+    match /sms_devices/{deviceId} {
+      allow read, write: if false;
+    }
+
+    match /sms_pairing_codes/{code} {
       allow read, write: if false;
     }
   }

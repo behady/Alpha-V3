@@ -137,6 +137,26 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";export defau
     showToast("Record deleted", "info");
   };
 
+  /**
+   * Persist a hand-arranged order.
+   *
+   * Only the notes whose position actually moved are written, and the onSnapshot listener above
+   * brings the new order back — so there is no local copy of the list to keep in step, and two
+   * people arranging the same patient converge on whatever was saved last rather than each seeing
+   * their own version.
+   */
+  const handleReorder = async (changes: { id: string; sortIndex: number }[]) => {
+    if (changes.length === 0) return;
+    try {
+      await Promise.all(
+        changes.map((change) => updateDoc(getClinicDoc("clinical_notes", change.id), { sortIndex: change.sortIndex }))
+      );
+    } catch (error) {
+      console.error("Failed to save the new order", error);
+      showToast("Could not save the new order", "error");
+    }
+  };
+
   const openTransferModal = (note: Note, action: "move" | "continue") => {
     setTransferNote(note);
     setTransferAction(action);
@@ -204,11 +224,13 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";export defau
 
         <TimelineCard
           services={notes}
+          appointments={appointments}
           onAddService={handleAddGeneral}
           onEditService={handleEditService}
           onDeleteService={handleDeleteService}
           onMoveService={(note) => openTransferModal(note, "move")}
           onContinueService={(note) => openTransferModal(note, "continue")}
+          onReorder={handleReorder}
         />
       </div>
 

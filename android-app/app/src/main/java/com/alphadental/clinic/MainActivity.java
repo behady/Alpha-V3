@@ -83,6 +83,10 @@ public class MainActivity extends AppCompatActivity implements DownloadBridge.Li
 
     private ActivityResultLauncher<Intent> fileChooserLauncher;
     private ActivityResultLauncher<String> storagePermissionLauncher;
+    private ActivityResultLauncher<String> smsPermissionLauncher;
+
+    /** The pairing code held between asking for the SMS permission and the answer. */
+    private String pendingPairingCode;
 
     // ---------------------------------------------------------------- lifecycle
 
@@ -107,6 +111,12 @@ public class MainActivity extends AppCompatActivity implements DownloadBridge.Li
         configureBackButton();
 
         findViewById(R.id.error_retry).setOnClickListener(v -> reload());
+
+        // A phone that was paired before keeps sending after a reboot or an
+        // update, without anyone having to open this screen and re-arm it.
+        if (SmsConfig.isPaired(this)) {
+            SmsSyncWorker.schedule(this);
+        }
 
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState.getBundle(STATE_WEB_VIEW));
@@ -159,6 +169,20 @@ public class MainActivity extends AppCompatActivity implements DownloadBridge.Li
                 granted -> toast(granted
                         ? getString(R.string.storage_permission_granted)
                         : getString(R.string.storage_permission_denied)));
+
+        smsPermissionLauncher = registerForActivityResult(
+                new ActivityResultContracts.RequestPermission(),
+                granted -> {
+                    String code = pendingPairingCode;
+                    pendingPairingCode = null;
+                    if (granted) {
+                        completePairing(code);
+                    } else {
+                        // Pairing without the permission would produce a phone that
+                        // appears in the clinic's list and silently sends nothing.
+                        toast(getString(R.string.sms_permission_denied));
+                    }
+                });
     }
 
     /** Draw behind the status and navigation bars, then pad the content back in. */
@@ -204,6 +228,7 @@ public class MainActivity extends AppCompatActivity implements DownloadBridge.Li
         webView.addJavascriptInterface(
                 new DownloadBridge(getCacheDir(), this), "AlphaDownloader");
         webView.addJavascriptInterface(pageState, "AlphaPage");
+        webView.addJavascriptInterface(new SmsBridge(this, this::onPairRequested), "AlphaSms");
 
         webView.setWebViewClient(new AlphaWebViewClient());
         webView.setWebChromeClient(new AlphaWebChromeClient());
@@ -601,6 +626,66 @@ public class MainActivity extends AppCompatActivity implements DownloadBridge.Li
     }
 
     // -------------------------------------------------------------- web clients
+
+    // --------------------------------------------------------------- SMS setup
+
+    /**
+     * The settings page asked to pair this phone.
+     *
+     * <p>The permission is requested first and pairing only happens if it is
+     * granted, so the clinic never ends up with a phone listed as a sender that
+     * cannot actually send. Called from the WebView's JavaScript thread, hence
+     * the hop back onto the UI thread before touching a launcher.
+     */
+    private void onPairRequested(String code) {
+        runOnUiThread(() -> {
+            if (SmsSyncWorker.hasSmsPermission(this)) {
+                completePairing(code);
+                return;
+            }
+            pendingPairingCode = code;
+            new AlertDialog.Builder(this)
+                    .setTitle(R.string.sms_permission_title)
+                    .setMessage(R.string.sms_permission_message)
+                    .setPositiveButton(R.string.sms_permission_continue,
+                            (dialog, which) -> smsPermissionLauncher.launch(Manifest.permission.SEND_SMS))
+                    .setNegativeButton(android.R.string.cancel, (dialog, which) -> pendingPairingCode = null)
+                    .show();
+        });
+    }
+
+    /** Exchange the code for a token, off the main thread, then start the poller. */
+    private void completePairing(String code) {
+        if (TextUtils.isEmpty(code)) {
+            return;
+        }
+        toast(getString(R.string.sms_pairing_in_progress));
+
+        new Thread(() -> {
+            String message;
+            boolean paired = false;
+            try {
+                SmsApi.pair(this, code, SmsBridge.deviceName());
+                paired = true;
+                message = getString(R.string.sms_pairing_done);
+            } catch (SmsApi.ApiException e) {
+                message = getString(R.string.sms_pairing_failed, e.getMessage());
+            }
+
+            final String toastMessage = message;
+            final boolean success = paired;
+            runOnUiThread(() -> {
+                toast(toastMessage);
+                if (success) {
+                    SmsSyncWorker.schedule(this);
+                    // Don't make the clinic wait a quarter of an hour to find out
+                    // whether pairing actually worked.
+                    SmsSyncWorker.runNow(this);
+                    reload();
+                }
+            });
+        }, "alpha-sms-pair").start();
+    }
 
     private final class AlphaWebViewClient extends WebViewClient {
 

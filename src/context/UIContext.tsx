@@ -3,6 +3,14 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import { X, CheckCircle2, AlertCircle, Info, AlertTriangle } from "lucide-react";
 import { openWhatsAppWithText, registerWhatsAppManualHandler } from "@/lib/whatsappManual";
+import {
+  ClinicalNoteDensity,
+  ClinicalNoteGrouping,
+  ClinicalNoteSort,
+  isClinicalNoteDensity,
+  isClinicalNoteGrouping,
+  isClinicalNoteSort,
+} from "@/components/clinical-notes/ordering";
 
 // --- TYPES ---
 type ToastType = "success" | "error" | "info";
@@ -47,6 +55,13 @@ interface UIContextType {
   setAppointmentsVisibility: (visibility: 'all' | 'desktop' | 'hidden') => void;
   latePatientTrackerEnabled: boolean;
   setLatePatientTrackerEnabled: (enabled: boolean) => void;
+  /** How services are arranged inside a patient's clinical note. See components/clinical-notes/ordering. */
+  clinicalNoteSort: ClinicalNoteSort;
+  setClinicalNoteSort: (sort: ClinicalNoteSort) => void;
+  clinicalNoteGrouping: ClinicalNoteGrouping;
+  setClinicalNoteGrouping: (grouping: ClinicalNoteGrouping) => void;
+  clinicalNoteDensity: ClinicalNoteDensity;
+  setClinicalNoteDensity: (density: ClinicalNoteDensity) => void;
 }
 
 const UIContext = createContext<UIContextType | undefined>(undefined);
@@ -62,6 +77,9 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const [receptionPanelActive, setReceptionPanelActive] = useState(false);
   const [appointmentsVisibility, setAppointmentsVisibilityState] = useState<'all' | 'desktop' | 'hidden'>('desktop');
   const [latePatientTrackerEnabledState, setLatePatientTrackerEnabledState] = useState<boolean>(true);
+  const [clinicalNoteSort, setClinicalNoteSortState] = useState<ClinicalNoteSort>('newest');
+  const [clinicalNoteGrouping, setClinicalNoteGroupingState] = useState<ClinicalNoteGrouping>('flat');
+  const [clinicalNoteDensity, setClinicalNoteDensityState] = useState<ClinicalNoteDensity>('detailed');
 
   // Load editor mode from localStorage
   useEffect(() => {
@@ -87,6 +105,17 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
 
       const savedTracker = localStorage.getItem("latePatientTrackerEnabled");
       if (savedTracker !== null) setLatePatientTrackerEnabledState(savedTracker === "true");
+
+      // Validated on read rather than cast: these come from a store the user can edit, and an
+      // unrecognised value would otherwise flow into the timeline and render nothing at all.
+      const savedNoteSort = localStorage.getItem("clinicalNoteSort");
+      if (isClinicalNoteSort(savedNoteSort)) setClinicalNoteSortState(savedNoteSort);
+
+      const savedNoteGrouping = localStorage.getItem("clinicalNoteGrouping");
+      if (isClinicalNoteGrouping(savedNoteGrouping)) setClinicalNoteGroupingState(savedNoteGrouping);
+
+      const savedNoteDensity = localStorage.getItem("clinicalNoteDensity");
+      if (isClinicalNoteDensity(savedNoteDensity)) setClinicalNoteDensityState(savedNoteDensity);
     } catch (e) {
       console.error("Could not load UI settings", e);
     }
@@ -124,6 +153,27 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
     setLatePatientTrackerEnabledState(enabled);
     try {
       localStorage.setItem("latePatientTrackerEnabled", String(enabled));
+    } catch (e) {}
+  }, []);
+
+  const setClinicalNoteSort = useCallback((sort: ClinicalNoteSort) => {
+    setClinicalNoteSortState(sort);
+    try {
+      localStorage.setItem("clinicalNoteSort", sort);
+    } catch (e) {}
+  }, []);
+
+  const setClinicalNoteGrouping = useCallback((grouping: ClinicalNoteGrouping) => {
+    setClinicalNoteGroupingState(grouping);
+    try {
+      localStorage.setItem("clinicalNoteGrouping", grouping);
+    } catch (e) {}
+  }, []);
+
+  const setClinicalNoteDensity = useCallback((density: ClinicalNoteDensity) => {
+    setClinicalNoteDensityState(density);
+    try {
+      localStorage.setItem("clinicalNoteDensity", density);
     } catch (e) {}
   }, []);
 
@@ -200,7 +250,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <UIContext.Provider value={{ showToast, confirm, clinicalEditorMode, setClinicalEditorMode, appointmentEditorMode, setAppointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode, receptionPanelActive, setReceptionPanelActive, appointmentsVisibility, setAppointmentsVisibility, latePatientTrackerEnabled: latePatientTrackerEnabledState, setLatePatientTrackerEnabled }}>
+    <UIContext.Provider value={{ showToast, confirm, clinicalEditorMode, setClinicalEditorMode, appointmentEditorMode, setAppointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode, receptionPanelActive, setReceptionPanelActive, appointmentsVisibility, setAppointmentsVisibility, latePatientTrackerEnabled: latePatientTrackerEnabledState, setLatePatientTrackerEnabled, clinicalNoteSort, setClinicalNoteSort, clinicalNoteGrouping, setClinicalNoteGrouping, clinicalNoteDensity, setClinicalNoteDensity }}>
       {children}
 
       {/* --- TOAST CONTAINER (Smartphone Style) --- */}

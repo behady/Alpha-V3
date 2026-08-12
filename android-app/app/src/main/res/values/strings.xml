@@ -26,4 +26,12 @@
 
     <string name="storage_permission_granted">Storage access allowed. Tap the download again.</string>
     <string name="storage_permission_denied">Without storage access the app cannot save files.</string>
+
+    <string name="sms_permission_title">Let this phone send the reminders</string>
+    <string name="sms_permission_message">Alpha Dental will send appointment reminders as text messages from this phone\'s SIM card.\n\nEach message is charged at your normal SMS rate, and the phone needs to stay switched on with mobile signal.\n\nAndroid will now ask you to allow sending text messages.</string>
+    <string name="sms_permission_continue">Continue</string>
+    <string name="sms_permission_denied">Without permission to send text messages, this phone cannot send reminders. Nothing was paired.</string>
+    <string name="sms_pairing_in_progress">Pairing this phone…</string>
+    <string name="sms_pairing_done">This phone is now the clinic\'s SMS sender.</string>
+    <string name="sms_pairing_failed">Pairing failed. %1$s</string>
 </resources>

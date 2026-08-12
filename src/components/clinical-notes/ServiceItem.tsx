@@ -1,4 +1,4 @@
-import { Edit2, ArrowRightLeft, Copy, Trash2, RefreshCcw } from "lucide-react";
+import { Edit2, ArrowRightLeft, Copy, Trash2, RefreshCcw, GripVertical, ChevronUp, ChevronDown } from "lucide-react";
 import { Note } from "./types";
 import { useLanguage } from "@/context/LanguageContext";
 import Protect from "@/components/Protect";
@@ -9,9 +9,18 @@ interface Props {
   onDelete: (note: Note) => void;
   onMove: (note: Note) => void;
   onContinue: (note: Note) => void;
+  /** One dense line instead of the full card. Set from the Interface setting. */
+  compact?: boolean;
+  /** Reorder affordances, shown only while the timeline is in manual order. */
+  reorder?: {
+    onMoveUp: () => void;
+    onMoveDown: () => void;
+    canMoveUp: boolean;
+    canMoveDown: boolean;
+  };
 }
 
-export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue }: Props) {
+export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue, compact = false, reorder }: Props) {
   const { language } = useLanguage();
 
   const txt = {
@@ -19,6 +28,9 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
     move: language === "ar" ? "نقل إلى موعد آخر" : "Move to another appointment",
     continue: language === "ar" ? "استكمال في موعد آخر" : "Continue in another appointment",
     delete: language === "ar" ? "حذف" : "Delete",
+    dragHint: language === "ar" ? "اسحب لإعادة الترتيب" : "Drag to reorder",
+    moveUp: language === "ar" ? "تحريك لأعلى" : "Move up",
+    moveDown: language === "ar" ? "تحريك لأسفل" : "Move down",
   };
 
   const getStatusColor = (status: string | undefined) => {
@@ -43,9 +55,95 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
     }
   };
 
+  /**
+   * Up/down buttons sit beside the drag handle rather than replacing it.
+   *
+   * The handle uses the browser's own drag-and-drop, which phones and tablets do not fire at all —
+   * and this app is used on phones between patients. Without buttons, manual order would silently
+   * be a desktop-only feature.
+   */
+  const reorderControls = reorder ? (
+    <div className="flex flex-col items-center justify-center shrink-0 -ml-1 mr-1">
+      <button
+        type="button"
+        onClick={reorder.onMoveUp}
+        disabled={!reorder.canMoveUp}
+        title={txt.moveUp}
+        aria-label={txt.moveUp}
+        className="p-0.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-25 disabled:hover:bg-transparent transition-colors"
+      >
+        <ChevronUp size={14} />
+      </button>
+      <GripVertical size={14} className="text-slate-300 cursor-grab active:cursor-grabbing" aria-hidden="true" />
+      <button
+        type="button"
+        onClick={reorder.onMoveDown}
+        disabled={!reorder.canMoveDown}
+        title={txt.moveDown}
+        aria-label={txt.moveDown}
+        className="p-0.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-25 disabled:hover:bg-transparent transition-colors"
+      >
+        <ChevronDown size={14} />
+      </button>
+    </div>
+  ) : null;
+
+  if (compact) {
+    return (
+      <div
+        className={`flex items-center gap-2 px-3 py-2 border rounded-xl transition-all group relative ${getContainerStyles(note.status)}`}
+      >
+        {reorderControls}
+
+        <span
+          className={`w-2 h-2 rounded-full shrink-0 ${
+            note.status === "Completed" ? "bg-emerald-500" : note.status === "Ongoing" ? "bg-amber-500" : "bg-slate-300"
+          }`}
+          title={note.status || "Planned"}
+        />
+
+        <p className="font-bold text-slate-900 truncate text-sm min-w-0 flex-1">{note.procedure}</p>
+
+        {note.tooth && note.tooth !== "Gen" && (
+          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-50 text-slate-600 border border-slate-200 shrink-0">
+            {note.tooth}
+          </span>
+        )}
+
+        {Number(note.cost) > 0 && (
+          <span className="text-xs font-black text-slate-600 shrink-0">EGP {Number(note.cost).toLocaleString()}</span>
+        )}
+
+        <div className="flex items-center gap-1 shrink-0">
+          {!note.isContinued && (
+            <Protect permission="clinical.edit">
+              <button
+                onClick={() => onEdit(note)}
+                title={txt.edit}
+                className="p-1.5 rounded-lg text-violet-600 bg-violet-50 hover:bg-violet-100 transition-colors border border-violet-100"
+              >
+                <Edit2 size={13} />
+              </button>
+            </Protect>
+          )}
+          <Protect permission="clinical.delete">
+            <button
+              onClick={() => onDelete(note)}
+              title={txt.delete}
+              className="p-1.5 rounded-lg text-rose-600 bg-rose-50 hover:bg-rose-100 transition-colors border border-rose-100"
+            >
+              <Trash2 size={13} />
+            </button>
+          </Protect>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`flex items-center justify-between p-4 border rounded-xl transition-all group relative ${getContainerStyles(note.status)}`}>
-      <div className="flex flex-col gap-1 min-w-0">
+      {reorderControls}
+      <div className="flex flex-col gap-1 min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
           <p className="font-bold text-slate-900 truncate text-sm">{note.procedure}</p>
           <span

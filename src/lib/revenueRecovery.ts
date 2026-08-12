@@ -93,7 +93,7 @@ function daysSince(d: Date | null): number | undefined {
  * which also makes unrelated payments of different sizes collide in the duplicate detector below.
  * Payments must resolve through `paid` first; procedures through `amount`/`cost` first.
  */
-function rowAmount(row: Record<string, unknown>): number {
+export function rowAmount(row: Record<string, unknown>): number {
   return String(row.type) === "payment"
     ? toNumber(row.paid ?? row.amount)
     : toNumber(row.amount ?? row.cost);

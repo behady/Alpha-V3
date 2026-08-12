@@ -23,8 +23,8 @@ android {
         applicationId = "com.alphadental.clinic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
     }
 
     signingConfigs {
@@ -79,6 +79,11 @@ android {
 dependencies {
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
+
+    // Runs the SMS poller every 15 minutes, survives reboots, and backs off when
+    // the phone has no network. Doing this with a plain background thread or an
+    // AlarmManager would stop working the moment Android decided the app was idle.
+    implementation("androidx.work:work-runtime:2.9.1")
 
     // The AndroidX libraries above drag in two different Kotlin runtime
     // generations. Since Kotlin 1.8 the -jdk7/-jdk8 pieces were folded into the

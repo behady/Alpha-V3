@@ -73,6 +73,51 @@ description, that is a real problem worth reporting.
 
 ---
 
+## Sending appointment reminders as text messages
+
+This app can turn one clinic phone into the thing that sends your 24-hour
+appointment reminders, as ordinary SMS from its own SIM card.
+
+It exists because WhatsApp is not available to every clinic — the official
+WhatsApp Business API needs business verification documents, and automating a
+normal WhatsApp number risks having it banned. A SIM card has neither problem.
+The system decides what to send and when; this phone does the sending.
+
+### Setting it up
+
+1. On a computer, sign in as **Admin** and go to **Settings → SMS**.
+2. Turn on **Send from the clinic phone**, and choose whether reminders go out
+   by WhatsApp, by SMS, or by both.
+3. Press **Pair a phone**. An eight-character code appears.
+4. On the clinic phone, open the Alpha Dental app, go to the same
+   **Settings → SMS** screen, and press **Pair this phone**. It pairs itself —
+   no typing. (If you are setting up a *different* phone, type the code there
+   instead. The code lasts ten minutes and works once.)
+5. Android asks for permission to send text messages. Say yes. Without it,
+   nothing pairs — the app will not let you end up with a phone that appears in
+   the list but silently sends nothing.
+
+That phone now checks for waiting reminders every fifteen minutes, including
+when the app is closed and after the phone restarts.
+
+### Before you turn it on
+
+| | |
+|---|---|
+| **It costs money** | Every message is billed to that SIM at your normal SMS rate. WhatsApp is free; this is not. |
+| **Arabic is expensive** | One Arabic character anywhere in the message drops it from 160 characters per text to 70. A long reminder is billed as three or four messages. The settings screen shows the real count as you type — watch it. |
+| **The phone must be alive** | On, charged, in signal, and not "optimised" into sleep by Android's battery settings. Exclude Alpha Dental from battery optimisation on that phone. |
+| **Carriers watch consumer SIMs** | Sending a lot of near-identical messages from a personal line can get the number throttled or blocked. This is fine for a normal clinic's daily reminders; it is not a marketing tool. |
+| **Nothing is faked** | A reminder is only ever reported as *Sent* once the network confirms it left the handset. Until then Settings → SMS shows it as *Waiting*. If the phone is flat in a drawer, you will see the queue standing still rather than a screen full of green ticks. |
+
+### Checking it works
+
+Settings → SMS lists the paired phone with its **last seen** time, and the most
+recent messages with their real status. A phone that is working shows a last-seen
+time within the last fifteen minutes.
+
+---
+
 ## Known limits — read this before rolling it out
 
 These are real limitations, not bugs to be fixed later by accident:
@@ -98,6 +143,14 @@ These are real limitations, not bugs to be fixed later by accident:
    break.)
 
 5. **Android 8.0 and newer only.** Anything older cannot install it.
+
+6. **This app can never go on the Google Play Store while SMS sending is in
+   it.** Google only permits the `SEND_SMS` permission for an app that is the
+   phone's default messaging app. That is not a problem today — Alpha Dental is
+   installed by copying the APK onto the phone, which is what the instructions
+   above describe — but it does close the Play Store door. If you ever want to
+   publish there, the SMS permission has to come out of `AndroidManifest.xml`
+   first, and reminders go back to WhatsApp only.
 
 ---
 
@@ -162,6 +215,11 @@ losing the key becomes permanent: that listing can never be updated again.
 | `DownloadBridge.java` | Catches PDFs and spreadsheets the website builds |
 | `DownloadScripts.java` | The small piece of JavaScript that hands them over |
 | `FileSaver.java` | Writes the finished file into the phone's Downloads |
+| `SmsBridge.java` | Lets the Settings → SMS page pair the phone it is open on |
+| `SmsConfig.java` | Remembers this phone's pairing token between runs |
+| `SmsApi.java` | Talks to the clinic system: claim messages, report results |
+| `SmsSender.java` | Sends one text and waits for the network to confirm it |
+| `SmsSyncWorker.java` | The every-fifteen-minutes job that does all of the above |
 | `tools/make_icons.py` | Redraws the app icon if you want to change it |
 | `build-apk.bat` | Builds everything |
 

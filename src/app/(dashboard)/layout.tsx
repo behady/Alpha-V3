@@ -7,7 +7,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { 
   LayoutDashboard, Users, Calendar, Wallet, Settings, Sparkles, 
   FileBarChart, Menu, X, LogOut, Loader2, Languages, 
-  Package, ChevronLeft, ChevronRight, Clock, FlaskConical, MessageCircle, ShieldCheck, UserPlus, CalendarClock, UserCheck
+  Package, ChevronLeft, ChevronRight, Clock, FlaskConical, MessageCircle, ShieldCheck, UserPlus, CalendarClock, UserCheck,
+  BadgeDollarSign
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { auth } from "@/lib/firebase";
@@ -91,6 +92,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { key: "appointments", href: "/appointments", icon: Calendar },
     { key: "inventory", href: "/inventory", icon: Package },
     { key: "finance", href: "/finance", icon: Wallet },
+    { key: "paymentRecovery", href: "/finance/recovery", icon: BadgeDollarSign },
     { key: "revenueRecovery", href: "/ai/revenue", icon: Sparkles },
     { key: "reactivation", href: "/ai/reactivation", icon: UserPlus },
     { key: "operations", href: "/ai/operations", icon: CalendarClock },
@@ -108,6 +110,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     // Tier based gating
     if (key === 'inventory' && !hasFeature(clinic, 'inventory')) return false;
     if (key === 'attendance' && !hasFeature(clinic, 'attendance')) return false;
+
+    // The debtors list is part of Finance, not a module anyone holds a permission for, so it
+    // follows whoever can already see the money — which is exactly what the page itself enforces
+    // with `access.finance`. Giving it its own nav key would hide it from every existing user.
+    if (key === 'paymentRecovery') return canAccessNavItem('finance', user, isAdmin);
 
     // Premium-only, and admin-only: the report lists every outstanding balance in the clinic
     // plus procedures charged below list price, which effectively audits the team's own billing.

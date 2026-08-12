@@ -13,6 +13,8 @@
     "_comment_test_rules": "Pinned to firebase-tools 13: version 14+ requires JDK 21, and this machine has JDK 11. Install a JDK 21+ and you can drop the @13 to track latest.",
     "test:rules": "npx firebase-tools@13 emulators:exec --only firestore \"node tests/firestore.rules.test.mjs\"",
     "test:recovery": "npx tsx tests/revenueRecovery.test.mjs",
+    "test:dues": "npx tsx tests/paymentRecovery.test.mjs",
+    "test:sms": "npx tsx tests/smsCost.test.mjs",
     "test:attendance": "npx tsx tests/attendanceGeofence.test.mjs"
   },
   "dependencies": {
