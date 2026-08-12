@@ -33,10 +33,26 @@ export async function POST(request: Request) {
         status: "Active",
         createdAt: FieldValue.serverTimestamp(),
       });
+      /**
+       * The role has to be written as a NESTED OBJECT, not a dotted key.
+       *
+       * Firestore only interprets `"clinicRoles.<id>"` as a path to a nested field in `update()`.
+       * In `set()` — even with merge — a dot in a key is part of the field NAME. So this used to
+       * create a top-level field literally called `clinicRoles.abc123` and leave the real
+       * `clinicRoles` map empty.
+       *
+       * The result was a signup that looked like it worked and wasn't: the clinic document was
+       * created (so it appeared in the Super Admin list), but the owner had no role in it, so
+       * ClinicContext saw zero clinics and bounced them straight back to "create a clinic".
+       *
+       * set+merge is still the right call over update(): it works whether or not the user document
+       * exists yet, which matters because a first-time Google sign-in races with AuthContext
+       * creating that document. Merge is a deep merge for maps, so roles in other clinics survive.
+       */
       tx.set(
         userRef,
         {
-          [`clinicRoles.${clinicId}`]: "Admin",
+          clinicRoles: { [clinicId]: "Admin" },
           defaultClinicId: clinicId,
         },
         { merge: true }
