@@ -578,6 +578,22 @@ export default function MobileDashboard() {
 
       await updateDoc(getClinicDoc("appointments", id), updatePayload);
 
+      // Cancelling is the one status change the patient has to hear about — everything else is
+      // clinic-side bookkeeping, but a cancelled patient is still expecting to be seen. It lives
+      // here rather than in bookingService because a cancellation is a status change on the
+      // appointment, not a deletion of it, so it never passed through the booking helpers that
+      // send the "booked" and "moved" messages.
+      if (nextStatus === "Cancelled" && prevStatus !== "Cancelled" && appt.patientId) {
+        void sendPatientAppointmentWhatsApp({
+          template: "cancel",
+          patientId: String(appt.patientId),
+          date: String(appt.date || ""),
+          time: String(appt.time || ""),
+          doctor: String(appt.doctor || ""),
+          patientName: appt.patientName,
+        });
+      }
+
       if (nextStatus === "Checked In" && prevStatus !== "Checked In") {
         await addDoc(getClinicCollection("attendance"), {
           patientId: appt.patientId,
