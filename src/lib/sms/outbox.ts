@@ -1,5 +1,6 @@
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { adminDb } from "@/lib/firebaseAdmin";
+import { isDue } from "./schedule";
 
 /**
  * The queue of text messages waiting for the clinic's phone to send them.
@@ -22,6 +23,15 @@ export interface SmsMessage {
   patientName?: string;
   appointmentId?: string;
   createdAt: string;
+  /**
+   * Do not send before this instant. Absent means "as soon as a phone picks it up".
+   *
+   * This is how a clinic gets to choose that reminders go out at 2pm without needing the server to
+   * wake up at 2pm. The sweep runs once, early, and stamps the hour the clinic asked for; the phone
+   * is already polling every fifteen minutes and simply leaves the message alone until it is due.
+   * Only ever written by the server — the phone's update rule cannot touch this field.
+   */
+  sendAfter?: string;
   claimedAt?: string;
   claimedByDeviceId?: string;
   sentAt?: string;
@@ -63,12 +73,20 @@ export async function enqueueSms(
   const existing = await ref.get();
   if (existing.exists) return false;
 
-  await ref.set({
-    ...message,
+  // Undefined is not a Firestore value, and this object is assembled from optional fields — an
+  // appointment booked without a patient record has no patientId, and an event message has no
+  // sendAfter. Writing the object straight through threw and lost the message; dropping the empty
+  // keys is what "optional" was supposed to mean.
+  const payload: Record<string, unknown> = {
     status: "queued" satisfies SmsStatus,
     createdAt: new Date().toISOString(),
     attempts: 0,
-  });
+  };
+  for (const [field, value] of Object.entries(message)) {
+    if (value !== undefined) payload[field] = value;
+  }
+
+  await ref.set(payload);
   return true;
 }
 
@@ -83,6 +101,7 @@ function toMessage(id: string, data: Record<string, unknown>): SmsMessage {
     patientName: data.patientName ? String(data.patientName) : undefined,
     appointmentId: data.appointmentId ? String(data.appointmentId) : undefined,
     createdAt: String(data.createdAt || ""),
+    sendAfter: data.sendAfter ? String(data.sendAfter) : undefined,
     claimedAt: data.claimedAt ? String(data.claimedAt) : undefined,
     claimedByDeviceId: data.claimedByDeviceId ? String(data.claimedByDeviceId) : undefined,
     sentAt: data.sentAt ? String(data.sentAt) : undefined,
@@ -106,7 +125,11 @@ export async function claimSms(clinicId: string, deviceId: string): Promise<SmsM
   return db.runTransaction(async (tx) => {
     // Pending work, whether never picked up or picked up by a phone that then went silent. Both
     // states are read here so the abandoned ones can be recovered in the same pass.
-    const snap = await tx.get(collection.where("status", "in", ["queued", "sending"]).limit(CLAIM_BATCH * 2));
+    //
+    // Read wide, because much of it may be held until the clinic's chosen hour. A narrow window
+    // could return nothing but waiting reminders while a cancellation queued a minute ago sits
+    // just outside it. See `isDue`.
+    const snap = await tx.get(collection.where("status", "in", ["queued", "sending"]).limit(CLAIM_BATCH * 4));
 
     const claimed: SmsMessage[] = [];
     for (const doc of snap.docs) {
@@ -114,6 +137,7 @@ export async function claimSms(clinicId: string, deviceId: string): Promise<SmsM
 
       const message = toMessage(doc.id, doc.data() || {});
       if (message.attempts >= MAX_ATTEMPTS) continue;
+      if (!isDue(message, now)) continue;
 
       if (message.status === "sending") {
         const claimedAt = message.claimedAt ? Date.parse(message.claimedAt) : 0;

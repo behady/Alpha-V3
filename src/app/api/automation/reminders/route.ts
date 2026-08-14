@@ -13,8 +13,7 @@ import { getClinicProfileAdmin } from "@/lib/clinicProfileServer";
 import { isSmsBlocked, isWhatsAppBlocked, type PatientContactPreferences } from "@/lib/patientMessaging";
 import { channelIncludesSms, channelIncludesWhatsApp } from "@/lib/sms/config";
 import { loadSmsSettings } from "@/lib/sms/serverConfig";
-import { hasActiveDevice } from "@/lib/sms/devices";
-import { enqueueSms } from "@/lib/sms/outbox";
+import { queuePatientSms } from "@/lib/sms/events";
 
 /**
  * The nightly run walks every active clinic and sends one message per patient booked tomorrow, so
@@ -168,27 +167,6 @@ async function buildReminderText(
 type LegResult = { status: "sent" | "queued" | "skipped" | "failed"; reason?: string };
 
 /**
- * Build the SMS body.
- *
- * A separate, shorter template from the WhatsApp one on purpose — see DEFAULT_SMS_REMINDER_TEMPLATE
- * for why an emoji-decorated body costs a clinic real money over SMS.
- */
-function buildSmsText(
-  template: string,
-  appointment: AppointmentRecord,
-  patientName: string,
-  clinicName: string
-): string {
-  return mergeWhatsAppTemplate(template, {
-    patient_name: patientName,
-    date: appointment.date || "—",
-    time: appointment.time || "—",
-    doctor: appointment.doctor || "—",
-    clinic_name: clinicName,
-  });
-}
-
-/**
  * The WhatsApp leg: unchanged behaviour, now one of two possible channels.
  */
 async function sendWhatsAppLeg(args: {
@@ -255,37 +233,37 @@ async function sendWhatsAppLeg(args: {
  * Only the phone can say the text actually left, and it does that by acking the outbox. Reporting
  * a queue write as a send is how a clinic ends up believing patients were reminded when the phone
  * was flat in a drawer.
+ *
+ * The message is stamped with the hour the clinic chose and the phone holds it until then, so this
+ * sweep can run early without every patient being woken at dawn.
  */
 async function queueSmsLeg(args: {
   clinicId: string;
   appointment: AppointmentRecord;
   patientName: string;
   clinicName: string;
-  e164: string;
+  preferences: PatientContactPreferences;
+  phone: string;
 }): Promise<LegResult> {
-  const { clinicId, appointment, patientName, clinicName, e164 } = args;
+  const { clinicId, appointment, patientName, clinicName, preferences, phone } = args;
 
-  const settings = await loadSmsSettings(clinicId);
-  if (!settings.enabled) return { status: "skipped", reason: "sms_disabled" };
-  if (!channelIncludesSms(settings.reminderChannel)) return { status: "skipped", reason: "sms_not_selected" };
-
-  // Queueing with no phone paired would pile messages up where nothing can ever collect them, and
-  // the clinic would see a growing "queued" list that never moves.
-  if (!(await hasActiveDevice(clinicId))) return { status: "skipped", reason: "no_paired_phone" };
-
-  const text = buildSmsText(settings.template, appointment, patientName, clinicName).trim();
-  if (!text) return { status: "skipped", reason: "empty_sms_template" };
-
-  const queued = await enqueueSms(clinicId, `${appointment.id}_24h`, {
-    to: e164,
-    text,
+  return queuePatientSms({
+    clinicId,
     type: "reminder24h",
-    patientId: appointment.patientId || undefined,
+    key: `${appointment.id}_24h`,
+    phone,
     patientName,
+    preferences,
+    patientId: appointment.patientId,
     appointmentId: appointment.id,
+    values: {
+      patient_name: patientName,
+      date: appointment.date || "—",
+      time: appointment.time || "—",
+      doctor: appointment.doctor || "—",
+      clinic_name: clinicName,
+    },
   });
-
-  return queued ? { status: "queued" } : { status: "skipped", reason: "already_queued" };
 }
 
 /**
@@ -331,7 +309,7 @@ async function sendForAppointment(clinicId: string, appointment: AppointmentReco
     ? ({ status: "skipped", reason: "sms_not_selected" } as LegResult)
     : smsBlocked
       ? ({ status: "skipped", reason: "sms_opt_out" } as LegResult)
-      : await queueSmsLeg({ clinicId, appointment, patientName, clinicName, e164 });
+      : await queueSmsLeg({ clinicId, appointment, patientName, clinicName, preferences, phone: e164 });
 
   // The appointment counts as handled if any channel got somewhere. "queued" is reported as its
   // own outcome rather than folded into "sent" so the summary never overstates what happened.

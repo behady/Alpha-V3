@@ -1,5 +1,5 @@
 import { adminClinicDoc } from "@/lib/adminClinicDb";
-import { DEFAULT_SMS_SETTINGS, parseSmsSettings, type SmsSettings } from "@/lib/sms/config";
+import { parseSmsSettings, type SmsSettings } from "@/lib/sms/config";
 
 /**
  * Server-side read of a clinic's SMS settings.
@@ -11,11 +11,12 @@ import { DEFAULT_SMS_SETTINGS, parseSmsSettings, type SmsSettings } from "@/lib/
 export async function loadSmsSettings(clinicId: string): Promise<SmsSettings> {
   try {
     const snap = await adminClinicDoc(clinicId, "settings", "sms").get();
-    if (!snap.exists) return { ...DEFAULT_SMS_SETTINGS };
-    return parseSmsSettings(snap.data() as Record<string, unknown> | undefined);
+    // Everything goes through parseSmsSettings, including the empty case: spreading the default
+    // constant would hand every caller the same `events` and `templates` objects to mutate.
+    return parseSmsSettings(snap.exists ? (snap.data() as Record<string, unknown> | undefined) : undefined);
   } catch {
     // An unreadable settings doc must not turn into "send by SMS anyway" — fall back to the
     // channel that costs the clinic nothing.
-    return { ...DEFAULT_SMS_SETTINGS };
+    return parseSmsSettings(undefined);
   }
 }

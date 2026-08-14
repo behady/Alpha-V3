@@ -770,10 +770,35 @@ object Repository {
      * sees the winner's claim and skips it. Claiming per message rather than per batch means one
      * contested message does not force the whole batch to retry.
      */
+    /**
+     * Whether a queued message is allowed to leave yet.
+     *
+     * `sendAfter` is how a clinic gets reminders at 2pm without the server having to wake up at
+     * 2pm: the nightly sweep stamps the hour and this phone, which is polling anyway, holds the
+     * message until then. Only reminders carry it — a cancellation is stamped with nothing and
+     * goes on the next poll, because a patient told about it in the afternoon may already have
+     * travelled in.
+     *
+     * A missing or unparseable stamp means "now". Refusing to send on a malformed timestamp would
+     * strand the message with nothing to explain why, and the failure that matters here is a
+     * patient never being told.
+     */
+    internal fun isSmsDue(sendAfter: String?, now: Long): Boolean {
+        if (sendAfter.isNullOrBlank()) return true
+        val due = runCatching { java.time.Instant.parse(sendAfter).toEpochMilli() }.getOrNull() ?: return true
+        return due <= now
+    }
+
     suspend fun claimQueuedSms(clinicId: String, deviceId: String, limit: Int): List<QueuedSms> {
+        // Fetched wide, because most of what comes back may not be sendable yet. Between the sweep
+        // and the clinic's chosen hour the outbox is full of held reminders, and Firestore returns
+        // these in document-id order — so a narrow window could be entirely reminders while a
+        // cancellation queued five minutes ago sits just outside it, unsent until the afternoon.
+        // Ordering by sendAfter is not an option: Firestore drops documents missing the field,
+        // which is exactly the immediate messages this is protecting.
         val pending = smsOutbox(clinicId)
             .whereIn("status", listOf("queued", "sending"))
-            .limit(limit * 2L)
+            .limit(limit * 4L)
             .get()
             .await()
 
@@ -791,6 +816,12 @@ object Repository {
                     val status = snap.getString("status").orEmpty()
                     val attempts = (snap.get("attempts") as? Number)?.toLong() ?: 0L
                     if (attempts >= MAX_SMS_ATTEMPTS) return@runTransaction null
+
+                    // The clinic picks an hour for reminders to go out; the server stamps it here
+                    // and this phone is what enforces it. Checked inside the transaction so a
+                    // message that comes due between the query and the claim is not skipped for
+                    // another fifteen minutes.
+                    if (!isSmsDue(snap.getString("sendAfter"), now)) return@runTransaction null
 
                     if (status == "sending") {
                         val claimedAt = snap.getString("claimedAt")?.let { runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull() }

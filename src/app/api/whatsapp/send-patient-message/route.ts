@@ -10,10 +10,108 @@ import { resolveWhatsappTemplateForPatient } from "@/lib/whatsappDefaultBodies";
 import type { WhatsAppTemplateType } from "@/types/whatsapp";
 import { parseLedgerProcedureDescription } from "@/lib/ledgerProcedureParse";
 import { getClinicProfileAdmin } from "@/lib/clinicProfileServer";
+import { clinicDisplayName, queuePatientSms } from "@/lib/sms/events";
+import type { SmsEventType } from "@/lib/sms/config";
 
 type Kind = "invoice" | "treatment" | "receipt" | "appointment";
 
 type AppointmentPatientTemplate = Extract<WhatsAppTemplateType, "new" | "edit" | "cancel">;
+
+/**
+ * A Firestore document id may not contain a slash, and the parts these keys are built from are
+ * user-facing strings (a date, a time like "02:00 PM") rather than ids.
+ */
+function outboxKey(...parts: string[]): string {
+  return parts
+    .map((p) => p.trim().replace(/[/\s]+/g, "-"))
+    .filter(Boolean)
+    .join("_");
+}
+
+/**
+ * Queue the SMS half of a patient message.
+ *
+ * Deliberately independent of everything WhatsApp around it: its own enable switch, its own
+ * per-event toggle, its own template, its own opt-out. A clinic with WhatsApp automation switched
+ * off — or with no gateway configured at all, which is every clinic that has not done the Meta
+ * paperwork — still gets its texts out. It also never throws into the caller: a queue write that
+ * fails must not turn a successful booking into an error on screen.
+ */
+async function queueEventSms(args: {
+  clinicId: string;
+  type: SmsEventType;
+  key: string;
+  patient: Record<string, unknown>;
+  patientId: string;
+  values: Record<string, string>;
+}): Promise<void> {
+  const { clinicId, type, key, patient, patientId, values } = args;
+  try {
+    const clinicName = await clinicDisplayName(clinicId);
+    await queuePatientSms({
+      clinicId,
+      type,
+      key,
+      patientId,
+      phone: pickPatientPhone(patient),
+      patientName: (typeof patient.name === "string" && patient.name.trim()) || "Patient",
+      preferences: {
+        whatsappOptOut: patient.whatsappOptOut === true,
+        smsOptOut: typeof patient.smsOptOut === "boolean" ? patient.smsOptOut : undefined,
+      },
+      values: { ...values, clinic_name: clinicName },
+    });
+  } catch (e) {
+    console.warn(`Could not queue ${type} SMS:`, e);
+  }
+}
+
+/**
+ * Queue the "we received your payment" text.
+ *
+ * Only for rows that are actually a payment. A procedure being invoiced is money owed, not money
+ * received, and telling a patient "we received 1500" when they have just been charged 1500 is the
+ * kind of message that produces a phone call and a lost afternoon.
+ */
+async function queuePaymentSms(args: {
+  clinicId: string;
+  patient: Record<string, unknown>;
+  patientId: string;
+  ledgerId: string;
+}): Promise<void> {
+  const { clinicId, patient, patientId, ledgerId } = args;
+  try {
+    const snap = await getLedgerDocWithRetry(clinicId, ledgerId);
+    if (!snap?.exists) return;
+
+    const ledger = snap.data() as Record<string, unknown>;
+    if (String(ledger.patientId) !== patientId) return;
+    if (isDeletedLedger(ledger)) return;
+    if (String(ledger.type || "") !== "payment") return;
+
+    const amount = Number(ledger.paid) || 0;
+    const balance = await computePatientBalance(clinicId, patientId);
+
+    await queueEventSms({
+      clinicId,
+      type: "invoice",
+      key: outboxKey(ledgerId, "invoice"),
+      patient,
+      patientId,
+      values: {
+        patient_name: (typeof patient.name === "string" && patient.name.trim()) || "Patient",
+        amount: amount.toLocaleString("en-US"),
+        balance: balance.toLocaleString("en-US"),
+        date: String(ledger.date || "—"),
+        method: String(ledger.method || "—"),
+        description: String(ledger.description || ledger.category || "—"),
+        doctor: String(ledger.doctorName || ledger.doctor || "—"),
+      },
+    });
+  } catch (e) {
+    console.warn("Could not queue payment SMS:", e);
+  }
+}
 
 type LedgerSummaryRow = {
   date: string;
@@ -191,6 +289,23 @@ export async function POST(request: Request) {
       }
       const patient = patientSnap.data() as Record<string, unknown>;
 
+      // Before any WhatsApp gate below, because the SMS is not a WhatsApp fallback — it is its own
+      // channel with its own switches. Keyed on the slot rather than just the appointment so that
+      // moving a patient twice sends two texts, while saving the same change twice sends one.
+      await queueEventSms({
+        clinicId,
+        type: appointmentTemplate,
+        key: outboxKey(patientId, appointmentTemplate, apptDateRaw, apptTimeRaw),
+        patient,
+        patientId,
+        values: {
+          patient_name: (typeof patient.name === "string" && patient.name.trim()) || "Patient",
+          date: apptDateRaw || "—",
+          time: apptTimeRaw || "—",
+          doctor: apptDoctorRaw || "—",
+        },
+      });
+
       const settingsSnap = await adminClinicDoc(clinicId, "settings", "whatsapp").get();
       const settings = settingsSnap.exists ? settingsSnap.data() : {};
       if (!Boolean(settings?.isPatientAutomationEnabled)) {
@@ -273,6 +388,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "Patient not found" }, { status: 404 });
     }
     const patient = patientSnap.data() as Record<string, unknown>;
+
+    // Above the WhatsApp opt-out check on purpose. The two opt-outs are separate settings, and a
+    // patient who asked for no WhatsApp but explicitly kept SMS on would otherwise be dropped here
+    // by a check that has nothing to do with their SMS preference. Reads the ledger again rather
+    // than borrowing the WhatsApp branch's copy further down, so a disabled WhatsApp template can
+    // never silently switch the texts off too — one extra document read per payment.
+    if (kind === "invoice" && ledgerIdBody) {
+      await queuePaymentSms({ clinicId, patient, patientId, ledgerId: ledgerIdBody });
+    }
+
     if (patient.whatsappOptOut === true) {
       if (automation) {
         return NextResponse.json({ ok: true, skipped: true, reason: "whatsapp_opt_out" });

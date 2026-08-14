@@ -5,12 +5,10 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
-  Copy,
   Loader2,
   MessageCircle,
   MessagesSquare,
   Save,
-  Signal,
   Smartphone,
   Trash2,
   Wallet,
@@ -22,11 +20,15 @@ import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
 import { getClinicDoc } from "@/lib/db-utils";
 import {
-  DEFAULT_SMS_REMINDER_TEMPLATE,
   DEFAULT_SMS_SETTINGS,
-  isReminderChannel,
+  DEFAULT_SMS_TEMPLATES,
+  MAX_SEND_HOUR,
+  MIN_SEND_HOUR,
+  SMS_EVENT_TYPES,
   measureSms,
+  parseSmsSettings,
   type ReminderChannel,
+  type SmsEventType,
   type SmsSettings as SmsSettingsShape,
 } from "@/lib/sms/config";
 
@@ -65,7 +67,11 @@ export default function SmsSettings() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [messages, setMessages] = useState<QueueMessage[]>([]);
 
-  const cost = useMemo(() => measureSms(settings.template), [settings.template]);
+  const costs = useMemo(() => {
+    const out = {} as Record<SmsEventType, ReturnType<typeof measureSms>>;
+    for (const type of SMS_EVENT_TYPES) out[type] = measureSms(settings.templates[type] || "");
+    return out;
+  }, [settings.templates]);
 
   const txt = {
     title: isAr ? "الرسائل النصية من هاتف العيادة" : "SMS from the clinic's phone",
@@ -86,7 +92,7 @@ export default function SmsSettings() {
       ? "شركات المحمول قد تقيّد الشرائح العادية التي ترسل رسائل كثيرة متشابهة."
       : "Carriers may restrict a consumer SIM that sends a lot of similar messages.",
     enable: isAr ? "تفعيل الإرسال من الهاتف" : "Send from the clinic phone",
-    channelTitle: isAr ? "كيف يصل تذكير الموعد للمريض" : "How the appointment reminder reaches the patient",
+    channelTitle: isAr ? "كيف تصل رسائل العيادة للمريض" : "How the clinic's messages reach the patient",
     channelWhatsapp: isAr ? "واتساب فقط" : "WhatsApp only",
     channelWhatsappHint: isAr ? "الوضع الحالي. لا تُرسل أي رسالة نصية." : "What happens today. No text messages are sent.",
     channelSms: isAr ? "رسالة نصية فقط" : "SMS only",
@@ -95,11 +101,23 @@ export default function SmsSettings() {
     channelBothHint: isAr
       ? "المريض يستقبل رسالتين عن نفس الموعد، وتُحتسب تكلفة الرسالة النصية."
       : "The patient gets two messages about the same appointment, and you pay for the SMS.",
-    templateTitle: isAr ? "نص الرسالة" : "Message body",
+    templateTitle: isAr ? "متى تُرسل الرسائل ونصها" : "Which messages go out, and what they say",
     templateHint: isAr
-      ? "المتغيرات المتاحة: {{patient_name}} و {{clinic_name}} و {{date}} و {{time}} و {{doctor}}"
-      : "Available placeholders: {{patient_name}}, {{clinic_name}}, {{date}}, {{time}}, {{doctor}}",
+      ? "المتغيرات المتاحة: {{patient_name}} و {{clinic_name}} و {{date}} و {{time}} و {{doctor}}. لرسالة الدفع أيضاً {{amount}} و {{balance}}."
+      : "Placeholders: {{patient_name}}, {{clinic_name}}, {{date}}, {{time}}, {{doctor}}. The payment message also has {{amount}} and {{balance}}.",
     resetTemplate: isAr ? "استعادة النص الافتراضي" : "Reset to default",
+    hourTitle: isAr ? "ساعة إرسال التذكير" : "When the reminder goes out",
+    hourHint: isAr
+      ? "يجهّز النظام تذكيرات الغد فجراً، ويحتفظ بها الهاتف حتى الساعة التي تختارها. هذا يخصّ التذكير فقط — رسائل الحجز والتغيير والإلغاء والدفع تُرسل فور حدوثها."
+      : "The system prepares tomorrow's reminders before dawn, and the phone holds them until the hour you pick. This applies to the reminder only — booking, change, cancellation and payment messages go out the moment they happen.",
+    hourLate: isAr
+      ? "الهاتف يفحص القائمة كل ١٥ دقيقة، لذلك قد تصل الرسالة بعد الساعة المختارة بدقائق."
+      : "The phone checks the queue every 15 minutes, so a message may land a few minutes after the hour you picked.",
+    eventOn: isAr ? "مفعّلة" : "On",
+    eventOff: isAr ? "متوقفة" : "Off",
+    allOff: isAr
+      ? "لم تختر أي رسالة — لن يُرسل الهاتف شيئاً."
+      : "No message is switched on — the phone has nothing to send.",
     save: isAr ? "حفظ" : "Save",
     saved: isAr ? "تم الحفظ" : "Saved",
     segments: isAr ? "رسالة مُحتسبة" : "billed messages",
@@ -161,17 +179,10 @@ export default function SmsSettings() {
     (async () => {
       try {
         const snap = await getDoc(getClinicDoc("settings", "sms"));
-        if (snap.exists()) {
-          const data = snap.data() || {};
-          setSettings({
-            enabled: Boolean(data.enabled),
-            reminderChannel: isReminderChannel(data.reminderChannel)
-              ? data.reminderChannel
-              : DEFAULT_SMS_SETTINGS.reminderChannel,
-            template:
-              typeof data.template === "string" && data.template.trim() ? data.template : DEFAULT_SMS_REMINDER_TEMPLATE,
-          });
-        }
+        // The same parser the server uses, so this screen can never show a clinic something
+        // different from what the nightly job will act on — including the migration of a
+        // hand-edited reminder saved before per-event templates existed.
+        if (snap.exists()) setSettings(parseSmsSettings(snap.data() || {}));
       } catch (e) {
         console.error("Could not load SMS settings", e);
       } finally {
@@ -184,10 +195,22 @@ export default function SmsSettings() {
   const save = async (next: SmsSettingsShape) => {
     setSaving(true);
     try {
-      await setDoc(getClinicDoc("settings", "sms"), { ...next, updatedAt: new Date().toISOString() }, { merge: true });
+      await setDoc(
+        getClinicDoc("settings", "sms"),
+        {
+          ...next,
+          // Mirrors the reminder body into the old single-template field. Nothing reads it any
+          // more, but the document is left self-consistent rather than carrying a stale copy of a
+          // message the clinic has since rewritten.
+          template: next.templates.reminder24h,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
       setSettings(next);
       showToast(txt.saved, "success");
     } catch (e) {
+      console.error("Could not save SMS settings", e);
       showToast(isAr ? "فشل الحفظ" : "Save failed", "error");
     } finally {
       setSaving(false);
@@ -215,6 +238,42 @@ export default function SmsSettings() {
     if (Number.isNaN(d.getTime())) return txt.never;
     return d.toLocaleString(isAr ? "ar-EG" : "en-US", { dateStyle: "short", timeStyle: "short" });
   };
+
+  /**
+   * Each event says plainly *when* it fires, not just what it is called. "Appointment moved" alone
+   * leaves a clinic guessing whether it costs them a message every time somebody nudges a booking
+   * by five minutes, and that guess decides whether they dare turn it on.
+   */
+  const eventMeta: Record<SmsEventType, { label: string; hint: string }> = {
+    reminder24h: {
+      label: isAr ? "تذكير الموعد" : "Appointment reminder",
+      hint: isAr ? "قبل الموعد بيوم، في الساعة المختارة أعلاه." : "The day before, at the hour set above.",
+    },
+    new: {
+      label: isAr ? "تأكيد الحجز" : "Booking confirmed",
+      hint: isAr ? "فور حجز الموعد." : "The moment an appointment is booked.",
+    },
+    edit: {
+      label: isAr ? "تغيير الموعد" : "Appointment moved",
+      hint: isAr ? "عند تغيير التاريخ أو الوقت أو الطبيب." : "When the date, time or doctor changes.",
+    },
+    cancel: {
+      label: isAr ? "إلغاء الموعد" : "Appointment cancelled",
+      hint: isAr ? "عند إلغاء الموعد." : "When an appointment is cancelled.",
+    },
+    invoice: {
+      label: isAr ? "تأكيد استلام الدفع" : "Payment received",
+      hint: isAr ? "عند تسجيل دفعة — وليس عند إضافة علاج." : "When a payment is recorded — not when work is charged.",
+    },
+  };
+
+  const hourLabel = (hour: number) =>
+    new Date(2000, 0, 1, hour, 0).toLocaleTimeString(isAr ? "ar-EG" : "en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+
+  const anyEventOn = SMS_EVENT_TYPES.some((type) => settings.events[type]);
 
   const statusMeta: Record<QueueMessage["status"], { label: string; className: string }> = {
     queued: { label: txt.statusQueued, className: "bg-slate-100 text-slate-600 border-slate-200" },
@@ -323,48 +382,129 @@ export default function SmsSettings() {
         )}
       </div>
 
-      {/* Template */}
+      {/* When the reminder goes out */}
+      <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
+        <h3 className="text-lg font-black text-slate-900 flex items-center gap-3">
+          <Clock className="text-primary-500" size={20} /> {txt.hourTitle}
+        </h3>
+        <p className="text-xs font-bold text-slate-500 mt-2 leading-relaxed">{txt.hourHint}</p>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <select
+            value={settings.sendHour}
+            onChange={(e) => void save({ ...settings, sendHour: Number(e.target.value) })}
+            className="py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-black text-slate-800 outline-none focus:bg-white focus:border-primary-500"
+          >
+            {Array.from({ length: MAX_SEND_HOUR - MIN_SEND_HOUR + 1 }, (_, i) => MIN_SEND_HOUR + i).map((hour) => (
+              <option key={hour} value={hour}>
+                {hourLabel(hour)}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs font-bold text-slate-400 flex-1 min-w-[14rem] leading-relaxed">{txt.hourLate}</span>
+        </div>
+      </div>
+
+      {/* Which messages, and what they say */}
       <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
         <h3 className="text-lg font-black text-slate-900 flex items-center gap-3">
           <Wallet className="text-primary-500" size={20} /> {txt.templateTitle}
         </h3>
-        <p className="text-xs font-bold text-slate-400 mt-2">{txt.templateHint}</p>
+        <p className="text-xs font-bold text-slate-400 mt-2 leading-relaxed">{txt.templateHint}</p>
 
-        <textarea
-          value={settings.template}
-          onChange={(e) => setSettings({ ...settings, template: e.target.value })}
-          rows={4}
-          className="mt-3 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-primary-500 resize-y"
-        />
+        {settings.enabled && smsSelected && !anyEventOn && (
+          <p className="mt-4 text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">
+            {txt.allOff}
+          </p>
+        )}
 
-        {/* Live cost, because it is otherwise invisible until the bill arrives. */}
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <span
-            className={`text-xs font-black px-3 py-1.5 rounded-lg border ${
-              cost.segments > 1 ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-emerald-50 text-emerald-700 border-emerald-200"
-            }`}
-          >
-            {cost.segments} {txt.segments}
-          </span>
-          <span className="text-xs font-bold text-slate-400">
-            {cost.characters} {txt.characters} · {cost.encoding}
-          </span>
-          <button
-            type="button"
-            onClick={() => setSettings({ ...settings, template: DEFAULT_SMS_REMINDER_TEMPLATE })}
-            className="text-xs font-black text-slate-500 hover:text-slate-800 underline underline-offset-2"
-          >
-            {txt.resetTemplate}
-          </button>
-          <button
-            type="button"
-            onClick={() => void save(settings)}
-            disabled={saving}
-            className="ms-auto inline-flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest disabled:opacity-50 transition-all"
-          >
-            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} {txt.save}
-          </button>
+        <div className="mt-5 space-y-3">
+          {SMS_EVENT_TYPES.map((type) => {
+            const on = settings.events[type] === true;
+            const cost = costs[type];
+            return (
+              <div
+                key={type}
+                className={`rounded-2xl border p-4 transition-colors ${
+                  on ? "border-slate-200 bg-white" : "border-slate-100 bg-slate-50/70"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className={`text-sm font-black ${on ? "text-slate-900" : "text-slate-500"}`}>
+                      {eventMeta[type].label}
+                    </p>
+                    <p className="text-[11px] font-bold text-slate-400 mt-0.5 leading-relaxed">{eventMeta[type].hint}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void save({ ...settings, events: { ...settings.events, [type]: !on } })}
+                    aria-label={`${eventMeta[type].label} — ${on ? txt.eventOn : txt.eventOff}`}
+                    className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors shrink-0 ${
+                      on ? "bg-primary-500" : "bg-slate-200"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                        on ? "translate-x-6" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* The body is only worth showing for a message that will actually be sent. */}
+                {on && (
+                  <>
+                    <textarea
+                      value={settings.templates[type]}
+                      onChange={(e) =>
+                        setSettings({ ...settings, templates: { ...settings.templates, [type]: e.target.value } })
+                      }
+                      rows={2}
+                      className="mt-3 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-primary-500 resize-y"
+                    />
+                    {/* Live cost, because it is otherwise invisible until the bill arrives. */}
+                    <div className="mt-2 flex flex-wrap items-center gap-3">
+                      <span
+                        className={`text-xs font-black px-3 py-1.5 rounded-lg border ${
+                          cost.segments > 1
+                            ? "bg-amber-50 text-amber-700 border-amber-200"
+                            : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                        }`}
+                      >
+                        {cost.segments} {txt.segments}
+                      </span>
+                      <span className="text-xs font-bold text-slate-400">
+                        {cost.characters} {txt.characters} · {cost.encoding}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSettings({
+                            ...settings,
+                            templates: { ...settings.templates, [type]: DEFAULT_SMS_TEMPLATES[type] },
+                          })
+                        }
+                        className="text-xs font-black text-slate-500 hover:text-slate-800 underline underline-offset-2"
+                      >
+                        {txt.resetTemplate}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })}
         </div>
+
+        <button
+          type="button"
+          onClick={() => void save(settings)}
+          disabled={saving}
+          className="mt-5 ms-auto flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest disabled:opacity-50 transition-all"
+        >
+          {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} {txt.save}
+        </button>
       </div>
 
       {/* Devices */}

@@ -11,6 +11,7 @@ import com.alphadental.clinic.data.unconfiguredCount
 import com.alphadental.clinic.data.LocationReading
 import com.alphadental.clinic.data.isUsableGeofence
 import com.alphadental.clinic.data.judgeGeofence
+import com.alphadental.clinic.data.Repository
 import com.alphadental.clinic.data.LedgerRow
 import com.alphadental.clinic.data.LedgerEntry
 import com.alphadental.clinic.data.balanceOf
@@ -507,5 +508,36 @@ class InventoryTest {
         )
         assertEquals(1, lowStockCount(items))
         assertEquals("the empty unconfigured item must be surfaced, not hidden", 1, unconfiguredCount(items))
+    }
+
+    // --- holding a reminder until the clinic's chosen hour ---------------------------------------
+    //
+    // This phone is what actually enforces "send reminders at 2pm". The server only writes the
+    // instant; if the gate here is wrong, either every patient is texted at dawn or nobody is
+    // texted at all, and both are silent failures.
+
+    private val noon = java.time.Instant.parse("2026-08-14T12:00:00Z").toEpochMilli()
+
+    @org.junit.Test
+    fun `a message with no hold goes out immediately`() {
+        assertTrue("an event message carries no stamp and must not be delayed", Repository.isSmsDue(null, noon))
+        assertTrue(Repository.isSmsDue("", noon))
+        assertTrue(Repository.isSmsDue("   ", noon))
+    }
+
+    @org.junit.Test
+    fun `a held reminder waits until its hour and then goes`() {
+        assertFalse("one second early is still early", Repository.isSmsDue("2026-08-14T12:00:01Z", noon))
+        assertFalse(Repository.isSmsDue("2026-08-14T14:00:00Z", noon))
+        assertTrue("due exactly now is due", Repository.isSmsDue("2026-08-14T12:00:00Z", noon))
+        assertTrue(Repository.isSmsDue("2026-08-14T11:59:59Z", noon))
+    }
+
+    @org.junit.Test
+    fun `a malformed stamp sends rather than stranding the message`() {
+        // Failing closed would leave the message queued forever with nothing on screen to say why,
+        // and the cost of that is a patient who is never told about their appointment.
+        assertTrue(Repository.isSmsDue("not a date", noon))
+        assertTrue(Repository.isSmsDue("2026-13-45", noon))
     }
 }
