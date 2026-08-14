@@ -424,7 +424,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     saving = state.saving,
                     scheduleConfigured = state.schedule.isConfigured,
                     isOffDay = state.schedule.isOffDay(state.date),
-                    rescheduling = state.booking?.moving != null,
+                    editing = state.booking?.moving,
                     arabic = state.arabic,
                     onSearch = viewModel::searchPatients,
                     onSave = viewModel::saveBooking,

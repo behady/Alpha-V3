@@ -1,5 +1,6 @@
 package com.alphadental.clinic.ui
 
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,15 +44,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.alphadental.clinic.data.Doctor
+import com.alphadental.clinic.data.Appointment
 import com.alphadental.clinic.data.Patient
 import com.alphadental.clinic.data.Service
 import com.alphadental.clinic.data.Slot
 import kotlinx.coroutines.delay
 
 /** What the sheet is collecting, so the caller can hand it straight to the repository. */
+/**
+ * Chair-time lengths offered when booking.
+ *
+ * A short list of round numbers rather than a free minutes field: reception is booking while a
+ * patient stands at the desk, and the website's own slot lengths land on these anyway.
+ */
+private val DURATION_CHOICES = listOf(15, 30, 45, 60, 90)
+
 data class BookingDraft(
     val patient: Patient? = null,
     val doctor: Doctor? = null,
@@ -61,6 +72,10 @@ data class BookingDraft(
     val newPatientName: String = "",
     val newPatientPhone: String = "",
     val service: Service? = null,
+    /** Minutes of chair time. Zero means "use the clinic's slot length". */
+    val durationMinutes: Int = 0,
+    /** What the visit is expected to cost. Sits on the appointment; it does not post to the ledger. */
+    val cost: Double = 0.0,
 )
 
 /**
@@ -85,16 +100,38 @@ fun BookingSheet(
     saving: Boolean,
     scheduleConfigured: Boolean,
     isOffDay: Boolean,
-    /** Set when moving an existing appointment rather than creating one. */
-    rescheduling: Boolean,
+    /**
+     * The appointment being edited, or null when booking a new one.
+     *
+     * Carried rather than a bare boolean because editing has to show what is already there. The
+     * sheet previously offered only a new time slot, so changing a visit's reason, its service,
+     * its length or its notes meant opening the website — which is most of what "edit" means.
+     */
+    editing: Appointment?,
     arabic: Boolean,
     onSearch: (String) -> Unit,
     onSave: (BookingDraft) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val rescheduling = editing != null
 
     var draft by remember { mutableStateOf(BookingDraft()) }
+
+    // Filled in from the appointment as it stands, so editing starts from what is there rather
+    // than from blank fields that would overwrite it on save.
+    LaunchedEffect(editing?.id) {
+        val current = editing ?: return@LaunchedEffect
+        draft = draft.copy(
+            doctor = doctors.firstOrNull { it.id == current.doctorId || it.name == current.doctor },
+            time = current.time,
+            treatment = current.treatment,
+            notes = current.notes,
+            service = services.firstOrNull { it.id == current.serviceId },
+            durationMinutes = current.duration,
+            cost = current.cost,
+        )
+    }
     var query by remember { mutableStateOf("") }
     var creatingPatient by remember { mutableStateOf(false) }
 
@@ -122,8 +159,8 @@ fun BookingSheet(
         ) {
             Text(
                 text = when {
-                    rescheduling && arabic -> "نقل الموعد"
-                    rescheduling -> "Move appointment"
+                    rescheduling && arabic -> "تعديل الموعد"
+                    rescheduling -> "Edit appointment"
                     arabic -> "حجز موعد"
                     else -> "Book an appointment"
                 },
@@ -291,7 +328,10 @@ fun BookingSheet(
             Spacer(Modifier.height(18.dp))
 
             // ------------------------------------------------------------- what for
-            if (!rescheduling) {
+            // Shown when editing as well as when booking. These are the fields an appointment is
+            // actually changed for once it exists — a patient ringing to say they now want a
+            // cleaning rather than a check-up is an edit, not a reschedule.
+            run {
                 SectionHeading(if (arabic) "سبب الزيارة" else "REASON FOR VISIT")
                 Spacer(Modifier.height(8.dp))
 
@@ -336,10 +376,72 @@ fun BookingSheet(
                         services = services,
                         selected = draft.service,
                         arabic = arabic,
-                        onSelect = { draft = draft.copy(service = it) },
+                        onSelect = { chosen ->
+                            // Picking a service carries its price and its chair time across, the
+                            // same two things the website fills in. A crown and a check-up are not
+                            // the same length, and treating them as such overbooks the day.
+                            draft = draft.copy(
+                                service = chosen,
+                                cost = chosen?.price ?: draft.cost,
+                                durationMinutes = chosen?.durationMinutes?.takeIf { it > 0 }
+                                    ?: draft.durationMinutes,
+                            )
+                        },
                     )
                     Spacer(Modifier.height(18.dp))
                 }
+
+                // ----------------------------------------------------------- how long
+                SectionHeading(if (arabic) "مدة الموعد" else "HOW LONG")
+                Spacer(Modifier.height(8.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(DURATION_CHOICES) { minutes ->
+                        FilterChip(
+                            selected = draft.durationMinutes == minutes,
+                            onClick = { draft = draft.copy(durationMinutes = minutes) },
+                            label = {
+                                Text(
+                                    if (arabic) "$minutes د" else "$minutes min",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            },
+                            shape = Alpha.PillShape,
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Alpha.Ink,
+                                selectedLabelColor = Color.White,
+                            ),
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(18.dp))
+
+                OutlinedTextField(
+                    value = if (draft.cost > 0) draft.cost.toInt().toString() else "",
+                    onValueChange = { input ->
+                        draft = draft.copy(
+                            cost = input.filter { it.isDigit() }.toDoubleOrNull() ?: 0.0
+                        )
+                    },
+                    label = { Text(if (arabic) "التكلفة المتوقعة" else "Expected cost") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    shape = Alpha.CardShape,
+                    colors = bookingFieldColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                // Said plainly, because the same number on the clinical-notes screen DOES bill.
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    if (arabic) "رقم متوقع على الموعد فقط — لا يُضاف إلى حساب المريض."
+                    else "An expected figure on the appointment only — nothing is charged to the patient.",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = Alpha.Slate400,
+                )
+
+                Spacer(Modifier.height(18.dp))
 
                 OutlinedTextField(
                     value = draft.notes,
@@ -366,8 +468,8 @@ fun BookingSheet(
                 } else {
                     Text(
                         text = when {
-                            rescheduling && arabic -> "نقل الموعد"
-                            rescheduling -> "Move appointment"
+                            rescheduling && arabic -> "حفظ التعديل"
+                            rescheduling -> "Save changes"
                             arabic -> "تأكيد الحجز"
                             else -> "Book appointment"
                         },

@@ -44,6 +44,14 @@ data class Appointment(
     val duration: Int = 30,
     val doctorId: String = "",
     val notes: String = "",
+    /** The price-list entry this visit is for, so editing can show what was chosen. */
+    val serviceId: String = "",
+    val serviceName: String = "",
+    /**
+     * What the visit is expected to cost. This lives on the appointment and does NOT post to the
+     * ledger — invoicing is a separate, deliberate act on the patient's file.
+     */
+    val cost: Double = 0.0,
     val hasCheckedIn: Boolean = false,
     /** True while this record is still only on this phone. */
     val pendingWrite: Boolean = false,
@@ -99,6 +107,9 @@ fun DocumentSnapshot.toAppointment(pendingWrite: Boolean): Appointment = Appoint
     duration = (get("duration") as? Number)?.toInt()?.takeIf { it > 0 } ?: 30,
     doctorId = str("doctorId"),
     notes = str("notes"),
+    serviceId = str("serviceId"),
+    serviceName = str("serviceName"),
+    cost = (get("cost") as? Number)?.toDouble() ?: 0.0,
     hasCheckedIn = get("checkInTime") != null,
     pendingWrite = pendingWrite,
 )

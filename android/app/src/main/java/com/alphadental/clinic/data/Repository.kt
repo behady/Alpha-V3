@@ -1378,17 +1378,26 @@ object Repository {
      * a whole-document write would silently discard a colleague's concurrent edit to a field this
      * screen never showed.
      */
-    suspend fun rescheduleAppointment(
+    suspend fun updateAppointment(
         clinicId: String,
         appointment: Appointment,
         dateKey: String,
         time: String,
         doctor: Doctor?,
+        durationMinutes: Int,
+        treatment: String,
+        notes: String,
+        service: Service?,
+        cost: Double,
         byName: String,
     ): Result<Unit> = runCatching {
         val updates = mutableMapOf<String, Any>(
             "date" to normalizeDateKey(dateKey),
             "time" to normalizeTimeKey(time),
+            "duration" to durationMinutes,
+            "treatment" to treatment.trim(),
+            "notes" to notes.trim(),
+            "cost" to cost,
             "history" to FieldValue.arrayUnion(
                 mapOf(
                     "action" to "rescheduled",
@@ -1401,8 +1410,14 @@ object Repository {
             updates["doctor"] = it.name
             updates["doctorId"] = it.id
         }
+        // Cleared explicitly rather than left behind when the service is removed: a stale
+        // serviceName on an appointment whose treatment has changed is worse than none, because
+        // the website's reports group by it.
+        updates["serviceId"] = service?.id ?: ""
+        updates["serviceName"] = service?.name ?: ""
+        if (service != null) updates["listPrice"] = service.price
 
-        appointments(clinicId).document(appointment.id).update(updates).queueLocally("reschedule")
+        appointments(clinicId).document(appointment.id).update(updates).queueLocally("appointment edit")
     }
 
     // -------------------------------------------------------------------- patients

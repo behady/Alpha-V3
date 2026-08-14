@@ -159,7 +159,7 @@ fun AppointmentSheet(
                     Icon(Icons.Filled.EditCalendar, null, tint = Alpha.Slate700, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.size(8.dp))
                     Text(
-                        if (arabic) "نقل إلى وقت آخر" else "Move to another time",
+                        if (arabic) "تعديل الموعد" else "Edit appointment",
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         color = Alpha.Slate700,

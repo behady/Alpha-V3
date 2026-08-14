@@ -841,12 +841,19 @@ class AppViewModel : ViewModel() {
         viewModelScope.launch {
             val moving = target.moving
             val result: Result<Unit> = if (moving != null) {
-                Repository.rescheduleAppointment(
+                Repository.updateAppointment(
                     clinicId = session.clinicId,
                     appointment = moving,
                     dateKey = date,
                     time = draft.time,
                     doctor = draft.doctor,
+                    // Falls back to what the appointment already had rather than to the clinic
+                    // default: an edit must never quietly shorten a visit somebody lengthened.
+                    durationMinutes = draft.durationMinutes.takeIf { it > 0 } ?: moving.duration,
+                    treatment = draft.treatment,
+                    notes = draft.notes,
+                    service = draft.service,
+                    cost = draft.cost,
                     byName = session.name,
                 )
             } else {
@@ -859,7 +866,8 @@ class AppViewModel : ViewModel() {
                         time = draft.time,
                         // A service with its own length wins over the clinic's default slot:
                         // booking a crown into a 30-minute gap is how a day overruns.
-                        durationMinutes = draft.service?.durationMinutes?.takeIf { it > 0 }
+                        durationMinutes = draft.durationMinutes.takeIf { it > 0 }
+                            ?: draft.service?.durationMinutes?.takeIf { it > 0 }
                             ?: _state.value.schedule.slotDuration,
                         treatment = draft.treatment,
                         notes = draft.notes,
