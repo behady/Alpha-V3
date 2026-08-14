@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Lets THIS phone send the clinic's appointment reminders from its own SIM, for clinics
+         that cannot get a WhatsApp Business account or a messaging gateway. Only ever requested
+         when someone turns the sender on in More; never on first launch. The app never reads,
+         receives or stores any message.
+
+         Note this puts the app outside Google Play's SMS policy, which permits it only for a
+         phone's default messaging app. Not a problem while Alpha Dental is installed by copying
+         the APK across - but it does mean this app cannot be published on Play while this
+         permission is declared. -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
+
+    <!-- So a clinic phone that reboots overnight is still sending at 07:00 with nobody touching it. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Present only so a tablet with no SIM can still install and be used as an ordinary client. -->
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
+
+    <!-- Tapping a patient's number opens the dialler with it filled in. Placing the
+         call is still the user's decision; this does not request CALL_PHONE. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.DIAL" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+    </queries>
+
+    <application
+        android:name=".AlphaApp"
+        android:allowBackup="false"
+        android:enableOnBackInvokedCallback="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.AlphaDental">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|density|uiMode|navigation|fontScale"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

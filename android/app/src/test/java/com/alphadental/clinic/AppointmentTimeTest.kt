@@ -1,0 +1,314 @@
+package com.alphadental.clinic
+
+import com.alphadental.clinic.data.Appointment
+import com.alphadental.clinic.data.ClinicSchedule
+import com.alphadental.clinic.data.LedgerRow
+import com.alphadental.clinic.data.balanceOf
+import com.alphadental.clinic.data.looksLikePhoneSearch
+import com.alphadental.clinic.data.patientMatchesSearch
+import com.alphadental.clinic.data.buildSlots
+import com.alphadental.clinic.data.minutesToTimeKey
+import com.alphadental.clinic.data.normalizeTimeKey
+import com.alphadental.clinic.data.parseApptTimeToMinutes
+import com.alphadental.clinic.data.parseClinicSchedule
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * The stored time format is a contract with the website, and it has already been broken once
+ * there: writing "14:00" where the rest of the system writes "02:00 PM" meant the two never
+ * compared equal, so a filled slot still looked free and two patients were booked into one chair.
+ *
+ * These cases are the same ones lib/appointmentTime.ts has to satisfy. If this file goes red, the
+ * phone and the browser have stopped agreeing on what a time is.
+ */
+class AppointmentTimeTest {
+
+    @Test
+    fun `24-hour input becomes the stored 12-hour form`() {
+        assertEquals("02:00 PM", normalizeTimeKey("14:00"))
+        assertEquals("09:00 AM", normalizeTimeKey("9:00"))
+        assertEquals("12:00 AM", normalizeTimeKey("00:00"))
+        assertEquals("12:30 PM", normalizeTimeKey("12:30"))
+        assertEquals("11:45 PM", normalizeTimeKey("23:45"))
+    }
+
+    @Test
+    fun `already-canonical times are left alone`() {
+        assertEquals("02:00 PM", normalizeTimeKey("02:00 PM"))
+        assertEquals("09:30 AM", normalizeTimeKey("09:30 AM"))
+    }
+
+    @Test
+    fun `single-digit hours gain their leading zero`() {
+        // "9:00 AM" and "09:00 AM" must not be two different slots.
+        assertEquals("09:00 AM", normalizeTimeKey("9:00 AM"))
+        assertEquals("09:00 AM", normalizeTimeKey("9:00 am"))
+    }
+
+    @Test
+    fun `arabic AM and PM markers are understood`() {
+        assertEquals("09:00 AM", normalizeTimeKey("09:00 ص"))
+        assertEquals("02:30 PM", normalizeTimeKey("02:30 م"))
+    }
+
+    @Test
+    fun `minutes conversion round-trips`() {
+        assertEquals(0, parseApptTimeToMinutes("12:00 AM"))
+        assertEquals(9 * 60, parseApptTimeToMinutes("09:00 AM"))
+        assertEquals(12 * 60, parseApptTimeToMinutes("12:00 PM"))
+        assertEquals(14 * 60 + 30, parseApptTimeToMinutes("02:30 PM"))
+
+        listOf(0, 9 * 60, 12 * 60, 13 * 60 + 15, 23 * 60 + 59).forEach { minutes ->
+            assertEquals(minutes, parseApptTimeToMinutes(minutesToTimeKey(minutes)))
+        }
+    }
+
+    @Test
+    fun `sorting on the raw strings puts the evening before the morning`() {
+        // Zero-padding means string order happens to be right within one half of the day,
+        // which is exactly what makes this trap easy to miss:
+        assertTrue("09:00 AM" < "10:00 AM")
+
+        // But the AM/PM marker sits at the END of the string, so it contributes nothing to the
+        // comparison. Sorted as text, a 9pm appointment lands before a 10am one — the whole
+        // afternoon shuffled into the middle of the morning.
+        assertTrue("09:00 PM" < "10:00 AM")
+
+        // Which is why every ordering in the app goes through minutes instead.
+        assertTrue(parseApptTimeToMinutes("09:00 PM") > parseApptTimeToMinutes("10:00 AM"))
+        assertTrue(parseApptTimeToMinutes("09:00 AM") < parseApptTimeToMinutes("10:00 AM"))
+    }
+
+    @Test
+    fun `the day list orders an afternoon clinic correctly`() {
+        val day = listOf(
+            Appointment(id = "c", time = "01:30 PM"),
+            Appointment(id = "a", time = "09:00 AM"),
+            Appointment(id = "d", time = "09:00 PM"),
+            Appointment(id = "b", time = "10:00 AM"),
+        ).sortedBy { it.minutes() }
+
+        assertEquals(listOf("a", "b", "c", "d"), day.map { it.id })
+    }
+
+    @Test
+    fun `unset clinic hours are reported as not configured`() {
+        val fallback = parseClinicSchedule(null)
+        assertFalse(fallback.isConfigured)
+        assertEquals(9, fallback.startHour)
+        assertEquals(21, fallback.endHour)
+        assertEquals(30, fallback.slotDuration)
+    }
+
+    @Test
+    fun `configured clinic hours are read back`() {
+        val schedule = parseClinicSchedule(
+            mapOf(
+                "start" to "10:30",
+                "end" to "18:00",
+                "slotDuration" to "45",
+                "offDays" to listOf("friday"),
+                "configuredAt" to "2026-08-12T00:00:00Z",
+            )
+        )
+        assertTrue(schedule.isConfigured)
+        assertEquals(10, schedule.startHour)
+        assertEquals(30, schedule.startMinute)
+        assertEquals(45, schedule.slotDuration)
+        assertEquals(listOf("friday"), schedule.offDays)
+    }
+
+    @Test
+    fun `a booked appointment blocks its slot and only its slot`() {
+        val schedule = ClinicSchedule(startHour = 9, endHour = 11, slotDuration = 30, isConfigured = true)
+        val slots = buildSlots(
+            schedule,
+            listOf(Appointment(id = "a", time = "09:30 AM", duration = 30, patientName = "Ali")),
+        )
+
+        assertEquals(listOf("09:00 AM", "09:30 AM", "10:00 AM", "10:30 AM"), slots.map { it.time })
+        assertTrue(slots[0].isFree)
+        assertFalse(slots[1].isFree)
+        assertEquals("Ali", slots[1].takenBy)
+        assertTrue(slots[2].isFree)
+    }
+
+    @Test
+    fun `a long appointment blocks every slot it covers`() {
+        val schedule = ClinicSchedule(startHour = 9, endHour = 11, slotDuration = 30, isConfigured = true)
+        val slots = buildSlots(
+            schedule,
+            listOf(Appointment(id = "a", time = "09:00 AM", duration = 60, patientName = "Sara")),
+        )
+        assertFalse(slots[0].isFree)
+        assertFalse(slots[1].isFree) // 09:30 is still inside the 60-minute visit
+        assertTrue(slots[2].isFree)
+    }
+
+    @Test
+    fun `cancelled appointments give their slot back`() {
+        val schedule = ClinicSchedule(startHour = 9, endHour = 10, slotDuration = 30, isConfigured = true)
+        val slots = buildSlots(
+            schedule,
+            listOf(Appointment(id = "a", time = "09:00 AM", duration = 30, status = "Cancelled", patientName = "Omar")),
+        )
+        assertTrue("a cancelled visit must not hold the chair", slots[0].isFree)
+    }
+
+    @Test
+    fun `the appointment being moved does not block itself`() {
+        val schedule = ClinicSchedule(startHour = 9, endHour = 10, slotDuration = 30, isConfigured = true)
+        val existing = Appointment(id = "a", time = "09:00 AM", duration = 30, patientName = "Hana")
+
+        assertFalse(buildSlots(schedule, listOf(existing))[0].isFree)
+        assertTrue(
+            "rescheduling must offer the slot it currently occupies",
+            buildSlots(schedule, listOf(existing), ignoreAppointmentId = "a")[0].isFree,
+        )
+    }
+}
+
+/**
+ * The balance shown on a patient's file, and read down the phone to them.
+ *
+ * The legacy-payment case below is the one that matters: an older payment screen in this system
+ * writes the real value into `paid` and leaves `amount` at 0. Those rows are still in live data.
+ */
+class BalanceTest {
+
+    @org.junit.Test
+    fun `charges minus payments`() {
+        val balance = balanceOf(
+            listOf(
+                LedgerRow(type = "procedure", amount = 1000.0),
+                LedgerRow(type = "payment", paid = 400.0),
+            )
+        )
+        assertEquals(1000.0, balance.charged, 0.001)
+        assertEquals(400.0, balance.paid, 0.001)
+        assertEquals(600.0, balance.owed, 0.001)
+    }
+
+    @org.junit.Test
+    fun `a payment with amount left at zero still counts`() {
+        // Reading `amount` first here would report the full 800 as outstanding.
+        val balance = balanceOf(
+            listOf(
+                LedgerRow(type = "procedure", amount = 800.0),
+                LedgerRow(type = "payment", amount = 0.0, paid = 500.0),
+            )
+        )
+        assertEquals(300.0, balance.owed, 0.001)
+    }
+
+    @org.junit.Test
+    fun `a procedure falls back to cost when amount is absent`() {
+        val balance = balanceOf(listOf(LedgerRow(type = "procedure", cost = 250.0)))
+        assertEquals(250.0, balance.charged, 0.001)
+    }
+
+    @org.junit.Test
+    fun `clinic expenses are never a patient debt`() {
+        val balance = balanceOf(
+            listOf(
+                LedgerRow(type = "procedure", amount = 300.0),
+                LedgerRow(type = "expense", amount = 5000.0),
+            )
+        )
+        assertEquals(300.0, balance.owed, 0.001)
+    }
+
+    @org.junit.Test
+    fun `overpayment reads as credit, not negative debt`() {
+        val balance = balanceOf(
+            listOf(
+                LedgerRow(type = "procedure", amount = 300.0),
+                LedgerRow(type = "payment", paid = 500.0),
+            )
+        )
+        assertEquals(0.0, balance.owed, 0.001)
+        assertTrue(balance.inCredit)
+        assertEquals(200.0, balance.creditAmount, 0.001)
+    }
+
+    @org.junit.Test
+    fun `a settled patient owes nothing`() {
+        val balance = balanceOf(
+            listOf(
+                LedgerRow(type = "procedure", amount = 500.0),
+                LedgerRow(type = "payment", paid = 500.0),
+            )
+        )
+        assertEquals(0.0, balance.owed, 0.001)
+        assertFalse(balance.inCredit)
+    }
+}
+
+/**
+ * Patient search matching, which must agree with lib/flexibleSearch.ts on the website.
+ *
+ * If these diverge, the same person typing the same thing finds a patient in the browser and not
+ * on the phone — which reads as "the patient is missing" rather than "the search differs".
+ */
+class PatientSearchTest {
+
+    @org.junit.Test
+    fun `a single letter is enough`() {
+        assertTrue(patientMatchesSearch("m", "Mona Ali", null))
+        assertTrue(patientMatchesSearch("A", "Ahmed Hassan", null))
+        assertFalse(patientMatchesSearch("z", "Ahmed Hassan", null))
+    }
+
+    @org.junit.Test
+    fun `matching is in the middle of a name, not just the start`() {
+        // The reason a name search cannot be a Firestore prefix query.
+        assertTrue(patientMatchesSearch("hassan", "Ahmed Hassan", null))
+        assertTrue(patientMatchesSearch("med", "Ahmed Hassan", null))
+    }
+
+    @org.junit.Test
+    fun `name tokens match in any order`() {
+        // Egyptian patients are usually recorded with three or four names, and staff rarely type
+        // them in the stored order.
+        assertTrue(patientMatchesSearch("hassan ahmed", "Ahmed Mohamed Hassan", null))
+        assertTrue(patientMatchesSearch("ahmed hassan", "Ahmed Mohamed Hassan", null))
+        assertFalse(patientMatchesSearch("ahmed khaled", "Ahmed Mohamed Hassan", null))
+    }
+
+    @org.junit.Test
+    fun `search ignores case and extra spaces`() {
+        assertTrue(patientMatchesSearch("  AHMED   hassan ", "ahmed hassan", null))
+    }
+
+    @org.junit.Test
+    fun `phone matching compares digits only`() {
+        // Stored numbers carry +20, spaces and dashes that nobody types into a search box.
+        assertTrue(patientMatchesSearch("1234567", "Mona", "+20 100 1234567"))
+        assertTrue(patientMatchesSearch("0100-123", "Mona", "01001234567"))
+    }
+
+    @org.junit.Test
+    fun `one digit does not match every phone in the register`() {
+        // Two digits minimum, matching the website. A single digit appears in almost every number.
+        assertFalse(patientMatchesSearch("1", "Mona", "01001234567"))
+        assertTrue(patientMatchesSearch("10", "Mona", "01001234567"))
+    }
+
+    @org.junit.Test
+    fun `an empty search matches everyone, which is what makes browsing work`() {
+        assertTrue(patientMatchesSearch("", "Anyone", null))
+        assertTrue(patientMatchesSearch("   ", "Anyone", null))
+    }
+
+    @org.junit.Test
+    fun `phone-shaped terms take the indexed path, names do not`() {
+        assertTrue(looksLikePhoneSearch("01001234567"))
+        assertTrue(looksLikePhoneSearch("+20 100 123-4567"))
+        assertFalse(looksLikePhoneSearch("Ahmed"))
+        assertFalse(looksLikePhoneSearch("A1"))
+        assertFalse(looksLikePhoneSearch(""))
+    }
+}

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose paints everything; this only sets the window background so there is
+         no white flash on the mint background before the first frame draws. -->
+    <style name="Theme.AlphaDental" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/mint_ground</item>
+        <item name="android:statusBarColor">@color/mint_ground</item>
+        <item name="android:navigationBarColor">@color/mint_ground</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

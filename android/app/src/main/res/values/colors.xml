@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The website's mobile background. Kept in sync with the background token in globals.css. -->
+    <color name="mint_ground">#E8F0ED</color>
+    <color name="ink">#0A0A0A</color>
+</resources>

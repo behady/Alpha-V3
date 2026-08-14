@@ -1,0 +1,16 @@
+# Build output
+build/
+.gradle/
+*.apk
+
+# Machine-specific SDK location
+local.properties
+
+# Firebase identifiers for this project. Not secret in the security sense — a
+# Firestore API key is an identifier, and the actual protection is the security
+# rules — but there is no reason to publish the project's ids in the repo.
+firebase.properties
+
+# Signing. Whoever holds these can publish an app that pretends to be yours.
+*.jks
+keystore.properties
