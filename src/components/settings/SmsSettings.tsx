@@ -36,8 +36,9 @@ interface Device {
   platform: string;
   createdAt: string;
   lastSeenAt?: string;
-  lastSentAt?: string;
-  revokedAt?: string;
+  enabled: boolean;
+  /** Computed server-side, so this screen cannot disagree with the nightly job. */
+  alive: boolean;
 }
 
 interface QueueMessage {
@@ -52,17 +53,6 @@ interface QueueMessage {
   attempts: number;
 }
 
-/** The bridge the Android shell injects. Absent in a normal browser. */
-declare global {
-  interface Window {
-    AlphaSms?: {
-      isAvailable?: () => boolean;
-      pair?: (code: string) => void;
-      status?: () => string;
-    };
-  }
-}
-
 export default function SmsSettings() {
   const { language } = useLanguage();
   const { clinicId } = useClinic();
@@ -74,9 +64,6 @@ export default function SmsSettings() {
   const [saving, setSaving] = useState(false);
   const [devices, setDevices] = useState<Device[]>([]);
   const [messages, setMessages] = useState<QueueMessage[]>([]);
-  const [pairingCode, setPairingCode] = useState<{ code: string; expiresAt: string } | null>(null);
-  const [pairing, setPairing] = useState(false);
-  const [inApp, setInApp] = useState(false);
 
   const cost = useMemo(() => measureSms(settings.template), [settings.template]);
 
@@ -117,21 +104,21 @@ export default function SmsSettings() {
     saved: isAr ? "تم الحفظ" : "Saved",
     segments: isAr ? "رسالة مُحتسبة" : "billed messages",
     characters: isAr ? "حرف" : "characters",
-    devicesTitle: isAr ? "الهواتف المرتبطة" : "Paired phones",
-    noDevices: isAr ? "لا يوجد هاتف مرتبط بعد. لن تُرسل أي رسالة نصية حتى تربط هاتفاً." : "No phone is paired yet. No SMS can be sent until one is.",
-    pairButton: isAr ? "ربط هاتف" : "Pair a phone",
-    pairInApp: isAr ? "ربط هذا الهاتف" : "Pair this phone",
-    pairingSteps: isAr
-      ? "افتح تطبيق ألفا على هاتف العيادة، ثم الإعدادات ← الرسائل النصية، واكتب هذا الرمز. الرمز صالح لعشر دقائق ولمرة واحدة."
-      : "Open the Alpha app on the clinic phone, go to Settings → SMS, and type this code. It lasts ten minutes and works once.",
-    copied: isAr ? "تم نسخ الرمز" : "Code copied",
-    unpair: isAr ? "إلغاء الربط" : "Unpair",
+    devicesTitle: isAr ? "الهواتف المُرسِلة" : "Sending phones",
+    noDevices: isAr
+      ? "لا يوجد هاتف يرسل حالياً. لن تُرسل أي رسالة نصية حتى تُفعّل الإرسال على هاتف العيادة."
+      : "No phone is sending. No text messages will go out until you turn the sender on, on the clinic phone.",
+    howToAdd: isAr
+      ? "لإضافة هاتف: افتح تطبيق ألفا على هاتف العيادة، ثم «المزيد»، وفعّل «هذا الهاتف يرسل التذكيرات». سيظهر هنا خلال دقائق."
+      : "To add a phone: open the Alpha app on the clinic phone, go to More, and switch on \"Send reminders from this phone\". It appears here within a few minutes.",
+    unpair: isAr ? "إيقاف" : "Stop",
     unpairConfirm: isAr
-      ? "إلغاء ربط هذا الهاتف؟ سيتوقف عن إرسال أي رسائل فوراً."
-      : "Unpair this phone? It will stop sending messages immediately.",
-    revoked: isAr ? "ملغى" : "Unpaired",
-    lastSeen: isAr ? "آخر اتصال" : "Last seen",
-    lastSent: isAr ? "آخر إرسال" : "Last sent",
+      ? "إيقاف هذا الهاتف عن الإرسال؟"
+      : "Stop this phone from sending?",
+    revoked: isAr ? "موقوف" : "Stopped",
+    aliveNow: isAr ? "يعمل الآن" : "Sending",
+    notSeen: isAr ? "غير متصل" : "Not checking in",
+    lastSeen: isAr ? "آخر اتصال" : "Last checked in",
     never: isAr ? "لم يحدث" : "never",
     queueTitle: isAr ? "آخر الرسائل" : "Recent messages",
     queueEmpty: isAr ? "لا توجد رسائل بعد." : "Nothing in the queue yet.",
@@ -171,8 +158,6 @@ export default function SmsSettings() {
 
   useEffect(() => {
     if (!clinicId) return;
-    setInApp(Boolean(typeof window !== "undefined" && window.AlphaSms?.isAvailable?.()));
-
     (async () => {
       try {
         const snap = await getDoc(getClinicDoc("settings", "sms"));
@@ -209,25 +194,6 @@ export default function SmsSettings() {
     }
   };
 
-  const generateCode = async () => {
-    setPairing(true);
-    try {
-      const data = await authedFetch("/api/sms/devices", { method: "POST" });
-      setPairingCode({ code: data.code, expiresAt: data.expiresAt });
-
-      // Inside the Android shell the code never needs to be typed: hand it straight to the app,
-      // which pairs itself and asks for the SMS permission.
-      if (typeof window !== "undefined" && window.AlphaSms?.pair) {
-        window.AlphaSms.pair(data.code);
-        setTimeout(() => void loadDevices(), 3000);
-      }
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not create a code", "error");
-    } finally {
-      setPairing(false);
-    }
-  };
-
   const unpair = async (device: Device) => {
     if (!(await confirm(txt.unpairConfirm))) return;
     try {
@@ -238,7 +204,9 @@ export default function SmsSettings() {
     }
   };
 
-  const activeDevices = devices.filter((d) => !d.revokedAt);
+  // Switched on AND checking in. A phone that is enabled but silent cannot collect the queue, so
+  // counting it as active here would hide the exact problem this screen exists to show.
+  const activeDevices = devices.filter((d) => d.enabled && d.alive);
   const smsSelected = settings.reminderChannel === "sms" || settings.reminderChannel === "both";
 
   const formatWhen = (iso?: string) => {
@@ -401,41 +369,13 @@ export default function SmsSettings() {
 
       {/* Devices */}
       <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <h3 className="text-lg font-black text-slate-900 flex items-center gap-3">
-            <Smartphone className="text-primary-500" size={20} /> {txt.devicesTitle}
-          </h3>
-          <button
-            type="button"
-            onClick={() => void generateCode()}
-            disabled={pairing}
-            className="inline-flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest disabled:opacity-50 transition-all"
-          >
-            {pairing ? <Loader2 size={14} className="animate-spin" /> : <Signal size={14} />}
-            {inApp ? txt.pairInApp : txt.pairButton}
-          </button>
-        </div>
+        <h3 className="text-lg font-black text-slate-900 flex items-center gap-3">
+          <Smartphone className="text-primary-500" size={20} /> {txt.devicesTitle}
+        </h3>
 
-        {inApp && <p className="mt-3 text-xs font-bold text-teal-700 bg-teal-50 border border-teal-100 rounded-xl px-4 py-2.5">{txt.inAppHint}</p>}
-
-        {pairingCode && (
-          <div className="mt-4 rounded-2xl border-2 border-dashed border-primary-300 bg-primary-50 p-5 text-center">
-            <p className="text-3xl font-black tracking-[0.3em] text-primary-700" dir="ltr">
-              {pairingCode.code}
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                void navigator.clipboard?.writeText(pairingCode.code);
-                showToast(txt.copied, "success");
-              }}
-              className="mt-2 inline-flex items-center gap-1.5 text-xs font-black text-primary-600 hover:text-primary-800"
-            >
-              <Copy size={13} /> {pairingCode.code}
-            </button>
-            <p className="text-xs font-bold text-slate-500 mt-3 leading-relaxed max-w-md mx-auto">{txt.pairingSteps}</p>
-          </div>
-        )}
+        <p className="mt-3 text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 leading-relaxed">
+          {txt.howToAdd}
+        </p>
 
         <div className="mt-5 space-y-3">
           {devices.length === 0 ? (
@@ -445,24 +385,35 @@ export default function SmsSettings() {
               <div
                 key={device.deviceId}
                 className={`flex items-center gap-4 rounded-2xl border p-4 ${
-                  device.revokedAt ? "border-slate-200 bg-slate-50 opacity-60" : "border-slate-200 bg-white"
+                  device.enabled ? "border-slate-200 bg-white" : "border-slate-200 bg-slate-50 opacity-60"
                 }`}
               >
-                <Smartphone size={20} className={device.revokedAt ? "text-slate-300" : "text-primary-500"} />
+                <Smartphone size={20} className={device.alive ? "text-primary-500" : "text-slate-300"} />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-black text-slate-900 truncate">
                     {device.name}
-                    {device.revokedAt && (
+                    {/* Three states, not two. A phone can be switched on and still not be
+                        checking in — flat, out of signal, or killed by battery saver — and that
+                        is the case worth surfacing, because the queue silently stops moving. */}
+                    {!device.enabled ? (
                       <span className="ms-2 text-[10px] font-black px-2 py-0.5 rounded-md bg-slate-200 text-slate-500">
                         {txt.revoked}
+                      </span>
+                    ) : device.alive ? (
+                      <span className="ms-2 text-[10px] font-black px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700">
+                        {txt.aliveNow}
+                      </span>
+                    ) : (
+                      <span className="ms-2 text-[10px] font-black px-2 py-0.5 rounded-md bg-amber-100 text-amber-800">
+                        {txt.notSeen}
                       </span>
                     )}
                   </p>
                   <p className="text-[11px] font-bold text-slate-400 mt-0.5">
-                    {txt.lastSeen}: {formatWhen(device.lastSeenAt)} · {txt.lastSent}: {formatWhen(device.lastSentAt)}
+                    {txt.lastSeen}: {formatWhen(device.lastSeenAt)}
                   </p>
                 </div>
-                {!device.revokedAt && (
+                {device.enabled && (
                   <button
                     type="button"
                     onClick={() => void unpair(device)}

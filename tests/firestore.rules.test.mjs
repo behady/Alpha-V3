@@ -456,14 +456,40 @@ async function main() {
     getDoc(doc(admin1, "clinics/clinicA/sms_outbox/apptA1_24h")),
     "allow"
   );
+  // The clinic's own phone is the sender now, signed in as itself, so it must be able to claim a
+  // message and report the outcome. What it must NOT be able to do is change who the message goes
+  // to or what it says — that is the line these four checks hold.
   await check(
-    "nobody can redirect a queued text message from the browser",
+    "the sending phone can claim a queued message",
+    updateDoc(doc(admin1, "clinics/clinicA/sms_outbox/apptA1_24h"), {
+      status: "sending",
+      claimedAt: "2026-08-14T06:00:00.000Z",
+      claimedByDeviceId: "dev1",
+      attempts: 1,
+    }),
+    "allow"
+  );
+  await check(
+    "the sending phone can report a message as sent",
+    updateDoc(doc(admin1, "clinics/clinicA/sms_outbox/apptA1_24h"), {
+      status: "sent",
+      sentAt: "2026-08-14T06:00:05.000Z",
+    }),
+    "allow"
+  );
+  await check(
+    "nobody can redirect a queued text message to another number",
     updateDoc(doc(admin1, "clinics/clinicA/sms_outbox/apptA1_24h"), { to: "+20111" }),
     "deny"
   );
   await check(
-    "nobody can mark an unsent reminder as sent",
-    updateDoc(doc(admin1, "clinics/clinicA/sms_outbox/apptA1_24h"), { status: "sent" }),
+    "nobody can rewrite what a queued message says",
+    updateDoc(doc(admin1, "clinics/clinicA/sms_outbox/apptA1_24h"), { text: "something else" }),
+    "deny"
+  );
+  await check(
+    "nobody can smuggle a new recipient in alongside a status change",
+    updateDoc(doc(admin1, "clinics/clinicA/sms_outbox/apptA1_24h"), { status: "sent", to: "+20111" }),
     "deny"
   );
   await check(
@@ -471,17 +497,23 @@ async function main() {
     setDoc(doc(admin1, "clinics/clinicA/sms_outbox/forged"), { to: "+20111", text: "hi", status: "queued" }),
     "deny"
   );
-
-  // A device token lets a phone text every patient as the clinic. Same reasoning as
-  // clinic_secrets: it lives at the root so the blanket clinic-member read grant cannot reach it.
   await check(
-    "a clinic Admin cannot read a paired phone's token",
-    getDoc(doc(admin1, "sms_devices/devA1")),
+    "nobody can erase the record of a message that was sent",
+    deleteDoc(doc(admin1, "clinics/clinicA/sms_outbox/apptA1_24h")),
     "deny"
   );
+
+  // Another clinic's queue stays out of reach entirely.
   await check(
-    "nobody can register a sender phone from the browser",
-    setDoc(doc(admin1, "sms_devices/forged"), { clinicId: "clinicA", secretHash: "x" }),
+    "another clinic's Admin cannot touch this clinic's message queue",
+    updateDoc(doc(adminB, "clinics/clinicA/sms_outbox/apptA1_24h"), { status: "sent" }),
+    "deny"
+  );
+
+  // The old root-level pairing scheme is retired; anything still reaching for it gets nothing.
+  await check(
+    "the retired root device registry is unreachable",
+    getDoc(doc(admin1, "sms_devices/devA1")),
     "deny"
   );
   await check(

@@ -152,14 +152,36 @@ service cloud.firestore {
         allow write: if false;
       }
 
-      // Text messages waiting for the clinic's own phone to send them. Staff read the queue to see
-      // what went out and what is stuck, but every write comes from an API route on the Admin SDK:
-      // the server queues, and only the paired handset may say a message was sent. If the client
-      // could write here, anyone in the clinic could change a queued message's recipient or body
-      // after it was composed, or mark an unsent reminder as delivered.
+      // Text messages waiting for the clinic's own phone to send them.
+      //
+      // Creating one stays server-only: the nightly job composes the message, and a client that
+      // could create rows here could text any number in the clinic's name.
+      //
+      // Updating is allowed, narrowly, because the sender is now the clinic's phone signed in as
+      // itself rather than an API caller — it has to be able to claim a message and report what
+      // happened. The `hasOnly` list is what keeps that safe: `to` and `text` are not in it, so a
+      // queued message can never be redirected to another number or have its wording changed after
+      // it was composed. The worst a clinic member can do is lie about the outcome of a message
+      // that was genuinely queued for that clinic.
+      //
+      // Deleting stays closed so the record of what was sent cannot be quietly erased.
       match /sms_outbox/{messageId} {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
-        allow write: if false;
+        allow update: if isSuperAdmin()
+          || (hasClinicRole(clinicId) && isClinicActive(clinicId)
+              && request.resource.data.diff(resource.data).affectedKeys()
+                   .hasOnly(['status', 'sentAt', 'error', 'attempts', 'claimedAt', 'claimedByDeviceId']));
+        allow create, delete: if false;
+      }
+
+      // Phones offering to send this clinic's reminders. The app writes a heartbeat here every
+      // time its background job wakes up, and the nightly job refuses to queue anything unless one
+      // of these was seen recently. Clinic members may write because the phone IS a clinic member
+      // — a forged entry only causes messages to queue with nobody collecting them, which the
+      // settings screen shows plainly, and grants no ability to send or read anything.
+      match /sms_devices/{deviceId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow write: if isSuperAdmin() || (hasClinicRole(clinicId) && isClinicActive(clinicId));
       }
     }
     
@@ -174,12 +196,12 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // --- SMS SENDER PHONES ---
-    // A device token lets a phone send text messages to every patient from the clinic's own
-    // number, and a pairing code is one step away from being such a token. Both live at the root
-    // for the same reason as clinic_secrets above: everything under clinics/{clinicId}/ is
-    // readable by every member of that clinic, and rules OR together so a narrower deny inside
-    // that subtree cannot take the access back. Server-only, via the Admin SDK.
+    // --- RETIRED: root SMS pairing (2026-08-14) ---
+    // The old WebView app had no login of its own, so it authenticated to an API with a device
+    // token obtained by pairing code, and both lived here at the root — out of reach of the
+    // blanket clinic-member read grant. The native app signs in as a real staff user and reads the
+    // queue straight from Firestore, so neither exists any more. Denied explicitly rather than
+    // deleted, so that a stale client still holding a token gets nothing.
     match /sms_devices/{deviceId} {
       allow read, write: if false;
     }
