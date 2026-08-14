@@ -31,6 +31,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -71,6 +75,7 @@ fun PatientSheet(
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var selectedTooth by remember { mutableStateOf<String?>(null) }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Alpha.Card) {
         Column(
@@ -186,6 +191,14 @@ fun PatientSheet(
                         }
                     }
 
+                    Spacer(Modifier.height(20.dp))
+                    TeethChart(
+                        notes = notes,
+                        arabic = arabic,
+                        selectedTooth = selectedTooth,
+                        onSelectTooth = { selectedTooth = it },
+                    )
+
                     // Treatment first: on a patient file the clinical record is what a dentist
                     // opens it for, and appointments are context around it.
                     Spacer(Modifier.height(20.dp))
@@ -204,16 +217,20 @@ fun PatientSheet(
                     }
                     Spacer(Modifier.height(4.dp))
 
-                    if (notes.isEmpty()) {
+                    val shownNotes = selectedTooth?.let { t -> notes.filter { it.tooth.trim() == t } } ?: notes
+
+                    if (shownNotes.isEmpty()) {
                         Text(
-                            if (arabic) "لا توجد إجراءات مسجلة." else "No procedures recorded.",
+                            if (selectedTooth != null) {
+                                if (arabic) "لا توجد إجراءات على هذا السن." else "Nothing recorded on this tooth."
+                            } else if (arabic) "لا توجد إجراءات مسجلة." else "No procedures recorded.",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = Alpha.Slate400,
                         )
                     } else {
                         Column(Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState())) {
-                            notes.forEach { NoteRow(it, arabic) }
+                            shownNotes.forEach { NoteRow(it, arabic) }
                         }
                     }
 
