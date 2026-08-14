@@ -96,6 +96,8 @@ data class AppState(
     val drugShortcuts: List<DrugShortcut> = emptyList(),
     val rxOpen: Boolean = false,
     val savingRx: Boolean = false,
+    /** Collected today, for the owner's glance. Null until it has been read. */
+    val takingsToday: Double? = null,
 )
 
 /** Null target means a new booking; a set one means that appointment is being moved. */
@@ -132,6 +134,7 @@ class AppViewModel : ViewModel() {
                 _state.value = _state.value.copy(loading = false, session = session)
                 watchDay(session.clinicId, _state.value.date)
                 refreshShift()
+                refreshTakings()
             }
             .onFailure { error ->
                 // The account exists in Firebase but not in this clinic system — a
@@ -154,6 +157,7 @@ class AppViewModel : ViewModel() {
                     _state.value = _state.value.copy(signingIn = false, session = session, signInError = null)
                     watchDay(session.clinicId, _state.value.date)
                     refreshShift()
+                    refreshTakings()
                 }
                 .onFailure { error ->
                     _state.value = _state.value.copy(signingIn = false, signInError = error.message ?: "Could not sign in.")
@@ -230,6 +234,22 @@ class AppViewModel : ViewModel() {
     }
 
     // ---------------------------------------------------------------- attendance
+
+    /**
+     * Today's takings, for the owner dashboard.
+     *
+     * Only fetched for the roles that see it — a receptionist's phone should not be pulling the
+     * clinic's daily revenue it will never display.
+     */
+    private fun refreshTakings() {
+        val session = _state.value.session ?: return
+        if (!(session.isAdmin || session.isReception)) return
+
+        viewModelScope.launch {
+            val total = runCatching { Repository.takingsOn(session.clinicId, today()) }.getOrNull()
+            _state.value = _state.value.copy(takingsToday = total)
+        }
+    }
 
     fun refreshShift() {
         val session = _state.value.session ?: return
@@ -591,6 +611,7 @@ class AppViewModel : ViewModel() {
                         message = "Payment of ${amount.toInt()} EGP recorded.",
                     )
                     openPatient(patient.id)
+                    refreshTakings()
                 }
                 .onFailure { error ->
                     _state.value = _state.value.copy(

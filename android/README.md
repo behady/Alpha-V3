@@ -10,12 +10,19 @@ Written in Kotlin with Jetpack Compose. Version 2.0.0.
 
 ## What it is, and what it deliberately is not
 
-This app does the few things a phone is genuinely better at:
+What it does natively:
 
 - **Today's schedule**, live, and **working with no signal**
 - **Check patients in** and move them through the visit
-- **Call or WhatsApp** a patient from their appointment
-- Opens in a second, straight to today
+- **Book, move and cancel** appointments, with the clinic's real hours and slots
+- **Find any patient**, see what they owe, their visits and their treatment
+- **Take a payment**, with the doctor commission and lab fee split correctly
+- **Record a procedure**, billed and linked to the ledger
+- **Teeth chart** — tap a tooth to filter its treatment history
+- **Write a prescription**
+- **Clock in and out**, with the clinic geofence
+- **Send SMS reminders** from this phone's SIM
+- **Call or WhatsApp** a patient from anywhere they appear
 
 Everything else — reports, inventory, prescriptions, clinical notes, settings,
 the AI screens — stays on the website, reachable from **More → Open full

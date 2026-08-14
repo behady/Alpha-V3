@@ -38,6 +38,8 @@ fun HomeScreen(
     offline: Boolean,
     pending: Int,
     arabic: Boolean,
+    /** Null until read, or when this role does not see clinic revenue. */
+    takingsToday: Double?,
     onOpenAppointment: (Appointment) -> Unit,
     onSeeDay: () -> Unit,
 ) {
@@ -73,7 +75,7 @@ fun HomeScreen(
         when {
             session.isDentist -> dentistHome(session, appointments, active, nowMinutes, arabic, onOpenAppointment)
             session.isReception -> receptionHome(appointments, active, arabic, onOpenAppointment)
-            else -> ownerHome(appointments, active, arabic, onOpenAppointment)
+            else -> ownerHome(appointments, active, arabic, takingsToday, onOpenAppointment)
         }
 
         item {
@@ -193,6 +195,7 @@ private fun LazyListScope.ownerHome(
     all: List<Appointment>,
     active: List<Appointment>,
     arabic: Boolean,
+    takingsToday: Double?,
     onOpen: (Appointment) -> Unit,
 ) {
     val seen = all.count { normalizeStatus(it.status) in setOf("Completed", "Checking Out") }
@@ -209,6 +212,17 @@ private fun LazyListScope.ownerHome(
                 modifier = Modifier.weight(1f),
             )
         }
+    }
+
+    // Money collected today. Deliberately what came through the door, not what was charged —
+    // billed-but-unpaid would flatter the figure badly and it is the one an owner acts on.
+    item {
+        StatTile(
+            value = takingsToday?.let { "${it.toInt()} EGP" } ?: "—",
+            caption = if (arabic) "تحصيل اليوم" else "Collected today",
+            tint = if ((takingsToday ?: 0.0) > 0) Alpha.Green else Alpha.Slate900,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 
     item { SectionHeading(if (arabic) "ما زال قادماً" else "STILL TO COME") }

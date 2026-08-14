@@ -229,6 +229,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             offline = state.offline,
                             pending = state.pending,
                             arabic = state.arabic,
+                            takingsToday = state.takingsToday,
                             onOpenAppointment = { openAppointment = it },
                             onSeeDay = { viewModel.selectTab(Tab.DAY) },
                         )

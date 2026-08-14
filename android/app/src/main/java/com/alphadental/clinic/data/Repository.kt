@@ -495,6 +495,23 @@ object Repository {
         return (doc.get("commissionPercentage") as? Number)?.toDouble() ?: 0.0
     }
 
+    /**
+     * What the clinic has actually collected on a given day.
+     *
+     * Payments only — not what was charged. An owner glancing at the phone wants to know what came
+     * through the door today, and mixing in unpaid procedures would flatter that number badly.
+     */
+    suspend fun takingsOn(clinicId: String, dateKey: String): Double {
+        val snap = ledger(clinicId).whereEqualTo("date", dateKey).get().await()
+        return snap.documents
+            .filter { it.getString("type") == "payment" }
+            .sumOf { doc ->
+                (doc.get("paid") as? Number)?.toDouble()
+                    ?: (doc.get("amount") as? Number)?.toDouble()
+                    ?: 0.0
+            }
+    }
+
     // ------------------------------------------------------------------- payments
 
     private fun ledger(clinicId: String) =
