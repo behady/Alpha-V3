@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 8.1 and newer. Dark icons on the light mint navigation bar; on 8.0 the
+         bar simply keeps its default icons, which is a cosmetic difference on one
+         old version rather than something worth dropping those phones for. -->
+    <style name="Theme.AlphaDental" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/mint_ground</item>
+        <item name="android:statusBarColor">@color/mint_ground</item>
+        <item name="android:navigationBarColor">@color/mint_ground</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

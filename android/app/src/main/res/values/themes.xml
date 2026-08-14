@@ -1,12 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Compose paints everything; this only sets the window background so there is
-         no white flash on the mint background before the first frame draws. -->
+         no white flash on the mint background before the first frame draws.
+
+         windowLightNavigationBar is NOT here: it was added in API 27, and minSdk is
+         26 so that the older phones in the clinic can still install. It lives in
+         values-v27 instead, where Android applies it only on versions that have it.
+         Declaring it here made the release build fail lint outright. -->
     <style name="Theme.AlphaDental" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/mint_ground</item>
         <item name="android:statusBarColor">@color/mint_ground</item>
         <item name="android:navigationBarColor">@color/mint_ground</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowLightNavigationBar">true</item>
     </style>
 </resources>
