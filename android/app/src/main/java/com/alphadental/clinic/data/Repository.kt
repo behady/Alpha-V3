@@ -246,6 +246,42 @@ object Repository {
         ref.id
     }
 
+    // ------------------------------------------------------------------ inventory
+
+    private fun inventory(clinicId: String) =
+        Firebase.db().collection("clinics").document(clinicId).collection("inventory")
+
+    suspend fun loadInventory(clinicId: String): List<InventoryItem> {
+        val snap = inventory(clinicId).get().await()
+        return snap.documents.mapNotNull { doc ->
+            val name = doc.getString("name")?.trim().orEmpty()
+            if (name.isEmpty()) return@mapNotNull null
+            InventoryItem(
+                id = doc.id,
+                name = name,
+                stock = (doc.get("stock") as? Number)?.toDouble() ?: 0.0,
+                minStock = (doc.get("minStock") as? Number)?.toDouble() ?: 0.0,
+                isPercentage = doc.getBoolean("isPercentage") == true,
+                costPerUnit = (doc.get("costPerUnit") as? Number)?.toDouble() ?: 0.0,
+            )
+        }.sortedWith(compareByDescending<InventoryItem> { isLowStock(it) }.thenBy { it.name })
+    }
+
+    /**
+     * Adjust stock by a delta.
+     *
+     * Clamped at zero, as the website does. A negative stock level is not a real state — it is a
+     * miscount — and storing one makes every total downstream wrong in a way nobody traces back.
+     */
+    suspend fun adjustStock(clinicId: String, item: InventoryItem, delta: Double): Result<Unit> = runCatching {
+        inventory(clinicId).document(item.id).update(
+            mapOf(
+                "stock" to (item.stock + delta).coerceAtLeast(0.0),
+                "updatedAt" to FieldValue.serverTimestamp(),
+            )
+        ).await()
+    }
+
     // ----------------------------------------------------------------- attendance
 
     private fun attendance(clinicId: String) =

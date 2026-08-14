@@ -3,6 +3,11 @@ package com.alphadental.clinic
 import com.alphadental.clinic.data.Appointment
 import com.alphadental.clinic.data.ClinicSchedule
 import com.alphadental.clinic.data.Geofence
+import com.alphadental.clinic.data.InventoryItem
+import com.alphadental.clinic.data.hasThreshold
+import com.alphadental.clinic.data.isLowStock
+import com.alphadental.clinic.data.lowStockCount
+import com.alphadental.clinic.data.unconfiguredCount
 import com.alphadental.clinic.data.LocationReading
 import com.alphadental.clinic.data.isUsableGeofence
 import com.alphadental.clinic.data.judgeGeofence
@@ -466,5 +471,41 @@ class GeofenceTest {
         assertFalse(isUsableGeofence(Geofence(30.0, 31.2, 0.0)))
         assertFalse(isUsableGeofence(null))
         assertTrue(isUsableGeofence(clinic))
+    }
+}
+
+/**
+ * The low-stock rule.
+ *
+ * The trap it guards is documented on the website: a reorder threshold of 0 is the field's old
+ * default, not a deliberate "alert me at empty". Treating 0 as a real threshold made every
+ * unconfigured item permanently "in stock", so a low-stock check reported all-clear over a shelf
+ * nobody had configured.
+ */
+class InventoryTest {
+
+    @org.junit.Test
+    fun `an item at or below its threshold is low`() {
+        assertTrue(isLowStock(InventoryItem(stock = 2.0, minStock = 5.0)))
+        assertTrue("at the threshold counts as low", isLowStock(InventoryItem(stock = 5.0, minStock = 5.0)))
+        assertFalse(isLowStock(InventoryItem(stock = 6.0, minStock = 5.0)))
+    }
+
+    @org.junit.Test
+    fun `an item with no threshold can never be low, even at zero stock`() {
+        val unset = InventoryItem(stock = 0.0, minStock = 0.0)
+        assertFalse("0 is 'never configured', not 'alert me at empty'", isLowStock(unset))
+        assertFalse(hasThreshold(unset))
+    }
+
+    @org.junit.Test
+    fun `unconfigured items are counted rather than assumed fine`() {
+        val items = listOf(
+            InventoryItem(name = "Gloves", stock = 1.0, minStock = 10.0),   // low
+            InventoryItem(name = "Masks", stock = 50.0, minStock = 10.0),   // ok
+            InventoryItem(name = "Bonding", stock = 0.0, minStock = 0.0),   // never configured
+        )
+        assertEquals(1, lowStockCount(items))
+        assertEquals("the empty unconfigured item must be surfaced, not hidden", 1, unconfiguredCount(items))
     }
 }

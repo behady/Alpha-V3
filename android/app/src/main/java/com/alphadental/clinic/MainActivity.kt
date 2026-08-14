@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -69,6 +70,7 @@ import com.alphadental.clinic.ui.AppointmentSheet
 import com.alphadental.clinic.ui.BookingSheet
 import com.alphadental.clinic.ui.DayScreen
 import com.alphadental.clinic.ui.HomeScreen
+import com.alphadental.clinic.ui.InventorySheet
 import com.alphadental.clinic.ui.LoginScreen
 import com.alphadental.clinic.ui.MoneyScreen
 import com.alphadental.clinic.ui.PatientSheet
@@ -287,6 +289,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             clockError = state.clockError,
                             onPunch = { viewModel.punchClock(context) },
                             onDismissClockError = viewModel::dismissClockError,
+                            onOpenInventory = viewModel::openInventory,
                             onToggleLanguage = viewModel::toggleLanguage,
                             onSignOut = viewModel::signOut,
                         )
@@ -345,6 +348,17 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         { noteId, status -> viewModel.updateNoteStatus(noteId, status) }
                     } else null,
                     onDismiss = viewModel::closePatient,
+                )
+            }
+
+            if (state.inventoryOpen) {
+                InventorySheet(
+                    items = state.inventory,
+                    loading = state.loadingInventory,
+                    canEdit = session.isAdmin || session.isReception || session.isDentist,
+                    arabic = state.arabic,
+                    onAdjust = viewModel::adjustStock,
+                    onDismiss = viewModel::closeInventory,
                 )
             }
 
@@ -460,6 +474,7 @@ private fun MoreScreen(
     clockError: String?,
     onPunch: () -> Unit,
     onDismissClockError: () -> Unit,
+    onOpenInventory: () -> Unit,
     onToggleLanguage: () -> Unit,
     onSignOut: () -> Unit,
 ) {
@@ -544,6 +559,15 @@ private fun MoreScreen(
                     smsPermission.launch(Manifest.permission.SEND_SMS)
                 }
             },
+        )
+
+        SectionHeading(if (arabic) "المخزون" else "STOCK")
+
+        MoreRow(
+            icon = Icons.Filled.Inventory2,
+            label = if (arabic) "المخزون" else "Stock",
+            caption = if (arabic) "المتاح، وما أوشك على النفاد" else "What is on the shelf, and what is running out",
+            onClick = onOpenInventory,
         )
 
         SectionHeading(if (arabic) "الباقي من النظام" else "THE REST OF THE SYSTEM")

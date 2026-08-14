@@ -9,6 +9,7 @@ import com.alphadental.clinic.data.DayResult
 import com.alphadental.clinic.data.Doctor
 import com.alphadental.clinic.data.DrugShortcut
 import com.alphadental.clinic.data.GeofenceVerdict
+import com.alphadental.clinic.data.InventoryItem
 import com.alphadental.clinic.data.LocationFinder
 import com.alphadental.clinic.data.Patient
 import com.alphadental.clinic.data.PatientFile
@@ -101,6 +102,10 @@ data class AppState(
     // --- money screen ---
     val dayLedger: List<Repository.DayLedgerRow> = emptyList(),
     val loadingLedger: Boolean = false,
+    // --- inventory ---
+    val inventory: List<InventoryItem> = emptyList(),
+    val inventoryOpen: Boolean = false,
+    val loadingInventory: Boolean = false,
 )
 
 /** Null target means a new booking; a set one means that appointment is being moved. */
@@ -262,6 +267,45 @@ class AppViewModel : ViewModel() {
             if (_state.value.date == date) {
                 _state.value = _state.value.copy(dayLedger = rows, loadingLedger = false)
             }
+        }
+    }
+
+    fun openInventory() {
+        val session = _state.value.session ?: return
+        _state.value = _state.value.copy(inventoryOpen = true, loadingInventory = true)
+        viewModelScope.launch {
+            val items = runCatching { Repository.loadInventory(session.clinicId) }.getOrDefault(emptyList())
+            _state.value = _state.value.copy(inventory = items, loadingInventory = false)
+        }
+    }
+
+    fun closeInventory() {
+        _state.value = _state.value.copy(inventoryOpen = false)
+    }
+
+    /**
+     * Nudge a stock count.
+     *
+     * The row updates locally first so tapping minus four times feels like four taps rather than
+     * four round trips — but the list is reloaded afterwards, so what settles on screen is what
+     * the database actually holds rather than what this phone assumed.
+     */
+    fun adjustStock(item: InventoryItem, delta: Double) {
+        val session = _state.value.session ?: return
+
+        _state.value = _state.value.copy(
+            inventory = _state.value.inventory.map {
+                if (it.id == item.id) it.copy(stock = (it.stock + delta).coerceAtLeast(0.0)) else it
+            }
+        )
+
+        viewModelScope.launch {
+            Repository.adjustStock(session.clinicId, item, delta)
+                .onFailure { error ->
+                    _state.value = _state.value.copy(message = error.message ?: "Stock could not be updated.")
+                }
+            val items = runCatching { Repository.loadInventory(session.clinicId) }.getOrDefault(emptyList())
+            if (_state.value.inventoryOpen) _state.value = _state.value.copy(inventory = items)
         }
     }
 
