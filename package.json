@@ -15,6 +15,7 @@
     "test:recovery": "npx tsx tests/revenueRecovery.test.mjs",
     "test:dues": "npx tsx tests/paymentRecovery.test.mjs",
     "test:sms": "npx tsx tests/smsCost.test.mjs",
+    "test:optout": "npx tsx tests/patientMessaging.test.mjs",
     "test:attendance": "npx tsx tests/attendanceGeofence.test.mjs"
   },
   "dependencies": {

@@ -10,6 +10,7 @@ import { mergeWhatsAppTemplate } from "@/lib/whatsappTemplateMerge";
 import { normalizeToE164, sendWhatsApp } from "@/lib/whatsapp";
 import { resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
 import { getClinicProfileAdmin } from "@/lib/clinicProfileServer";
+import { isSmsBlocked, isWhatsAppBlocked, type PatientContactPreferences } from "@/lib/patientMessaging";
 import { channelIncludesSms, channelIncludesWhatsApp } from "@/lib/sms/config";
 import { loadSmsSettings } from "@/lib/sms/serverConfig";
 import { hasActiveDevice } from "@/lib/sms/devices";
@@ -93,14 +94,19 @@ async function getAppointmentById(clinicId: string, appointmentId: string): Prom
 async function getPatientContactForAppointment(
   clinicId: string,
   appointment: AppointmentRecord
-): Promise<{ phone: string; optOut: boolean; patientName: string }> {
+): Promise<{ phone: string; preferences: PatientContactPreferences; patientName: string }> {
   if (appointment.patientId) {
     const patientSnap = await adminClinicDoc(clinicId, "patients", appointment.patientId).get();
     if (patientSnap.exists) {
       const data = patientSnap.data() || {};
       return {
         phone: pickPatientPhone(data as Record<string, unknown>),
-        optOut: Boolean(data.whatsappOptOut),
+        // Passed through untouched, including an absent smsOptOut — the tri-state is what lets
+        // an existing WhatsApp opt-out keep covering SMS. See lib/patientMessaging.
+        preferences: {
+          whatsappOptOut: data.whatsappOptOut === true,
+          smsOptOut: typeof data.smsOptOut === "boolean" ? data.smsOptOut : undefined,
+        },
         patientName:
           (typeof data.name === "string" && data.name.trim()) || appointment.patientName || "Patient",
       };
@@ -116,13 +122,18 @@ async function getPatientContactForAppointment(
       const data = byName.docs[0].data() || {};
       return {
         phone: pickPatientPhone(data as Record<string, unknown>),
-        optOut: Boolean(data.whatsappOptOut),
+        // Passed through untouched, including an absent smsOptOut — the tri-state is what lets
+        // an existing WhatsApp opt-out keep covering SMS. See lib/patientMessaging.
+        preferences: {
+          whatsappOptOut: data.whatsappOptOut === true,
+          smsOptOut: typeof data.smsOptOut === "boolean" ? data.smsOptOut : undefined,
+        },
         patientName:
           (typeof data.name === "string" && data.name.trim()) || appointment.patientName || "Patient",
       };
     }
   }
-  return { phone: "", optOut: false, patientName: appointment.patientName || "Patient" };
+  return { phone: "", preferences: {}, patientName: appointment.patientName || "Patient" };
 }
 
 async function buildReminderText(
@@ -290,11 +301,16 @@ async function sendForAppointment(clinicId: string, appointment: AppointmentReco
     return { ...base, status: "skipped" as const, reason: "cancelled", whatsapp: null, sms: null };
   }
 
-  const { phone, optOut, patientName } = await getPatientContactForAppointment(clinicId, appointment);
-  // A patient who asked not to be messaged means it for any channel — being texted instead of
-  // WhatsApped is not what they agreed to.
-  if (optOut) {
-    return { ...base, status: "skipped" as const, reason: "whatsapp_opt_out", whatsapp: null, sms: null };
+  const { phone, preferences, patientName } = await getPatientContactForAppointment(clinicId, appointment);
+
+  // Judged per channel rather than once for both. A patient with no WhatsApp can be marked as
+  // reachable by text alone, and a patient who wants no contact at all is still covered because an
+  // unset SMS preference inherits the WhatsApp one.
+  const whatsappBlocked = isWhatsAppBlocked(preferences);
+  const smsBlocked = isSmsBlocked(preferences);
+
+  if (whatsappBlocked && smsBlocked) {
+    return { ...base, status: "skipped" as const, reason: "patient_opted_out", whatsapp: null, sms: null };
   }
 
   const e164 = normalizeToE164(phone);
@@ -305,13 +321,17 @@ async function sendForAppointment(clinicId: string, appointment: AppointmentReco
   const clinicName = await getClinicDisplayName(clinicId);
   const { reminderChannel } = await loadSmsSettings(clinicId);
 
-  const whatsapp = channelIncludesWhatsApp(reminderChannel)
-    ? await sendWhatsAppLeg({ clinicId, appointment, patientName, clinicName, e164, force })
-    : ({ status: "skipped", reason: "whatsapp_not_selected" } as LegResult);
+  const whatsapp = !channelIncludesWhatsApp(reminderChannel)
+    ? ({ status: "skipped", reason: "whatsapp_not_selected" } as LegResult)
+    : whatsappBlocked
+      ? ({ status: "skipped", reason: "whatsapp_opt_out" } as LegResult)
+      : await sendWhatsAppLeg({ clinicId, appointment, patientName, clinicName, e164, force });
 
-  const sms = channelIncludesSms(reminderChannel)
-    ? await queueSmsLeg({ clinicId, appointment, patientName, clinicName, e164 })
-    : ({ status: "skipped", reason: "sms_not_selected" } as LegResult);
+  const sms = !channelIncludesSms(reminderChannel)
+    ? ({ status: "skipped", reason: "sms_not_selected" } as LegResult)
+    : smsBlocked
+      ? ({ status: "skipped", reason: "sms_opt_out" } as LegResult)
+      : await queueSmsLeg({ clinicId, appointment, patientName, clinicName, e164 });
 
   // The appointment counts as handled if any channel got somewhere. "queued" is reported as its
   // own outcome rather than folded into "sent" so the summary never overstates what happened.

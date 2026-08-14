@@ -47,8 +47,8 @@ android {
         applicationId = "com.alphadental.clinic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 8
-        versionName = "2.5.0"
+        versionCode = 9
+        versionName = "2.5.1"
 
         buildConfigField("String", "FB_PROJECT_ID", "\"${firebase("firebase.projectId")}\"")
         buildConfigField("String", "FB_API_KEY", "\"${firebase("firebase.apiKey")}\"")
@@ -56,9 +56,17 @@ android {
         buildConfigField("String", "FB_SENDER_ID", "\"${firebase("firebase.senderId")}\"")
         buildConfigField("String", "FB_STORAGE_BUCKET", "\"${firebase("firebase.storageBucket")}\"")
 
-        // The website, for the screens that are not native yet. Opened in a real
-        // browser tab, never embedded.
-        buildConfigField("String", "WEB_URL", "\"https://alpha-v3.vercel.app/\"")
+        // ====================================================================
+        //  THE CLINIC'S WEB ADDRESS — the one line to change if it ever moves.
+        // ====================================================================
+        // Used by "Open full system", which opens a real browser tab for the
+        // screens that are not native yet. Nothing else in the app depends on
+        // it: patient data comes straight from Firebase, so a wrong address
+        // here does not corrupt anything — it just quietly sends staff to the
+        // wrong site. Which is exactly what happened, because the old preview
+        // deployment still answers with a working-looking page rather than an
+        // error, so nobody noticed.
+        buildConfigField("String", "WEB_URL", "\"https://alpha-v3-live.vercel.app/\"")
     }
 
     signingConfigs {

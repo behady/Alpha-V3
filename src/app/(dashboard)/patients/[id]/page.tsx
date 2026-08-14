@@ -6,12 +6,13 @@ import {
   ArrowLeft, ArrowRight, MapPin, Edit2, X, Loader2, AlertTriangle, 
   Activity, User, CalendarDays, Stethoscope, Trash2, 
   ChevronDown, MessageCircle, AlertCircle, Wallet, LayoutDashboard, Users, History, CreditCard,
-  PhoneForwarded, CheckCircle2, UserX, Globe, MessageCircleOff, ScrollText,
+  PhoneForwarded, CheckCircle2, UserX, Globe, MessageCircleOff, MessageSquare, MessageSquareOff, ScrollText,
   Star, Printer, Pill, Check, Calendar, Camera, UploadCloud, FilePlus, Eye, Download
 } from "lucide-react";
 import { auth, db, storage } from "@/lib/firebase";
 import { doc, onSnapshot, updateDoc, deleteDoc, collection, query, where, limit, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { smsPreferenceState, type PatientContactPreferences } from "@/lib/patientMessaging";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -183,6 +184,7 @@ export default function PatientProfile() {
   const [whatsappLogs, setWhatsappLogs] = useState<any[]>([]);
   const [whatsappLogPage, setWhatsappLogPage] = useState(1);
   const [whatsappOptOutSaving, setWhatsappOptOutSaving] = useState(false);
+  const [smsOptOutSaving, setSmsOptOutSaving] = useState(false);
   const [sendingReviewRequest, setSendingReviewRequest] = useState(false);
   const [selectedPrescription, setSelectedPrescription] = useState<any | null>(null);
   const [sendingPrescriptionPdf, setSendingPrescriptionPdf] = useState(false);
@@ -486,6 +488,35 @@ export default function PatientProfile() {
       showToast(t("updateError") || "Could not update preference.", "error");
     } finally {
       setWhatsappOptOutSaving(false);
+    }
+  };
+
+  /**
+   * Turn automated SMS on or off for this patient.
+   *
+   * Always writes an explicit true/false, never clears the field. That is what lets a patient who
+   * is opted out of WhatsApp still be marked as reachable by text — the common case being someone
+   * who simply does not use WhatsApp.
+   */
+  const smsState = smsPreferenceState(patient as PatientContactPreferences | null);
+  const smsBlocked = smsState !== "allowed";
+
+  const handleSmsOptOutChange = async (optOut: boolean) => {
+    if (!id) return;
+    try {
+      setSmsOptOutSaving(true);
+      await updateDoc(getClinicDoc("patients", id), { smsOptOut: optOut });
+      showToast(
+        optOut
+          ? "Patient will not receive automated text messages."
+          : "Patient can receive automated text messages.",
+        "success"
+      );
+    } catch (e) {
+      console.error(e);
+      showToast(t("updateError") || "Could not update preference.", "error");
+    } finally {
+      setSmsOptOutSaving(false);
     }
   };
 
@@ -1082,7 +1113,7 @@ export default function PatientProfile() {
              <div className="animate-in fade-in duration-300 space-y-6">
                 
                 {/* Connected Family Members */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
                   <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] lg:col-span-1">
                     <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
                       <MessageCircle size={14} className="text-emerald-500" /> WhatsApp automation
@@ -1121,6 +1152,59 @@ export default function PatientProfile() {
                         ? t("whatsappOptOutStatusOff") || "Status: opted out"
                         : t("whatsappOptOutStatusOn") || "Status: eligible for automation"}
                     </p>
+                  </div>
+
+                  {/* SMS automation — a separate switch from WhatsApp, because a patient with no
+                      WhatsApp is still reachable by text, and the reverse happens too. */}
+                  <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] lg:col-span-1">
+                    <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <MessageSquare size={14} className="text-emerald-500" /> SMS automation
+                    </h3>
+                    <p className="text-xs font-semibold text-slate-600 leading-relaxed mb-5">
+                      Turn off automated text-message reminders for this patient. Texts are charged
+                      to the clinic&apos;s SIM.
+                    </p>
+                    <label className="flex items-center justify-between gap-4 cursor-pointer group">
+                      <span className="flex items-start gap-3 min-w-0">
+                        <MessageSquareOff size={18} className="text-slate-400 shrink-0 mt-0.5 group-hover:text-rose-500 transition-colors" />
+                        <span className="text-sm font-bold text-slate-800 leading-snug">
+                          Opt-out of automated SMS
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={smsBlocked}
+                        disabled={smsOptOutSaving}
+                        onClick={() => handleSmsOptOutChange(!smsBlocked)}
+                        className={`relative w-12 h-7 rounded-full shrink-0 transition-colors border-2 ${
+                          smsBlocked ? "bg-rose-500 border-rose-600" : "bg-emerald-500 border-emerald-600"
+                        } ${smsOptOutSaving ? "opacity-60 pointer-events-none" : ""}`}
+                      >
+                        <span
+                          className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-md transition-transform duration-200 ${
+                            smsBlocked ? "translate-x-0" : "translate-x-[1.35rem]"
+                          }`}
+                        />
+                      </button>
+                    </label>
+
+                    {/* Says WHY it is off. A patient blocked only because of the WhatsApp switch
+                        looks identical to one blocked deliberately, and staff would otherwise
+                        toggle the wrong control trying to fix it. */}
+                    <p className="text-[10px] font-bold text-slate-400 mt-3 uppercase tracking-wider">
+                      {smsState === "blocked_explicitly"
+                        ? "Status: opted out"
+                        : smsState === "blocked_by_whatsapp"
+                          ? "Status: off — following the WhatsApp opt-out"
+                          : "Status: eligible for automation"}
+                    </p>
+                    {smsState === "blocked_by_whatsapp" && (
+                      <p className="text-[11px] font-semibold text-slate-500 mt-2 leading-relaxed">
+                        This patient opted out of WhatsApp, so texts are held too. Switch this on to
+                        send them texts anyway.
+                      </p>
+                    )}
                   </div>
 
                   <div className="bg-white rounded-2xl border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] overflow-hidden lg:col-span-2 flex flex-col min-h-[280px]">

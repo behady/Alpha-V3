@@ -134,6 +134,17 @@ Java 21 specifically: the JDK bundled with Android Studio is too new for this
 Gradle, and the system JDK (11) is too old. If that folder moves, update the
 `JAVA_HOME` line at the top of `build-apk.bat`.
 
+### If the clinic's web address ever changes
+
+It is written in exactly one place: the `WEB_URL` line in `app/build.gradle.kts`.
+Change it there and rebuild. Only the **Open full system** button uses it —
+patient data comes straight from Firebase, so a wrong address there sends staff
+to the wrong website but cannot corrupt anything.
+
+Worth knowing: a stale Vercel deployment keeps answering with a working-looking
+page rather than an error, so a wrong address here shows no symptom at all until
+somebody notices the site looks out of date.
+
 ### Releasing an update
 
 Bump `versionCode` and `versionName` in `app/build.gradle.kts` before
