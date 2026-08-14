@@ -163,6 +163,12 @@ async function main() {
       status: "queued",
       attempts: 0,
     });
+    await setDoc(doc(db, "clinics/clinicA/sms_devices/devA1"), {
+      name: "Reception phone",
+      platform: "android",
+      lastSeenAt: "2026-08-14T05:55:00.000Z",
+      enabled: true,
+    });
     await setDoc(doc(db, "clinics/clinicB/patients/patB1"), { name: "Youssef" });
 
     // The WhatsApp gateway credentials. Whoever holds this token can message every patient in
@@ -507,6 +513,44 @@ async function main() {
   await check(
     "another clinic's Admin cannot touch this clinic's message queue",
     updateDoc(doc(adminB, "clinics/clinicA/sms_outbox/apptA1_24h"), { status: "sent" }),
+    "deny"
+  );
+
+  // The phones offering to send. This is the one collection the app writes to as itself rather
+  // than through the server, so the grant is deliberately wide — but "wide" needs to stop
+  // somewhere, and these checks are where.
+  await check(
+    "the clinic's phone can post its heartbeat",
+    setDoc(doc(admin1, "clinics/clinicA/sms_devices/devA1"), {
+      name: "Reception phone",
+      platform: "android",
+      lastSeenAt: "2026-08-14T06:10:00.000Z",
+      enabled: true,
+    }),
+    "allow"
+  );
+  await check(
+    "staff can see which phones are collecting the queue",
+    getDoc(doc(assistant1, "clinics/clinicA/sms_devices/devA1")),
+    "allow"
+  );
+  await check(
+    "another clinic's Admin cannot see this clinic's phones",
+    getDoc(doc(adminB, "clinics/clinicA/sms_devices/devA1")),
+    "deny"
+  );
+  await check(
+    "another clinic's Admin cannot register a phone here",
+    setDoc(doc(adminB, "clinics/clinicA/sms_devices/forged"), { name: "Not mine", enabled: true }),
+    "deny"
+  );
+  // revokeDevice() in lib/sms/devices disables a phone rather than deleting it, on purpose: the
+  // record of which phone sent this clinic's messages, and until when, is worth keeping. A rule
+  // that lets the browser delete the row makes that promise unkeepable, and quietly stops every
+  // reminder — hasActiveDevice() refuses to queue anything when no live heartbeat remains.
+  await check(
+    "a phone's record cannot be deleted from the browser, only disabled",
+    deleteDoc(doc(admin1, "clinics/clinicA/sms_devices/devA1")),
     "deny"
   );
 

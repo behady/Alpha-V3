@@ -100,7 +100,8 @@ service cloud.firestore {
           || (hasClinicRole(clinicId) && isClinicActive(clinicId)
               && subcollection != 'system_logs' && subcollection != 'staff' && subcollection != 'settings'
               && subcollection != 'ai_deletion_log' && subcollection != 'ai_pending_actions'
-              && subcollection != 'message_drafts' && subcollection != 'sms_outbox');
+              && subcollection != 'message_drafts' && subcollection != 'sms_outbox'
+              && subcollection != 'sms_devices');
       }
 
       // --- SPECIFIC SUBCOLLECTION OVERRIDES ---
@@ -179,9 +180,18 @@ service cloud.firestore {
       // of these was seen recently. Clinic members may write because the phone IS a clinic member
       // — a forged entry only causes messages to queue with nobody collecting them, which the
       // settings screen shows plainly, and grants no ability to send or read anything.
+      //
+      // Deleting is the exception, and it is closed. revokeDevice() in lib/sms/devices disables a
+      // phone rather than removing it, deliberately: which phone sent this clinic's messages, and
+      // until when, is worth keeping. A delete also stops the clinic's reminders outright, because
+      // hasActiveDevice() queues nothing once the last live heartbeat is gone — a quiet failure
+      // any member could cause. Note this subcollection is excluded from the blanket member-write
+      // grant above; without that exclusion the two rules would OR together and this deny would
+      // do nothing at all.
       match /sms_devices/{deviceId} {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
-        allow write: if isSuperAdmin() || (hasClinicRole(clinicId) && isClinicActive(clinicId));
+        allow create, update: if isSuperAdmin() || (hasClinicRole(clinicId) && isClinicActive(clinicId));
+        allow delete: if false;
       }
     }
     
