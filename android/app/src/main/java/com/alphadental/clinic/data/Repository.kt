@@ -1192,6 +1192,40 @@ object Repository {
     }
 
     /**
+     * Change the clinic's working hours.
+     *
+     * Written as a merge into the `schedule` map on settings/clinic_info, the same document and the
+     * same field names the website's Settings screen uses — including `configuredAt`, which is what
+     * both sides read to tell "these are the clinic's real hours" from "nobody has set any yet".
+     *
+     * Day names are stored lowercase. The website normalises whatever case it stored on read, and
+     * so does the phone, but writing them lowercase keeps the document itself unambiguous.
+     */
+    suspend fun saveSchedule(
+        clinicId: String,
+        startHHmm: String,
+        endHHmm: String,
+        slotDuration: Int,
+        offDays: List<String>,
+    ): Result<Unit> = runCatching {
+        Firebase.db().collection("clinics").document(clinicId)
+            .collection("settings").document("clinic_info")
+            .set(
+                mapOf(
+                    "schedule" to mapOf(
+                        "start" to startHHmm,
+                        "end" to endHHmm,
+                        "slotDuration" to slotDuration.toString(),
+                        "offDays" to offDays.map { it.lowercase(java.util.Locale.US) },
+                        "configuredAt" to java.time.Instant.now().toString(),
+                    )
+                ),
+                SetOptions.merge(),
+            )
+            .queueLocally("clinic hours")
+    }
+
+    /**
      * The dentists an appointment can be assigned to.
      *
      * `isDentist` is checked as well as the role because an Admin who also treats patients is

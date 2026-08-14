@@ -131,6 +131,9 @@ data class AppState(
     val orthoCase: OrthoCase? = null,
     val loadingOrtho: Boolean = false,
     val savingOrtho: Boolean = false,
+    // --- clinic hours ---
+    val hoursOpen: Boolean = false,
+    val savingHours: Boolean = false,
 )
 
 /** Null target means a new booking; a set one means that appointment is being moved. */
@@ -357,6 +360,43 @@ class AppViewModel : ViewModel() {
         viewModelScope.launch {
             val cases = runCatching { Repository.loadOrthoCases(session.clinicId) }.getOrDefault(emptyList())
             _state.value = _state.value.copy(orthoCases = cases, loadingOrtho = false)
+        }
+    }
+
+    // --- clinic hours ----------------------------------------------------------------------
+
+    fun openHours() {
+        _state.value = _state.value.copy(hoursOpen = true)
+    }
+
+    fun closeHours() {
+        _state.value = _state.value.copy(hoursOpen = false)
+    }
+
+    fun saveHours(start: String, end: String, slotDuration: Int, offDays: List<String>) {
+        val session = _state.value.session ?: return
+        _state.value = _state.value.copy(savingHours = true)
+
+        viewModelScope.launch {
+            Repository.saveSchedule(session.clinicId, start, end, slotDuration, offDays)
+                .onSuccess {
+                    // Re-read so the booking screen picks up the new hours immediately rather than
+                    // on the next app start — the slot list is built from this.
+                    val schedule = runCatching { Repository.loadSchedule(session.clinicId) }
+                        .getOrDefault(_state.value.schedule)
+                    _state.value = _state.value.copy(
+                        schedule = schedule,
+                        savingHours = false,
+                        hoursOpen = false,
+                        message = "Clinic hours saved.",
+                    )
+                }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(
+                        savingHours = false,
+                        message = error.message ?: "The hours could not be saved.",
+                    )
+                }
         }
     }
 

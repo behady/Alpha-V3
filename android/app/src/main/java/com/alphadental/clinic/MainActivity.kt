@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.CircularProgressIndicator
@@ -80,6 +81,7 @@ import com.alphadental.clinic.ui.MoneyScreen
 import com.alphadental.clinic.ui.PatientSheet
 import com.alphadental.clinic.ui.PatientsScreen
 import com.alphadental.clinic.ui.PaymentSheet
+import com.alphadental.clinic.ui.HoursSheet
 import com.alphadental.clinic.ui.OrthoSheet
 import com.alphadental.clinic.ui.PrescriptionSheet
 import com.alphadental.clinic.ui.ReportsSheet
@@ -304,6 +306,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                                 { viewModel.openReports() }
                             } else null,
                             onOpenOrtho = viewModel::openOrtho,
+                            // Admins only: hours decide what every other member of staff can book.
+                            onOpenHours = if (session.isAdmin) ({ viewModel.openHours() }) else null,
                             onToggleLanguage = viewModel::toggleLanguage,
                             onSignOut = viewModel::signOut,
                         )
@@ -362,6 +366,16 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         { noteId, status -> viewModel.updateNoteStatus(noteId, status) }
                     } else null,
                     onDismiss = viewModel::closePatient,
+                )
+            }
+
+            if (state.hoursOpen) {
+                HoursSheet(
+                    schedule = state.schedule,
+                    saving = state.savingHours,
+                    arabic = state.arabic,
+                    onSave = viewModel::saveHours,
+                    onDismiss = viewModel::closeHours,
                 )
             }
 
@@ -530,6 +544,8 @@ private fun MoreScreen(
     /** Null for roles that may not see the clinic's takings. */
     onOpenReports: (() -> Unit)?,
     onOpenOrtho: () -> Unit,
+    /** Null for anyone who is not a clinic admin. */
+    onOpenHours: (() -> Unit)?,
     onToggleLanguage: () -> Unit,
     onSignOut: () -> Unit,
 ) {
@@ -664,6 +680,18 @@ private fun MoreScreen(
             caption = if (arabic) "المتاح، وما أوشك على النفاد" else "What is on the shelf, and what is running out",
             onClick = onOpenInventory,
         )
+
+        if (onOpenHours != null) {
+            SectionHeading(if (arabic) "الإعدادات" else "SETTINGS")
+
+            MoreRow(
+                icon = Icons.Filled.Schedule,
+                label = if (arabic) "ساعات العمل" else "Clinic hours",
+                caption = if (arabic) "المواعيد المتاحة وأيام الإجازة"
+                else "Opening times, appointment length and days closed",
+                onClick = onOpenHours,
+            )
+        }
 
         SectionHeading(if (arabic) "الباقي من النظام" else "THE REST OF THE SYSTEM")
 
