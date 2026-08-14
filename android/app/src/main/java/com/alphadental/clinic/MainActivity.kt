@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -69,6 +70,7 @@ import com.alphadental.clinic.ui.BookingSheet
 import com.alphadental.clinic.ui.DayScreen
 import com.alphadental.clinic.ui.HomeScreen
 import com.alphadental.clinic.ui.LoginScreen
+import com.alphadental.clinic.ui.MoneyScreen
 import com.alphadental.clinic.ui.PatientSheet
 import com.alphadental.clinic.ui.PatientsScreen
 import com.alphadental.clinic.ui.PaymentSheet
@@ -217,6 +219,11 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         BottomTab(Tab.HOME, Icons.Filled.Home, if (state.arabic) "الرئيسية" else "Home", state.tab, viewModel::selectTab)
                         BottomTab(Tab.DAY, Icons.Filled.CalendarMonth, if (state.arabic) "اليوم" else "Day", state.tab, viewModel::selectTab)
                         BottomTab(Tab.PATIENTS, Icons.Filled.People, if (state.arabic) "المرضى" else "Patients", state.tab, viewModel::selectTab)
+                        // A dentist's phone does not show the clinic's takings; that is the
+                        // owner's and reception's view, matching who sees Finance on the website.
+                        if (session.isAdmin || session.isReception) {
+                            BottomTab(Tab.MONEY, Icons.Filled.Payments, if (state.arabic) "الحسابات" else "Money", state.tab, viewModel::selectTab)
+                        }
                         BottomTab(Tab.MORE, Icons.Filled.MoreHoriz, if (state.arabic) "المزيد" else "More", state.tab, viewModel::selectTab)
                     }
                 },
@@ -257,6 +264,16 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             onSearch = viewModel::searchPatientsTab,
                             onLoadMore = viewModel::loadMorePatients,
                             onOpenPatient = { viewModel.openPatient(it.id) },
+                        )
+
+                        Tab.MONEY -> MoneyScreen(
+                            date = state.date,
+                            rows = state.dayLedger,
+                            loading = state.loadingLedger,
+                            arabic = state.arabic,
+                            isToday = state.date == AppViewModel.today(),
+                            onShiftDay = viewModel::shiftDay,
+                            onToday = viewModel::showToday,
                         )
 
                         Tab.MORE -> MoreScreen(

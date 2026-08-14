@@ -512,6 +512,43 @@ object Repository {
             }
     }
 
+    /** One line on the day's money screen. */
+    data class DayLedgerRow(
+        val id: String,
+        val patientName: String,
+        val description: String,
+        val type: String,
+        val amount: Double,
+        val method: String,
+        val addedBy: String,
+    ) {
+        val isPayment: Boolean get() = type == "payment"
+    }
+
+    /** Everything that moved money on one day, newest-looking first. */
+    suspend fun loadDayLedger(clinicId: String, dateKey: String): List<DayLedgerRow> {
+        val snap = ledger(clinicId).whereEqualTo("date", dateKey).get().await()
+
+        return snap.documents.map { doc ->
+            val type = doc.getString("type").orEmpty()
+            DayLedgerRow(
+                id = doc.id,
+                patientName = doc.getString("patientName").orEmpty(),
+                description = doc.getString("description").orEmpty(),
+                type = type,
+                // Same per-type rule as everywhere else: a payment's real value can sit in `paid`
+                // with `amount` left at 0 by an older write path.
+                amount = if (type == "payment") {
+                    (doc.get("paid") as? Number)?.toDouble() ?: (doc.get("amount") as? Number)?.toDouble() ?: 0.0
+                } else {
+                    (doc.get("amount") as? Number)?.toDouble() ?: (doc.get("cost") as? Number)?.toDouble() ?: 0.0
+                },
+                method = doc.getString("method").orEmpty(),
+                addedBy = doc.getString("addedBy").orEmpty(),
+            )
+        }.sortedWith(compareByDescending<DayLedgerRow> { it.isPayment }.thenByDescending { it.amount })
+    }
+
     // ------------------------------------------------------------------- payments
 
     private fun ledger(clinicId: String) =

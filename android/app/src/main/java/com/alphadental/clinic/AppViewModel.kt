@@ -36,7 +36,7 @@ import java.util.Date
 import java.util.Locale
 
 /** Which of the app's three screens is showing. */
-enum class Tab { HOME, DAY, PATIENTS, MORE }
+enum class Tab { HOME, DAY, PATIENTS, MONEY, MORE }
 
 data class AppState(
     val loading: Boolean = true,
@@ -98,6 +98,9 @@ data class AppState(
     val savingRx: Boolean = false,
     /** Collected today, for the owner's glance. Null until it has been read. */
     val takingsToday: Double? = null,
+    // --- money screen ---
+    val dayLedger: List<Repository.DayLedgerRow> = emptyList(),
+    val loadingLedger: Boolean = false,
 )
 
 /** Null target means a new booking; a set one means that appointment is being moved. */
@@ -178,6 +181,7 @@ class AppViewModel : ViewModel() {
         if (tab == Tab.PATIENTS && _state.value.patientResults.isEmpty() && _state.value.patientQuery.isEmpty()) {
             searchPatientsTab("")
         }
+        if (tab == Tab.MONEY) loadDayLedger()
     }
 
     fun toggleLanguage() {
@@ -196,6 +200,7 @@ class AppViewModel : ViewModel() {
         val session = _state.value.session ?: return
         _state.value = _state.value.copy(date = date, loadingDay = true, appointments = emptyList())
         watchDay(session.clinicId, date)
+        if (_state.value.tab == Tab.MONEY) loadDayLedger()
     }
 
     /** Listen to one day. Replaces any previous listener so only one is ever live. */
@@ -241,6 +246,25 @@ class AppViewModel : ViewModel() {
      * Only fetched for the roles that see it — a receptionist's phone should not be pulling the
      * clinic's daily revenue it will never display.
      */
+    /**
+     * The money that moved on the day currently being viewed.
+     *
+     * Shares the same date as the schedule deliberately: stepping back a day to see who was booked
+     * and what was taken is one question, and two independent date pickers would make it two.
+     */
+    fun loadDayLedger() {
+        val session = _state.value.session ?: return
+        _state.value = _state.value.copy(loadingLedger = true)
+        val date = _state.value.date
+        viewModelScope.launch {
+            val rows = runCatching { Repository.loadDayLedger(session.clinicId, date) }.getOrDefault(emptyList())
+            // Ignore a slow response for a day the user has already moved past.
+            if (_state.value.date == date) {
+                _state.value = _state.value.copy(dayLedger = rows, loadingLedger = false)
+            }
+        }
+    }
+
     private fun refreshTakings() {
         val session = _state.value.session ?: return
         if (!(session.isAdmin || session.isReception)) return
@@ -625,6 +649,7 @@ class AppViewModel : ViewModel() {
                     )
                     openPatient(patient.id)
                     refreshTakings()
+                    if (_state.value.tab == Tab.MONEY) loadDayLedger()
                 }
                 .onFailure { error ->
                     _state.value = _state.value.copy(
