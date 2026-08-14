@@ -12,6 +12,10 @@ import com.alphadental.clinic.data.LocationReading
 import com.alphadental.clinic.data.isUsableGeofence
 import com.alphadental.clinic.data.judgeGeofence
 import com.alphadental.clinic.data.Repository
+import com.alphadental.clinic.data.formatTeeth
+import com.alphadental.clinic.data.parseTeeth
+import com.alphadental.clinic.data.pricingFormula
+import com.alphadental.clinic.data.pricingUnits
 import com.alphadental.clinic.data.LedgerRow
 import com.alphadental.clinic.data.LedgerEntry
 import com.alphadental.clinic.data.balanceOf
@@ -561,6 +565,63 @@ class InventoryTest {
     fun `whatsapp messages older than three days have gone off`() {
         assertTrue(Repository.isWhatsappStale(hoursBeforeNoon(73), noon))
         assertTrue("a month in a drawer", Repository.isWhatsappStale(hoursBeforeNoon(24 * 30), noon))
+    }
+
+    // --- teeth on a procedure ---------------------------------------------------------------
+    //
+    // The website stores several teeth in one comma-joined string and charges the price once per
+    // tooth. Both halves matter: parsing wrong makes recorded work invisible on the chart, and
+    // counting wrong bills the patient the wrong amount.
+
+    @org.junit.Test
+    fun `a note covering several teeth reads back as all of them`() {
+        assertEquals(listOf("16", "17", "26"), parseTeeth("16,17,26"))
+        assertEquals("the website also writes spaces and slashes", listOf("16", "17"), parseTeeth("16 / 17"))
+        assertEquals(listOf("16"), parseTeeth("16,16"))
+    }
+
+    @org.junit.Test
+    fun `anything that is not a tooth is not treated as one`() {
+        assertEquals(emptyList<String>(), parseTeeth("Gen"))
+        assertEquals(emptyList<String>(), parseTeeth(""))
+        assertEquals(emptyList<String>(), parseTeeth(null))
+        assertEquals("99 is not an FDI number", emptyList<String>(), parseTeeth("99"))
+        assertEquals("free text from years ago", emptyList<String>(), parseTeeth("upper left"))
+    }
+
+    @org.junit.Test
+    fun `child teeth count, because the chart draws them`() {
+        assertEquals(listOf("54", "85"), parseTeeth("54,85"))
+    }
+
+    @org.junit.Test
+    fun `an empty selection is stored the way the website stores it`() {
+        assertEquals("Gen", formatTeeth(emptyList()))
+        assertEquals("16,17", formatTeeth(listOf("16", "17")))
+    }
+
+    @org.junit.Test
+    fun `the price is charged once per tooth`() {
+        // Four fillings is four times the money. Charging once was the bug: the app undercharged
+        // for exactly the treatments worth the most.
+        assertEquals(1, pricingUnits(emptyList()))
+        assertEquals(1, pricingUnits(listOf("16")))
+        assertEquals(4, pricingUnits(listOf("16", "17", "26", "27")))
+
+        assertEquals(350.0 * 4, 350.0 * pricingUnits(listOf("16", "17", "26", "27")), 0.001)
+        assertEquals("no teeth still charges once", 350.0, 350.0 * pricingUnits(emptyList()), 0.001)
+    }
+
+    @org.junit.Test
+    fun `the arithmetic is recorded so an invoice can be explained`() {
+        assertEquals("350.0*3", pricingFormula(350.0, 3))
+    }
+
+    @org.junit.Test
+    fun `a note survives the round trip it will actually make`() {
+        // Selected on the phone, stored, then read back by the chart on either side.
+        val selected = listOf("16", "17", "26")
+        assertEquals(selected, parseTeeth(formatTeeth(selected)))
     }
 
     @org.junit.Test

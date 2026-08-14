@@ -25,6 +25,7 @@ import com.alphadental.clinic.data.judgeGeofence
 import com.alphadental.clinic.data.unpaidProcedures
 import com.google.firebase.firestore.DocumentSnapshot
 import com.alphadental.clinic.ui.BookingDraft
+import com.alphadental.clinic.data.pricingUnits
 import com.alphadental.clinic.ui.NoteDraft
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -687,9 +688,9 @@ class AppViewModel : ViewModel() {
                 clinicId = session.clinicId,
                 patient = patient,
                 procedure = draft.procedure,
-                tooth = draft.tooth,
+                teeth = draft.teeth,
                 noteText = draft.note,
-                cost = draft.cost,
+                unitCost = draft.unitCost,
                 status = draft.status,
                 doctor = draft.doctor,
                 service = draft.service,
@@ -699,8 +700,10 @@ class AppViewModel : ViewModel() {
                     _state.value = _state.value.copy(
                         savingNote = false,
                         addNoteOpen = false,
-                        message = if (draft.cost > 0) {
-                            "Procedure saved and charged ${draft.cost.toInt()} EGP."
+                        // The charged figure, not the per-tooth price that was typed.
+                        message = if (draft.unitCost > 0) {
+                            val charged = draft.unitCost * pricingUnits(draft.teeth)
+                            "Procedure saved and charged ${charged.toInt()} EGP."
                         } else {
                             "Procedure saved."
                         },

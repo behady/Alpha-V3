@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.alphadental.clinic.data.Appointment
 import com.alphadental.clinic.data.ClinicalNote
+import com.alphadental.clinic.data.parseTeeth
 import com.alphadental.clinic.data.PatientFile
 import com.alphadental.clinic.data.Prescription
 import java.text.SimpleDateFormat
@@ -220,7 +221,9 @@ fun PatientSheet(
                     }
                     Spacer(Modifier.height(4.dp))
 
-                    val shownNotes = selectedTooth?.let { t -> notes.filter { it.tooth.trim() == t } } ?: notes
+                    // Matched against the teeth a note actually names, not its raw stored value: a note on
+                    // "16,17" belongs under both, and comparing the whole string found neither.
+                    val shownNotes = selectedTooth?.let { t -> notes.filter { t in parseTeeth(it.tooth) } } ?: notes
 
                     if (shownNotes.isEmpty()) {
                         Text(

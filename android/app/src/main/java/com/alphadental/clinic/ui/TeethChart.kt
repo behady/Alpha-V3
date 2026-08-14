@@ -30,6 +30,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.alphadental.clinic.data.ClinicalNote
+import com.alphadental.clinic.data.parseTeeth
 
 /**
  * FDI tooth numbering, the same quadrants the website charts.
@@ -68,9 +69,14 @@ fun TeethChart(
 
     // How many procedures touch each tooth, and whether any is still outstanding. Counting once
     // here keeps the per-tooth lookup out of the drawing loop.
+    //
+    // One note can cover several teeth, stored as "16,17,26". Grouping on the raw string made that
+    // its own key, so a root canal recorded on three teeth from the website lit up none of them —
+    // the chart quietly showed less work than had been done. Each note is now filed under every
+    // tooth it names.
     val byTooth = remember(notes) {
-        notes.filter { it.tooth.isNotBlank() && it.tooth != "Gen" }
-            .groupBy { it.tooth.trim() }
+        notes.flatMap { note -> parseTeeth(note.tooth).map { tooth -> tooth to note } }
+            .groupBy({ it.first }, { it.second })
     }
 
     Column(Modifier.fillMaxWidth()) {
@@ -218,5 +224,126 @@ private fun LegendDot(color: Color, label: String) {
         )
         Spacer(Modifier.width(5.dp))
         Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Alpha.Slate500)
+    }
+}
+
+/**
+ * Pick the teeth a procedure applies to.
+ *
+ * Separate from the chart above because the two answer different questions. That one reports what
+ * has been done and takes one tooth at a time to filter by; this one is an input, and a procedure
+ * routinely covers several teeth at once — four fillings in a sitting is one note, not four.
+ *
+ * Tapping toggles. The count and the running total are shown as they change, because the price is
+ * multiplied by the number of teeth and a dentist should see the charge grow as they select rather
+ * than discover it on the invoice.
+ */
+@Composable
+fun TeethPicker(
+    selected: List<String>,
+    arabic: Boolean,
+    onToggle: (String) -> Unit,
+    onClear: () -> Unit,
+) {
+    var showChild by remember { mutableStateOf(false) }
+
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SectionHeading(if (arabic) "الأسنان" else "TEETH", Modifier.weight(1f))
+            if (selected.isNotEmpty()) {
+                TextButton(onClick = onClear) {
+                    Text(
+                        if (arabic) "مسح" else "Clear",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Alpha.Slate500,
+                    )
+                }
+            }
+            TextButton(onClick = { showChild = !showChild }) {
+                Text(
+                    if (showChild) {
+                        if (arabic) "أسنان دائمة" else "Adult teeth"
+                    } else {
+                        if (arabic) "أسنان لبنية" else "Child teeth"
+                    },
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Alpha.Green,
+                )
+            }
+        }
+
+        Surface(shape = Alpha.CardShape, color = Alpha.Slate50, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(vertical = 12.dp, horizontal = 8.dp)) {
+                PickerArch(
+                    right = if (showChild) ChildQ1 else Q1,
+                    left = if (showChild) ChildQ2 else Q2,
+                    selected = selected,
+                    onToggle = onToggle,
+                )
+                Spacer(Modifier.height(6.dp))
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Alpha.Slate200))
+                Spacer(Modifier.height(6.dp))
+                PickerArch(
+                    right = if (showChild) ChildQ4 else Q4,
+                    left = if (showChild) ChildQ3 else Q3,
+                    selected = selected,
+                    onToggle = onToggle,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = when {
+                selected.isEmpty() && arabic -> "بدون سن محدد — يُسجَّل كعلاج عام."
+                selected.isEmpty() -> "No tooth selected — recorded as general treatment."
+                arabic -> "${selected.size} سن: ${selected.joinToString("، ")}"
+                selected.size == 1 -> "1 tooth: ${selected.first()}"
+                else -> "${selected.size} teeth: ${selected.joinToString(", ")}"
+            },
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (selected.isEmpty()) Alpha.Slate400 else Alpha.Slate700,
+        )
+    }
+}
+
+@Composable
+private fun PickerArch(
+    right: List<Int>,
+    left: List<Int>,
+    selected: List<String>,
+    onToggle: (String) -> Unit,
+) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+        right.forEach { PickerTooth(it, selected, onToggle) }
+        Spacer(Modifier.width(6.dp))
+        left.forEach { PickerTooth(it, selected, onToggle) }
+    }
+}
+
+@Composable
+private fun PickerTooth(number: Int, selected: List<String>, onToggle: (String) -> Unit) {
+    val key = number.toString()
+    val isSelected = key in selected
+
+    Box(
+        Modifier
+            .padding(1.dp)
+            .size(width = 26.dp, height = 30.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(if (isSelected) Alpha.Green else Color.White)
+            .clickable { onToggle(key) },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            key,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Black,
+            color = if (isSelected) Color.White else Alpha.Slate600,
+            textAlign = TextAlign.Center,
+        )
     }
 }

@@ -484,9 +484,10 @@ object Repository {
         clinicId: String,
         patient: Patient,
         procedure: String,
-        tooth: String,
+        teeth: List<String>,
         noteText: String,
-        cost: Double,
+        /** The price for ONE tooth. The total is this times the number of teeth — see pricingUnits. */
+        unitCost: Double,
         status: String,
         doctor: Doctor?,
         service: Service?,
@@ -495,7 +496,13 @@ object Repository {
         require(procedure.isNotBlank()) { "Enter what was done." }
 
         val today = todayKey()
-        val toothLabel = tooth.trim().ifBlank { "Gen" }
+        val toothLabel = formatTeeth(teeth)
+        val units = pricingUnits(teeth)
+
+        // Four fillings is four times the money. The phone used to write the single-tooth price
+        // whatever was selected, so exactly the treatments worth the most were the ones it
+        // undercharged for.
+        val cost = unitCost * units
 
         var ledgerId: String? = null
 
@@ -540,6 +547,11 @@ object Repository {
             "tooth" to toothLabel,
             "note" to noteText.trim(),
             "cost" to cost,
+            // The arithmetic behind the total, written because the website's invoice explains a
+            // charge back to the patient as "350 × 3 teeth" rather than as a bare 1050.
+            "unitCost" to unitCost,
+            "unitsCount" to units,
+            "pricingFormula" to pricingFormula(unitCost, units),
             "status" to status,
             "doctor" to (doctor?.name ?: ""),
             "doctorId" to doctor?.id,

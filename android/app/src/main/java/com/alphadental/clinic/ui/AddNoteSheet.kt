@@ -44,14 +44,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.alphadental.clinic.data.Doctor
 import com.alphadental.clinic.data.Service
+import com.alphadental.clinic.data.pricingUnits
 
 /** What the sheet collects, handed straight to the repository. */
 data class NoteDraft(
     val procedure: String = "",
     val service: Service? = null,
-    val tooth: String = "",
+    /**
+     * The teeth this procedure covers. A list, not a single value, because one procedure routinely
+     * covers several — and because the price is charged per tooth, so the count is money.
+     */
+    val teeth: List<String> = emptyList(),
     val note: String = "",
-    val cost: Double = 0.0,
+    /** The price for ONE tooth. The charge is this times the number of teeth selected. */
+    val unitCost: Double = 0.0,
     val status: String = "Completed",
     val doctor: Doctor? = null,
 )
@@ -81,7 +87,9 @@ fun AddNoteSheet(
     var costText by remember { mutableStateOf("") }
     var serviceFilter by remember { mutableStateOf("") }
 
-    val cost = costText.replace(",", "").toDoubleOrNull() ?: 0.0
+    val unitCost = costText.replace(",", "").toDoubleOrNull() ?: 0.0
+    val units = pricingUnits(draft.teeth)
+    val cost = unitCost * units
     val canSave = draft.procedure.isNotBlank() && !saving
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Alpha.Card) {
@@ -172,34 +180,42 @@ fun AddNoteSheet(
 
             Spacer(Modifier.height(16.dp))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    value = draft.tooth,
-                    onValueChange = { draft = draft.copy(tooth = it) },
-                    label = { Text(if (arabic) "السن" else "Tooth") },
-                    singleLine = true,
-                    shape = Alpha.CardShape,
-                    colors = noteFieldColors(),
-                    modifier = Modifier.weight(1f),
-                )
-                OutlinedTextField(
-                    value = costText,
-                    onValueChange = { input -> costText = input.filter { it.isDigit() || it == '.' } },
-                    label = { Text(if (arabic) "التكلفة" else "Cost") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    shape = Alpha.CardShape,
-                    colors = noteFieldColors(),
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            TeethPicker(
+                selected = draft.teeth,
+                arabic = arabic,
+                onToggle = { tooth ->
+                    draft = draft.copy(
+                        teeth = if (tooth in draft.teeth) draft.teeth - tooth else draft.teeth + tooth
+                    )
+                },
+                onClear = { draft = draft.copy(teeth = emptyList()) },
+            )
+
+            Spacer(Modifier.height(16.dp))
+
+            OutlinedTextField(
+                value = costText,
+                onValueChange = { input -> costText = input.filter { it.isDigit() || it == '.' } },
+                label = { Text(if (arabic) "التكلفة للسن الواحد" else "Cost per tooth") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                shape = Alpha.CardShape,
+                colors = noteFieldColors(),
+                modifier = Modifier.fillMaxWidth(),
+            )
 
             // Says plainly what a cost does, because the alternative is a dentist assuming a
             // procedure was billed when it was only recorded.
             Spacer(Modifier.height(6.dp))
             Text(
                 text = if (cost > 0) {
-                    if (arabic) "سيُضاف هذا المبلغ إلى حساب المريض."
+                    // Spelled out because the total is not the number that was typed. A dentist
+                    // selecting four teeth at 350 is charging 1400, and finding that out from the
+                    // invoice rather than from this screen is how a patient gets an argument.
+                    if (units > 1) {
+                        if (arabic) "${unitCost.toInt()} × $units أسنان = ${cost.toInt()} ج.م تُضاف إلى حساب المريض."
+                        else "${unitCost.toInt()} × $units teeth = ${cost.toInt()} EGP charged to the patient."
+                    } else if (arabic) "سيُضاف هذا المبلغ إلى حساب المريض."
                     else "This amount will be charged to the patient's account."
                 } else {
                     if (arabic) "بدون تكلفة — يُسجَّل طبياً فقط ولا يُضاف للحساب."
@@ -262,7 +278,7 @@ fun AddNoteSheet(
 
             Spacer(Modifier.height(20.dp))
             Button(
-                onClick = { onSave(draft.copy(cost = cost)) },
+                onClick = { onSave(draft.copy(unitCost = unitCost)) },
                 enabled = canSave,
                 shape = Alpha.CardShape,
                 colors = ButtonDefaults.buttonColors(containerColor = Alpha.Ink, contentColor = Color.White),
