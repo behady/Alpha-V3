@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.sp
 import com.alphadental.clinic.data.Appointment
 import com.alphadental.clinic.data.ClinicalNote
 import com.alphadental.clinic.data.PatientFile
+import com.alphadental.clinic.data.Prescription
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -63,6 +64,9 @@ fun PatientSheet(
     notes: List<ClinicalNote>,
     /** Null when this user may not record treatment. */
     onAddNote: (() -> Unit)?,
+    prescriptions: List<Prescription>,
+    /** Null when this user may not prescribe. */
+    onWriteRx: (() -> Unit)?,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -210,6 +214,61 @@ fun PatientSheet(
                     } else {
                         Column(Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState())) {
                             notes.forEach { NoteRow(it, arabic) }
+                        }
+                    }
+
+                    Spacer(Modifier.height(20.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        SectionHeading(if (arabic) "الروشتات" else "PRESCRIPTIONS", Modifier.weight(1f))
+                        if (onWriteRx != null) {
+                            TextButton(onClick = onWriteRx) {
+                                Text(
+                                    if (arabic) "+ كتابة" else "+ Write",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = Alpha.Green,
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+
+                    if (prescriptions.isEmpty()) {
+                        Text(
+                            if (arabic) "لا توجد روشتات." else "No prescriptions.",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Alpha.Slate400,
+                        )
+                    } else {
+                        prescriptions.take(5).forEach { rx ->
+                            Surface(
+                                shape = Alpha.CardShape,
+                                color = Alpha.Slate50,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 3.dp),
+                            ) {
+                                Column(Modifier.padding(12.dp)) {
+                                    Text(
+                                        // The medicines themselves are the identifying detail —
+                                        // a list of dates would make every prescription look alike.
+                                        rx.drugs.joinToString(" · ") { it.name }.ifBlank { "—" },
+                                        fontSize = 13.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Alpha.Slate800,
+                                    )
+                                    Text(
+                                        listOfNotNull(
+                                            rx.date.takeIf { it.isNotBlank() },
+                                            rx.doctor.takeIf { it.isNotBlank() }?.let { "Dr. $it" },
+                                        ).joinToString("  ·  "),
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Alpha.Slate400,
+                                    )
+                                }
+                            }
                         }
                     }
 

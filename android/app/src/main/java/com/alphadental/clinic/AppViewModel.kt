@@ -5,19 +5,22 @@ import androidx.lifecycle.viewModelScope
 import com.alphadental.clinic.data.Appointment
 import com.alphadental.clinic.data.ClinicSchedule
 import com.alphadental.clinic.data.ClinicalNote
+import com.alphadental.clinic.data.DayResult
 import com.alphadental.clinic.data.Doctor
+import com.alphadental.clinic.data.DrugShortcut
 import com.alphadental.clinic.data.GeofenceVerdict
 import com.alphadental.clinic.data.LocationFinder
-import com.alphadental.clinic.data.judgeGeofence
 import com.alphadental.clinic.data.Patient
 import com.alphadental.clinic.data.PatientFile
-import com.alphadental.clinic.data.Slot
-import com.alphadental.clinic.data.buildSlots
-import com.alphadental.clinic.data.DayResult
+import com.alphadental.clinic.data.Prescription
 import com.alphadental.clinic.data.Repository
+import com.alphadental.clinic.data.RxItem
 import com.alphadental.clinic.data.Service
 import com.alphadental.clinic.data.Session
+import com.alphadental.clinic.data.Slot
 import com.alphadental.clinic.data.UnpaidProcedure
+import com.alphadental.clinic.data.buildSlots
+import com.alphadental.clinic.data.judgeGeofence
 import com.alphadental.clinic.data.unpaidProcedures
 import com.google.firebase.firestore.DocumentSnapshot
 import com.alphadental.clinic.ui.BookingDraft
@@ -88,6 +91,11 @@ data class AppState(
     val clocking: Boolean = false,
     /** Set when clocking was refused, so the reason can be shown rather than a bare failure. */
     val clockError: String? = null,
+    // --- prescriptions ---
+    val prescriptions: List<Prescription> = emptyList(),
+    val drugShortcuts: List<DrugShortcut> = emptyList(),
+    val rxOpen: Boolean = false,
+    val savingRx: Boolean = false,
 )
 
 /** Null target means a new booking; a set one means that appointment is being moved. */
@@ -443,9 +451,44 @@ class AppViewModel : ViewModel() {
     private fun loadNotesFor(clinicId: String, patientId: String) {
         viewModelScope.launch {
             val loaded = runCatching { Repository.loadClinicalNotes(clinicId, patientId) }.getOrDefault(emptyList())
+            val rx = runCatching { Repository.loadPrescriptions(clinicId, patientId) }.getOrDefault(emptyList())
             if (_state.value.openPatientId == patientId) {
-                _state.value = _state.value.copy(notes = loaded)
+                _state.value = _state.value.copy(notes = loaded, prescriptions = rx)
             }
+        }
+    }
+
+    fun openPrescription() {
+        val session = _state.value.session ?: return
+        _state.value = _state.value.copy(rxOpen = true)
+        viewModelScope.launch {
+            val doctors = runCatching { Repository.loadDoctors(session.clinicId) }.getOrDefault(emptyList())
+            val shortcuts = runCatching { Repository.loadDrugShortcuts(session.clinicId) }.getOrDefault(emptyList())
+            _state.value = _state.value.copy(doctors = doctors, drugShortcuts = shortcuts)
+        }
+    }
+
+    fun closePrescription() {
+        _state.value = _state.value.copy(rxOpen = false, savingRx = false)
+    }
+
+    fun savePrescription(doctor: String, diagnosis: String, drugs: List<RxItem>) {
+        val session = _state.value.session ?: return
+        val patient = _state.value.patientFile?.patient ?: return
+
+        _state.value = _state.value.copy(savingRx = true)
+        viewModelScope.launch {
+            Repository.addPrescription(session.clinicId, patient, doctor, diagnosis, drugs)
+                .onSuccess {
+                    _state.value = _state.value.copy(rxOpen = false, savingRx = false, message = "Prescription saved.")
+                    loadNotesFor(session.clinicId, patient.id)
+                }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(
+                        savingRx = false,
+                        message = error.message ?: "That prescription could not be saved.",
+                    )
+                }
         }
     }
 

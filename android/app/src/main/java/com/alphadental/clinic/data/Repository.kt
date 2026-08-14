@@ -172,6 +172,80 @@ object Repository {
         }
     }
 
+    // -------------------------------------------------------------- prescriptions
+
+    /** The clinic's saved drug shortcuts, so common medicines are two taps rather than typed. */
+    suspend fun loadDrugShortcuts(clinicId: String): List<DrugShortcut> {
+        val snap = Firebase.db().collection("clinics").document(clinicId)
+            .collection("drugs").get().await()
+
+        return snap.documents.mapNotNull { doc ->
+            val name = doc.getString("name")?.trim().orEmpty()
+            if (name.isEmpty()) return@mapNotNull null
+            DrugShortcut(id = doc.id, name = name, dose = doc.getString("dose").orEmpty())
+        }.sortedBy { it.name }
+    }
+
+    /** A patient's prescriptions, newest first. */
+    suspend fun loadPrescriptions(clinicId: String, patientId: String): List<Prescription> {
+        val snap = Firebase.db().collection("clinics").document(clinicId)
+            .collection("prescriptions").whereEqualTo("patientId", patientId).get().await()
+
+        return snap.documents.map { doc ->
+            @Suppress("UNCHECKED_CAST")
+            val raw = (doc.get("drugs") as? List<Map<String, Any?>>).orEmpty()
+            Prescription(
+                id = doc.id,
+                date = doc.getString("date").orEmpty(),
+                doctor = doc.getString("doctor").orEmpty(),
+                diagnosis = doc.getString("diagnosis").orEmpty(),
+                drugs = raw.map {
+                    RxItem(
+                        name = it["name"]?.toString().orEmpty(),
+                        dose = it["dose"]?.toString().orEmpty(),
+                        note = it["note"]?.toString().orEmpty(),
+                    )
+                },
+            )
+        }.sortedByDescending { it.date }
+    }
+
+    /**
+     * Issue a prescription.
+     *
+     * Written in the same shape the website writes, so it opens and prints from there. Printing
+     * itself stays on the website: the PDF is built by a JavaScript library with the clinic's
+     * letterhead, and reproducing that layout natively would give two prescription designs that
+     * drift apart — which on a legal document is worse than one extra tap.
+     */
+    suspend fun addPrescription(
+        clinicId: String,
+        patient: Patient,
+        doctor: String,
+        diagnosis: String,
+        drugs: List<RxItem>,
+    ): Result<String> = runCatching {
+        require(drugs.isNotEmpty()) { "Add at least one medicine." }
+
+        val ref = Firebase.db().collection("clinics").document(clinicId)
+            .collection("prescriptions").add(
+                mapOf(
+                    "patientId" to patient.id,
+                    "patientName" to patient.name,
+                    "date" to todayKey(),
+                    "doctor" to doctor,
+                    "diagnosis" to diagnosis.trim(),
+                    "drugs" to drugs.map {
+                        mapOf("name" to it.name, "dose" to it.dose, "note" to it.note)
+                    },
+                    "mode" to "typed",
+                    "createdAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
+
+        ref.id
+    }
+
     // ----------------------------------------------------------------- attendance
 
     private fun attendance(clinicId: String) =

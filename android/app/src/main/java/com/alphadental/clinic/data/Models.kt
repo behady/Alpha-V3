@@ -144,6 +144,29 @@ data class ClinicalNote(
     val ledgerId: String = "",
 )
 
+/** One line of a prescription. */
+data class RxItem(
+    val name: String = "",
+    val dose: String = "",
+    val note: String = "",
+)
+
+/** A saved drug shortcut from the clinic's own list. */
+data class DrugShortcut(
+    val id: String = "",
+    val name: String = "",
+    val dose: String = "",
+)
+
+/** One issued prescription. */
+data class Prescription(
+    val id: String = "",
+    val date: String = "",
+    val doctor: String = "",
+    val diagnosis: String = "",
+    val drugs: List<RxItem> = emptyList(),
+)
+
 /**
  * A patient's file as the app shows it.
  *

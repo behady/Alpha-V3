@@ -72,6 +72,7 @@ import com.alphadental.clinic.ui.LoginScreen
 import com.alphadental.clinic.ui.PatientSheet
 import com.alphadental.clinic.ui.PatientsScreen
 import com.alphadental.clinic.ui.PaymentSheet
+import com.alphadental.clinic.ui.PrescriptionSheet
 import com.alphadental.clinic.data.LocationFinder
 import com.alphadental.clinic.sms.SmsPrefs
 import com.alphadental.clinic.sms.SmsWorker
@@ -317,7 +318,24 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     onAddNote = if (session.isAdmin || session.isDentist) {
                         { viewModel.openAddNote() }
                     } else null,
+                    prescriptions = state.prescriptions,
+                    // Prescribing is a dentist's act, and the owner's if they also treat.
+                    onWriteRx = if (session.isAdmin || session.isDentist) {
+                        { viewModel.openPrescription() }
+                    } else null,
                     onDismiss = viewModel::closePatient,
+                )
+            }
+
+            if (state.rxOpen && state.patientFile != null) {
+                PrescriptionSheet(
+                    patientName = state.patientFile!!.patient.name,
+                    doctors = state.doctors,
+                    shortcuts = state.drugShortcuts,
+                    saving = state.savingRx,
+                    arabic = state.arabic,
+                    onSave = viewModel::savePrescription,
+                    onDismiss = viewModel::closePrescription,
                 )
             }
 
