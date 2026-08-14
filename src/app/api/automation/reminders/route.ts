@@ -7,8 +7,8 @@ import { clinicTimeZone, tomorrowYmdInTimeZone } from "@/lib/clinicDate";
 import { pickPatientPhone } from "@/lib/patientPhone";
 import { resolveWhatsappTemplateForPatient } from "@/lib/whatsappDefaultBodies";
 import { mergeWhatsAppTemplate } from "@/lib/whatsappTemplateMerge";
-import { normalizeToE164, sendWhatsApp } from "@/lib/whatsapp";
-import { resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
+import { normalizeToE164 } from "@/lib/whatsapp";
+import { deliverWhatsAppMessage } from "@/lib/whatsappDelivery";
 import { getClinicProfileAdmin } from "@/lib/clinicProfileServer";
 import { isSmsBlocked, isWhatsAppBlocked, type PatientContactPreferences } from "@/lib/patientMessaging";
 import { channelIncludesSms, channelIncludesWhatsApp } from "@/lib/sms/config";
@@ -196,14 +196,31 @@ async function sendWhatsAppLeg(args: {
       clinicName,
     });
 
-  // Click-to-send has no meaning here. This runs unattended at 07:00, so there is nobody to open
-  // WhatsApp and press send. Rather than fake a success or throw a confusing gateway error, the
-  // reminder is reported as not sent and NO reminder record is written — so it is retried on the
-  // next run instead of being permanently marked as done for an appointment nobody was told about.
-  const mode = await resolveWhatsappDeliveryMode(clinicId);
-  if (mode === "manual") return { status: "skipped", reason: "no_whatsapp_connection" };
+  // Click-to-send has no meaning here: this runs before dawn, so there is nobody to open WhatsApp
+  // and press send. It used to give up at that point, which meant a clinic without a paid gateway
+  // had its WhatsApp reminders silently never go out at all — the failure looked identical to a
+  // patient ignoring the message. Now the message goes into a list the clinic works through in the
+  // morning, and only a clinic with no phone paired is turned away.
+  const delivery = await deliverWhatsAppMessage({
+    clinicId,
+    to: e164,
+    text: msg,
+    queue: {
+      key: `${appointment.id}_24h`,
+      type: "reminder24h",
+      patientId: appointment.patientId,
+      patientName,
+      appointmentId: appointment.id,
+    },
+  });
 
-  await sendWhatsApp({ clinicId, to: e164, text: msg });
+  if (delivery.mode === "manual") return { status: "skipped", reason: "no_whatsapp_connection" };
+
+  // Queued is not sent. No reminder record is written, because that record is what stops the
+  // message being prepared again — and writing it now would permanently mark an appointment as
+  // handled when the patient has not been told anything yet.
+  if (delivery.mode === "queued") return { status: "queued", reason: "awaiting_clinic_phone" };
+
   await reminderRef.set({
     appointmentId: appointment.id,
     sentAt: new Date().toISOString(),

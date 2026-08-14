@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
@@ -71,6 +72,7 @@ import com.alphadental.clinic.ui.BookingSheet
 import com.alphadental.clinic.ui.DayScreen
 import com.alphadental.clinic.ui.HomeScreen
 import com.alphadental.clinic.ui.InventorySheet
+import com.alphadental.clinic.ui.WhatsappQueueSheet
 import com.alphadental.clinic.ui.LoginScreen
 import com.alphadental.clinic.ui.MoneyScreen
 import com.alphadental.clinic.ui.PatientSheet
@@ -290,6 +292,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             onPunch = { viewModel.punchClock(context) },
                             onDismissClockError = viewModel::dismissClockError,
                             onOpenInventory = viewModel::openInventory,
+                            whatsappWaiting = state.whatsappQueue.size,
+                            onOpenWhatsappQueue = viewModel::openWhatsappQueue,
                             onToggleLanguage = viewModel::toggleLanguage,
                             onSignOut = viewModel::signOut,
                         )
@@ -348,6 +352,15 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         { noteId, status -> viewModel.updateNoteStatus(noteId, status) }
                     } else null,
                     onDismiss = viewModel::closePatient,
+                )
+            }
+
+            if (state.whatsappQueueOpen) {
+                WhatsappQueueSheet(
+                    queue = state.whatsappQueue,
+                    arabic = state.arabic,
+                    onSend = { viewModel.markWhatsappSent(it, SmsPrefs.deviceId(context)) },
+                    onDismiss = viewModel::closeWhatsappQueue,
                 )
             }
 
@@ -475,6 +488,8 @@ private fun MoreScreen(
     onPunch: () -> Unit,
     onDismissClockError: () -> Unit,
     onOpenInventory: () -> Unit,
+    whatsappWaiting: Int,
+    onOpenWhatsappQueue: () -> Unit,
     onToggleLanguage: () -> Unit,
     onSignOut: () -> Unit,
 ) {
@@ -559,6 +574,24 @@ private fun MoreScreen(
                     smsPermission.launch(Manifest.permission.SEND_SMS)
                 }
             },
+        )
+
+        SectionHeading(if (arabic) "واتساب" else "WHATSAPP")
+
+        // Always shown, even at zero. A row that only appears when there is work is a row nobody
+        // learns is there, and these are messages patients are waiting on.
+        MoreRow(
+            icon = Icons.Filled.Send,
+            label = if (arabic) "رسائل للإرسال" else "Messages to send",
+            caption = when {
+                whatsappWaiting == 0 && arabic -> "لا توجد رسائل في الانتظار"
+                whatsappWaiting == 0 -> "Nothing waiting"
+                arabic -> "$whatsappWaiting في الانتظار — اضغط لإرسالها"
+                whatsappWaiting == 1 -> "1 waiting — tap to send it"
+                else -> "$whatsappWaiting waiting — tap to send them"
+            },
+            tint = if (whatsappWaiting > 0) Color(0xFF128C7E) else Alpha.Slate700,
+            onClick = onOpenWhatsappQueue,
         )
 
         SectionHeading(if (arabic) "المخزون" else "STOCK")

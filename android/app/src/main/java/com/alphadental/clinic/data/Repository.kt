@@ -891,6 +891,94 @@ object Repository {
         ).await()
     }
 
+    // --- WhatsApp messages waiting for a person to press send -------------------------------
+
+    /** One message on the clinic's to-send list. */
+    data class PendingWhatsapp(
+        val id: String,
+        val to: String,
+        val text: String,
+        val patientName: String,
+        val type: String,
+        val createdAt: String,
+    )
+
+    private fun whatsappOutbox(clinicId: String) =
+        Firebase.db().collection("clinics").document(clinicId).collection("whatsapp_outbox")
+
+    /**
+     * A reminder for a visit that has already happened is worse than none — the patient reads
+     * "your appointment is tomorrow" about a day they have been and gone. Phones go flat and
+     * people take holidays, so the list gives up on its own rather than growing forever.
+     *
+     * Matches the server's own expiry so the two never disagree about what is still worth sending.
+     */
+    private const val WHATSAPP_STALE_MS = 3L * 24 * 60 * 60 * 1000
+
+    internal fun isWhatsappStale(createdAt: String?, now: Long): Boolean {
+        if (createdAt.isNullOrBlank()) return false
+        val created = runCatching { java.time.Instant.parse(createdAt).toEpochMilli() }.getOrNull() ?: return false
+        return now - created > WHATSAPP_STALE_MS
+    }
+
+    /**
+     * Watch the to-send list.
+     *
+     * A live listener rather than a fetch, because two people may be working through the same list
+     * on different phones — as one sends, the row has to vanish from the other's screen. Without
+     * that, the patient gets the same message twice from two staff members.
+     */
+    fun observePendingWhatsapp(clinicId: String): Flow<List<PendingWhatsapp>> = callbackFlow {
+        val registration = whatsappOutbox(clinicId)
+            .whereEqualTo("status", "queued")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null || snapshot == null) return@addSnapshotListener
+                val now = System.currentTimeMillis()
+                trySend(
+                    snapshot.documents
+                        .mapNotNull { doc ->
+                            val createdAt = doc.getString("createdAt").orEmpty()
+                            if (isWhatsappStale(createdAt, now)) return@mapNotNull null
+                            val to = doc.getString("to").orEmpty()
+                            val text = doc.getString("text").orEmpty()
+                            // A message with no number or no body cannot be sent and would sit in
+                            // the list forever looking like work nobody is doing.
+                            if (to.isBlank() || text.isBlank()) return@mapNotNull null
+                            PendingWhatsapp(
+                                id = doc.id,
+                                to = to,
+                                text = text,
+                                patientName = doc.getString("patientName").orEmpty(),
+                                type = doc.getString("type").orEmpty(),
+                                createdAt = createdAt,
+                            )
+                        }
+                        // Oldest first: the order a person should work through them, and the order
+                        // in which they stop being worth sending.
+                        .sortedBy { it.createdAt }
+                )
+            }
+        awaitClose { registration.remove() }
+    }
+
+    /**
+     * Mark one message as sent.
+     *
+     * Called when the person comes back from WhatsApp, which is the only signal available — the
+     * app cannot see whether they actually pressed send inside WhatsApp, so this records "handled"
+     * rather than "delivered". Overstating it would be wrong, but leaving a sent message in the
+     * list forever guarantees the patient is messaged twice, which is worse.
+     */
+    suspend fun markWhatsappSent(clinicId: String, messageId: String, deviceId: String): Result<Unit> = runCatching {
+        whatsappOutbox(clinicId).document(messageId).update(
+            mapOf(
+                "status" to "sent",
+                "sentAt" to java.time.Instant.now().toString(),
+                "sentByDeviceId" to deviceId,
+            )
+        ).await()
+    }
+
     /**
      * Tell the clinic that this phone is alive and willing to send.
      *

@@ -352,18 +352,34 @@ export async function POST(request: Request) {
       });
 
       try {
-        const delivery = await deliverWhatsAppMessage({ clinicId, to: phone, text: merged });
+        const delivery = await deliverWhatsAppMessage({
+          clinicId,
+          to: phone,
+          text: merged,
+          // Worth queueing: the patient needs this whether or not a staff member is at a screen
+          // right now. Keyed on the slot so moving an appointment twice queues two messages while
+          // saving the same change twice queues one.
+          queue: {
+            key: outboxKey(patientId, appointmentTemplate, apptDateRaw, apptTimeRaw),
+            type: logType,
+            patientId,
+            patientName,
+          },
+        });
         await adminClinicCollection(clinicId, "whatsapp_logs").add({
           patientId,
           type: logType,
           message: merged,
-          // Logged as "manual" rather than "success": nothing has been delivered yet, and a log
-          // claiming otherwise would make the patient timeline lie about what the patient saw.
-          status: delivery.mode === "manual" ? "manual" : "success",
+          // Neither "manual" nor "queued" is a delivery. A log claiming otherwise would make the
+          // patient timeline lie about what the patient actually saw.
+          status: delivery.mode === "auto" ? "success" : delivery.mode,
           createdAt: FieldValue.serverTimestamp(),
         });
         if (delivery.mode === "manual") {
           return NextResponse.json({ ok: true, manual: true, phone: delivery.phone, text: delivery.text });
+        }
+        if (delivery.mode === "queued") {
+          return NextResponse.json({ ok: true, queued: true });
         }
         return NextResponse.json({ ok: true });
       } catch (e: unknown) {
@@ -592,16 +608,33 @@ export async function POST(request: Request) {
     }
 
     try {
-      const delivery = await deliverWhatsAppMessage({ clinicId, to: phone, text: merged });
+      // Queued only when nobody is watching. `automation` means this fired off the back of a save,
+      // so there is no one to press send and the message belongs in the clinic's list. When a staff
+      // member pressed a button, they are looking at the screen — opening WhatsApp there and then
+      // is faster and more use than adding a row to a list they have to come back to.
+      const unattendedKey =
+        automation && (ledgerIdBody || clinicalNoteIdBody)
+          ? outboxKey(ledgerIdBody || clinicalNoteIdBody, kind)
+          : "";
+
+      const delivery = await deliverWhatsAppMessage({
+        clinicId,
+        to: phone,
+        text: merged,
+        queue: unattendedKey ? { key: unattendedKey, type: kind, patientId, patientName } : undefined,
+      });
       await adminClinicCollection(clinicId, "whatsapp_logs").add({
         patientId,
         type: kind,
         message: merged,
-        status: delivery.mode === "manual" ? "manual" : "success",
+        status: delivery.mode === "auto" ? "success" : delivery.mode,
         createdAt: FieldValue.serverTimestamp(),
       });
       if (delivery.mode === "manual") {
         return NextResponse.json({ ok: true, manual: true, phone: delivery.phone, text: delivery.text });
+      }
+      if (delivery.mode === "queued") {
+        return NextResponse.json({ ok: true, queued: true });
       }
       return NextResponse.json({ ok: true });
     } catch (e: unknown) {

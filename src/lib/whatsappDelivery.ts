@@ -1,6 +1,8 @@
 import { adminClinicDoc } from "@/lib/adminClinicDb";
+import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { loadWapilotConfig } from "@/lib/wapilotConfig";
 import { sendWhatsApp } from "@/lib/whatsapp";
+import { enqueueWhatsapp } from "@/lib/whatsapp/outbox";
 
 /**
  * How a clinic's WhatsApp messages leave the building.
@@ -25,12 +27,20 @@ export type WhatsappDeliveryMode = "auto" | "manual";
 
 export type WhatsappDeliveryResult =
   | { mode: "auto"; sent: true }
+  | { mode: "queued"; sent: false }
   | { mode: "manual"; sent: false; phone: string; text: string };
 
 /**
- * Manual when the clinic has explicitly chosen it, or when there is no gateway to send through.
- * Falling back to manual rather than failing is the point: the message still reaches the patient,
- * it just needs a tap.
+ * Can the server send this itself, unattended?
+ *
+ * Deliberately still two-valued. A dozen call sites read this as "manual means hand it back to the
+ * browser", and quietly adding a third value would have each of them fall through to the gateway
+ * and fail. Queueing to the clinic's phone is a property of *delivering* a patient message, not of
+ * this question, so it lives in `deliverWhatsAppMessage` below.
+ *
+ * Unattended sending is a paid feature. It needs gateway credentials, which cost money and carry
+ * the risk that Meta restricts the number, so it sits behind `whatsappIntegration` on the clinic's
+ * plan. Everything else falls back to a human pressing send, which is free and cannot be banned.
  */
 export async function resolveWhatsappDeliveryMode(clinicId: string): Promise<WhatsappDeliveryMode> {
   try {
@@ -40,6 +50,10 @@ export async function resolveWhatsappDeliveryMode(clinicId: string): Promise<Wha
     // A missing or unreadable settings doc is not a reason to fail a send; fall through to
     // deciding on whether credentials exist.
   }
+
+  // Checked before the credentials, because a clinic that has downgraded may still have a working
+  // gateway configured and must stop using it.
+  if (!(await clinicHasFeature(clinicId, "whatsappIntegration"))) return "manual";
 
   try {
     const config = await loadWapilotConfig(clinicId);
@@ -60,11 +74,40 @@ export async function deliverWhatsAppMessage(args: {
   clinicId: string;
   to: string;
   text: string;
+  /**
+   * Supply this for messages that are worth queueing when there is no gateway: the ones aimed at
+   * a patient, which a staff member can work through later. Omitting it keeps the old behaviour of
+   * handing the text straight back to the browser — right for anything the sender is watching
+   * happen, like an owner alert or a lab order.
+   */
+  queue?: {
+    key: string;
+    type: string;
+    patientId?: string;
+    patientName?: string;
+    appointmentId?: string;
+  };
 }): Promise<WhatsappDeliveryResult> {
   const mode = await resolveWhatsappDeliveryMode(args.clinicId);
-  if (mode === "manual") {
-    return { mode: "manual", sent: false, phone: args.to, text: args.text };
+
+  if (mode === "auto") {
+    await sendWhatsApp({ clinicId: args.clinicId, to: args.to, text: args.text });
+    return { mode: "auto", sent: true };
   }
-  await sendWhatsApp({ clinicId: args.clinicId, to: args.to, text: args.text });
-  return { mode: "auto", sent: true };
+
+  // No gateway. If this message can wait for a person, put it in the clinic's list rather than
+  // dropping it — that list is the whole reason the nightly reminders now reach anyone at all.
+  if (args.queue) {
+    await enqueueWhatsapp(args.clinicId, args.queue.key, {
+      to: args.to,
+      text: args.text,
+      type: args.queue.type,
+      patientId: args.queue.patientId,
+      patientName: args.queue.patientName,
+      appointmentId: args.queue.appointmentId,
+    });
+    return { mode: "queued", sent: false };
+  }
+
+  return { mode: "manual", sent: false, phone: args.to, text: args.text };
 }

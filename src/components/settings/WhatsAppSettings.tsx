@@ -7,7 +7,9 @@ import { auth, db } from "@/lib/firebase";
 import { WHATSAPP_DIAL_COUNTRIES, buildE164FromDialAndNational } from "@/lib/whatsappDialCountries";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
+import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
+import { hasFeature } from "@/lib/subscriptions";
 import { logActivity } from "@/lib/logger";
 import type {
   OwnerAlertKey,
@@ -120,6 +122,11 @@ export default function WhatsAppSettings() {
   const { language, isRTL } = useLanguage();
   const { user } = useAuth();
   const { showToast } = useUI();
+  const { clinic } = useClinic();
+
+  // The same check the server makes before using the gateway, so this screen cannot promise
+  // something the API will then refuse.
+  const canSendAutomatically = hasFeature(clinic, "whatsappIntegration");
 
   const [hasLoaded, setHasLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -164,8 +171,18 @@ export default function WhatsAppSettings() {
       deliveryAuto: language === "ar" ? "إرسال تلقائي" : "Send automatically",
       deliveryAutoHint:
         language === "ar"
-          ? "النظام يبعت الرسالة لوحده. محتاج اتصال واتساب مفعّل."
-          : "The system sends on its own. Requires a connected WhatsApp gateway.",
+          ? "النظام يبعت الرسالة لوحده. محتاج باقة Premium واتصال واتساب مفعّل."
+          : "The system sends on its own. Needs the Premium plan and a connected WhatsApp gateway.",
+      deliveryLocked: language === "ar" ? "يتطلب الترقية" : "Premium",
+      deliveryLockedHint:
+        language === "ar"
+          ? "باقتك الحالية لا تشمل الإرسال التلقائي، لذلك تنتظر الرسائل على هاتف العيادة ليضغط أحد الموظفين إرسال."
+          : "Your plan does not include automatic sending, so messages wait on the clinic phone for a staff member to press send.",
+      deliveryQueueTitle: language === "ar" ? "ما الذي يحدث الآن" : "What happens right now",
+      deliveryQueueBody:
+        language === "ar"
+          ? "الرسائل التي يجهّزها النظام دون وجود موظف أمام الشاشة — مثل تذكير الغد الذي يعمل قبل الفجر — تظهر في تطبيق ألفا على هاتف العيادة تحت «رسائل للإرسال». هذه الرسائل كانت في السابق لا تُرسل إطلاقاً."
+          : "Messages the system writes when nobody is at a screen — the next-day reminder runs before dawn — now appear in the Alpha app on the clinic phone under \"Messages to send\". Those messages previously went nowhere at all.",
       deliveryManual: language === "ar" ? "فتح واتساب للإرسال" : "Open WhatsApp to send",
       deliveryManualHint:
         language === "ar"
@@ -630,10 +647,15 @@ export default function WhatsAppSettings() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {(["auto", "manual"] as const).map((mode) => {
                 const active = (state.deliveryMode ?? "auto") === mode;
+                // Shown but not hidden when the plan excludes it: a feature nobody can see is a
+                // feature nobody upgrades for, and silently removing the option would leave a
+                // clinic wondering why their messages stopped sending themselves.
+                const locked = mode === "auto" && !canSendAutomatically;
                 return (
                   <button
                     key={mode}
                     type="button"
+                    disabled={locked}
                     onClick={() =>
                       setState((s) => {
                         const next = { ...s, deliveryMode: mode };
@@ -642,20 +664,40 @@ export default function WhatsAppSettings() {
                       })
                     }
                     className={`text-start rounded-xl border px-4 py-3 transition-all ${
-                      active
-                        ? "border-primary-500 bg-primary-50 ring-1 ring-primary-200"
-                        : "border-slate-200 bg-slate-50/80 hover:border-slate-300"
+                      locked
+                        ? "border-slate-200 bg-slate-50/60 opacity-70 cursor-not-allowed"
+                        : active
+                          ? "border-primary-500 bg-primary-50 ring-1 ring-primary-200"
+                          : "border-slate-200 bg-slate-50/80 hover:border-slate-300"
                     }`}
                   >
-                    <span className="block text-sm font-bold text-slate-800">
-                      {mode === "auto" ? txt.deliveryAuto : txt.deliveryManual}
+                    <span className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-slate-800">
+                        {mode === "auto" ? txt.deliveryAuto : txt.deliveryManual}
+                      </span>
+                      {locked && (
+                        <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-100 text-amber-800">
+                          {txt.deliveryLocked}
+                        </span>
+                      )}
                     </span>
                     <span className="block text-xs text-slate-500 mt-1 leading-relaxed">
-                      {mode === "auto" ? txt.deliveryAutoHint : txt.deliveryManualHint}
+                      {mode === "auto"
+                        ? locked
+                          ? txt.deliveryLockedHint
+                          : txt.deliveryAutoHint
+                        : txt.deliveryManualHint}
                     </span>
                   </button>
                 );
               })}
+            </div>
+
+            <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3">
+              <p className="text-[11px] font-black uppercase tracking-widest text-emerald-700">
+                {txt.deliveryQueueTitle}
+              </p>
+              <p className="text-xs text-emerald-900 mt-1.5 leading-relaxed">{txt.deliveryQueueBody}</p>
             </div>
           </div>
 

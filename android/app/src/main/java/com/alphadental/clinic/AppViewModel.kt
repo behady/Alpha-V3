@@ -106,6 +106,13 @@ data class AppState(
     val inventory: List<InventoryItem> = emptyList(),
     val inventoryOpen: Boolean = false,
     val loadingInventory: Boolean = false,
+    // --- WhatsApp messages waiting for a person to send ---
+    /**
+     * Kept in state even while the screen is shut, because the count is shown as a badge on More.
+     * A list nobody is told about is a list nobody works through.
+     */
+    val whatsappQueue: List<Repository.PendingWhatsapp> = emptyList(),
+    val whatsappQueueOpen: Boolean = false,
 )
 
 /** Null target means a new booking; a set one means that appointment is being moved. */
@@ -143,6 +150,7 @@ class AppViewModel : ViewModel() {
                 watchDay(session.clinicId, _state.value.date)
                 refreshShift()
                 refreshTakings()
+                watchWhatsappQueue(session.clinicId)
             }
             .onFailure { error ->
                 // The account exists in Firebase but not in this clinic system — a
@@ -166,6 +174,7 @@ class AppViewModel : ViewModel() {
                     watchDay(session.clinicId, _state.value.date)
                     refreshShift()
                     refreshTakings()
+                    watchWhatsappQueue(session.clinicId)
                 }
                 .onFailure { error ->
                     _state.value = _state.value.copy(signingIn = false, signInError = error.message ?: "Could not sign in.")
@@ -281,6 +290,54 @@ class AppViewModel : ViewModel() {
 
     fun closeInventory() {
         _state.value = _state.value.copy(inventoryOpen = false)
+    }
+
+    // --- WhatsApp messages waiting for a person to send -----------------------------------
+
+    private var whatsappJob: Job? = null
+
+    /**
+     * Watch the to-send list for as long as the session lasts.
+     *
+     * Started at sign-in rather than when the screen opens, because the point of the badge is to
+     * tell somebody there is work waiting. A list you only discover by going looking for it does
+     * not get worked through, and these are messages patients are expecting.
+     */
+    private fun watchWhatsappQueue(clinicId: String) {
+        whatsappJob?.cancel()
+        whatsappJob = viewModelScope.launch {
+            Repository.observePendingWhatsapp(clinicId).collect { queue ->
+                _state.value = _state.value.copy(whatsappQueue = queue)
+            }
+        }
+    }
+
+    fun openWhatsappQueue() {
+        _state.value = _state.value.copy(whatsappQueueOpen = true)
+    }
+
+    fun closeWhatsappQueue() {
+        _state.value = _state.value.copy(whatsappQueueOpen = false)
+    }
+
+    /**
+     * Record that a message has been dealt with.
+     *
+     * Called when the person returns from WhatsApp. The app cannot see whether they actually
+     * pressed send in there, so this means "handled", not "delivered" — but leaving it in the list
+     * would guarantee the patient hears from the clinic twice, which is the worse mistake.
+     */
+    fun markWhatsappSent(message: Repository.PendingWhatsapp, deviceId: String) {
+        val session = _state.value.session ?: return
+        // Dropped from the list straight away: the person has just come back from WhatsApp and
+        // expects it gone. The listener confirms it a moment later.
+        _state.value = _state.value.copy(whatsappQueue = _state.value.whatsappQueue.filterNot { it.id == message.id })
+        viewModelScope.launch {
+            Repository.markWhatsappSent(session.clinicId, message.id, deviceId)
+                .onFailure { error ->
+                    _state.value = _state.value.copy(message = error.message ?: "Could not update the message.")
+                }
+        }
     }
 
     /**

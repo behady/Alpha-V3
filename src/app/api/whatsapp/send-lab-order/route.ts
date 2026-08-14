@@ -88,6 +88,9 @@ export async function POST(request: Request) {
         });
         return NextResponse.json({ ok: true });
       }
+      // A lab order is never queued for later — no `queue` is passed above, because this is sent
+      // by a person who is looking at the screen and expects WhatsApp to open.
+      if (delivery.mode === "queued") return NextResponse.json({ ok: true, queued: true });
       return NextResponse.json({ ok: true, manual: true, phone: delivery.phone, text: delivery.text });
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Send failed";

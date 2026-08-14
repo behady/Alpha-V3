@@ -175,6 +175,25 @@ service cloud.firestore {
         allow create, delete: if false;
       }
 
+      // WhatsApp messages waiting for a person at the clinic to press send.
+      //
+      // Same shape of protection as sms_outbox and for the same reason: the server composes the
+      // message, and a client able to create rows here could put words in the clinic's mouth to
+      // any number it liked. `to` and `text` are absent from the update list, so a message cannot
+      // be redirected or reworded between being composed and being sent.
+      //
+      // The difference from sms_outbox is that nothing claims a message here — a human is holding
+      // the phone, so there is no background worker to race. Marking one sent is the only change a
+      // client makes.
+      match /whatsapp_outbox/{messageId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow update: if isSuperAdmin()
+          || (hasClinicRole(clinicId) && isClinicActive(clinicId)
+              && request.resource.data.diff(resource.data).affectedKeys()
+                   .hasOnly(['status', 'sentAt', 'sentByDeviceId']));
+        allow create, delete: if false;
+      }
+
       // Phones offering to send this clinic's reminders. The app writes a heartbeat here every
       // time its background job wakes up, and the nightly job refuses to queue anything unless one
       // of these was seen recently. Clinic members may write because the phone IS a clinic member

@@ -540,4 +540,35 @@ class InventoryTest {
         assertTrue(Repository.isSmsDue("not a date", noon))
         assertTrue(Repository.isSmsDue("2026-13-45", noon))
     }
+
+    // --- the WhatsApp to-send list ---------------------------------------------------------------
+    //
+    // These are read out of a list and sent by hand, so an entry that outlives its appointment gets
+    // sent to a real patient telling them to come in for a day that has already passed. The cutoff
+    // must match the server's (lib/whatsapp/outbox.ts) or the two disagree about what is sendable.
+
+    private fun hoursBeforeNoon(h: Long) =
+        java.time.Instant.ofEpochMilli(noon - h * 60 * 60 * 1000).toString()
+
+    @org.junit.Test
+    fun `recent whatsapp messages are still worth sending`() {
+        assertFalse(Repository.isWhatsappStale(hoursBeforeNoon(1), noon))
+        assertFalse("yesterday's is still the reminder", Repository.isWhatsappStale(hoursBeforeNoon(24), noon))
+        assertFalse("just inside three days", Repository.isWhatsappStale(hoursBeforeNoon(71), noon))
+    }
+
+    @org.junit.Test
+    fun `whatsapp messages older than three days have gone off`() {
+        assertTrue(Repository.isWhatsappStale(hoursBeforeNoon(73), noon))
+        assertTrue("a month in a drawer", Repository.isWhatsappStale(hoursBeforeNoon(24 * 30), noon))
+    }
+
+    @org.junit.Test
+    fun `an unreadable timestamp keeps the message rather than binning it`() {
+        // A message wrongly kept is one a person can look at and decide about. A message wrongly
+        // dropped is a patient nobody told anything.
+        assertFalse(Repository.isWhatsappStale(null, noon))
+        assertFalse(Repository.isWhatsappStale("", noon))
+        assertFalse(Repository.isWhatsappStale("not a date", noon))
+    }
 }
