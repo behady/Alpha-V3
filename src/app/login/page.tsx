@@ -2,9 +2,17 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Mail, Lock, ArrowRight, Loader2, ShieldCheck, KeyRound, AlertCircle, CheckCircle2, Building2 } from "lucide-react";
-import { signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, sendPasswordResetEmail, signOut } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { Mail, Lock, ArrowRight, Loader2, ShieldCheck, KeyRound, AlertCircle, CheckCircle2, Building2, User } from "lucide-react";
+import {
+  signInWithPopup,
+  GoogleAuthProvider,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
+  sendPasswordResetEmail,
+  signOut,
+} from "firebase/auth";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useLanguage } from "@/context/LanguageContext";
 
@@ -16,28 +24,55 @@ export default function LoginPage() {
   const router = useRouter();
   const { language, isRTL } = useLanguage();
 
-  const [isResetMode, setIsResetMode] = useState(false);
+  /**
+   * Three screens, not two. There used to be no way to create an account at all — a new clinic
+   * owner arriving here could only sign in, reset a password they had never set, or use Google.
+   * Typing their email and a password they had just invented returned "Incorrect email or
+   * password", which reads as "you got your details wrong" when the truth is "you have no
+   * account yet", so the only thing to do was try again. That is the loop this mode ends.
+   */
+  const [mode, setMode] = useState<"signin" | "signup" | "reset">("signin");
+  const isResetMode = mode === "reset";
+  const isSignUpMode = mode === "signup";
+
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [clinicId, setClinicId] = useState("");
   const [loading, setLoading] = useState(false);
-  
+
   // Status states
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+
+  const switchMode = (next: "signin" | "signup" | "reset") => {
+    setMode(next);
+    setErrorMsg("");
+    setSuccessMsg("");
+  };
 
   // --- TRANSLATION DICTIONARY ---
   const txt = {
     welcome: language === 'ar' ? "مرحباً بك في ألفا" : "Welcome to Alpha",
     subWelcome: language === 'ar' ? "قم بتسجيل الدخول للوصول إلى نظام العيادة" : "Sign in to access your clinic system",
+    signUpTitle: language === 'ar' ? "إنشاء حساب جديد" : "Create your account",
+    signUpSub: language === 'ar'
+      ? "افتح حساب، وبعدها هنطلب منك اسم العيادة على طول."
+      : "Create an account, then we'll ask for your clinic name on the next screen.",
     resetTitle: language === 'ar' ? "استعادة كلمة المرور" : "Reset Password",
-    resetSub: language === 'ar' ? "سندسل لك رابطاً لإنشاء كلمة مرور جديدة" : "We'll send you a link to create a new password",
+    resetSub: language === 'ar' ? "سنرسل لك رابطاً لإنشاء كلمة مرور جديدة" : "We'll send you a link to create a new password",
+    name: language === 'ar' ? "اسمك" : "Your name",
     email: language === 'ar' ? "البريد الإلكتروني" : "Email Address",
     password: language === 'ar' ? "كلمة المرور" : "Password",
+    passwordHint: language === 'ar' ? "٦ أحرف على الأقل." : "At least 6 characters.",
     loginBtn: language === 'ar' ? "تسجيل الدخول" : "Sign In",
+    signUpBtn: language === 'ar' ? "إنشاء الحساب" : "Create account",
     resetBtn: language === 'ar' ? "إرسال رابط الاستعادة" : "Send Reset Link",
     forgotPass: language === 'ar' ? "نسيت كلمة المرور؟" : "Forgot Password?",
     backToLogin: language === 'ar' ? "العودة لتسجيل الدخول" : "Back to Sign In",
+    newHere: language === 'ar' ? "عيادة جديدة؟" : "New clinic?",
+    createOne: language === 'ar' ? "أنشئ حساباً" : "Create an account",
+    haveAccount: language === 'ar' ? "عندك حساب بالفعل؟" : "Already have an account?",
     successReset: language === 'ar' ? "تم إرسال رابط الاستعادة! تفقد بريدك الإلكتروني." : "Reset link sent! Please check your inbox.",
     clinicId: language === 'ar' ? "رقم العيادة (اختياري)" : "Clinic ID (optional)",
     clinicHint: language === 'ar'
@@ -55,7 +90,22 @@ export default function LoginPage() {
       case 'auth/user-not-found':
       case 'auth/wrong-password':
       case 'auth/invalid-credential':
-        return language === 'ar' ? "البريد الإلكتروني أو كلمة المرور غير صحيحة." : "Incorrect email or password.";
+        // Firebase deliberately will not say which of the two was wrong, so neither can we — but
+        // "no account yet" is the single most likely reason someone lands here, and the old
+        // wording sent those people back to retype the same details forever.
+        return language === 'ar'
+          ? "البريد الإلكتروني أو كلمة المرور غير صحيحة. لو لسه معندكش حساب، اضغط «أنشئ حساباً» تحت."
+          : "Incorrect email or password. If you don't have an account yet, use \"Create an account\" below.";
+      case 'auth/email-already-in-use':
+        return language === 'ar'
+          ? "فيه حساب بالبريد ده بالفعل. سجّل الدخول، أو استخدم «نسيت كلمة المرور؟»."
+          : "An account with this email already exists. Sign in instead, or use \"Forgot Password?\".";
+      case 'auth/weak-password':
+        return language === 'ar' ? "كلمة المرور قصيرة. لازم ٦ أحرف على الأقل." : "Password is too short — use at least 6 characters.";
+      case 'auth/operation-not-allowed':
+        return language === 'ar'
+          ? "تسجيل الحسابات بالبريد غير مفعّل على النظام. استخدم «المتابعة باستخدام حساب جوجل»."
+          : "Email sign-up is not enabled on this system. Please use \"Continue with Google\".";
       case 'auth/too-many-requests':
         return language === 'ar' ? "محاولات كثيرة خاطئة. يرجى المحاولة لاحقاً." : "Too many failed attempts. Please try again later.";
       default:
@@ -128,6 +178,35 @@ export default function LoginPage() {
     }
   };
 
+  const handleSignUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || !password) return;
+    setErrorMsg("");
+    setLoading(true);
+
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      const chosenName = name.trim();
+      if (chosenName) {
+        await updateProfile(cred.user, { displayName: chosenName });
+        /**
+         * AuthContext creates the user document the moment the account exists, which is before
+         * updateProfile above has run — so the profile it writes says "Unknown User" and, being
+         * driven by a snapshot listener, it never revisits that. Writing the name here is what
+         * makes the onboarding screen greet the owner by name instead. Merge, and only this
+         * field: firestore.rules forbid a user touching their own clinicRoles.
+         */
+        await setDoc(doc(db, "users", cred.user.uid), { name: chosenName }, { merge: true });
+      }
+      // A brand-new account has no clinic, so ClinicContext will route to /onboarding from here.
+      router.push("/");
+    } catch (error: any) {
+      console.error(error);
+      setErrorMsg(getFriendlyError(error.code));
+      setLoading(false);
+    }
+  };
+
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) return;
@@ -156,10 +235,10 @@ export default function LoginPage() {
             <ShieldCheck size={32} />
           </div>
           <h1 className="text-3xl font-black text-slate-900 tracking-tight">
-            {isResetMode ? txt.resetTitle : txt.welcome}
+            {isResetMode ? txt.resetTitle : isSignUpMode ? txt.signUpTitle : txt.welcome}
           </h1>
           <p className="text-slate-500 font-medium mt-2">
-            {isResetMode ? txt.resetSub : txt.subWelcome}
+            {isResetMode ? txt.resetSub : isSignUpMode ? txt.signUpSub : txt.subWelcome}
           </p>
         </div>
 
@@ -200,6 +279,86 @@ export default function LoginPage() {
             >
               {loading ? <Loader2 size={20} className="animate-spin" /> : <KeyRound size={18} />}
               {txt.resetBtn}
+            </button>
+          </form>
+        ) : isSignUpMode ? (
+          <form onSubmit={handleSignUp} className="space-y-4 animate-in fade-in slide-in-from-right-4">
+            <div className="relative">
+              <User size={20} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`} />
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={txt.name}
+                autoComplete="name"
+                className={`w-full py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-slate-300 focus:bg-white outline-none transition-all ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'}`}
+                required
+              />
+            </div>
+            <div className="relative">
+              <Mail size={20} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`} />
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder={txt.email}
+                autoComplete="email"
+                className={`w-full py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-slate-300 focus:bg-white outline-none transition-all ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'}`}
+                required
+              />
+            </div>
+            <div>
+              <div className="relative">
+                <Lock size={20} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`} />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={txt.password}
+                  autoComplete="new-password"
+                  minLength={6}
+                  className={`w-full py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-slate-300 focus:bg-white outline-none transition-all ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'}`}
+                  required
+                />
+              </div>
+              <p className={`text-xs font-medium text-slate-400 mt-2 ${isRTL ? 'pr-2' : 'pl-2'}`}>
+                {txt.passwordHint}
+              </p>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-[#27ae60] text-white py-4 rounded-2xl font-black text-sm shadow-xl shadow-emerald-900/20 hover:bg-[#219150] hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-2 mt-2 disabled:opacity-60"
+            >
+              {loading ? <Loader2 size={20} className="animate-spin" /> : <>{txt.signUpBtn} {isRTL ? <ArrowRight size={18} className="rotate-180" /> : <ArrowRight size={18} />}</>}
+            </button>
+
+            <div className="relative flex py-5 items-center">
+              <div className="flex-grow border-t border-slate-200"></div>
+              <span className="shrink-0 mx-4 text-slate-400 text-xs font-bold uppercase tracking-wider">{language === 'ar' ? 'أو' : 'OR'}</span>
+              <div className="flex-grow border-t border-slate-200"></div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleGoogleLogin}
+              disabled={loading}
+              className="w-full bg-white border-2 border-slate-200 text-slate-700 py-4 rounded-2xl font-black text-sm shadow-sm hover:bg-slate-50 hover:border-slate-300 active:scale-[0.98] transition-all flex items-center justify-center gap-3"
+            >
+              {loading ? (
+                <Loader2 size={20} className="animate-spin text-slate-400" />
+              ) : (
+                <>
+                  <svg className="w-5 h-5" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                  </svg>
+                  {language === 'ar' ? 'المتابعة باستخدام حساب جوجل' : 'Continue with Google'}
+                </>
+              )}
             </button>
           </form>
         ) : (
@@ -252,7 +411,7 @@ export default function LoginPage() {
             <div className={`flex ${isRTL ? 'justify-start' : 'justify-end'} pt-1`}>
               <button
                 type="button"
-                onClick={() => { setIsResetMode(true); setErrorMsg(""); setSuccessMsg(""); }}
+                onClick={() => switchMode("reset")}
                 className="text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors"
               >
                 {txt.forgotPass}
@@ -309,16 +468,40 @@ export default function LoginPage() {
           </form>
         )}
 
-        {isResetMode && (
-          <div className="mt-8 text-center animate-in fade-in">
-            <button 
-              onClick={() => { setIsResetMode(false); setErrorMsg(""); setSuccessMsg(""); }}
+        {/* The way in and the way back. Without this a first-time owner has no signposted route
+            to an account at all — which was the whole problem. */}
+        <div className="mt-8 pt-6 border-t border-slate-100 text-center animate-in fade-in">
+          {mode === "signin" ? (
+            <p className="text-sm font-medium text-slate-500">
+              {txt.newHere}{" "}
+              <button
+                type="button"
+                onClick={() => switchMode("signup")}
+                className="font-black text-[#27ae60] hover:underline"
+              >
+                {txt.createOne}
+              </button>
+            </p>
+          ) : mode === "signup" ? (
+            <p className="text-sm font-medium text-slate-500">
+              {txt.haveAccount}{" "}
+              <button
+                type="button"
+                onClick={() => switchMode("signin")}
+                className="font-black text-slate-900 hover:underline"
+              >
+                {txt.loginBtn}
+              </button>
+            </p>
+          ) : (
+            <button
+              onClick={() => switchMode("signin")}
               className="text-sm font-bold text-slate-500 hover:text-slate-900 transition-colors"
             >
               {txt.backToLogin}
             </button>
-          </div>
-        )}
+          )}
+        </div>
 
       </div>
     </div>

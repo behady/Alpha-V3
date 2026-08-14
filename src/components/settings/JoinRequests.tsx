@@ -2,8 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { UserPlus, Check, X, Loader2, AlertCircle } from "lucide-react";
-import { db } from "@/lib/firebase";
-import { doc, getDoc, setDoc, deleteDoc, query, where, onSnapshot } from "firebase/firestore";
+import { auth } from "@/lib/firebase";
+import { setDoc, query, where, onSnapshot } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { useClinic } from "@/context/ClinicContext";
@@ -18,8 +18,22 @@ type JoinRequest = {
   name: string;
   clinicId: string;
   status: "pending" | "approved" | "rejected";
-  createdAt: string;
+  createdAt?: { toDate?: () => Date } | string;
+  // What the onboarding screen historically wrote. Requests filed before the field names were
+  // aligned still use these, and showing a blank card is worse than reading both.
+  userEmail?: string;
+  userName?: string;
+  requestedAt?: { toDate?: () => Date } | string;
 };
+
+/** Firestore Timestamp, ISO string, or nothing — the collection has all three. */
+function formatRequestDate(req: JoinRequest): string {
+  const raw = req.createdAt ?? req.requestedAt;
+  if (!raw) return "";
+  const date =
+    typeof raw === "object" && typeof raw.toDate === "function" ? raw.toDate() : new Date(raw as string);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString();
+}
 
 export default function JoinRequests() {
   const { language, isRTL } = useLanguage();
@@ -34,13 +48,32 @@ export default function JoinRequests() {
   useEffect(() => {
     if (!clinicId) return;
 
-    // Listen to global join_requests collection where clinicId matches this clinic
-    const q = query(getClinicCollection("join_requests"), where("clinicId", "==", clinicId), where("status", "==", "pending"));
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as JoinRequest));
-      setRequests(docs);
-    });
+    // Listen to global join_requests collection where clinicId matches this clinic.
+    // Both spellings of the status are matched: the onboarding screen used to file requests as
+    // "Pending" while this query only ever asked for "pending", so every request anyone sent was
+    // stored correctly and never shown to the admin who was supposed to approve it.
+    const q = query(
+      getClinicCollection("join_requests"),
+      where("clinicId", "==", clinicId),
+      where("status", "in", ["pending", "Pending"])
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const docs = snapshot.docs.map(doc => {
+          const data = doc.data() as JoinRequest;
+          return {
+            ...data,
+            id: doc.id,
+            name: data.name || data.userName || "",
+            email: data.email || data.userEmail || "",
+          } as JoinRequest;
+        });
+        setRequests(docs);
+      },
+      (err) => console.error("Join requests listener failed", err)
+    );
 
     // Fetch current staff count
     const fetchStaffCount = async () => {
@@ -66,49 +99,31 @@ export default function JoinRequests() {
 
     setProcessingId(req.id);
     try {
-      // 1. Create a User Profile in this clinic's subcollection
-      const userRef = getClinicDoc("users", req.userId);
-      await setDoc(userRef, {
-        name: req.name,
-        email: req.email,
-        uid: req.userId,
-        role: "Assistant", // default role, admin can change later
-        isDentist: false,
-        permissions: []
+      /**
+       * Staff record, role grant and status change all happen in one server call.
+       * firestore.rules never let a Clinic Admin write another user's `clinicRoles` — roles are
+       * granted with the Admin SDK — so doing this from the browser could only ever fail.
+       */
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) throw new Error("Session expired");
+
+      const res = await fetch("/api/join-requests/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ requestId: req.id, clinicId, role: "Assistant" }),
       });
-
-      // 2. Create a Staff document (optional but matches current logic)
-      const staffRef = getClinicDoc("staff");
-      await setDoc(staffRef, {
-        name: req.name,
-        email: req.email,
-        role: "Assistant",
-        uid: req.userId,
-        isDentist: false,
-        permissions: []
-      });
-
-      // Link staff ID to user profile
-      await setDoc(userRef, { staffId: staffRef.id }, { merge: true });
-
-      // 3. Update Global User Document to add this clinic role
-      const globalUserRef = getClinicDoc("users", req.userId); // getClinicDoc with "users" returns global root users collection if docId is provided
-      const globalUserSnap = await getDoc(globalUserRef);
-      if (globalUserSnap.exists()) {
-         const data = globalUserSnap.data();
-         const clinicRoles = data.clinicRoles || {};
-         clinicRoles[clinicId] = "Assistant";
-         await setDoc(globalUserRef, { clinicRoles }, { merge: true });
-      }
-
-      // 4. Update the Join Request status
-      await setDoc(getClinicDoc("join_requests", req.id), { status: "approved" }, { merge: true });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) throw new Error(data.error || "Approve failed");
 
       setStaffCount(prev => prev + 1);
       showToast(isAr ? "تم الموافقة على الطلب" : "Request approved", "success");
     } catch (error) {
       console.error(error);
-      showToast(isAr ? "حدث خطأ" : "Error processing request", "error");
+      const detail = error instanceof Error ? error.message : "";
+      showToast(
+        (isAr ? "حدث خطأ" : "Error processing request") + (detail ? `: ${detail}` : ""),
+        "error"
+      );
     } finally {
       setProcessingId(null);
     }
@@ -170,7 +185,7 @@ export default function JoinRequests() {
                   <h4 className="font-bold text-slate-900 text-lg">{req.name}</h4>
                   <p className="text-sm font-semibold text-slate-500">{req.email}</p>
                   <p className="text-xs font-medium text-slate-400 mt-1">
-                    {new Date(req.createdAt).toLocaleDateString()}
+                    {formatRequestDate(req)}
                   </p>
                </div>
                

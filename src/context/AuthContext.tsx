@@ -36,10 +36,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               uid: firebaseUser.uid,
               email: firebaseUser.email,
               name: firebaseUser.displayName || "Unknown User",
-              clinicRoles: {}, // No clinics yet
               createdAt: serverTimestamp(),
             };
-            await setDoc(userRef, newProfile);
+            /**
+             * Merge, and never write `clinicRoles` here.
+             *
+             * There is a real gap between the getDoc above and this write, and signup fills it:
+             * /api/onboarding/create-clinic grants the owner's Admin role on this same document
+             * from the server. A plain setDoc() replaces the document, so a grant that landed in
+             * that gap would be erased — putting the new owner back on "you're not part of a
+             * clinic yet" with a clinic they can no longer reach. Roles are only ever written
+             * server-side; this write's job is just the profile fields.
+             */
+            await setDoc(userRef, newProfile, { merge: true });
           }
 
           unsubscribeUserDoc = onSnapshot(

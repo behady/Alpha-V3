@@ -21,9 +21,30 @@ export async function POST(request: Request) {
     }
 
     const db = adminDb();
+    const userRef = db.collection("users").doc(uid);
+
+    /**
+     * If this caller already owns a clinic they hold no role in, repair that one instead of
+     * making another. Someone whose grant failed sees "you're not part of a clinic yet" and
+     * presses Create again — without this, each press leaves behind one more orphan clinic that
+     * only a superadmin can clean up. Clinics they *can* already reach are left alone, so
+     * deliberately starting a second clinic still works.
+     */
+    const owned = await db.collection("clinics").where("ownerId", "==", uid).get();
+    if (!owned.empty) {
+      const existingRoles = ((await userRef.get()).data()?.clinicRoles || {}) as Record<string, unknown>;
+      const orphan = owned.docs.find((d) => typeof existingRoles[d.id] !== "string" || !existingRoles[d.id]);
+      if (orphan) {
+        await userRef.set(
+          { clinicRoles: { [orphan.id]: "Admin" }, defaultClinicId: orphan.id },
+          { merge: true }
+        );
+        return NextResponse.json({ ok: true, clinicId: orphan.id, repaired: true });
+      }
+    }
+
     const clinicRef = db.collection("clinics").doc();
     const clinicId = clinicRef.id;
-    const userRef = db.collection("users").doc(uid);
 
     await db.runTransaction(async (tx) => {
       tx.set(clinicRef, {

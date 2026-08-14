@@ -48,6 +48,13 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
     title: isAr ? "إدارة المستخدمين والموظفين" : "User & Staff Management",
     sub: isAr ? "إدارة عمليات تسجيل الدخول والأدوار والصلاحيات." : "Manage logins, roles, and granular permissions.",
     addBtn: isAr ? "إضافة عضو للفريق" : "Add Team Member",
+    clinicIdTitle: isAr ? "معرّف العيادة" : "Clinic ID",
+    clinicIdHelp: isAr
+      ? "ابعت المعرّف ده لأي زميل عايز ينضم للعيادة. هيحطه في شاشة «انضم لعيادة موجودة» بعد ما يعمل حساب، وهيوصلك طلبه في تبويب «طلبات الانضمام»."
+      : "Send this to a colleague who needs to join. They enter it on the \"Join an existing clinic\" screen after creating an account, and their request lands in the Join Requests tab.",
+    clinicIdCopy: isAr ? "نسخ" : "Copy",
+    clinicIdCopied: isAr ? "تم نسخ معرّف العيادة" : "Clinic ID copied",
+    clinicIdCopyFailed: isAr ? "تعذّر النسخ — حدّد النص وانسخه يدوياً" : "Couldn't copy — select the text and copy it manually",
     broken: isAr ? "ملف غير مكتمل" : "Broken Profile",
     unnamed: isAr ? "مستخدم بدون اسم" : "Unnamed User",
     unknown: isAr ? "غير معروف" : "Unknown",
@@ -281,6 +288,37 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
           <Plus size={18} /> {txt.addBtn}
         </button>
       </div>
+
+      {/* The onboarding screen tells anyone joining an existing clinic to "ask your admin for the
+          Clinic ID — they'll find it in Settings". Until now it was shown nowhere in Settings, so
+          that instruction was a dead end and new colleagues had no way to reach the clinic. */}
+      {clinicId && (
+        <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm">
+          <h4 className="text-sm font-black text-slate-900">{txt.clinicIdTitle}</h4>
+          <p className="text-xs font-semibold text-slate-500 mt-1 leading-relaxed">{txt.clinicIdHelp}</p>
+          <div className="mt-3 flex flex-col sm:flex-row gap-2">
+            <code className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm text-slate-800 break-all select-all">
+              {clinicId}
+            </code>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(clinicId);
+                  showToast(txt.clinicIdCopied, "success");
+                } catch {
+                  // Clipboard is blocked on insecure origins and in some in-app browsers; the code
+                  // above is `select-all`, so it can still be copied by hand.
+                  showToast(txt.clinicIdCopyFailed, "error");
+                }
+              }}
+              className="px-5 py-3 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 active:scale-95 transition-all shrink-0"
+            >
+              {txt.clinicIdCopy}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {usersList.map((u) => {

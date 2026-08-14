@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useRouter } from "next/navigation";
@@ -24,7 +24,7 @@ import { Building2, Loader2, LogOut, Check, AlertCircle, ArrowLeft } from "lucid
 const ROLE_ARRIVAL_TIMEOUT_MS = 15000;
 
 export default function OnboardingPage() {
-  const { user, logout } = useAuth();
+  const { user, loading: authLoading, logout } = useAuth();
   const { language } = useLanguage();
   const router = useRouter();
   const isAr = language === "ar";
@@ -37,35 +37,41 @@ export default function OnboardingPage() {
   const [joinSent, setJoinSent] = useState(false);
   const [pendingClinicId, setPendingClinicId] = useState<string | null>(null);
   const [slowGrant, setSlowGrant] = useState(false);
+  const [healing, setHealing] = useState(true);
 
   const existingClinics = Object.keys(user?.clinicRoles || {});
 
   const t = {
     welcome: isAr ? `أهلاً ${user?.name || ""}` : `Welcome, ${user?.name || ""}`,
     noClinics: isAr
-      ? "لسه مش مرتبط بأي عيادة. ابدأ عيادتك أو اطلب الانضمام لواحدة."
-      : "You're not part of a clinic yet. Start your own, or ask to join one.",
+      ? "خطوة واحدة كمان: اختار اسم لعيادتك واضغط «إنشاء العيادة». هتدخل على النظام على طول."
+      : "One step left: name your clinic and press Create clinic. You'll go straight in.",
     hasClinics: isAr ? "ابدأ عيادة جديدة أو انضم لواحدة." : "Start another clinic, or join an existing one.",
-    createTitle: isAr ? "ابدأ تجربة مجانية" : "Start a free trial",
+    createTitle: isAr ? "أنا صاحب العيادة — ابدأ تجربة مجانية" : "I own the clinic — start a free trial",
+    createHelp: isAr
+      ? "ده الاختيار الصح لو انت الدكتور أو صاحب العيادة. هتبقى مدير النظام وتقدر تضيف باقي الفريق بعدين من الإعدادات."
+      : "Pick this if you're the dentist or the owner. You become the admin, and you can add the rest of your team later from Settings.",
     clinicNameLabel: isAr ? "اسم العيادة" : "Clinic name",
     clinicNamePlaceholder: isAr ? "مثال: عيادة النور للأسنان" : "e.g. Nour Dental Clinic",
     createBtn: isAr ? "إنشاء العيادة" : "Create clinic",
     creating: isAr ? "بنجهّز العيادة…" : "Setting up your clinic…",
     almost: isAr ? "خلصنا تقريباً — بنفعّل صلاحياتك…" : "Almost there — activating your access…",
     slow: isAr
-      ? "التفعيل واخد وقت أطول من المعتاد. جرّب تعمل تحديث للصفحة."
-      : "This is taking longer than usual. Try refreshing the page.",
+      ? "التفعيل واخد وقت أطول من المعتاد. اعمل تحديث للصفحة — عيادتك محفوظة وهتلاقيها زي ما هي."
+      : "This is taking longer than usual. Refresh the page — your clinic is saved and will be waiting.",
     refresh: isAr ? "تحديث الصفحة" : "Refresh page",
-    joinTitle: isAr ? "انضم لعيادة موجودة" : "Join an existing clinic",
+    checking: isAr ? "بنراجع حسابك…" : "Checking your account…",
+    joinTitle: isAr ? "أنا موظف — انضم لعيادة موجودة" : "I work at a clinic — join an existing one",
     joinIdLabel: isAr ? "معرّف العيادة" : "Clinic ID",
     joinIdHelp: isAr
-      ? "اطلب المعرّف من مدير العيادة — هيلاقيه في الإعدادات."
-      : "Ask the clinic's admin for this — they'll find it in Settings.",
+      ? "اطلب المعرّف من مدير عيادتك. هيلاقيه في: الإعدادات ← المستخدمين ← «معرّف العيادة». متعملش حساب جديد للعيادة لو فيه واحدة موجودة."
+      : "Ask your clinic's admin for it. They'll find it under Settings → Users → Clinic ID. Don't create a second clinic if yours already exists.",
+    joinIdPlaceholder: isAr ? "الصق المعرّف هنا" : "Paste the ID here",
     joinBtn: isAr ? "إرسال طلب الانضمام" : "Send join request",
     joinSentTitle: isAr ? "تم إرسال طلبك" : "Request sent",
     joinSentBody: isAr
-      ? "مدير العيادة هيراجع طلبك. هتقدر تدخل أول ما يوافق."
-      : "The clinic's admin will review it. You'll get access as soon as they approve.",
+      ? "مدير العيادة هيلاقي طلبك في الإعدادات ← طلبات الانضمام. هتقدر تدخل أول ما يوافق — سجّل دخول تاني وقتها."
+      : "Your admin will see it under Settings → Join Requests. You'll get access as soon as they approve — sign in again then.",
     sendAnother: isAr ? "إرسال طلب تاني" : "Send another request",
     orDivider: isAr ? "أو" : "or",
     backToDashboard: isAr ? "الرجوع للوحة التحكم" : "Back to dashboard",
@@ -76,6 +82,47 @@ export default function OnboardingPage() {
     joinFailed: isAr ? "تعذّر إرسال الطلب" : "Could not send the request",
     sessionExpired: isAr ? "انتهت الجلسة. سجّل الدخول تاني." : "Session expired. Please sign in again.",
   };
+
+  // Signed out — this page has nothing to show and no way to recover on its own. It used to sit
+  // on a spinner forever for anyone who opened it directly or came back after their session ended.
+  useEffect(() => {
+    if (!authLoading && !user) router.replace("/login");
+  }, [authLoading, user, router]);
+
+  /**
+   * Repair first, ask second.
+   *
+   * Someone can arrive here already owning a clinic whose role grant never landed. To them the app
+   * simply says "you're not part of a clinic yet" every single time they sign in, and pressing
+   * Create looks like the only move — which is how one owner ends up with several empty clinics
+   * and still no way in. So before rendering the form, hand the server the chance to give the role
+   * back. A healthy account gets `healed: []` and falls through to the form as normal.
+   */
+  const healRan = useRef(false);
+  useEffect(() => {
+    if (!user || healRan.current) return;
+    healRan.current = true;
+
+    (async () => {
+      try {
+        const idToken = await auth.currentUser?.getIdToken();
+        if (!idToken) return;
+        const res = await fetch("/api/onboarding/self-heal", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${idToken}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (data?.ok && Array.isArray(data.healed) && data.healed.length > 0) {
+          // Same wait as after a fresh create: hold until the role reaches this client.
+          setPendingClinicId(data.healed[0] as string);
+        }
+      } catch {
+        // Nothing to recover, or the check itself failed — show the normal form either way.
+      } finally {
+        setHealing(false);
+      }
+    })();
+  }, [user]);
 
   // The role landed. Only now is it safe to leave — ClinicContext will find the clinic.
   useEffect(() => {
@@ -133,9 +180,17 @@ export default function OnboardingPage() {
       await setDoc(requestRef, {
         clinicId: id,
         userId: user.uid,
+        // Both spellings are written on purpose: the admin's review screen reads `name`/`email`,
+        // and older requests in the collection carry the `user*` names. Reading one and writing
+        // the other is why join requests used to show up blank.
+        email: user.email,
+        name: user.name,
         userEmail: user.email,
         userName: user.name,
-        status: "Pending",
+        // Lowercase, matching the query on the admin's Join Requests screen. A capitalised
+        // "Pending" is stored but never matched, so the request is filed and never seen.
+        status: "pending",
+        createdAt: serverTimestamp(),
         requestedAt: serverTimestamp(),
       });
       setJoinSent(true);
@@ -147,10 +202,11 @@ export default function OnboardingPage() {
     }
   }, [joinClinicId, user, t.idRequired, t.joinFailed]);
 
-  if (!user) {
+  if (!user || healing) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-slate-500 font-semibold">
-        <Loader2 className="animate-spin me-2" size={20} />
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 text-slate-500 font-semibold">
+        <Loader2 className="animate-spin" size={22} />
+        <p className="text-sm">{t.checking}</p>
       </div>
     );
   }
@@ -166,12 +222,21 @@ export default function OnboardingPage() {
           <h1 className="text-xl font-black text-slate-900 mb-2">{t.creating}</h1>
           <p className="text-sm font-medium text-slate-500">{slowGrant ? t.slow : t.almost}</p>
           {slowGrant && (
-            <button
-              onClick={() => window.location.reload()}
-              className="mt-6 w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-colors"
-            >
-              {t.refresh}
-            </button>
+            <>
+              <button
+                onClick={() => window.location.reload()}
+                className="mt-6 w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-colors"
+              >
+                {t.refresh}
+              </button>
+              <button
+                onClick={logout}
+                className="mt-3 text-sm font-medium text-slate-500 hover:text-slate-900 inline-flex items-center gap-1.5"
+              >
+                <LogOut size={15} />
+                {t.signOut}
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -201,7 +266,8 @@ export default function OnboardingPage() {
         <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 sm:p-8 space-y-8">
           {/* Create */}
           <div>
-            <h2 className="text-base font-black text-slate-900 mb-4">{t.createTitle}</h2>
+            <h2 className="text-base font-black text-slate-900 mb-1.5">{t.createTitle}</h2>
+            <p className="text-xs font-medium text-slate-500 leading-relaxed mb-4">{t.createHelp}</p>
             <label className="block text-[11px] font-black text-slate-500 uppercase tracking-widest mb-2">
               {t.clinicNameLabel}
             </label>
@@ -263,10 +329,13 @@ export default function OnboardingPage() {
                   value={joinClinicId}
                   onChange={(e) => setJoinClinicId(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && !joining && void handleJoinClinic()}
+                  placeholder={t.joinIdPlaceholder}
+                  autoComplete="off"
+                  spellCheck={false}
                   disabled={joining}
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all disabled:opacity-60"
                 />
-                <p className="mt-2 text-xs font-medium text-slate-400">{t.joinIdHelp}</p>
+                <p className="mt-2 text-xs font-medium text-slate-400 leading-relaxed">{t.joinIdHelp}</p>
                 <button
                   onClick={() => void handleJoinClinic()}
                   disabled={joining || creating}
