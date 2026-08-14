@@ -1,8 +1,12 @@
 package com.alphadental.clinic.data
 
+import android.util.Log
 import com.alphadental.clinic.Firebase
+import com.google.android.gms.tasks.Task
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
 import com.google.firebase.auth.FirebaseAuthInvalidUserException
+import com.google.firebase.firestore.CollectionReference
+import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.MetadataChanges
@@ -21,6 +25,44 @@ import kotlinx.coroutines.tasks.await
  * Firestore's own cache making it work with no signal.
  */
 object Repository {
+
+    private const val TAG = "AlphaRepository"
+
+    /**
+     * Hand a write to Firestore and carry on, without waiting for the server.
+     *
+     * This is the single most important line in the file, and getting it wrong is what made the
+     * app useless with no signal.
+     *
+     * A Firestore write task completes when the **server** acknowledges the write. With no signal
+     * that acknowledgement never arrives — and the task does not fail either, it simply never
+     * completes — so `await()` on one is indistinguishable from the app hanging. Every recording
+     * action went through such an await, so checking a patient in, taking a payment or writing a
+     * note appeared to do nothing at all offline. The data was already safely in the local
+     * database each time; the coroutine waiting to be told so never returned.
+     *
+     * By the time the task is handed back here the write is already applied to the on-device
+     * cache, every snapshot listener has fired with `hasPendingWrites` set — which is what the UI
+     * shows as "Not sent yet" — and Firestore will keep retrying in the background, across app
+     * restarts, until it lands.
+     *
+     * A permanent rejection, which in practice means the security rules said no, is logged rather
+     * than shown. There is no honest way to raise it: by the time the server answers, the person
+     * who made the change may have put the phone in their pocket and walked to another room.
+     */
+    private fun Task<*>.queueLocally(what: String) {
+        addOnFailureListener { error -> Log.w(TAG, "$what was rejected by the server: ${error.message}") }
+    }
+
+    /**
+     * A new document reference with an id, without touching the network.
+     *
+     * `add()` cannot be used for anything that has to work offline: it returns the reference
+     * through a task that only completes on server acknowledgement. Firestore generates document
+     * ids on the device, so asking for the reference first and writing into it gives the same
+     * result and an id that is usable immediately.
+     */
+    private fun CollectionReference.newDoc(): DocumentReference = document()
 
     // ------------------------------------------------------------------ signing in
 
@@ -153,13 +195,14 @@ object Repository {
             updates["checkOutTime"] = FieldValue.serverTimestamp()
         }
 
-        appointments(clinicId).document(appointment.id).update(updates).await()
+        appointments(clinicId).document(appointment.id).update(updates).queueLocally("check-in")
 
         // The waiting-room list on the website is built from this collection, so a
         // patient checked in from the phone has to appear there too.
         if (next == "Checked In" && appointment.status != "Checked In") {
             Firebase.db().collection("clinics").document(clinicId).collection("attendance")
-                .add(
+                .newDoc()
+                .set(
                     mapOf(
                         "patientId" to appointment.patientId,
                         "patientName" to appointment.patientName,
@@ -168,7 +211,7 @@ object Repository {
                         "doctor" to appointment.doctor,
                         "status" to "waiting",
                     )
-                ).await()
+                ).queueLocally("waiting-room entry")
         }
     }
 
@@ -279,7 +322,7 @@ object Repository {
                 "stock" to (item.stock + delta).coerceAtLeast(0.0),
                 "updatedAt" to FieldValue.serverTimestamp(),
             )
-        ).await()
+        ).queueLocally("stock adjustment")
     }
 
     // ----------------------------------------------------------------- attendance
@@ -354,7 +397,7 @@ object Repository {
         verdict: GeofenceVerdict?,
         accuracy: Double?,
     ): Result<Unit> = runCatching {
-        attendance(clinicId).add(
+        attendance(clinicId).newDoc().set(
             mapOf(
                 "userId" to uid,
                 "userName" to userName,
@@ -370,7 +413,7 @@ object Repository {
                 "checkInDistanceM" to verdict?.distance,
                 "checkInAccuracyM" to accuracy,
             )
-        ).await()
+        ).queueLocally("clock in")
     }
 
     /** End the open shift, recording how long it ran. */
@@ -457,7 +500,7 @@ object Repository {
         var ledgerId: String? = null
 
         if (cost > 0) {
-            val commission = doctor?.let { resolveCommissionForDoctor(clinicId, it) } ?: 0.0
+            val commission = doctor?.commissionPercentage ?: 0.0
             val labFee = service?.estimatedLabFee ?: 0.0
 
             // Same split the payment screen uses, and the same reason: these numbers are what the
@@ -485,7 +528,9 @@ object Repository {
                 "paid" to 0,
                 "createdAt" to FieldValue.serverTimestamp(),
             )
-            ledgerId = ledger(clinicId).add(ledgerRow).await().id
+            val ledgerRef = ledger(clinicId).newDoc()
+            ledgerRef.set(ledgerRow).queueLocally("procedure charge")
+            ledgerId = ledgerRef.id
         }
 
         val noteRow = mapOf(
@@ -508,11 +553,16 @@ object Repository {
             "createdAt" to FieldValue.serverTimestamp(),
         )
 
-        val noteId = clinicalNotes(clinicId).add(noteRow).await().id
+        val noteRef = clinicalNotes(clinicId).newDoc()
+        noteRef.set(noteRow).queueLocally("clinical note")
+        val noteId = noteRef.id
 
-        // Back-link, so deleting the note on the website removes its charge too.
+        // Back-link, so deleting the note on the website removes its charge too. Safe to write
+        // straight away even though the note has not reached the server: both writes are queued in
+        // order and Firestore sends them in that order, so the charge never points at a note the
+        // server has not seen.
         if (ledgerId != null) {
-            runCatching { ledger(clinicId).document(ledgerId).update("clinicalNoteId", noteId).await() }
+            ledger(clinicId).document(ledgerId).update("clinicalNoteId", noteId).queueLocally("note back-link")
         }
 
         noteId
@@ -520,16 +570,9 @@ object Repository {
 
     /** Move a procedure between Planned, Ongoing and Completed. */
     suspend fun setNoteStatus(clinicId: String, noteId: String, status: String): Result<Unit> = runCatching {
-        clinicalNotes(clinicId).document(noteId).update("status", status).await()
+        clinicalNotes(clinicId).document(noteId).update("status", status).queueLocally("note status")
     }
 
-    /** A dentist's commission rate, by staff id. Zero when unknown — see resolveCommission. */
-    private suspend fun resolveCommissionForDoctor(clinicId: String, doctor: Doctor): Double {
-        if (doctor.id.isBlank()) return 0.0
-        val doc = Firebase.db().collection("clinics").document(clinicId)
-            .collection("staff").document(doctor.id).get().await()
-        return (doc.get("commissionPercentage") as? Number)?.toDouble() ?: 0.0
-    }
 
     /**
      * What the clinic has actually collected on a given day.
@@ -718,12 +761,14 @@ object Repository {
             )
         }
 
-        val ref = ledger(clinicId).add(data).await()
+        val ref = ledger(clinicId).newDoc()
+        ref.set(data).queueLocally("payment")
 
         // The same audit trail the website writes. Money moving with nothing in the log is the
-        // one thing nobody can reconstruct afterwards.
+        // one thing nobody can reconstruct afterwards — so this is queued alongside the payment
+        // rather than skipped when there is no signal.
         runCatching {
-            Firebase.db().collection("clinics").document(clinicId).collection("system_logs").add(
+            Firebase.db().collection("clinics").document(clinicId).collection("system_logs").newDoc().set(
                 mapOf(
                     "action" to "Payment Received",
                     "details" to if (procedure == null) {
@@ -735,7 +780,7 @@ object Repository {
                     "userId" to byUid,
                     "createdAt" to FieldValue.serverTimestamp(),
                 )
-            ).await()
+            ).queueLocally("payment audit log")
         }
 
         ref.id
@@ -1038,7 +1083,13 @@ object Repository {
                 val role = doc.getString("role").orEmpty()
                 role == "Dentist" || doc.getBoolean("isDentist") == true
             }
-            .map { Doctor(id = it.id, name = it.getString("name").orEmpty()) }
+            .map {
+                Doctor(
+                    id = it.id,
+                    name = it.getString("name").orEmpty(),
+                    commissionPercentage = (it.get("commissionPercentage") as? Number)?.toDouble() ?: 0.0,
+                )
+            }
             .filter { it.name.isNotBlank() }
             .sortedBy { it.name }
     }
@@ -1212,18 +1263,31 @@ object Repository {
      * The counter is incremented inside a transaction because two receptionists registering
      * someone at the same moment would otherwise both read the same number and hand two patients
      * the same file id. Mirrors the isNewPatient branch of saveBooking().
+     *
+     * This is the one action that genuinely cannot work offline, and the transaction is why: a
+     * number that has to be unique across the whole clinic can only be issued by something that
+     * can see every other request for one. Everything else in this file writes to the local
+     * database and syncs later; registering a patient waits for signal, and says so rather than
+     * failing with a shrug.
      */
     suspend fun createPatient(clinicId: String, name: String, phone: String): Result<Patient> = runCatching {
         val clinic = Firebase.db().collection("clinics").document(clinicId)
         val counterRef = clinic.collection("settings").document("counters")
 
-        val nextId = Firebase.db().runTransaction { tx ->
-            val counter = tx.get(counterRef)
-            val current = (counter.get("patientId") as? Number)?.toLong()
-            val next = if (current != null) current + 1 else 1000L
-            tx.set(counterRef, mapOf("patientId" to next), SetOptions.merge())
-            next
-        }.await()
+        val nextId = runCatching {
+            Firebase.db().runTransaction { tx ->
+                val counter = tx.get(counterRef)
+                val current = (counter.get("patientId") as? Number)?.toLong()
+                val next = if (current != null) current + 1 else 1000L
+                tx.set(counterRef, mapOf("patientId" to next), SetOptions.merge())
+                next
+            }.await()
+        }.getOrElse {
+            throw IllegalStateException(
+                "A new patient needs a connection — their file number is issued by the clinic system. " +
+                    "Everything else can be recorded offline."
+            )
+        }
 
         val data = mapOf(
             "fileId" to "PT-$nextId",
@@ -1231,7 +1295,8 @@ object Repository {
             "phone" to phone.trim(),
             "createdAt" to FieldValue.serverTimestamp(),
         )
-        val ref = clinic.collection("patients").add(data).await()
+        val ref = clinic.collection("patients").newDoc()
+        ref.set(data).queueLocally("new patient")
 
         Patient(id = ref.id, name = name.trim(), phone = phone.trim())
     }
@@ -1289,7 +1354,8 @@ object Repository {
             "createdAt" to FieldValue.serverTimestamp(),
         )
 
-        val ref = appointments(clinicId).add(data).await()
+        val ref = appointments(clinicId).newDoc()
+        ref.set(data).queueLocally("booking")
         ref.id
     }
 
@@ -1324,7 +1390,7 @@ object Repository {
             updates["doctorId"] = it.id
         }
 
-        appointments(clinicId).document(appointment.id).update(updates).await()
+        appointments(clinicId).document(appointment.id).update(updates).queueLocally("reschedule")
     }
 
     // -------------------------------------------------------------------- patients

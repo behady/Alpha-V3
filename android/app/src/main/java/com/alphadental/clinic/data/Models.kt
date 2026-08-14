@@ -107,6 +107,17 @@ fun DocumentSnapshot.toAppointment(pendingWrite: Boolean): Appointment = Appoint
 data class Doctor(
     val id: String = "",
     val name: String = "",
+    /**
+     * Their cut, carried on the doctor rather than fetched when a charge is recorded.
+     *
+     * It used to be read from the staff document at the moment of writing a procedure. Offline
+     * that read returns nothing when the record is not cached, and the code took "nothing" to mean
+     * zero — so a treatment recorded with no signal was filed with the dentist earning no
+     * commission at all, and then synced to the server looking entirely authoritative. It is read
+     * here instead, from the same document the doctor list already loads, so the number travels
+     * with the doctor and there is nothing left to fail.
+     */
+    val commissionPercentage: Double = 0.0,
 )
 
 /**

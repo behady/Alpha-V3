@@ -1,8 +1,12 @@
 package com.alphadental.clinic.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,6 +19,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Schedule
@@ -272,3 +278,30 @@ fun EmptyState(text: String, modifier: Modifier = Modifier) {
 
 @Composable
 fun VerticalSpace(height: Int) = Spacer(Modifier.height(height.dp))
+
+/**
+ * Make the back button put the keyboard away before it closes the sheet.
+ *
+ * Android's own convention is that back dismisses the keyboard first and only closes the screen on
+ * a second press. A `ModalBottomSheet` puts its content in its own dialog window, which takes the
+ * back press for itself — so reaching for back to see the form behind the keyboard threw away
+ * whatever had been typed into it.
+ *
+ * Registered inside the sheet's content, so it sits nearer the back dispatcher than the sheet's own
+ * handler and gets first refusal. It is only enabled while the keyboard is actually up: with the
+ * keyboard down, back closes the sheet exactly as before.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun DismissKeyboardBeforeSheet() {
+    val keyboardVisible = WindowInsets.isImeVisible
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focus = LocalFocusManager.current
+
+    BackHandler(enabled = keyboardVisible) {
+        // Focus is cleared as well as hiding the IME: leaving a field focused with no keyboard
+        // leaves a blinking cursor in a box the person can no longer type into.
+        keyboard?.hide()
+        focus.clearFocus()
+    }
+}

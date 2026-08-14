@@ -82,6 +82,7 @@ fun PrescriptionSheet(
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Alpha.Card) {
+        DismissKeyboardBeforeSheet()
         Column(
             Modifier
                 .padding(start = 20.dp, end = 20.dp, bottom = 28.dp)
