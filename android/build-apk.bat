@@ -8,7 +8,13 @@ setlocal
 
 REM Gradle needs Java 21. The Java bundled with Android Studio is too new and the
 REM system Java is too old, so point at the copy in Downloads.
-set "JAVA_HOME=C:\Users\PC\Downloads\jdk21_extracted\jdk-21.0.12+8"
+REM It must be Java 21 exactly. Android Studio ships Java 25, which the Android
+REM plugin rejects outright, and the system Java is 11, which is too old.
+REM
+REM The second path is the copy this project used to use. Something gutted it on
+REM 2026-08-14 (only bin and lib remained), so it is kept only as a fallback.
+set "JAVA_HOME=C:\Users\PC\.jdks\jbr-21.0.11"
+if not exist "%JAVA_HOME%\bin\java.exe" set "JAVA_HOME=C:\Users\PC\Downloads\jdk21_extracted\jdk-21.0.12+8"
 
 if not exist "%JAVA_HOME%\bin\java.exe" (
     echo.

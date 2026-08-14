@@ -121,6 +121,27 @@ data class Service(
     val name: String = "",
     val price: Double = 0.0,
     val durationMinutes: Int = 0,
+    /** What the lab charges for this service, if it needs one. Comes off before commission. */
+    val estimatedLabFee: Double = 0.0,
+)
+
+/**
+ * One procedure in a patient's clinical record.
+ *
+ * `ledgerId` is the link to the money. A note carrying a cost with no ledgerId is exactly what the
+ * website's Collect Dues screen reports as "treated, never invoiced" — so anything writing a
+ * chargeable note here must create the ledger row too, or it silently reads as lost revenue.
+ */
+data class ClinicalNote(
+    val id: String = "",
+    val procedure: String = "",
+    val tooth: String = "",
+    val note: String = "",
+    val cost: Double = 0.0,
+    val status: String = "Planned",
+    val doctor: String = "",
+    val date: String = "",
+    val ledgerId: String = "",
 )
 
 /**

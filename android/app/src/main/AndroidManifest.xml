@@ -15,6 +15,14 @@
          permission is declared. -->
     <uses-permission android:name="android.permission.SEND_SMS" />
 
+    <!-- Only for clocking in, and only when the clinic has set a location to check against.
+         Requested at the moment someone taps the clock, never at launch, and a clinic with no
+         geofence configured never triggers it at all. The app does not track anyone: the reading
+         is used once to answer "are you on site", and only the resulting distance is stored so a
+         disputed shift can be examined. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
     <!-- So a clinic phone that reboots overnight is still sending at 07:00 with nobody touching it. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 

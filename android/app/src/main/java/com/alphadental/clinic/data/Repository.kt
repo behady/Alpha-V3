@@ -172,6 +172,411 @@ object Repository {
         }
     }
 
+    // ----------------------------------------------------------------- attendance
+
+    private fun attendance(clinicId: String) =
+        Firebase.db().collection("clinics").document(clinicId).collection("attendance")
+
+    /** The clinic's geofence, from settings/clinic_info. Null when it was never configured. */
+    suspend fun loadGeofence(clinicId: String): Geofence? {
+        val snap = Firebase.db().collection("clinics").document(clinicId)
+            .collection("settings").document("clinic_info").get().await()
+
+        fun num(field: String): Double? = when (val v = snap.get(field)) {
+            is Number -> v.toDouble()
+            is String -> v.trim().toDoubleOrNull()
+            else -> null
+        }
+
+        val fence = Geofence(
+            lat = num("attendanceLat") ?: return null,
+            lng = num("attendanceLng") ?: return null,
+            radius = num("attendanceRadius") ?: 50.0,
+        )
+        return if (isUsableGeofence(fence)) fence else null
+    }
+
+    /** This user's staff record id, which attendance rows are filed against. */
+    suspend fun findMyStaffId(clinicId: String, uid: String, email: String): String {
+        val staff = Firebase.db().collection("clinics").document(clinicId).collection("staff")
+
+        staff.whereEqualTo("uid", uid).limit(1).get().await().documents.firstOrNull()?.let { return it.id }
+
+        // Older staff records were created before uid was stored, so fall back to the email and
+        // stamp the uid on so the next lookup is direct — the website does the same.
+        if (email.isNotBlank()) {
+            staff.whereEqualTo("email", email).limit(1).get().await().documents.firstOrNull()?.let { doc ->
+                runCatching { doc.reference.update("uid", uid).await() }
+                return doc.id
+            }
+        }
+        return ""
+    }
+
+    /** One clock-in that has not been clocked out. */
+    data class OpenShift(val id: String, val checkInMillis: Long)
+
+    /**
+     * The shift this user currently has open, if any.
+     *
+     * Filtered on status rather than on "no checkOut" because a row is written with checkOut null
+     * and later filled in; querying for a null field is not something Firestore does well.
+     */
+    suspend fun openShift(clinicId: String, uid: String): OpenShift? {
+        val snap = attendance(clinicId)
+            .whereEqualTo("userId", uid)
+            .whereEqualTo("status", "active")
+            .limit(1)
+            .get()
+            .await()
+
+        val doc = snap.documents.firstOrNull() ?: return null
+        val millis = (doc.getTimestamp("checkIn"))?.toDate()?.time ?: System.currentTimeMillis()
+        return OpenShift(doc.id, millis)
+    }
+
+    /** Start a shift. */
+    suspend fun clockIn(
+        clinicId: String,
+        uid: String,
+        userName: String,
+        staffId: String,
+        verdict: GeofenceVerdict?,
+        accuracy: Double?,
+    ): Result<Unit> = runCatching {
+        attendance(clinicId).add(
+            mapOf(
+                "userId" to uid,
+                "userName" to userName,
+                "staffId" to staffId,
+                // Local date, not UTC: a shift punched after midnight in Egypt was being filed
+                // under the previous day on the website until this was fixed.
+                "date" to todayKey(),
+                "checkIn" to FieldValue.serverTimestamp(),
+                "checkOut" to null,
+                "durationMinutes" to 0,
+                "status" to "active",
+                // Kept so a disputed shift can be examined rather than argued about.
+                "checkInDistanceM" to verdict?.distance,
+                "checkInAccuracyM" to accuracy,
+            )
+        ).await()
+    }
+
+    /** End the open shift, recording how long it ran. */
+    suspend fun clockOut(
+        clinicId: String,
+        shift: OpenShift,
+        verdict: GeofenceVerdict?,
+        accuracy: Double?,
+    ): Result<Unit> = runCatching {
+        val minutes = ((System.currentTimeMillis() - shift.checkInMillis) / 60_000L).coerceAtLeast(0L)
+
+        attendance(clinicId).document(shift.id).update(
+            mapOf(
+                "checkOut" to FieldValue.serverTimestamp(),
+                "durationMinutes" to minutes,
+                "status" to "completed",
+                "checkOutDistanceM" to verdict?.distance,
+                "checkOutAccuracyM" to accuracy,
+            )
+        ).await()
+    }
+
+    // ------------------------------------------------------------- clinical notes
+
+    private fun clinicalNotes(clinicId: String) =
+        Firebase.db().collection("clinics").document(clinicId).collection("clinical_notes")
+
+    /** A patient's recorded procedures, newest first. */
+    suspend fun loadClinicalNotes(clinicId: String, patientId: String): List<ClinicalNote> {
+        val snap = clinicalNotes(clinicId).whereEqualTo("patientId", patientId).get().await()
+
+        return snap.documents
+            .map { doc ->
+                ClinicalNote(
+                    id = doc.id,
+                    procedure = doc.getString("procedure").orEmpty(),
+                    tooth = doc.getString("tooth").orEmpty(),
+                    note = doc.getString("note").orEmpty(),
+                    cost = (doc.get("cost") as? Number)?.toDouble() ?: 0.0,
+                    status = doc.getString("status").orEmpty().ifBlank { "Planned" },
+                    doctor = doc.getString("doctor").orEmpty(),
+                    date = doc.getString("date").orEmpty(),
+                    ledgerId = doc.getString("ledgerId").orEmpty(),
+                )
+            }
+            // Ordered here rather than in the query: sorting server-side on date would need a
+            // composite index with patientId, and a missing index fails the whole read.
+            .sortedByDescending { it.date }
+    }
+
+    /**
+     * Record a procedure, and bill it.
+     *
+     * Two documents, linked both ways, exactly as the website writes them:
+     *
+     *  - the clinical note, which is the medical record
+     *  - a ledger row of type "procedure", which is the charge
+     *
+     * The link matters in both directions. A note carrying a cost with no `ledgerId` is what the
+     * Collect Dues screen reports as "treated, never invoiced" — so writing the note alone would
+     * quietly file every procedure as lost revenue. The ledger row's `clinicalNoteId` is what lets
+     * deleting the note later take its charge with it.
+     *
+     * A zero-cost note (a follow-up, a review) creates no ledger row at all, which is also what
+     * the website does.
+     */
+    suspend fun addClinicalNote(
+        clinicId: String,
+        patient: Patient,
+        procedure: String,
+        tooth: String,
+        noteText: String,
+        cost: Double,
+        status: String,
+        doctor: Doctor?,
+        service: Service?,
+        byName: String,
+    ): Result<String> = runCatching {
+        require(procedure.isNotBlank()) { "Enter what was done." }
+
+        val today = todayKey()
+        val toothLabel = tooth.trim().ifBlank { "Gen" }
+
+        var ledgerId: String? = null
+
+        if (cost > 0) {
+            val commission = doctor?.let { resolveCommissionForDoctor(clinicId, it) } ?: 0.0
+            val labFee = service?.estimatedLabFee ?: 0.0
+
+            // Same split the payment screen uses, and the same reason: these numbers are what the
+            // clinic's profit and the dentist's payout are calculated from later.
+            val net = cost - labFee
+            val doctorCommissionAmount = if (net > 0) net * (commission / 100.0) else 0.0
+
+            val ledgerRow = mapOf(
+                "patientId" to patient.id,
+                "patientName" to patient.name,
+                "type" to "procedure",
+                "category" to "Treatment",
+                "amount" to cost,
+                "cost" to cost,
+                // The composite shape the website writes, so the price-list matcher in its reports
+                // can still recognise the service name at the front.
+                "description" to "$procedure (T: $toothLabel)",
+                "doctorId" to doctor?.id,
+                "doctorName" to doctor?.name,
+                "doctorCommissionPercentage" to commission,
+                "labFee" to labFee,
+                "doctorCommissionAmount" to doctorCommissionAmount,
+                "clinicProfit" to (cost - doctorCommissionAmount - labFee),
+                "date" to today,
+                "paid" to 0,
+                "createdAt" to FieldValue.serverTimestamp(),
+            )
+            ledgerId = ledger(clinicId).add(ledgerRow).await().id
+        }
+
+        val noteRow = mapOf(
+            "patientId" to patient.id,
+            "procedure" to procedure.trim(),
+            "procedures" to listOf(procedure.trim()),
+            "tooth" to toothLabel,
+            "note" to noteText.trim(),
+            "cost" to cost,
+            "status" to status,
+            "doctor" to (doctor?.name ?: ""),
+            "doctorId" to doctor?.id,
+            "serviceId" to service?.id,
+            "serviceName" to service?.name,
+            "serviceIds" to listOfNotNull(service?.id),
+            "date" to today,
+            "appointmentId" to null,
+            "ledgerId" to ledgerId,
+            "addedBy" to byName,
+            "createdAt" to FieldValue.serverTimestamp(),
+        )
+
+        val noteId = clinicalNotes(clinicId).add(noteRow).await().id
+
+        // Back-link, so deleting the note on the website removes its charge too.
+        if (ledgerId != null) {
+            runCatching { ledger(clinicId).document(ledgerId).update("clinicalNoteId", noteId).await() }
+        }
+
+        noteId
+    }
+
+    /** Move a procedure between Planned, Ongoing and Completed. */
+    suspend fun setNoteStatus(clinicId: String, noteId: String, status: String): Result<Unit> = runCatching {
+        clinicalNotes(clinicId).document(noteId).update("status", status).await()
+    }
+
+    /** A dentist's commission rate, by staff id. Zero when unknown — see resolveCommission. */
+    private suspend fun resolveCommissionForDoctor(clinicId: String, doctor: Doctor): Double {
+        if (doctor.id.isBlank()) return 0.0
+        val doc = Firebase.db().collection("clinics").document(clinicId)
+            .collection("staff").document(doctor.id).get().await()
+        return (doc.get("commissionPercentage") as? Number)?.toDouble() ?: 0.0
+    }
+
+    // ------------------------------------------------------------------- payments
+
+    private fun ledger(clinicId: String) =
+        Firebase.db().collection("clinics").document(clinicId).collection("ledger")
+
+    /** A patient's whole ledger, as the payment screen needs it. */
+    suspend fun loadLedger(clinicId: String, patientId: String): List<LedgerEntry> {
+        val snap = ledger(clinicId).whereEqualTo("patientId", patientId).get().await()
+        return snap.documents.map { doc ->
+            LedgerEntry(
+                id = doc.id,
+                type = doc.getString("type").orEmpty(),
+                description = doc.getString("description").orEmpty(),
+                amount = (doc.get("amount") as? Number)?.toDouble(),
+                cost = (doc.get("cost") as? Number)?.toDouble(),
+                paid = (doc.get("paid") as? Number)?.toDouble(),
+                procedureId = doc.getString("procedureId").orEmpty(),
+                labFee = (doc.get("labFee") as? Number)?.toDouble() ?: 0.0,
+                doctorId = doc.getString("doctorId").orEmpty(),
+                doctorName = doc.getString("doctorName").orEmpty()
+                    .ifBlank { doc.getString("doctor").orEmpty() },
+            )
+        }
+    }
+
+    /**
+     * The treating dentist's commission rate.
+     *
+     * Resolved by staff id where the procedure has one, and by name where it does not — older
+     * ledger rows only carry a name. Returning zero on a miss is deliberate: recording no
+     * commission is recoverable by editing the row, whereas inventing a rate silently pays a
+     * dentist money the clinic never agreed to.
+     */
+    private suspend fun resolveCommission(clinicId: String, procedure: UnpaidProcedure): Triple<String, String, Double> {
+        val staff = Firebase.db().collection("clinics").document(clinicId).collection("staff")
+
+        if (procedure.doctorId.isNotBlank()) {
+            val doc = staff.document(procedure.doctorId).get().await()
+            if (doc.exists()) {
+                return Triple(
+                    doc.id,
+                    doc.getString("name")?.trim().orEmpty().ifBlank { procedure.doctorName },
+                    (doc.get("commissionPercentage") as? Number)?.toDouble() ?: 0.0,
+                )
+            }
+        }
+
+        if (procedure.doctorName.isNotBlank()) {
+            val byName = staff.whereEqualTo("name", procedure.doctorName).limit(1).get().await()
+            byName.documents.firstOrNull()?.let { doc ->
+                return Triple(
+                    doc.id,
+                    doc.getString("name")?.trim().orEmpty().ifBlank { procedure.doctorName },
+                    (doc.get("commissionPercentage") as? Number)?.toDouble() ?: 0.0,
+                )
+            }
+        }
+
+        return Triple(procedure.doctorId, procedure.doctorName, 0.0)
+    }
+
+    /**
+     * Record a payment.
+     *
+     * Writes the same ledger shape QuickPaymentModal writes in the browser, including the doctor,
+     * lab and clinic split — those fields feed the clinic's profit reporting, and a row missing
+     * them is not merely untidy, it is money unaccounted for.
+     *
+     * `procedure` null means a general payment against the account, exactly as the website's
+     * "Advance Payment" option does.
+     */
+    suspend fun recordPayment(
+        clinicId: String,
+        patient: Patient,
+        procedure: UnpaidProcedure?,
+        amount: Double,
+        byName: String,
+        byUid: String,
+    ): Result<String> = runCatching {
+        require(amount > 0) { "Enter an amount greater than zero." }
+        procedure?.let {
+            require(amount <= it.remaining + 0.001) { "That is more than the ${it.remaining.toInt()} still owed on this treatment." }
+        }
+
+        val today = todayKey()
+
+        val data: Map<String, Any?> = if (procedure == null) {
+            mapOf(
+                "patientId" to patient.id,
+                "patientName" to patient.name,
+                "date" to today,
+                "type" to "payment",
+                "category" to "Advance Payment",
+                "description" to "General Account Payment (Advance/Deposit)",
+                "cost" to 0,
+                "paid" to amount,
+                "amount" to amount,
+                "method" to "Cash",
+                "addedBy" to byName,
+                "createdAt" to FieldValue.serverTimestamp(),
+            )
+        } else {
+            val (doctorId, doctorName, commission) = resolveCommission(clinicId, procedure)
+            val split = splitPayment(
+                amount = amount,
+                paidBefore = procedure.paidSoFar,
+                procedureLabFee = procedure.labFee,
+                commissionPercentage = commission,
+            )
+
+            mapOf(
+                "patientId" to patient.id,
+                "patientName" to patient.name,
+                "date" to today,
+                "type" to "payment",
+                "category" to "Treatment Payment",
+                "description" to "Payment for: ${procedure.description}",
+                "procedureId" to procedure.id,
+                "doctorId" to doctorId.ifBlank { null },
+                "doctorName" to doctorName.ifBlank { null },
+                "doctorCommissionPercentage" to split.doctorCommissionPercentage,
+                "labFee" to split.labFee,
+                "doctorCommissionAmount" to split.doctorCommissionAmount,
+                "clinicProfit" to split.clinicProfit,
+                "cost" to 0,
+                "paid" to amount,
+                "amount" to amount,
+                "method" to "Cash",
+                "addedBy" to byName,
+                "createdAt" to FieldValue.serverTimestamp(),
+            )
+        }
+
+        val ref = ledger(clinicId).add(data).await()
+
+        // The same audit trail the website writes. Money moving with nothing in the log is the
+        // one thing nobody can reconstruct afterwards.
+        runCatching {
+            Firebase.db().collection("clinics").document(clinicId).collection("system_logs").add(
+                mapOf(
+                    "action" to "Payment Received",
+                    "details" to if (procedure == null) {
+                        "General payment received from ${patient.name}: ${amount.toInt()} EGP"
+                    } else {
+                        "Treatment payment for ${patient.name}: ${amount.toInt()} EGP toward \"${procedure.description}\""
+                    },
+                    "userName" to byName,
+                    "userId" to byUid,
+                    "createdAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
+        }
+
+        ref.id
+    }
+
     // ------------------------------------------------------------------------ sms
 
     /** One queued reminder, as handed to the sender. */
@@ -392,6 +797,7 @@ object Repository {
                     is String -> d.toIntOrNull() ?: 0
                     else -> 0
                 },
+                estimatedLabFee = (doc.get("estimatedLabFee") as? Number)?.toDouble() ?: 0.0,
             )
         }.sortedBy { it.name }
     }

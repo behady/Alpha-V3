@@ -2,8 +2,15 @@ package com.alphadental.clinic
 
 import com.alphadental.clinic.data.Appointment
 import com.alphadental.clinic.data.ClinicSchedule
+import com.alphadental.clinic.data.Geofence
+import com.alphadental.clinic.data.LocationReading
+import com.alphadental.clinic.data.isUsableGeofence
+import com.alphadental.clinic.data.judgeGeofence
 import com.alphadental.clinic.data.LedgerRow
+import com.alphadental.clinic.data.LedgerEntry
 import com.alphadental.clinic.data.balanceOf
+import com.alphadental.clinic.data.splitPayment
+import com.alphadental.clinic.data.unpaidProcedures
 import com.alphadental.clinic.data.looksLikePhoneSearch
 import com.alphadental.clinic.data.patientMatchesSearch
 import com.alphadental.clinic.data.buildSlots
@@ -310,5 +317,154 @@ class PatientSearchTest {
         assertFalse(looksLikePhoneSearch("Ahmed"))
         assertFalse(looksLikePhoneSearch("A1"))
         assertFalse(looksLikePhoneSearch(""))
+    }
+}
+
+/**
+ * How a payment is split between doctor, lab and clinic.
+ *
+ * These three numbers are written onto the ledger and are what the clinic's profit and the
+ * dentist's payout are computed from later. A mistake here does not surface as an error — it
+ * surfaces as the practice quietly making less money than it did.
+ */
+class PaymentSplitTest {
+
+    @org.junit.Test
+    fun `commission is a percentage of the payment when there is no lab fee`() {
+        val split = splitPayment(amount = 1000.0, paidBefore = 0.0, procedureLabFee = 0.0, commissionPercentage = 40.0)
+        assertEquals(0.0, split.labFee, 0.001)
+        assertEquals(400.0, split.doctorCommissionAmount, 0.001)
+        assertEquals(600.0, split.clinicProfit, 0.001)
+    }
+
+    @org.junit.Test
+    fun `the lab fee comes off before commission is worked out`() {
+        // 1000 paid, 200 to the lab, 40% of the remaining 800 to the dentist.
+        val split = splitPayment(amount = 1000.0, paidBefore = 0.0, procedureLabFee = 200.0, commissionPercentage = 40.0)
+        assertEquals(200.0, split.labFee, 0.001)
+        assertEquals(320.0, split.doctorCommissionAmount, 0.001)
+        assertEquals(480.0, split.clinicProfit, 0.001)
+    }
+
+    @org.junit.Test
+    fun `the lab is paid once, not on every instalment`() {
+        // Second payment toward the same crown: the lab has already been covered.
+        val split = splitPayment(amount = 1000.0, paidBefore = 500.0, procedureLabFee = 200.0, commissionPercentage = 40.0)
+        assertEquals("a crown paid in three parts must not pay the lab three times", 0.0, split.labFee, 0.001)
+        assertEquals(400.0, split.doctorCommissionAmount, 0.001)
+        assertEquals(600.0, split.clinicProfit, 0.001)
+    }
+
+    @org.junit.Test
+    fun `a payment smaller than the lab fee gives the dentist nothing, never a negative`() {
+        val split = splitPayment(amount = 100.0, paidBefore = 0.0, procedureLabFee = 200.0, commissionPercentage = 40.0)
+        assertEquals(0.0, split.doctorCommissionAmount, 0.001)
+        // The clinic absorbs the shortfall; that is a real loss, and it is reported as one.
+        assertEquals(-100.0, split.clinicProfit, 0.001)
+    }
+
+    @org.junit.Test
+    fun `no commission set means the clinic keeps everything after the lab`() {
+        val split = splitPayment(amount = 500.0, paidBefore = 0.0, procedureLabFee = 100.0, commissionPercentage = 0.0)
+        assertEquals(0.0, split.doctorCommissionAmount, 0.001)
+        assertEquals(400.0, split.clinicProfit, 0.001)
+    }
+
+    @org.junit.Test
+    fun `the three parts always add back up to what the patient paid`() {
+        listOf(
+            Triple(1000.0, 200.0, 40.0),
+            Triple(750.0, 0.0, 25.0),
+            Triple(333.33, 50.0, 33.0),
+        ).forEach { (amount, lab, pct) ->
+            val s = splitPayment(amount, 0.0, lab, pct)
+            assertEquals(
+                "doctor + lab + clinic must equal the payment",
+                amount,
+                s.doctorCommissionAmount + s.labFee + s.clinicProfit,
+                0.001,
+            )
+        }
+    }
+
+    @org.junit.Test
+    fun `outstanding procedures are worked out from the ledger`() {
+        val rows = listOf(
+            LedgerEntry(id = "p1", type = "procedure", description = "Crown", amount = 3000.0),
+            LedgerEntry(id = "pay1", type = "payment", paid = 1000.0, procedureId = "p1"),
+            LedgerEntry(id = "p2", type = "procedure", description = "Filling", amount = 500.0),
+            LedgerEntry(id = "pay2", type = "payment", paid = 500.0, procedureId = "p2"),
+            // An advance payment belongs to no procedure and must not reduce one.
+            LedgerEntry(id = "pay3", type = "payment", paid = 800.0, procedureId = ""),
+        )
+
+        val outstanding = unpaidProcedures(rows)
+        assertEquals("the settled filling drops off the list", 1, outstanding.size)
+        assertEquals("p1", outstanding[0].id)
+        assertEquals(1000.0, outstanding[0].paidSoFar, 0.001)
+        assertEquals(2000.0, outstanding[0].remaining, 0.001)
+    }
+
+    @org.junit.Test
+    fun `a procedure stored with cost instead of amount still counts`() {
+        val rows = listOf(LedgerEntry(id = "p1", type = "procedure", description = "Scaling", cost = 400.0))
+        assertEquals(400.0, unpaidProcedures(rows)[0].remaining, 0.001)
+    }
+}
+
+/**
+ * The clinic geofence, which must agree with lib/attendanceLocation.ts.
+ *
+ * The website had a real failure here: the same person, same phone, same chair, could clock in one
+ * hour and not the next — because a single GPS reading was trusted and its own stated margin of
+ * error ignored. These cases pin the fix.
+ */
+class GeofenceTest {
+
+    private val clinic = Geofence(lat = 30.0444, lng = 31.2357, radius = 50.0)
+
+    /** A reading `metres` north of the clinic, claiming `accuracy` metres of error. */
+    private fun readingAtMetres(metres: Double, accuracy: Double): LocationReading {
+        // ~111,320 m per degree of latitude.
+        return LocationReading(clinic.lat + metres / 111_320.0, clinic.lng, accuracy)
+    }
+
+    @org.junit.Test
+    fun `a poor fix just outside the fence is forgiven`() {
+        // "80m away, give or take 90m" — the exact case that used to be refused.
+        val v = judgeGeofence(readingAtMetres(80.0, 90.0), clinic)
+        assertTrue(v.inside)
+        assertEquals(0, v.effectiveDistance)
+        assertTrue("it really is outside the circle on paper", v.distance > clinic.radius)
+    }
+
+    @org.junit.Test
+    fun `a confident fix well outside is refused`() {
+        val v = judgeGeofence(readingAtMetres(120.0, 10.0), clinic)
+        assertFalse(v.inside)
+        assertEquals(110, v.effectiveDistance)
+    }
+
+    @org.junit.Test
+    fun `forgiveness is capped, so a hopeless fix cannot buy its way in`() {
+        val v = judgeGeofence(readingAtMetres(300.0, 5000.0), clinic)
+        assertFalse(v.inside)
+        assertEquals("300 - 100, not 300 - 5000", 200, v.effectiveDistance)
+    }
+
+    @org.junit.Test
+    fun `someone standing in the clinic is inside`() {
+        assertTrue(judgeGeofence(readingAtMetres(20.0, 8.0), clinic).inside)
+    }
+
+    @org.junit.Test
+    fun `an unconfigured or broken geofence is treated as absent, never as satisfied`() {
+        // NaN comparisons are all false, so a broken fence once let everyone through silently.
+        assertFalse(isUsableGeofence(Geofence(Double.NaN, 31.2, 50.0)))
+        assertFalse(isUsableGeofence(Geofence(30.0, Double.NaN, 50.0)))
+        assertFalse(isUsableGeofence(Geofence(0.0, 0.0, 50.0)))
+        assertFalse(isUsableGeofence(Geofence(30.0, 31.2, 0.0)))
+        assertFalse(isUsableGeofence(null))
+        assertTrue(isUsableGeofence(clinic))
     }
 }

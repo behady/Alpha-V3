@@ -62,6 +62,8 @@ import com.alphadental.clinic.data.Appointment
 import com.alphadental.clinic.ui.Alpha
 import com.alphadental.clinic.ui.AlphaCard
 import com.alphadental.clinic.ui.AlphaTheme
+import com.alphadental.clinic.ui.AddNoteSheet
+import com.alphadental.clinic.ui.ClockCard
 import com.alphadental.clinic.ui.AppointmentSheet
 import com.alphadental.clinic.ui.BookingSheet
 import com.alphadental.clinic.ui.DayScreen
@@ -69,6 +71,8 @@ import com.alphadental.clinic.ui.HomeScreen
 import com.alphadental.clinic.ui.LoginScreen
 import com.alphadental.clinic.ui.PatientSheet
 import com.alphadental.clinic.ui.PatientsScreen
+import com.alphadental.clinic.ui.PaymentSheet
+import com.alphadental.clinic.data.LocationFinder
 import com.alphadental.clinic.sms.SmsPrefs
 import com.alphadental.clinic.sms.SmsWorker
 import com.alphadental.clinic.ui.SectionHeading
@@ -182,6 +186,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
 
         else -> {
             val session = state.session!!
+            val context = LocalContext.current
 
             Scaffold(
                 containerColor = Alpha.Ground,
@@ -257,6 +262,12 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             email = session.email,
                             role = session.role,
                             arabic = state.arabic,
+                            onShift = state.openShift != null,
+                            shiftSince = state.openShift?.checkInMillis ?: 0L,
+                            clocking = state.clocking,
+                            clockError = state.clockError,
+                            onPunch = { viewModel.punchClock(context) },
+                            onDismissClockError = viewModel::dismissClockError,
                             onToggleLanguage = viewModel::toggleLanguage,
                             onSignOut = viewModel::signOut,
                         )
@@ -295,7 +306,43 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     loading = state.patientLoading,
                     error = state.patientError,
                     arabic = state.arabic,
+                    // Only roles that may write money see the button. The rules would reject the
+                    // write anyway; offering it and failing is worse than not offering it.
+                    onTakePayment = if (session.isAdmin || session.isDentist || session.role == "Receptionist") {
+                        { viewModel.openPayment() }
+                    } else null,
+                    notes = state.notes,
+                    // Recording treatment is a clinical act, so it is the dentists' and the
+                    // owner's — reception can see the record but not write to it.
+                    onAddNote = if (session.isAdmin || session.isDentist) {
+                        { viewModel.openAddNote() }
+                    } else null,
                     onDismiss = viewModel::closePatient,
+                )
+            }
+
+            if (state.addNoteOpen && state.patientFile != null) {
+                AddNoteSheet(
+                    patientName = state.patientFile!!.patient.name,
+                    services = state.services,
+                    doctors = state.doctors,
+                    saving = state.savingNote,
+                    arabic = state.arabic,
+                    onSave = viewModel::saveNote,
+                    onDismiss = viewModel::closeAddNote,
+                )
+            }
+
+            if (state.paymentOpen && state.patientFile != null) {
+                PaymentSheet(
+                    patientName = state.patientFile!!.patient.name,
+                    outstanding = state.outstanding,
+                    owed = state.patientFile!!.balance.owed,
+                    loading = state.loadingOutstanding,
+                    saving = state.savingPayment,
+                    arabic = state.arabic,
+                    onSave = viewModel::recordPayment,
+                    onDismiss = viewModel::closePayment,
                 )
             }
 
@@ -368,11 +415,34 @@ private fun MoreScreen(
     email: String,
     role: String,
     arabic: Boolean,
+    onShift: Boolean,
+    shiftSince: Long,
+    clocking: Boolean,
+    clockError: String?,
+    onPunch: () -> Unit,
+    onDismissClockError: () -> Unit,
     onToggleLanguage: () -> Unit,
     onSignOut: () -> Unit,
 ) {
     val context = LocalContext.current
     var isSender by remember { mutableStateOf(SmsPrefs.isSender(context)) }
+
+    // Location is asked for at the moment someone taps the clock, not at launch, and only because
+    // their clinic checks they are on site. Whatever they answer, the punch still runs — a refusal
+    // then comes back as a plain explanation rather than a silent no-op.
+    val locationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { onPunch() }
+
+    val punchWithPermission: () -> Unit = {
+        if (LocationFinder.hasPermission(context)) {
+            onPunch()
+        } else {
+            locationPermission.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            )
+        }
+    }
 
     // Turning the sender on is the only thing in this app that asks for a permission, so the
     // request is tied directly to the switch rather than fired at launch. Refusing it leaves the
@@ -400,6 +470,18 @@ private fun MoreScreen(
                 Text(role, fontSize = 12.sp, fontWeight = FontWeight.Black, color = Alpha.Green)
             }
         }
+
+        SectionHeading(if (arabic) "الحضور" else "ATTENDANCE")
+
+        ClockCard(
+            onShift = onShift,
+            since = shiftSince,
+            busy = clocking,
+            error = clockError,
+            arabic = arabic,
+            onPunch = punchWithPermission,
+            onDismissError = onDismissClockError,
+        )
 
         SectionHeading(if (arabic) "الرسائل النصية" else "TEXT MESSAGES")
 

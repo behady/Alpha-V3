@@ -128,11 +128,18 @@ Or open this `android` folder in Android Studio and use
 ### What the build needs
 
 - The Android SDK (already at `C:\Users\PC\AppData\Local\Android\Sdk`)
-- **Java 21**, at `C:\Users\PC\Downloads\jdk21_extracted\jdk-21.0.12+8`
+- **Java 21**, at `C:\Users\PC\.jdks\jbr-21.0.11`
 
-Java 21 specifically: the JDK bundled with Android Studio is too new for this
-Gradle, and the system JDK (11) is too old. If that folder moves, update the
-`JAVA_HOME` line at the top of `build-apk.bat`.
+Java 21 specifically, and this is not a preference. Android Studio's own JBR is
+Java **25**, which the Android Gradle Plugin refuses with an error that is just
+the version number; the system JDK is **11**, which is too old.
+
+The JDK this project used to point at, under `Downloads\jdk21_extracted`, was
+gutted on 2026-08-14 — only `bin` and `lib\modules` were left, so every build
+died with `could not open lib\jvm.cfg`. `build-apk.bat` now uses the JetBrains
+JDK 21 under `.jdks` and falls back to the old path if it is ever restored. If
+both vanish, install any JDK 21 and update the `JAVA_HOME` line at the top of
+`build-apk.bat`.
 
 ### If the clinic's web address ever changes
 

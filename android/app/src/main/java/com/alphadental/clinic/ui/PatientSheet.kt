@@ -16,8 +16,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -25,6 +28,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -35,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.alphadental.clinic.data.Appointment
+import com.alphadental.clinic.data.ClinicalNote
 import com.alphadental.clinic.data.PatientFile
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -53,6 +58,11 @@ fun PatientSheet(
     loading: Boolean,
     error: String?,
     arabic: Boolean,
+    /** Null when this user may not take payments, so no button is shown at all. */
+    onTakePayment: (() -> Unit)?,
+    notes: List<ClinicalNote>,
+    /** Null when this user may not record treatment. */
+    onAddNote: (() -> Unit)?,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -148,6 +158,60 @@ fun PatientSheet(
 
                     Spacer(Modifier.height(18.dp))
                     BalanceCard(file, arabic)
+
+                    if (onTakePayment != null) {
+                        Spacer(Modifier.height(10.dp))
+                        Button(
+                            onClick = onTakePayment,
+                            shape = Alpha.CardShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Alpha.Ink,
+                                contentColor = Color.White,
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp),
+                        ) {
+                            Icon(Icons.Filled.AccountBalanceWallet, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.size(8.dp))
+                            Text(
+                                if (arabic) "تسجيل دفعة" else "Take a payment",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Black,
+                            )
+                        }
+                    }
+
+                    // Treatment first: on a patient file the clinical record is what a dentist
+                    // opens it for, and appointments are context around it.
+                    Spacer(Modifier.height(20.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        SectionHeading(if (arabic) "العلاج" else "TREATMENT", Modifier.weight(1f))
+                        if (onAddNote != null) {
+                            TextButton(onClick = onAddNote) {
+                                Text(
+                                    if (arabic) "+ إضافة" else "+ Add",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = Alpha.Green,
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+
+                    if (notes.isEmpty()) {
+                        Text(
+                            if (arabic) "لا توجد إجراءات مسجلة." else "No procedures recorded.",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Alpha.Slate400,
+                        )
+                    } else {
+                        Column(Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState())) {
+                            notes.forEach { NoteRow(it, arabic) }
+                        }
+                    }
 
                     if (file.upcoming.isNotEmpty()) {
                         Spacer(Modifier.height(18.dp))
@@ -245,6 +309,93 @@ private fun BalanceCard(file: PatientFile, arabic: Boolean) {
                 }
             }
         }
+    }
+}
+
+/**
+ * One recorded procedure.
+ *
+ * A cost with no ledger link is called out, because that is precisely what the website's Collect
+ * Dues screen reports as treated-but-never-invoiced — money the clinic has earned and not asked
+ * for. Better seen here, on the patient, than discovered in a report weeks later.
+ */
+@Composable
+private fun NoteRow(note: ClinicalNote, arabic: Boolean) {
+    Surface(
+        shape = Alpha.CardShape,
+        color = Alpha.Slate50,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    note.procedure.ifBlank { "—" },
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Black,
+                    color = Alpha.Slate900,
+                    modifier = Modifier.weight(1f),
+                )
+                NoteStatusPill(note.status, arabic)
+            }
+
+            val detail = listOfNotNull(
+                note.tooth.takeIf { it.isNotBlank() && it != "Gen" }?.let { (if (arabic) "سن " else "Tooth ") + it },
+                note.date.takeIf { it.isNotBlank() },
+                note.doctor.takeIf { it.isNotBlank() }?.let { "Dr. $it" },
+            ).joinToString("  ·  ")
+            if (detail.isNotBlank()) {
+                Text(detail, fontSize = 11.5.sp, fontWeight = FontWeight.Medium, color = Alpha.Slate400)
+            }
+
+            if (note.note.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(note.note, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Alpha.Slate600)
+            }
+
+            if (note.cost > 0) {
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${note.cost.toInt()} EGP",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Alpha.Slate700,
+                    )
+                    if (note.ledgerId.isBlank()) {
+                        Spacer(Modifier.size(8.dp))
+                        Surface(shape = Alpha.PillShape, color = Color(0xFFFFE4E6)) {
+                            Text(
+                                if (arabic) "لم يُفوتر" else "not invoiced",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Black,
+                                color = Color(0xFF9F1239),
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoteStatusPill(status: String, arabic: Boolean) {
+    val (bg, fg) = when (status) {
+        "Completed" -> Color(0xFFD1FAE5) to Color(0xFF065F46)
+        "Ongoing" -> Color(0xFFFEF3C7) to Color(0xFF92400E)
+        else -> Color(0xFFE2E8F0) to Color(0xFF475569)
+    }
+    Surface(shape = Alpha.PillShape, color = bg) {
+        Text(
+            noteStatusLabel(status, arabic),
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Black,
+            color = fg,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+        )
     }
 }
 

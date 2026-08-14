@@ -4,7 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.alphadental.clinic.data.Appointment
 import com.alphadental.clinic.data.ClinicSchedule
+import com.alphadental.clinic.data.ClinicalNote
 import com.alphadental.clinic.data.Doctor
+import com.alphadental.clinic.data.GeofenceVerdict
+import com.alphadental.clinic.data.LocationFinder
+import com.alphadental.clinic.data.judgeGeofence
 import com.alphadental.clinic.data.Patient
 import com.alphadental.clinic.data.PatientFile
 import com.alphadental.clinic.data.Slot
@@ -13,8 +17,11 @@ import com.alphadental.clinic.data.DayResult
 import com.alphadental.clinic.data.Repository
 import com.alphadental.clinic.data.Service
 import com.alphadental.clinic.data.Session
+import com.alphadental.clinic.data.UnpaidProcedure
+import com.alphadental.clinic.data.unpaidProcedures
 import com.google.firebase.firestore.DocumentSnapshot
 import com.alphadental.clinic.ui.BookingDraft
+import com.alphadental.clinic.ui.NoteDraft
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -67,6 +74,20 @@ data class AppState(
     val patientFile: PatientFile? = null,
     val patientLoading: Boolean = false,
     val patientError: String? = null,
+    // --- taking a payment ---
+    val paymentOpen: Boolean = false,
+    val outstanding: List<UnpaidProcedure> = emptyList(),
+    val loadingOutstanding: Boolean = false,
+    val savingPayment: Boolean = false,
+    // --- clinical notes ---
+    val notes: List<ClinicalNote> = emptyList(),
+    val addNoteOpen: Boolean = false,
+    val savingNote: Boolean = false,
+    // --- attendance ---
+    val openShift: Repository.OpenShift? = null,
+    val clocking: Boolean = false,
+    /** Set when clocking was refused, so the reason can be shown rather than a bare failure. */
+    val clockError: String? = null,
 )
 
 /** Null target means a new booking; a set one means that appointment is being moved. */
@@ -102,6 +123,7 @@ class AppViewModel : ViewModel() {
             .onSuccess { session ->
                 _state.value = _state.value.copy(loading = false, session = session)
                 watchDay(session.clinicId, _state.value.date)
+                refreshShift()
             }
             .onFailure { error ->
                 // The account exists in Firebase but not in this clinic system — a
@@ -123,6 +145,7 @@ class AppViewModel : ViewModel() {
                 .onSuccess { session ->
                     _state.value = _state.value.copy(signingIn = false, session = session, signInError = null)
                     watchDay(session.clinicId, _state.value.date)
+                    refreshShift()
                 }
                 .onFailure { error ->
                     _state.value = _state.value.copy(signingIn = false, signInError = error.message ?: "Could not sign in.")
@@ -194,6 +217,110 @@ class AppViewModel : ViewModel() {
             Repository.setStatus(session.clinicId, appointment, next, session.name)
                 .onFailure { error ->
                     _state.value = _state.value.copy(message = error.message ?: "That change could not be saved.")
+                }
+        }
+    }
+
+    // ---------------------------------------------------------------- attendance
+
+    fun refreshShift() {
+        val session = _state.value.session ?: return
+        viewModelScope.launch {
+            val shift = runCatching { Repository.openShift(session.clinicId, session.uid) }.getOrNull()
+            _state.value = _state.value.copy(openShift = shift)
+        }
+    }
+
+    fun dismissClockError() {
+        _state.value = _state.value.copy(clockError = null)
+    }
+
+    /**
+     * Clock in or out.
+     *
+     * The geofence is only enforced when the clinic actually configured one. A clinic that never
+     * set its location gets attendance without a location check rather than a permanent refusal —
+     * an unconfigured fence is an absent fence, never a satisfied one.
+     */
+    fun punchClock(context: android.content.Context) {
+        val session = _state.value.session ?: return
+        if (_state.value.clocking) return
+
+        _state.value = _state.value.copy(clocking = true, clockError = null)
+
+        viewModelScope.launch {
+            val fence = runCatching { Repository.loadGeofence(session.clinicId) }.getOrNull()
+
+            var verdict: GeofenceVerdict? = null
+            var accuracy: Double? = null
+
+            if (fence != null) {
+                when (val fix = LocationFinder.bestPosition(context)) {
+                    is LocationFinder.Result.Found -> {
+                        accuracy = fix.reading.accuracy
+                        verdict = judgeGeofence(fix.reading, fence)
+                        if (!verdict.inside) {
+                            _state.value = _state.value.copy(
+                                clocking = false,
+                                clockError = "You appear to be about ${verdict.effectiveDistance}m from the clinic. Clocking in only works on site.",
+                            )
+                            return@launch
+                        }
+                    }
+                    LocationFinder.Result.PermissionDenied -> {
+                        _state.value = _state.value.copy(
+                            clocking = false,
+                            clockError = "This clinic checks you are on site, so location permission is needed to clock in.",
+                        )
+                        return@launch
+                    }
+                    LocationFinder.Result.Unavailable -> {
+                        _state.value = _state.value.copy(
+                            clocking = false,
+                            clockError = "Location is switched off on this phone. Turn it on to clock in.",
+                        )
+                        return@launch
+                    }
+                    LocationFinder.Result.TimedOut -> {
+                        _state.value = _state.value.copy(
+                            clocking = false,
+                            clockError = "Could not get a location fix. Try again near a window.",
+                        )
+                        return@launch
+                    }
+                    is LocationFinder.Result.TooInaccurate -> {
+                        _state.value = _state.value.copy(
+                            clocking = false,
+                            clockError = "The location reading is too vague to tell whether you are at the clinic.",
+                        )
+                        return@launch
+                    }
+                }
+            }
+
+            val existing = _state.value.openShift
+            val result = if (existing != null) {
+                Repository.clockOut(session.clinicId, existing, verdict, accuracy)
+            } else {
+                val staffId = runCatching {
+                    Repository.findMyStaffId(session.clinicId, session.uid, session.email)
+                }.getOrDefault("")
+                Repository.clockIn(session.clinicId, session.uid, session.name, staffId, verdict, accuracy)
+            }
+
+            result
+                .onSuccess {
+                    _state.value = _state.value.copy(
+                        clocking = false,
+                        message = if (existing != null) "Clocked out." else "Clocked in.",
+                    )
+                    refreshShift()
+                }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(
+                        clocking = false,
+                        clockError = error.message ?: "That could not be saved.",
+                    )
                 }
         }
     }
@@ -278,6 +405,7 @@ class AppViewModel : ViewModel() {
                     // pop a stale patient over whoever they are looking at now.
                     if (_state.value.openPatientId == patientId) {
                         _state.value = _state.value.copy(patientFile = file, patientLoading = false)
+                        loadNotesFor(session.clinicId, patientId)
                     }
                 }
                 .onFailure { error ->
@@ -287,6 +415,145 @@ class AppViewModel : ViewModel() {
                             patientError = error.message ?: "That patient could not be opened.",
                         )
                     }
+                }
+        }
+    }
+
+    /**
+     * Open the payment sheet for the patient currently on screen.
+     *
+     * The ledger is re-read rather than reused from the patient file, because what is still owed
+     * on each treatment is the thing being paid against — and a colleague may have taken a payment
+     * at the desk since this file was opened.
+     */
+    fun openPayment() {
+        val session = _state.value.session ?: return
+        val patientId = _state.value.openPatientId ?: return
+
+        _state.value = _state.value.copy(paymentOpen = true, loadingOutstanding = true, outstanding = emptyList())
+        viewModelScope.launch {
+            val rows = runCatching { Repository.loadLedger(session.clinicId, patientId) }.getOrDefault(emptyList())
+            _state.value = _state.value.copy(
+                outstanding = unpaidProcedures(rows),
+                loadingOutstanding = false,
+            )
+        }
+    }
+
+    private fun loadNotesFor(clinicId: String, patientId: String) {
+        viewModelScope.launch {
+            val loaded = runCatching { Repository.loadClinicalNotes(clinicId, patientId) }.getOrDefault(emptyList())
+            if (_state.value.openPatientId == patientId) {
+                _state.value = _state.value.copy(notes = loaded)
+            }
+        }
+    }
+
+    /**
+     * Load the price list and doctors before the note sheet opens.
+     *
+     * Fetched on open rather than held from sign-in, so a price added on the website this morning
+     * is offered without restarting the app.
+     */
+    fun openAddNote() {
+        val session = _state.value.session ?: return
+        _state.value = _state.value.copy(addNoteOpen = true)
+        viewModelScope.launch {
+            val services = runCatching { Repository.loadServices(session.clinicId) }.getOrDefault(emptyList())
+            val doctors = runCatching { Repository.loadDoctors(session.clinicId) }.getOrDefault(emptyList())
+            _state.value = _state.value.copy(services = services, doctors = doctors)
+        }
+    }
+
+    fun closeAddNote() {
+        _state.value = _state.value.copy(addNoteOpen = false, savingNote = false)
+    }
+
+    /**
+     * Save a procedure, then reload both the notes and the file.
+     *
+     * The file is reloaded because a chargeable procedure moves the patient's balance, and showing
+     * a stale balance right after billing someone is the sort of thing that gets a patient charged
+     * twice.
+     */
+    fun saveNote(draft: NoteDraft) {
+        val session = _state.value.session ?: return
+        val patient = _state.value.patientFile?.patient ?: return
+
+        _state.value = _state.value.copy(savingNote = true)
+        viewModelScope.launch {
+            Repository.addClinicalNote(
+                clinicId = session.clinicId,
+                patient = patient,
+                procedure = draft.procedure,
+                tooth = draft.tooth,
+                noteText = draft.note,
+                cost = draft.cost,
+                status = draft.status,
+                doctor = draft.doctor,
+                service = draft.service,
+                byName = session.name,
+            )
+                .onSuccess {
+                    _state.value = _state.value.copy(
+                        savingNote = false,
+                        addNoteOpen = false,
+                        message = if (draft.cost > 0) {
+                            "Procedure saved and charged ${draft.cost.toInt()} EGP."
+                        } else {
+                            "Procedure saved."
+                        },
+                    )
+                    openPatient(patient.id)
+                }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(
+                        savingNote = false,
+                        message = error.message ?: "That procedure could not be saved.",
+                    )
+                }
+        }
+    }
+
+    fun closePayment() {
+        _state.value = _state.value.copy(paymentOpen = false, outstanding = emptyList(), savingPayment = false)
+    }
+
+    /**
+     * Record a payment, then reload the patient file so the balance on screen is the stored one.
+     *
+     * Reloading rather than adjusting the number locally: the balance is derived from the whole
+     * ledger, and a local subtraction would be a second, quieter implementation of that sum that
+     * could disagree with the real one.
+     */
+    fun recordPayment(procedure: UnpaidProcedure?, amount: Double) {
+        val session = _state.value.session ?: return
+        val patient = _state.value.patientFile?.patient ?: return
+
+        _state.value = _state.value.copy(savingPayment = true)
+        viewModelScope.launch {
+            Repository.recordPayment(
+                clinicId = session.clinicId,
+                patient = patient,
+                procedure = procedure,
+                amount = amount,
+                byName = session.name,
+                byUid = session.uid,
+            )
+                .onSuccess {
+                    _state.value = _state.value.copy(
+                        savingPayment = false,
+                        paymentOpen = false,
+                        outstanding = emptyList(),
+                        message = "Payment of ${amount.toInt()} EGP recorded.",
+                    )
+                    openPatient(patient.id)
+                }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(
+                        savingPayment = false,
+                        message = error.message ?: "That payment could not be saved.",
+                    )
                 }
         }
     }
