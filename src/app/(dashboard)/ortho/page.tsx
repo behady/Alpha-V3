@@ -6,10 +6,9 @@ import {
   Activity, Search, ChevronRight, Loader2, Stethoscope, MessageCircle,
   Clock, CheckCircle2, Users, CalendarPlus, X,
 } from "lucide-react";
-import { db } from "@/lib/firebase";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { getClinicCollection } from "@/lib/db-utils";
 import PermissionGuard from "@/components/PermissionGuard";
-import { collection, onSnapshot } from "firebase/firestore";
+import { onSnapshot } from "firebase/firestore";
 
 interface OrthoCase {
   id: string;
@@ -31,10 +30,22 @@ export default function OrthoDashboard() {
   const [filter, setFilter] = useState<Filter>("Active");
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, "ortho_cases"), snap => {
-      setCases(snap.docs.map(d => ({ id: d.id, ...d.data() } as OrthoCase)));
-      setLoading(false);
-    });
+    // Was reading a root-level `ortho_cases` collection, which does not exist and which the
+    // security rules deny outright — so this list has been permanently empty for every clinic
+    // while the detail page, the writes and the rules all correctly used clinics/{id}/ortho_cases.
+    // The failure was silent: an empty list looks exactly like a clinic with no ortho patients.
+    const unsub = onSnapshot(
+      getClinicCollection("ortho_cases"),
+      snap => {
+        setCases(snap.docs.map(d => ({ id: d.id, ...d.data() } as OrthoCase)));
+        setLoading(false);
+      },
+      error => {
+        // Reported rather than swallowed, so the next time this breaks it is not invisible.
+        console.error("Could not load ortho cases", error);
+        setLoading(false);
+      }
+    );
     return () => unsub();
   }, []);
 
