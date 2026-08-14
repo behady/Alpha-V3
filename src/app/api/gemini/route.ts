@@ -49,7 +49,6 @@ const AI_READABLE_COLLECTIONS = new Set([
   "clinical_notes",
   "inventory",
   "inventory_transactions",
-  "lab_orders",
   "staff",
   "expenses",
 ]);
@@ -73,7 +72,6 @@ const AI_WRITABLE_COLLECTIONS = new Set([
   "clinical_notes",
   "inventory",
   "inventory_transactions",
-  "lab_orders",
 ]);
 
 /** Deleting financial or clinical history is not something a chat turn should be able to do. */
@@ -164,7 +162,6 @@ const ALPHA_DATABASE_SCHEMAS = `CRITICAL DATABASE SCHEMAS (Strictly use these ex
  - payment: patientId(REQ), patientName, type="payment", paid, method, description, date
 6. clinical_notes: patientId(REQ), date, doctor (display name), doctorId (staff id — prefer for per-dentist grouping), procedure (FREE TEXT, do not count on it), serviceIds (ids from the services collection that the procedures resolved to — USE THIS to count procedures by type), serviceId, serviceName, unmatchedProcedures (names that matched no price-list entry), tooth, cost, unitCost, unitsCount, pricingFormula, note, status, ledgerId. When counting procedures, group on serviceIds and report anything in unmatchedProcedures as uncounted rather than guessing. Notes written before this was added have no serviceIds — say so rather than reporting a total as complete.
 7. inventory: name, category, subCategory, stock (NOT "quantity"), minStock, costPerUnit, unit, isPercentage. There is no expiryDate field — do not claim an item is expiring. A minStock of 0 usually means no reorder threshold was ever configured, NOT that the item is healthy: say so rather than reporting "nothing is low".
-8. lab_orders: patientId(REQ), patientName, labName, type, shade, teeth, sendDate, dueDate, status, cost
 
 CRITICAL WORKFLOW (ADD SERVICE):
 find patient -> read 'services' -> db_write 'clinical_notes' -> db_write 'ledger' (type: procedure) -> db_update clinical_note with ledgerId. MUST sync financials!

@@ -6,12 +6,13 @@ import { collection, onSnapshot, query, where, getDocs, doc, updateDoc, serverTi
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { isDentistStaff } from "@/lib/staffRoles";
-import { Note, RelatedAppointment, Staff, Service, LabInfo } from "./types";
+import { Note, RelatedAppointment, Staff, Service } from "./types";
 import TimelineCard from "./TimelineCard";
 import ServiceEditorDrawer from "./ServiceEditorDrawer";
 import TransferServiceModal from "./TransferServiceModal";
 import { resolveProcedureLedgerIdForNote } from "@/lib/syncProcedurePaymentLabFee";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";export default function ClinicalNotesContainer({ patientId, onWriteRx }: { patientId: string, onWriteRx?: () => void }) {
+import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+export default function ClinicalNotesContainer({ patientId, onWriteRx }: { patientId: string, onWriteRx?: () => void }) {
   const { language } = useLanguage();
   const { showToast, confirm, clinicalEditorMode } = useUI();
 
@@ -21,7 +22,6 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";export defau
   
   const [doctors, setDoctors] = useState<Staff[]>([]);
   const [servicesList, setServicesList] = useState<Service[]>([]);
-  const [labs, setLabs] = useState<LabInfo[]>([]);
 
   const [isDesktop, setIsDesktop] = useState(false);
 
@@ -78,17 +78,6 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";export defau
     });
     getDocs(getClinicCollection("services")).then(snap => {
         setServicesList(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Service).sort((a,b) => a.name.localeCompare(b.name)));
-    });
-    
-    // Fetch Labs
-    auth.currentUser?.getIdToken().then(token => {
-      fetch("/api/labs", { headers: { Authorization: `Bearer ${token}` } })
-        .then(res => res.json())
-        .then(data => {
-          if (data?.ok && Array.isArray(data.labs)) {
-            setLabs(data.labs);
-          }
-        }).catch(console.error);
     });
 
     return () => { unsubNotes(); unsubAppts(); };
@@ -265,7 +254,6 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";export defau
                 initialNote={editingNote}
                 servicesList={servicesList}
                 doctors={doctors}
-                labs={labs}
                 onSaved={() => {
                   setIsDrawerOpen(false);
                   setEditingNote(null);
@@ -292,7 +280,6 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";export defau
               initialNote={editingNote}
               servicesList={servicesList}
               doctors={doctors}
-              labs={labs}
               onSaved={() => {
                 setIsDrawerOpen(false);
                 setEditingNote(null);

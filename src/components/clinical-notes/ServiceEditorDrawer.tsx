@@ -14,8 +14,8 @@ import { resolveProcedureLedgerIdForNote, syncProcedureAndPaymentsFromClinicalNo
 import ServiceCombobox from "@/components/shared/ServiceCombobox";
 import TeethChart from "@/components/TeethChart";
 import { isDentistStaff } from "@/lib/staffRoles";
-import { Note, Service, Staff, LabInfo } from "./types";
-import { ALL_TEETH, UPPER_LEFT_TEETH, UPPER_RIGHT_TEETH, LOWER_LEFT_TEETH, LOWER_RIGHT_TEETH, IMPRESSION_TYPES, compressImage, computeProcedureLabFee, labServiceUnitPrice, parseTeethString, normalizeImpressionType } from "./utils";
+import { Note, Service, Staff } from "./types";
+import { ALL_TEETH, UPPER_LEFT_TEETH, UPPER_RIGHT_TEETH, LOWER_LEFT_TEETH, LOWER_RIGHT_TEETH, compressImage, computeProcedureLabFee, parseTeethString } from "./utils";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 
 interface Props {
@@ -27,13 +27,12 @@ interface Props {
   initialNote: Note | null;
   servicesList: Service[];
   doctors: Staff[];
-  labs: LabInfo[];
   onSaved: () => void;
   inline?: boolean;
 }
 
 export default function ServiceEditorDrawer({
-  isOpen, onClose, patientId, patientName, appointmentId, initialNote, servicesList, doctors, labs, onSaved, inline = false
+  isOpen, onClose, patientId, patientName, appointmentId, initialNote, servicesList, doctors, onSaved, inline = false
 }: Props) {
   const { showToast, clinicalEditorMode } = useUI();
   const { language } = useLanguage();
@@ -173,7 +172,7 @@ export default function ServiceEditorDrawer({
       };
 
       const { labFee, labFeePerUnit, reqLab } = computeProcedureLabFee({
-        needsLabOrderNow: false, formLabId: "", formLabService: "", labs: [], matchedServices, pricingUnits,
+        matchedServices, pricingUnits,
       });
 
       const commPct = Number(selectedDocObj?.commissionPercentage || 0);

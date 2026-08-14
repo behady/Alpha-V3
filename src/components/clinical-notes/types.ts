@@ -22,12 +22,6 @@ export interface Note {
   unmatchedProcedures?: string[];
   beforeImage?: string;
   afterImage?: string;
-  needsLabOrder?: boolean;
-  labOrderLabId?: string;
-  labOrderService?: string;
-  labOrderShade?: string;
-  labOrderImpressionType?: string;
-  labOrderNoteToLab?: string;
   createdAt?: any;
   appointmentId?: string | null;
   isContinued?: boolean;
@@ -55,5 +49,3 @@ export interface RelatedAppointment {
 
 export interface Staff { id: string; name: string; role: string; commissionPercentage?: number; }
 export interface Service { id: string; name: string; price: number; requiresLab?: boolean; estimatedLabFee?: number; }
-export interface LabServicePrice { name: string; price: number; turnaroundDays?: number; }
-export interface LabInfo { id: string; name: string; phone: string; servicesPricing?: LabServicePrice[]; }
