@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -71,6 +72,8 @@ fun PatientSheet(
     prescriptions: List<Prescription>,
     /** Null when this user may not prescribe. */
     onWriteRx: (() -> Unit)?,
+    /** Null when this user may not change a recorded procedure. */
+    onSetNoteStatus: ((noteId: String, status: String) -> Unit)?,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -230,7 +233,7 @@ fun PatientSheet(
                         )
                     } else {
                         Column(Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState())) {
-                            shownNotes.forEach { NoteRow(it, arabic) }
+                            shownNotes.forEach { NoteRow(it, arabic, onSetNoteStatus) }
                         }
                     }
 
@@ -396,13 +399,23 @@ private fun BalanceCard(file: PatientFile, arabic: Boolean) {
  * for. Better seen here, on the patient, than discovered in a report weeks later.
  */
 @Composable
-private fun NoteRow(note: ClinicalNote, arabic: Boolean) {
+private fun NoteRow(
+    note: ClinicalNote,
+    arabic: Boolean,
+    onSetStatus: ((noteId: String, status: String) -> Unit)? = null,
+) {
+    // Correcting a status is the one edit worth having on a phone: a procedure marked Planned that
+    // was actually finished is the difference between a treatment plan that reflects the mouth and
+    // one nobody trusts. Deeper edits stay on the website, where there is room to do them safely.
+    var expanded by remember { mutableStateOf(false) }
+
     Surface(
         shape = Alpha.CardShape,
         color = Alpha.Slate50,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 3.dp),
+            .padding(vertical = 3.dp)
+            .then(if (onSetStatus != null) Modifier.clickable { expanded = !expanded } else Modifier),
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -448,6 +461,31 @@ private fun NoteRow(note: ClinicalNote, arabic: Boolean) {
                                 fontWeight = FontWeight.Black,
                                 color = Color(0xFF9F1239),
                                 modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (expanded && onSetStatus != null) {
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    NOTE_STATUSES.forEach { status ->
+                        val current = note.status == status
+                        Surface(
+                            shape = Alpha.PillShape,
+                            color = if (current) Alpha.Ink else Color.White,
+                            modifier = Modifier.clickable(enabled = !current) {
+                                onSetStatus(note.id, status)
+                                expanded = false
+                            },
+                        ) {
+                            Text(
+                                noteStatusLabel(status, arabic),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                color = if (current) Color.White else Alpha.Slate600,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                             )
                         }
                     }

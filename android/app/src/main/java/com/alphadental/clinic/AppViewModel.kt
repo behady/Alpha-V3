@@ -478,6 +478,19 @@ class AppViewModel : ViewModel() {
         }
     }
 
+    /** Correct a recorded procedure's status. Reloads so the screen shows what was stored. */
+    fun updateNoteStatus(noteId: String, status: String) {
+        val session = _state.value.session ?: return
+        val patientId = _state.value.openPatientId ?: return
+        viewModelScope.launch {
+            Repository.setNoteStatus(session.clinicId, noteId, status)
+                .onSuccess { loadNotesFor(session.clinicId, patientId) }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(message = error.message ?: "That change could not be saved.")
+                }
+        }
+    }
+
     fun openPrescription() {
         val session = _state.value.session ?: return
         _state.value = _state.value.copy(rxOpen = true)

@@ -324,6 +324,9 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     onWriteRx = if (session.isAdmin || session.isDentist) {
                         { viewModel.openPrescription() }
                     } else null,
+                    onSetNoteStatus = if (session.isAdmin || session.isDentist) {
+                        { noteId, status -> viewModel.updateNoteStatus(noteId, status) }
+                    } else null,
                     onDismiss = viewModel::closePatient,
                 )
             }
