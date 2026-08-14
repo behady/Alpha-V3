@@ -673,6 +673,85 @@ object Repository {
         }
     }
 
+    // ---------------------------------------------------------------------- ortho
+
+    private fun orthoCases(clinicId: String) =
+        Firebase.db().collection("clinics").document(clinicId).collection("ortho_cases")
+
+    private fun DocumentSnapshot.toOrthoVisits(): List<OrthoVisit> {
+        @Suppress("UNCHECKED_CAST")
+        val raw = get("visits") as? List<Map<String, Any?>> ?: return emptyList()
+        return raw.map { row ->
+            OrthoVisit(
+                visitNo = (row["visitNo"] as? Number)?.toInt() ?: 0,
+                date = row["date"] as? String ?: "",
+                workDone = row["workDone"] as? String ?: "",
+                nextStep = row["nextStep"] as? String ?: "",
+            )
+        }
+    }
+
+    /**
+     * Every ortho case in the clinic.
+     *
+     * Read whole rather than filtered by status, because a clinic has tens of these rather than
+     * thousands and the screen lets you switch between active and finished without another trip.
+     */
+    suspend fun loadOrthoCases(clinicId: String): List<OrthoCase> {
+        val snap = orthoCases(clinicId).get().await()
+        return snap.documents.map { doc ->
+            OrthoCase(
+                patientId = doc.id,
+                patientName = doc.getString("patientName").orEmpty(),
+                patientPhone = doc.getString("patientPhone").orEmpty(),
+                startDate = doc.getString("startDate").orEmpty(),
+                status = doc.getString("status").orEmpty().ifBlank { "Active" },
+                diagnosis = doc.getString("diagnosis").orEmpty(),
+                visits = doc.toOrthoVisits(),
+            )
+        }.sortedBy { it.patientName }
+    }
+
+    /**
+     * Log an adjustment.
+     *
+     * Appended with arrayUnion rather than by rewriting the whole array. Two people at two chairs
+     * both logging a visit would otherwise each write back the list as they last read it, and
+     * whoever saved second would erase the other's entry. The visit number is worked out from the
+     * list this phone has, so a genuine collision produces two visits sharing a number — which is
+     * untidy but visible, and far better than one of them vanishing.
+     */
+    suspend fun addOrthoVisit(
+        clinicId: String,
+        patientId: String,
+        visit: OrthoVisit,
+    ): Result<Unit> = runCatching {
+        orthoCases(clinicId).document(patientId).update(
+            mapOf(
+                "visits" to FieldValue.arrayUnion(
+                    mapOf(
+                        "visitNo" to visit.visitNo,
+                        "date" to visit.date,
+                        "workDone" to visit.workDone.trim(),
+                        "nextStep" to visit.nextStep.trim(),
+                    )
+                ),
+                "updatedAt" to FieldValue.serverTimestamp(),
+            )
+        ).queueLocally("ortho visit")
+    }
+
+    /** Move a case between Active, Retention and Completed. */
+    suspend fun setOrthoStatus(clinicId: String, patientId: String, status: String): Result<Unit> = runCatching {
+        val updates = mutableMapOf<String, Any>(
+            "status" to status,
+            "updatedAt" to FieldValue.serverTimestamp(),
+        )
+        // Stamped so the website's "finished this month" figures have a date to count.
+        if (status == "Completed") updates["completedDate"] = todayKey()
+        orthoCases(clinicId).document(patientId).update(updates).queueLocally("ortho status")
+    }
+
     // ------------------------------------------------------------------- payments
 
     private fun ledger(clinicId: String) =

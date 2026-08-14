@@ -210,3 +210,36 @@ data class Patient(
     val phone: String = "",
     val balance: Double = 0.0,
 )
+
+/**
+ * One adjustment appointment in an orthodontic case.
+ *
+ * Visits live as an array on the case document rather than as a subcollection — that is how the
+ * website stores them, and this is one database.
+ */
+data class OrthoVisit(
+    val visitNo: Int = 0,
+    val date: String = "",
+    val workDone: String = "",
+    val nextStep: String = "",
+)
+
+/**
+ * An orthodontic case.
+ *
+ * The document id is the patient's id, so a patient can only ever have one case — which is what
+ * the website assumes when it opens ortho_cases/{patientId} directly.
+ *
+ * Cephalometric measurements and the diagnosis are deliberately absent. Those are typed once at
+ * the start from a tracing, need precision, and belong on a screen with a keyboard. What a phone
+ * is for here is the every-few-weeks adjustment.
+ */
+data class OrthoCase(
+    val patientId: String = "",
+    val patientName: String = "",
+    val patientPhone: String = "",
+    val startDate: String = "",
+    val status: String = "Active",
+    val diagnosis: String = "",
+    val visits: List<OrthoVisit> = emptyList(),
+)

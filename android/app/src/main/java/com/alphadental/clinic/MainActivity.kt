@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
@@ -79,6 +80,7 @@ import com.alphadental.clinic.ui.MoneyScreen
 import com.alphadental.clinic.ui.PatientSheet
 import com.alphadental.clinic.ui.PatientsScreen
 import com.alphadental.clinic.ui.PaymentSheet
+import com.alphadental.clinic.ui.OrthoSheet
 import com.alphadental.clinic.ui.PrescriptionSheet
 import com.alphadental.clinic.ui.ReportsSheet
 import com.alphadental.clinic.data.LocationFinder
@@ -301,6 +303,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             onOpenReports = if (session.isAdmin || session.isReception) {
                                 { viewModel.openReports() }
                             } else null,
+                            onOpenOrtho = viewModel::openOrtho,
                             onToggleLanguage = viewModel::toggleLanguage,
                             onSignOut = viewModel::signOut,
                         )
@@ -359,6 +362,21 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         { noteId, status -> viewModel.updateNoteStatus(noteId, status) }
                     } else null,
                     onDismiss = viewModel::closePatient,
+                )
+            }
+
+            if (state.orthoOpen) {
+                OrthoSheet(
+                    cases = state.orthoCases,
+                    openCase = state.orthoCase,
+                    loading = state.loadingOrtho,
+                    saving = state.savingOrtho,
+                    canEdit = session.isAdmin || session.isDentist,
+                    arabic = state.arabic,
+                    onOpenCase = viewModel::openOrthoCase,
+                    onLogVisit = viewModel::logOrthoVisit,
+                    onSetStatus = viewModel::setOrthoStatus,
+                    onDismiss = viewModel::closeOrtho,
                 )
             }
 
@@ -511,6 +529,7 @@ private fun MoreScreen(
     onOpenWhatsappQueue: () -> Unit,
     /** Null for roles that may not see the clinic's takings. */
     onOpenReports: (() -> Unit)?,
+    onOpenOrtho: () -> Unit,
     onToggleLanguage: () -> Unit,
     onSignOut: () -> Unit,
 ) {
@@ -595,6 +614,16 @@ private fun MoreScreen(
                     smsPermission.launch(Manifest.permission.SEND_SMS)
                 }
             },
+        )
+
+        SectionHeading(if (arabic) "التقويم" else "ORTHODONTICS")
+
+        MoreRow(
+            icon = Icons.Filled.Timeline,
+            label = if (arabic) "حالات التقويم" else "Ortho cases",
+            caption = if (arabic) "الزيارات، وتسجيل تعديل اليوم"
+            else "Visit history, and log today's adjustment",
+            onClick = onOpenOrtho,
         )
 
         SectionHeading(if (arabic) "واتساب" else "WHATSAPP")

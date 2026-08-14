@@ -25,6 +25,8 @@ import com.alphadental.clinic.data.judgeGeofence
 import com.alphadental.clinic.data.unpaidProcedures
 import com.google.firebase.firestore.DocumentSnapshot
 import com.alphadental.clinic.ui.BookingDraft
+import com.alphadental.clinic.data.OrthoCase
+import com.alphadental.clinic.data.OrthoVisit
 import com.alphadental.clinic.data.ReportSummary
 import com.alphadental.clinic.data.pricingUnits
 import com.alphadental.clinic.data.summariseReport
@@ -123,6 +125,12 @@ data class AppState(
     val reportSummary: ReportSummary? = null,
     val reportRangeLabel: String = "",
     val loadingReport: Boolean = false,
+    // --- ortho ---
+    val orthoOpen: Boolean = false,
+    val orthoCases: List<OrthoCase> = emptyList(),
+    val orthoCase: OrthoCase? = null,
+    val loadingOrtho: Boolean = false,
+    val savingOrtho: Boolean = false,
 )
 
 /** Null target means a new booking; a set one means that appointment is being moved. */
@@ -339,6 +347,82 @@ class AppViewModel : ViewModel() {
 
     fun closeReports() {
         _state.value = _state.value.copy(reportsOpen = false)
+    }
+
+    // --- ortho -----------------------------------------------------------------------------
+
+    fun openOrtho() {
+        val session = _state.value.session ?: return
+        _state.value = _state.value.copy(orthoOpen = true, orthoCase = null, loadingOrtho = true)
+        viewModelScope.launch {
+            val cases = runCatching { Repository.loadOrthoCases(session.clinicId) }.getOrDefault(emptyList())
+            _state.value = _state.value.copy(orthoCases = cases, loadingOrtho = false)
+        }
+    }
+
+    fun closeOrtho() {
+        _state.value = _state.value.copy(orthoOpen = false, orthoCase = null)
+    }
+
+    fun openOrthoCase(case: OrthoCase?) {
+        _state.value = _state.value.copy(orthoCase = case)
+    }
+
+    /**
+     * Log an adjustment.
+     *
+     * The visit number comes from the list this phone holds. Two chairs logging at the same moment
+     * would produce two visits sharing a number — untidy, but both survive, which is the trade the
+     * arrayUnion append is making deliberately.
+     */
+    fun logOrthoVisit(case: OrthoCase, workDone: String, nextStep: String) {
+        val session = _state.value.session ?: return
+        if (workDone.isBlank()) return
+
+        val visit = OrthoVisit(
+            visitNo = (case.visits.maxOfOrNull { it.visitNo } ?: 0) + 1,
+            date = today(),
+            workDone = workDone,
+            nextStep = nextStep,
+        )
+
+        _state.value = _state.value.copy(savingOrtho = true)
+        viewModelScope.launch {
+            Repository.addOrthoVisit(session.clinicId, case.patientId, visit)
+                .onFailure { error ->
+                    _state.value = _state.value.copy(message = error.message ?: "The visit could not be saved.")
+                }
+            applyOrthoChange(case.patientId) { it.copy(visits = it.visits + visit) }
+            _state.value = _state.value.copy(savingOrtho = false)
+        }
+    }
+
+    fun setOrthoStatus(case: OrthoCase, status: String) {
+        val session = _state.value.session ?: return
+        _state.value = _state.value.copy(savingOrtho = true)
+        viewModelScope.launch {
+            Repository.setOrthoStatus(session.clinicId, case.patientId, status)
+                .onFailure { error ->
+                    _state.value = _state.value.copy(message = error.message ?: "The status could not be changed.")
+                }
+            applyOrthoChange(case.patientId) { it.copy(status = status) }
+            _state.value = _state.value.copy(savingOrtho = false)
+        }
+    }
+
+    /**
+     * Apply a change to both the list and the open case.
+     *
+     * Updated locally rather than by re-reading: the write is queued, not confirmed, so a fresh
+     * read could come back from the cache without it and the visit would appear to vanish the
+     * instant it was saved.
+     */
+    private fun applyOrthoChange(patientId: String, change: (OrthoCase) -> OrthoCase) {
+        val current = _state.value
+        _state.value = current.copy(
+            orthoCases = current.orthoCases.map { if (it.patientId == patientId) change(it) else it },
+            orthoCase = current.orthoCase?.let { if (it.patientId == patientId) change(it) else it },
+        )
     }
 
     fun setReportRange(range: ReportRange) {
