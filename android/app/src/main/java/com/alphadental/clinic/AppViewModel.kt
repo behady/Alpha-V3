@@ -25,7 +25,10 @@ import com.alphadental.clinic.data.judgeGeofence
 import com.alphadental.clinic.data.unpaidProcedures
 import com.google.firebase.firestore.DocumentSnapshot
 import com.alphadental.clinic.ui.BookingDraft
+import com.alphadental.clinic.data.ReportSummary
 import com.alphadental.clinic.data.pricingUnits
+import com.alphadental.clinic.data.summariseReport
+import com.alphadental.clinic.ui.ReportRange
 import com.alphadental.clinic.ui.NoteDraft
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -114,6 +117,12 @@ data class AppState(
      */
     val whatsappQueue: List<Repository.PendingWhatsapp> = emptyList(),
     val whatsappQueueOpen: Boolean = false,
+    // --- reports ---
+    val reportsOpen: Boolean = false,
+    val reportRange: ReportRange = ReportRange.MONTH,
+    val reportSummary: ReportSummary? = null,
+    val reportRangeLabel: String = "",
+    val loadingReport: Boolean = false,
 )
 
 /** Null target means a new booking; a set one means that appointment is being moved. */
@@ -319,6 +328,78 @@ class AppViewModel : ViewModel() {
 
     fun closeWhatsappQueue() {
         _state.value = _state.value.copy(whatsappQueueOpen = false)
+    }
+
+    // --- reports ---------------------------------------------------------------------------
+
+    fun openReports() {
+        _state.value = _state.value.copy(reportsOpen = true)
+        loadReport(_state.value.reportRange)
+    }
+
+    fun closeReports() {
+        _state.value = _state.value.copy(reportsOpen = false)
+    }
+
+    fun setReportRange(range: ReportRange) {
+        _state.value = _state.value.copy(reportRange = range)
+        loadReport(range)
+    }
+
+    private fun loadReport(range: ReportRange) {
+        val session = _state.value.session ?: return
+        val (from, to) = rangeBounds(range)
+
+        _state.value = _state.value.copy(
+            loadingReport = true,
+            reportRangeLabel = "$from → $to",
+        )
+
+        viewModelScope.launch {
+            val rows = runCatching { Repository.loadLedgerRange(session.clinicId, from, to) }
+                .getOrDefault(emptyList())
+
+            // Ignore a slow answer for a range the user has already moved off, the same way the
+            // day ledger does — otherwise tapping through the chips races itself.
+            if (_state.value.reportRange != range) return@launch
+
+            _state.value = _state.value.copy(
+                loadingReport = false,
+                reportSummary = if (rows.isEmpty()) null else summariseReport(rows),
+            )
+        }
+    }
+
+    /**
+     * First and last day of a range, as the "yyyy-MM-dd" keys the ledger stores.
+     *
+     * Built on Calendar rather than by arithmetic on the date string, so month lengths and the turn
+     * of a year look after themselves — "this month" on the 31st of January must not run into
+     * February.
+     */
+    private fun rangeBounds(range: ReportRange): Pair<String, String> {
+        val cal = Calendar.getInstance()
+        val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+
+        return when (range) {
+            ReportRange.WEEK -> {
+                val to = fmt.format(cal.time)
+                cal.add(Calendar.DAY_OF_YEAR, -6)
+                fmt.format(cal.time) to to
+            }
+            ReportRange.MONTH -> {
+                val to = fmt.format(cal.time)
+                cal.set(Calendar.DAY_OF_MONTH, 1)
+                fmt.format(cal.time) to to
+            }
+            ReportRange.LAST_MONTH -> {
+                cal.set(Calendar.DAY_OF_MONTH, 1)
+                cal.add(Calendar.MONTH, -1)
+                val from = fmt.format(cal.time)
+                cal.set(Calendar.DAY_OF_MONTH, cal.getActualMaximum(Calendar.DAY_OF_MONTH))
+                from to fmt.format(cal.time)
+            }
+        }
     }
 
     /**

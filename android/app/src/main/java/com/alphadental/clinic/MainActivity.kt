@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Inventory2
@@ -79,6 +80,7 @@ import com.alphadental.clinic.ui.PatientSheet
 import com.alphadental.clinic.ui.PatientsScreen
 import com.alphadental.clinic.ui.PaymentSheet
 import com.alphadental.clinic.ui.PrescriptionSheet
+import com.alphadental.clinic.ui.ReportsSheet
 import com.alphadental.clinic.data.LocationFinder
 import com.alphadental.clinic.sms.SmsPrefs
 import com.alphadental.clinic.sms.SmsWorker
@@ -294,6 +296,11 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             onOpenInventory = viewModel::openInventory,
                             whatsappWaiting = state.whatsappQueue.size,
                             onOpenWhatsappQueue = viewModel::openWhatsappQueue,
+                            // Owners and reception only. A dentist seeing the clinic's whole
+                            // takings is a different conversation from them seeing their own.
+                            onOpenReports = if (session.isAdmin || session.isReception) {
+                                { viewModel.openReports() }
+                            } else null,
                             onToggleLanguage = viewModel::toggleLanguage,
                             onSignOut = viewModel::signOut,
                         )
@@ -352,6 +359,18 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         { noteId, status -> viewModel.updateNoteStatus(noteId, status) }
                     } else null,
                     onDismiss = viewModel::closePatient,
+                )
+            }
+
+            if (state.reportsOpen) {
+                ReportsSheet(
+                    range = state.reportRange,
+                    rangeLabel = state.reportRangeLabel,
+                    summary = state.reportSummary,
+                    loading = state.loadingReport,
+                    arabic = state.arabic,
+                    onRange = viewModel::setReportRange,
+                    onDismiss = viewModel::closeReports,
                 )
             }
 
@@ -490,6 +509,8 @@ private fun MoreScreen(
     onOpenInventory: () -> Unit,
     whatsappWaiting: Int,
     onOpenWhatsappQueue: () -> Unit,
+    /** Null for roles that may not see the clinic's takings. */
+    onOpenReports: (() -> Unit)?,
     onToggleLanguage: () -> Unit,
     onSignOut: () -> Unit,
 ) {
@@ -593,6 +614,18 @@ private fun MoreScreen(
             tint = if (whatsappWaiting > 0) Color(0xFF128C7E) else Alpha.Slate700,
             onClick = onOpenWhatsappQueue,
         )
+
+        if (onOpenReports != null) {
+            SectionHeading(if (arabic) "التقارير" else "REPORTS")
+
+            MoreRow(
+                icon = Icons.Filled.BarChart,
+                label = if (arabic) "أرقام العيادة" else "Clinic numbers",
+                caption = if (arabic) "الأسبوع، الشهر، وأكثر العلاجات دخلاً"
+                else "This week, this month, and what earns most",
+                onClick = onOpenReports,
+            )
+        }
 
         SectionHeading(if (arabic) "المخزون" else "STOCK")
 

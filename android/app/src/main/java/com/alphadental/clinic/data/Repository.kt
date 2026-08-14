@@ -640,6 +640,39 @@ object Repository {
         }.sortedWith(compareByDescending<DayLedgerRow> { it.isPayment }.thenByDescending { it.amount })
     }
 
+    /**
+     * Every ledger row between two dates, inclusive.
+     *
+     * Dates are stored as "yyyy-MM-dd" strings, which sort the same way as the dates they stand
+     * for, so a string range is a real date range here. That is only true because the format is
+     * fixed-width and zero-padded — it would quietly break on "2026-8-1".
+     */
+    suspend fun loadLedgerRange(clinicId: String, fromKey: String, toKey: String): List<ReportRow> {
+        val snap = ledger(clinicId)
+            .whereGreaterThanOrEqualTo("date", fromKey)
+            .whereLessThanOrEqualTo("date", toKey)
+            .get()
+            .await()
+
+        return snap.documents.map { doc ->
+            val type = doc.getString("type").orEmpty()
+            ReportRow(
+                type = type,
+                // Same per-type rule as the day view: a payment's real value can sit in `paid`
+                // with `amount` left at zero by an older write path.
+                amount = if (type == "payment") {
+                    (doc.get("paid") as? Number)?.toDouble() ?: (doc.get("amount") as? Number)?.toDouble() ?: 0.0
+                } else {
+                    (doc.get("amount") as? Number)?.toDouble() ?: (doc.get("cost") as? Number)?.toDouble() ?: 0.0
+                },
+                description = doc.getString("description").orEmpty(),
+                doctorName = doc.getString("doctorName").orEmpty(),
+                patientId = doc.getString("patientId").orEmpty(),
+                date = doc.getString("date").orEmpty(),
+            )
+        }
+    }
+
     // ------------------------------------------------------------------- payments
 
     private fun ledger(clinicId: String) =
