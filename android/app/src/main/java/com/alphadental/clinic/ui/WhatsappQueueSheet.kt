@@ -188,12 +188,22 @@ private fun openWhatsApp(context: Context, phone: String, text: String): Boolean
     if (digits.isBlank()) return false
 
     val uri = Uri.parse("https://wa.me/$digits?text=${Uri.encode(text)}")
-    val intent = Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
-    return try {
-        context.startActivity(intent)
-        true
-    } catch (e: ActivityNotFoundException) {
-        false
+    // Sent to WhatsApp by name — regular first, then Business — never to "whatever handles the
+    // link". The generic intent falls through to a browser when WhatsApp is not installed, and a
+    // phone browser on wa.me is a dead end ("use the app") — yet the message would already have
+    // been marked as sent, silently lost. If neither app is installed the row stays in the list,
+    // which is the honest outcome.
+    for (pkg in listOf("com.whatsapp", "com.whatsapp.w4b")) {
+        val intent = Intent(Intent.ACTION_VIEW, uri)
+            .setPackage(pkg)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            context.startActivity(intent)
+            return true
+        } catch (e: ActivityNotFoundException) {
+            // Try the next package.
+        }
     }
+    return false
 }

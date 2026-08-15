@@ -120,16 +120,24 @@ fun BookingSheet(
 
     // Filled in from the appointment as it stands, so editing starts from what is there rather
     // than from blank fields that would overwrite it on save.
-    LaunchedEffect(editing?.id) {
+    //
+    // Keyed on the doctor and service lists as well as the appointment, and filling only what is
+    // still empty. The lists load after the sheet can already be open, and the first version of
+    // this ran once against empty lists: the doctor and service resolved to null, never resolved
+    // again, and saving an edit then stripped the service off the appointment and zeroed its
+    // expected cost — a data loss the person editing had no way to see. Fill-if-empty means a late
+    // list arrival completes the form without overwriting anything a human has typed since.
+    LaunchedEffect(editing?.id, doctors, services) {
         val current = editing ?: return@LaunchedEffect
         draft = draft.copy(
-            doctor = doctors.firstOrNull { it.id == current.doctorId || it.name == current.doctor },
-            time = current.time,
-            treatment = current.treatment,
-            notes = current.notes,
-            service = services.firstOrNull { it.id == current.serviceId },
-            durationMinutes = current.duration,
-            cost = current.cost,
+            doctor = draft.doctor
+                ?: doctors.firstOrNull { it.id == current.doctorId || it.name == current.doctor },
+            time = draft.time.ifBlank { current.time },
+            treatment = draft.treatment.ifBlank { current.treatment },
+            notes = draft.notes.ifBlank { current.notes },
+            service = draft.service ?: services.firstOrNull { it.id == current.serviceId },
+            durationMinutes = if (draft.durationMinutes > 0) draft.durationMinutes else current.duration,
+            cost = if (draft.cost > 0) draft.cost else current.cost,
         )
     }
     var query by remember { mutableStateOf("") }

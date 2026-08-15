@@ -270,21 +270,25 @@ object Repository {
     ): Result<String> = runCatching {
         require(drugs.isNotEmpty()) { "Add at least one medicine." }
 
+        // newDoc + set, not add().await(): add() only completes on server acknowledgement, so a
+        // prescription written with no signal hung forever. This was the one write the offline
+        // sweep missed — its await sat on a different line from the add and dodged the grep.
         val ref = Firebase.db().collection("clinics").document(clinicId)
-            .collection("prescriptions").add(
-                mapOf(
-                    "patientId" to patient.id,
-                    "patientName" to patient.name,
-                    "date" to todayKey(),
-                    "doctor" to doctor,
-                    "diagnosis" to diagnosis.trim(),
-                    "drugs" to drugs.map {
-                        mapOf("name" to it.name, "dose" to it.dose, "note" to it.note)
-                    },
-                    "mode" to "typed",
-                    "createdAt" to FieldValue.serverTimestamp(),
-                )
-            ).await()
+            .collection("prescriptions").newDoc()
+        ref.set(
+            mapOf(
+                "patientId" to patient.id,
+                "patientName" to patient.name,
+                "date" to todayKey(),
+                "doctor" to doctor,
+                "diagnosis" to diagnosis.trim(),
+                "drugs" to drugs.map {
+                    mapOf("name" to it.name, "dose" to it.dose, "note" to it.note)
+                },
+                "mode" to "typed",
+                "createdAt" to FieldValue.serverTimestamp(),
+            )
+        ).queueLocally("prescription")
 
         ref.id
     }
@@ -770,6 +774,7 @@ object Repository {
                 paid = (doc.get("paid") as? Number)?.toDouble(),
                 procedureId = doc.getString("procedureId").orEmpty(),
                 labFee = (doc.get("labFee") as? Number)?.toDouble() ?: 0.0,
+                commissionPercentage = (doc.get("doctorCommissionPercentage") as? Number)?.toDouble(),
                 doctorId = doc.getString("doctorId").orEmpty(),
                 doctorName = doc.getString("doctorName").orEmpty()
                     .ifBlank { doc.getString("doctor").orEmpty() },
@@ -854,7 +859,20 @@ object Repository {
                 "createdAt" to FieldValue.serverTimestamp(),
             )
         } else {
-            val (doctorId, doctorName, commission) = resolveCommission(clinicId, procedure)
+            // The rate stored on the charge wins, because that is what the website pays out on:
+            // its commission maths reads doctorCommissionPercentage off the procedure's own ledger
+            // row. Reading the staff record instead meant a rate changed since the charge silently
+            // rewrote what this payment owed the dentist — and meant a payment could not be taken
+            // at all when the staff record was not in the offline cache. Only rows from before the
+            // field existed fall back to the live lookup, and if that lookup cannot be reached the
+            // payment records zero commission (recoverable by editing the row) rather than
+            // refusing the money.
+            val (doctorId, doctorName, commission) = if (procedure.commissionPercentage != null) {
+                Triple(procedure.doctorId, procedure.doctorName, procedure.commissionPercentage)
+            } else {
+                runCatching { resolveCommission(clinicId, procedure) }
+                    .getOrDefault(Triple(procedure.doctorId, procedure.doctorName, 0.0))
+            }
             val split = splitPayment(
                 amount = amount,
                 paidBefore = procedure.paidSoFar,
@@ -1171,12 +1189,11 @@ object Repository {
     }
 
     /** Stop being the sender, so the clinic's list stops showing this phone as available. */
-    suspend fun releaseSmsDevice(clinicId: String, deviceId: String) {
-        runCatching {
-            Firebase.db().collection("clinics").document(clinicId)
-                .collection("sms_devices").document(deviceId)
-                .set(mapOf("enabled" to false), SetOptions.merge()).await()
-        }
+    fun releaseSmsDevice(clinicId: String, deviceId: String) {
+        Firebase.db().collection("clinics").document(clinicId)
+            .collection("sms_devices").document(deviceId)
+            .set(mapOf("enabled" to false), SetOptions.merge())
+            .queueLocally("sms sender release")
     }
 
     // -------------------------------------------------------------------- booking

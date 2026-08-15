@@ -65,6 +65,11 @@ data class UnpaidProcedure(
     val labFee: Double = 0.0,
     val doctorId: String = "",
     val doctorName: String = "",
+    /**
+     * The dentist's cut agreed when the charge was made, off the ledger row itself. Null on rows
+     * written before the field existed — those, and only those, fall back to the staff record.
+     */
+    val commissionPercentage: Double? = null,
 ) {
     val remaining: Double get() = (cost - paidSoFar).coerceAtLeast(0.0)
 }
@@ -95,6 +100,7 @@ fun unpaidProcedures(rows: List<LedgerEntry>): List<UnpaidProcedure> {
                 labFee = procedure.labFee,
                 doctorId = procedure.doctorId,
                 doctorName = procedure.doctorName,
+                commissionPercentage = procedure.commissionPercentage,
             )
         }
         .filter { it.remaining > 0 }
@@ -113,4 +119,5 @@ data class LedgerEntry(
     val labFee: Double = 0.0,
     val doctorId: String = "",
     val doctorName: String = "",
+    val commissionPercentage: Double? = null,
 )

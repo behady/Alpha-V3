@@ -514,6 +514,33 @@ class InventoryTest {
         assertEquals("the empty unconfigured item must be surfaced, not hidden", 1, unconfiguredCount(items))
     }
 
+    @org.junit.Test
+    fun `a payment pays commission at the rate stored on the charge`() {
+        // The website's payout maths reads the rate off the procedure's own ledger row, so the
+        // phone has to carry that rate through to the payment screen. Reading the staff record at
+        // payment time instead meant a rate changed since the charge silently rewrote what the
+        // payment owed the dentist — and meant no payment could be taken offline at all.
+        val rows = listOf(
+            LedgerEntry(
+                id = "proc1", type = "procedure", description = "Crown", amount = 2000.0,
+                doctorId = "d1", doctorName = "Ahmed", labFee = 300.0, commissionPercentage = 35.0,
+            ),
+            // A row from before the field existed carries null, not zero — null is what routes it
+            // to the fallback lookup; zero would silently pay nothing.
+            LedgerEntry(
+                id = "proc2", type = "procedure", description = "Old filling", amount = 400.0,
+                doctorId = "d1", doctorName = "Ahmed",
+            ),
+        )
+
+        val unpaid = unpaidProcedures(rows)
+        val crown = unpaid.first { it.id == "proc1" }
+        val old = unpaid.first { it.id == "proc2" }
+
+        assertEquals(35.0, crown.commissionPercentage!!, 0.001)
+        assertEquals("pre-field rows must read as unknown, not as zero", null, old.commissionPercentage)
+    }
+
     // --- holding a reminder until the clinic's chosen hour ---------------------------------------
     //
     // This phone is what actually enforces "send reminders at 2pm". The server only writes the

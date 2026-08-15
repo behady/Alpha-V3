@@ -205,6 +205,10 @@ class AppViewModel : ViewModel() {
 
     fun signOut() {
         dayJob?.cancel()
+        // Cancelled explicitly: this listener was left running after sign-out, still watching the
+        // old clinic's message queue with credentials the rules now reject — a stream of permission
+        // errors, and a stale queue briefly shown if a different account signed in next.
+        whatsappJob?.cancel()
         Repository.signOut()
         _state.value = AppState(loading = false)
     }
