@@ -362,6 +362,31 @@ export default function BookingModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, sched.startHour, sched.startMinute, sched.endHour, sched.endMinute, sched.slotDuration, preSelectedTime]);
 
+  /**
+   * Keep the state honest about what the selects are showing.
+   *
+   * Two effects race on open: the slot builder sets `time` to the first slot, then the reset
+   * effect below clears it back to "" whenever booking was not started from a calendar slot. A
+   * `<select>` with no matching value silently renders its first option, so the form LOOKED
+   * complete — 09:00 AM showing, dentist showing — while `time` was empty and the confirm button
+   * stayed disabled with nothing on screen to explain why.
+   *
+   * It only ever worked by accident: when the clinic's schedule document arrived after the modal
+   * mounted, the slot builder re-ran and repaired the empty time. A cached schedule, or one whose
+   * values happen to match the defaults, meant no second run and a permanently grey button.
+   *
+   * `doctor` has the identical trap when the doctors list loads after mount — the select shows the
+   * first dentist while the state holds "", and saving is refused for a reason the screen
+   * contradicts.
+   */
+  useEffect(() => {
+    if (isOpen && !time && availableTimes.length > 0) setTime(availableTimes[0]);
+  }, [isOpen, time, availableTimes]);
+
+  useEffect(() => {
+    if (isOpen && !doctor && doctors.length > 0) setDoctor(doctors[0].name);
+  }, [isOpen, doctor, doctors]);
+
   useEffect(() => {
     // Always reset isChecking when the modal opens or closes so a stale
     // "true" from a previous session never permanently disables the button.
