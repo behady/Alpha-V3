@@ -72,7 +72,6 @@ import com.alphadental.clinic.ui.AlphaTheme
 import com.alphadental.clinic.ui.AddNoteSheet
 import com.alphadental.clinic.ui.ClockCard
 import com.alphadental.clinic.ui.AppointmentSheet
-import com.alphadental.clinic.ui.AssistantScreen
 import com.alphadental.clinic.ui.BookingSheet
 import com.alphadental.clinic.ui.DayScreen
 import com.alphadental.clinic.ui.HomeScreen
@@ -86,7 +85,7 @@ import com.alphadental.clinic.ui.PaymentSheet
 import com.alphadental.clinic.ui.HoursSheet
 import com.alphadental.clinic.ui.OrthoSheet
 import com.alphadental.clinic.ui.PrescriptionSheet
-import com.alphadental.clinic.ui.AssistantBubble
+import com.alphadental.clinic.ui.AssistantHost
 import com.alphadental.clinic.ui.ReportsScreen
 import com.alphadental.clinic.data.LocationFinder
 import com.alphadental.clinic.sms.SmsPrefs
@@ -317,8 +316,22 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         )
                     }
 
-                    // The assistant's bubble floats over every tab — see AssistantBubble.
-                    AssistantBubble(onOpen = { viewModel.openAssistant(context) })
+                    // The assistant lives here as a chat bubble over every tab: collapsed it
+                    // is a draggable bubble, expanded it is a floating chat window over the
+                    // page — never a navigation. The voice loop keeps running either way.
+                    AssistantHost(
+                        expanded = state.aiOpen,
+                        messages = state.aiMessages,
+                        thinking = state.aiThinking,
+                        pending = state.aiPending,
+                        speak = state.aiSpeak,
+                        arabic = state.arabic,
+                        onAsk = viewModel::askAi,
+                        onSpoken = viewModel::aiSpoken,
+                        onSettle = viewModel::settlePending,
+                        onExpand = { viewModel.openAssistant(context) },
+                        onCollapse = viewModel::closeAssistant,
+                    )
                 }
             }
 
@@ -373,20 +386,6 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         { noteId, status -> viewModel.updateNoteStatus(noteId, status) }
                     } else null,
                     onDismiss = viewModel::closePatient,
-                )
-            }
-
-            if (state.aiOpen) {
-                AssistantScreen(
-                    messages = state.aiMessages,
-                    thinking = state.aiThinking,
-                    pending = state.aiPending,
-                    speak = state.aiSpeak,
-                    arabic = state.arabic,
-                    onAsk = viewModel::askAi,
-                    onSpoken = viewModel::aiSpoken,
-                    onSettle = viewModel::settlePending,
-                    onClose = viewModel::closeAssistant,
                 )
             }
 
