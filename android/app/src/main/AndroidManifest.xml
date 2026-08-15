@@ -45,6 +45,14 @@
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
+        <!-- Named because the app binds them by name. On Samsung phones the system DEFAULT for
+             both jobs is Samsung's own service, and both misbehave for third-party apps — the
+             recogniser accepts a session and never calls back, and the speech engine fails to
+             bind. The fix is to prefer Google's engines explicitly, which requires being able
+             to see them. -->
+        <package android:name="com.google.android.googlequicksearchbox" />
+        <package android:name="com.google.android.tts" />
+        <package android:name="com.samsung.SMT" />
     </queries>
 
     <!-- Tapping a patient's number opens the dialler with it filled in. Placing the
