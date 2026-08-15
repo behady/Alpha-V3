@@ -83,6 +83,7 @@ fun AssistantScreen(
     var voiceState by remember { mutableStateOf(VoiceState.IDLE) }
     var partial by remember { mutableStateOf("") }
     var voiceNote by remember { mutableStateOf<String?>(null) }
+    var offerGoogleVoice by remember { mutableStateOf(false) }
     var typed by remember { mutableStateOf("") }
 
     val session = remember {
@@ -92,6 +93,7 @@ fun AssistantScreen(
             onPartial = { partial = it },
             onHeard = { onAsk(it) },
             onUnavailable = { voiceNote = it },
+            onNeedGoogleVoice = { offerGoogleVoice = true },
         )
     }
     DisposableEffect(Unit) { onDispose { session.destroy() } }
@@ -163,6 +165,47 @@ fun AssistantScreen(
                         color = Color(0xFF92400E),
                         modifier = Modifier.padding(10.dp),
                     )
+                }
+            }
+
+            // The one voice problem a user can fix themselves, turned into the one tap that
+            // fixes it. Phones that ship only Samsung's speech engine cannot read replies
+            // aloud — Google's free engine can, and this opens its install page directly.
+            if (offerGoogleVoice) {
+                Surface(
+                    shape = Alpha.CardShape,
+                    color = Color(0xFFFEF3C7),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(
+                            if (arabic)
+                                "هذا الهاتف لا يحتوي على صوت جوجل، لذلك لا يمكن قراءة الردود صوتياً. تثبيته مجاني ويأخذ دقيقة."
+                            else
+                                "This phone is missing Google's voice, so replies cannot be read aloud. Installing it is free and takes a minute.",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF92400E),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                offerGoogleVoice = false
+                                openPlayStore(context, "com.google.android.tts")
+                            },
+                            shape = Alpha.CardShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Alpha.Ink,
+                                contentColor = Color.White,
+                            ),
+                        ) {
+                            Text(
+                                if (arabic) "تثبيت صوت جوجل" else "Install Google voice",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Black,
+                            )
+                        }
+                    }
                 }
             }
 
@@ -267,6 +310,29 @@ fun AssistantScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Play Store first, browser second — a phone without the Play Store (rare, but clinic tablets
+ * exist) still lands somewhere it can act.
+ */
+private fun openPlayStore(context: android.content.Context, packageName: String) {
+    val market = android.content.Intent(
+        android.content.Intent.ACTION_VIEW,
+        android.net.Uri.parse("market://details?id=$packageName"),
+    ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+    try {
+        context.startActivity(market)
+    } catch (e: android.content.ActivityNotFoundException) {
+        runCatching {
+            context.startActivity(
+                android.content.Intent(
+                    android.content.Intent.ACTION_VIEW,
+                    android.net.Uri.parse("https://play.google.com/store/apps/details?id=$packageName"),
+                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
         }
     }
 }

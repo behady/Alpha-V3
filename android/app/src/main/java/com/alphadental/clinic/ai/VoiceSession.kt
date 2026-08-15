@@ -40,6 +40,12 @@ class VoiceSession(
     private val onPartial: (String) -> Unit,
     private val onHeard: (String) -> Unit,
     private val onUnavailable: (String) -> Unit,
+    /**
+     * Fired when every speech engine on the phone has failed AND Google's voice engine is not
+     * installed — the one situation a user can fix themselves with one tap. The screen turns this
+     * into an install button rather than a dead-end message.
+     */
+    private val onNeedGoogleVoice: () -> Unit,
 ) {
     enum class VoiceState { IDLE, LISTENING, THINKING, SPEAKING }
 
@@ -59,6 +65,9 @@ class VoiceSession(
         arabic = arabicNow
         handsFree = true
         silences = 0
+        // A fresh tap re-opens the question of speech output. If the person just installed a
+        // voice engine, the ladder must start from the top rather than staying exhausted.
+        if (!ttsReady) ttsAttempt = 0
         listen()
     }
 
@@ -284,10 +293,14 @@ class VoiceSession(
                 giveUp = {
                     // Voice out is gone but the assistant is not: the reply is on screen, and in
                     // hands-free mode the mic still reopens so the conversation continues.
-                    onUnavailable(
-                        if (arabic) "قراءة الردود صوتياً غير متاحة على هذا الهاتف."
-                        else "Spoken replies are not available on this phone."
-                    )
+                    if (!isInstalled("com.google.android.tts")) {
+                        onNeedGoogleVoice()
+                    } else {
+                        onUnavailable(
+                            if (arabic) "قراءة الردود صوتياً غير متاحة على هذا الهاتف."
+                            else "Spoken replies are not available on this phone."
+                        )
+                    }
                     afterSpeaking()
                 },
             )
