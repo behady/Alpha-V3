@@ -86,7 +86,8 @@ import com.alphadental.clinic.ui.PaymentSheet
 import com.alphadental.clinic.ui.HoursSheet
 import com.alphadental.clinic.ui.OrthoSheet
 import com.alphadental.clinic.ui.PrescriptionSheet
-import com.alphadental.clinic.ui.ReportsSheet
+import com.alphadental.clinic.ui.AssistantBubble
+import com.alphadental.clinic.ui.ReportsScreen
 import com.alphadental.clinic.data.LocationFinder
 import com.alphadental.clinic.sms.SmsPrefs
 import com.alphadental.clinic.sms.SmsWorker
@@ -315,6 +316,9 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             onSignOut = viewModel::signOut,
                         )
                     }
+
+                    // The assistant's bubble floats over every tab — see AssistantBubble.
+                    AssistantBubble(onOpen = { viewModel.openAssistant(context) })
                 }
             }
 
@@ -412,14 +416,16 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
             }
 
             if (state.reportsOpen) {
-                ReportsSheet(
+                ReportsScreen(
                     range = state.reportRange,
                     rangeLabel = state.reportRangeLabel,
                     summary = state.reportSummary,
+                    sources = state.reportSources,
+                    newPatients = state.reportNewPatients,
                     loading = state.loadingReport,
                     arabic = state.arabic,
                     onRange = viewModel::setReportRange,
-                    onDismiss = viewModel::closeReports,
+                    onClose = viewModel::closeReports,
                 )
             }
 

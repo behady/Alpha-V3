@@ -28,6 +28,8 @@ import com.alphadental.clinic.ui.BookingDraft
 import com.alphadental.clinic.data.OrthoCase
 import com.alphadental.clinic.data.OrthoVisit
 import com.alphadental.clinic.data.ReportSummary
+import com.alphadental.clinic.data.SourceLine
+import com.alphadental.clinic.data.summariseSources
 import com.alphadental.clinic.data.pricingUnits
 import com.alphadental.clinic.data.summariseReport
 import com.alphadental.clinic.ui.ReportRange
@@ -130,6 +132,8 @@ data class AppState(
     val reportSummary: ReportSummary? = null,
     val reportRangeLabel: String = "",
     val loadingReport: Boolean = false,
+    val reportSources: List<SourceLine> = emptyList(),
+    val reportNewPatients: Int = 0,
     // --- ortho ---
     val orthoOpen: Boolean = false,
     val orthoCases: List<OrthoCase> = emptyList(),
@@ -613,6 +617,8 @@ class AppViewModel : ViewModel() {
         viewModelScope.launch {
             val rows = runCatching { Repository.loadLedgerRange(session.clinicId, from, to) }
                 .getOrDefault(emptyList())
+            val referrals = runCatching { Repository.loadNewPatientReferrals(session.clinicId, from, to) }
+                .getOrDefault(emptyList())
 
             // Ignore a slow answer for a range the user has already moved off, the same way the
             // day ledger does — otherwise tapping through the chips races itself.
@@ -620,7 +626,9 @@ class AppViewModel : ViewModel() {
 
             _state.value = _state.value.copy(
                 loadingReport = false,
-                reportSummary = if (rows.isEmpty()) null else summariseReport(rows),
+                reportSummary = if (rows.isEmpty() && referrals.isEmpty()) null else summariseReport(rows),
+                reportSources = summariseSources(referrals),
+                reportNewPatients = referrals.size,
             )
         }
     }

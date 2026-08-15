@@ -11,7 +11,9 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.SetOptions
+import java.text.SimpleDateFormat
 import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -754,6 +756,31 @@ object Repository {
         // Stamped so the website's "finished this month" figures have a date to count.
         if (status == "Completed") updates["completedDate"] = todayKey()
         orthoCases(clinicId).document(patientId).update(updates).queueLocally("ortho status")
+    }
+
+    /**
+     * The referral source of every patient registered between two dates, inclusive.
+     *
+     * Ranged on `createdAt`, which the website stamps at registration. Patients from before the
+     * stamp existed simply do not match — correct here, since they are not "new in this period"
+     * by any reading. The strings come back raw; grouping and the blank-means-walk-in rule live
+     * in summariseSources, where they can be tested.
+     */
+    suspend fun loadNewPatientReferrals(clinicId: String, fromKey: String, toKey: String): List<String> {
+        val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val from = fmt.parse(fromKey) ?: return emptyList()
+        val to = fmt.parse(toKey) ?: return emptyList()
+        // End-exclusive upper bound one day on, so the last day's registrations count.
+        val toExclusive = Date(to.time + 24L * 60 * 60 * 1000)
+
+        val snap = Firebase.db().collection("clinics").document(clinicId)
+            .collection("patients")
+            .whereGreaterThanOrEqualTo("createdAt", from)
+            .whereLessThan("createdAt", toExclusive)
+            .get()
+            .await()
+
+        return snap.documents.map { it.getString("referral").orEmpty() }
     }
 
     // ------------------------------------------------------------------- payments

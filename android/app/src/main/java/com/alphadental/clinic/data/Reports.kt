@@ -88,3 +88,24 @@ fun summariseReport(rows: List<ReportRow>): ReportSummary {
         byDoctor = linesOf(payments.filter { it.doctorName.isNotBlank() }) { it.doctorName },
     )
 }
+
+/** One acquisition source and how many new patients it brought. */
+data class SourceLine(
+    val label: String,
+    val count: Int,
+)
+
+/**
+ * Where the period's new patients came from, biggest source first.
+ *
+ * Grouped on the same `referral` field the website's Sources report reads, with the same label
+ * for a blank one — "Unknown / Walk-in", not dropped. A marketing report that quietly omits the
+ * patients nobody asked about overstates every channel that was recorded.
+ */
+fun summariseSources(referrals: List<String>): List<SourceLine> =
+    referrals
+        .map { it.trim().ifBlank { "Unknown / Walk-in" } }
+        .groupingBy { it }
+        .eachCount()
+        .map { (label, count) -> SourceLine(label, count) }
+        .sortedByDescending { it.count }
