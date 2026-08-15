@@ -52,6 +52,15 @@ class VoiceSession(
     private val main = Handler(Looper.getMainLooper())
     private var recognizer: SpeechRecognizer? = null
     private var recognizerStalls = 0
+    /**
+     * Which recognition service and which language form are in use. Both are ladders: when an
+     * engine refuses the language (error 12/13), the language gets less specific first (ar-EG,
+     * then plain ar, then the engine's own default) and only then does the next engine get a
+     * turn. A combination that works stays for the whole session.
+     */
+    private var candidates: List<ComponentName?> = emptyList()
+    private var candidateIndex = 0
+    private var langLevel = 0
     private var handsFree = false
     private var silences = 0
     private var arabic = false
@@ -109,10 +118,15 @@ class VoiceSession(
             }
 
             if (recognizer == null) {
-                // Bound by name, not by default. The best recogniser on the phone is almost
-                // always Google's; the system default on a Samsung is Bixby's, which is exactly
-                // the one that goes silent.
-                val component = bestRecognizer()
+                // Bound by name, not by default. The system default on a Samsung is Bixby's
+                // recogniser, which goes silent for third-party apps — and after Google's speech
+                // app is installed, its ON-DEVICE service appears too, which only understands
+                // languages it has downloaded (that is what error 13 means). The Google app's
+                // cloud recogniser understands Egyptian Arabic with nothing to download, so it
+                // is ranked first explicitly rather than "whichever Google service enumerates
+                // first".
+                if (candidates.isEmpty()) candidates = orderedRecognizers()
+                val component = candidates.getOrNull(candidateIndex)
                 recognizer = if (component != null) {
                     SpeechRecognizer.createSpeechRecognizer(context, component)
                 } else {
@@ -126,10 +140,13 @@ class VoiceSession(
                     RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                     RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
                 )
-                // Egyptian Arabic, not generic — the recogniser's Egyptian model hears clinic
-                // talk ("حشو", "تقويم") far better than Modern Standard's does.
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, if (arabic) "ar-EG" else "en-US")
+                // Egyptian Arabic first — the Egyptian model hears clinic talk ("حشو", "تقويم")
+                // far better than Modern Standard's does. The less specific forms exist only as
+                // fallbacks for engines that refuse the specific one.
+                languageTag()?.let { putExtra(RecognizerIntent.EXTRA_LANGUAGE, it) }
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                // Cloud where available: on-device models are exactly the ones missing languages.
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
             }
 
             onPartial("")
@@ -139,17 +156,60 @@ class VoiceSession(
         }
     }
 
-    /** Google's recognition service if installed, else whatever else answers, else the default. */
-    private fun bestRecognizer(): ComponentName? {
+    /** The language to ask for at the current fallback level; null means engine default. */
+    private fun languageTag(): String? = when (langLevel) {
+        0 -> if (arabic) "ar-EG" else "en-US"
+        1 -> if (arabic) "ar" else "en"
+        else -> null
+    }
+
+    /**
+     * Every recognition service on the phone, best first: the Google app's cloud recogniser,
+     * then other Google services, then the system default.
+     */
+    private fun orderedRecognizers(): List<ComponentName?> {
         val services = runCatching {
             context.packageManager.queryIntentServices(Intent(RECOGNITION_SERVICE), 0)
         }.getOrDefault(emptyList())
-        if (services.isEmpty()) return null
 
-        val pick = services.firstOrNull {
-            it.serviceInfo.packageName.startsWith("com.google.android")
-        } ?: services.first()
-        return ComponentName(pick.serviceInfo.packageName, pick.serviceInfo.name)
+        val ordered = mutableListOf<ComponentName?>()
+        services.firstOrNull { it.serviceInfo.packageName == GOOGLE_APP }?.let {
+            ordered += ComponentName(it.serviceInfo.packageName, it.serviceInfo.name)
+        }
+        services.filter {
+            it.serviceInfo.packageName != GOOGLE_APP &&
+                it.serviceInfo.packageName.startsWith("com.google.android")
+        }.forEach {
+            ordered += ComponentName(it.serviceInfo.packageName, it.serviceInfo.name)
+        }
+        // The system default last — on the phones this class exists for, it is the broken one.
+        ordered += null
+        return ordered
+    }
+
+    /**
+     * The engine refused the language. Less specific language first, next engine after that —
+     * and when everything is exhausted, an honest message that names the actual fix.
+     */
+    private fun languageRefused() {
+        langLevel++
+        if (langLevel > 2) {
+            langLevel = 0
+            candidateIndex++
+            recognizer?.destroy()
+            recognizer = null
+        }
+        if (candidateIndex >= candidates.size) {
+            onUnavailable(
+                if (arabic)
+                    "لا يوجد محرك على هذا الهاتف يفهم العربية. نزّل اللغة العربية من إعدادات جوجل الصوتية وتأكد من الإنترنت."
+                else
+                    "No engine on this phone understands the selected language. Download it in Google's voice settings, and check the internet connection."
+            )
+            stop()
+            return
+        }
+        if (handsFree) listen() else onState(VoiceState.IDLE)
     }
 
     /**
@@ -222,6 +282,8 @@ class VoiceSession(
             when (error) {
                 SpeechRecognizer.ERROR_NO_MATCH,
                 SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> handleSilence()
+
+                ERROR_LANGUAGE_NOT_SUPPORTED, ERROR_LANGUAGE_UNAVAILABLE -> languageRefused()
 
                 SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> {
                     onUnavailable(
@@ -389,6 +451,11 @@ class VoiceSession(
         const val MAX_SILENCES = 2
         const val WATCHDOG_MS = 8_000L
         const val RECOGNITION_SERVICE = "android.speech.RecognitionService"
+        const val GOOGLE_APP = "com.google.android.googlequicksearchbox"
+
+        /** SpeechRecognizer error codes added in API 31; named here because minSdk is 26. */
+        const val ERROR_LANGUAGE_NOT_SUPPORTED = 12
+        const val ERROR_LANGUAGE_UNAVAILABLE = 13
 
         /** Engines in order of trust: Google's, the device default, Samsung's. */
         val TTS_LADDER = listOf("com.google.android.tts", null, "com.samsung.SMT")
