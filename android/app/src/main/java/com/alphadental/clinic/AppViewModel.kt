@@ -31,6 +31,11 @@ import com.alphadental.clinic.data.ReportSummary
 import com.alphadental.clinic.data.pricingUnits
 import com.alphadental.clinic.data.summariseReport
 import com.alphadental.clinic.ui.ReportRange
+import com.alphadental.clinic.ai.AiClient
+import com.alphadental.clinic.ai.AnswerCache
+import com.alphadental.clinic.ai.ChatMessage
+import com.alphadental.clinic.ai.ChatStore
+import com.alphadental.clinic.ai.interpretYesNo
 import com.alphadental.clinic.ui.NoteDraft
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -134,6 +139,14 @@ data class AppState(
     // --- clinic hours ---
     val hoursOpen: Boolean = false,
     val savingHours: Boolean = false,
+    // --- the assistant ---
+    val aiOpen: Boolean = false,
+    val aiMessages: List<ChatMessage> = emptyList(),
+    val aiThinking: Boolean = false,
+    /** An action the assistant staged on the server, waiting for this person's yes. */
+    val aiPending: AiClient.PendingAction? = null,
+    /** A reply waiting to be read aloud. One-shot: the screen speaks it and calls aiSpoken(). */
+    val aiSpeak: String? = null,
 )
 
 /** Null target means a new booking; a set one means that appointment is being moved. */
@@ -205,6 +218,9 @@ class AppViewModel : ViewModel() {
 
     fun signOut() {
         dayJob?.cancel()
+        // Per clinic and user; the next account must not inherit them.
+        chatStore = null
+        answerCache = null
         // Cancelled explicitly: this listener was left running after sign-out, still watching the
         // old clinic's message queue with credentials the rules now reject — a stream of permission
         // errors, and a stale queue briefly shown if a different account signed in next.
@@ -365,6 +381,117 @@ class AppViewModel : ViewModel() {
             val cases = runCatching { Repository.loadOrthoCases(session.clinicId) }.getOrDefault(emptyList())
             _state.value = _state.value.copy(orthoCases = cases, loadingOrtho = false)
         }
+    }
+
+    // --- the assistant ---------------------------------------------------------------------
+
+    private var chatStore: ChatStore? = null
+    private var answerCache: AnswerCache? = null
+
+    fun openAssistant(context: android.content.Context) {
+        val session = _state.value.session ?: return
+        // Stores are per clinic and user, created on first open and reused for the session.
+        if (chatStore == null) {
+            chatStore = ChatStore(context.applicationContext, session.clinicId, session.uid)
+            answerCache = AnswerCache(context.applicationContext, session.clinicId)
+        }
+        _state.value = _state.value.copy(
+            aiOpen = true,
+            aiMessages = _state.value.aiMessages.ifEmpty { chatStore?.load().orEmpty() },
+        )
+    }
+
+    fun closeAssistant() {
+        _state.value = _state.value.copy(aiOpen = false)
+    }
+
+    fun aiSpoken() {
+        _state.value = _state.value.copy(aiSpeak = null)
+    }
+
+    /**
+     * One thing the user said or typed, answered.
+     *
+     * Three paths, in cost order: a staged action waiting for a yes or no is settled without any
+     * model call at all; an exact repeat of a recent question is answered from the cache for
+     * nothing; everything else goes to the server and costs the clinic one credit.
+     */
+    fun askAi(text: String) {
+        val session = _state.value.session ?: return
+        val prompt = text.trim()
+        if (prompt.isEmpty() || _state.value.aiThinking) return
+
+        // A staged action turns the next short yes or no into its answer — that is what makes
+        // approving by voice possible. Anything that is not clearly either is treated as a new
+        // question and the stage is abandoned, because acting on an ambiguous mumble is how an
+        // assistant deletes something nobody asked it to.
+        val pending = _state.value.aiPending
+        if (pending != null) {
+            when (interpretYesNo(prompt)) {
+                true -> { settlePending(approve = true); return }
+                false -> { settlePending(approve = false); return }
+                null -> _state.value = _state.value.copy(aiPending = null)
+            }
+        }
+
+        appendAiMessage(ChatMessage(fromUser = true, text = prompt, at = System.currentTimeMillis()))
+
+        answerCache?.lookup(prompt)?.let { cached ->
+            appendAiMessage(ChatMessage(fromUser = false, text = cached, at = System.currentTimeMillis()))
+            _state.value = _state.value.copy(aiSpeak = cached)
+            return
+        }
+
+        _state.value = _state.value.copy(aiThinking = true)
+        viewModelScope.launch {
+            runCatching {
+                AiClient.ask(
+                    clinicId = session.clinicId,
+                    userName = session.name,
+                    prompt = prompt,
+                    // History from before this prompt was appended.
+                    history = _state.value.aiMessages.dropLast(1),
+                    voiceMode = true,
+                )
+            }
+                .onSuccess { turn ->
+                    appendAiMessage(ChatMessage(fromUser = false, text = turn.reply, at = System.currentTimeMillis()))
+                    _state.value = _state.value.copy(
+                        aiThinking = false,
+                        aiPending = turn.pending,
+                        aiSpeak = turn.reply,
+                    )
+                    // Only plain answers are cached. A turn that staged an action must never be
+                    // replayed from disk — the spoken confirmation would have nothing behind it.
+                    if (turn.pending == null) answerCache?.store(prompt, turn.reply)
+                }
+                .onFailure { error ->
+                    val message = error.message ?: "The assistant could not be reached."
+                    appendAiMessage(ChatMessage(fromUser = false, text = message, at = System.currentTimeMillis()))
+                    _state.value = _state.value.copy(aiThinking = false, aiSpeak = message)
+                }
+        }
+    }
+
+    fun settlePending(approve: Boolean) {
+        val session = _state.value.session ?: return
+        val pending = _state.value.aiPending ?: return
+
+        _state.value = _state.value.copy(aiThinking = true, aiPending = null)
+        viewModelScope.launch {
+            val outcome = runCatching {
+                AiClient.confirm(session.clinicId, session.name, pending.id, approve)
+            }.getOrElse { it.message ?: "The action could not be completed." }
+
+            appendAiMessage(ChatMessage(fromUser = false, text = outcome, at = System.currentTimeMillis()))
+            _state.value = _state.value.copy(aiThinking = false, aiSpeak = outcome)
+        }
+    }
+
+    private fun appendAiMessage(message: ChatMessage) {
+        val messages = _state.value.aiMessages + message
+        _state.value = _state.value.copy(aiMessages = messages)
+        chatStore?.save(messages)
     }
 
     // --- clinic hours ----------------------------------------------------------------------

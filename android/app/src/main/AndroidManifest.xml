@@ -26,8 +26,26 @@
     <!-- So a clinic phone that reboots overnight is still sending at 07:00 with nobody touching it. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- The assistant's ears. Requested at the moment the mic button is tapped, never at launch.
+         Audio is transcribed on the device by Android's own recogniser and discarded — no
+         recording is stored and no audio ever leaves the phone; only the transcribed text is
+         sent to the clinic's assistant. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
     <!-- Present only so a tablet with no SIM can still install and be used as an ordinary client. -->
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <!-- Android 11+ package visibility: without these declared, the speech recogniser and the
+         text-to-speech engine both report "unavailable" even when installed. -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+    </queries>
 
     <!-- Tapping a patient's number opens the dialler with it filled in. Placing the
          call is still the user's decision; this does not request CALL_PHONE. -->

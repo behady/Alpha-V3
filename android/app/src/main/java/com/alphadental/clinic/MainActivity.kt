@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Payments
@@ -71,6 +72,7 @@ import com.alphadental.clinic.ui.AlphaTheme
 import com.alphadental.clinic.ui.AddNoteSheet
 import com.alphadental.clinic.ui.ClockCard
 import com.alphadental.clinic.ui.AppointmentSheet
+import com.alphadental.clinic.ui.AssistantScreen
 import com.alphadental.clinic.ui.BookingSheet
 import com.alphadental.clinic.ui.DayScreen
 import com.alphadental.clinic.ui.HomeScreen
@@ -306,6 +308,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                                 { viewModel.openReports() }
                             } else null,
                             onOpenOrtho = viewModel::openOrtho,
+                            onOpenAssistant = { viewModel.openAssistant(context) },
                             // Admins only: hours decide what every other member of staff can book.
                             onOpenHours = if (session.isAdmin) ({ viewModel.openHours() }) else null,
                             onToggleLanguage = viewModel::toggleLanguage,
@@ -366,6 +369,20 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         { noteId, status -> viewModel.updateNoteStatus(noteId, status) }
                     } else null,
                     onDismiss = viewModel::closePatient,
+                )
+            }
+
+            if (state.aiOpen) {
+                AssistantScreen(
+                    messages = state.aiMessages,
+                    thinking = state.aiThinking,
+                    pending = state.aiPending,
+                    speak = state.aiSpeak,
+                    arabic = state.arabic,
+                    onAsk = viewModel::askAi,
+                    onSpoken = viewModel::aiSpoken,
+                    onSettle = viewModel::settlePending,
+                    onClose = viewModel::closeAssistant,
                 )
             }
 
@@ -544,6 +561,7 @@ private fun MoreScreen(
     /** Null for roles that may not see the clinic's takings. */
     onOpenReports: (() -> Unit)?,
     onOpenOrtho: () -> Unit,
+    onOpenAssistant: () -> Unit,
     /** Null for anyone who is not a clinic admin. */
     onOpenHours: (() -> Unit)?,
     onToggleLanguage: () -> Unit,
@@ -630,6 +648,17 @@ private fun MoreScreen(
                     smsPermission.launch(Manifest.permission.SEND_SMS)
                 }
             },
+        )
+
+        SectionHeading(if (arabic) "المساعد الذكي" else "ASSISTANT")
+
+        MoreRow(
+            icon = Icons.Filled.Mic,
+            label = if (arabic) "تحدث مع المساعد" else "Talk to the assistant",
+            caption = if (arabic) "اسأل بصوتك عن أي شيء في العيادة — ويحجز وينفذ بصلاحياتك"
+            else "Ask anything about the clinic by voice — it answers and acts with your permissions",
+            tint = Alpha.Green,
+            onClick = onOpenAssistant,
         )
 
         SectionHeading(if (arabic) "التقويم" else "ORTHODONTICS")
