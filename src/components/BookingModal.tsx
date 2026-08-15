@@ -319,6 +319,11 @@ export default function BookingModal({
       selectPatient: language === "ar" ? "اختار المريض الأول" : "Select a patient first",
       pickDentist: language === "ar" ? "اختار الدكتور" : "Pick a dentist",
       pickTime: language === "ar" ? "اختار الميعاد" : "Pick a time",
+      stillNeeded: language === "ar" ? "ناقص:" : "Still needed:",
+      needPatient: language === "ar" ? "المريض" : "a patient",
+      needDentist: language === "ar" ? "الطبيب" : "a dentist",
+      needDate: language === "ar" ? "التاريخ" : "a date",
+      needTime: language === "ar" ? "الوقت" : "a time",
       noFollowCase: language === "ar" ? "مفيش متابعة متاحة للمريض ده" : "No ongoing case to link",
       needLabel:
         language === "ar"
@@ -457,6 +462,27 @@ export default function BookingModal({
       patientMatchesSearch(searchTerm, String(p.name || ""), p.phone ? String(p.phone) : undefined)
     );
   }, [patients, searchTerm]);
+
+  /**
+   * Everything still standing between this form and a saved appointment.
+   *
+   * One list, used both to disable the button and to say why — so the two can never disagree.
+   * `doctor` is included here rather than only being caught inside handleSubmit: a clinic with no
+   * dentists on file could previously enable the button and then refuse the save with a toast,
+   * which reads as the system losing the booking rather than as missing setup.
+   */
+  const blockingReasons = useMemo(() => {
+    const missing: string[] = [];
+    if (isNewPatient) {
+      if (!newPatientName.trim() || !newPatientPhone.trim()) missing.push(txt.needPatient);
+    } else if (!selectedPatient) {
+      missing.push(txt.needPatient);
+    }
+    if (!doctor) missing.push(txt.needDentist);
+    if (!date) missing.push(txt.needDate);
+    if (!time) missing.push(txt.needTime);
+    return missing;
+  }, [isNewPatient, newPatientName, newPatientPhone, selectedPatient, doctor, date, time, txt]);
 
   const checkConflicts = async (
     checkDate: string,
@@ -956,12 +982,26 @@ export default function BookingModal({
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={isChecking || (!isNewPatient && !selectedPatient) || (isNewPatient && (!newPatientName.trim() || !newPatientPhone.trim())) || !date || !time}
+            disabled={isChecking || blockingReasons.length > 0}
             className="flex-[2] flex items-center justify-center gap-2 rounded-xl bg-primary-600 py-3.5 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-primary-200 transition hover:bg-primary-700 disabled:opacity-50"
           >
             {isChecking ? <Loader2 size={16} className="animate-spin" /> : editAppointment ? txt.saveEdit : txt.confirm}
           </button>
         </div>
+
+        {/*
+          Why the button is grey, said out loud.
+
+          A disabled button with no explanation is unfixable by the person looking at it, and this
+          one was worse than most: the fields it objects to are dropdowns, which display their
+          first option when their value is empty, so the form could look complete while the button
+          refused. Naming the missing field turns "the system is broken" into one obvious tap.
+        */}
+        {blockingReasons.length > 0 && !isChecking && (
+          <p className="px-1 pb-1 text-center text-[11px] font-bold text-amber-700">
+            {txt.stillNeeded} {blockingReasons.join(language === "ar" ? "، " : ", ")}
+          </p>
+        )}
       </div>
   );
 
