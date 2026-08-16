@@ -33,7 +33,15 @@ export async function GET(request: Request) {
     const now = Date.now();
     return NextResponse.json({
       ok: true,
-      devices: devices.map((d) => ({ ...d, alive: isDeviceAlive(d, now) })),
+      // `instant` is the difference between a message going out in seconds and going out at the
+      // phone's next quarter-hour poll. It was invisible before, so a phone that could not be
+      // woken looked identical to one that could — and the only symptom was a message sitting in
+      // Waiting for no stated reason. The token is never sent to the browser, only its presence.
+      devices: devices.map(({ fcmToken, ...d }) => ({
+        ...d,
+        alive: isDeviceAlive(d, now),
+        instant: Boolean(fcmToken),
+      })),
       messages,
     });
   } catch (error: unknown) {

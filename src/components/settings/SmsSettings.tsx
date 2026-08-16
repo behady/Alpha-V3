@@ -41,6 +41,8 @@ interface Device {
   enabled: boolean;
   /** Computed server-side, so this screen cannot disagree with the nightly job. */
   alive: boolean;
+  /** True when the server can wake this phone, so messages go out in seconds. */
+  instant?: boolean;
 }
 
 interface QueueMessage {
@@ -144,6 +146,11 @@ export default function SmsSettings() {
     aliveNow: isAr ? "يعمل الآن" : "Sending",
     notSeen: isAr ? "غير متصل" : "Not checking in",
     lastSeen: isAr ? "آخر اتصال" : "Last checked in",
+    instantOn: isAr ? "إرسال فوري" : "Instant",
+    instantOff: isAr ? "كل ١٥ دقيقة" : "Every 15 min",
+    instantOffHint: isAr
+      ? "هذا الهاتف يحتاج تحديث التطبيق (٤.٨ أو أحدث). بعد التحديث انتظر فحصاً واحداً ليصبح الإرسال فورياً."
+      : "This phone needs app 4.8 or newer. After updating, wait for one check-in and sending becomes instant.",
     never: isAr ? "لم يحدث" : "never",
     queueTitle: isAr ? "آخر الرسائل" : "Recent messages",
     queueEmpty: isAr ? "لا توجد رسائل بعد." : "Nothing in the queue yet.",
@@ -618,6 +625,20 @@ export default function SmsSettings() {
                   <p className="text-[11px] font-bold text-slate-400 mt-0.5">
                     {txt.lastSeen}: {formatWhen(device.lastSeenAt)}
                   </p>
+                  {device.enabled && device.alive && (
+                    <p
+                      className={`text-[11px] font-black mt-0.5 ${
+                        device.instant ? "text-emerald-600" : "text-amber-700"
+                      }`}
+                    >
+                      {device.instant ? `⚡ ${txt.instantOn}` : `🕒 ${txt.instantOff}`}
+                      {!device.instant && (
+                        <span className="block font-bold text-slate-400 mt-0.5">
+                          {txt.instantOffHint}
+                        </span>
+                      )}
+                    </p>
+                  )}
                 </div>
                 {device.enabled && (
                   <button

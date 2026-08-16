@@ -184,9 +184,11 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
     val notifPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }
+    val appContext = LocalContext.current.applicationContext
     LaunchedEffect(state.session?.uid) {
         if (state.session != null) {
             com.alphadental.clinic.push.PushRegistrar.register()
+            viewModel.publishWakeAddress(appContext)
             if (android.os.Build.VERSION.SDK_INT >= 33) {
                 notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
             }

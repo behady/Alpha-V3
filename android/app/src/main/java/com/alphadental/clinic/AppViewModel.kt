@@ -392,6 +392,18 @@ class AppViewModel : ViewModel() {
     private var chatStore: ChatStore? = null
     private var answerCache: AnswerCache? = null
 
+    /**
+     * Tell the server where to wake this phone, if it is a sender.
+     *
+     * Runs on launch and on sign-in so instant sending works immediately rather than after the
+     * next fifteen-minute heartbeat — the window in which "instant" silently was not.
+     */
+    fun publishWakeAddress(context: android.content.Context) {
+        viewModelScope.launch {
+            com.alphadental.clinic.sms.SmsWakeAddress.publish(context.applicationContext)
+        }
+    }
+
     fun openAssistant(context: android.content.Context) {
         val session = _state.value.session ?: return
         // Stores are per clinic and user, created on first open and reused for the session.
