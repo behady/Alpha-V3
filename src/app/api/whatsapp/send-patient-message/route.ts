@@ -230,7 +230,15 @@ async function computeLedgerSummary(clinicId: string, patientId: string): Promis
 }
 
 export async function POST(request: Request) {
-  const authz = await requireStaffUser(request);
+  // Read before auth so membership is checked against the clinic being acted on. Callers that
+  // predate this send nothing and still fall back to the user's default clinic.
+  const requestedClinicId = await request
+    .clone()
+    .json()
+    .then((b) => (typeof b?.clinicId === "string" ? b.clinicId.trim() : ""))
+    .catch(() => "");
+
+  const authz = await requireStaffUser(request, requestedClinicId || undefined);
   if (!authz.ok) return authz.response;
 
   // SUBSCRIPTION ENFORCEMENT
@@ -238,7 +246,7 @@ export async function POST(request: Request) {
   const userData = userSnap.data();
   // Was derived loosely from the user doc and used only for the plan check. It now also
   // scopes every data read below, so resolve it through the membership-checking helper.
-  const clinicId = await resolveUserClinicId(authz.uid);
+  const clinicId = requestedClinicId || (await resolveUserClinicId(authz.uid));
   if (clinicId) {
     const clinicSnap = await adminDb().collection("clinics").doc(clinicId).get();
     const clinic = clinicSnap.data();

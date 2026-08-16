@@ -1,6 +1,8 @@
 import { auth } from "@/lib/firebase";
 import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
-/** Patient receipt after a payment is posted (`invoice` template). */
+import { getGlobalClinicId } from "@/lib/db-utils";
+
+/** Patient receipt after a payment is posted (`invoice` template). */
 export async function sendPatientPaymentWhatsApp(args: {
   patientId: string;
   ledgerId: string;
@@ -15,6 +17,8 @@ export async function sendPatientPaymentWhatsApp(args: {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
       body: JSON.stringify({
+        // See the appointment client: the clinic on screen, never the caller's default.
+        clinicId: getGlobalClinicId(),
         kind: "invoice",
         patientId: args.patientId,
         ledgerId: args.ledgerId,

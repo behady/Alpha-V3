@@ -1,6 +1,8 @@
 import { auth } from "@/lib/firebase";
 import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
-/** Fire-and-forget patient automation for booking templates (`new` / `edit` / `cancel`) — see `/api/whatsapp/send-patient-message`. */
+import { getGlobalClinicId } from "@/lib/db-utils";
+
+/** Fire-and-forget patient automation for booking templates (`new` / `edit` / `cancel`) — see `/api/whatsapp/send-patient-message`. */
 export async function sendPatientAppointmentWhatsApp(args: {
   template: "new" | "edit" | "cancel";
   patientId: string;
@@ -18,6 +20,11 @@ export async function sendPatientAppointmentWhatsApp(args: {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
       body: JSON.stringify({
+        // The clinic the appointment was actually written to, not whichever one the server would
+        // resolve as this user's default. For anyone who belongs to more than one clinic those are
+        // different answers, and the mismatch meant the message was prepared for — and checked
+        // against the settings of — a clinic nobody was looking at.
+        clinicId: getGlobalClinicId(),
         kind: "appointment",
         appointmentTemplate: args.template,
         patientId: args.patientId,
