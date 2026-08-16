@@ -15,6 +15,7 @@
     "test:recovery": "npx tsx tests/revenueRecovery.test.mjs",
     "test:dues": "npx tsx tests/paymentRecovery.test.mjs",
     "test:sms": "npx tsx tests/smsCost.test.mjs",
+    "test:sms-schedule": "npx tsx tests/smsSchedule.test.mjs",
     "test:optout": "npx tsx tests/patientMessaging.test.mjs",
     "test:attendance": "npx tsx tests/attendanceGeofence.test.mjs"
   },
@@ -35,8 +36,10 @@
     "postcss": "^8.5.6",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "react-markdown": "^10.1.0",
     "react-signature-canvas": "^1.1.0-alpha.2",
     "recharts": "^3.6.0",
+    "remark-gfm": "^4.0.1",
     "tailwindcss-animate": "^1.0.7",
     "xlsx": "^0.18.5"
   },
