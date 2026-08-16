@@ -85,6 +85,18 @@ object SmsWakeAddress {
     suspend fun publish(context: Context) {
         if (!SmsPrefs.isSender(context)) return
 
+        // Re-arm the background sender on every launch.
+        //
+        // This is the one that actually stopped the messages. Installing an APK cancels every job
+        // an app has scheduled with WorkManager, and schedule() was only ever called from a human
+        // gesture — flipping the switch, or pairing. So each app update silently disarmed the
+        // sender while the switch still said ON and the phone still checked in, and the queue just
+        // stopped draining. Six updates in a day made it look like the feature had never worked.
+        //
+        // KEEP means an already-running schedule is left exactly as it is, so calling this on
+        // every launch costs nothing and cannot reset the fifteen-minute timer.
+        if (SmsWorker.hasSmsPermission(context)) SmsWorker.schedule(context)
+
         runCatching {
             val session = Repository.loadSession().getOrNull() ?: return
             val clinicId = SmsPrefs.pairedClinicId(context) ?: session.clinicId
@@ -96,5 +108,9 @@ object SmsWakeAddress {
                 fcmToken = token,
             )
         }
+
+        // Drain anything already waiting, rather than making the first message after an update
+        // serve out the rest of a fifteen-minute wait it did nothing to deserve.
+        if (SmsWorker.hasSmsPermission(context)) SmsWorker.runNow(context)
     }
 }
