@@ -2,6 +2,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { Search, ChevronDown, Check } from "lucide-react";
+import { DENTAL_CATEGORIES, DentalIcon, categoryLabel, iconForService, suggestCategory } from "@/lib/dentalIcons";
 
 export interface ComboboxService {
   id: string | number;
@@ -93,6 +94,20 @@ export default function ServiceCombobox({
       return a.name.localeCompare(b.name, aIsAr ? "ar" : "en");
     });
   }, [services, search, isOpen]);
+
+  // The same list, arranged under its category headings \u2014 the order every other
+  // part of the system (the price list, the Android app) shows them in.
+  const groupedServices = useMemo(() => {
+    const byCat = new Map<string, ComboboxService[]>();
+    for (const s of filteredAndSortedServices) {
+      const key = (s.category as string) || suggestCategory(s.name);
+      byCat.set(key, [...(byCat.get(key) || []), s]);
+    }
+    return DENTAL_CATEGORIES.filter((c) => byCat.has(c.key)).map((c) => ({
+      category: c,
+      items: byCat.get(c.key)!,
+    }));
+  }, [filteredAndSortedServices]);
 
   const handleSelect = (service: ComboboxService) => {
     onChange(String(service[valueKey]), service);
@@ -188,28 +203,41 @@ export default function ServiceCombobox({
                  : (language === "ar" ? "لم يتم العثور على خدمات" : "No services found")}
             </div>
           ) : (
-            filteredAndSortedServices.map((service) => {
-              const isSelected = String(service[valueKey]) === String(value);
-              return (
-                <div
-                  key={service.id}
-                  onClick={() => handleSelect(service)}
-                  className={`flex cursor-pointer items-center justify-between px-4 py-2.5 text-sm transition-colors hover:bg-primary-50 ${
-                    isSelected ? "bg-primary-50 font-bold text-primary-700" : "font-medium text-slate-700"
-                  }`}
-                >
-                  <span>{service.name}</span>
-                  <div className="flex items-center gap-2">
-                    {service.price !== undefined && service.price !== null && (
-                      <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">
-                        {service.price} EGP
-                      </span>
-                    )}
-                    {isSelected && <Check size={16} className="text-primary-600" />}
-                  </div>
+            groupedServices.map(({ category, items }) => (
+              <div key={category.key}>
+                <div className="flex items-center gap-1.5 px-4 pt-2.5 pb-1 text-[10px] font-black uppercase tracking-wider text-slate-400 select-none">
+                  <DentalIcon id={category.icon} size={13} />
+                  {categoryLabel(category.key, language)}
                 </div>
-              );
-            })
+                {items.map((service) => {
+                  const isSelected = String(service[valueKey]) === String(value);
+                  return (
+                    <div
+                      key={service.id}
+                      onClick={() => handleSelect(service)}
+                      className={`flex cursor-pointer items-center justify-between px-4 py-2.5 text-sm transition-colors hover:bg-primary-50 ${
+                        isSelected ? "bg-primary-50 font-bold text-primary-700" : "font-medium text-slate-700"
+                      }`}
+                    >
+                      <span className="flex items-center gap-2.5 min-w-0">
+                        <span className={`shrink-0 ${isSelected ? "text-primary-600" : "text-slate-400"}`}>
+                          <DentalIcon id={iconForService(service as { icon?: string; name?: string; category?: string })} size={19} />
+                        </span>
+                        <span className="truncate">{service.name}</span>
+                      </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {service.price !== undefined && service.price !== null && (
+                          <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">
+                            {service.price} EGP
+                          </span>
+                        )}
+                        {isSelected && <Check size={16} className="text-primary-600" />}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))
           )}
         </div>
       )}

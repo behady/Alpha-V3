@@ -48,4 +48,4 @@ export interface RelatedAppointment {
 }
 
 export interface Staff { id: string; name: string; role: string; commissionPercentage?: number; }
-export interface Service { id: string; name: string; price: number; requiresLab?: boolean; estimatedLabFee?: number; }
+export interface Service { id: string; name: string; price: number; requiresLab?: boolean; estimatedLabFee?: number; category?: string; icon?: string; }
