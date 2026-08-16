@@ -99,7 +99,7 @@ private fun OrthoList(
     Text(
         if (arabic) "التقويم" else "Orthodontics",
         fontSize = 22.sp,
-        fontWeight = FontWeight.Black,
+        fontWeight = FontWeight.ExtraBold,
         color = Alpha.Slate900,
     )
 
@@ -156,7 +156,7 @@ private fun OrthoList(
                             Text(
                                 case.patientName.ifBlank { if (arabic) "بدون اسم" else "No name" },
                                 fontSize = 14.5.sp,
-                                fontWeight = FontWeight.Black,
+                                fontWeight = FontWeight.ExtraBold,
                                 color = Alpha.Slate900,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -207,7 +207,7 @@ private fun OrthoCaseView(
                 Text(
                     case.patientName.ifBlank { if (arabic) "بدون اسم" else "No name" },
                     fontSize = 19.sp,
-                    fontWeight = FontWeight.Black,
+                    fontWeight = FontWeight.ExtraBold,
                     color = Alpha.Slate900,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -277,7 +277,7 @@ private fun OrthoCaseView(
                     Text(
                         if (arabic) "حفظ الزيارة" else "Save visit",
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.ExtraBold,
                     )
                 }
             }
@@ -327,7 +327,7 @@ private fun OrthoCaseView(
                             Text(
                                 "#${visit.visitNo}",
                                 fontSize = 12.sp,
-                                fontWeight = FontWeight.Black,
+                                fontWeight = FontWeight.ExtraBold,
                                 color = Alpha.Green,
                             )
                             Spacer(Modifier.size(8.dp))

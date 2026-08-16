@@ -90,7 +90,7 @@ fun TeethChart(
                         if (arabic) "أسنان لبنية" else "Child teeth"
                     },
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
+                    fontWeight = FontWeight.ExtraBold,
                     color = Alpha.Green,
                 )
             }
@@ -133,7 +133,7 @@ fun TeethChart(
                 Text(
                     (if (arabic) "السن " else "Tooth ") + selectedTooth,
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.Black,
+                    fontWeight = FontWeight.ExtraBold,
                     color = Alpha.Slate800,
                     modifier = Modifier.weight(1f),
                 )
@@ -141,7 +141,7 @@ fun TeethChart(
                     Text(
                         if (arabic) "عرض الكل" else "Show all",
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.ExtraBold,
                         color = Alpha.Slate500,
                     )
                 }
@@ -182,9 +182,9 @@ private fun Tooth(
 
     val fill = when {
         isSelected -> Alpha.Ink
-        outstanding -> Color(0xFFFDE68A)
-        notes.isNotEmpty() -> Color(0xFFA7F3D0)
-        else -> Color.White
+        outstanding -> if (Alpha.dark) Color(0xFF78350F) else Color(0xFFFDE68A)
+        notes.isNotEmpty() -> if (Alpha.dark) Color(0xFF065F46) else Color(0xFFA7F3D0)
+        else -> if (Alpha.dark) Alpha.Slate100 else Color.White
     }
     val textColor = when {
         isSelected -> Color.White
@@ -255,7 +255,7 @@ fun TeethPicker(
                     Text(
                         if (arabic) "مسح" else "Clear",
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.ExtraBold,
                         color = Alpha.Slate500,
                     )
                 }
@@ -268,7 +268,7 @@ fun TeethPicker(
                         if (arabic) "أسنان لبنية" else "Child teeth"
                     },
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
+                    fontWeight = FontWeight.ExtraBold,
                     color = Alpha.Green,
                 )
             }
@@ -334,14 +334,14 @@ private fun PickerTooth(number: Int, selected: List<String>, onToggle: (String) 
             .padding(1.dp)
             .size(width = 26.dp, height = 30.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(if (isSelected) Alpha.Green else Color.White)
+            .background(if (isSelected) Alpha.Green else if (Alpha.dark) Alpha.Slate100 else Color.White)
             .clickable { onToggle(key) },
         contentAlignment = Alignment.Center,
     ) {
         Text(
             key,
             fontSize = 10.sp,
-            fontWeight = FontWeight.Black,
+            fontWeight = FontWeight.ExtraBold,
             color = if (isSelected) Color.White else Alpha.Slate600,
             textAlign = TextAlign.Center,
         )

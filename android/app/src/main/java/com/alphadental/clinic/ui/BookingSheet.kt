@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -173,7 +174,7 @@ fun BookingSheet(
                     else -> "Book an appointment"
                 },
                 fontSize = 22.sp,
-                fontWeight = FontWeight.Black,
+                fontWeight = FontWeight.ExtraBold,
                 color = Alpha.Slate900,
             )
             Text(
@@ -282,7 +283,7 @@ fun BookingSheet(
                             Text(
                                 if (arabic) "مريض جديد" else "New patient",
                                 fontSize = 13.sp,
-                                fontWeight = FontWeight.Black,
+                                fontWeight = FontWeight.ExtraBold,
                                 color = Alpha.Green,
                             )
                         }
@@ -482,7 +483,7 @@ fun BookingSheet(
                             else -> "Book appointment"
                         },
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.ExtraBold,
                     )
                 }
             }
@@ -528,7 +529,7 @@ private fun SlotGrid(
                         color = when {
                             isSelected -> Alpha.Ink
                             slot.isFree -> Alpha.Slate50
-                            else -> Color(0xFFFFF1F2)
+                            else -> Alpha.DangerSoft
                         },
                         modifier = Modifier.weight(1f),
                     ) {
@@ -541,11 +542,11 @@ private fun SlotGrid(
                                 Text(
                                     slot.time,
                                     fontSize = 13.sp,
-                                    fontWeight = FontWeight.Black,
+                                    fontWeight = FontWeight.ExtraBold,
                                     color = when {
                                         isSelected -> Color.White
                                         slot.isFree -> Alpha.Slate700
-                                        else -> Color(0xFF9F1239)
+                                        else -> Alpha.DangerText
                                     },
                                 )
                                 if (!slot.isFree) {
@@ -553,7 +554,7 @@ private fun SlotGrid(
                                         slot.takenBy.orEmpty(),
                                         fontSize = 9.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF9F1239).copy(alpha = .75f),
+                                        color = Alpha.DangerText.copy(alpha = .75f),
                                         maxLines = 1,
                                     )
                                 }
@@ -590,8 +591,15 @@ private fun ServicePicker(
                 Modifier.padding(start = 14.dp, top = 10.dp, bottom = 10.dp, end = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                Icon(
+                    DentalIcons.get(DentalIcons.idForService(selected.icon, selected.name, selected.category)),
+                    contentDescription = null,
+                    tint = Alpha.Green,
+                    modifier = Modifier.size(24.dp),
+                )
+                Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(selected.name, fontSize = 15.sp, fontWeight = FontWeight.Black, color = Alpha.Slate900)
+                    Text(selected.name, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = Alpha.Slate900)
                     Text(
                         buildString {
                             append("${selected.price.toInt()} EGP")
@@ -606,7 +614,7 @@ private fun ServicePicker(
                     Text(
                         if (arabic) "إزالة" else "Remove",
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.ExtraBold,
                         color = Alpha.Green,
                     )
                 }
@@ -617,6 +625,12 @@ private fun ServicePicker(
 
     val matches = remember(filter, services) {
         if (filter.isBlank()) services else services.filter { it.name.contains(filter.trim(), ignoreCase = true) }
+    }
+    // Grouped the same way the website's price list is grouped, so the phone and
+    // the desk read the same page.
+    val grouped = remember(matches) {
+        val byCat = matches.groupBy { it.category.ifBlank { DentalIcons.suggestCategory(it.name) } }
+        DentalIcons.CATEGORIES.filter { byCat.containsKey(it.key) }.map { it to byCat.getValue(it.key) }
     }
 
     OutlinedTextField(
@@ -642,29 +656,59 @@ private fun ServicePicker(
         )
     } else {
         // Bounded so a long price list cannot push the Book button off the screen.
-        LazyColumn(Modifier.heightIn(max = 200.dp)) {
-            items(matches, key = { it.id }) { service ->
-                Surface(
-                    shape = Alpha.CardShape,
-                    color = Alpha.Slate50,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 3.dp),
-                ) {
-                    TextButton(onClick = { onSelect(service) }, modifier = Modifier.fillMaxWidth()) {
+        LazyColumn(Modifier.heightIn(max = 220.dp)) {
+            grouped.forEach { (category, group) ->
+                item(key = "cat-${category.key}") {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 4.dp),
+                    ) {
+                        Icon(
+                            DentalIcons.get(category.icon),
+                            contentDescription = null,
+                            tint = Alpha.Slate400,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Spacer(Modifier.width(5.dp))
                         Text(
-                            service.name,
-                            fontSize = 14.sp,
+                            if (arabic) category.ar else category.en,
+                            fontSize = 10.5.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Alpha.Slate800,
-                            modifier = Modifier.weight(1f),
+                            color = Alpha.Slate400,
+                            letterSpacing = 1.sp,
                         )
-                        Text(
-                            "${service.price.toInt()} EGP",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Black,
-                            color = Alpha.Slate600,
-                        )
+                    }
+                }
+                items(group, key = { it.id }) { service ->
+                    Surface(
+                        shape = Alpha.CardShape,
+                        color = Alpha.Slate50,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 3.dp),
+                    ) {
+                        TextButton(onClick = { onSelect(service) }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(
+                                DentalIcons.get(DentalIcons.idForService(service.icon, service.name, service.category)),
+                                contentDescription = null,
+                                tint = Alpha.Slate500,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Spacer(Modifier.size(10.dp))
+                            Text(
+                                service.name,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Alpha.Slate800,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                "${service.price.toInt()} EGP",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Alpha.Slate600,
+                            )
+                        }
                     }
                 }
             }
@@ -699,13 +743,13 @@ private fun SelectedPatientRow(patient: Patient, changeLabel: String, onChange: 
     Surface(shape = Alpha.CardShape, color = Alpha.GreenSoft, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(start = 14.dp, top = 10.dp, bottom = 10.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(patient.name, fontSize = 15.sp, fontWeight = FontWeight.Black, color = Alpha.Slate900)
+                Text(patient.name, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = Alpha.Slate900)
                 if (patient.phone.isNotBlank()) {
                     Text(patient.phone, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Alpha.Slate500)
                 }
             }
             TextButton(onClick = onChange) {
-                Text(changeLabel, fontSize = 12.sp, fontWeight = FontWeight.Black, color = Alpha.Green)
+                Text(changeLabel, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = Alpha.Green)
             }
         }
     }
@@ -713,12 +757,12 @@ private fun SelectedPatientRow(patient: Patient, changeLabel: String, onChange: 
 
 @Composable
 private fun Warning(text: String) {
-    Surface(shape = Alpha.CardShape, color = Color(0xFFFEF3C7), modifier = Modifier.fillMaxWidth()) {
+    Surface(shape = Alpha.CardShape, color = Alpha.WarnBg, modifier = Modifier.fillMaxWidth()) {
         Text(
             text,
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFF92400E),
+            color = Alpha.WarnText,
             modifier = Modifier.padding(12.dp),
         )
     }
@@ -728,7 +772,7 @@ private fun Warning(text: String) {
 private fun bookingFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedBorderColor = Alpha.Green,
     unfocusedBorderColor = Alpha.Slate200,
-    focusedContainerColor = Color.White,
+    focusedContainerColor = Alpha.Card,
     unfocusedContainerColor = Alpha.Slate50,
     focusedLabelColor = Alpha.Green,
     unfocusedLabelColor = Alpha.Slate400,

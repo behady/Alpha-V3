@@ -90,7 +90,7 @@ fun LoginScreen(
                 modifier = Modifier.size(60.dp),
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text("✦", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black)
+                    Text("✦", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
                 }
             }
 
@@ -98,7 +98,7 @@ fun LoginScreen(
             Text(
                 "Welcome to Alpha",
                 fontSize = 26.sp,
-                fontWeight = FontWeight.Black,
+                fontWeight = FontWeight.ExtraBold,
                 color = Alpha.Slate900,
                 textAlign = TextAlign.Center,
             )
@@ -159,12 +159,12 @@ fun LoginScreen(
 
                     if (error != null) {
                         Spacer(Modifier.height(12.dp))
-                        Surface(shape = Alpha.CardShape, color = Color(0xFFFFF1F2), modifier = Modifier.fillMaxWidth()) {
+                        Surface(shape = Alpha.CardShape, color = Alpha.DangerSoft, modifier = Modifier.fillMaxWidth()) {
                             Text(
                                 error,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF9F1239),
+                                color = Alpha.DangerText,
                                 modifier = Modifier.padding(12.dp),
                             )
                         }
@@ -191,7 +191,7 @@ fun LoginScreen(
                                 modifier = Modifier.size(20.dp),
                             )
                         } else {
-                            Text("Sign In", fontSize = 15.sp, fontWeight = FontWeight.Black)
+                            Text("Sign In", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
                         }
                     }
                 }
@@ -216,7 +216,7 @@ fun LoginScreen(
 private fun alphaFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedBorderColor = Alpha.Green,
     unfocusedBorderColor = Alpha.Slate200,
-    focusedContainerColor = Color.White,
+    focusedContainerColor = Alpha.Card,
     unfocusedContainerColor = Alpha.Slate50,
     focusedLabelColor = Alpha.Green,
     unfocusedLabelColor = Alpha.Slate400,

@@ -91,7 +91,7 @@ fun PrescriptionSheet(
             Text(
                 if (arabic) "كتابة روشتة" else "Write a prescription",
                 fontSize = 22.sp,
-                fontWeight = FontWeight.Black,
+                fontWeight = FontWeight.ExtraBold,
                 color = Alpha.Slate900,
             )
             Text(patientName, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Alpha.Slate500)
@@ -245,7 +245,7 @@ fun PrescriptionSheet(
                     Text(
                         if (arabic) "حفظ الروشتة" else "Save prescription",
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.ExtraBold,
                     )
                 }
             }
@@ -268,7 +268,7 @@ fun PrescriptionSheet(
 private fun rxFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedBorderColor = Alpha.Green,
     unfocusedBorderColor = Alpha.Slate200,
-    focusedContainerColor = Color.White,
+    focusedContainerColor = Alpha.Card,
     unfocusedContainerColor = Alpha.Slate50,
     focusedLabelColor = Alpha.Green,
     unfocusedLabelColor = Alpha.Slate400,

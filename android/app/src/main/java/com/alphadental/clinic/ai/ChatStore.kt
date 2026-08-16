@@ -10,6 +10,8 @@ data class ChatMessage(
     val fromUser: Boolean,
     val text: String,
     val at: Long,
+    /** Set when this reply carries a generated report — the path of the PDF on this phone. */
+    val pdfPath: String? = null,
 )
 
 /**
@@ -36,6 +38,9 @@ class ChatStore(private val context: Context, clinicId: String, uid: String) {
                 fromUser = row.optBoolean("user"),
                 text = row.optString("text"),
                 at = row.optLong("at"),
+                // The file may have been cleaned from cache since; the screen
+                // checks it still exists before offering to open it.
+                pdfPath = row.optString("pdf").takeIf { it.isNotBlank() },
             )
         }
     }.getOrDefault(emptyList())
@@ -49,6 +54,7 @@ class ChatStore(private val context: Context, clinicId: String, uid: String) {
                         .put("user", msg.fromUser)
                         .put("text", msg.text)
                         .put("at", msg.at)
+                        .put("pdf", msg.pdfPath ?: "")
                 )
             }
             file.writeText(array.toString())

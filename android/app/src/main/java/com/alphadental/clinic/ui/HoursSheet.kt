@@ -79,7 +79,7 @@ fun HoursSheet(
             Text(
                 if (arabic) "ساعات العمل" else "Clinic hours",
                 fontSize = 22.sp,
-                fontWeight = FontWeight.Black,
+                fontWeight = FontWeight.ExtraBold,
                 color = Alpha.Slate900,
             )
             Text(
@@ -93,13 +93,13 @@ fun HoursSheet(
 
             if (!schedule.isConfigured) {
                 Spacer(Modifier.height(12.dp))
-                Surface(shape = Alpha.CardShape, color = Color(0xFFFEF3C7), modifier = Modifier.fillMaxWidth()) {
+                Surface(shape = Alpha.CardShape, color = Alpha.WarnBg, modifier = Modifier.fillMaxWidth()) {
                     Text(
                         if (arabic) "لم تُضبط ساعات العيادة بعد — المعروض هنا افتراضي."
                         else "No hours have been set yet — what is shown is a default, not your clinic's.",
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF92400E),
+                        color = Alpha.WarnText,
                         modifier = Modifier.padding(12.dp),
                     )
                 }
@@ -172,7 +172,7 @@ fun HoursSheet(
                     else "Closing time has to be after opening time.",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFFE11D48),
+                    color = Alpha.Danger,
                 )
                 Spacer(Modifier.height(8.dp))
             }
@@ -197,7 +197,7 @@ fun HoursSheet(
                     Text(
                         if (arabic) "حفظ" else "Save hours",
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.ExtraBold,
                     )
                 }
             }

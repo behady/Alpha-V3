@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only the reports folder is ever shared, and only through content:// grants
+     handed to the viewer app the user picks — nothing else in app storage is
+     reachable this way. -->
+<paths>
+    <cache-path name="reports" path="reports/" />
+</paths>

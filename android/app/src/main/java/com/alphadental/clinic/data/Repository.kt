@@ -647,6 +647,125 @@ object Repository {
     }
 
     /**
+     * One ledger row the way the website's Finance page reads it: cash basis.
+     *
+     * Mirrors ledgerCashValue() and the page's filters exactly, so the phone and
+     * the website never disagree about a day's money: expenses count their cost,
+     * payments count what was actually paid (which can live in `paid` with
+     * `amount` left at zero by an older write path), and treatment-plan rows are
+     * excluded entirely — they live on the patient's ledger until they are paid.
+     */
+    data class FinanceRow(
+        val id: String,
+        val type: String,
+        val date: String,
+        val description: String,
+        val category: String,
+        val method: String,
+        val patientName: String,
+        val doctorName: String,
+        val addedBy: String,
+        /** Cash that moved on this row. */
+        val cash: Double,
+        val commission: Double,
+        val labFee: Double,
+        val clinicProfit: Double?,
+        val hasClinicalNote: Boolean,
+        val createdAtMillis: Long,
+    ) {
+        val isExpense: Boolean get() = type == "expense"
+
+        /**
+         * Only rows typed by hand may be deleted from the phone. A payment row is
+         * part of a patient's story, and a procedure row cascades into clinical
+         * notes — both belong to the website's fuller delete flow.
+         */
+        val isManual: Boolean get() = (type == "income" || type == "expense") && !hasClinicalNote
+    }
+
+    /** Everything the Finance screen shows for a period, newest first. */
+    suspend fun loadFinance(clinicId: String, fromKey: String, toKey: String): List<FinanceRow> {
+        val snap = ledger(clinicId)
+            .whereGreaterThanOrEqualTo("date", fromKey)
+            .whereLessThanOrEqualTo("date", toKey)
+            .get()
+            .await()
+
+        return snap.documents.mapNotNull { doc ->
+            val type = doc.getString("type").orEmpty()
+            if (type == "procedure") return@mapNotNull null
+            val cash = if (type == "expense") {
+                (doc.get("cost") as? Number)?.toDouble() ?: (doc.get("amount") as? Number)?.toDouble() ?: 0.0
+            } else {
+                (doc.get("paid") as? Number)?.toDouble() ?: (doc.get("amount") as? Number)?.toDouble() ?: 0.0
+            }
+            // Zero-value rows are placeholders, not money that moved.
+            if (cash <= 0) return@mapNotNull null
+
+            FinanceRow(
+                id = doc.id,
+                type = type,
+                date = doc.getString("date").orEmpty(),
+                description = doc.getString("description").orEmpty(),
+                category = doc.getString("category").orEmpty(),
+                method = doc.getString("method").orEmpty(),
+                patientName = doc.getString("patientName").orEmpty(),
+                doctorName = doc.getString("doctorName").orEmpty()
+                    .ifBlank { doc.getString("doctor").orEmpty() },
+                addedBy = doc.getString("addedBy").orEmpty(),
+                cash = cash,
+                commission = (doc.get("doctorCommissionAmount") as? Number)?.toDouble() ?: 0.0,
+                labFee = (doc.get("labFee") as? Number)?.toDouble() ?: 0.0,
+                clinicProfit = (doc.get("clinicProfit") as? Number)?.toDouble(),
+                hasClinicalNote = !doc.getString("clinicalNoteId").isNullOrBlank(),
+                createdAtMillis = doc.getTimestamp("createdAt")?.toDate()?.time ?: 0L,
+            )
+        }.sortedWith(compareByDescending<FinanceRow> { it.date }.thenByDescending { it.createdAtMillis })
+    }
+
+    /**
+     * A manual income or expense line, written with the same shape the website's
+     * "Manual Ledger Entry" form writes, so both read each other's rows.
+     */
+    suspend fun addFinanceEntry(
+        clinicId: String,
+        income: Boolean,
+        amount: Double,
+        description: String,
+        category: String,
+        dateKey: String,
+        byName: String,
+    ): Result<Unit> = runCatching {
+        require(amount > 0) { "Enter an amount greater than zero." }
+        require(description.isNotBlank()) { "A description is required." }
+        ledger(clinicId).add(
+            mapOf(
+                "type" to if (income) "income" else "expense",
+                "amount" to amount,
+                "paid" to if (income) amount else 0,
+                "cost" to if (!income) amount else 0,
+                "description" to description.trim(),
+                "category" to category.ifBlank { "General" },
+                "date" to dateKey,
+                "method" to "Cash",
+                "isRecurring" to false,
+                "addedBy" to byName,
+                "patientId" to null,
+                "doctor" to null,
+                "createdAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp(),
+            )
+        ).await()
+        Unit
+    }
+
+    /** Deletes one manual row. Callers must check FinanceRow.isManual first. */
+    suspend fun deleteFinanceEntry(clinicId: String, id: String): Result<Unit> = runCatching {
+        ledger(clinicId).document(id).delete().await()
+        Unit
+    }
+
+    /**
      * Every ledger row between two dates, inclusive.
      *
      * Dates are stored as "yyyy-MM-dd" strings, which sort the same way as the dates they stand
@@ -1338,6 +1457,8 @@ object Repository {
                     else -> 0
                 },
                 estimatedLabFee = (doc.get("estimatedLabFee") as? Number)?.toDouble() ?: 0.0,
+                category = doc.getString("category").orEmpty(),
+                icon = doc.getString("icon").orEmpty(),
             )
         }.sortedBy { it.name }
     }

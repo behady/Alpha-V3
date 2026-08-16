@@ -67,7 +67,7 @@ fun WhatsappQueueSheet(
             Text(
                 if (arabic) "رسائل واتساب للإرسال" else "WhatsApp messages to send",
                 fontSize = 22.sp,
-                fontWeight = FontWeight.Black,
+                fontWeight = FontWeight.ExtraBold,
                 color = Alpha.Slate900,
             )
             Text(
@@ -103,7 +103,7 @@ fun WhatsappQueueSheet(
                                 Text(
                                     message.patientName.ifBlank { message.to },
                                     fontSize = 14.5.sp,
-                                    fontWeight = FontWeight.Black,
+                                    fontWeight = FontWeight.ExtraBold,
                                     color = Alpha.Slate900,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
@@ -159,7 +159,7 @@ fun WhatsappQueueSheet(
                                         Text(
                                             if (arabic) "إرسال" else "Send",
                                             fontSize = 13.sp,
-                                            fontWeight = FontWeight.Black,
+                                            fontWeight = FontWeight.ExtraBold,
                                             color = Color(0xFF128C7E),
                                         )
                                     }

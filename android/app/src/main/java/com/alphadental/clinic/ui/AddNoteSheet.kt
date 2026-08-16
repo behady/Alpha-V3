@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -102,7 +103,7 @@ fun AddNoteSheet(
             Text(
                 if (arabic) "تسجيل إجراء" else "Record a procedure",
                 fontSize = 22.sp,
-                fontWeight = FontWeight.Black,
+                fontWeight = FontWeight.ExtraBold,
                 color = Alpha.Slate900,
             )
             Text(patientName, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Alpha.Slate500)
@@ -138,10 +139,37 @@ fun AddNoteSheet(
                     if (serviceFilter.isBlank()) services.take(6)
                     else services.filter { it.name.contains(serviceFilter.trim(), ignoreCase = true) }
                 }
+                // Grouped like the website's price list, with each service's icon.
+                val grouped = remember(matches) {
+                    val byCat = matches.groupBy { it.category.ifBlank { DentalIcons.suggestCategory(it.name) } }
+                    DentalIcons.CATEGORIES.filter { byCat.containsKey(it.key) }.map { it to byCat.getValue(it.key) }
+                }
 
                 Spacer(Modifier.height(6.dp))
-                LazyColumn(Modifier.heightIn(max = 170.dp)) {
-                    items(matches, key = { it.id }) { service ->
+                LazyColumn(Modifier.heightIn(max = 190.dp)) {
+                    grouped.forEach { (category, group) ->
+                        item(key = "cat-${category.key}") {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 4.dp),
+                            ) {
+                                Icon(
+                                    DentalIcons.get(category.icon),
+                                    contentDescription = null,
+                                    tint = Alpha.Slate400,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                                Spacer(Modifier.size(5.dp))
+                                Text(
+                                    if (arabic) category.ar else category.en,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Alpha.Slate400,
+                                    letterSpacing = 1.sp,
+                                )
+                            }
+                        }
+                        items(group, key = { it.id }) { service ->
                         val selected = draft.service?.id == service.id
                         Surface(
                             shape = Alpha.CardShape,
@@ -159,6 +187,13 @@ fun AddNoteSheet(
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
+                                Icon(
+                                    DentalIcons.get(DentalIcons.idForService(service.icon, service.name, service.category)),
+                                    contentDescription = null,
+                                    tint = if (selected) Alpha.Green else Alpha.Slate500,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                                Spacer(Modifier.size(10.dp))
                                 Text(
                                     service.name,
                                     fontSize = 14.sp,
@@ -169,10 +204,11 @@ fun AddNoteSheet(
                                 Text(
                                     "${service.price.toInt()} EGP",
                                     fontSize = 13.sp,
-                                    fontWeight = FontWeight.Black,
+                                    fontWeight = FontWeight.ExtraBold,
                                     color = Alpha.Slate600,
                                 )
                             }
+                        }
                         }
                     }
                 }
@@ -292,7 +328,7 @@ fun AddNoteSheet(
                     Text(
                         if (arabic) "حفظ الإجراء" else "Save procedure",
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.ExtraBold,
                     )
                 }
             }
@@ -314,7 +350,7 @@ fun noteStatusLabel(status: String, arabic: Boolean): String = when (status) {
 private fun noteFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedBorderColor = Alpha.Green,
     unfocusedBorderColor = Alpha.Slate200,
-    focusedContainerColor = Color.White,
+    focusedContainerColor = Alpha.Card,
     unfocusedContainerColor = Alpha.Slate50,
     focusedLabelColor = Alpha.Green,
     unfocusedLabelColor = Alpha.Slate400,

@@ -4,7 +4,10 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -99,32 +102,51 @@ fun PatientSheet(
 
                 error != null -> Surface(
                     shape = Alpha.CardShape,
-                    color = Color(0xFFFFF1F2),
+                    color = Alpha.DangerSoft,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
                         error,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF9F1239),
+                        color = Alpha.DangerText,
                         modifier = Modifier.padding(16.dp),
                     )
                 }
 
                 file != null -> {
-                    Text(
-                        file.patient.name.ifBlank { if (arabic) "بدون اسم" else "No name" },
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Black,
-                        color = Alpha.Slate900,
-                    )
-                    if (file.fileId.isNotBlank()) {
-                        Text(
-                            file.fileId,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Alpha.Slate400,
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(Alpha.GreenSoft),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                file.patient.name.trim().firstOrNull()?.uppercase() ?: "•",
+                                fontSize = 19.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Alpha.Green,
+                            )
+                        }
+                        Spacer(Modifier.size(12.dp))
+                        Column {
+                            Text(
+                                file.patient.name.ifBlank { if (arabic) "بدون اسم" else "No name" },
+                                fontSize = 21.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Alpha.Slate900,
+                            )
+                            if (file.fileId.isNotBlank()) {
+                                Text(
+                                    file.fileId,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Alpha.Slate400,
+                                )
+                            }
+                        }
                     }
 
                     if (file.patient.phone.isNotBlank()) {
@@ -165,7 +187,7 @@ fun PatientSheet(
                             if (arabic) "لا يوجد رقم هاتف في الملف." else "No phone number on file.",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFFE11D48),
+                            color = Alpha.Danger,
                         )
                     }
 
@@ -190,7 +212,7 @@ fun PatientSheet(
                             Text(
                                 if (arabic) "تسجيل دفعة" else "Take a payment",
                                 fontSize = 15.sp,
-                                fontWeight = FontWeight.Black,
+                                fontWeight = FontWeight.ExtraBold,
                             )
                         }
                     }
@@ -213,7 +235,7 @@ fun PatientSheet(
                                 Text(
                                     if (arabic) "+ إضافة" else "+ Add",
                                     fontSize = 13.sp,
-                                    fontWeight = FontWeight.Black,
+                                    fontWeight = FontWeight.ExtraBold,
                                     color = Alpha.Green,
                                 )
                             }
@@ -248,7 +270,7 @@ fun PatientSheet(
                                 Text(
                                     if (arabic) "+ كتابة" else "+ Write",
                                     fontSize = 13.sp,
-                                    fontWeight = FontWeight.Black,
+                                    fontWeight = FontWeight.ExtraBold,
                                     color = Alpha.Green,
                                 )
                             }
@@ -337,7 +359,7 @@ private fun BalanceCard(file: PatientFile, arabic: Boolean) {
     Surface(
         shape = Alpha.CardShape,
         color = when {
-            balance.owed > 0 -> Color(0xFFFEF3C7)
+            balance.owed > 0 -> Alpha.WarnBg
             balance.inCredit -> Alpha.GreenSoft
             else -> Alpha.Slate50
         },
@@ -355,7 +377,7 @@ private fun BalanceCard(file: PatientFile, arabic: Boolean) {
                         else -> "Settled"
                     },
                     fontSize = 11.sp,
-                    fontWeight = FontWeight.Black,
+                    fontWeight = FontWeight.ExtraBold,
                     color = Alpha.Slate500,
                 )
                 Spacer(Modifier.height(2.dp))
@@ -366,9 +388,9 @@ private fun BalanceCard(file: PatientFile, arabic: Boolean) {
                         else -> if (arabic) "لا شيء" else "Nothing owed"
                     },
                     fontSize = 22.sp,
-                    fontWeight = FontWeight.Black,
+                    fontWeight = FontWeight.ExtraBold,
                     color = when {
-                        balance.owed > 0 -> Color(0xFF92400E)
+                        balance.owed > 0 -> Alpha.WarnText
                         balance.inCredit -> Alpha.Green
                         else -> Alpha.Slate600
                     },
@@ -425,7 +447,7 @@ private fun NoteRow(
                 Text(
                     note.procedure.ifBlank { "—" },
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.Black,
+                    fontWeight = FontWeight.ExtraBold,
                     color = Alpha.Slate900,
                     modifier = Modifier.weight(1f),
                 )
@@ -452,17 +474,17 @@ private fun NoteRow(
                     Text(
                         "${note.cost.toInt()} EGP",
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.ExtraBold,
                         color = Alpha.Slate700,
                     )
                     if (note.ledgerId.isBlank()) {
                         Spacer(Modifier.size(8.dp))
-                        Surface(shape = Alpha.PillShape, color = Color(0xFFFFE4E6)) {
+                        Surface(shape = Alpha.PillShape, color = Alpha.DangerSoft) {
                             Text(
                                 if (arabic) "لم يُفوتر" else "not invoiced",
                                 fontSize = 10.sp,
-                                fontWeight = FontWeight.Black,
-                                color = Color(0xFF9F1239),
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Alpha.DangerText,
                                 modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
                             )
                         }
@@ -477,7 +499,7 @@ private fun NoteRow(
                         val current = note.status == status
                         Surface(
                             shape = Alpha.PillShape,
-                            color = if (current) Alpha.Ink else Color.White,
+                            color = if (current) Alpha.Ink else Alpha.Slate100,
                             modifier = Modifier.clickable(enabled = !current) {
                                 onSetStatus(note.id, status)
                                 expanded = false
@@ -486,7 +508,7 @@ private fun NoteRow(
                             Text(
                                 noteStatusLabel(status, arabic),
                                 fontSize = 11.sp,
-                                fontWeight = FontWeight.Black,
+                                fontWeight = FontWeight.ExtraBold,
                                 color = if (current) Color.White else Alpha.Slate600,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                             )
@@ -501,15 +523,15 @@ private fun NoteRow(
 @Composable
 private fun NoteStatusPill(status: String, arabic: Boolean) {
     val (bg, fg) = when (status) {
-        "Completed" -> Color(0xFFD1FAE5) to Color(0xFF065F46)
-        "Ongoing" -> Color(0xFFFEF3C7) to Color(0xFF92400E)
-        else -> Color(0xFFE2E8F0) to Color(0xFF475569)
+        "Completed" -> Alpha.GreenSoft to Alpha.Green
+        "Ongoing" -> Alpha.WarnBg to Alpha.WarnText
+        else -> Alpha.Slate100 to Alpha.Slate600
     }
     Surface(shape = Alpha.PillShape, color = bg) {
         Text(
             noteStatusLabel(status, arabic),
             fontSize = 10.sp,
-            fontWeight = FontWeight.Black,
+            fontWeight = FontWeight.ExtraBold,
             color = fg,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
         )

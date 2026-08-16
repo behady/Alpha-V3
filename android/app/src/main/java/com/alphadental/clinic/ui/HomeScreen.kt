@@ -1,6 +1,8 @@
 package com.alphadental.clinic.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -8,28 +10,53 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.alphadental.clinic.data.Appointment
 import com.alphadental.clinic.data.Session
 import java.util.Calendar
+import kotlinx.coroutines.delay
 
 /**
- * The home screen, which is three different screens wearing one name.
+ * The home screen: three different dashboards wearing one name.
  *
  * A dentist between patients, a receptionist at the desk and an owner checking in
- * from elsewhere want genuinely different things first. Rather than one dashboard
- * that half-serves all three, the role on the account decides what opens — the
- * same role the security rules use, so it cannot be talked into showing more than
- * the person is allowed.
+ * from elsewhere want genuinely different things first — so the role on the
+ * account decides not just what data shows but what the screen IS: the dentist
+ * gets "who is in my chair and who is next", reception gets "act fast" buttons
+ * and the waiting room, the owner gets the money and the shape of the day.
+ * Each dashboard carries its own shortcuts so the everyday tools are one tap
+ * from here instead of a hunt through the More tab.
  */
 @Composable
 fun HomeScreen(
@@ -40,8 +67,25 @@ fun HomeScreen(
     arabic: Boolean,
     /** Null until read, or when this role does not see clinic revenue. */
     takingsToday: Double?,
+    whatsappWaiting: Int,
+    onShift: Boolean,
+    shiftSince: Long,
+    clocking: Boolean,
+    clockError: String?,
+    /** Already wrapped in the location-permission flow by the caller. */
+    onPunch: () -> Unit,
+    onDismissClockError: () -> Unit,
     onOpenAppointment: (Appointment) -> Unit,
     onSeeDay: () -> Unit,
+    onOpenPatients: () -> Unit,
+    /** Null for roles that do not see the Money tab. */
+    onOpenMoney: (() -> Unit)?,
+    /** Null for roles that do not see reports. */
+    onOpenReports: (() -> Unit)?,
+    onOpenOrtho: () -> Unit,
+    onOpenInventory: () -> Unit,
+    onOpenWhatsappQueue: () -> Unit,
+    onOpenAssistant: () -> Unit,
 ) {
     val active = appointments.filterNot { normalizeStatus(it.status) in FINISHED }
     val nowMinutes = Calendar.getInstance().let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
@@ -52,19 +96,60 @@ fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Column {
-                Text(
-                    text = greeting(session.name, arabic),
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Alpha.Slate900,
-                )
-                Text(
-                    text = roleCaption(session.role, arabic),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Alpha.Slate500,
-                )
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .background(Alpha.GreenSoft),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        session.name.trim().firstOrNull()?.uppercase() ?: "•",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Alpha.Green,
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = greeting(session.name, arabic),
+                        fontSize = 21.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Alpha.Slate900,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = "${roleCaption(session.role, arabic)} · ${todayLabel(arabic)}",
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Alpha.Slate500,
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                ClockChip(onShift, shiftSince, clocking, arabic, onPunch)
+            }
+        }
+
+        if (clockError != null) {
+            item {
+                Surface(
+                    onClick = onDismissClockError,
+                    shape = Alpha.CardShape,
+                    color = Alpha.DangerSoft,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        clockError,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Alpha.DangerText,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
             }
         }
 
@@ -73,19 +158,37 @@ fun HomeScreen(
         }
 
         when {
-            session.isDentist -> dentistHome(session, appointments, active, nowMinutes, arabic, onOpenAppointment)
-            session.isReception -> receptionHome(appointments, active, arabic, onOpenAppointment)
-            else -> ownerHome(appointments, active, arabic, takingsToday, onOpenAppointment)
+            session.isDentist -> dentistHome(
+                session, appointments, active, nowMinutes, arabic,
+                onOpenAppointment, onOpenPatients, onOpenOrtho, onOpenInventory, onOpenAssistant,
+            )
+
+            session.isReception -> receptionHome(
+                appointments, active, arabic, whatsappWaiting,
+                onOpenAppointment, onOpenMoney, onOpenPatients, onOpenWhatsappQueue, onOpenAssistant,
+            )
+
+            else -> ownerHome(
+                appointments, active, arabic, takingsToday, whatsappWaiting,
+                onOpenAppointment, onOpenReports, onOpenMoney, onOpenInventory, onOpenAssistant,
+            )
         }
 
         item {
-            Spacer(Modifier.height(4.dp))
-            TextButton(onClick = onSeeDay) {
+            Spacer(Modifier.height(2.dp))
+            Surface(
+                onClick = onSeeDay,
+                shape = Alpha.PillShape,
+                color = Alpha.GreenSoft,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 Text(
                     if (arabic) "عرض اليوم كاملاً ←" else "See the whole day →",
-                    fontWeight = FontWeight.Black,
-                    color = Alpha.Slate600,
+                    fontWeight = FontWeight.Bold,
+                    color = Alpha.Green,
                     fontSize = 14.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.padding(vertical = 13.dp),
                 )
             }
         }
@@ -95,14 +198,10 @@ fun HomeScreen(
 /** Statuses that mean the visit is over, one way or another. */
 private val FINISHED = setOf("Completed", "Cancelled", "No Show")
 
-/**
- * Dentist: only their own list, and only what is happening now or next.
- *
- * Filtered by doctor name because that is what an appointment stores — there is no
- * staff id on the record. If the name on the account does not match the name on
- * the appointments, the list would be empty and look broken, so it falls back to
- * the whole day rather than showing nothing.
- */
+// ---------------------------------------------------------------------------
+// Dentist: who is in my chair, who is next, and the clinical tools.
+// ---------------------------------------------------------------------------
+
 private fun LazyListScope.dentistHome(
     session: Session,
     all: List<Appointment>,
@@ -110,13 +209,29 @@ private fun LazyListScope.dentistHome(
     nowMinutes: Int,
     arabic: Boolean,
     onOpen: (Appointment) -> Unit,
+    onOpenPatients: () -> Unit,
+    onOpenOrtho: () -> Unit,
+    onOpenInventory: () -> Unit,
+    onOpenAssistant: () -> Unit,
 ) {
+    // Filtered by doctor name because that is what an appointment stores — there is
+    // no staff id on the record. If the names do not line up, fall back to the whole
+    // day rather than showing a broken-looking empty list.
     val mine = active.filter { it.doctor.isNotBlank() && session.name.contains(it.doctor, ignoreCase = true) }
     val list = mine.ifEmpty { active }
 
     val inChair = list.firstOrNull { normalizeStatus(it.status) == "In Chair" }
     val next = list.firstOrNull { normalizeStatus(it.status) == "Checked In" }
         ?: list.firstOrNull { it.minutes() >= nowMinutes }
+
+    if (inChair != null) {
+        item { HeroAppointment(inChair, arabic, if (arabic) "في الكرسي الآن" else "IN THE CHAIR NOW") { onOpen(inChair) } }
+    }
+
+    if (next != null && next.id != inChair?.id) {
+        item { SectionHeading(if (arabic) "التالي" else "UP NEXT") }
+        item { AppointmentCard(next, arabic) { onOpen(next) } }
+    }
 
     item {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
@@ -134,48 +249,70 @@ private fun LazyListScope.dentistHome(
         }
     }
 
-    if (inChair != null) {
-        item { SectionHeading(if (arabic) "في الكرسي الآن" else "IN THE CHAIR NOW") }
-        item { AppointmentCard(inChair, arabic) { onOpen(inChair) } }
-    }
-
-    if (next != null && next.id != inChair?.id) {
-        item { SectionHeading(if (arabic) "التالي" else "UP NEXT") }
-        item { AppointmentCard(next, arabic) { onOpen(next) } }
-    }
+    quickActions(
+        arabic,
+        listOf(
+            QuickAction(Icons.Filled.People, if (arabic) "المرضى" else "Patients", onClick = onOpenPatients),
+            QuickAction(Icons.Filled.Timeline, if (arabic) "التقويم" else "Ortho", onClick = onOpenOrtho),
+            QuickAction(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", onClick = onOpenAssistant),
+            QuickAction(Icons.Filled.Inventory2, if (arabic) "المخزون" else "Stock", onClick = onOpenInventory),
+        ),
+    )
 
     if (list.isEmpty()) {
         item { EmptyState(if (arabic) "لا توجد مواعيد اليوم." else "Nothing booked today.") }
     }
 }
 
-/** Receptionist: the whole floor, with whoever is waiting pulled to the top. */
+// ---------------------------------------------------------------------------
+// Reception: act-fast buttons first, then the waiting room, then what's coming.
+// ---------------------------------------------------------------------------
+
 private fun LazyListScope.receptionHome(
     all: List<Appointment>,
     active: List<Appointment>,
     arabic: Boolean,
+    whatsappWaiting: Int,
     onOpen: (Appointment) -> Unit,
+    onOpenMoney: (() -> Unit)?,
+    onOpenPatients: () -> Unit,
+    onOpenWhatsappQueue: () -> Unit,
+    onOpenAssistant: () -> Unit,
 ) {
-    val waiting = active.filter { normalizeStatus(it.status) == "Checked In" }
+    quickActions(
+        arabic,
+        listOfNotNull(
+            onOpenMoney?.let { QuickAction(Icons.Filled.Payments, if (arabic) "الحسابات" else "Money", onClick = it) },
+            QuickAction(Icons.Filled.People, if (arabic) "المرضى" else "Patients", onClick = onOpenPatients),
+            QuickAction(
+                Icons.Filled.Send, if (arabic) "واتساب" else "WhatsApp",
+                badge = whatsappWaiting, onClick = onOpenWhatsappQueue,
+            ),
+            QuickAction(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", onClick = onOpenAssistant),
+        ),
+    )
 
     item {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             StatTile(all.size.toString(), if (arabic) "اليوم" else "Booked today", modifier = Modifier.weight(1f))
+            val waiting = active.count { normalizeStatus(it.status) == "Checked In" }
             StatTile(
-                waiting.size.toString(),
+                waiting.toString(),
                 if (arabic) "في الانتظار" else "Waiting",
-                tint = if (waiting.isEmpty()) Alpha.Slate900 else Alpha.Green,
+                tint = if (waiting == 0) Alpha.Slate900 else Alpha.Green,
                 modifier = Modifier.weight(1f),
             )
+            val noShow = all.count { normalizeStatus(it.status) == "No Show" }
             StatTile(
-                all.count { normalizeStatus(it.status) == "No Show" }.toString(),
+                noShow.toString(),
                 if (arabic) "لم يحضروا" else "No shows",
-                tint = Alpha.Pink,
+                tint = if (noShow == 0) Alpha.Slate900 else Alpha.Pink,
                 modifier = Modifier.weight(1f),
             )
         }
     }
 
+    val waiting = active.filter { normalizeStatus(it.status) == "Checked In" }
     if (waiting.isNotEmpty()) {
         item { SectionHeading(if (arabic) "في غرفة الانتظار" else "IN THE WAITING ROOM") }
         items(waiting, key = { "w-${it.id}" }) { AppointmentCard(it, arabic) { onOpen(it) } }
@@ -190,46 +327,284 @@ private fun LazyListScope.receptionHome(
     }
 }
 
-/** Owner: the shape of the day, not the work of it. */
+// ---------------------------------------------------------------------------
+// Owner: the money, the shape of the day, and the management tools.
+// ---------------------------------------------------------------------------
+
 private fun LazyListScope.ownerHome(
     all: List<Appointment>,
     active: List<Appointment>,
     arabic: Boolean,
     takingsToday: Double?,
+    whatsappWaiting: Int,
     onOpen: (Appointment) -> Unit,
+    onOpenReports: (() -> Unit)?,
+    onOpenMoney: (() -> Unit)?,
+    onOpenInventory: () -> Unit,
+    onOpenAssistant: () -> Unit,
 ) {
     val seen = all.count { normalizeStatus(it.status) in setOf("Completed", "Checking Out") }
     val noShow = all.count { normalizeStatus(it.status) == "No Show" }
 
+    // Money collected today. Deliberately what came through the door, not what was
+    // charged — billed-but-unpaid would flatter the figure badly and this is the
+    // one number an owner acts on, so it gets the one coloured card.
     item {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            StatTile(all.size.toString(), if (arabic) "محجوز" else "Booked", modifier = Modifier.weight(1f))
-            StatTile(seen.toString(), if (arabic) "تم" else "Seen", tint = Alpha.Green, modifier = Modifier.weight(1f))
-            StatTile(
-                noShow.toString(),
-                if (arabic) "لم يحضروا" else "No shows",
-                tint = if (noShow == 0) Alpha.Slate900 else Alpha.Pink,
-                modifier = Modifier.weight(1f),
-            )
+        AlphaCard(modifier = Modifier.fillMaxWidth(), shape = Alpha.CardShape, color = Alpha.GreenSoft) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 18.dp)) {
+                Text(
+                    text = takingsToday?.let { "${it.toInt()} EGP" } ?: "—",
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Alpha.Green,
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    text = if (arabic) "تحصيل اليوم" else "Collected today",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Alpha.Slate600,
+                )
+            }
         }
     }
 
-    // Money collected today. Deliberately what came through the door, not what was charged —
-    // billed-but-unpaid would flatter the figure badly and it is the one an owner acts on.
+    // The day at a glance: how far through the bookings the clinic is.
     item {
-        StatTile(
-            value = takingsToday?.let { "${it.toInt()} EGP" } ?: "—",
-            caption = if (arabic) "تحصيل اليوم" else "Collected today",
-            tint = if ((takingsToday ?: 0.0) > 0) Alpha.Green else Alpha.Slate900,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        AlphaCard(modifier = Modifier.fillMaxWidth(), shape = Alpha.CardShape) {
+            Column(Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = if (arabic) "سير اليوم" else "Today's progress",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Alpha.Slate800,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = when {
+                            arabic -> "$seen من ${all.size}"
+                            else -> "$seen of ${all.size} seen"
+                        },
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Alpha.Slate500,
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                ProgressTrack(fraction = if (all.isEmpty()) 0f else seen.toFloat() / all.size)
+                if (noShow > 0) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = if (arabic) "$noShow لم يحضروا" else "$noShow no-show${if (noShow == 1) "" else "s"}",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Alpha.Pink,
+                    )
+                }
+            }
+        }
     }
+
+    quickActions(
+        arabic,
+        listOfNotNull(
+            onOpenReports?.let { QuickAction(Icons.Filled.BarChart, if (arabic) "التقارير" else "Reports", onClick = it) },
+            onOpenMoney?.let { QuickAction(Icons.Filled.Payments, if (arabic) "الحسابات" else "Money", onClick = it) },
+            QuickAction(Icons.Filled.Inventory2, if (arabic) "المخزون" else "Stock", onClick = onOpenInventory),
+            QuickAction(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", onClick = onOpenAssistant),
+        ),
+    )
 
     item { SectionHeading(if (arabic) "ما زال قادماً" else "STILL TO COME") }
     if (active.isEmpty()) {
         item { EmptyState(if (arabic) "انتهى اليوم." else "The day is done.") }
     } else {
         items(active.take(5), key = { "o-${it.id}" }) { AppointmentCard(it, arabic) { onOpen(it) } }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared pieces
+// ---------------------------------------------------------------------------
+
+private data class QuickAction(
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val label: String,
+    val badge: Int = 0,
+    val onClick: () -> Unit,
+)
+
+private fun LazyListScope.quickActions(arabic: Boolean, actions: List<QuickAction>) {
+    item {
+        Column {
+            SectionHeading(if (arabic) "اختصارات" else "SHORTCUTS")
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                actions.forEach { action ->
+                    ToolTile(
+                        icon = action.icon,
+                        label = action.label,
+                        badge = action.badge,
+                        modifier = Modifier.weight(1f),
+                        onClick = action.onClick,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The big status-tinted card for the one appointment that matters right now.
+ * Its whole surface takes the status colour, so "someone is in the chair"
+ * is readable from across the room.
+ */
+@Composable
+private fun HeroAppointment(
+    appointment: Appointment,
+    arabic: Boolean,
+    label: String,
+    onClick: () -> Unit,
+) {
+    val style = statusStyle(appointment.status)
+    Surface(
+        onClick = onClick,
+        shape = Alpha.BigCardShape,
+        color = style.card,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(style.accent)
+                )
+                Spacer(Modifier.width(7.dp))
+                Text(
+                    label,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = style.pillText,
+                    letterSpacing = 1.2.sp,
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                InitialBadge(appointment.patientName, style)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        appointment.patientName.ifBlank { if (arabic) "بدون اسم" else "No name" },
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Alpha.Slate900,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    val detail = listOfNotNull(
+                        appointment.time.takeIf { it.isNotBlank() },
+                        appointment.treatment.takeIf { it.isNotBlank() },
+                    ).joinToString("  ·  ")
+                    if (detail.isNotBlank()) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            detail,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Alpha.Slate600,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Clock in/out as a pill in the header: the dot says the state, the text says
+ * how long, and one tap punches. The full card still lives on the More tab.
+ */
+@Composable
+private fun ClockChip(
+    onShift: Boolean,
+    since: Long,
+    clocking: Boolean,
+    arabic: Boolean,
+    onPunch: () -> Unit,
+) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(onShift) {
+        while (onShift) {
+            now = System.currentTimeMillis()
+            delay(30_000)
+        }
+    }
+
+    Surface(
+        onClick = onPunch,
+        enabled = !clocking,
+        shape = Alpha.PillShape,
+        color = if (onShift) Alpha.GreenSoft else Alpha.Slate100,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+        ) {
+            if (clocking) {
+                CircularProgressIndicator(
+                    color = Alpha.Slate400,
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(12.dp),
+                )
+            } else {
+                Box(
+                    Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(if (onShift) Alpha.Green else Alpha.Slate400)
+                )
+            }
+            Spacer(Modifier.width(7.dp))
+            Text(
+                text = when {
+                    clocking && arabic -> "لحظة..."
+                    clocking -> "One sec..."
+                    onShift && since > 0 -> elapsedLabel(now - since, arabic)
+                    onShift && arabic -> "داخل الدوام"
+                    onShift -> "On shift"
+                    arabic -> "تسجيل حضور"
+                    else -> "Clock in"
+                },
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (onShift) Alpha.Green else Alpha.Slate600,
+            )
+        }
+    }
+}
+
+/** A thin rounded progress bar, no library, no animation surprises. */
+@Composable
+private fun ProgressTrack(fraction: Float) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(8.dp)
+            .clip(Alpha.PillShape)
+            .background(Alpha.Slate100)
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                .height(8.dp)
+                .clip(Alpha.PillShape)
+                .background(Alpha.Green)
+        )
     }
 }
 
@@ -250,6 +625,12 @@ private fun greeting(name: String, arabic: Boolean): String {
 }
 
 private val TITLES = setOf("dr", "د", "دكتور", "doctor", "prof", "أستاذ", "استاذ")
+
+/** "Sat, 16 Aug" in the greeting line, in the app's language. */
+private fun todayLabel(arabic: Boolean): String {
+    val locale = if (arabic) java.util.Locale("ar", "EG") else java.util.Locale.US
+    return java.text.SimpleDateFormat("EEE, d MMM", locale).format(java.util.Date())
+}
 
 private fun roleCaption(role: String, arabic: Boolean): String = when (role) {
     "Admin" -> if (arabic) "مدير العيادة" else "Clinic owner"

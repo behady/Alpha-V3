@@ -47,8 +47,8 @@ android {
         applicationId = "com.alphadental.clinic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 40
-        versionName = "4.8.3"
+        versionCode = 45
+        versionName = "5.4.0"
 
         buildConfigField("String", "FB_PROJECT_ID", "\"${firebase("firebase.projectId")}\"")
         buildConfigField("String", "FB_API_KEY", "\"${firebase("firebase.apiKey")}\"")

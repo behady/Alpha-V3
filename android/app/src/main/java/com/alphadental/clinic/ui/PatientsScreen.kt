@@ -1,5 +1,7 @@
 package com.alphadental.clinic.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,8 +15,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
@@ -32,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -76,14 +80,19 @@ fun PatientsScreen(
                 Text(
                     if (arabic) "المرضى" else "Patients",
                     fontSize = 22.sp,
-                    fontWeight = FontWeight.Black,
+                    fontWeight = FontWeight.ExtraBold,
                     color = Alpha.Slate900,
                 )
                 Spacer(Modifier.height(10.dp))
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    label = { Text(if (arabic) "ابحث بالاسم أو رقم الهاتف" else "Search name or phone number") },
+                    placeholder = {
+                        Text(
+                            if (arabic) "ابحث بالاسم أو رقم الهاتف" else "Search name or phone number",
+                            color = Alpha.Slate400,
+                        )
+                    },
                     singleLine = true,
                     leadingIcon = { Icon(Icons.Filled.Search, null, tint = Alpha.Slate400) },
                     trailingIcon = {
@@ -95,14 +104,12 @@ fun PatientsScreen(
                             )
                         }
                     },
-                    shape = Alpha.CardShape,
+                    shape = Alpha.PillShape,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = Alpha.Green,
-                        unfocusedBorderColor = Alpha.Slate200,
-                        focusedContainerColor = Color.White,
-                        unfocusedContainerColor = Color.White,
-                        focusedLabelColor = Alpha.Green,
-                        unfocusedLabelColor = Alpha.Slate400,
+                        unfocusedBorderColor = if (Alpha.dark) Alpha.Slate100 else Color.Transparent,
+                        focusedContainerColor = Alpha.Card,
+                        unfocusedContainerColor = Alpha.Card,
                         cursorColor = Alpha.Ink,
                     ),
                     modifier = Modifier.fillMaxWidth(),
@@ -160,23 +167,39 @@ fun PatientsScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(results, key = { it.id }) { patient ->
-                    AlphaCard(modifier = Modifier.fillMaxWidth(), shape = Alpha.CardShape) {
-                        TextButton(
-                            onClick = { onOpenPatient(patient) },
-                            modifier = Modifier.fillMaxWidth(),
+                    // A plain tappable row with an initial badge — reads like a
+                    // contacts list, which is what this screen is.
+                    AlphaCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(Alpha.CardShape)
+                            .clickable { onOpenPatient(patient) },
+                        shape = Alpha.CardShape,
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(
-                                Icons.Filled.Person,
-                                contentDescription = null,
-                                tint = Alpha.Slate400,
-                                modifier = Modifier.size(18.dp),
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(Alpha.GreenSoft),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    patient.name.trim().firstOrNull()?.uppercase() ?: "•",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Alpha.Green,
+                                )
+                            }
                             Spacer(Modifier.size(12.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(
                                     patient.name,
                                     fontSize = 15.sp,
-                                    fontWeight = FontWeight.Black,
+                                    fontWeight = FontWeight.Bold,
                                     color = Alpha.Slate900,
                                 )
                                 if (patient.phone.isNotBlank()) {
@@ -184,10 +207,16 @@ fun PatientsScreen(
                                         patient.phone,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Medium,
-                                        color = Alpha.Slate400,
+                                        color = Alpha.Slate500,
                                     )
                                 }
                             }
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = Alpha.Slate300,
+                                modifier = Modifier.size(20.dp),
+                            )
                         }
                     }
                 }
@@ -214,7 +243,7 @@ fun PatientsScreen(
                             Text(
                                 if (arabic) "تحميل المزيد" else "Load more",
                                 fontSize = 14.sp,
-                                fontWeight = FontWeight.Black,
+                                fontWeight = FontWeight.ExtraBold,
                                 color = Alpha.Green,
                             )
                         }

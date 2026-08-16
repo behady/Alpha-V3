@@ -1,6 +1,7 @@
 package com.alphadental.clinic.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -80,7 +81,7 @@ fun ReportsScreen(
                     Text(
                         if (arabic) "التقارير" else "Reports",
                         fontSize = 17.sp,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.ExtraBold,
                         color = Alpha.Slate900,
                     )
                     Text(
@@ -166,7 +167,7 @@ fun ReportsScreen(
                             StatTile(
                                 value = "${summary.expenses.toInt()}",
                                 caption = if (arabic) "مصروفات" else "Expenses",
-                                tint = if (summary.expenses > 0) Color(0xFFE11D48) else Alpha.Slate900,
+                                tint = if (summary.expenses > 0) Alpha.Danger else Alpha.Slate900,
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -178,7 +179,7 @@ fun ReportsScreen(
                             Spacer(Modifier.height(10.dp))
                             Surface(
                                 shape = Alpha.CardShape,
-                                color = Color(0xFFFEF3C7),
+                                color = Alpha.WarnBg,
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
                                 Text(
@@ -188,9 +189,39 @@ fun ReportsScreen(
                                         "${summary.gap.toInt()} EGP more was billed than collected in this period. Some of it may simply be paid later.",
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF92400E),
+                                    color = Alpha.WarnText,
                                     modifier = Modifier.padding(12.dp),
                                 )
+                            }
+                        }
+
+                        // The shape of the period: money in, day by day. Bars rather than
+                        // numbers, because the question here is "how were we trending",
+                        // and the exact figures already sit in the tiles above.
+                        if (summary.dailyCollected.size > 1) {
+                            Spacer(Modifier.height(18.dp))
+                            SectionHeading(if (arabic) "التحصيل يوماً بيوم" else "COLLECTED DAY BY DAY")
+                            Spacer(Modifier.height(8.dp))
+                            AlphaCard(modifier = Modifier.fillMaxWidth(), shape = Alpha.CardShape) {
+                                Column(Modifier.padding(14.dp)) {
+                                    TrendStrip(summary.dailyCollected)
+                                    Spacer(Modifier.height(6.dp))
+                                    Row {
+                                        Text(
+                                            shortDay(summary.dailyCollected.first().date, arabic),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Alpha.Slate400,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        Text(
+                                            shortDay(summary.dailyCollected.last().date, arabic),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Alpha.Slate400,
+                                        )
+                                    }
+                                }
                             }
                         }
 
@@ -233,30 +264,36 @@ fun ReportsScreen(
                                 color = Alpha.Slate400,
                             )
                         } else {
-                            sources.take(10).forEach { line ->
+                            val topSources = sources.take(10)
+                            val maxCount = topSources.maxOf { it.count }.coerceAtLeast(1)
+                            topSources.forEach { line ->
                                 Surface(
                                     shape = Alpha.CardShape,
-                                    color = Alpha.Slate50,
+                                    color = Alpha.Card,
                                     modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
                                 ) {
-                                    Row(
-                                        Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Text(
-                                            line.label,
-                                            fontSize = 13.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Alpha.Slate900,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f),
-                                        )
-                                        Text(
-                                            "${line.count}",
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Black,
-                                            color = Alpha.Slate800,
+                                    Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                line.label,
+                                                fontSize = 13.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Alpha.Slate900,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                            Text(
+                                                "${line.count}",
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = Alpha.Slate800,
+                                            )
+                                        }
+                                        Spacer(Modifier.height(7.dp))
+                                        MiniBar(
+                                            fraction = line.count.toFloat() / maxCount,
+                                            color = Alpha.Mint,
                                         )
                                     }
                                 }
@@ -267,6 +304,48 @@ fun ReportsScreen(
 
                 Spacer(Modifier.height(24.dp))
             }
+        }
+    }
+}
+
+/** A thin horizontal bar filled to a fraction — the charts on this page. */
+@Composable
+private fun MiniBar(fraction: Float, color: Color) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(6.dp)
+            .background(Alpha.Slate100, Alpha.PillShape)
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth(fraction.coerceIn(0.02f, 1f))
+                .height(6.dp)
+                .background(color, Alpha.PillShape)
+        )
+    }
+}
+
+/** Collections day by day as upright bars, tallest day = full height. */
+@Composable
+private fun TrendStrip(points: List<com.alphadental.clinic.data.DayPoint>) {
+    val max = points.maxOf { it.collected }.coerceAtLeast(1.0)
+    Row(
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        modifier = Modifier.fillMaxWidth().height(56.dp),
+    ) {
+        points.forEach { point ->
+            val fraction = (point.collected / max).toFloat()
+            Box(
+                Modifier
+                    .weight(1f)
+                    .height((4 + 52 * fraction).dp)
+                    .background(
+                        if (point.collected > 0) Alpha.Green else Alpha.Slate100,
+                        Alpha.PillShape,
+                    )
+            )
         }
     }
 }
@@ -284,17 +363,16 @@ private fun ReportList(title: String, lines: List<ReportLine>, emptyText: String
 
     // Capped at ten. A phone-sized list of every service a clinic has ever billed is a wall of
     // numbers nobody reads; the tail belongs on the website where it can be sorted and exported.
-    lines.take(10).forEach { line ->
+    val top = lines.take(10)
+    val max = top.maxOf { it.total }.coerceAtLeast(1.0)
+    top.forEach { line ->
         Surface(
             shape = Alpha.CardShape,
-            color = Alpha.Slate50,
+            color = Alpha.Card,
             modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
         ) {
-            Row(
-                Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         line.label,
                         fontSize = 13.5.sp,
@@ -302,20 +380,25 @@ private fun ReportList(title: String, lines: List<ReportLine>, emptyText: String
                         color = Alpha.Slate900,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
                     )
                     Text(
                         if (arabic) "${line.count} مرة" else "${line.count}×",
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.SemiBold,
                         color = Alpha.Slate400,
                     )
+                    Spacer(Modifier.size(8.dp))
+                    Text(
+                        "${line.total.toInt()}",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Alpha.Slate800,
+                    )
                 }
-                Text(
-                    "${line.total.toInt()}",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Alpha.Slate800,
-                )
+                Spacer(Modifier.height(7.dp))
+                // The bar is the chart: how this line compares with the biggest one.
+                MiniBar(fraction = (line.total / max).toFloat(), color = Alpha.Green)
             }
         }
     }
@@ -328,6 +411,16 @@ private fun ReportList(title: String, lines: List<ReportLine>, emptyText: String
             color = Alpha.Slate400,
         )
     }
+}
+
+/** "12 Aug" under the trend strip's first and last bar. */
+private fun shortDay(dateKey: String, arabic: Boolean): String {
+    if (dateKey.isBlank()) return ""
+    val locale = if (arabic) java.util.Locale("ar", "EG") else java.util.Locale.US
+    val parsed = runCatching {
+        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(dateKey)
+    }.getOrNull() ?: return dateKey
+    return java.text.SimpleDateFormat("d MMM", locale).format(parsed)
 }
 
 private fun rangeName(range: ReportRange, arabic: Boolean): String = when (range) {

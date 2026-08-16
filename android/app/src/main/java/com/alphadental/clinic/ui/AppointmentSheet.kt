@@ -3,8 +3,12 @@ package com.alphadental.clinic.ui
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
@@ -32,6 +36,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -46,7 +51,7 @@ import com.alphadental.clinic.data.Appointment
  * ("they're here"), and pushing a whole page for that would cost a back press
  * every time.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AppointmentSheet(
     appointment: Appointment,
@@ -88,39 +93,38 @@ fun AppointmentSheet(
                         }
                     ),
             ) {
-                Text(
-                    text = appointment.patientName.ifBlank { if (arabic) "بدون اسم" else "No name" },
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Alpha.Slate900,
-                )
-                if (appointment.patientId.isNotBlank()) {
-                    Spacer(Modifier.size(6.dp))
-                    Icon(
-                        Icons.Filled.ChevronRight,
-                        contentDescription = if (arabic) "ملف المريض" else "Patient file",
-                        tint = Alpha.Slate400,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = appointment.time.ifBlank { "—" },
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Alpha.Slate600,
-                )
-                if (appointment.doctor.isNotBlank()) {
+                InitialBadge(appointment.patientName, statusStyle(appointment.status))
+                Spacer(Modifier.size(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = appointment.patientName.ifBlank { if (arabic) "بدون اسم" else "No name" },
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Alpha.Slate900,
+                        )
+                        if (appointment.patientId.isNotBlank()) {
+                            Spacer(Modifier.size(4.dp))
+                            Icon(
+                                Icons.Filled.ChevronRight,
+                                contentDescription = if (arabic) "ملف المريض" else "Patient file",
+                                tint = Alpha.Slate400,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(2.dp))
                     Text(
-                        text = "  ·  Dr. ${appointment.doctor}",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        text = listOfNotNull(
+                            appointment.time.ifBlank { "—" },
+                            appointment.doctor.takeIf { it.isNotBlank() }?.let { "Dr. $it" },
+                        ).joinToString("  ·  "),
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Medium,
                         color = Alpha.Slate500,
                     )
                 }
-                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.size(8.dp))
                 StatusPill(appointment.status, arabic)
             }
 
@@ -179,26 +183,41 @@ fun AppointmentSheet(
 
                 SectionHeading(if (arabic) "تغيير الحالة" else "MOVE TO")
                 Spacer(Modifier.height(10.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(STATUS_FLOW) { status ->
+                // All eight statuses visible at once, wrapping onto new lines. The old
+                // sideways scroller hid everything past "Completed", and the hidden ones
+                // (No show, Cancelled) are exactly the ones people hunted for.
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    STATUS_FLOW.forEach { status ->
                         val current = normalizeStatus(appointment.status) == status
                         val style = statusStyle(status)
-                        OutlinedButton(
+                        Surface(
                             onClick = { if (!current) onSetStatus(status) },
                             enabled = !current,
                             shape = Alpha.PillShape,
-                            colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (current) style.pillBg else Color.Transparent,
-                                contentColor = if (current) style.pillText else Alpha.Slate600,
-                                disabledContainerColor = style.pillBg,
-                                disabledContentColor = style.pillText,
-                            ),
+                            color = if (current) style.pillBg else Alpha.Slate50,
+                            border = if (current) null else BorderStroke(1.dp, Alpha.Slate200),
                         ) {
-                            Text(
-                                statusLabel(status, arabic),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(7.dp)
+                                        .clip(Alpha.PillShape)
+                                        .background(style.accent)
+                                )
+                                Spacer(Modifier.size(6.dp))
+                                Text(
+                                    statusLabel(status, arabic),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (current) style.pillText else Alpha.Slate600,
+                                )
+                            }
                         }
                     }
                 }

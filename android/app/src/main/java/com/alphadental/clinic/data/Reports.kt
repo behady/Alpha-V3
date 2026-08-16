@@ -31,6 +31,12 @@ data class ReportLine(
     val total: Double,
 )
 
+/** Money collected on one day, for the trend strip. */
+data class DayPoint(
+    val date: String,
+    val collected: Double,
+)
+
 data class ReportSummary(
     /** Money actually taken in the period. */
     val collected: Double,
@@ -44,6 +50,8 @@ data class ReportSummary(
     val byService: List<ReportLine>,
     /** Payments grouped by the dentist credited, biggest first. */
     val byDoctor: List<ReportLine>,
+    /** Collections day by day across the period, oldest first, gaps included. */
+    val dailyCollected: List<DayPoint> = emptyList(),
 ) {
     /**
      * What was billed but not collected in this window.
@@ -72,7 +80,7 @@ private fun linesOf(rows: List<ReportRow>, label: (ReportRow) -> String): List<R
         .map { (name, group) -> ReportLine(name, group.size, group.sumOf { it.amount }) }
         .sortedByDescending { it.total }
 
-fun summariseReport(rows: List<ReportRow>): ReportSummary {
+fun summariseReport(rows: List<ReportRow>, fromKey: String = "", toKey: String = ""): ReportSummary {
     val payments = rows.filter { it.isPayment }
     val charges = rows.filter { it.isCharge }
 
@@ -86,7 +94,37 @@ fun summariseReport(rows: List<ReportRow>): ReportSummary {
         // that has been done rather than money that has arrived, which is not what anybody asking
         // "how did Dr Ahmed do this month" means.
         byDoctor = linesOf(payments.filter { it.doctorName.isNotBlank() }) { it.doctorName },
+        dailyCollected = dailySeries(payments, fromKey, toKey),
     )
+}
+
+/**
+ * Collections per day across the period, with silent days kept as zeros — a
+ * trend strip with the quiet days removed would show a clinic that never has one.
+ */
+private fun dailySeries(payments: List<ReportRow>, fromKey: String, toKey: String): List<DayPoint> {
+    val byDate = payments
+        .filter { it.date.isNotBlank() }
+        .groupBy { it.date }
+        .mapValues { (_, group) -> group.sumOf { it.amount } }
+    if (byDate.isEmpty()) return emptyList()
+
+    val start = fromKey.ifBlank { byDate.keys.min() }
+    val end = toKey.ifBlank { byDate.keys.max() }
+
+    val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+    val cal = java.util.Calendar.getInstance()
+    cal.time = runCatching { fmt.parse(start) }.getOrNull() ?: return emptyList()
+    val endDate = runCatching { fmt.parse(end) }.getOrNull() ?: return emptyList()
+
+    val points = mutableListOf<DayPoint>()
+    // Hard cap well past the longest report range, in case of a malformed date.
+    while (!cal.time.after(endDate) && points.size < 62) {
+        val key = fmt.format(cal.time)
+        points += DayPoint(key, byDate[key] ?: 0.0)
+        cal.add(java.util.Calendar.DAY_OF_YEAR, 1)
+    }
+    return points
 }
 
 /** One acquisition source and how many new patients it brought. */

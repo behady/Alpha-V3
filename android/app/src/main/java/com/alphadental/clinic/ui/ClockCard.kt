@@ -1,5 +1,8 @@
 package com.alphadental.clinic.ui
 
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,6 +28,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import com.alphadental.clinic.data.LocationFinder
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -91,7 +96,7 @@ fun ClockCard(
 
             if (error != null) {
                 Spacer(Modifier.height(12.dp))
-                Surface(shape = Alpha.CardShape, color = Color(0xFFFFF1F2), modifier = Modifier.fillMaxWidth()) {
+                Surface(shape = Alpha.CardShape, color = Alpha.DangerSoft, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
                         // The real reason, not "failed". "You appear to be 300m from the clinic"
                         // is something a person can act on; a generic error is not.
@@ -99,14 +104,14 @@ fun ClockCard(
                             error,
                             fontSize = 12.5.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF9F1239),
+                            color = Alpha.DangerText,
                         )
                         TextButton(onClick = onDismissError, modifier = Modifier.padding(top = 2.dp)) {
                             Text(
                                 if (arabic) "حسناً" else "Dismiss",
                                 fontSize = 12.sp,
-                                fontWeight = FontWeight.Black,
-                                color = Color(0xFF9F1239),
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Alpha.DangerText,
                             )
                         }
                     }
@@ -145,7 +150,7 @@ fun ClockCard(
                             else -> "Clock in"
                         },
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.ExtraBold,
                     )
                 }
             }
@@ -153,7 +158,33 @@ fun ClockCard(
     }
 }
 
-private fun elapsedLabel(millis: Long, arabic: Boolean): String {
+/**
+ * The location-permission dance around a clock punch, shared by every place a
+ * punch can start. Location is asked for at the moment of the tap, not at
+ * launch, and whatever the answer the punch still runs — a refusal comes back
+ * as a plain explanation rather than a silent no-op.
+ */
+@Composable
+fun rememberPunchAction(onPunch: () -> Unit): () -> Unit {
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { onPunch() }
+    return {
+        if (LocationFinder.hasPermission(context)) {
+            onPunch()
+        } else {
+            launcher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                )
+            )
+        }
+    }
+}
+
+internal fun elapsedLabel(millis: Long, arabic: Boolean): String {
     val minutes = (millis / 60_000L).coerceAtLeast(0L)
     val hours = minutes / 60
     val mins = minutes % 60

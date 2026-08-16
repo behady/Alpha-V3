@@ -88,7 +88,7 @@ fun PaymentSheet(
                     Text(
                         if (arabic) "تسجيل دفعة" else "Take a payment",
                         fontSize = 22.sp,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.ExtraBold,
                         color = Alpha.Slate900,
                     )
                     Text(patientName, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Alpha.Slate500)
@@ -97,12 +97,12 @@ fun PaymentSheet(
 
             if (owed > 0) {
                 Spacer(Modifier.height(12.dp))
-                Surface(shape = Alpha.CardShape, color = Color(0xFFFEF3C7), modifier = Modifier.fillMaxWidth()) {
+                Surface(shape = Alpha.CardShape, color = Alpha.WarnBg, modifier = Modifier.fillMaxWidth()) {
                     Text(
                         (if (arabic) "المستحق حالياً: " else "Currently outstanding: ") + "${owed.toInt()} EGP",
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.Black,
-                        color = Color(0xFF92400E),
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Alpha.WarnText,
                         modifier = Modifier.padding(12.dp),
                     )
                 }
@@ -169,7 +169,7 @@ fun PaymentSheet(
                             if (arabic) "أكبر من المتبقي على هذا العلاج."
                             else "More than what is still owed on this treatment.",
                             fontSize = 12.sp,
-                            color = Color(0xFFE11D48),
+                            color = Alpha.Danger,
                         )
                     }
                 } else null,
@@ -177,7 +177,7 @@ fun PaymentSheet(
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Alpha.Green,
                     unfocusedBorderColor = Alpha.Slate200,
-                    focusedContainerColor = Color.White,
+                    focusedContainerColor = Alpha.Card,
                     unfocusedContainerColor = Alpha.Slate50,
                     focusedLabelColor = Alpha.Green,
                     unfocusedLabelColor = Alpha.Slate400,
@@ -203,7 +203,7 @@ fun PaymentSheet(
                     Text(
                         if (arabic) "تسجيل الدفعة" else "Record payment",
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.ExtraBold,
                     )
                 }
             }
@@ -247,7 +247,7 @@ private fun ChoiceRow(
                 Text(subtitle, fontSize = 11.5.sp, fontWeight = FontWeight.Medium, color = Alpha.Slate500)
             }
             if (selected) {
-                Text("✓", fontSize = 16.sp, fontWeight = FontWeight.Black, color = Alpha.Green)
+                Text("✓", fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = Alpha.Green)
             }
         }
     }

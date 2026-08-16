@@ -8,8 +8,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +27,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -58,6 +63,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -76,6 +82,7 @@ import com.alphadental.clinic.ui.ClockCard
 import com.alphadental.clinic.ui.AppointmentSheet
 import com.alphadental.clinic.ui.BookingSheet
 import com.alphadental.clinic.ui.DayScreen
+import com.alphadental.clinic.ui.FinanceSheet
 import com.alphadental.clinic.ui.HomeScreen
 import com.alphadental.clinic.ui.InventorySheet
 import com.alphadental.clinic.ui.WhatsappQueueSheet
@@ -87,13 +94,15 @@ import com.alphadental.clinic.ui.PaymentSheet
 import com.alphadental.clinic.ui.HoursSheet
 import com.alphadental.clinic.ui.OrthoSheet
 import com.alphadental.clinic.ui.PrescriptionSheet
-import com.alphadental.clinic.ui.AssistantHost
+import com.alphadental.clinic.ui.AssistantScreen
 import com.alphadental.clinic.ui.ReportsScreen
 import com.alphadental.clinic.data.LocationFinder
 import com.alphadental.clinic.sms.SmsPrefs
 import com.alphadental.clinic.sms.SmsWorker
 import com.alphadental.clinic.ui.SectionHeading
 import com.alphadental.clinic.ui.SmsSenderCard
+import com.alphadental.clinic.ui.ToolTile
+import com.alphadental.clinic.ui.rememberPunchAction
 
 class MainActivity : ComponentActivity() {
 
@@ -132,7 +141,7 @@ private fun StartupErrorScreen(message: String) {
             Text(
                 "Alpha Dental could not start",
                 fontSize = 22.sp,
-                fontWeight = FontWeight.Black,
+                fontWeight = FontWeight.ExtraBold,
                 color = Alpha.Slate900,
             )
             Spacer(Modifier.height(10.dp))
@@ -149,7 +158,7 @@ private fun StartupErrorScreen(message: String) {
                     Text(
                         "SHOW THIS TO WHOEVER BUILT THE APP",
                         fontSize = 10.sp,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.ExtraBold,
                         color = Alpha.Slate400,
                     )
                     Spacer(Modifier.height(8.dp))
@@ -157,7 +166,7 @@ private fun StartupErrorScreen(message: String) {
                         message,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFFE11D48),
+                        color = Alpha.Danger,
                     )
                     Spacer(Modifier.height(10.dp))
                     Text(
@@ -225,52 +234,55 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
             Scaffold(
                 containerColor = Alpha.Ground,
                 snackbarHost = { SnackbarHost(snackbars) },
-                floatingActionButton = {
-                    // Only on the Day screen, and only for people allowed to write. A button that
-                    // opens a form the server will reject is worse than no button.
-                    if (state.tab == Tab.DAY && (session.isAdmin || session.isDentist || session.role == "Receptionist")) {
-                        ExtendedFloatingActionButton(
-                            onClick = { viewModel.openBooking() },
-                            containerColor = Alpha.Ink,
-                            contentColor = Color.White,
-                            shape = Alpha.CardShape,
-                        ) {
-                            Icon(Icons.Filled.Add, contentDescription = null)
-                            Spacer(Modifier.size(8.dp))
-                            Text(
-                                if (state.arabic) "حجز" else "Book",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Black,
-                            )
-                        }
-                    }
-                },
                 bottomBar = {
-                    NavigationBar(containerColor = Color.White, tonalElevation = 0.dp) {
-                        BottomTab(Tab.HOME, Icons.Filled.Home, if (state.arabic) "الرئيسية" else "Home", state.tab, viewModel::selectTab)
-                        BottomTab(Tab.DAY, Icons.Filled.CalendarMonth, if (state.arabic) "اليوم" else "Day", state.tab, viewModel::selectTab)
-                        BottomTab(Tab.PATIENTS, Icons.Filled.People, if (state.arabic) "المرضى" else "Patients", state.tab, viewModel::selectTab)
-                        // A dentist's phone does not show the clinic's takings; that is the
-                        // owner's and reception's view, matching who sees Finance on the website.
-                        if (session.isAdmin || session.isReception) {
-                            BottomTab(Tab.MONEY, Icons.Filled.Payments, if (state.arabic) "الحسابات" else "Money", state.tab, viewModel::selectTab)
-                        }
-                        BottomTab(Tab.MORE, Icons.Filled.MoreHoriz, if (state.arabic) "المزيد" else "More", state.tab, viewModel::selectTab)
-                    }
+                    // A floating pill instead of the full-width system bar, with Book as
+                    // the big round button in the middle — the action the clinic performs
+                    // all day sits where a thumb naturally lands. Money left the bar and
+                    // lives as a dashboard shortcut instead, for the roles that see it.
+                    AlphaBottomBar(
+                        current = state.tab,
+                        arabic = state.arabic,
+                        // Only for people allowed to write. A button that opens a form
+                        // the server will reject is worse than no button.
+                        canBook = session.isAdmin || session.isDentist || session.role == "Receptionist",
+                        onSelect = viewModel::selectTab,
+                        onBook = { viewModel.openBooking() },
+                    )
                 },
             ) { padding ->
                 Box(Modifier.padding(padding).fillMaxSize()) {
                     when (state.tab) {
-                        Tab.HOME -> HomeScreen(
-                            session = session,
-                            appointments = state.appointments,
-                            offline = state.offline,
-                            pending = state.pending,
-                            arabic = state.arabic,
-                            takingsToday = state.takingsToday,
-                            onOpenAppointment = { openAppointment = it },
-                            onSeeDay = { viewModel.selectTab(Tab.DAY) },
-                        )
+                        Tab.HOME -> {
+                            val punch = rememberPunchAction { viewModel.punchClock(context) }
+                            HomeScreen(
+                                session = session,
+                                appointments = state.appointments,
+                                offline = state.offline,
+                                pending = state.pending,
+                                arabic = state.arabic,
+                                takingsToday = state.takingsToday,
+                                whatsappWaiting = state.whatsappQueue.size,
+                                onShift = state.openShift != null,
+                                shiftSince = state.openShift?.checkInMillis ?: 0L,
+                                clocking = state.clocking,
+                                clockError = state.clockError,
+                                onPunch = punch,
+                                onDismissClockError = viewModel::dismissClockError,
+                                onOpenAppointment = { openAppointment = it },
+                                onSeeDay = { viewModel.selectTab(Tab.DAY) },
+                                onOpenPatients = { viewModel.selectTab(Tab.PATIENTS) },
+                                onOpenMoney = if (session.isAdmin || session.isReception) {
+                                    { viewModel.selectTab(Tab.MONEY) }
+                                } else null,
+                                onOpenReports = if (session.isAdmin || session.isReception) {
+                                    { viewModel.openReports() }
+                                } else null,
+                                onOpenOrtho = viewModel::openOrtho,
+                                onOpenInventory = viewModel::openInventory,
+                                onOpenWhatsappQueue = viewModel::openWhatsappQueue,
+                                onOpenAssistant = { viewModel.openAssistant(context) },
+                            )
+                        }
 
                         Tab.DAY -> DayScreen(
                             date = state.date,
@@ -298,13 +310,21 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         )
 
                         Tab.MONEY -> MoneyScreen(
-                            date = state.date,
-                            rows = state.dayLedger,
-                            loading = state.loadingLedger,
+                            view = state.financeView,
+                            anchor = state.financeAnchor,
+                            rows = state.financeRows,
+                            loading = state.loadingFinance,
                             arabic = state.arabic,
-                            isToday = state.date == AppViewModel.today(),
-                            onShiftDay = viewModel::shiftDay,
-                            onToday = viewModel::showToday,
+                            isCurrentPeriod = if (state.financeView == "month") {
+                                state.financeAnchor.take(7) == AppViewModel.today().take(7)
+                            } else {
+                                state.financeAnchor == AppViewModel.today()
+                            },
+                            onSetView = viewModel::setFinanceView,
+                            onShift = viewModel::shiftFinance,
+                            onToday = viewModel::financeToday,
+                            onAdd = viewModel::openFinanceAdd,
+                            onDelete = viewModel::deleteFinanceEntry,
                         )
 
                         Tab.MORE -> MoreScreen(
@@ -335,23 +355,23 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         )
                     }
 
-                    // The assistant lives here as a chat bubble over every tab: collapsed it
-                    // is a draggable bubble, expanded it is a floating chat window over the
-                    // page — never a navigation. The voice loop keeps running either way.
-                    AssistantHost(
-                        expanded = state.aiOpen,
-                        messages = state.aiMessages,
-                        thinking = state.aiThinking,
-                        pending = state.aiPending,
-                        speak = state.aiSpeak,
-                        arabic = state.arabic,
-                        onAsk = viewModel::askAi,
-                        onSpoken = viewModel::aiSpoken,
-                        onSettle = viewModel::settlePending,
-                        onExpand = { viewModel.openAssistant(context) },
-                        onCollapse = viewModel::closeAssistant,
-                    )
                 }
+            }
+
+            // The assistant as a full page over everything, opened from the
+            // dashboard or More-tab shortcut — the floating bubble is gone.
+            if (state.aiOpen) {
+                AssistantScreen(
+                    messages = state.aiMessages,
+                    thinking = state.aiThinking,
+                    pending = state.aiPending,
+                    speak = state.aiSpeak,
+                    arabic = state.arabic,
+                    onAsk = viewModel::askAi,
+                    onSpoken = viewModel::aiSpoken,
+                    onSettle = viewModel::settlePending,
+                    onClose = viewModel::closeAssistant,
+                )
             }
 
             // Assistants can look but not change appointments, matching what the
@@ -405,6 +425,16 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         { noteId, status -> viewModel.updateNoteStatus(noteId, status) }
                     } else null,
                     onDismiss = viewModel::closePatient,
+                )
+            }
+
+            if (state.financeAddOpen) {
+                FinanceSheet(
+                    defaultDate = if (state.financeView == "day") state.financeAnchor else AppViewModel.today(),
+                    saving = state.savingFinance,
+                    arabic = state.arabic,
+                    onSave = viewModel::saveFinanceEntry,
+                    onDismiss = viewModel::closeFinanceAdd,
                 )
             }
 
@@ -536,27 +566,91 @@ private fun SplashScreen() {
     }
 }
 
+/**
+ * The floating pill navigation bar, with Book as the raised circle in the middle.
+ *
+ * Four destinations around one action. The Money screen is deliberately not a
+ * tab any more — it opens from the dashboard shortcut for the roles that see it,
+ * which keeps the bar simple enough to leave room for the Book button.
+ */
 @Composable
-private fun RowScope.BottomTab(
-    tab: Tab,
+private fun AlphaBottomBar(
+    current: Tab,
+    arabic: Boolean,
+    canBook: Boolean,
+    onSelect: (Tab) -> Unit,
+    onBook: () -> Unit,
+) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(start = 16.dp, end = 16.dp, bottom = 10.dp, top = 4.dp)
+    ) {
+        Surface(
+            shape = Alpha.PillShape,
+            color = Alpha.Card,
+            border = if (Alpha.dark) BorderStroke(1.dp, Alpha.Slate100) else null,
+            shadowElevation = if (Alpha.dark) 0.dp else 6.dp,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                Modifier.padding(horizontal = 6.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                NavItem(Icons.Filled.Home, if (arabic) "الرئيسية" else "Home", current == Tab.HOME, Modifier.weight(1f)) { onSelect(Tab.HOME) }
+                NavItem(Icons.Filled.CalendarMonth, if (arabic) "اليوم" else "Day", current == Tab.DAY, Modifier.weight(1f)) { onSelect(Tab.DAY) }
+                if (canBook) {
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        Surface(
+                            onClick = onBook,
+                            shape = CircleShape,
+                            color = Alpha.Ink,
+                            shadowElevation = if (Alpha.dark) 0.dp else 4.dp,
+                        ) {
+                            Box(Modifier.size(50.dp), contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Filled.Add,
+                                    contentDescription = if (arabic) "حجز" else "Book",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(26.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+                NavItem(Icons.Filled.People, if (arabic) "المرضى" else "Patients", current == Tab.PATIENTS, Modifier.weight(1f)) { onSelect(Tab.PATIENTS) }
+                NavItem(Icons.Filled.MoreHoriz, if (arabic) "المزيد" else "More", current == Tab.MORE, Modifier.weight(1f)) { onSelect(Tab.MORE) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NavItem(
     icon: ImageVector,
     label: String,
-    current: Tab,
-    onSelect: (Tab) -> Unit,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
 ) {
-    NavigationBarItem(
-        selected = current == tab,
-        onClick = { onSelect(tab) },
-        icon = { Icon(icon, contentDescription = label) },
-        label = { Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-        colors = NavigationBarItemDefaults.colors(
-            selectedIconColor = Color.White,
-            selectedTextColor = Alpha.Ink,
-            indicatorColor = Alpha.Ink,
-            unselectedIconColor = Alpha.Slate400,
-            unselectedTextColor = Alpha.Slate400,
-        ),
-    )
+    val tint = if (selected) Alpha.Ink else Alpha.Slate400
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+            .clip(Alpha.CardShape)
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+    ) {
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.height(3.dp))
+        Text(
+            label,
+            fontSize = 10.5.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            color = tint,
+        )
+    }
 }
 
 /**
@@ -636,10 +730,10 @@ private fun MoreScreen(
     ) {
         AlphaCard(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(18.dp)) {
-                Text(name, fontSize = 18.sp, fontWeight = FontWeight.Black, color = Alpha.Slate900)
+                Text(name, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = Alpha.Slate900)
                 Text(email, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Alpha.Slate500)
                 Spacer(Modifier.height(6.dp))
-                Text(role, fontSize = 12.sp, fontWeight = FontWeight.Black, color = Alpha.Green)
+                Text(role, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = Alpha.Green)
             }
         }
 
@@ -679,93 +773,46 @@ private fun MoreScreen(
             },
         )
 
-        SectionHeading(if (arabic) "المساعد الذكي" else "ASSISTANT")
+        SectionHeading(if (arabic) "الأدوات" else "TOOLS")
 
-        MoreRow(
-            icon = Icons.Filled.Mic,
-            label = if (arabic) "تحدث مع المساعد" else "Talk to the assistant",
-            caption = if (arabic) "اسأل بصوتك عن أي شيء في العيادة — ويحجز وينفذ بصلاحياتك"
-            else "Ask anything about the clinic by voice — it answers and acts with your permissions",
-            tint = Alpha.Green,
-            onClick = onOpenAssistant,
-        )
-
-        SectionHeading(if (arabic) "التقويم" else "ORTHODONTICS")
-
-        MoreRow(
-            icon = Icons.Filled.Timeline,
-            label = if (arabic) "حالات التقويم" else "Ortho cases",
-            caption = if (arabic) "الزيارات، وتسجيل تعديل اليوم"
-            else "Visit history, and log today's adjustment",
-            onClick = onOpenOrtho,
-        )
-
-        SectionHeading(if (arabic) "واتساب" else "WHATSAPP")
-
-        // Always shown, even at zero. A row that only appears when there is work is a row nobody
-        // learns is there, and these are messages patients are waiting on.
-        MoreRow(
-            icon = Icons.Filled.Send,
-            label = if (arabic) "رسائل للإرسال" else "Messages to send",
-            caption = when {
-                whatsappWaiting == 0 && arabic -> "لا توجد رسائل في الانتظار"
-                whatsappWaiting == 0 -> "Nothing waiting"
-                arabic -> "$whatsappWaiting في الانتظار — اضغط لإرسالها"
-                whatsappWaiting == 1 -> "1 waiting — tap to send it"
-                else -> "$whatsappWaiting waiting — tap to send them"
+        // A grid, not a list: every tool visible at once with no scrolling hunt.
+        // The WhatsApp tile is always present, even at zero — a tile that only
+        // appears when there is work is a tile nobody learns is there.
+        val tools = listOfNotNull(
+            ToolSpec(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", onClick = onOpenAssistant),
+            ToolSpec(Icons.Filled.Timeline, if (arabic) "التقويم" else "Ortho", onClick = onOpenOrtho),
+            ToolSpec(
+                Icons.Filled.Send, if (arabic) "واتساب" else "WhatsApp",
+                badge = whatsappWaiting, onClick = onOpenWhatsappQueue,
+            ),
+            onOpenReports?.let { ToolSpec(Icons.Filled.BarChart, if (arabic) "التقارير" else "Reports", onClick = it) },
+            ToolSpec(Icons.Filled.Inventory2, if (arabic) "المخزون" else "Stock", onClick = onOpenInventory),
+            onOpenHours?.let { ToolSpec(Icons.Filled.Schedule, if (arabic) "الساعات" else "Hours", onClick = it) },
+            ToolSpec(Icons.Filled.OpenInNew, if (arabic) "الموقع" else "Website") {
+                runCatching {
+                    CustomTabsIntent.Builder()
+                        .setShowTitle(true)
+                        .build()
+                        .launchUrl(context, BuildConfig.WEB_URL.toUri())
+                }
             },
-            tint = if (whatsappWaiting > 0) Color(0xFF128C7E) else Alpha.Slate700,
-            onClick = onOpenWhatsappQueue,
         )
-
-        if (onOpenReports != null) {
-            SectionHeading(if (arabic) "التقارير" else "REPORTS")
-
-            MoreRow(
-                icon = Icons.Filled.BarChart,
-                label = if (arabic) "أرقام العيادة" else "Clinic numbers",
-                caption = if (arabic) "الأسبوع، الشهر، وأكثر العلاجات دخلاً"
-                else "This week, this month, and what earns most",
-                onClick = onOpenReports,
-            )
-        }
-
-        SectionHeading(if (arabic) "المخزون" else "STOCK")
-
-        MoreRow(
-            icon = Icons.Filled.Inventory2,
-            label = if (arabic) "المخزون" else "Stock",
-            caption = if (arabic) "المتاح، وما أوشك على النفاد" else "What is on the shelf, and what is running out",
-            onClick = onOpenInventory,
-        )
-
-        if (onOpenHours != null) {
-            SectionHeading(if (arabic) "الإعدادات" else "SETTINGS")
-
-            MoreRow(
-                icon = Icons.Filled.Schedule,
-                label = if (arabic) "ساعات العمل" else "Clinic hours",
-                caption = if (arabic) "المواعيد المتاحة وأيام الإجازة"
-                else "Opening times, appointment length and days closed",
-                onClick = onOpenHours,
-            )
-        }
-
-        SectionHeading(if (arabic) "الباقي من النظام" else "THE REST OF THE SYSTEM")
-
-        MoreRow(
-            icon = Icons.Filled.OpenInNew,
-            label = if (arabic) "فتح النظام كاملاً" else "Open full system",
-            caption = if (arabic) "التقارير، المخزون، الوصفات، الإعدادات"
-            else "Reports, inventory, prescriptions, settings",
-        ) {
-            runCatching {
-                CustomTabsIntent.Builder()
-                    .setShowTitle(true)
-                    .build()
-                    .launchUrl(context, BuildConfig.WEB_URL.toUri())
+        tools.chunked(4).forEach { rowTools ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                rowTools.forEach { tool ->
+                    ToolTile(
+                        icon = tool.icon,
+                        label = tool.label,
+                        badge = tool.badge,
+                        modifier = Modifier.weight(1f),
+                        onClick = tool.onClick,
+                    )
+                }
+                repeat(4 - rowTools.size) { Spacer(Modifier.weight(1f)) }
             }
         }
+
+        SectionHeading(if (arabic) "الإعدادات" else "SETTINGS")
 
         MoreRow(
             icon = Icons.Filled.Language,
@@ -778,11 +825,18 @@ private fun MoreScreen(
             icon = Icons.Filled.Logout,
             label = if (arabic) "تسجيل الخروج" else "Sign out",
             caption = email,
-            tint = Color(0xFFE11D48),
+            tint = Alpha.Danger,
             onClick = onSignOut,
         )
     }
 }
+
+private class ToolSpec(
+    val icon: ImageVector,
+    val label: String,
+    val badge: Int = 0,
+    val onClick: () -> Unit,
+)
 
 @Composable
 private fun MoreRow(
@@ -792,19 +846,40 @@ private fun MoreRow(
     tint: Color = Alpha.Slate700,
     onClick: () -> Unit,
 ) {
+    // The icon sits in its own soft circle so the rows scan as a settings list,
+    // and the label stays in text colour — only the icon carries the tint.
     AlphaCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
         shape = Alpha.CardShape,
     ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.size(14.dp))
-            Column {
-                Text(label, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = tint)
-                Text(caption, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Alpha.Slate400)
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .background(if (tint == Alpha.Slate700) Alpha.Slate100 else tint.copy(alpha = if (Alpha.dark) .22f else .12f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(19.dp))
             }
+            Spacer(Modifier.size(13.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    label,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (tint == Alpha.Danger) tint else Alpha.Slate900,
+                )
+                Text(caption, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Alpha.Slate500)
+            }
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = Alpha.Slate300,
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }

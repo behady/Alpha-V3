@@ -145,6 +145,10 @@ data class Service(
     val durationMinutes: Int = 0,
     /** What the lab charges for this service, if it needs one. Comes off before commission. */
     val estimatedLabFee: Double = 0.0,
+    /** Price-list category key, as the website's Services & Prices page assigns it. */
+    val category: String = "",
+    /** Icon id from the shared dental icon library; blank falls back to a keyword guess. */
+    val icon: String = "",
 )
 
 /**

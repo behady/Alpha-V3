@@ -1,6 +1,7 @@
 package com.alphadental.clinic.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -11,19 +12,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.IntrinsicSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -33,38 +32,43 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.alphadental.clinic.data.Appointment
 
 /**
- * A white rounded card on the mint ground — the shape every panel on the website's
- * mobile view uses.
+ * The app's panel: a soft rounded card on the calm ground.
+ *
+ * In light mode it floats on a faint shadow; in dark mode shadows are invisible,
+ * so a hairline border does the same job of separating card from ground.
  */
 @Composable
 fun AlphaCard(
     modifier: Modifier = Modifier,
     shape: RoundedCornerShape = Alpha.BigCardShape,
+    color: Color = Alpha.Card,
     content: @Composable () -> Unit,
 ) {
     Surface(
         modifier = modifier,
         shape = shape,
-        color = Alpha.Card,
-        shadowElevation = 1.dp,
+        color = color,
+        border = if (Alpha.dark) BorderStroke(1.dp, Alpha.Slate100) else null,
+        shadowElevation = if (Alpha.dark) 0.dp else 1.dp,
         content = { Box(Modifier.padding(0.dp)) { content() } },
     )
 }
 
-/** The small status chip. Colours come straight from the website's status map. */
+/** The small status chip. Same hues in both themes — staff read these by colour. */
 @Composable
 fun StatusPill(status: String?, arabic: Boolean) {
     val style = statusStyle(status)
     Surface(shape = Alpha.PillShape, color = style.pillBg) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.5.dp),
         ) {
             Box(
                 Modifier
@@ -83,11 +87,31 @@ fun StatusPill(status: String?, arabic: Boolean) {
     }
 }
 
+/** A circled initial, tinted by the appointment's status. */
+@Composable
+fun InitialBadge(name: String, style: StatusStyle) {
+    Box(
+        modifier = Modifier
+            .size(42.dp)
+            .clip(CircleShape)
+            .background(style.pillBg),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = name.trim().firstOrNull()?.uppercase() ?: "•",
+            fontSize = 17.sp,
+            fontWeight = FontWeight.Bold,
+            color = style.pillText,
+        )
+    }
+}
+
 /**
  * One appointment in the day list.
  *
- * The coloured left edge is the whole point: staff scan the strip, not the text.
- * Its colour is the appointment's state, matching the website exactly.
+ * The coloured edge stays from the old design — staff scan the strip, not the
+ * text — joined now by an initial badge in the same tint, a clearer name line,
+ * and the visit details gathered into one quiet caption underneath.
  */
 @Composable
 fun AppointmentCard(
@@ -104,79 +128,72 @@ fun AppointmentCard(
             .clickable(onClick = onClick),
         shape = Alpha.CardShape,
     ) {
-        Row(Modifier.height(IntrinsicSize.Min)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier
-                    .width(5.dp)
-                    .fillMaxHeight()
+                    .padding(start = 10.dp)
+                    .size(width = 4.dp, height = 44.dp)
+                    .clip(Alpha.PillShape)
                     .background(style.accent)
             )
-            Column(Modifier.padding(14.dp).fillMaxWidth()) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Filled.Schedule,
-                        contentDescription = null,
-                        tint = Alpha.Slate400,
-                        modifier = Modifier.size(14.dp),
-                    )
-                    Spacer(Modifier.width(5.dp))
+            Row(
+                Modifier.padding(start = 10.dp, top = 13.dp, bottom = 13.dp, end = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                InitialBadge(appointment.patientName, style)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = appointment.patientName.ifBlank {
+                                if (arabic) "بدون اسم" else "No name"
+                            },
+                            fontSize = 15.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Alpha.Slate900,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        StatusPill(appointment.status, arabic)
+                    }
+
+                    Spacer(Modifier.height(4.dp))
+
                     Text(
-                        text = appointment.time.ifBlank { "—" },
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Alpha.Slate600,
-                    )
-                    Spacer(Modifier.weight(1f))
-                    StatusPill(appointment.status, arabic)
-                }
-
-                Spacer(Modifier.height(6.dp))
-
-                Text(
-                    text = appointment.patientName.ifBlank {
-                        if (arabic) "بدون اسم" else "No name"
-                    },
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Alpha.Slate900,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-
-                if (appointment.doctor.isNotBlank() || appointment.treatment.isNotBlank()) {
-                    Spacer(Modifier.height(3.dp))
-                    Text(
-                        text = listOf(
+                        text = listOfNotNull(
+                            appointment.time.ifBlank { "—" },
                             appointment.doctor.takeIf { it.isNotBlank() }?.let { "Dr. $it" },
                             appointment.treatment.takeIf { it.isNotBlank() },
-                        ).filterNotNull().joinToString(" · "),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        ).joinToString("  ·  "),
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Medium,
                         color = Alpha.Slate500,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                }
 
-                // Says plainly that this change is still only on this phone. Without
-                // it, a check-in made with no signal looks exactly like one that
-                // reached the clinic.
-                if (appointment.pendingWrite) {
-                    Spacer(Modifier.height(7.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Filled.CloudOff,
-                            contentDescription = null,
-                            tint = Alpha.Slate400,
-                            modifier = Modifier.size(12.dp),
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            text = if (arabic) "لم تُرسل بعد" else "Not sent yet",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Alpha.Slate400,
-                        )
+                    // Says plainly that this change is still only on this phone. Without
+                    // it, a check-in made with no signal looks exactly like one that
+                    // reached the clinic.
+                    if (appointment.pendingWrite) {
+                        Spacer(Modifier.height(5.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Filled.CloudOff,
+                                contentDescription = null,
+                                tint = Alpha.Slate400,
+                                modifier = Modifier.size(12.dp),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = if (arabic) "لم تُرسل بعد" else "Not sent yet",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Alpha.Slate400,
+                            )
+                        }
                     }
                 }
             }
@@ -189,7 +206,7 @@ fun AppointmentCard(
 fun OfflineBanner(pending: Int, arabic: Boolean) {
     Surface(
         shape = Alpha.CardShape,
-        color = Color(0xFFFEF3C7),
+        color = Alpha.WarnBg,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
@@ -199,7 +216,7 @@ fun OfflineBanner(pending: Int, arabic: Boolean) {
             Icon(
                 Icons.Filled.CloudOff,
                 contentDescription = null,
-                tint = Color(0xFF92400E),
+                tint = Alpha.WarnText,
                 modifier = Modifier.size(16.dp),
             )
             Spacer(Modifier.width(9.dp))
@@ -207,8 +224,8 @@ fun OfflineBanner(pending: Int, arabic: Boolean) {
                 Text(
                     text = if (arabic) "تعمل بدون إنترنت" else "Working offline",
                     fontSize = 13.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Color(0xFF92400E),
+                    fontWeight = FontWeight.Bold,
+                    color = Alpha.WarnText,
                 )
                 Text(
                     text = when {
@@ -218,15 +235,15 @@ fun OfflineBanner(pending: Int, arabic: Boolean) {
                         else -> "Showing the last copy saved on this phone"
                     },
                     fontSize = 11.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF92400E).copy(alpha = .8f),
+                    fontWeight = FontWeight.Medium,
+                    color = Alpha.WarnText.copy(alpha = .8f),
                 )
             }
         }
     }
 }
 
-/** A number with a caption, as used across the website's mobile dashboard. */
+/** A number with a caption — the dashboard's building block. */
 @Composable
 fun StatTile(
     value: String,
@@ -235,13 +252,13 @@ fun StatTile(
     modifier: Modifier = Modifier,
 ) {
     AlphaCard(modifier = modifier, shape = Alpha.CardShape) {
-        Column(Modifier.padding(14.dp)) {
-            Text(value, fontSize = 24.sp, fontWeight = FontWeight.Black, color = tint)
-            Spacer(Modifier.height(2.dp))
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 16.dp)) {
+            Text(value, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = tint)
+            Spacer(Modifier.height(3.dp))
             Text(
                 caption,
                 fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.SemiBold,
                 color = Alpha.Slate500,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -254,24 +271,97 @@ fun StatTile(
 fun SectionHeading(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text,
-        fontSize = 12.sp,
-        fontWeight = FontWeight.Black,
-        color = Alpha.Slate500,
-        letterSpacing = 1.2.sp,
-        modifier = modifier,
+        fontSize = 11.5.sp,
+        fontWeight = FontWeight.Bold,
+        color = Alpha.Slate400,
+        letterSpacing = 1.4.sp,
+        modifier = modifier.padding(top = 6.dp),
     )
 }
 
-/** Empty-state block, styled like the website's dashed placeholder panels. */
+/** Empty-state block: quiet, centred, never alarming. */
 @Composable
 fun EmptyState(text: String, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = Alpha.BigCardShape,
-        color = Alpha.Card.copy(alpha = .6f),
+        color = Alpha.Card.copy(alpha = if (Alpha.dark) .45f else .6f),
     ) {
-        Box(Modifier.padding(vertical = 34.dp), contentAlignment = Alignment.Center) {
-            Text(text, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Alpha.Slate400)
+        Box(Modifier.padding(vertical = 36.dp, horizontal = 20.dp), contentAlignment = Alignment.Center) {
+            Text(
+                text,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Alpha.Slate400,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+/**
+ * A square shortcut tile: icon in a soft tinted circle, label under it, and an
+ * optional count badge. The dashboard's quick actions and the More tab's tool
+ * grid are both built from these, so shortcuts look the same wherever they live.
+ */
+@Composable
+fun ToolTile(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    tint: Color = Alpha.Green,
+    badge: Int = 0,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = Alpha.CardShape,
+        color = Alpha.Card,
+        border = if (Alpha.dark) BorderStroke(1.dp, Alpha.Slate100) else null,
+        shadowElevation = if (Alpha.dark) 0.dp else 1.dp,
+        modifier = modifier,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(vertical = 14.dp, horizontal = 6.dp),
+        ) {
+            Box {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(tint.copy(alpha = if (Alpha.dark) .2f else .12f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(21.dp))
+                }
+                if (badge > 0) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .background(Alpha.Danger),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            if (badge > 9) "9+" else badge.toString(),
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                label,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Alpha.Slate700,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

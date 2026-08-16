@@ -64,7 +64,7 @@ fun InventorySheet(
             Text(
                 if (arabic) "المخزون" else "Stock",
                 fontSize = 22.sp,
-                fontWeight = FontWeight.Black,
+                fontWeight = FontWeight.ExtraBold,
                 color = Alpha.Slate900,
             )
 
@@ -74,7 +74,7 @@ fun InventorySheet(
                     StatTile(
                         value = low.toString(),
                         caption = if (arabic) "أوشك على النفاد" else "Running low",
-                        tint = if (low > 0) Color(0xFFE11D48) else Alpha.Slate900,
+                        tint = if (low > 0) Alpha.Danger else Alpha.Slate900,
                         modifier = Modifier.weight(1f),
                     )
                     // Shown as its own number rather than folded into "fine". An item with no
@@ -113,7 +113,7 @@ fun InventorySheet(
                         val low = isLowStock(item)
                         Surface(
                             shape = Alpha.CardShape,
-                            color = if (low) Color(0xFFFFF1F2) else Alpha.Slate50,
+                            color = if (low) Alpha.DangerSoft else Alpha.Slate50,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Row(
@@ -141,7 +141,7 @@ fun InventorySheet(
                                         },
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (low) Color(0xFF9F1239) else Alpha.Slate400,
+                                        color = if (low) Alpha.DangerText else Alpha.Slate400,
                                     )
                                 }
 

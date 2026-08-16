@@ -115,6 +115,15 @@ data class AppState(
     // --- money screen ---
     val dayLedger: List<Repository.DayLedgerRow> = emptyList(),
     val loadingLedger: Boolean = false,
+    // --- finance (the Money tab, mirroring the website's Finance page) ---
+    /** "day" or "month". */
+    val financeView: String = "day",
+    /** The day being looked at; in month view, any day inside that month. */
+    val financeAnchor: String = AppViewModel.today(),
+    val financeRows: List<Repository.FinanceRow> = emptyList(),
+    val loadingFinance: Boolean = false,
+    val financeAddOpen: Boolean = false,
+    val savingFinance: Boolean = false,
     // --- inventory ---
     val inventory: List<InventoryItem> = emptyList(),
     val inventoryOpen: Boolean = false,
@@ -240,7 +249,7 @@ class AppViewModel : ViewModel() {
         if (tab == Tab.PATIENTS && _state.value.patientResults.isEmpty() && _state.value.patientQuery.isEmpty()) {
             searchPatientsTab("")
         }
-        if (tab == Tab.MONEY) loadDayLedger()
+        if (tab == Tab.MONEY) loadFinance()
     }
 
     fun toggleLanguage() {
@@ -324,6 +333,111 @@ class AppViewModel : ViewModel() {
         }
     }
 
+    // ---------------------------------------------------------------- finance
+
+    /** The first and last day the current finance view covers, inclusive. */
+    private fun financeBounds(): Pair<String, String> {
+        val s = _state.value
+        if (s.financeView == "day") return s.financeAnchor to s.financeAnchor
+        val month = s.financeAnchor.take(7)
+        val cal = java.util.Calendar.getInstance()
+        cal.time = parseDate("$month-01")
+        val lastDay = cal.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
+        return "$month-01" to "$month-${String.format(java.util.Locale.US, "%02d", lastDay)}"
+    }
+
+    fun setFinanceView(view: String) {
+        _state.value = _state.value.copy(financeView = view)
+        loadFinance()
+    }
+
+    /** One step back or forward — a day in day view, a month in month view. */
+    fun shiftFinance(delta: Int) {
+        val s = _state.value
+        val cal = java.util.Calendar.getInstance()
+        cal.time = parseDate(s.financeAnchor)
+        if (s.financeView == "month") {
+            cal.add(java.util.Calendar.MONTH, delta)
+            // Land on day 1 so stepping through short months never skips one.
+            cal.set(java.util.Calendar.DAY_OF_MONTH, 1)
+        } else {
+            cal.add(java.util.Calendar.DAY_OF_YEAR, delta)
+        }
+        _state.value = s.copy(financeAnchor = formatter().format(cal.time))
+        loadFinance()
+    }
+
+    fun financeToday() {
+        _state.value = _state.value.copy(financeAnchor = today())
+        loadFinance()
+    }
+
+    fun loadFinance() {
+        val session = _state.value.session ?: return
+        val (from, to) = financeBounds()
+        _state.value = _state.value.copy(loadingFinance = true)
+        viewModelScope.launch {
+            val rows = runCatching { Repository.loadFinance(session.clinicId, from, to) }
+                .getOrDefault(emptyList())
+            // Ignore a slow response for a period the user has already moved past.
+            if (financeBounds() == (from to to)) {
+                _state.value = _state.value.copy(financeRows = rows, loadingFinance = false)
+            }
+        }
+    }
+
+    fun openFinanceAdd() {
+        _state.value = _state.value.copy(financeAddOpen = true)
+    }
+
+    fun closeFinanceAdd() {
+        _state.value = _state.value.copy(financeAddOpen = false)
+    }
+
+    fun saveFinanceEntry(income: Boolean, amount: Double, description: String, category: String, dateKey: String) {
+        val session = _state.value.session ?: return
+        _state.value = _state.value.copy(savingFinance = true)
+        viewModelScope.launch {
+            Repository.addFinanceEntry(
+                clinicId = session.clinicId,
+                income = income,
+                amount = amount,
+                description = description,
+                category = category,
+                dateKey = dateKey,
+                byName = session.name,
+            ).onSuccess {
+                _state.value = _state.value.copy(savingFinance = false, financeAddOpen = false)
+                loadFinance()
+                refreshTakings()
+            }.onFailure { error ->
+                _state.value = _state.value.copy(
+                    savingFinance = false,
+                    message = error.message ?: "The entry could not be saved.",
+                )
+            }
+        }
+    }
+
+    fun deleteFinanceEntry(row: Repository.FinanceRow) {
+        val session = _state.value.session ?: return
+        // The screen only offers delete on manual rows, but a second guard here
+        // costs nothing and a cascading delete gone wrong costs an evening.
+        if (!row.isManual) return
+        viewModelScope.launch {
+            Repository.deleteFinanceEntry(session.clinicId, row.id)
+                .onSuccess {
+                    _state.value = _state.value.copy(
+                        financeRows = _state.value.financeRows.filterNot { it.id == row.id }
+                    )
+                    refreshTakings()
+                }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(message = error.message ?: "Could not delete the entry.")
+                }
+        }
+    }
+
     fun openInventory() {
         val session = _state.value.session ?: return
         _state.value = _state.value.copy(inventoryOpen = true, loadingInventory = true)
@@ -392,6 +506,9 @@ class AppViewModel : ViewModel() {
     private var chatStore: ChatStore? = null
     private var answerCache: AnswerCache? = null
 
+    /** Kept for drawing report PDFs after the assistant has been opened once. */
+    private var aiContext: android.content.Context? = null
+
     /**
      * Tell the server where to wake this phone, if it is a sender.
      *
@@ -407,6 +524,7 @@ class AppViewModel : ViewModel() {
     fun openAssistant(context: android.content.Context) {
         val session = _state.value.session ?: return
         // Stores are per clinic and user, created on first open and reused for the session.
+        aiContext = context.applicationContext
         if (chatStore == null) {
             chatStore = ChatStore(context.applicationContext, session.clinicId, session.uid)
             answerCache = AnswerCache(context.applicationContext, session.clinicId)
@@ -419,6 +537,73 @@ class AppViewModel : ViewModel() {
 
     fun closeAssistant() {
         _state.value = _state.value.copy(aiOpen = false)
+    }
+
+    /**
+     * "Make me a finance PDF for last month", handled without the server.
+     *
+     * Returns true when the prompt was a report request and has been dealt with —
+     * including the polite refusal for roles that may not see clinic money.
+     */
+    private fun tryLocalReport(prompt: String): Boolean {
+        val session = _state.value.session ?: return false
+        val context = aiContext ?: return false
+        val period = com.alphadental.clinic.ai.ReportIntent.parse(prompt) ?: return false
+        val arabic = _state.value.arabic
+
+        if (!(session.isAdmin || session.isReception)) {
+            val reply = if (arabic) {
+                "تقارير أموال العيادة متاحة للمدير والاستقبال فقط، فلا أستطيع إنشاءها من حسابك."
+            } else {
+                "Clinic finance reports are for the owner and reception only, so I can't build one from your account."
+            }
+            appendAiMessage(ChatMessage(fromUser = false, text = reply, at = System.currentTimeMillis()))
+            _state.value = _state.value.copy(aiSpeak = reply)
+            return true
+        }
+
+        _state.value = _state.value.copy(aiThinking = true)
+        viewModelScope.launch {
+            runCatching {
+                val rows = Repository.loadFinance(session.clinicId, period.from, period.to)
+                val file = com.alphadental.clinic.data.ReportPdf.writeFinanceReport(
+                    context = context,
+                    rows = rows,
+                    fromKey = period.from,
+                    toKey = period.to,
+                    clinicName = "Alpha Dental",
+                    arabic = arabic,
+                )
+                Triple(rows, file, period)
+            }.onSuccess { (rows, file, resolved) ->
+                val income = rows.filterNot { it.isExpense }.sumOf { it.cash }.toInt()
+                val expenses = rows.filter { it.isExpense }.sumOf { it.cash }.toInt()
+                val label = if (arabic) resolved.labelAr else resolved.labelEn
+                val reply = if (arabic) {
+                    "جاهز — التقرير المالي عن $label: المدخول $income ج.م والمصروفات $expenses ج.م. اضغط لفتح الملف."
+                } else {
+                    "Done — the finance report for $label: $income EGP in, $expenses EGP out. Tap to open the PDF."
+                }
+                appendAiMessage(
+                    ChatMessage(
+                        fromUser = false,
+                        text = reply,
+                        at = System.currentTimeMillis(),
+                        pdfPath = file.absolutePath,
+                    )
+                )
+                _state.value = _state.value.copy(aiThinking = false, aiSpeak = reply)
+            }.onFailure { error ->
+                val reply = if (arabic) {
+                    "لم أستطع إنشاء التقرير: ${error.message ?: "خطأ غير معروف"}"
+                } else {
+                    "I couldn't build the report: ${error.message ?: "unknown error"}"
+                }
+                appendAiMessage(ChatMessage(fromUser = false, text = reply, at = System.currentTimeMillis()))
+                _state.value = _state.value.copy(aiThinking = false, aiSpeak = reply)
+            }
+        }
+        return true
     }
 
     fun aiSpoken() {
@@ -451,6 +636,10 @@ class AppViewModel : ViewModel() {
         }
 
         appendAiMessage(ChatMessage(fromUser = true, text = prompt, at = System.currentTimeMillis()))
+
+        // Report requests are answered by the phone itself: the data is already
+        // in Firestore and the PDF is drawn locally, so no AI credit is spent.
+        if (tryLocalReport(prompt)) return
 
         answerCache?.lookup(prompt)?.let { cached ->
             appendAiMessage(ChatMessage(fromUser = false, text = cached, at = System.currentTimeMillis()))
@@ -638,7 +827,7 @@ class AppViewModel : ViewModel() {
 
             _state.value = _state.value.copy(
                 loadingReport = false,
-                reportSummary = if (rows.isEmpty() && referrals.isEmpty()) null else summariseReport(rows),
+                reportSummary = if (rows.isEmpty() && referrals.isEmpty()) null else summariseReport(rows, from, to),
                 reportSources = summariseSources(referrals),
                 reportNewPatients = referrals.size,
             )

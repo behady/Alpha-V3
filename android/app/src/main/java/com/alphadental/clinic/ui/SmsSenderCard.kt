@@ -101,7 +101,7 @@ fun SmsSenderCard(
                         Text(
                             if (arabic) "آخر فحص" else "Last check",
                             fontSize = 10.sp,
-                            fontWeight = FontWeight.Black,
+                            fontWeight = FontWeight.ExtraBold,
                             color = Alpha.Slate400,
                         )
                         Text(
@@ -139,14 +139,14 @@ fun SmsSenderCard(
                 }
 
                 Spacer(Modifier.height(10.dp))
-                Surface(shape = Alpha.CardShape, color = Color(0xFFFEF3C7), modifier = Modifier.fillMaxWidth()) {
+                Surface(shape = Alpha.CardShape, color = Alpha.WarnBg, modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp)) {
                         Text(
                             if (arabic) "اترك هذا الهاتف مفتوحاً ومتصلاً بالشبكة، وأوقف توفير البطارية للتطبيق."
                             else "Leave this phone on, in signal, and exclude the app from battery saver.",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF92400E),
+                            color = Alpha.WarnText,
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
@@ -154,7 +154,7 @@ fun SmsSenderCard(
                             else "Every message is billed to the SIM. One Arabic character cuts a text to 70 characters.",
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Medium,
-                            color = Color(0xFF92400E).copy(alpha = .85f),
+                            color = Alpha.WarnText.copy(alpha = .85f),
                         )
                     }
                 }
@@ -193,7 +193,7 @@ private fun PairingSection(arabic: Boolean) {
                     Text(
                         if (arabic) "مرتبط بالعيادة ✓" else "Paired to the clinic ✓",
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.Black,
+                        fontWeight = FontWeight.ExtraBold,
                         color = Alpha.Green,
                         modifier = Modifier.weight(1f),
                     )
@@ -272,7 +272,7 @@ private fun PairingSection(arabic: Boolean) {
                             Text(
                                 if (arabic) "ربط" else "Pair",
                                 fontSize = 13.sp,
-                                fontWeight = FontWeight.Black,
+                                fontWeight = FontWeight.ExtraBold,
                             )
                         }
                     }
@@ -283,7 +283,7 @@ private fun PairingSection(arabic: Boolean) {
                         it,
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFFE11D48),
+                        color = Alpha.Danger,
                     )
                 }
             }
