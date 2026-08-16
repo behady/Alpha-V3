@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { Calendar as CalendarIcon, Clock, User, Phone, CheckCircle, ChevronLeft } from "lucide-react";
+import { Calendar as CalendarIcon, Clock, User, Phone, CheckCircle, ChevronLeft, MapPin } from "lucide-react";
 
 /**
  * Public booking page — the only screen in this system a patient sees.
@@ -29,6 +29,7 @@ type ClinicProfile = {
   defaultDurationMinutes: number;
   reasons: string[];
   doctors: string[];
+  branches: { id: string; name: string; address: string }[];
   offDays: string[];
   scheduleConfigured: boolean;
 };
@@ -58,10 +59,21 @@ export default function OnlineBookingPage() {
 
   const [clinic, setClinic] = useState<ClinicProfile | null>(null);
 
+  // ?src=meta / ?src=google … — which channel this visitor came through. Read once from the URL
+  // (not useSearchParams, which would force a Suspense boundary) and passed along with the
+  // booking so the clinic's source report attributes it without anyone typing anything.
+  const [sourceTag, setSourceTag] = useState("");
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = new URLSearchParams(window.location.search).get("src") || "";
+    setSourceTag(raw.slice(0, 40));
+  }, []);
+
   const [step, setStep] = useState(1);
   const [selectedDate, setSelectedDate] = useState("");
   const [selectedTime, setSelectedTime] = useState("");
   const [selectedDoctor, setSelectedDoctor] = useState("");
+  const [selectedBranchId, setSelectedBranchId] = useState("");
   const [patientName, setPatientName] = useState("");
   const [patientPhone, setPatientPhone] = useState("");
   const [reason, setReason] = useState("");
@@ -85,7 +97,10 @@ export default function OnlineBookingPage() {
               : "حصلت مشكلة واحنا بنحمل بيانات العيادة."
           );
         } else {
-          setClinic(data.clinic as ClinicProfile);
+          const profile = data.clinic as ClinicProfile;
+          setClinic(profile);
+          // A single branch is not a choice — select it silently so the booking still records it.
+          if ((profile.branches || []).length === 1) setSelectedBranchId(profile.branches[0].id);
         }
       } catch {
         if (!cancelled) setError("حصلت مشكلة واحنا بنحمل بيانات العيادة.");
@@ -100,7 +115,7 @@ export default function OnlineBookingPage() {
   }, [clinicId]);
 
   const loadSlots = useCallback(
-    async (dateStr: string, doctorName: string) => {
+    async (dateStr: string, doctorName: string, branchId: string) => {
       if (!dateStr) return;
       setLoadingSlots(true);
       setAvailableSlots([]);
@@ -109,6 +124,7 @@ export default function OnlineBookingPage() {
       try {
         const qs = new URLSearchParams({ clinicId, date: dateStr });
         if (doctorName) qs.set("doctor", doctorName);
+        if (branchId) qs.set("branch", branchId);
         const res = await fetch(`/api/public/slots?${qs.toString()}`);
         const data = await res.json();
         if (res.ok && data.ok) {
@@ -124,9 +140,14 @@ export default function OnlineBookingPage() {
     [clinicId]
   );
 
+  const branches = clinic?.branches || [];
+  const needsBranchChoice = branches.length > 1;
+  const branchChosen = !needsBranchChoice || Boolean(selectedBranchId);
+  const selectedBranch = branches.find((b) => b.id === selectedBranchId) || null;
+
   useEffect(() => {
-    if (selectedDate) void loadSlots(selectedDate, selectedDoctor);
-  }, [selectedDate, selectedDoctor, loadSlots]);
+    if (selectedDate && branchChosen) void loadSlots(selectedDate, selectedDoctor, selectedBranchId);
+  }, [selectedDate, selectedDoctor, selectedBranchId, branchChosen, loadSlots]);
 
   const handleSubmitBooking = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -141,9 +162,11 @@ export default function OnlineBookingPage() {
           date: selectedDate,
           time: selectedTime,
           doctor: selectedDoctor,
+          branchId: selectedBranchId,
           patientName,
           patientPhone,
           reason,
+          src: sourceTag,
         }),
       });
       const data = await res.json();
@@ -152,7 +175,7 @@ export default function OnlineBookingPage() {
         // again with a fresh list rather than leaving a dead button.
         if (res.status === 409) {
           setStep(1);
-          void loadSlots(selectedDate, selectedDoctor);
+          void loadSlots(selectedDate, selectedDoctor, selectedBranchId);
         }
         throw new Error(data.error || "حصلت مشكلة في الحجز، جرب تاني.");
       }
@@ -194,8 +217,8 @@ export default function OnlineBookingPage() {
           </div>
           <h1 className="text-2xl font-black text-slate-800 mb-2">طلبك وصل!</h1>
           <p className="text-slate-500 font-medium">
-            وصلنا طلب الحجز بتاعك ليوم {toArDigits(selectedDate)} الساعة {formatSlotAr(selectedTime)}. هنتواصل معاك
-            قريب عشان نأكد.
+            وصلنا طلب الحجز بتاعك ليوم {toArDigits(selectedDate)} الساعة {formatSlotAr(selectedTime)}
+            {selectedBranch ? ` في ${selectedBranch.name}` : ""}. هنتواصل معاك قريب عشان نأكد.
           </p>
         </div>
       </div>
@@ -241,6 +264,36 @@ export default function OnlineBookingPage() {
           >
             {step === 1 && (
               <div className="space-y-6 animate-in fade-in">
+                {needsBranchChoice && (
+                  <div className="space-y-2">
+                    <label className="block text-sm font-bold text-slate-700">اختار الفرع</label>
+                    <div className="grid grid-cols-1 gap-2">
+                      {branches.map((b) => (
+                        <button
+                          key={b.id}
+                          type="button"
+                          onClick={() => setSelectedBranchId(b.id)}
+                          className={`w-full text-right rounded-xl border px-4 py-3 transition-all ${
+                            selectedBranchId === b.id
+                              ? "bg-indigo-600 text-white border-indigo-600 shadow-md"
+                              : "bg-slate-50 text-slate-700 border-slate-200 hover:border-indigo-300"
+                          }`}
+                        >
+                          <span className="flex items-center gap-2 font-bold text-sm">
+                            <MapPin size={16} className={selectedBranchId === b.id ? "text-white" : "text-indigo-500"} />
+                            {b.name}
+                          </span>
+                          {b.address && (
+                            <span className={`block text-xs mt-1 font-medium ${selectedBranchId === b.id ? "text-indigo-100" : "text-slate-400"}`}>
+                              {b.address}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {clinic.enableDoctorSelection && clinic.doctors.length > 0 && (
                   <div className="space-y-2">
                     <label className="block text-sm font-bold text-slate-700">اختار الدكتور (اختياري)</label>
@@ -261,9 +314,13 @@ export default function OnlineBookingPage() {
 
                 <div className="space-y-2">
                   <label className="block text-sm font-bold text-slate-700">اختار التاريخ</label>
+                  {!branchChosen && (
+                    <p className="text-xs text-slate-400 font-bold">اختار الفرع الأول عشان نعرض المواعيد المتاحة.</p>
+                  )}
                   <input
                     type="date"
                     required
+                    disabled={!branchChosen}
                     min={todayKey}
                     max={maxDate.toISOString().split("T")[0]}
                     value={selectedDate}
@@ -319,7 +376,12 @@ export default function OnlineBookingPage() {
 
             {step === 2 && (
               <div className="space-y-6 animate-in slide-in-from-left">
-                <div className="bg-indigo-50 text-indigo-800 p-4 rounded-xl flex items-center justify-between font-bold text-sm mb-6">
+                <div className="bg-indigo-50 text-indigo-800 p-4 rounded-xl flex items-center justify-between flex-wrap gap-2 font-bold text-sm mb-6">
+                  {selectedBranch && (
+                    <div className="flex items-center gap-2">
+                      <MapPin size={16} /> {selectedBranch.name}
+                    </div>
+                  )}
                   <div className="flex items-center gap-2">
                     <CalendarIcon size={16} /> {toArDigits(selectedDate)}
                   </div>

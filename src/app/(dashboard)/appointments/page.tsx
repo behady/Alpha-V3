@@ -2,9 +2,9 @@
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { 
-  ChevronLeft, ChevronRight, ChevronDown, Plus, Clock, 
-  Check, Calendar as CalendarIcon, User, Stethoscope, BriefcaseMedical, Phone, Trash2, Edit, Wallet, FileText, UserPlus, Globe
+import {
+  ChevronLeft, ChevronRight, ChevronDown, Plus, Clock,
+  Check, Calendar as CalendarIcon, User, Stethoscope, BriefcaseMedical, Phone, Trash2, Edit, Wallet, FileText, UserPlus, Globe, Building2, DoorOpen
 } from "lucide-react";
 import BookingModal from "@/components/BookingModal";
 import NewPatientModal from "@/components/NewPatientModal";
@@ -26,7 +26,9 @@ import { useUI } from "@/context/UIContext";
 import { useClinic } from "@/context/ClinicContext";
 import PermissionGuard from "@/components/PermissionGuard"; 
 import { isDentistStaff } from "@/lib/staffRoles";
-import { getAppointmentStatusStyles } from "@/lib/appointmentStages";interface Appointment {
+import { getAppointmentStatusStyles, getAppointmentStageLabel } from "@/lib/appointmentStages";
+import { LOCATIONS_DOC, parseClinicBranches, flattenRooms, type ClinicBranch } from "@/lib/clinicLocations";
+interface Appointment {
   id: string;
   patientId: string;
   patientName: string;
@@ -42,6 +44,11 @@ import { getAppointmentStatusStyles } from "@/lib/appointmentStages";interface 
   rating?: number;
   delayedPromptUntil?: number;
   source?: string;
+  branchId?: string | null;
+  branchName?: string | null;
+  roomId?: string | null;
+  roomName?: string | null;
+  serviceName?: string | null;
 }
 
 export default function AppointmentsPage() {
@@ -68,6 +75,12 @@ export default function AppointmentsPage() {
   // Filters State
   const [selectedDoctors, setSelectedDoctors] = useState<string[]>([]);
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  const [selectedRooms, setSelectedRooms] = useState<string[]>([]);
+  const [selectedServices, setSelectedServices] = useState<string[]>([]);
+
+  // Branches & Rooms
+  const [branches, setBranches] = useState<ClinicBranch[]>([]);
+  const [selectedBranchId, setSelectedBranchId] = useState("");
 
   // History Drawer State
   const [historyDrawerPatientId, setHistoryDrawerPatientId] = useState("");
@@ -89,7 +102,7 @@ export default function AppointmentsPage() {
   const [miniCalendarDate, setMiniCalendarDate] = useState(new Date());
 
   // Drag and Drop State
-  const [activeDragTarget, setActiveDragTarget] = useState<{ date: string; time: string } | null>(null);
+  const [activeDragTarget, setActiveDragTarget] = useState<{ colKey: string; time: string } | null>(null);
 
   // Mobile Editor State
   const [appointmentToEdit, setAppointmentToEdit] = useState<any>(null);
@@ -128,7 +141,10 @@ export default function AppointmentsPage() {
   };
 
   // View Mode & Sizing
-  const [viewMode, setViewMode] = useState<"week" | "day">("week");
+  // "week"/"day": calendar by date. "doctor": one day, one column per dentist.
+  // "list": one day as a readable agenda, groupable by time, dentist, or service.
+  const [viewMode, setViewMode] = useState<"week" | "day" | "doctor" | "list">("week");
+  const [listGroupBy, setListGroupBy] = useState<"time" | "doctor" | "service">("time");
   
   useEffect(() => {
     if (typeof window !== "undefined" && window.innerWidth < 1024) {
@@ -159,6 +175,22 @@ export default function AppointmentsPage() {
   useEffect(() => {
     setSearchQuery(searchFromUrl);
   }, [searchFromUrl]);
+
+  // /appointments?book=<patientId> — how the Leads screen hands a fresh convert straight to
+  // booking. Waits for the patients list so the picker shows the name, then clears the param
+  // so refresh/back doesn't reopen the form.
+  const bookPatientId = searchParams?.get("book") || "";
+  useEffect(() => {
+    if (!bookPatientId || patientsList.length === 0) return;
+    const patient = patientsList.find(p => String(p.id) === bookPatientId);
+    if (patient) {
+      setPreSelectedPatient({ id: String(patient.id), name: patient.name });
+      setAppointmentToEdit(null);
+      setSelectedTimeForBooking("");
+      setIsBookingModalOpen(true);
+    }
+    router.replace("/appointments");
+  }, [bookPatientId, patientsList, router]);
 
   // Fetch Appointments
   useEffect(() => {
@@ -230,6 +262,15 @@ export default function AppointmentsPage() {
     return () => unsub();
   }, [user]);
 
+  // Fetch Branches & Rooms
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(getClinicDoc("settings", LOCATIONS_DOC), (snap) => {
+      setBranches(parseClinicBranches(snap.exists() ? snap.data() : null));
+    });
+    return () => unsub();
+  }, [user]);
+
   // Fetch Latest Clinical Notes for visible patients
   useEffect(() => {
     if (!user || appointments.length === 0) return;
@@ -274,7 +315,7 @@ export default function AppointmentsPage() {
     e.dataTransfer.setData("text/plain", appointmentId);
   };
 
-  const handleDrop = async (e: React.DragEvent, targetDate: string, targetTime: string) => {
+  const handleDrop = async (e: React.DragEvent, targetDate: string, targetTime: string, targetDoctor?: string) => {
     e.preventDefault();
     const apptId = e.dataTransfer.getData("text/plain");
     if (!apptId) return;
@@ -282,12 +323,15 @@ export default function AppointmentsPage() {
     const movingAppt = appointments.find((a) => a.id === apptId);
     if (!movingAppt) return;
 
+    // In doctor view, dropping on another dentist's column hands the visit to that dentist.
+    const nextDoctor = targetDoctor && targetDoctor !== "__unassigned__" ? targetDoctor : movingAppt.doctor;
+
     // Optional: Conflict checking
     try {
       const q = query(
         getClinicCollection("appointments"),
         where("date", "==", targetDate),
-        where("doctor", "==", movingAppt.doctor)
+        where("doctor", "==", nextDoctor)
       );
       const snap = await getDocs(q);
       let conflict = false;
@@ -317,6 +361,7 @@ export default function AppointmentsPage() {
           existingAppointmentId: apptId,
           date: targetDate,
           time: targetTime,
+          doctor: nextDoctor,
         } as Parameters<typeof saveBooking>[0],
         {
           uid: user?.uid || "",
@@ -345,11 +390,12 @@ export default function AppointmentsPage() {
   };
 
   // Booking handlers
-  const handleOpenBooking = (dateStr?: string, timeStr?: string) => {
+  const handleOpenBooking = (dateStr?: string, timeStr?: string, doctorName?: string) => {
     // If no date passed, use the first day of the currently viewed week
     setAppointmentToEdit(null);
     setSelectedDateForBooking(dateStr || weekDays[0].dateStr);
     setSelectedTimeForBooking(timeStr || "");
+    if (doctorName) setPreSelectedDoctor(doctorName);
     setIsBookingModalOpen(true);
   };
 
@@ -458,7 +504,7 @@ export default function AppointmentsPage() {
 
   // Calendar Logic
   const handleNavigate = (direction: number) => {
-     const amount = viewMode === "day" ? direction * 1 : direction * 7;
+     const amount = viewMode === "week" ? direction * 7 : direction * 1;
      const newDate = new Date(currentDate);
      newDate.setDate(newDate.getDate() + amount);
      setCurrentDate(newDate);
@@ -477,7 +523,7 @@ export default function AppointmentsPage() {
     const base = new Date(currentDate);
     const locale = language === 'ar' ? 'ar-EG' : 'en-US';
     
-    if (viewMode === "day") {
+    if (viewMode !== "week") {
       const dayNameDisplay = base.toLocaleDateString(locale, { weekday: 'long' });
       const localDate = new Date(base.getTime() - (base.getTimezoneOffset() * 60000));
       const dayNameEn = base.toLocaleDateString('en-US', { weekday: 'long' });
@@ -532,7 +578,7 @@ export default function AppointmentsPage() {
     const firstDate = new Date(weekDays[0].dateStr);
     const locale = language === 'ar' ? 'ar-EG' : 'en-US';
     
-    if (viewMode === "day") {
+    if (viewMode !== "week") {
       return firstDate.toLocaleDateString(locale, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
     }
     
@@ -601,6 +647,29 @@ export default function AppointmentsPage() {
      setSelectedStatuses(prev => prev.includes(statusName) ? prev.filter(s => s !== statusName) : [...prev, statusName]);
   };
 
+  const toggleRoomFilter = (roomId: string) => {
+     setSelectedRooms(prev => prev.includes(roomId) ? prev.filter(r => r !== roomId) : [...prev, roomId]);
+  };
+
+  const toggleServiceFilter = (serviceName: string) => {
+     setSelectedServices(prev => prev.includes(serviceName) ? prev.filter(s => s !== serviceName) : [...prev, serviceName]);
+  };
+
+  const allRooms = useMemo(() => flattenRooms(branches), [branches]);
+
+  // What an appointment "is" for the service filter/grouping: the billed service when one was
+  // picked, otherwise the visit reason typed at booking.
+  const apptServiceKey = (appt: Appointment) => appt.serviceName || appt.treatment || "";
+
+  const serviceOptions = useMemo(() => {
+    const set = new Set<string>();
+    appointments.forEach(a => {
+      const key = apptServiceKey(a);
+      if (key) set.add(key);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [appointments]);
+
   const patientMap = useMemo(() => {
     const map = new Map();
     patientsList.forEach(p => {
@@ -614,7 +683,12 @@ export default function AppointmentsPage() {
      return appointments.filter(appt => {
         if (selectedDoctors.length > 0 && !selectedDoctors.includes(appt.doctor)) return false;
         if (selectedStatuses.length > 0 && !selectedStatuses.includes(appt.status || "Scheduled")) return false;
-        
+        // Appointments booked before branches existed have no branchId; hiding them in every
+        // branch view would make them disappear entirely, so they show everywhere instead.
+        if (selectedBranchId && appt.branchId && appt.branchId !== selectedBranchId) return false;
+        if (selectedRooms.length > 0 && !selectedRooms.includes(appt.roomId || "")) return false;
+        if (selectedServices.length > 0 && !selectedServices.includes(apptServiceKey(appt))) return false;
+
         if (searchQuery) {
            const q = searchQuery.toLowerCase().trim();
            const nameMatch = appt.patientName?.toLowerCase().includes(q);
@@ -629,14 +703,91 @@ export default function AppointmentsPage() {
         
         return true;
      });
-  }, [appointments, selectedDoctors, selectedStatuses, searchQuery, patientMap]);
+  }, [appointments, selectedDoctors, selectedStatuses, selectedBranchId, selectedRooms, selectedServices, searchQuery, patientMap]);
+
+  /**
+   * The calendar's columns. By date they are the visible days; in doctor view they are one day's
+   * dentists side by side, plus an "Unassigned" column when that day holds appointments whose
+   * dentist isn't on staff (e.g. online requests booked as "Any").
+   */
+  const gridColumns = useMemo(() => {
+    if (viewMode !== "doctor") {
+      return weekDays.map(d => ({
+        key: d.dateStr,
+        dateStr: d.dateStr,
+        isOffDay: d.isOffDay,
+        label: d.name,
+        sublabel: String(d.dateNum),
+        doctorName: undefined as string | undefined,
+      }));
+    }
+    const day = weekDays[0];
+    const base = selectedDoctors.length > 0
+      ? doctorsList.filter((d: any) => selectedDoctors.includes(d.name))
+      : doctorsList;
+    const knownNames = new Set(base.map((d: any) => d.name));
+    const cols = base.map((d: any) => ({
+      key: d.id,
+      dateStr: day?.dateStr || "",
+      isOffDay: day?.isOffDay,
+      label: d.name as string,
+      sublabel: "",
+      doctorName: d.name as string | undefined,
+    }));
+    const hasUnassigned = filteredAppointments.some(a => a.date === day?.dateStr && !knownNames.has(a.doctor));
+    if (hasUnassigned) {
+      cols.push({
+        key: "__unassigned__",
+        dateStr: day?.dateStr || "",
+        isOffDay: day?.isOffDay,
+        label: language === "ar" ? "غير محدد" : "Unassigned",
+        sublabel: "",
+        doctorName: "__unassigned__",
+      });
+    }
+    return cols;
+  }, [viewMode, weekDays, doctorsList, selectedDoctors, filteredAppointments, language]);
+
+  const knownDoctorNames = useMemo(() => new Set(doctorsList.map((d: any) => d.name)), [doctorsList]);
+
+  /** List view: the selected day's appointments in time order, grouped by the chosen key. */
+  const listGroups = useMemo(() => {
+    if (viewMode !== "list") return [] as Array<{ key: string; label: string; appts: Appointment[] }>;
+    const dayStr = weekDays[0]?.dateStr;
+    const dayAppts = filteredAppointments
+      .filter(a => a.date === dayStr)
+      .sort((a, b) => parseApptTimeToMinutes(a.time || "") - parseApptTimeToMinutes(b.time || ""));
+
+    if (dayAppts.length === 0) return [];
+    if (listGroupBy === "time") return [{ key: "all", label: "", appts: dayAppts }];
+
+    const map = new Map<string, Appointment[]>();
+    for (const a of dayAppts) {
+      const key = listGroupBy === "doctor"
+        ? (a.doctor || (language === "ar" ? "غير محدد" : "Unassigned"))
+        : (apptServiceKey(a) || (language === "ar" ? "بدون خدمة" : "No service"));
+      const bucket = map.get(key);
+      if (bucket) bucket.push(a);
+      else map.set(key, [a]);
+    }
+    return Array.from(map.entries()).map(([key, appts]) => ({ key, label: key, appts }));
+  }, [viewMode, listGroupBy, filteredAppointments, weekDays, language]);
+
+  const columnAppointments = (col: { dateStr: string; doctorName?: string }) => {
+    return filteredAppointments.filter(a => {
+      if (a.date !== col.dateStr) return false;
+      if (!col.doctorName) return true;
+      if (col.doctorName === "__unassigned__") return !knownDoctorNames.has(a.doctor);
+      return a.doctor === col.doctorName;
+    });
+  };
 
 
   const gridBlocks = useMemo(() => {
     const bounds = clinicDayBoundsMinutes(scheduleConfig);
-    return weekDays.map((dayObj, colIndex) => {
-      const dayAppts = filteredAppointments.filter(a => a.date === dayObj.dateStr);
-      
+    return gridColumns.map((colObj, colIndex) => {
+      const dayAppts = columnAppointments(colObj);
+
       return dayAppts.map(appt => {
         const timeMatch = appt.time?.match(/^(\d{1,2}):(\d{2})\s?(AM|PM|ص|م)?/i);
         let h = scheduleConfig.startHour ?? 9; let m = 0;
@@ -681,8 +832,8 @@ export default function AppointmentsPage() {
             style={{ 
               top: `${topPx}px`, 
               height: `${Math.max(height, 120)}px`,
-              insetInlineStart: `calc(${(colIndex * 100) / weekDays.length}% + 6px)`,
-              width: `calc(${100 / weekDays.length}% - 12px)`,
+              insetInlineStart: `calc(${(colIndex * 100) / gridColumns.length}% + 6px)`,
+              width: `calc(${100 / gridColumns.length}% - 12px)`,
               zIndex: 10
             }}
           >
@@ -772,6 +923,12 @@ export default function AppointmentsPage() {
                   <p className={`text-slate-800 truncate font-bold bg-white/60 lg:bg-white/80 backdrop-blur-sm px-1.5 py-0.5 rounded-md shadow-sm min-w-0 ${infoFontSize}`}>
                     {appt.treatment || 'Consultation'} <span className="text-slate-400 mx-1 font-normal">•</span> Dr. {appt.doctor?.split(' ')[1] || appt.doctor}
                   </p>
+                  {(appt.roomName || (!selectedBranchId && branches.length > 1 && appt.branchName)) && (
+                    <span className="inline-flex items-center gap-1 text-[9px] lg:text-[10px] font-bold text-teal-700 bg-teal-50/90 border border-teal-100 px-1.5 py-0.5 rounded-md w-fit max-w-full truncate">
+                      <DoorOpen size={10} className="shrink-0" />
+                      {[!selectedBranchId && branches.length > 1 ? appt.branchName : null, appt.roomName].filter(Boolean).join(' · ')}
+                    </span>
+                  )}
                   <div className="ps-1 mt-0.5">
                     <StarRating rating={appt.rating || 0} onRatingChange={(r) => handleRatingChange(appt.id, r)} size={14} />
                   </div>
@@ -796,7 +953,7 @@ export default function AppointmentsPage() {
         );
       });
     });
-  }, [weekDays, filteredAppointments, scheduleConfig, patientMap, selectedAppt?.id, HOUR_HEIGHT, viewMode, latestNotes, language, router]);
+  }, [gridColumns, filteredAppointments, knownDoctorNames, branches, selectedBranchId, scheduleConfig, patientMap, selectedAppt?.id, HOUR_HEIGHT, viewMode, latestNotes, language, router]);
 
   return (
     <PermissionGuard permission="access.appointments">
@@ -937,6 +1094,51 @@ export default function AppointmentsPage() {
                         );
                      })}
                  </div>
+
+                 {allRooms.length > 0 && (
+                   <>
+                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">{language === 'ar' ? 'الغرف' : 'Rooms'}</p>
+                     <div className="space-y-3 pb-4">
+                        {allRooms
+                          .filter(room => !selectedBranchId || room.branchId === selectedBranchId)
+                          .map(room => {
+                            const isSelected = selectedRooms.includes(room.id);
+                            return (
+                              <label key={room.id} className="flex items-center gap-3 text-sm font-bold text-slate-600 cursor-pointer group hover:text-slate-800 transition-colors" onClick={() => toggleRoomFilter(room.id)}>
+                                 <div className={`w-5 h-5 rounded-md flex items-center justify-center transition-colors shadow-sm ${isSelected ? 'bg-teal-600 text-white' : 'border-2 border-slate-200 bg-white'}`}>
+                                    {isSelected && <Check size={14} strokeWidth={3}/>}
+                                 </div>
+                                 <span className="min-w-0 truncate">
+                                    {room.name}
+                                    {branches.length > 1 && !selectedBranchId && (
+                                      <span className="text-slate-400 font-medium"> — {room.branchName}</span>
+                                    )}
+                                 </span>
+                              </label>
+                            );
+                        })}
+                     </div>
+                   </>
+                 )}
+
+                 {serviceOptions.length > 0 && (
+                   <>
+                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">{language === 'ar' ? 'الخدمات' : 'Services'}</p>
+                     <div className="space-y-3 pb-4">
+                        {serviceOptions.map(svc => {
+                           const isSelected = selectedServices.includes(svc);
+                           return (
+                             <label key={svc} className="flex items-center gap-3 text-sm font-bold text-slate-600 cursor-pointer group hover:text-slate-800 transition-colors" onClick={() => toggleServiceFilter(svc)}>
+                                <div className={`w-5 h-5 rounded-md flex items-center justify-center transition-colors shadow-sm ${isSelected ? 'bg-teal-600 text-white' : 'border-2 border-slate-200 bg-white'}`}>
+                                   {isSelected && <Check size={14} strokeWidth={3}/>}
+                                </div>
+                                <span className="min-w-0 truncate">{svc}</span>
+                             </label>
+                           );
+                        })}
+                     </div>
+                   </>
+                 )}
                </div>
             </details>
          </div>
@@ -944,29 +1146,49 @@ export default function AppointmentsPage() {
          {/* --- RIGHT PANEL (Main Grid) --- */}
          <div className={`flex-1 flex flex-col min-w-0 bg-white border border-slate-100 rounded-2xl lg:rounded-2xl overflow-hidden shadow-sm ${!selectedAppt ? 'order-1 lg:order-2' : 'order-2 lg:order-2'} min-h-[500px]`}>
              {/* Header */}
-             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 border-b border-slate-50 gap-3">
-                  <div className="flex items-center gap-3">
-                      <button onClick={() => handleNavigate(-1)} className="text-slate-400 hover:text-slate-800 transition-colors bg-slate-50 p-1.5 rounded-xl"><ChevronLeft size={20}/></button>
-                      <h1 className="text-xl font-black text-slate-800">{weekTitle}</h1>
-                      <button onClick={() => handleNavigate(1)} className="text-slate-400 hover:text-slate-800 transition-colors bg-slate-50 p-1.5 rounded-xl"><ChevronRight size={20}/></button>
-                      <button onClick={() => { setCurrentDate(new Date()); setMiniCalendarDate(new Date()); }} className="text-xs font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-colors ml-2">{language === 'ar' ? 'اليوم' : 'Today'}</button>
+             <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between p-3 sm:p-4 border-b border-slate-50 gap-2 sm:gap-3">
+                  <div className="flex items-center gap-2 sm:gap-3 w-full xl:w-auto min-w-0">
+                      <button onClick={() => handleNavigate(-1)} className="text-slate-400 hover:text-slate-800 transition-colors bg-slate-50 p-1.5 rounded-xl shrink-0"><ChevronLeft size={20}/></button>
+                      <h1 className="text-base sm:text-xl font-black text-slate-800 truncate min-w-0 flex-1 xl:flex-none text-center xl:text-start">{weekTitle}</h1>
+                      <button onClick={() => handleNavigate(1)} className="text-slate-400 hover:text-slate-800 transition-colors bg-slate-50 p-1.5 rounded-xl shrink-0"><ChevronRight size={20}/></button>
+                      <button onClick={() => { setCurrentDate(new Date()); setMiniCalendarDate(new Date()); }} className="text-xs font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-colors shrink-0">{language === 'ar' ? 'اليوم' : 'Today'}</button>
                   </div>
-                  
-                  <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
-                     {/* Day/Week View Toggle */}
-                     <div className="flex bg-slate-100 p-1 rounded-xl gap-1 mr-2">
-                        <button 
-                           onClick={() => setViewMode("week")}
-                           className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${viewMode === 'week' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-                        >
-                           {language === "ar" ? "أسبوع" : "Week"}
-                        </button>
-                        <button 
-                           onClick={() => setViewMode("day")}
-                           className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${viewMode === 'day' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-                        >
-                           {language === "ar" ? "يوم" : "Day"}
-                        </button>
+
+                  <div className="flex items-center gap-2 sm:gap-3 w-full xl:w-auto justify-between xl:justify-end flex-wrap">
+                     {/* Branch switcher — only exists once branches are configured */}
+                     {branches.length > 0 && (
+                        <div className="relative flex items-center min-w-0">
+                           <Building2 size={14} className="absolute start-2.5 text-teal-600 pointer-events-none" />
+                           <select
+                              value={selectedBranchId}
+                              onChange={(e) => setSelectedBranchId(e.target.value)}
+                              className="appearance-none bg-teal-50 border border-teal-100 text-teal-800 text-xs font-bold rounded-xl ps-8 pe-8 py-2 outline-none focus:border-teal-400 cursor-pointer max-w-[180px] truncate"
+                           >
+                              <option value="">{language === 'ar' ? 'كل الفروع' : 'All branches'}</option>
+                              {branches.map(b => (
+                                 <option key={b.id} value={b.id}>{b.name}</option>
+                              ))}
+                           </select>
+                           <ChevronDown size={14} className="absolute end-2.5 text-teal-600 pointer-events-none" />
+                        </div>
+                     )}
+
+                     {/* View Toggle: Week / Day / Doctors / List */}
+                     <div className="flex bg-slate-100 p-1 rounded-xl gap-1 overflow-x-auto no-scrollbar max-w-full">
+                        {([
+                           { id: "week", label: language === "ar" ? "أسبوع" : "Week" },
+                           { id: "day", label: language === "ar" ? "يوم" : "Day" },
+                           { id: "doctor", label: language === "ar" ? "الدكاترة" : "Doctors" },
+                           { id: "list", label: language === "ar" ? "قائمة" : "List" },
+                        ] as const).map(v => (
+                           <button
+                              key={v.id}
+                              onClick={() => setViewMode(v.id)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${viewMode === v.id ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                           >
+                              {v.label}
+                           </button>
+                        ))}
                      </div>
 
                      <div className="hidden lg:flex gap-2">
@@ -988,19 +1210,114 @@ export default function AppointmentsPage() {
                   </div>
              </div>
 
-             {/* The Grid Area */}
+             {/* The Grid Area (calendar views) or the Agenda (list view) */}
+             {viewMode === 'list' ? (
+               <div className="flex-1 overflow-y-auto custom-scrollbar bg-white p-3 sm:p-4">
+                  {/* Group-by control: the same day's appointments, arranged by time, dentist, or service */}
+                  <div className="flex items-center gap-2 mb-4 flex-wrap">
+                     <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                        {language === 'ar' ? 'عرض حسب' : 'Group by'}
+                     </span>
+                     <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
+                        {([
+                           { id: "time", label: language === 'ar' ? 'الوقت' : 'Time' },
+                           { id: "doctor", label: language === 'ar' ? 'الدكتور' : 'Doctor' },
+                           { id: "service", label: language === 'ar' ? 'الخدمة' : 'Service' },
+                        ] as const).map(g => (
+                           <button
+                              key={g.id}
+                              onClick={() => setListGroupBy(g.id)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${listGroupBy === g.id ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                           >
+                              {g.label}
+                           </button>
+                        ))}
+                     </div>
+                  </div>
+
+                  {listGroups.length === 0 ? (
+                     <div className="text-center py-16 text-slate-400 font-bold text-sm">
+                        {language === 'ar' ? 'مفيش مواعيد في اليوم ده.' : 'No appointments on this day.'}
+                     </div>
+                  ) : (
+                     <div className="space-y-6 pb-24">
+                        {listGroups.map(group => (
+                           <div key={group.key}>
+                              {listGroupBy !== 'time' && (
+                                 <h3 className="flex items-center gap-2 text-sm font-black text-slate-700 mb-2 px-1">
+                                    {listGroupBy === 'doctor' ? <Stethoscope size={14} className="text-teal-600" /> : <BriefcaseMedical size={14} className="text-indigo-500" />}
+                                    {group.label}
+                                    <span className="text-[10px] font-bold text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{group.appts.length}</span>
+                                 </h3>
+                              )}
+                              <div className="space-y-2">
+                                 {group.appts.map(appt => {
+                                    const styles = getAppointmentStatusStyles(appt.status);
+                                    return (
+                                       <button
+                                          key={appt.id}
+                                          onClick={() => setSelectedAppt(appt)}
+                                          className={`w-full text-start rounded-2xl border border-slate-100 bg-white shadow-sm hover:shadow-md transition-all p-3 flex items-center gap-3 ${selectedAppt?.id === appt.id ? 'ring-2 ring-primary-500' : ''} ${isAppointmentLate(appt) ? 'ring-2 ring-rose-500 animate-pulse' : ''}`}
+                                       >
+                                          <div className="flex flex-col items-center justify-center bg-slate-50 rounded-xl px-2.5 py-2 shrink-0 min-w-[64px]">
+                                             <span className="text-xs font-black text-slate-800 whitespace-nowrap" dir="ltr">
+                                                {language === 'ar' ? appt.time?.replace('AM', 'ص').replace('PM', 'م') : appt.time}
+                                             </span>
+                                             <span className="text-[9px] font-bold text-slate-400">{appt.duration || 30}m</span>
+                                          </div>
+                                          <div className="flex-1 min-w-0">
+                                             <div className="flex items-center gap-1.5 min-w-0">
+                                                {(appt.source === 'online' || appt.source === 'Online Booking Request' || appt.source === 'Online Booking') && (
+                                                   <Globe className="w-3 h-3 text-indigo-500 shrink-0" />
+                                                )}
+                                                <span className="font-extrabold text-sm text-slate-900 truncate">{appt.patientName}</span>
+                                             </div>
+                                             <p className="text-xs text-slate-500 font-bold truncate mt-0.5">
+                                                {appt.treatment || 'Consultation'} <span className="text-slate-300 mx-0.5">•</span> Dr. {appt.doctor?.split(' ')[1] || appt.doctor}
+                                             </p>
+                                             {(appt.roomName || appt.branchName) && (
+                                                <p className="text-[10px] text-teal-700 font-bold truncate mt-0.5 flex items-center gap-1">
+                                                   <DoorOpen size={10} className="shrink-0" />
+                                                   {[branches.length > 1 || !appt.roomName ? appt.branchName : null, appt.roomName].filter(Boolean).join(' · ')}
+                                                </p>
+                                             )}
+                                          </div>
+                                          <span className={`text-[10px] px-2 py-1 rounded-full whitespace-nowrap shrink-0 ${styles.pill}`}>
+                                             {getAppointmentStageLabel(appt.status, language === 'ar' ? 'ar' : 'en')}
+                                          </span>
+                                       </button>
+                                    );
+                                 })}
+                              </div>
+                           </div>
+                        ))}
+                     </div>
+                  )}
+               </div>
+             ) : (
              <div className="flex-1 overflow-x-auto overflow-y-auto custom-scrollbar bg-white flex flex-col relative">
-                <div className={`${viewMode === 'week' ? '' : 'min-w-full'} lg:min-w-0 flex-1 flex flex-col relative`} style={viewMode === 'week' ? { minWidth: `${weekDays.length * 308 + 64}px` } : undefined}>
-                  {/* Day Headers */}
+                <div className={`${viewMode === 'week' ? '' : 'min-w-full'} lg:min-w-0 flex-1 flex flex-col relative`} style={viewMode === 'week' || (viewMode === 'doctor' && gridColumns.length > 2) ? { minWidth: `${gridColumns.length * (viewMode === 'doctor' ? 260 : 308) + 64}px` } : undefined}>
+                  {/* Column Headers: days of the week, or one day's dentists */}
                   <div className="flex shrink-0 sticky top-0 bg-white z-30 border-b border-slate-50">
                      <div className="w-12 md:w-16 shrink-0 sticky start-0 bg-white z-40 border-b border-slate-50"></div>
                      <div className="flex flex-1">
-                        {weekDays.map(dayObj => (
-                            <div key={dayObj.dateStr} 
-                                 onClick={() => { if(canAddAppointment) handleOpenBooking(dayObj.dateStr) }}
-                                 className={`flex-1 text-center py-2 backdrop-blur-md transition-colors border-e border-transparent ${canAddAppointment ? 'cursor-pointer' : 'cursor-default'} ${dayObj.isOffDay ? 'bg-red-50/80 hover:bg-red-100 hover:border-red-200' : 'bg-white/90 hover:bg-slate-50 hover:border-slate-100'}`}>
-                               <span className={`font-bold text-xs uppercase tracking-wider ${dayObj.isOffDay ? 'text-red-400' : 'text-slate-400'}`}>{dayObj.name}</span>
-                               <h3 className={`text-xl font-black mt-0.5 ${dayObj.isOffDay ? 'text-red-600' : 'text-slate-800'}`}>{dayObj.dateNum}</h3>
+                        {gridColumns.map(colObj => (
+                            <div key={colObj.key}
+                                 onClick={() => { if(canAddAppointment) handleOpenBooking(colObj.dateStr, undefined, colObj.doctorName && colObj.doctorName !== "__unassigned__" ? colObj.doctorName : undefined) }}
+                                 className={`flex-1 text-center py-2 backdrop-blur-md transition-colors border-e border-transparent min-w-0 ${canAddAppointment ? 'cursor-pointer' : 'cursor-default'} ${colObj.isOffDay ? 'bg-red-50/80 hover:bg-red-100 hover:border-red-200' : 'bg-white/90 hover:bg-slate-50 hover:border-slate-100'}`}>
+                               {colObj.doctorName ? (
+                                  <>
+                                     <span className={`font-bold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1 ${colObj.isOffDay ? 'text-red-400' : 'text-slate-400'}`}>
+                                        <Stethoscope size={11} /> {language === 'ar' ? 'دكتور' : 'Dentist'}
+                                     </span>
+                                     <h3 className={`text-sm sm:text-base font-black mt-0.5 truncate px-1 ${colObj.isOffDay ? 'text-red-600' : 'text-slate-800'}`}>{colObj.label}</h3>
+                                  </>
+                               ) : (
+                                  <>
+                                     <span className={`font-bold text-xs uppercase tracking-wider ${colObj.isOffDay ? 'text-red-400' : 'text-slate-400'}`}>{colObj.label}</span>
+                                     <h3 className={`text-xl font-black mt-0.5 ${colObj.isOffDay ? 'text-red-600' : 'text-slate-800'}`}>{colObj.sublabel}</h3>
+                                  </>
+                               )}
                             </div>
                         ))}
                      </div>
@@ -1022,22 +1339,23 @@ export default function AppointmentsPage() {
                      
                      {/* Vertical grid lines & clickable background slots */}
                      <div className="absolute inset-0 ms-12 md:ms-16 flex z-0">
-                        {weekDays.map((dayObj, colIndex) => (
-                           <div key={colIndex} className={`flex-1 flex flex-col border-e border-slate-200/80 relative group ${dayObj.isOffDay ? 'bg-red-50/30' : ''}`}>
+                        {gridColumns.map((colObj) => (
+                           <div key={colObj.key} className={`flex-1 flex flex-col border-e border-slate-200/80 relative group min-w-0 ${colObj.isOffDay ? 'bg-red-50/30' : ''}`}>
                               {timeSlots.map((slot) => {
-                                 const isDraggedOver = activeDragTarget?.date === dayObj.dateStr && activeDragTarget?.time === slot.timeLabel;
+                                 const isDraggedOver = activeDragTarget?.colKey === colObj.key && activeDragTarget?.time === slot.timeLabel;
+                                 const colDoctor = colObj.doctorName && colObj.doctorName !== "__unassigned__" ? colObj.doctorName : undefined;
                                  return (
-                                    <div 
-                                       key={`${slot.h}-${slot.m}`} 
+                                    <div
+                                       key={`${slot.h}-${slot.m}`}
                                        style={{ height: `${SLOT_HEIGHT}px` }}
-                                       className={`w-full transition-all ${isDraggedOver ? 'bg-teal-50 border-2 border-dashed border-teal-400 scale-[0.97] rounded-2xl shadow-inner z-10' : (dayObj.isOffDay ? 'hover:bg-red-100/50 cursor-pointer border-b border-transparent hover:border-red-200' : 'hover:bg-[#E8F7F0]/30 cursor-pointer border-b border-transparent hover:border-primary-100')}`}
-                                       onClick={() => { if (canAddAppointment) handleOpenBooking(dayObj.dateStr, slot.timeLabel) }}
+                                       className={`w-full transition-all ${isDraggedOver ? 'bg-teal-50 border-2 border-dashed border-teal-400 scale-[0.97] rounded-2xl shadow-inner z-10' : (colObj.isOffDay ? 'hover:bg-red-100/50 cursor-pointer border-b border-transparent hover:border-red-200' : 'hover:bg-[#E8F7F0]/30 cursor-pointer border-b border-transparent hover:border-primary-100')}`}
+                                       onClick={() => { if (canAddAppointment) handleOpenBooking(colObj.dateStr, slot.timeLabel, colDoctor) }}
                                        onDragOver={(e) => e.preventDefault()}
-                                       onDragEnter={() => setActiveDragTarget({ date: dayObj.dateStr, time: slot.timeLabel })}
+                                       onDragEnter={() => setActiveDragTarget({ colKey: colObj.key, time: slot.timeLabel })}
                                        onDragLeave={() => setActiveDragTarget(null)}
                                        onDrop={(e) => {
                                          setActiveDragTarget(null);
-                                         handleDrop(e, dayObj.dateStr, slot.timeLabel);
+                                         handleDrop(e, colObj.dateStr, slot.timeLabel, colDoctor);
                                        }}
                                     />
                                  )
@@ -1053,6 +1371,7 @@ export default function AppointmentsPage() {
                   </div>
                 </div>
              </div>
+             )}
          </div>
 
          {isBookingModalOpen && typeof window !== 'undefined' && window.innerWidth < 1024 && (

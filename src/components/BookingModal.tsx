@@ -35,6 +35,7 @@ import { useAuth } from "@/context/AuthContext";
 import Protect from "@/components/Protect";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { clinicDayBoundsMinutes, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
+import { LOCATIONS_DOC, parseClinicBranches, type ClinicBranch } from "@/lib/clinicLocations";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
 import { parseApptTimeToMinutes } from "@/lib/bookingService";
 import PatientPicker from "./appointments/booking/PatientPicker";
@@ -57,6 +58,10 @@ interface AppointmentData {
   date: string;
   time: string;
   duration: number;
+  branchId?: string | null;
+  branchName?: string | null;
+  roomId?: string | null;
+  roomName?: string | null;
   type: string;
   notes: string;
   /** Final amount after discount (ledger / balance) */
@@ -89,6 +94,8 @@ export type BookingEditSnapshot = {
   date?: string;
   time?: string;
   duration?: number;
+  branchId?: string | null;
+  roomId?: string | null;
   clinicalNoteId?: string | null;
   cost?: number;
   listPrice?: number | null;
@@ -190,6 +197,9 @@ export default function BookingModal({
   }, [isOpen, onClose]);
 
   const [doctor, setDoctor] = useState(preSelectedDoctor || (doctors.length > 0 ? doctors[0].name : ""));
+  const [branches, setBranches] = useState<ClinicBranch[]>([]);
+  const [branchId, setBranchId] = useState("");
+  const [roomId, setRoomId] = useState("");
   const [date, setDate] = useState(preSelectedDate || getLocalDate());
   const [time, setTime] = useState(preSelectedTime || "");
   const [duration, setDuration] = useState(sched.slotDuration);
@@ -234,6 +244,9 @@ export default function BookingModal({
       if (snap.exists() && Array.isArray(snap.data().reasons) && snap.data().reasons.length > 0) {
         setVisitReasonsOptions(snap.data().reasons);
       }
+    });
+    getDoc(getClinicDoc("settings", LOCATIONS_DOC)).then((snap) => {
+      setBranches(parseClinicBranches(snap.exists() ? snap.data() : null));
     });
   }, []);
   
@@ -303,6 +316,16 @@ export default function BookingModal({
         language === "ar"
           ? "يا سلام، اليوم ده العيادة قفلة حسب إعداداتك — عايز تكمّل الحجز برضه؟"
           : "This day is closed according to your clinic settings. Do you still want to book anyway?",
+      branch: language === "ar" ? "الفرع" : "Branch",
+      room: language === "ar" ? "الغرفة" : "Room",
+      anyRoom: language === "ar" ? "أي غرفة" : "Any room",
+      noRooms: language === "ar" ? "مفيش غرف للفرع ده" : "No rooms in this branch",
+      pickBranchFirst: language === "ar" ? "اختار الفرع الأول" : "Pick a branch first",
+      confirmRoomTakenTitle: language === "ar" ? "الغرفة مشغولة" : "Room occupied",
+      confirmRoomTakenBody:
+        language === "ar"
+          ? "الغرفة دي عليها موعد تاني في نفس الوقت — عايز تكمّل الحجز برضه؟"
+          : "This room already has another appointment at that time. Do you want to proceed anyway?",
       confirmSlotTakenTitle: language === "ar" ? "الميعاد متاخد" : "Slot already taken",
       confirmSlotTakenBody:
         language === "ar"
@@ -416,6 +439,8 @@ export default function BookingModal({
         name: editAppointment.patientName || "",
       });
       setDoctor(editAppointment.doctor || (doctors.length > 0 ? doctors[0].name : ""));
+      setBranchId(editAppointment.branchId || "");
+      setRoomId(editAppointment.roomId || "");
       setDate(editAppointment.date || getLocalDate());
       setTime(editAppointment.time || "");
       setDuration(editAppointment.duration || sched.slotDuration);
@@ -440,8 +465,18 @@ export default function BookingModal({
       setTreatment("");
       setVisitNotes("");
       setAppointmentStatus("Scheduled");
+      setBranchId("");
+      setRoomId("");
     }
   }, [isOpen, editAppointment, doctors, sched.slotDuration, preSelectedDoctor, preSelectedPatient, preSelectedDate, preSelectedTime]);
+
+  // A clinic with exactly one branch shouldn't have to pick it on every booking.
+  useEffect(() => {
+    if (isOpen && !branchId && branches.length === 1) setBranchId(branches[0].id);
+  }, [isOpen, branchId, branches]);
+
+  const selectedBranch = branches.find((b) => b.id === branchId) || null;
+  const selectedRoom = selectedBranch?.rooms.find((r) => r.id === roomId) || null;
 
 
 
@@ -510,6 +545,33 @@ export default function BookingModal({
     });
   };
 
+  /** Does another (non-cancelled) appointment already hold this room at an overlapping time? */
+  const checkRoomConflict = async (
+    checkDate: string,
+    checkTime: string,
+    checkDuration: number,
+    checkRoomId: string,
+    excludeAppointmentId?: string
+  ) => {
+    const q = query(
+      getClinicCollection("appointments"),
+      where("date", "==", checkDate),
+      where("roomId", "==", checkRoomId)
+    );
+    const snapshot = await getDocs(q);
+    const targetStart = parseApptTimeToMinutes(checkTime);
+    const targetEnd = targetStart + checkDuration;
+
+    return snapshot.docs.some((d) => {
+      if (excludeAppointmentId && d.id === excludeAppointmentId) return false;
+      const status = String(d.data().status || "").toLowerCase();
+      if (status === "cancelled" || status === "canceled") return false;
+      const existingStart = parseApptTimeToMinutes(d.data().time);
+      const existingEnd = existingStart + (d.data().duration || 30);
+      return targetStart < existingEnd && targetEnd > existingStart;
+    });
+  };
+
   const handleSubmit = async () => {
     if (isChecking) return;
     setIsChecking(true);
@@ -550,6 +612,21 @@ export default function BookingModal({
         }
       }
 
+      if (roomId) {
+        const roomBusy = await checkRoomConflict(date, time, Number(duration), roomId, editAppointment?.id);
+        if (roomBusy) {
+          const proceedRoom = await confirm(txt.confirmRoomTakenBody, {
+            title: txt.confirmRoomTakenTitle,
+            confirmLabel: txt.yesProceed,
+            cancelLabel: txt.noCancel,
+          });
+          if (!proceedRoom) {
+            setIsChecking(false);
+            return;
+          }
+        }
+      }
+
       await onSave({
         patientId: isNewPatient ? "NEW_PATIENT" : String(selectedPatient?.id),
         patientName: isNewPatient ? newPatientName.trim() : (selectedPatient?.name || ""),
@@ -567,6 +644,10 @@ export default function BookingModal({
         date,
         time,
         duration,
+        branchId: branchId || "",
+        branchName: selectedBranch?.name || "",
+        roomId: roomId || "",
+        roomName: selectedRoom?.name || "",
         type: "consult",
         notes: visitNotes.trim(),
         cost: editAppointment ? (editAppointment.cost || 0) : 0,
@@ -945,6 +1026,14 @@ export default function BookingModal({
             doctor={doctor}
             setDoctor={setDoctor}
             doctors={doctors}
+            branches={branches}
+            branchId={branchId}
+            setBranchId={(id: string) => {
+              setBranchId(id);
+              setRoomId("");
+            }}
+            roomId={roomId}
+            setRoomId={setRoomId}
             duration={duration}
             setDuration={setDuration}
             durationOptions={durationOptions}

@@ -43,6 +43,11 @@ export interface BookingSavePayload {
   date: string;
   time: string;
   duration: number;
+  /** Branch/room the visit happens in. Ids are the stable keys; names are display copies. */
+  branchId?: string | null;
+  branchName?: string | null;
+  roomId?: string | null;
+  roomName?: string | null;
   type?: string;
   notes?: string;
   cost: number;
@@ -152,6 +157,12 @@ export async function saveBooking(
       date: normalizedDate || data.date,
       time: normalizedTime || data.time,
       duration: Number(data.duration) || 30,
+      // undefined = caller didn't touch location (status-only edits) → keep what was there.
+      // "" or null = caller cleared the picker → store null.
+      branchId: data.branchId !== undefined ? data.branchId || null : (prev.branchId as string | undefined) ?? null,
+      branchName: data.branchName !== undefined ? data.branchName || null : (prev.branchName as string | undefined) ?? null,
+      roomId: data.roomId !== undefined ? data.roomId || null : (prev.roomId as string | undefined) ?? null,
+      roomName: data.roomName !== undefined ? data.roomName || null : (prev.roomName as string | undefined) ?? null,
       type: data.type || "consult",
       notes: data.notes || "",
       cost: normalizedCost,
@@ -285,6 +296,10 @@ export async function saveBooking(
     date: normalizedDate || data.date,
     time: normalizedTime || data.time,
     duration: Number(data.duration) || 30,
+    branchId: data.branchId || null,
+    branchName: data.branchName || null,
+    roomId: data.roomId || null,
+    roomName: data.roomName || null,
     type: data.type || "consult",
     notes: data.notes || "",
     cost: normalizedCost,

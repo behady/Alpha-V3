@@ -33,6 +33,7 @@ import SmsSettings from "@/components/settings/SmsSettings";
 import PatientSourcesSettings from "@/components/settings/PatientSourcesSettings";
 import VisitReasonsSettings from "@/components/settings/VisitReasonsSettings";
 import OnlineBookingSettings from "@/components/settings/OnlineBookingSettings";
+import LocationsSettings from "@/components/settings/LocationsSettings";
 import { logActivity } from "@/lib/logger";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";export default function SettingsPage() {
   const { language, isRTL } = useLanguage();
@@ -63,6 +64,7 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";export defau
     { id: "general", label: language === 'ar' ? "الملف الشخصي" : "Profile", icon: User },
     { id: "attendance", label: language === 'ar' ? "الحضور" : "Attendance", icon: MapPin, adminOnly: true },
     { id: "clinical", label: language === 'ar' ? "الجدول" : "Schedule", icon: Clock },
+    { id: "locations", label: language === 'ar' ? "الفروع والغرف" : "Branches & Rooms", icon: Building2, adminOnly: true },
     { id: "recall", label: language === 'ar' ? "المتابعة" : "Recall", icon: Clock, adminOnly: true },
     { id: "prescriptions", label: language === 'ar' ? "الوصفات" : "Prescriptions", icon: Pill },
     { id: "services", label: language === 'ar' ? "الأسعار" : "Prices", icon: Stethoscope },
@@ -388,6 +390,7 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";export defau
             {activeTab === 'appearance' && <AppearanceSettings />}
             {activeTab === 'interface' && <InterfaceSettings />}
             {activeTab === 'online_booking' && <OnlineBookingSettings />}
+            {activeTab === 'locations' && isAdmin && <LocationsSettings />}
             {activeTab === 'sources' && isAdmin && <PatientSourcesSettings />}
             {activeTab === 'visit_reasons' && <VisitReasonsSettings />}
         </div>

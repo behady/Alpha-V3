@@ -29,6 +29,8 @@ export async function GET(request: Request) {
         defaultDurationMinutes: profile.defaultDurationMinutes,
         reasons: profile.reasons,
         doctors: profile.doctors,
+        // Branch names and addresses only — a patient picking where to be seen needs no more.
+        branches: profile.branches.map((b) => ({ id: b.id, name: b.name, address: b.address || "" })),
         // Only what the date picker needs. Never the raw settings document.
         offDays: profile.schedule.offDays,
         scheduleConfigured: profile.schedule.isConfigured,

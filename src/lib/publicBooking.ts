@@ -16,6 +16,7 @@
  */
 
 import { adminDb } from "@/lib/firebaseAdmin";
+import { parseClinicBranches, type ClinicBranch } from "@/lib/clinicLocations";
 import { clinicDayBoundsMinutes, parseClinicSchedule, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
 import { minutesToTimeKey, normalizeDateKey, parseApptTimeToMinutes } from "@/lib/appointmentTime";
@@ -32,6 +33,8 @@ export type PublicClinicProfile = {
   reasons: string[];
   doctors: string[];
   schedule: ClinicScheduleConfig;
+  /** Configured branches. Empty for single-location clinics — the page then never mentions branches. */
+  branches: ClinicBranch[];
 };
 
 export class PublicBookingError extends Error {
@@ -89,6 +92,9 @@ export async function loadPublicClinicProfile(clinicId: string): Promise<PublicC
     defaultDurationMinutes = schedule.slotDuration;
   }
 
+  const locationsSnap = await ref.collection("settings").doc("locations").get();
+  const branches = parseClinicBranches(locationsSnap.exists ? locationsSnap.data() : null);
+
   return {
     clinicName: String(info.name || "").trim() || "عيادة أسنان",
     enableDoctorSelection: booking.enableDoctorSelection === true,
@@ -96,6 +102,7 @@ export async function loadPublicClinicProfile(clinicId: string): Promise<PublicC
     reasons,
     doctors,
     schedule,
+    branches,
   };
 }
 
@@ -122,9 +129,10 @@ export async function computeAvailableSlots(args: {
   clinicId: string;
   dateKey: string;
   doctorName?: string | null;
+  branchId?: string | null;
   profile: PublicClinicProfile;
 }): Promise<string[]> {
-  const { clinicId, dateKey, doctorName, profile } = args;
+  const { clinicId, dateKey, doctorName, branchId, profile } = args;
   const schedule = profile.schedule;
 
   if (isClinicClosedOn(dateKey, schedule)) return [];
@@ -132,11 +140,19 @@ export async function computeAvailableSlots(args: {
   const snap = await clinicRef(clinicId).collection("appointments").where("date", "==", dateKey).get();
 
   const wanted = String(doctorName || "").trim().toLowerCase();
+  const wantedBranch = String(branchId || "").trim();
   const busy: Array<{ start: number; end: number }> = [];
 
   for (const doc of snap.docs) {
     const a = doc.data() || {};
     if (RELEASED_STATUSES.has(normalizeAppointmentStatus(String(a.status || "")))) continue;
+
+    // Branch chosen: another branch's bookings don't block this one. Appointments recorded
+    // before branches existed carry no branchId and block everywhere — the safe direction.
+    if (wantedBranch) {
+      const apptBranch = String(a.branchId || "").trim();
+      if (apptBranch && apptBranch !== wantedBranch) continue;
+    }
 
     // With no dentist chosen, any booking blocks the slot — one chair is the assumption for the
     // clinics this is built for. With a dentist chosen, only that dentist's own bookings matter.

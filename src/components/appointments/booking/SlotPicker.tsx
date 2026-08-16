@@ -1,7 +1,8 @@
 "use client";
 
-import { Calendar, Clock, Stethoscope, Hourglass } from "lucide-react";
+import { Calendar, Clock, Stethoscope, Hourglass, Building2, DoorOpen } from "lucide-react";
 import AppointmentStagePicker from "@/components/appointments/AppointmentStagePicker";
+import type { ClinicBranch } from "@/lib/clinicLocations";
 
 interface Props {
   language: string;
@@ -15,6 +16,11 @@ interface Props {
   doctor: string;
   setDoctor: (v: string) => void;
   doctors: { id: string; name: string }[];
+  branches?: ClinicBranch[];
+  branchId?: string;
+  setBranchId?: (v: string) => void;
+  roomId?: string;
+  setRoomId?: (v: string) => void;
   duration: number;
   setDuration: (v: number) => void;
   durationOptions: { label: string; value: number }[];
@@ -37,6 +43,11 @@ export default function SlotPicker({
   doctor,
   setDoctor,
   doctors,
+  branches = [],
+  branchId = "",
+  setBranchId,
+  roomId = "",
+  setRoomId,
   duration,
   setDuration,
   durationOptions,
@@ -46,6 +57,9 @@ export default function SlotPicker({
   setVisitNotes,
   getLocalDate,
 }: Props) {
+  const selectedBranch = branches.find((b) => b.id === branchId) || null;
+  const branchRooms = selectedBranch?.rooms ?? [];
+
   return (
     <>
       <div className="grid grid-cols-2 gap-3">
@@ -115,6 +129,54 @@ export default function SlotPicker({
           </select>
         </div>
       </div>
+
+      {branches.length > 0 && (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="mb-1 flex items-center gap-1 text-[10px] font-black uppercase text-slate-400">
+              <Building2 size={11} /> {txt.branch}
+            </label>
+            <select
+              value={branchId}
+              onChange={(e) => setBranchId?.(e.target.value)}
+              className="w-full rounded-xl border-2 border-slate-100 bg-white px-3 py-2.5 text-xs font-bold text-slate-900 outline-none focus:border-primary-500"
+            >
+              {/* With several branches, an unpicked branch is a real state — say so instead of
+                  silently displaying the first option while the value is empty. */}
+              {branches.length > 1 && <option value="">{txt.pickBranchFirst}</option>}
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 flex items-center gap-1 text-[10px] font-black uppercase text-slate-400">
+              <DoorOpen size={11} /> {txt.room}
+            </label>
+            <select
+              value={roomId}
+              onChange={(e) => setRoomId?.(e.target.value)}
+              disabled={!selectedBranch || branchRooms.length === 0}
+              className="w-full rounded-xl border-2 border-slate-100 bg-white px-3 py-2.5 text-xs font-bold text-slate-900 outline-none focus:border-primary-500 disabled:bg-slate-50 disabled:text-slate-400"
+            >
+              <option value="">
+                {!selectedBranch
+                  ? txt.pickBranchFirst
+                  : branchRooms.length === 0
+                    ? txt.noRooms
+                    : txt.anyRoom}
+              </option>
+              {branchRooms.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3">
         <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-400">

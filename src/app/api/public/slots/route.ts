@@ -24,6 +24,7 @@ export async function GET(request: Request) {
   const clinicId = params.get("clinicId")?.trim();
   const rawDate = params.get("date")?.trim();
   const doctor = params.get("doctor")?.trim() || null;
+  const branchId = params.get("branch")?.trim() || null;
 
   if (!clinicId || !rawDate) {
     return NextResponse.json({ ok: false, error: "Missing clinicId or date" }, { status: 400 });
@@ -46,7 +47,10 @@ export async function GET(request: Request) {
     if (isClinicClosedOn(dateKey, profile.schedule)) {
       return NextResponse.json({ ok: true, slots: [], closed: true });
     }
-    const slots = await computeAvailableSlots({ clinicId, dateKey, doctorName: doctor, profile });
+    if (branchId && !profile.branches.some((b) => b.id === branchId)) {
+      return NextResponse.json({ ok: false, error: "Unknown branch" }, { status: 400 });
+    }
+    const slots = await computeAvailableSlots({ clinicId, dateKey, doctorName: doctor, branchId, profile });
     return NextResponse.json({ ok: true, slots, closed: false });
   } catch (e) {
     if (e instanceof PublicBookingError) {
