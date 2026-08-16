@@ -14,6 +14,7 @@ import { isSmsBlocked, isWhatsAppBlocked, type PatientContactPreferences } from 
 import { channelIncludesSms, channelIncludesWhatsApp } from "@/lib/sms/config";
 import { loadSmsSettings } from "@/lib/sms/serverConfig";
 import { queuePatientSms } from "@/lib/sms/events";
+import { sendClinicPush } from "@/lib/push";
 
 /**
  * The nightly run walks every active clinic and sends one message per patient booked tomorrow, so
@@ -391,6 +392,22 @@ async function runUpcoming24h(authz: { cron: boolean; uid?: string }) {
   }
 
   const clinics = await forEachActiveClinic((clinicId) => runUpcoming24hForClinic(clinicId));
+
+  // One summary push per clinic, not one per message: the sweep can queue twenty reminders at
+  // once, and twenty pings teach a phone's owner to mute the app by Wednesday. Fire-and-forget —
+  // a failed courtesy must not fail the sweep.
+  for (const clinic of clinics) {
+    const queuedHere = (clinic.result?.results ?? []).filter(
+      (r: { whatsapp?: { status?: string } | null }) => r.whatsapp?.status === "queued"
+    ).length;
+    if (queuedHere > 0) {
+      void sendClinicPush(clinic.clinicId, {
+        title: "رسائل واتساب في الانتظار",
+        body: `${queuedHere} رسالة جاهزة للإرسال من التطبيق — ${queuedHere} WhatsApp message(s) waiting in the app.`,
+      });
+    }
+  }
+
   const results = clinics.flatMap((c) => c.result?.results ?? []);
   const first = clinics.find((c) => c.result)?.result;
   return {

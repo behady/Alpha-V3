@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { sendClinicPush } from "@/lib/push";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { FieldValue } from "firebase-admin/firestore";
 import {
@@ -49,6 +50,13 @@ export async function POST(request: Request) {
   const rawDate = String(body.date || "").trim();
   const rawTime = String(body.time || "").trim();
   const doctor = String(body.doctor || "").trim();
+  const requestedBranchId = String(body.branchId || "").trim();
+  // Channel tag from a tagged booking link (?src=meta). Free text from the URL, so it is length-
+  // capped and stripped to plain characters before it becomes a report grouping key.
+  const sourceTag = String(body.src || "")
+    .trim()
+    .slice(0, 40)
+    .replace(/[^\p{L}\p{N} _\-.]/gu, "");
   const patientName = String(body.patientName || "").replace(/\s+/g, " ").trim();
   const rawPhone = String(body.patientPhone || "").trim();
   const reason = String(body.reason || "").trim();
@@ -91,6 +99,16 @@ export async function POST(request: Request) {
       return bad("الدكتور المختار غير متاح.");
     }
 
+    // Which branch is this request for? One branch answers for itself; several require a choice
+    // the clinic actually offers — an unknown id suggests a hand-crafted request, not the form.
+    let branch = null;
+    if (profile.branches.length === 1) {
+      branch = profile.branches.find((b) => b.id === requestedBranchId) || profile.branches[0];
+    } else if (profile.branches.length > 1) {
+      branch = profile.branches.find((b) => b.id === requestedBranchId) || null;
+      if (!branch) return bad("من فضلك اختار الفرع.");
+    }
+
     const clinicRef = adminDb().collection("clinics").doc(clinicId);
     const appointmentsRef = clinicRef.collection("appointments");
 
@@ -119,7 +137,13 @@ export async function POST(request: Request) {
     // Recomputed here rather than trusted from the browser. This single check also enforces
     // opening hours, days off, and appointment length, so a request that skipped the form
     // cannot place a booking at 3am on a Friday.
-    const free = await computeAvailableSlots({ clinicId, dateKey, doctorName: doctor || null, profile });
+    const free = await computeAvailableSlots({
+      clinicId,
+      dateKey,
+      doctorName: doctor || null,
+      branchId: branch?.id || null,
+      profile,
+    });
     if (!free.includes(time)) {
       return NextResponse.json(
         { ok: false, error: "الميعاد ده اتحجز خلاص. اختار ميعاد تاني." },
@@ -140,7 +164,7 @@ export async function POST(request: Request) {
         lastVisit: null,
         notes: "Created via Online Booking",
         nextAppointment: dateKey,
-        source: "Online Booking",
+        source: sourceTag || "Online Booking",
       });
       patientId = created.id;
     } else {
@@ -157,6 +181,8 @@ export async function POST(request: Request) {
       // 24-hour strings, which no other screen was looking for.
       time,
       duration: profile.defaultDurationMinutes,
+      branchId: branch?.id || null,
+      branchName: branch?.name || null,
       doctor: doctor || "Any",
       treatment: reason || "Consultation",
       // "Pending" is not one of the workflow stages, so these requests were invisible to every
@@ -164,8 +190,17 @@ export async function POST(request: Request) {
       // request is; source:"online" below keeps the distinction.
       status: "Scheduled",
       source: "online",
+      sourceTag: sourceTag || null,
       notes: "Online Booking Request",
       createdAt: FieldValue.serverTimestamp(),
+    });
+
+    // An online booking arrives when nobody is looking at a screen — that is the whole point of
+    // online booking — so the phones are told. Fire-and-forget: the patient's booking must never
+    // fail because a notification could not be delivered.
+    void sendClinicPush(clinicId, {
+      title: "حجز جديد أونلاين",
+      body: `${patientName} — ${dateKey} ${time} · New online booking`,
     });
 
     return NextResponse.json({ ok: true, success: true, message: "Appointment requested successfully." });

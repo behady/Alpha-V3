@@ -11,6 +11,7 @@ import type { WhatsAppTemplateType } from "@/types/whatsapp";
 import { parseLedgerProcedureDescription } from "@/lib/ledgerProcedureParse";
 import { getClinicProfileAdmin } from "@/lib/clinicProfileServer";
 import { clinicDisplayName, queuePatientSms } from "@/lib/sms/events";
+import { sendClinicPush } from "@/lib/push";
 import type { SmsEventType } from "@/lib/sms/config";
 
 type Kind = "invoice" | "treatment" | "receipt" | "appointment";
@@ -379,6 +380,10 @@ export async function POST(request: Request) {
           return NextResponse.json({ ok: true, manual: true, phone: delivery.phone, text: delivery.text });
         }
         if (delivery.mode === "queued") {
+          void sendClinicPush(clinicId, {
+            title: "رسالة واتساب في الانتظار",
+            body: "رسالة جاهزة للإرسال من التطبيق — a WhatsApp message is waiting in the app.",
+          });
           return NextResponse.json({ ok: true, queued: true });
         }
         return NextResponse.json({ ok: true });
@@ -634,6 +639,10 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: true, manual: true, phone: delivery.phone, text: delivery.text });
       }
       if (delivery.mode === "queued") {
+        void sendClinicPush(clinicId, {
+          title: "رسالة واتساب في الانتظار",
+          body: "رسالة جاهزة للإرسال من التطبيق — a WhatsApp message is waiting in the app.",
+        });
         return NextResponse.json({ ok: true, queued: true });
       }
       return NextResponse.json({ ok: true });
