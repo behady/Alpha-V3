@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   Plus, Phone, MessageCircle, Search, ChevronDown, X, Loader2,
@@ -49,6 +50,7 @@ export default function LeadsPage() {
   const [searchText, setSearchText] = useState("");
 
   const [showAdd, setShowAdd] = useState(false);
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [saving, setSaving] = useState(false);
   const [convertingId, setConvertingId] = useState("");
@@ -59,6 +61,10 @@ export default function LeadsPage() {
     source: "", branchId: "", followUpDate: "", notes: "",
   };
   const [form, setForm] = useState(emptyForm);
+
+  useEffect(() => {
+    setPortalTarget(document.body);
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -490,8 +496,10 @@ export default function LeadsPage() {
           </div>
         )}
 
-        {/* Quick-add / edit sheet */}
-        {showAdd && (
+        {/* Quick-add / edit sheet — portalled to <body> like BookingModal: the layout's
+            content wrapper is its own stacking context, so a fixed overlay rendered inside
+            it would paint under the mobile bottom nav. */}
+        {showAdd && portalTarget && createPortal(
           <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center bg-slate-900/55 backdrop-blur-sm p-0 sm:p-4">
             <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl max-h-[92vh] overflow-y-auto">
               <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white">
@@ -595,7 +603,8 @@ export default function LeadsPage() {
                 </button>
               </div>
             </div>
-          </div>
+          </div>,
+          portalTarget
         )}
       </div>
     </PermissionGuard>
