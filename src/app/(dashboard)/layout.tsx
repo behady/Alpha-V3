@@ -4,11 +4,11 @@ import { useState, useEffect, useCallback } from "react";
 import { Plus_Jakarta_Sans, Cairo } from "next/font/google";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { 
-  LayoutDashboard, Users, Calendar, Wallet, Settings, Sparkles, 
-  FileBarChart, Menu, X, LogOut, Loader2, Languages, 
-  Package, ChevronLeft, ChevronRight, Clock, FlaskConical, MessageCircle, ShieldCheck, UserPlus, CalendarClock, UserCheck,
-  BadgeDollarSign
+import {
+  LayoutDashboard, Users, Calendar, Wallet, Settings, Sparkles,
+  FileBarChart, Menu, X, LogOut, Loader2, Languages,
+  Package, ChevronLeft, ChevronRight, Clock, FlaskConical, MessageCircle, ShieldCheck, UserCheck,
+  LifeBuoy, Inbox
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { auth } from "@/lib/firebase";
@@ -85,17 +85,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     router.push('/superadmin');
   };
 
+  /**
+   * Collect Dues (/finance/recovery), Recovery (/ai/revenue), Reactivation (/ai/reactivation)
+   * and Recalls (/ai/operations) were deliberately dropped from this list — the rail had grown
+   * past what anyone could scan. Their pages still exist at those URLs, but nothing links to
+   * them anymore; delete the routes outright once they are confirmed unmissed.
+   */
   const allNavItems = [
     { key: "dashboard", href: "/", icon: LayoutDashboard },
     { key: "briefing", href: "/ai/briefing", icon: Sparkles },
+    { key: "leads", href: "/leads", icon: Inbox },
     { key: "patients", href: "/patients", icon: Users },
     { key: "appointments", href: "/appointments", icon: Calendar },
     { key: "inventory", href: "/inventory", icon: Package },
     { key: "finance", href: "/finance", icon: Wallet },
-    { key: "paymentRecovery", href: "/finance/recovery", icon: BadgeDollarSign },
-    { key: "revenueRecovery", href: "/ai/revenue", icon: Sparkles },
-    { key: "reactivation", href: "/ai/reactivation", icon: UserPlus },
-    { key: "operations", href: "/ai/operations", icon: CalendarClock },
     { key: "attendanceAi", href: "/ai/attendance", icon: UserCheck },
     { key: "reports", href: "/reports", icon: FileBarChart },
     { key: "attendance", href: "/attendance", icon: Clock },
@@ -111,24 +114,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (key === 'inventory' && !hasFeature(clinic, 'inventory')) return false;
     if (key === 'attendance' && !hasFeature(clinic, 'attendance')) return false;
 
-    // The debtors list is part of Finance, not a module anyone holds a permission for, so it
-    // follows whoever can already see the money — which is exactly what the page itself enforces
-    // with `access.finance`. Giving it its own nav key would hide it from every existing user.
-    if (key === 'paymentRecovery') return canAccessNavItem('finance', user, isAdmin);
-
-    // Premium-only, and admin-only: the report lists every outstanding balance in the clinic
-    // plus procedures charged below list price, which effectively audits the team's own billing.
-    if (key === 'revenueRecovery') {
-      if (!hasFeature(clinic, 'aiProactive')) return false;
-      return isAdmin;
-    }
-
-    // Same gating: the scan lists every lapsed patient in the clinic, and running it queues
-    // messages that go out in the clinic's name. Reviewing and sending an individual draft is
-    // staff-level — that happens on the page itself, not here.
-    if (key === 'reactivation') {
-      if (!hasFeature(clinic, 'aiProactive')) return false;
-      return isAdmin;
+    // Leads are worked by whoever answers the desk. Reception already holds patient access, so
+    // that grant carries over — no clinic has to edit permissions to start using the CRM.
+    if (key === 'leads') {
+      return canAccessNavItem('leads', user, isAdmin) || canAccessNavItem('patients', user, isAdmin);
     }
 
     return canAccessNavItem(key, user, isAdmin);
@@ -260,7 +249,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   </div>
                 </div>
              )}
-             
+
+             {/* Help is deliberately ungated: the people most likely to need it are the ones with
+                 the fewest permissions. */}
+             <div className={`group relative flex w-full justify-center px-3`}>
+                <Link href="/help" className={`w-[46px] h-[46px] rounded-full flex items-center justify-center transition-all duration-300 ${pathname.startsWith('/help') ? `bg-[#2D3748] text-white shadow-md` : 'bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 shadow-sm border border-slate-100'}`}>
+                    <LifeBuoy size={20} strokeWidth={pathname.startsWith('/help') ? 2.5 : 2}/>
+                </Link>
+                <div className={`absolute top-1/2 -translate-y-1/2 z-[200] bg-[#2D3748] text-white text-xs font-bold px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg whitespace-nowrap ${isRTL ? 'right-full mr-4' : 'left-full ml-4'}`}>
+                    {language === 'ar' ? 'مركز المساعدة' : 'Help Center'}
+                </div>
+             </div>
+
              <div className={`group relative flex w-full justify-center px-3`}>
                 <button onClick={toggleLanguage} className="w-[46px] h-[46px] rounded-full flex items-center justify-center transition-all duration-300 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 shadow-sm border border-slate-100">
                     <Languages size={20} strokeWidth={2}/>
@@ -333,6 +333,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       <span className="text-base">{t('settings' as any) || (language === 'ar' ? 'الإعدادات' : 'Settings')}</span>
                    </Link>
                  )}
+                 <Link href="/help" onClick={() => setIsOpen(false)} className={`flex items-center gap-4 px-5 py-3.5 rounded-2xl font-bold transition-all ${pathname.startsWith('/help') ? 'bg-[#0a0a0a] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}>
+                    <LifeBuoy size={22} />
+                    <span className="text-base">{language === 'ar' ? 'مركز المساعدة' : 'Help Center'}</span>
+                 </Link>
                  {user?.isSuperAdmin && (
                    <button onClick={() => { setIsOpen(false); handleReturnToSuperAdmin(); }} className="flex items-center w-full gap-4 px-5 py-3.5 rounded-xl font-bold text-emerald-600 hover:bg-emerald-50 transition-all mt-4 text-left rtl:text-right">
                       <ShieldCheck size={22} />

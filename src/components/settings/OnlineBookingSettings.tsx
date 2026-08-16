@@ -104,6 +104,26 @@ export default function OnlineBookingSettings() {
     showToast(language === 'ar' ? "تم نسخ الرابط" : "Link copied to clipboard", "success");
   };
 
+  /**
+   * Tagged variants of the booking link, one per channel. Whoever books through a tagged link is
+   * attributed to that channel automatically — the entire "which ad works" report rests on the
+   * clinic pasting the right link in the right place, so each channel gets its own copy button.
+   */
+  const [copiedTag, setCopiedTag] = useState("");
+  const taggedLinks = [
+    { tag: "meta", label: language === 'ar' ? 'إعلانات فيسبوك/إنستجرام' : 'Facebook / Instagram ads' },
+    { tag: "instagram", label: language === 'ar' ? 'البايو في إنستجرام' : 'Instagram bio' },
+    { tag: "google", label: language === 'ar' ? 'جوجل / الخرائط' : 'Google / Maps profile' },
+    { tag: "tiktok", label: language === 'ar' ? 'تيك توك' : 'TikTok' },
+    { tag: "whatsapp", label: language === 'ar' ? 'رسائل واتساب' : 'WhatsApp messages' },
+  ];
+  const handleCopyTagged = (tag: string) => {
+    navigator.clipboard.writeText(`${bookingUrl}?src=${tag}`);
+    setCopiedTag(tag);
+    setTimeout(() => setCopiedTag(""), 2000);
+    showToast(language === 'ar' ? "تم نسخ الرابط" : "Link copied to clipboard", "success");
+  };
+
   if (loading) return <div className="p-8 text-center text-slate-500 animate-pulse">Loading...</div>;
 
   return (
@@ -163,6 +183,36 @@ export default function OnlineBookingSettings() {
                   {copied ? <Check size={18} /> : <Copy size={18} />}
                   {language === 'ar' ? 'نسخ' : 'Copy'}
                 </button>
+              </div>
+            </div>
+
+            {/* Tagged links per channel — feeds the Leads source report automatically */}
+            <div className="space-y-2">
+              <label className="block text-sm font-bold text-slate-700">
+                {language === 'ar' ? 'روابط بعلامة المصدر (لتقرير المصادر)' : 'Tagged links (for the source report)'}
+              </label>
+              <p className="text-xs text-slate-500">
+                {language === 'ar'
+                  ? 'كل قناة ليها رابط خاص. اللي يحجز من الرابط ده بيتسجل مصدره تلقائياً — من غير ما حد يكتب حاجة.'
+                  : 'Each channel gets its own link. Anyone who books through it is attributed to that channel automatically — nobody types anything.'}
+              </p>
+              <div className="border border-slate-200 rounded-2xl divide-y divide-slate-100 overflow-hidden">
+                {taggedLinks.map(({ tag, label }) => (
+                  <div key={tag} className="flex items-center justify-between gap-2 px-4 py-2.5 bg-white">
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold text-slate-700">{label}</div>
+                      <div className="text-[11px] text-slate-400 font-medium truncate" dir="ltr">…/book/{clinicId.slice(0, 6)}…?src={tag}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyTagged(tag)}
+                      className="shrink-0 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors"
+                    >
+                      {copiedTag === tag ? <Check size={14} /> : <Copy size={14} />}
+                      {language === 'ar' ? 'نسخ' : 'Copy'}
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
 
