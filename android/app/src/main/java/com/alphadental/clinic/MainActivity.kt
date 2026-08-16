@@ -9,6 +9,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -619,10 +621,15 @@ private fun MoreScreen(
         }
     }
 
+    // Scrollable, which it was not. This screen held three rows when it was written and holds a
+    // dozen now — clock, assistant, reports, ortho, WhatsApp, stock, hours, language, sign out —
+    // so everything past the fold, sign out included, was simply unreachable. Bottom padding
+    // clears the navigation bar, which would otherwise sit on top of the last row.
     Column(
         Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .verticalScroll(rememberScrollState())
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         AlphaCard(modifier = Modifier.fillMaxWidth()) {

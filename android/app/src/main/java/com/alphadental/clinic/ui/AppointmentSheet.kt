@@ -5,6 +5,8 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -63,7 +65,14 @@ fun AppointmentSheet(
         sheetState = sheetState,
         containerColor = Alpha.Card,
     ) {
-        Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 28.dp)) {
+        // Scrollable: with contact buttons, the edit row and the full status list, this sheet is
+        // taller than a small phone's half-screen, and the statuses at the bottom were the part
+        // being cut off — the whole reason the sheet is opened.
+        Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(start = 20.dp, end = 20.dp, bottom = 28.dp)
+        ) {
 
             // The name is the way into the full file — the question "what do they owe?" comes up
             // constantly at the desk, and it is one tap from here rather than a separate search.
