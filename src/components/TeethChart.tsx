@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLanguage } from "@/context/LanguageContext";
 import {
   Activity,
@@ -79,6 +79,18 @@ export default function TeethChart({
 
   const upperRowRef = useRef<HTMLDivElement>(null);
   const lowerRowRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * On phones the chart is wider than the screen and scrolls sideways (squeezing 16 teeth into
+   * 360px made each tooth ~19px — unusable). Start the scroll centered so the front teeth, the
+   * ones most often discussed, are what the user sees first.
+   */
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2;
+  }, [isPrimary]);
 
   // Modal/draft state
   const [draftStatuses, setDraftStatuses] = useState<string[]>([]);
@@ -282,7 +294,7 @@ export default function TeethChart({
       <div
         key={`${id}-${viewType}`}
         data-tooth={id}
-        className={`group relative flex flex-col items-center justify-center ${compactMode ? "mx-[-1px] sm:mx-0.5" : "m-0.5 sm:m-1"} cursor-pointer ${
+        className={`group relative flex flex-col items-center justify-center ${compactMode ? "mx-0.5" : "m-0.5 sm:m-1"} cursor-pointer ${
           selectionMode ? "cursor-pointer" : readOnly ? "cursor-default" : "cursor-pointer"
         }`}
         onClick={() => openToothModal(id)}
@@ -314,9 +326,9 @@ export default function TeethChart({
 
         <div
           className={`transition-all duration-200 ${
-            isPrimary 
-              ? "w-[16px] h-[22px] sm:w-[24px] sm:h-[32px] md:w-[36px] md:h-[44px]" 
-              : "w-[19px] h-[26px] sm:w-[28px] sm:h-[36px] md:w-[42px] md:h-[52px]"
+            isPrimary
+              ? "w-[28px] h-[36px] sm:w-[28px] sm:h-[36px] md:w-[36px] md:h-[44px]"
+              : "w-[30px] h-[40px] sm:w-[30px] sm:h-[40px] md:w-[42px] md:h-[52px]"
           } ${
             selectionMode && selectedTeeth.includes(id) 
               ? "scale-110 z-10 shadow-[0_0_15px_rgba(37,99,235,0.5)] bg-blue-500/10 rounded-full" 
@@ -390,8 +402,12 @@ export default function TeethChart({
 
   return (
     <div className="w-full" dir={isRTL ? "rtl" : "ltr"}>
-      <div className="w-full overflow-x-auto no-scrollbar" dir="ltr">
-        <div className="w-full max-w-5xl mx-auto">
+      <div className="relative" dir="ltr">
+        {/* Edge fades — a quiet "there's more" hint while the chart can scroll (mobile only) */}
+        <div className="md:hidden pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-white to-transparent z-20 rounded-l-3xl" />
+        <div className="md:hidden pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-white to-transparent z-20 rounded-r-3xl" />
+      <div ref={scrollRef} className="w-full overflow-x-auto no-scrollbar" dir="ltr">
+        <div className={`w-full max-w-5xl mx-auto ${isPrimary ? "min-w-[440px]" : "min-w-[620px]"} md:min-w-0`}>
           {/* Arch label header */}
           <div className="flex items-center justify-between px-3 mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
             <span>{language === "ar" ? "يمين" : "Right"}</span>
@@ -490,22 +506,24 @@ export default function TeethChart({
             </div>
           </div>
 
-          {/* Legend */}
-          {!compactMode && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-y-2 gap-x-4 pt-4 border-t border-slate-100 px-2 mt-4 text-[10px] md:text-xs">
-              {DIAGNOSIS_CATEGORIES.filter(c => c.id !== "healthy").map(cat => (
-                <div key={cat.id} className="flex items-center gap-1.5 whitespace-nowrap">
-                  <div
-                    className="w-2.5 h-2.5 rounded-full shrink-0"
-                    style={{ backgroundColor: cat.color }}
-                  />
-                  <span className="text-slate-500 font-medium">{language === "ar" ? cat.labelAr : cat.labelEn}</span>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </div>
+      </div>
+
+      {/* Legend — outside the scroll area so it stays put while the teeth scroll */}
+      {!compactMode && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-y-2 gap-x-4 pt-4 border-t border-slate-100 px-2 mt-4 text-[10px] md:text-xs max-w-5xl mx-auto">
+          {DIAGNOSIS_CATEGORIES.filter(c => c.id !== "healthy").map(cat => (
+            <div key={cat.id} className="flex items-center gap-1.5 whitespace-nowrap">
+              <div
+                className="w-2.5 h-2.5 rounded-full shrink-0"
+                style={{ backgroundColor: cat.color }}
+              />
+              <span className="text-slate-500 font-medium">{language === "ar" ? cat.labelAr : cat.labelEn}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Diagnosis modal */}
       {activeTooth !== null && (
