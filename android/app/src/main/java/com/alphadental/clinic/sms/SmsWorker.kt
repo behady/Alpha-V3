@@ -62,7 +62,12 @@ class SmsWorker(context: Context, params: WorkerParameters) : CoroutineWorker(co
         // Tells the server's nightly job that a phone is alive and willing to send. Without a
         // recent heartbeat it stops queueing, rather than piling messages up where nothing will
         // ever collect them.
-        runCatching { Repository.heartbeatSmsDevice(clinicId, SmsPrefs.deviceId(context), deviceName()) }
+        val fcmToken = runCatching {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().token.await()
+        }.getOrNull()
+        runCatching {
+            Repository.heartbeatSmsDevice(clinicId, SmsPrefs.deviceId(context), deviceName(), fcmToken)
+        }
 
         val claimed = runCatching { claimBatch(clinicId) }.getOrElse { error ->
             SmsPrefs.recordRun(context, "Could not read the queue: ${error.message}", 0)

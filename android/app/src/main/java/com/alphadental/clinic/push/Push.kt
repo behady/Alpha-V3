@@ -10,6 +10,8 @@ import androidx.core.app.NotificationCompat
 import com.alphadental.clinic.BuildConfig
 import com.alphadental.clinic.MainActivity
 import com.alphadental.clinic.R
+import com.alphadental.clinic.sms.SmsPrefs
+import com.alphadental.clinic.sms.SmsWorker
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
@@ -107,6 +109,14 @@ class AlphaMessagingService : FirebaseMessagingService() {
      * flaky to whoever is waiting on it.
      */
     override fun onMessageReceived(message: RemoteMessage) {
+        // A wake is a machine-to-machine nudge, not something to show anybody: the server has
+        // queued a message and wants this phone to send it now rather than at its next
+        // fifteen-minute poll. Nothing is displayed.
+        if (message.data["type"] == "sms_wake") {
+            if (SmsPrefs.isSender(this)) SmsWorker.runNow(this)
+            return
+        }
+
         val title = message.notification?.title
             ?: message.data["title"]
             ?: return

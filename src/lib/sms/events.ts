@@ -6,7 +6,7 @@ import { normalizeToE164 } from "@/lib/whatsapp";
 import type { SmsEventType, SmsSettings } from "./config";
 import { sendAfterFor } from "./schedule";
 import { loadSmsSettings } from "./serverConfig";
-import { hasActiveDevice } from "./devices";
+import { hasActiveDevice, wakeSenderPhones } from "./devices";
 import { enqueueSms } from "./outbox";
 
 /**
@@ -96,6 +96,11 @@ export async function queuePatientSms(args: QueuePatientSmsArgs): Promise<SmsQue
     appointmentId: appointmentId || undefined,
     sendAfter: sendAfterFor(type, settings),
   });
+
+  // Nudge the phone the moment something lands, rather than leaving it for the next poll.
+  // Deliberately not awaited: the caller is finishing a booking or a payment, and a courtesy
+  // push must never sit in front of that.
+  if (queued) void wakeSenderPhones(clinicId);
 
   return queued ? { status: "queued" } : { status: "skipped", reason: "already_queued" };
 }

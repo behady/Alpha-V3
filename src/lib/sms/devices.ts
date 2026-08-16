@@ -23,6 +23,8 @@ export interface SmsDevice {
   platform: string;
   lastSeenAt?: string;
   enabled: boolean;
+  /** Where to reach this phone to wake it. Absent on phones running an older app. */
+  fcmToken?: string;
 }
 
 /**
@@ -41,6 +43,7 @@ function toDevice(id: string, data: Record<string, unknown>): SmsDevice {
     platform: typeof data.platform === "string" ? data.platform : "android",
     lastSeenAt: typeof data.lastSeenAt === "string" ? data.lastSeenAt : undefined,
     enabled: data.enabled !== false,
+    fcmToken: typeof data.fcmToken === "string" && data.fcmToken ? data.fcmToken : undefined,
   };
 }
 
@@ -86,4 +89,42 @@ export async function revokeDevice(clinicId: string, deviceId: string): Promise<
 
   await ref.set({ enabled: false, revokedAt: new Date().toISOString() }, { merge: true });
   return true;
+}
+
+
+/**
+ * Wake this clinic's sender phones NOW.
+ *
+ * A queued message used to wait for the phone's next fifteen-minute poll — Android's shortest
+ * allowed repeat — which is fine for a reminder scheduled hours ahead and poor for a cancellation
+ * the patient should hear about before they set off. Since the phone is already reachable by push,
+ * the server can simply tell it that something is waiting.
+ *
+ * This is a DATA-ONLY message: no notification block, so nothing appears on screen. It is a nudge
+ * between two machines, not something the clinic should have to look at. High priority, because a
+ * normal-priority data message can be held until the device next wakes on its own, which is the
+ * delay this exists to remove.
+ *
+ * Fire-and-forget, and the fifteen-minute poll stays exactly as it was: a push that is dropped —
+ * force-stopped app, no network, Android throttling — costs latency, never a message.
+ */
+export async function wakeSenderPhones(clinicId: string): Promise<void> {
+  try {
+    const now = Date.now();
+    const tokens = (await listClinicDevices(clinicId))
+      .filter((device) => device.enabled && isDeviceAlive(device, now))
+      .map((device) => device.fcmToken)
+      .filter((token): token is string => Boolean(token));
+
+    if (tokens.length === 0) return;
+
+    const { adminMessaging } = await import("@/lib/firebaseAdmin");
+    await adminMessaging().sendEachForMulticast({
+      tokens: [...new Set(tokens)],
+      data: { type: "sms_wake" },
+      android: { priority: "high" },
+    });
+  } catch (error) {
+    console.warn("Could not wake the sender phones:", error);
+  }
 }

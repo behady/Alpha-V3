@@ -1201,18 +1201,22 @@ object Repository {
      * nobody collects — a list that grows and never moves, which looks like a broken system rather
      * than an unconfigured one.
      */
-    suspend fun heartbeatSmsDevice(clinicId: String, deviceId: String, name: String) {
+    suspend fun heartbeatSmsDevice(clinicId: String, deviceId: String, name: String, fcmToken: String?) {
+        val row = mutableMapOf<String, Any>(
+            "name" to name,
+            "platform" to "android",
+            "lastSeenAt" to java.time.Instant.now().toString(),
+            "enabled" to true,
+        )
+        // The address the server wakes this phone on. Written with the heartbeat rather than once
+        // at pairing, because FCM rotates tokens — a token stored once and never refreshed is a
+        // phone that silently stops being reachable.
+        if (!fcmToken.isNullOrBlank()) row["fcmToken"] = fcmToken
+
         Firebase.db().collection("clinics").document(clinicId)
             .collection("sms_devices").document(deviceId)
-            .set(
-                mapOf(
-                    "name" to name,
-                    "platform" to "android",
-                    "lastSeenAt" to java.time.Instant.now().toString(),
-                    "enabled" to true,
-                ),
-                SetOptions.merge(),
-            ).queueLocally("sms heartbeat")
+            .set(row, SetOptions.merge())
+            .queueLocally("sms heartbeat")
     }
 
     /** Stop being the sender, so the clinic's list stops showing this phone as available. */

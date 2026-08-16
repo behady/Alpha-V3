@@ -15,6 +15,7 @@ import { channelIncludesSms, channelIncludesWhatsApp } from "@/lib/sms/config";
 import { loadSmsSettings } from "@/lib/sms/serverConfig";
 import { queuePatientSms } from "@/lib/sms/events";
 import { sendClinicPush } from "@/lib/push";
+import { wakeSenderPhones } from "@/lib/sms/devices";
 
 /**
  * The nightly run walks every active clinic and sends one message per patient booked tomorrow, so
@@ -400,6 +401,13 @@ async function runUpcoming24h(authz: { cron: boolean; uid?: string }) {
     const queuedHere = (clinic.result?.results ?? []).filter(
       (r: { whatsapp?: { status?: string } | null }) => r.whatsapp?.status === "queued"
     ).length;
+    const smsQueuedHere = (clinic.result?.results ?? []).filter(
+      (r: { sms?: { status?: string } | null }) => r.sms?.status === "queued"
+    ).length;
+    // One wake per clinic after the whole sweep, not one per message: the phone drains the entire
+    // queue in a single run, so twenty nudges would do exactly what one does.
+    if (smsQueuedHere > 0) void wakeSenderPhones(clinic.clinicId);
+
     if (queuedHere > 0) {
       void sendClinicPush(clinic.clinicId, {
         title: "رسائل واتساب في الانتظار",
