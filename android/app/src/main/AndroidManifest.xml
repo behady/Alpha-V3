@@ -26,6 +26,10 @@
     <!-- So a clinic phone that reboots overnight is still sending at 07:00 with nobody touching it. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- So the phone can say "3 messages waiting to send" or "new online booking" without the
+         app being open. Requested once after sign-in on Android 13+. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <!-- The assistant's ears. Requested at the moment the mic button is tapped, never at launch.
          Audio is transcribed on the device by Android's own recogniser and discarded — no
          recording is stored and no audio ever leaves the phone; only the transcribed text is
@@ -90,6 +94,21 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <service
+            android:name=".push.AlphaMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="alpha_clinic" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification" />
+
     </application>
 
 </manifest>

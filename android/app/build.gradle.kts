@@ -47,8 +47,8 @@ android {
         applicationId = "com.alphadental.clinic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 34
-        versionName = "4.5.1"
+        versionCode = 35
+        versionName = "4.6.0"
 
         buildConfigField("String", "FB_PROJECT_ID", "\"${firebase("firebase.projectId")}\"")
         buildConfigField("String", "FB_API_KEY", "\"${firebase("firebase.apiKey")}\"")
@@ -141,6 +141,7 @@ dependencies {
     // on-device cache is the offline engine, so there is no second database here.
     implementation(platform("com.google.firebase:firebase-bom:33.5.1"))
     implementation("com.google.firebase:firebase-auth")
+    implementation("com.google.firebase:firebase-messaging")
     implementation("com.google.firebase:firebase-firestore")
 
     // Runs the SMS poller every 15 minutes, survives reboots, and backs off with no network.

@@ -50,6 +50,7 @@ class AlphaApp : Application() {
 
             Firebase.init(app)
             FirebaseAuth.getInstance(app)
+            com.alphadental.clinic.push.ensureNotificationChannel(this)
             startupError = null
         } catch (t: Throwable) {
             startupError = t.message ?: t.javaClass.simpleName

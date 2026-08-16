@@ -176,6 +176,21 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
     val snackbars = remember { SnackbarHostState() }
     var openAppointment by remember { mutableStateOf<Appointment?>(null) }
 
+    // Once signed in: put this phone on the user's push list, and — on Android 13+ — ask for
+    // notification permission the first time. Registration is repeated on every sign-in because
+    // FCM rotates tokens and because the same phone may change hands between accounts.
+    val notifPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+    LaunchedEffect(state.session?.uid) {
+        if (state.session != null) {
+            com.alphadental.clinic.push.PushRegistrar.register()
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
     // Anything that could not be saved surfaces here rather than being swallowed.
     LaunchedEffect(state.message) {
         state.message?.let {
