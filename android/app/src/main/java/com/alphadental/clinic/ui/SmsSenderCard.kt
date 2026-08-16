@@ -7,14 +7,32 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Sms
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
+import com.alphadental.clinic.sms.SmsPairing
+import com.alphadental.clinic.sms.SmsPrefs
+import com.alphadental.clinic.sms.SmsWorker
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -139,6 +157,134 @@ fun SmsSenderCard(
                             color = Color(0xFF92400E).copy(alpha = .85f),
                         )
                     }
+                }
+            }
+
+            // Outside the enabled block on purpose: pairing is what makes this phone visible to
+            // the clinic at all, so it has to be reachable before the switch is ever turned on.
+            Spacer(Modifier.height(10.dp))
+            PairingSection(arabic)
+        }
+    }
+}
+
+/**
+ * Pair this phone to a clinic with the code from the website.
+ *
+ * This is the manual handshake that replaced guessing. The website (Settings → SMS → "Pair a
+ * phone with a code") shows six digits for the clinic ON SCREEN there; typing them here binds
+ * THIS phone to THAT clinic — regardless of which clinic this phone's account would resolve to
+ * by default, which for multi-clinic users could silently be the wrong one.
+ */
+@Composable
+private fun PairingSection(arabic: Boolean) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var paired by remember { mutableStateOf(SmsPrefs.pairedClinicId(context) != null) }
+    var code by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    Surface(shape = Alpha.CardShape, color = Alpha.Slate50, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp)) {
+            if (paired) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (arabic) "مرتبط بالعيادة ✓" else "Paired to the clinic ✓",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Alpha.Green,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = {
+                        SmsPrefs.setPairedClinic(context, null)
+                        paired = false
+                    }) {
+                        Text(
+                            if (arabic) "إلغاء الربط" else "Unpair",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Alpha.Slate400,
+                        )
+                    }
+                }
+            } else {
+                Text(
+                    if (arabic) "اربط الهاتف بالكود من النظام: الإعدادات ← الرسائل النصية ← «ربط هاتف بكود»"
+                    else "Pair with the code from the website: Settings → SMS → \"Pair a phone with a code\"",
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Alpha.Slate500,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = code,
+                        onValueChange = { input -> code = input.filter { it.isDigit() }.take(6) },
+                        placeholder = { Text("123456", fontSize = 14.sp) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        shape = Alpha.CardShape,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            busy = true
+                            error = null
+                            scope.launch {
+                                SmsPairing.pair(
+                                    code = code,
+                                    deviceId = SmsPrefs.deviceId(context),
+                                    deviceName = android.os.Build.MODEL ?: "Clinic phone",
+                                )
+                                    .onSuccess { clinicId ->
+                                        SmsPrefs.setPairedClinic(context, clinicId)
+                                        paired = true
+                                        code = ""
+                                        // Paired means "this phone sends": start the worker so the
+                                        // first heartbeat lands within seconds, not fifteen minutes.
+                                        if (SmsWorker.hasSmsPermission(context)) {
+                                            SmsPrefs.setSender(context, true)
+                                            SmsWorker.schedule(context)
+                                            SmsWorker.runNow(context)
+                                        }
+                                    }
+                                    .onFailure { error = it.message }
+                                busy = false
+                            }
+                        },
+                        enabled = code.length == 6 && !busy,
+                        shape = Alpha.CardShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Alpha.Ink,
+                            contentColor = Color.White,
+                        ),
+                    ) {
+                        if (busy) {
+                            CircularProgressIndicator(
+                                color = Color.White,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        } else {
+                            Text(
+                                if (arabic) "ربط" else "Pair",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Black,
+                            )
+                        }
+                    }
+                }
+                error?.let {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        it,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFE11D48),
+                    )
                 }
             }
         }

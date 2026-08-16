@@ -1212,7 +1212,7 @@ object Repository {
                     "enabled" to true,
                 ),
                 SetOptions.merge(),
-            ).await()
+            ).queueLocally("sms heartbeat")
     }
 
     /** Stop being the sender, so the clinic's list stops showing this phone as available. */

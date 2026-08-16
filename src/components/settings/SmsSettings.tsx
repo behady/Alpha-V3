@@ -66,6 +66,8 @@ export default function SmsSettings() {
   const [saving, setSaving] = useState(false);
   const [devices, setDevices] = useState<Device[]>([]);
   const [messages, setMessages] = useState<QueueMessage[]>([]);
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [pairingBusy, setPairingBusy] = useState(false);
 
   const costs = useMemo(() => {
     const out = {} as Record<SmsEventType, ReturnType<typeof measureSms>>;
@@ -126,6 +128,11 @@ export default function SmsSettings() {
     noDevices: isAr
       ? "لا يوجد هاتف يرسل حالياً. لن تُرسل أي رسالة نصية حتى تُفعّل الإرسال على هاتف العيادة."
       : "No phone is sending. No text messages will go out until you turn the sender on, on the clinic phone.",
+    pairButton: isAr ? "ربط هاتف بكود" : "Pair a phone with a code",
+    pairIntro: isAr
+      ? "اكتب هذا الكود في تطبيق ألفا على هاتف العيادة: المزيد ← الرسائل النصية ← «ربط بالكود». صالح لمدة ١٠ دقائق ولمرة واحدة."
+      : "Type this code into the Alpha app on the clinic phone: More → Text messages → \"Pair with code\". Valid for 10 minutes, one use.",
+    pairWaiting: isAr ? "في انتظار الهاتف…" : "Waiting for the phone…",
     howToAdd: isAr
       ? "لإضافة هاتف: افتح تطبيق ألفا على هاتف العيادة، ثم «المزيد»، وفعّل «هذا الهاتف يرسل التذكيرات». سيظهر هنا خلال دقائق."
       : "To add a phone: open the Alpha app on the clinic phone, go to More, and switch on \"Send reminders from this phone\". It appears here within a few minutes.",
@@ -166,13 +173,13 @@ export default function SmsSettings() {
 
   const loadDevices = useCallback(async () => {
     try {
-      const data = await authedFetch("/api/sms/devices");
+      const data = await authedFetch(`/api/sms/devices?clinicId=${encodeURIComponent(clinicId || "")}`);
       setDevices(data.devices || []);
       setMessages(data.messages || []);
     } catch (e) {
       console.error("Could not load paired phones", e);
     }
-  }, [authedFetch]);
+  }, [authedFetch, clinicId]);
 
   useEffect(() => {
     if (!clinicId) return;
@@ -217,10 +224,46 @@ export default function SmsSettings() {
     }
   };
 
+  const generatePairingCode = async () => {
+    if (!clinicId) return;
+    setPairingBusy(true);
+    try {
+      const data = await authedFetch("/api/sms/pairing-code", {
+        method: "POST",
+        body: JSON.stringify({ clinicId }),
+      });
+      setPairingCode(String(data.code));
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Could not create a code", "error");
+    } finally {
+      setPairingBusy(false);
+    }
+  };
+
+  // While a code is on screen, watch for the phone to appear — the whole point of pairing is
+  // that it shows up the second the code is typed, so the person is not left wondering.
+  useEffect(() => {
+    if (!pairingCode) return;
+    const timer = setInterval(() => void loadDevices(), 4000);
+    const expiry = setTimeout(() => setPairingCode(null), 10 * 60 * 1000);
+    return () => {
+      clearInterval(timer);
+      clearTimeout(expiry);
+    };
+  }, [pairingCode, loadDevices]);
+
+  // The code's job is done the moment the phone shows up.
+  useEffect(() => {
+    if (pairingCode && devices.some((d) => d.enabled)) setPairingCode(null);
+  }, [devices, pairingCode]);
+
   const unpair = async (device: Device) => {
     if (!(await confirm(txt.unpairConfirm))) return;
     try {
-      await authedFetch(`/api/sms/devices?deviceId=${encodeURIComponent(device.deviceId)}`, { method: "DELETE" });
+      await authedFetch(
+        `/api/sms/devices?deviceId=${encodeURIComponent(device.deviceId)}&clinicId=${encodeURIComponent(clinicId || "")}`,
+        { method: "DELETE" }
+      );
       void loadDevices();
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not unpair", "error");
@@ -512,6 +555,29 @@ export default function SmsSettings() {
         <h3 className="text-lg font-black text-slate-900 flex items-center gap-3">
           <Smartphone className="text-primary-500" size={20} /> {txt.devicesTitle}
         </h3>
+
+        <div className="mt-4">
+          {pairingCode ? (
+            <div className="rounded-2xl border-2 border-primary-300 bg-primary-50 p-5 text-center">
+              <p className="text-4xl font-black tracking-[0.35em] text-primary-800 select-all" dir="ltr">
+                {pairingCode}
+              </p>
+              <p className="mt-3 text-xs font-bold text-slate-600 leading-relaxed">{txt.pairIntro}</p>
+              <p className="mt-2 text-[11px] font-black uppercase tracking-widest text-primary-600 animate-pulse">
+                {txt.pairWaiting}
+              </p>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void generatePairingCode()}
+              disabled={pairingBusy}
+              className="w-full rounded-2xl bg-slate-900 hover:bg-slate-800 text-white py-3.5 text-xs font-black uppercase tracking-widest disabled:opacity-50 transition-all"
+            >
+              {pairingBusy ? "…" : txt.pairButton}
+            </button>
+          )}
+        </div>
 
         <p className="mt-3 text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 leading-relaxed">
           {txt.howToAdd}

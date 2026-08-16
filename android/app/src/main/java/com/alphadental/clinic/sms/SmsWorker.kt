@@ -54,12 +54,17 @@ class SmsWorker(context: Context, params: WorkerParameters) : CoroutineWorker(co
             return Result.success()
         }
 
+        // The paired clinic wins over the session's default. The default is a guess, and for a
+        // user who belongs to more than one clinic it can be the wrong one — which is how a
+        // working sender phone ends up heartbeating into a clinic nobody is looking at.
+        val clinicId = SmsPrefs.pairedClinicId(context) ?: session.clinicId
+
         // Tells the server's nightly job that a phone is alive and willing to send. Without a
         // recent heartbeat it stops queueing, rather than piling messages up where nothing will
         // ever collect them.
-        runCatching { Repository.heartbeatSmsDevice(session.clinicId, SmsPrefs.deviceId(context), deviceName()) }
+        runCatching { Repository.heartbeatSmsDevice(clinicId, SmsPrefs.deviceId(context), deviceName()) }
 
-        val claimed = runCatching { claimBatch(session.clinicId) }.getOrElse { error ->
+        val claimed = runCatching { claimBatch(clinicId) }.getOrElse { error ->
             SmsPrefs.recordRun(context, "Could not read the queue: ${error.message}", 0)
             return Result.retry()
         }
@@ -73,7 +78,7 @@ class SmsWorker(context: Context, params: WorkerParameters) : CoroutineWorker(co
         claimed.forEachIndexed { index, message ->
             val result = SmsSender.send(context, message.to, message.text, index + 1)
             if (result.sent) sent++ else Log.w(TAG, "Could not send ${message.id}: ${result.error}")
-            runCatching { Repository.ackSms(session.clinicId, message.id, result.sent, result.error) }
+            runCatching { Repository.ackSms(clinicId, message.id, result.sent, result.error) }
         }
 
         SmsPrefs.recordRun(context, "Sent $sent of ${claimed.size}", sent)
@@ -161,6 +166,7 @@ object SmsPrefs {
 
     private const val PREFS = "alpha_sms"
     private const val KEY_IS_SENDER = "is_sender"
+    private const val KEY_PAIRED_CLINIC = "paired_clinic"
     private const val KEY_DEVICE_ID = "device_id"
     private const val KEY_LAST_RUN = "last_run_at"
     private const val KEY_LAST_RESULT = "last_result"
@@ -170,6 +176,18 @@ object SmsPrefs {
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     fun isSender(context: Context): Boolean = prefs(context).getBoolean(KEY_IS_SENDER, false)
+
+    /**
+     * The clinic this phone was explicitly paired to by code — or null when it was never paired.
+     * When set, it OVERRIDES the signed-in user's default clinic everywhere the sender acts:
+     * pairing exists precisely because the default can be the wrong clinic for multi-clinic users.
+     */
+    fun pairedClinicId(context: Context): String? =
+        prefs(context).getString(KEY_PAIRED_CLINIC, null)?.takeIf { it.isNotBlank() }
+
+    fun setPairedClinic(context: Context, clinicId: String?) {
+        prefs(context).edit().putString(KEY_PAIRED_CLINIC, clinicId ?: "").apply()
+    }
 
     fun setSender(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_IS_SENDER, enabled).apply()
