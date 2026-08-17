@@ -57,4 +57,6 @@ clean_secret.ps1
 !postcss.config.js
 !tailwind.config.js
 !tests/**/*.mjs
+!functions/*.js
+!scripts/*.mjs
 

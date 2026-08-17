@@ -1,5 +1,6 @@
 const { onDocumentCreated, onDocumentUpdated, onDocumentDeleted } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { onRequest } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
 const path = require("path");
 const { DateTime } = require("luxon");
@@ -650,3 +651,25 @@ exports.dailyClinicReportToOwner = onSchedule(
     }
   }
 );
+// ==========================================
+// META LEAD ADS — see `metaLeads.js`
+// ==========================================
+
+const { handleMetaWebhook } = require("./metaLeads");
+const { getFirestore } = require("firebase-admin/firestore");
+
+/**
+ * Receiving door for Facebook/Instagram lead forms. Reads and writes the project's
+ * named "default" database — `admin.firestore()` would silently target the
+ * non-existent "(default)" one.
+ */
+exports.metaLeadsWebhook = onRequest({ timeoutSeconds: 60 }, async (req, res) => {
+  const db = getFirestore(admin.app(), "default");
+  const todayStr = DateTime.now().setZone(CLINIC_TIMEZONE).toFormat("yyyy-MM-dd");
+  try {
+    await handleMetaWebhook(req, res, db, todayStr);
+  } catch (e) {
+    console.error("metaLeadsWebhook fatal:", e);
+    if (!res.headersSent) res.status(500).send("Internal error");
+  }
+});
