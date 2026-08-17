@@ -545,7 +545,7 @@ async function handlePatientWhatsAppPayment(ledgerData) {
 // EVENT TRIGGERS (Supplying Context)
 // ----------------------------------------------------------------------
 
-exports.notifyDoctorOnNewAppointment = onDocumentCreated("appointments/{appointmentId}", async (event) => {
+exports.notifyDoctorOnNewAppointment = onDocumentCreated({ document: "appointments/{appointmentId}", database: "default" }, async (event) => {
   const newAppt = event.data.data();
   await sendAlert("New Booking | حجز جديد 📅", formatApptMessage(newAppt), {
     type: "newAppointment",
@@ -554,7 +554,7 @@ exports.notifyDoctorOnNewAppointment = onDocumentCreated("appointments/{appointm
   return null;
 });
 
-exports.notifyDoctorOnUpdateAppointment = onDocumentUpdated("appointments/{appointmentId}", async (event) => {
+exports.notifyDoctorOnUpdateAppointment = onDocumentUpdated({ document: "appointments/{appointmentId}", database: "default" }, async (event) => {
   const before = event.data.before.data();
   const after = event.data.after.data();
 
@@ -571,14 +571,14 @@ exports.notifyDoctorOnUpdateAppointment = onDocumentUpdated("appointments/{appoi
   return null;
 });
 
-exports.notifyDoctorOnDeleteAppointment = onDocumentDeleted("appointments/{appointmentId}", async (event) => {
+exports.notifyDoctorOnDeleteAppointment = onDocumentDeleted({ document: "appointments/{appointmentId}", database: "default" }, async (event) => {
   const deletedAppt = event.data.data();
   await sendAlert("Deleted | حذف موعد 🗑️", formatApptMessage(deletedAppt), { type: "appointmentDeleted" }, `/appointments`);
   await handlePatientWhatsAppFormatted(deletedAppt, "cancel");
   return null;
 });
 
-exports.notifyOnLowInventory = onDocumentUpdated("inventory/{itemId}", async (event) => {
+exports.notifyOnLowInventory = onDocumentUpdated({ document: "inventory/{itemId}", database: "default" }, async (event) => {
   const before = event.data.before.data();
   const after = event.data.after.data();
   const threshold = Number(after.lowAlert) || 5;
@@ -593,7 +593,7 @@ exports.notifyOnLowInventory = onDocumentUpdated("inventory/{itemId}", async (ev
   return null;
 });
 
-exports.notifyOnNewPayment = onDocumentCreated("ledger/{ledgerId}", async (event) => {
+exports.notifyOnNewPayment = onDocumentCreated({ document: "ledger/{ledgerId}", database: "default" }, async (event) => {
   const data = event.data.data();
   if (data.type === 'payment' || data.type === 'expense') {
     let msg = ``;
@@ -616,7 +616,7 @@ exports.notifyOnNewPayment = onDocumentCreated("ledger/{ledgerId}", async (event
   return null;
 });
 
-exports.notifyOnClockIn = onDocumentCreated("attendance/{recordId}", async (event) => {
+exports.notifyOnClockIn = onDocumentCreated({ document: "attendance/{recordId}", database: "default" }, async (event) => {
    const data = event.data.data();
    if (data.type === 'clock_in' || data.type === 'clock_out') {
       const title = data.type === 'clock_in' ? "Clock In | تسجيل حضور 🟢" : "Clock Out | تسجيل انصراف 🔴";
@@ -627,7 +627,7 @@ exports.notifyOnClockIn = onDocumentCreated("attendance/{recordId}", async (even
    return null;
 });
 // Add this to the very bottom of functions/index.js
-exports.notifyOnLabOrder = onDocumentCreated("lab_orders/{orderId}", async (event) => {
+exports.notifyOnLabOrder = onDocumentCreated({ document: "lab_orders/{orderId}", database: "default" }, async (event) => {
   const data = event.data.data();
   const msg = `🦷 <b>New Lab Case Required</b>\n\n👤 <b>Patient:</b> ${data.patientName || 'Unknown'}\n👨‍⚕️ <b>Doctor:</b> ${data.doctorName || 'Unknown'}\n⚙️ <b>Procedure:</b> ${data.serviceName}\n💰 <b>Estimated Lab Fee:</b> ${data.labFee} EGP`;
 
