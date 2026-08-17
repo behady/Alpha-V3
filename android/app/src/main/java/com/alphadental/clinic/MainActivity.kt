@@ -88,7 +88,7 @@ import com.alphadental.clinic.ui.InventorySheet
 import com.alphadental.clinic.ui.WhatsappQueueSheet
 import com.alphadental.clinic.ui.LoginScreen
 import com.alphadental.clinic.ui.MoneyScreen
-import com.alphadental.clinic.ui.PatientSheet
+import com.alphadental.clinic.ui.PatientScreen
 import com.alphadental.clinic.ui.PatientsScreen
 import com.alphadental.clinic.ui.PaymentSheet
 import com.alphadental.clinic.ui.HoursSheet
@@ -401,11 +401,13 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
             }
 
             if (state.openPatientId != null) {
-                PatientSheet(
+                PatientScreen(
                     file = state.patientFile,
                     loading = state.patientLoading,
                     error = state.patientError,
                     arabic = state.arabic,
+                    media = state.patientMedia,
+                    ortho = state.patientOrtho,
                     // Only roles that may write money see the button. The rules would reject the
                     // write anyway; offering it and failing is worse than not offering it.
                     onTakePayment = if (session.isAdmin || session.isDentist || session.role == "Receptionist") {
@@ -425,7 +427,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     onSetNoteStatus = if (session.isAdmin || session.isDentist) {
                         { noteId, status -> viewModel.updateNoteStatus(noteId, status) }
                     } else null,
-                    onDismiss = viewModel::closePatient,
+                    onClose = viewModel::closePatient,
                 )
             }
 

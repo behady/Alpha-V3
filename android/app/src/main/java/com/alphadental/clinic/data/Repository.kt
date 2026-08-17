@@ -1780,6 +1780,40 @@ object Repository {
             )
         }
 
+        // The same snapshot again, this time as displayable lines for the Finance
+        // tab — one read serves both the balance and the statement.
+        val ledgerEntries = ledgerSnap.documents.mapNotNull { doc ->
+            val type = doc.getString("type").orEmpty()
+            if (type == "expense") return@mapNotNull null
+            val amount = if (type == "payment") {
+                (doc.get("paid") as? Number)?.toDouble() ?: (doc.get("amount") as? Number)?.toDouble() ?: 0.0
+            } else {
+                (doc.get("amount") as? Number)?.toDouble() ?: (doc.get("cost") as? Number)?.toDouble() ?: 0.0
+            }
+            if (amount <= 0) return@mapNotNull null
+            PatientLedgerEntry(
+                id = doc.id,
+                date = doc.getString("date").orEmpty(),
+                type = type,
+                description = doc.getString("description").orEmpty(),
+                amount = amount,
+                addedBy = doc.getString("addedBy").orEmpty(),
+                createdAtMillis = doc.getTimestamp("createdAt")?.toDate()?.time ?: 0L,
+            )
+        }.sortedWith(compareByDescending<PatientLedgerEntry> { it.date }.thenByDescending { it.createdAtMillis })
+
+        // The diagnosis chart the website edits, flattened to showable lines.
+        @Suppress("UNCHECKED_CAST")
+        val diagnosis = (patientSnap.get("teethData") as? Map<String, Any?>).orEmpty()
+            .mapNotNull { (tooth, raw) ->
+                val entry = raw as? Map<String, Any?> ?: return@mapNotNull null
+                val statuses = (entry["statuses"] as? List<*>)?.filterIsInstance<String>().orEmpty()
+                val notes = entry["notes"] as? String ?: ""
+                if (statuses.isEmpty() && notes.isBlank()) return@mapNotNull null
+                ToothDiagnosis(tooth = tooth, statuses = statuses, notes = notes)
+            }
+            .sortedBy { it.tooth.toIntOrNull() ?: Int.MAX_VALUE }
+
         val visits = visitsSnap.documents
             .map { it.toAppointment(pendingWrite = it.metadata.hasPendingWrites()) }
             // Newest first. Ordered here rather than in the query because Firestore would need a
@@ -1801,7 +1835,30 @@ object Repository {
             upcoming = visits.filter { it.date >= today && normalizeStatusForFile(it.status) !in FINISHED_STATUSES }
                 .sortedWith(compareBy<Appointment> { it.date }.thenBy { it.minutes() }),
             past = visits.filter { it.date < today || normalizeStatusForFile(it.status) in FINISHED_STATUSES },
+            ledger = ledgerEntries,
+            diagnosis = diagnosis,
         )
+    }
+
+    /** The photos and x-rays the website uploaded for one patient, newest first. */
+    suspend fun loadPatientMedia(clinicId: String, patientId: String): List<PatientMedia> {
+        val snap = Firebase.db().collection("clinics").document(clinicId)
+            .collection("patient_media")
+            .whereEqualTo("patientId", patientId)
+            .get()
+            .await()
+        return snap.documents.mapNotNull { doc ->
+            val url = doc.getString("url").orEmpty()
+            if (url.isBlank()) return@mapNotNull null
+            PatientMedia(
+                id = doc.id,
+                url = url,
+                category = doc.getString("category").orEmpty(),
+                filename = doc.getString("filename").orEmpty(),
+                uploadedBy = doc.getString("uploadedBy").orEmpty(),
+                createdAtMillis = doc.getTimestamp("createdAt")?.toDate()?.time ?: 0L,
+            )
+        }.sortedByDescending { it.createdAtMillis }
     }
 
     private val FINISHED_STATUSES = setOf("Completed", "Cancelled", "No Show")

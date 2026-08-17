@@ -89,6 +89,8 @@ data class AppState(
     val patientQuery: String = "",
     val openPatientId: String? = null,
     val patientFile: PatientFile? = null,
+    val patientMedia: List<com.alphadental.clinic.data.PatientMedia> = emptyList(),
+    val patientOrtho: List<OrthoCase> = emptyList(),
     val patientLoading: Boolean = false,
     val patientError: String? = null,
     // --- taking a payment ---
@@ -1120,7 +1122,26 @@ class AppViewModel : ViewModel() {
             patientFile = null,
             patientLoading = true,
             patientError = null,
+            patientMedia = emptyList(),
+            patientOrtho = emptyList(),
         )
+        // Photos and ortho load alongside the file rather than after it — each
+        // fills its own tab whenever it lands, and a failure only empties a tab.
+        viewModelScope.launch {
+            val media = runCatching { Repository.loadPatientMedia(session.clinicId, patientId) }
+                .getOrDefault(emptyList())
+            if (_state.value.openPatientId == patientId) {
+                _state.value = _state.value.copy(patientMedia = media)
+            }
+        }
+        viewModelScope.launch {
+            val cases = runCatching { Repository.loadOrthoCases(session.clinicId) }
+                .getOrDefault(emptyList())
+                .filter { it.patientId == patientId }
+            if (_state.value.openPatientId == patientId) {
+                _state.value = _state.value.copy(patientOrtho = cases)
+            }
+        }
         viewModelScope.launch {
             Repository.loadPatientFile(session.clinicId, patientId)
                 .onSuccess { file ->

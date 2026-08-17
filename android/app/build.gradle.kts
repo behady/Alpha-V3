@@ -47,8 +47,8 @@ android {
         applicationId = "com.alphadental.clinic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 46
-        versionName = "5.5.0"
+        versionCode = 47
+        versionName = "5.6.0"
 
         buildConfigField("String", "FB_PROJECT_ID", "\"${firebase("firebase.projectId")}\"")
         buildConfigField("String", "FB_API_KEY", "\"${firebase("firebase.apiKey")}\"")
@@ -137,6 +137,9 @@ dependencies {
     // Opens the not-yet-native screens in a real Chrome tab rather than an
     // embedded browser — which is what makes Google sign-in and downloads work.
     implementation("androidx.browser:browser:1.8.0")
+
+    // Renders the photos the website uploaded (patient_media download URLs).
+    implementation("io.coil-kt:coil-compose:2.7.0")
 
     // Firebase. Auth for sign-in, Firestore for everything else. Firestore's own
     // on-device cache is the offline engine, so there is no second database here.

@@ -205,6 +205,40 @@ data class PatientFile(
     val balance: Balance,
     val upcoming: List<Appointment> = emptyList(),
     val past: List<Appointment> = emptyList(),
+    /** Every money line on this patient, newest first — the Finance tab. */
+    val ledger: List<PatientLedgerEntry> = emptyList(),
+    /** The website's diagnosis chart (patients/{id}.teethData), read-only here. */
+    val diagnosis: List<ToothDiagnosis> = emptyList(),
+)
+
+/** One money line on a patient's file. */
+data class PatientLedgerEntry(
+    val id: String = "",
+    val date: String = "",
+    val type: String = "",
+    val description: String = "",
+    val amount: Double = 0.0,
+    val addedBy: String = "",
+    val createdAtMillis: Long = 0L,
+) {
+    val isPayment: Boolean get() = type == "payment"
+}
+
+/** One tooth's entry on the website's diagnosis chart. */
+data class ToothDiagnosis(
+    val tooth: String = "",
+    val statuses: List<String> = emptyList(),
+    val notes: String = "",
+)
+
+/** One photo or x-ray uploaded on the website for this patient. */
+data class PatientMedia(
+    val id: String = "",
+    val url: String = "",
+    val category: String = "",
+    val filename: String = "",
+    val uploadedBy: String = "",
+    val createdAtMillis: Long = 0L,
 )
 
 /** A patient, only as much of one as the schedule screen needs. */
