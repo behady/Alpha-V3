@@ -225,6 +225,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
             signingIn = state.signingIn,
             error = state.signInError,
             onSignIn = viewModel::signIn,
+            onGoogleToken = viewModel::signInWithGoogle,
         )
 
         else -> {

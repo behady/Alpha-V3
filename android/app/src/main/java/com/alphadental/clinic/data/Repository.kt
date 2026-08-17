@@ -86,6 +86,19 @@ object Repository {
         }
     }
 
+    /**
+     * Sign in with the Google ID token the Credential Manager handed back.
+     *
+     * The token is exchanged with Firebase Auth, which resolves it to the same
+     * account the website's Google sign-in uses — same project, same provider,
+     * same uid — so the staff profile and clinic roles line up automatically.
+     */
+    suspend fun signInWithGoogle(idToken: String): Result<Session> = runCatching {
+        val credential = com.google.firebase.auth.GoogleAuthProvider.getCredential(idToken, null)
+        Firebase.auth().signInWithCredential(credential).await()
+        loadSession().getOrThrow()
+    }
+
     /** The signed-in user's session, or a failure explaining what is missing. */
     suspend fun loadSession(): Result<Session> = runCatching {
         val user = Firebase.auth().currentUser ?: error("Not signed in.")

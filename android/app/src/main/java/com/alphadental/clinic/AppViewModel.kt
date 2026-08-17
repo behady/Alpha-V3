@@ -229,6 +229,30 @@ class AppViewModel : ViewModel() {
         }
     }
 
+    fun signInWithGoogle(idToken: String) {
+        _state.value = _state.value.copy(signingIn = true, signInError = null)
+        viewModelScope.launch {
+            Repository.signInWithGoogle(idToken)
+                .onSuccess { session ->
+                    _state.value = _state.value.copy(signingIn = false, session = session, signInError = null)
+                    watchDay(session.clinicId, _state.value.date)
+                    refreshShift()
+                    refreshTakings()
+                    watchWhatsappQueue(session.clinicId)
+                }
+                .onFailure { error ->
+                    // The Google account authenticated but has no staff profile here.
+                    // Sign the half-session out rather than leaving credentials that
+                    // fail on every read.
+                    Repository.signOut()
+                    _state.value = _state.value.copy(
+                        signingIn = false,
+                        signInError = error.message ?: "Could not sign in with Google.",
+                    )
+                }
+        }
+    }
+
     fun signOut() {
         dayJob?.cancel()
         // Per clinic and user; the next account must not inherit them.

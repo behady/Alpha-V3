@@ -47,14 +47,15 @@ android {
         applicationId = "com.alphadental.clinic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 45
-        versionName = "5.4.0"
+        versionCode = 46
+        versionName = "5.5.0"
 
         buildConfigField("String", "FB_PROJECT_ID", "\"${firebase("firebase.projectId")}\"")
         buildConfigField("String", "FB_API_KEY", "\"${firebase("firebase.apiKey")}\"")
         buildConfigField("String", "FB_APP_ID", "\"${firebase("firebase.appId")}\"")
         buildConfigField("String", "FB_SENDER_ID", "\"${firebase("firebase.senderId")}\"")
         buildConfigField("String", "FB_STORAGE_BUCKET", "\"${firebase("firebase.storageBucket")}\"")
+        buildConfigField("String", "FB_WEB_CLIENT_ID", "\"${firebase("firebase.webClientId")}\"")
 
         // ====================================================================
         //  THE CLINIC'S WEB ADDRESS — the one line to change if it ever moves.
@@ -139,6 +140,12 @@ dependencies {
 
     // Firebase. Auth for sign-in, Firestore for everything else. Firestore's own
     // on-device cache is the offline engine, so there is no second database here.
+    // Google sign-in through Android's Credential Manager. The googleid library
+    // hands back the ID token that Firebase Auth exchanges for a session.
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+
     implementation(platform("com.google.firebase:firebase-bom:33.5.1"))
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-messaging")
