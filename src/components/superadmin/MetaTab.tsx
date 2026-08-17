@@ -21,6 +21,50 @@ interface MetaConnection {
   pageName: string;
   clinicId: string;
   enabled: boolean;
+  lastLeadAt: number | null;
+  lastEventAt: number | null;
+  leadsReceived: number;
+  lastError: string | null;
+  lastErrorAt: number | null;
+}
+
+/** "3h ago" / "2d ago" — enough precision to judge whether a page went quiet. */
+function ago(ms: number | null): string {
+  if (!ms) return "never";
+  const mins = Math.round((Date.now() - ms) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+/**
+ * A connection's traffic light. Red beats amber beats green: a live error is the thing
+ * worth acting on, "no leads yet" is normal for a page whose first campaign hasn't run.
+ */
+function health(c: MetaConnection, pending: number) {
+  if (!c.enabled) return { dot: "bg-slate-300", text: "Paused — leads are not being delivered", tone: "text-slate-500" };
+  if (c.lastError && (!c.lastLeadAt || (c.lastErrorAt || 0) > c.lastLeadAt)) {
+    return {
+      dot: "bg-rose-500",
+      text: `Problem ${ago(c.lastErrorAt)}: ${c.lastError.slice(0, 120)}`,
+      tone: "text-rose-600",
+    };
+  }
+  if (pending > 0) {
+    return {
+      dot: "bg-amber-500",
+      text: `${pending} lead${pending === 1 ? "" : "s"} waiting on Facebook — retrying every 15 min`,
+      tone: "text-amber-600",
+    };
+  }
+  if (!c.lastLeadAt) return { dot: "bg-slate-300", text: "Connected — no leads yet", tone: "text-slate-500" };
+  return {
+    dot: "bg-emerald-500",
+    text: `Healthy — last lead ${ago(c.lastLeadAt)} · ${c.leadsReceived} total`,
+    tone: "text-emerald-600",
+  };
 }
 interface ClinicOption {
   id: string;
@@ -33,6 +77,7 @@ export function MetaTab() {
   const [pages, setPages] = useState<MetaPage[]>([]);
   const [connections, setConnections] = useState<MetaConnection[]>([]);
   const [clinics, setClinics] = useState<ClinicOption[]>([]);
+  const [pendingByPage, setPendingByPage] = useState<Record<string, number>>({});
 
   const [selPage, setSelPage] = useState("");
   const [selClinic, setSelClinic] = useState("");
@@ -57,6 +102,7 @@ export function MetaTab() {
       setPages(body.pages);
       setConnections(body.connections);
       setClinics(body.clinics);
+      setPendingByPage(body.pendingByPage || {});
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -177,7 +223,9 @@ export function MetaTab() {
           <p className="text-sm text-slate-400 font-bold text-center py-10">No pages connected yet.</p>
         ) : (
           <div className="divide-y divide-slate-100">
-            {connections.map((c) => (
+            {connections.map((c) => {
+              const h = health(c, pendingByPage[c.pageId] || 0);
+              return (
               <div key={c.pageId} className="flex items-center gap-3 px-5 py-4 flex-wrap">
                 <div className="min-w-0 flex-1">
                   <p className="font-bold text-sm text-slate-800 truncate">{c.pageName || c.pageId}</p>
@@ -185,6 +233,10 @@ export function MetaTab() {
                     → {clinicName(c.clinicId)}
                     <span className="text-slate-300"> · </span>
                     <span dir="ltr">{c.pageId}</span>
+                  </p>
+                  <p className={`text-[11px] font-bold mt-1 flex items-center gap-1.5 ${h.tone}`}>
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${h.dot}`} />
+                    {h.text}
                   </p>
                 </div>
                 <span
@@ -212,7 +264,8 @@ export function MetaTab() {
                   </button>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

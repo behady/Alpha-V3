@@ -238,6 +238,12 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // The lead replay queue: one doc per lead Meta has announced, holding delivery state
+    // until it lands. Written only by the webhook and its retry sweep, both Admin SDK.
+    match /meta_lead_events/{leadgenId} {
+      allow read, write: if false;
+    }
+
     // --- RETIRED: root SMS pairing (2026-08-14) ---
     // The old WebView app had no login of its own, so it authenticated to an API with a device
     // token obtained by pairing code, and both lived here at the root — out of reach of the

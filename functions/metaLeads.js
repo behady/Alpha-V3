@@ -7,18 +7,29 @@
  * to show it (source "Meta ads", stage "new", follow-up today so it floats to the top).
  *
  * Config lives in the named "default" Firestore database (see firebase.json):
- *   meta_integrations/config       { verifyToken, appSecret }
- *   meta_pages/{pageId}            { clinicId, pageAccessToken, pageName, enabled }
- * Neither collection matches any client rule, so browsers can never read the tokens.
- * `scripts/connect-meta-page.mjs` writes both docs — no console editing needed.
+ *   meta_integrations/config       { verifyToken, appSecret, systemUserToken }
+ *   meta_pages/{pageId}            { clinicId, pageAccessToken, pageName, enabled, health… }
+ *   meta_lead_events/{leadgenId}   the replay queue — see below
+ * None of those match a client rule, so browsers can never read the tokens.
  *
- * The written lead is deduplicated by doc id (`meta_<leadgenId>`), because Meta retries
- * deliveries: a second ping for the same lead hits ALREADY_EXISTS and is dropped.
+ * NOTHING MAY BE LOST. A clinic paying for ads and silently missing leads is the worst
+ * failure this system can have, and Meta gives up quickly: it wants a 200 within seconds
+ * and stops retrying soon after. So every ping is recorded in `meta_lead_events` first,
+ * and a lead reaches the inbox even when Meta refuses to hand over the details — as a
+ * **stub** the clinic can see and chase, which later heals itself in place when a retry
+ * finally gets the real name and phone. `retryPendingLeadEvents` (scheduled) does that
+ * healing, and also delivers leads that arrived before their page was connected.
  */
 
 const crypto = require("node:crypto");
+const { FieldValue, Timestamp } = require("firebase-admin/firestore");
+const { sendClinicPush } = require("./clinicPush");
 
 const GRAPH_VERSION = "v23.0";
+
+/** Give up on an event after this many attempts, or this many days, whichever comes first. */
+const MAX_ATTEMPTS = 24;
+const MAX_AGE_DAYS = 7;
 
 /**
  * Meta sends phones like "+201001234567", "p:+201001234567" or occasionally local
@@ -70,59 +81,241 @@ function verifyMetaSignature(rawBody, signatureHeader, appSecret) {
 }
 
 /**
- * Writes one lead into a clinic's inbox. Shared by every intake route (Meta webhook now,
- * Zapier/manual doors later): whatever the source, a lead is a lead.
+ * Writes one lead into a clinic's inbox — or heals the stub left by an earlier failed try.
  *
- * Returns "created" | "duplicate".
+ * Healing deliberately fills in only the facts Meta owns (name, phone, interest, notes,
+ * meta) and never touches `stage`: reception may already have called the stub and moved
+ * it along, and a late-arriving detail fetch must not drag that work backwards.
+ *
+ * Returns "created" | "stub" | "healed" | "duplicate".
  */
 async function writeLeadToClinic(db, clinicId, lead, todayStr) {
   const ref = db.collection(`clinics/${clinicId}/leads`).doc(lead.docId);
-  const { FieldValue } = require("firebase-admin/firestore");
-  try {
-    await ref.create({
-      name: lead.name || "Unknown",
-      phone: lead.phone || "",
-      interest: lead.interest || "",
-      source: lead.source || "Meta ads",
-      stage: "new",
-      notes: lead.notes || "",
-      followUpDate: todayStr, // hot lead: float to the top of the inbox today
-      lostReason: null,
-      patientId: null,
-      branchId: null,
-      branchName: null,
-      createdBy: lead.createdBy || "meta-webhook",
-      meta: lead.meta || null,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-    return "created";
-  } catch (e) {
-    if (e && (e.code === 6 || String(e.message || "").includes("ALREADY_EXISTS"))) {
-      return "duplicate";
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+
+    if (!snap.exists) {
+      tx.set(ref, {
+        name: lead.name || "Unknown",
+        phone: lead.phone || "",
+        interest: lead.interest || "",
+        source: lead.source || "Meta ads",
+        stage: "new",
+        notes: lead.notes || "",
+        followUpDate: todayStr, // hot lead: float to the top of the inbox today
+        lostReason: null,
+        patientId: null,
+        branchId: null,
+        branchName: null,
+        createdBy: lead.createdBy || "meta-webhook",
+        meta: lead.meta || null,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return lead.pending ? "stub" : "created";
     }
-    throw e;
-  }
+
+    const existing = snap.data() || {};
+    const wasStub = Boolean(existing.meta && existing.meta.fetchFailed);
+    if (wasStub && !lead.pending) {
+      tx.update(ref, {
+        name: lead.name || existing.name || "Unknown",
+        phone: lead.phone || existing.phone || "",
+        interest: lead.interest || existing.interest || "",
+        notes: lead.notes || existing.notes || "",
+        meta: lead.meta || null,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return "healed";
+    }
+    return "duplicate";
+  });
 }
 
-/** Fetches the full submission for a leadgen id using the page's token. */
-async function fetchLeadFromGraph(leadgenId, pageAccessToken) {
+/**
+ * Fetches the full submission for a leadgen id using the page's token.
+ * Retries transient failures briefly in-process: most Graph blips clear in a second, and
+ * clearing one here means the clinic never sees a stub at all.
+ */
+async function fetchLeadFromGraph(leadgenId, pageAccessToken, attempts = 3) {
   const fields = "created_time,field_data,ad_name,campaign_name,form_id,is_organic";
   const url =
     `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(leadgenId)}` +
     `?fields=${fields}&access_token=${encodeURIComponent(pageAccessToken)}`;
-  const res = await fetch(url);
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(`Graph API ${res.status}: ${JSON.stringify(body.error || body)}`);
+
+  let lastError;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url);
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) return body;
+
+      const code = body.error?.code;
+      // 190 = token dead, 200/104 = permission. Retrying those is pointless; fail fast.
+      const permanent = code === 190 || code === 200 || code === 104;
+      lastError = new Error(`Graph API ${res.status}: ${body.error?.message || JSON.stringify(body)}`);
+      if (permanent) throw lastError;
+    } catch (e) {
+      lastError = e;
+      if (String(e.message || "").includes("Graph API 4")) throw e;
+    }
+    if (i < attempts - 1) await new Promise((r) => setTimeout(r, 800 * (i + 1)));
   }
-  return body;
+  throw lastError || new Error("Graph API: unknown failure");
+}
+
+/** Notes body for a lead whose details Meta would not hand over (yet). */
+function stubNotes(error) {
+  return [
+    "⚠️ Facebook has not released this person's details yet — we keep retrying and they will fill in here automatically.",
+    "⚠️ فيسبوك لسه مطلعش بيانات الشخص ده — بنحاول تاني لوحدنا والبيانات هتظهر هنا أول ما تتاح.",
+    `(${String(error || "").slice(0, 200)})`,
+  ].join("\n");
+}
+
+/**
+ * Delivers one lead event: page → clinic, Graph → details, details → inbox, inbox → phones.
+ * The single path shared by live webhook traffic and the scheduled retry, so a replayed
+ * lead behaves exactly like a fresh one.
+ *
+ * Returns { status, leadResult } where status is what the event doc should now say.
+ */
+async function processLeadEvent(db, event, todayStr) {
+  const { pageId, leadgenId } = event;
+  const pageSnap = await db.doc(`meta_pages/${pageId}`).get();
+
+  if (!pageSnap.exists || pageSnap.data().enabled === false) {
+    // Not a failure — the page may simply not be connected to a clinic yet. Keep the
+    // event so connecting it later delivers the backlog instead of losing it.
+    return { status: "unmapped", error: `Page ${pageId} is not connected to a clinic` };
+  }
+
+  const { clinicId, pageAccessToken, pageName } = pageSnap.data();
+  const pageRef = pageSnap.ref;
+
+  let graphLead = null;
+  let fetchError = "";
+  try {
+    graphLead = await fetchLeadFromGraph(leadgenId, pageAccessToken);
+  } catch (e) {
+    fetchError = e instanceof Error ? e.message : String(e);
+  }
+
+  const metaBase = {
+    leadgenId,
+    pageId,
+    pageName: pageName || null,
+    formId: String(graphLead?.form_id || event.formId || ""),
+    adName: graphLead?.ad_name || null,
+    campaignName: graphLead?.campaign_name || null,
+    createdTime: graphLead?.created_time || event.createdTime || null,
+  };
+
+  let leadResult;
+  let parsedName = "";
+  let parsedInterest = "";
+
+  if (graphLead) {
+    const parsed = parseFieldData(graphLead.field_data);
+    const noteLines = [];
+    if (graphLead.campaign_name) noteLines.push(`Campaign: ${graphLead.campaign_name}`);
+    if (graphLead.ad_name) noteLines.push(`Ad: ${graphLead.ad_name}`);
+    if (graphLead.is_organic) noteLines.push("Organic (not from a paid ad)");
+    if (parsed.email) noteLines.push(`Email: ${parsed.email}`);
+    noteLines.push(...parsed.extra);
+
+    parsedName = parsed.name;
+    leadResult = await writeLeadToClinic(
+      db,
+      clinicId,
+      {
+        docId: `meta_${leadgenId}`,
+        name: parsed.name,
+        phone: parsed.phone,
+        interest: "",
+        source: "Meta ads",
+        notes: noteLines.join("\n"),
+        createdBy: "meta-webhook",
+        meta: { ...metaBase, fetchFailed: false },
+      },
+      todayStr
+    );
+    parsedInterest = graphLead.campaign_name || "";
+  } else {
+    leadResult = await writeLeadToClinic(
+      db,
+      clinicId,
+      {
+        docId: `meta_${leadgenId}`,
+        name: "Facebook lead (details pending)",
+        phone: "",
+        interest: "",
+        source: "Meta ads",
+        notes: stubNotes(fetchError),
+        createdBy: "meta-webhook",
+        pending: true,
+        meta: { ...metaBase, fetchFailed: true, fetchError: fetchError.slice(0, 500) },
+      },
+      todayStr
+    );
+  }
+
+  // Connection health, so a broken page is visible in the admin screen before a clinic
+  // complains about a quiet week.
+  const health = { lastEventAt: FieldValue.serverTimestamp() };
+  if (graphLead) {
+    health.lastLeadAt = FieldValue.serverTimestamp();
+    health.lastError = null;
+    if (leadResult === "created" || leadResult === "healed") health.leadsReceived = FieldValue.increment(1);
+  } else {
+    health.lastError = fetchError.slice(0, 500);
+    health.lastErrorAt = FieldValue.serverTimestamp();
+  }
+  await pageRef.set(health, { merge: true }).catch(() => {});
+
+  // Speed to contact decides whether an ad lead converts, so announce it now. Never awaited
+  // in a way that could fail the delivery above.
+  if (leadResult === "created" || leadResult === "stub") {
+    const who = graphLead ? parsedName || "New lead" : "Facebook lead (details pending)";
+    const detail = parsedInterest ? `${who} — ${parsedInterest}` : who;
+    await sendClinicPush(db, clinicId, {
+      title: "New lead | عميل محتمل جديد 📣",
+      body: `${detail}\nFacebook · ${pageName || pageId}`,
+    }).catch(() => {});
+  }
+
+  return {
+    status: graphLead ? "delivered" : "pending",
+    clinicId,
+    leadResult,
+    error: fetchError,
+  };
+}
+
+/** Records/updates an event's place in the replay queue. */
+async function recordEvent(db, event, outcome) {
+  const ref = db.doc(`meta_lead_events/${event.leadgenId}`);
+  const patch = {
+    pageId: event.pageId,
+    leadgenId: event.leadgenId,
+    formId: event.formId || null,
+    createdTime: event.createdTime || null,
+    status: outcome.status,
+    lastAttemptAt: FieldValue.serverTimestamp(),
+    attempts: FieldValue.increment(1),
+    lastError: outcome.error ? String(outcome.error).slice(0, 500) : null,
+    clinicId: outcome.clinicId || null,
+    firstSeenAt: FieldValue.serverTimestamp(),
+  };
+  const snap = await ref.get();
+  if (snap.exists) delete patch.firstSeenAt; // keep the original sighting
+  await ref.set(patch, { merge: true });
 }
 
 /**
  * The webhook handler. GET is Meta's one-time subscription check; POST is lead traffic.
  * POST always answers 200 once the signature is valid — Meta retries non-200 responses
- * for days, and a poison event should be logged, not redelivered forever.
+ * for days, and by then the replay queue has the event anyway.
  */
 async function handleMetaWebhook(req, res, db, todayStr) {
   const configSnap = await db.doc("meta_integrations/config").get();
@@ -158,62 +351,86 @@ async function handleMetaWebhook(req, res, db, todayStr) {
     for (const change of Array.isArray(entry.changes) ? entry.changes : []) {
       if (change.field !== "leadgen") continue;
       const value = change.value || {};
-      const pageId = String(value.page_id || entry.id || "");
-      const leadgenId = String(value.leadgen_id || "");
-      if (!pageId || !leadgenId) continue;
+      const event = {
+        pageId: String(value.page_id || entry.id || ""),
+        leadgenId: String(value.leadgen_id || ""),
+        formId: String(value.form_id || ""),
+        createdTime: value.created_time || null,
+      };
+      if (!event.pageId || !event.leadgenId) continue;
 
+      let outcome;
       try {
-        const pageSnap = await db.doc(`meta_pages/${pageId}`).get();
-        if (!pageSnap.exists || pageSnap.data().enabled === false) {
-          console.warn(`metaLeadsWebhook: no connected clinic for page ${pageId} — skipping lead ${leadgenId}`);
-          results.push({ leadgenId, status: "unmapped-page" });
-          continue;
-        }
-        const { clinicId, pageAccessToken, pageName } = pageSnap.data();
-
-        const graphLead = await fetchLeadFromGraph(leadgenId, pageAccessToken);
-        const parsed = parseFieldData(graphLead.field_data);
-
-        const noteLines = [];
-        if (graphLead.campaign_name) noteLines.push(`Campaign: ${graphLead.campaign_name}`);
-        if (graphLead.ad_name) noteLines.push(`Ad: ${graphLead.ad_name}`);
-        if (graphLead.is_organic) noteLines.push("Organic (not from a paid ad)");
-        if (parsed.email) noteLines.push(`Email: ${parsed.email}`);
-        noteLines.push(...parsed.extra);
-
-        const status = await writeLeadToClinic(db, clinicId, {
-          docId: `meta_${leadgenId}`,
-          name: parsed.name,
-          phone: parsed.phone,
-          interest: "",
-          source: "Meta ads",
-          notes: noteLines.join("\n"),
-          createdBy: "meta-webhook",
-          meta: {
-            leadgenId,
-            pageId,
-            pageName: pageName || null,
-            formId: String(graphLead.form_id || value.form_id || ""),
-            adName: graphLead.ad_name || null,
-            campaignName: graphLead.campaign_name || null,
-            createdTime: graphLead.created_time || null,
-          },
-        }, todayStr);
-
-        console.log(`metaLeadsWebhook: lead ${leadgenId} → clinic ${clinicId}: ${status}`);
-        results.push({ leadgenId, status });
+        outcome = await processLeadEvent(db, event, todayStr);
       } catch (e) {
-        console.error(`metaLeadsWebhook: failed on lead ${leadgenId}:`, e);
-        results.push({ leadgenId, status: "error" });
+        console.error(`metaLeadsWebhook: lead ${event.leadgenId} failed:`, e);
+        outcome = { status: "pending", error: e instanceof Error ? e.message : String(e) };
       }
+      await recordEvent(db, event, outcome).catch((e) =>
+        console.error(`metaLeadsWebhook: could not record event ${event.leadgenId}:`, e)
+      );
+      console.log(
+        `metaLeadsWebhook: lead ${event.leadgenId} → ${outcome.status}` +
+          (outcome.leadResult ? ` (${outcome.leadResult})` : "") +
+          (outcome.error ? ` — ${outcome.error}` : "")
+      );
+      results.push({ leadgenId: event.leadgenId, status: outcome.status });
     }
   }
 
   res.status(200).json({ received: results.length, results });
 }
 
+/**
+ * Scheduled sweep of everything not yet delivered: heals stubs whose details Meta finally
+ * released, and delivers leads that arrived before their page was connected to a clinic.
+ * Events that are too old or too often tried are marked `expired` so the queue stays finite —
+ * their stub lead remains in the inbox regardless, which is the point.
+ */
+async function retryPendingLeadEvents(db, todayStr, limit = 50) {
+  const snap = await db
+    .collection("meta_lead_events")
+    .where("status", "in", ["pending", "unmapped"])
+    .limit(limit)
+    .get();
+
+  const summary = { examined: snap.size, delivered: 0, stillPending: 0, expired: 0 };
+  const cutoffMs = Date.now() - MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+
+  for (const doc of snap.docs) {
+    const data = doc.data();
+    const firstSeen = data.firstSeenAt instanceof Timestamp ? data.firstSeenAt.toMillis() : 0;
+    if ((data.attempts || 0) >= MAX_ATTEMPTS || (firstSeen && firstSeen < cutoffMs)) {
+      await doc.ref.set({ status: "expired", lastAttemptAt: FieldValue.serverTimestamp() }, { merge: true });
+      summary.expired += 1;
+      continue;
+    }
+
+    const event = {
+      pageId: String(data.pageId || ""),
+      leadgenId: String(data.leadgenId || doc.id),
+      formId: data.formId || "",
+      createdTime: data.createdTime || null,
+    };
+
+    let outcome;
+    try {
+      outcome = await processLeadEvent(db, event, todayStr);
+    } catch (e) {
+      outcome = { status: "pending", error: e instanceof Error ? e.message : String(e) };
+    }
+    await recordEvent(db, event, outcome).catch(() => {});
+    if (outcome.status === "delivered") summary.delivered += 1;
+    else summary.stillPending += 1;
+  }
+
+  return summary;
+}
+
 module.exports = {
   handleMetaWebhook,
+  retryPendingLeadEvents,
+  processLeadEvent,
   writeLeadToClinic,
   parseFieldData,
   normalizeMetaPhone,

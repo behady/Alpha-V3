@@ -655,8 +655,12 @@ exports.dailyClinicReportToOwner = onSchedule(
 // META LEAD ADS — see `metaLeads.js`
 // ==========================================
 
-const { handleMetaWebhook } = require("./metaLeads");
+const { handleMetaWebhook, retryPendingLeadEvents } = require("./metaLeads");
 const { getFirestore } = require("firebase-admin/firestore");
+
+/** Both Meta functions bind the named "default" database explicitly. */
+const metaDb = () => getFirestore(admin.app(), "default");
+const metaToday = () => DateTime.now().setZone(CLINIC_TIMEZONE).toFormat("yyyy-MM-dd");
 
 /**
  * Receiving door for Facebook/Instagram lead forms. Reads and writes the project's
@@ -673,3 +677,21 @@ exports.metaLeadsWebhook = onRequest({ timeoutSeconds: 60 }, async (req, res) =>
     if (!res.headersSent) res.status(500).send("Internal error");
   }
 });
+
+/**
+ * Second chance for every lead Meta would not hand over on the first ping, and for leads
+ * that arrived before their page was connected to a clinic. Stubs heal in place; nothing
+ * waits on a human noticing. Fifteen minutes is a compromise between Graph rate limits and
+ * how fast an ad lead goes cold.
+ */
+exports.retryMetaLeadEvents = onSchedule(
+  { schedule: "*/15 * * * *", timeZone: CLINIC_TIMEZONE, timeoutSeconds: 300 },
+  async () => {
+    try {
+      const summary = await retryPendingLeadEvents(metaDb(), metaToday());
+      if (summary.examined > 0) console.log("retryMetaLeadEvents:", JSON.stringify(summary));
+    } catch (e) {
+      console.error("retryMetaLeadEvents failed:", e);
+    }
+  }
+);

@@ -1,11 +1,11 @@
 /**
  * Offline checks for the Meta lead intake helpers — run with `node test-metaLeads.js`.
- * No Firebase, no network: pins the phone normalizer, field_data parsing, and the
- * webhook signature check against known shapes.
+ * No Firebase, no network: pins the phone normalizer, field_data parsing, the webhook
+ * signature check, and the stub→heal lifecycle that keeps failed fetches from losing leads.
  */
 const assert = require("node:assert");
 const crypto = require("node:crypto");
-const { normalizeMetaPhone, parseFieldData, verifyMetaSignature } = require("./metaLeads");
+const { normalizeMetaPhone, parseFieldData, verifyMetaSignature, writeLeadToClinic } = require("./metaLeads");
 
 // --- phone shapes Meta actually sends
 assert.equal(normalizeMetaPhone("+201001234567"), "+201001234567");
@@ -43,4 +43,75 @@ assert.equal(verifyMetaSignature(Buffer.from("tampered"), sig, secret), false);
 assert.equal(verifyMetaSignature(body, sig, ""), false);
 assert.equal(verifyMetaSignature(body, undefined, secret), false);
 
-console.log("metaLeads helpers: all checks passed");
+// --------------------------------------------------------------- stub → heal lifecycle
+/**
+ * Minimal in-memory stand-in for the pieces of Firestore writeLeadToClinic touches:
+ * a doc store, refs, and a transaction that reads then applies set/update.
+ */
+function fakeDb() {
+  const store = new Map();
+  const makeRef = (path) => ({
+    path,
+    get: async () => ({ exists: store.has(path), data: () => store.get(path) }),
+  });
+  return {
+    store,
+    collection: (base) => ({ doc: (id) => makeRef(`${base}/${id}`) }),
+    runTransaction: async (fn) =>
+      fn({
+        get: async (ref) => ({ exists: store.has(ref.path), data: () => store.get(ref.path) }),
+        set: (ref, data) => store.set(ref.path, data),
+        update: (ref, patch) => store.set(ref.path, { ...store.get(ref.path), ...patch }),
+      }),
+  };
+}
+
+(async () => {
+  const db = fakeDb();
+  const docPath = "clinics/c1/leads/meta_L1";
+  const stub = {
+    docId: "meta_L1",
+    name: "Facebook lead (details pending)",
+    phone: "",
+    source: "Meta ads",
+    notes: "pending",
+    pending: true,
+    meta: { leadgenId: "L1", fetchFailed: true },
+  };
+  const real = {
+    docId: "meta_L1",
+    name: "Ahmed Samir",
+    phone: "+201001234567",
+    source: "Meta ads",
+    notes: "Campaign: Smile August",
+    meta: { leadgenId: "L1", fetchFailed: false, campaignName: "Smile August" },
+  };
+
+  // A failed fetch still puts something in the inbox.
+  assert.equal(await writeLeadToClinic(db, "c1", stub, "2026-08-17"), "stub");
+  assert.equal(db.store.get(docPath).phone, "");
+  assert.equal(db.store.get(docPath).stage, "new");
+
+  // Reception starts working the stub before Meta releases the details.
+  db.store.set(docPath, { ...db.store.get(docPath), stage: "contacted" });
+
+  // The retry arrives: details fill in, and the human's stage survives.
+  assert.equal(await writeLeadToClinic(db, "c1", real, "2026-08-17"), "healed");
+  const healed = db.store.get(docPath);
+  assert.equal(healed.name, "Ahmed Samir");
+  assert.equal(healed.phone, "+201001234567");
+  assert.equal(healed.meta.fetchFailed, false);
+  assert.equal(healed.stage, "contacted", "healing must not drag a worked lead back to new");
+
+  // Meta re-delivers the same lead (it does): no second card, no overwrite.
+  assert.equal(await writeLeadToClinic(db, "c1", real, "2026-08-17"), "duplicate");
+  assert.equal(db.store.get(docPath).stage, "contacted");
+
+  // A fresh successful lead is just created.
+  assert.equal(
+    await writeLeadToClinic(db, "c1", { ...real, docId: "meta_L2" }, "2026-08-17"),
+    "created"
+  );
+
+  console.log("metaLeads helpers: all checks passed");
+})();

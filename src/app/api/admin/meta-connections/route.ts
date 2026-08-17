@@ -84,14 +84,43 @@ export async function GET(request: Request) {
     }));
 
     const connSnap = await adminDb().collection("meta_pages").get();
-    const connections = connSnap.docs.map((d) => ({
-      pageId: d.id,
-      pageName: String(d.data().pageName || ""),
-      clinicId: String(d.data().clinicId || ""),
-      enabled: d.data().enabled !== false,
-    }));
+    const millis = (v: unknown) =>
+      v && typeof v === "object" && "toMillis" in (v as object) ? (v as { toMillis: () => number }).toMillis() : null;
 
-    return NextResponse.json({ ok: true, pages, connections, clinics: await listClinics() });
+    const connections = connSnap.docs.map((d) => {
+      const data = d.data();
+      return {
+        pageId: d.id,
+        pageName: String(data.pageName || ""),
+        clinicId: String(data.clinicId || ""),
+        enabled: data.enabled !== false,
+        // Health, so a page that quietly stopped delivering is visible here first.
+        lastLeadAt: millis(data.lastLeadAt),
+        lastEventAt: millis(data.lastEventAt),
+        leadsReceived: Number(data.leadsReceived || 0),
+        lastError: data.lastError ? String(data.lastError) : null,
+        lastErrorAt: millis(data.lastErrorAt),
+      };
+    });
+
+    // Leads Meta has announced but not yet handed over — the retry sweep is still chasing them.
+    const pendingSnap = await adminDb()
+      .collection("meta_lead_events")
+      .where("status", "in", ["pending", "unmapped"])
+      .get();
+    const pendingByPage: Record<string, number> = {};
+    pendingSnap.docs.forEach((d) => {
+      const pageId = String(d.data().pageId || "");
+      if (pageId) pendingByPage[pageId] = (pendingByPage[pageId] || 0) + 1;
+    });
+
+    return NextResponse.json({
+      ok: true,
+      pages,
+      connections,
+      clinics: await listClinics(),
+      pendingByPage,
+    });
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "Failed" }, { status: 500 });
   }
