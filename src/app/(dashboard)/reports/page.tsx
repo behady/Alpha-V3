@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  FileBarChart, Loader2, RefreshCw, Stethoscope, UserCheck, Network, Building2, CalendarDays,
+  FileBarChart, Loader2, RefreshCw, Stethoscope, UserCheck, Network, Building2, CalendarDays, Megaphone,
 } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, Timestamp } from "firebase/firestore";
@@ -16,9 +16,10 @@ import ServiceReport from "@/components/reports/ServiceReport";
 import DentistReport from "@/components/reports/DentistReport";
 import SourceReport from "@/components/reports/SourceReport";
 import ClinicReport from "@/components/reports/ClinicReport";
+import LeadFunnelReport from "@/components/reports/LeadFunnelReport";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 
-type ReportTab = "service" | "dentist" | "source" | "clinic";
+type ReportTab = "service" | "dentist" | "source" | "leads" | "clinic";
 
 function normalizeDate(val: unknown): string {
   if (!val) return "1970-01-01";
@@ -37,6 +38,7 @@ interface Snapshot {
   procedures: Record<string, unknown>[];
   payments: Record<string, unknown>[];
   allPatients: { id: string; name?: string; phone?: string; referral?: string; createdAt?: unknown }[];
+  leads: Record<string, unknown>[];
 }
 
 export default function ReportsPage() {
@@ -55,10 +57,11 @@ export default function ReportsPage() {
   const buildSnapshot = useCallback(async () => {
     setLoading(true);
     try {
-      const [ledgerSnap, patientsSnap, staffSnap] = await Promise.all([
+      const [ledgerSnap, patientsSnap, staffSnap, leadsSnap] = await Promise.all([
         getDocs(getClinicCollection("ledger")),
         getDocs(getClinicCollection("patients")),
         getDocs(getClinicCollection("staff")),
+        getDocs(getClinicCollection("leads")),
       ]);
 
       const staff = staffSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Record<string, unknown>));
@@ -91,7 +94,12 @@ export default function ReportsPage() {
         .map((r) => ({ ...r, normDate: normalizeDate(r.date || r.createdAt) }))
         .filter((r) => inRange(r.normDate as string));
 
-      setSnapshot({ procedures, payments, allPatients });
+      const leads = leadsSnap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as Record<string, unknown>))
+        .map((l) => ({ ...l, normDate: normalizeDate(l.createdAt) }))
+        .filter((l) => inRange(l.normDate as string));
+
+      setSnapshot({ procedures, payments, allPatients, leads });
     } finally {
       setLoading(false);
     }
@@ -105,6 +113,7 @@ export default function ReportsPage() {
     { id: "service", label: "Service Analysis", labelAr: "تحليل الخدمات", icon: Stethoscope, color: "text-blue-600 bg-blue-50" },
     { id: "dentist", label: "Dentist Performance", labelAr: "أداء الأطباء", icon: UserCheck, color: "text-emerald-600 bg-emerald-50" },
     { id: "source", label: "Patient Sources", labelAr: "مصادر المرضى", icon: Network, color: "text-cyan-600 bg-cyan-50" },
+    { id: "leads", label: "Marketing Funnel", labelAr: "قمع التسويق", icon: Megaphone, color: "text-amber-600 bg-amber-50" },
     { id: "clinic", label: "Clinic Overview", labelAr: "نظرة عامة", icon: Building2, color: "text-violet-600 bg-violet-50" },
   ];
 
@@ -165,7 +174,7 @@ export default function ReportsPage() {
           </div>
 
           {/* Tab navigation */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             {tabs.map((t) => {
               const Icon = t.icon;
               const active = tab === t.id;
@@ -248,6 +257,15 @@ export default function ReportsPage() {
                   procedures={snapshot.procedures}
                   payments={snapshot.payments}
                   allPatients={snapshot.allPatients}
+                  rangeLabel={rangeLabel}
+                  isAr={isAr}
+                />
+              )}
+
+              {tab === "leads" && (
+                <LeadFunnelReport
+                  leads={snapshot.leads}
+                  payments={snapshot.payments}
                   rangeLabel={rangeLabel}
                   isAr={isAr}
                 />
