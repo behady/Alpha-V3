@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, Dispatch, SetStateAction } from "react";
+import { useState, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import { X, Save, CheckCircle2, Loader2, Camera, Edit2 } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
@@ -29,10 +29,19 @@ interface Props {
   doctors: Staff[];
   onSaved: () => void;
   inline?: boolean;
+  /**
+   * Chart-first desktop layout: the teeth chart lives above this form instead of inside it, so the
+   * selection has to be owned by the parent. Pass all three together — the selector is hidden here
+   * and every read/write of the selection is routed to the parent's state.
+   */
+  hideTeethSelector?: boolean;
+  selectedTeethOverride?: string[];
+  onSelectedTeethChange?: (teeth: string[]) => void;
 }
 
 export default function ServiceEditorDrawer({
-  isOpen, onClose, patientId, patientName, appointmentId, initialNote, servicesList, doctors, onSaved, inline = false
+  isOpen, onClose, patientId, patientName, appointmentId, initialNote, servicesList, doctors, onSaved, inline = false,
+  hideTeethSelector = false, selectedTeethOverride, onSelectedTeethChange
 }: Props) {
   const { showToast, clinicalEditorMode } = useUI();
   const { language } = useLanguage();
@@ -41,7 +50,22 @@ export default function ServiceEditorDrawer({
   // Form State
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [tooth, setTooth] = useState("");
-  const [selectedTeeth, setSelectedTeeth] = useState<string[]>([]);
+  const [internalSelectedTeeth, setInternalSelectedTeeth] = useState<string[]>([]);
+
+  // One name for the selection whether it lives here or in the parent, so nothing below has to
+  // care which layout it is running in.
+  const isTeethControlled = Array.isArray(selectedTeethOverride) && !!onSelectedTeethChange;
+  const selectedTeeth = isTeethControlled ? (selectedTeethOverride as string[]) : internalSelectedTeeth;
+  const setSelectedTeeth: Dispatch<SetStateAction<string[]>> = (action) => {
+    if (isTeethControlled) {
+      const next = typeof action === "function"
+        ? (action as (prev: string[]) => string[])(selectedTeethOverride as string[])
+        : action;
+      onSelectedTeethChange!(next);
+      return;
+    }
+    setInternalSelectedTeeth(action);
+  };
   const [procedure, setProcedure] = useState("");
   const [multiProceduresText, setMultiProceduresText] = useState("");
   const [cost, setCost] = useState("");
@@ -58,8 +82,25 @@ export default function ServiceEditorDrawer({
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
+  /**
+   * Which target the form has already been filled in for.
+   *
+   * The seeding below used to re-run whenever `doctors` or `user` changed identity — harmless for a
+   * pop-up that opens after those have loaded, but the inline desktop editor is mounted and open
+   * the whole time, so the staff list arriving a moment later wiped whatever had just been typed
+   * or clicked on the chart. Seed once per note (or once per blank form) instead.
+   */
+  const seededForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isOpen) seededForRef.current = null;
+  }, [isOpen]);
+
   useEffect(() => {
     if (!isOpen) return;
+    const seedKey = initialNote ? `note:${initialNote.id}` : "new";
+    if (seededForRef.current === seedKey) return;
+    seededForRef.current = seedKey;
+
     if (initialNote) {
       setDate(initialNote.date || new Date().toISOString().split("T")[0]);
       setTooth(initialNote.tooth || "");
@@ -91,18 +132,35 @@ export default function ServiceEditorDrawer({
     } else {
       // Reset form
       setDate(new Date().toISOString().split('T')[0]);
-      setTooth(""); setSelectedTeeth([]);
+      setTooth("");
       setProcedure(""); setMultiProceduresText(""); setCost(""); setNoteText("");
       setProcedureStatus('Planned');
       setAddToLedger(true); setLinkedLedgerId(null);
       setIsChangingService(false);
-      
-      const defaultDocId = (user && isDentistStaff(user))
-          ? (doctors.find(d => d.name.toLowerCase() === user.name.toLowerCase() || d.id === user.uid)?.id || doctors[0]?.id)
-          : doctors[0]?.id;
-      if (defaultDocId) setSelectedDoctorId(defaultDocId);
+      // When the chart above owns the selection, clearing it is the parent's call — the user may
+      // well have picked the teeth before touching this form.
+      if (!isTeethControlled) setSelectedTeeth([]);
     }
-  }, [isOpen, initialNote, doctors, user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, initialNote]);
+
+  /**
+   * Pick the doctor once the staff list has actually arrived. Split out of the seeding effect so a
+   * late-loading list fills this one field instead of resetting the whole form, and so it never
+   * overrides a doctor the user has already chosen.
+   */
+  useEffect(() => {
+    if (!isOpen || selectedDoctorId || doctors.length === 0) return;
+    if (initialNote) {
+      const byName = initialNote.doctor ? doctors.find(d => d.name === initialNote.doctor) : undefined;
+      if (byName) setSelectedDoctorId(byName.id);
+      return;
+    }
+    const defaultDocId = (user && isDentistStaff(user))
+        ? (doctors.find(d => d.name.toLowerCase() === user.name.toLowerCase() || d.id === user.uid)?.id || doctors[0]?.id)
+        : doctors[0]?.id;
+    if (defaultDocId) setSelectedDoctorId(defaultDocId);
+  }, [isOpen, initialNote, doctors, user, selectedDoctorId]);
 
   const txt = {
     title: initialNote ? (language === "ar" ? "تعديل الإجراء" : "Edit Procedure") : (language === "ar" ? "إجراء جديد" : "New Procedure"),
@@ -195,10 +253,28 @@ export default function ServiceEditorDrawer({
 
       const cleanData = (obj: any) => Object.fromEntries(Object.entries(obj).filter(([_, v]) => v !== undefined));
 
+      /**
+       * Who is at the keyboard, which is not the same thing as `doctor` above. `doctor` is the
+       * treating dentist the procedure is attributed and paid out to; an assistant typing up the
+       * session is a different person, and the note is only trustworthy if it says which is which.
+       */
+      const authorName = user?.name || user?.email || "";
+      const authorFields = {
+        createdByUid: user?.uid || null,
+        createdByName: authorName,
+        createdByRole: user?.role || "",
+      };
+
       if (initialNote) {
           let procLedgerId = linkedLedgerId || (await resolveProcedureLedgerIdForNote(initialNote.id));
           const noteLedgerId = addToLedger ? procLedgerId : null;
-          const cleanNoteData = cleanData({ ...noteData, ledgerId: noteLedgerId });
+          const cleanNoteData = cleanData({
+            ...noteData,
+            ledgerId: noteLedgerId,
+            updatedByUid: user?.uid || null,
+            updatedByName: authorName,
+            updatedAt: serverTimestamp(),
+          });
 
           await updateDoc(getClinicDoc("clinical_notes", initialNote.id), cleanNoteData);
 
@@ -257,7 +333,7 @@ export default function ServiceEditorDrawer({
               newLedgerId = ref.id;
           }
           const noteRef = await addDoc(getClinicCollection("clinical_notes"), cleanData({
-            patientId, createdAt: serverTimestamp(), ...noteData, ledgerId: newLedgerId,
+            patientId, createdAt: serverTimestamp(), ...noteData, ...authorFields, ledgerId: newLedgerId,
           }));
           if (newLedgerId) {
             await updateDoc(getClinicDoc("ledger", newLedgerId), { clinicalNoteId: noteRef.id });
@@ -473,7 +549,9 @@ export default function ServiceEditorDrawer({
             />
           </div>
 
-          <TeethChartSelector selected={selectedTeeth} onToggle={(t) => toggleTooth(t, setSelectedTeeth)} />
+          {!hideTeethSelector && (
+            <TeethChartSelector selected={selectedTeeth} onToggle={(t) => toggleTooth(t, setSelectedTeeth)} />
+          )}
 
           <div>
             <label className="block text-xs font-bold text-slate-500 mb-1">{txt.cost}</label>

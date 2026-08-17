@@ -7,7 +7,7 @@ import {
   Activity, User, CalendarDays, Stethoscope, Trash2, 
   ChevronDown, MessageCircle, AlertCircle, Wallet, LayoutDashboard, Users, History, CreditCard,
   PhoneForwarded, CheckCircle2, UserX, Globe, MessageCircleOff, MessageSquare, MessageSquareOff, ScrollText,
-  Star, Printer, Pill, Check, Calendar, Camera, UploadCloud, FilePlus, Eye, Download
+  Star, Printer, Pill, Check, Calendar, Camera, UploadCloud, FilePlus, Eye, Download, StickyNote
 } from "lucide-react";
 import { auth, db, storage } from "@/lib/firebase";
 import { doc, onSnapshot, updateDoc, deleteDoc, collection, query, where, limit, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
@@ -25,6 +25,7 @@ import PatientFinance from "@/components/PatientFinance";
 import PatientClinical from "@/components/PatientClinical";
 import PatientTimeTrackerWidget from "@/components/patient/PatientTimeTrackerWidget";
 import PatientTimelineTab from "@/components/patients/PatientTimelineTab";
+import PatientNotesTab from "@/components/patients/PatientNotesTab";
 import PatientMediaGallery from "@/components/patients/PatientMediaGallery";
 import { buildPrescriptionSrcDoc, prescriptionSrcDocToPdfBlob, type RxItem } from "@/lib/prescriptionPdfHtml";
 import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
@@ -200,7 +201,7 @@ export default function PatientProfile() {
   const canViewOrtho = isAdmin || user?.role === "Admin" || user?.role === "Dentist" || user?.permissions?.includes("access.ortho");
 
   // Start empty so we don't flash the wrong tab during auth load
-  const [activeTab, setActiveTab] = useState<"overview" | "clinical" | "finance" | "timeline" | "xrays" | "prescriptions" | "">("");
+  const [activeTab, setActiveTab] = useState<"overview" | "clinical" | "finance" | "timeline" | "xrays" | "prescriptions" | "notes" | "">("");
   const [hasSetInitialTab, setHasSetInitialTab] = useState(false);
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -230,7 +231,13 @@ export default function PatientProfile() {
   // Set the SMART default tab based on roles
   useEffect(() => {
       if (!authLoading && !hasSetInitialTab) {
-          if (tabParam === "finance" || tabParam === "clinical" || tabParam === "overview") {
+          // Every tab id is a valid deep link — the list used to stop at three, so ?tab=notes
+          // (or xrays, prescriptions, timeline) silently landed on the default tab instead.
+          if (
+              tabParam === "finance" || tabParam === "clinical" || tabParam === "overview" ||
+              tabParam === "timeline" || tabParam === "xrays" || tabParam === "prescriptions" ||
+              tabParam === "notes"
+          ) {
               setActiveTab(tabParam);
           } else {
               setActiveTab(canViewClinical ? "clinical" : "overview");
@@ -538,7 +545,19 @@ export default function PatientProfile() {
       // this previously reset medicalHistory to "None (Healthy)" on every save — overwriting
       // whatever was recorded at intake with a clean bill of health nobody gave.
       const finalHistory = editMedicalHistory.trim();
+      // Allergies and history are read as clinical statements, so they need a byline. Stamped only
+      // when one of them actually changes — a name or address edit must not reattribute them.
+      const medicalChanged =
+        finalHistory !== String(patient?.medicalHistory || "").trim() ||
+        editAllergies.trim() !== String(patient?.allergies || "").trim();
+      const medicalAuthorFields = medicalChanged
+        ? {
+            medicalNotesBy: user?.name || user?.email || "",
+            medicalNotesAt: new Date().toISOString(),
+          }
+        : {};
       await updateDoc(getClinicDoc("patients", id), {
+        ...medicalAuthorFields,
         name: combinedName,
         phone: normalizedPhone,
         address: editAddress,
@@ -562,12 +581,14 @@ export default function PatientProfile() {
   };
 
   const handleDeletePatient = async () => {
-    let isConfirmed = false;
-    if (confirm) {
-       isConfirmed = await confirm(t('confirmDeletePatient') || "Are you sure you want to permanently delete this patient? All their clinical and financial records will be lost.");
-    } else {
-       isConfirmed = window.confirm(t('confirmDeletePatient') || "Are you sure you want to permanently delete this patient? All their clinical and financial records will be lost.");
-    }
+    const isConfirmed = await confirm(
+      t('confirmDeletePatient') || "Are you sure you want to permanently delete this patient? All their clinical and financial records will be lost.",
+      {
+        title: language === "ar" ? "حذف المريض نهائياً" : "Delete patient permanently",
+        confirmLabel: language === "ar" ? "احذف" : "Delete",
+        tone: "danger",
+      }
+    );
 
     if (!isConfirmed) return;
 
@@ -844,13 +865,14 @@ export default function PatientProfile() {
   ];
   const avatarGradient = avatarPalette[(patient.name || "").length % avatarPalette.length];
 
-  const tabs: Array<{ id: "clinical" | "overview" | "finance" | "timeline" | "xrays" | "prescriptions"; label: string; icon: any; show: boolean }> = [
+  const tabs: Array<{ id: "clinical" | "overview" | "finance" | "timeline" | "xrays" | "prescriptions" | "notes"; label: string; icon: any; show: boolean }> = [
     { id: "clinical", label: language === "ar" ? "السجل السريري" : "Clinical", icon: Activity, show: !!canViewClinical },
     { id: "finance", label: language === "ar" ? "المالية" : "Finance", icon: Wallet, show: true },
     { id: "timeline", label: language === "ar" ? "سجل الزيارات" : "Timeline", icon: History, show: true },
     { id: "overview", label: language === "ar" ? "نظرة عامة" : "Overview", icon: LayoutDashboard, show: true },
     { id: "xrays", label: language === "ar" ? "الأشعة والصور" : "X-Rays & Photos", icon: Camera, show: true },
     { id: "prescriptions", label: language === "ar" ? "الروشتات والوصفات" : "Prescriptions", icon: Pill, show: true },
+    { id: "notes", label: language === "ar" ? "الملاحظات" : "Notes", icon: StickyNote, show: true },
   ];
 
   return (
@@ -1640,6 +1662,20 @@ export default function PatientProfile() {
           {activeTab === "finance" && (
             <div className="animate-in fade-in duration-300 mt-6">
                 <PatientFinance patientId={id} />
+            </div>
+          )}
+
+          {/* --- NOTES TAB (every note in the system, one timeline) --- */}
+          {activeTab === "notes" && (
+            <div className="animate-in fade-in duration-300 mt-6">
+              <PatientNotesTab
+                patientId={id as string}
+                patient={patient}
+                appointments={appointmentTimeline}
+                media={patientMedia}
+                prescriptions={prescriptionsHistory}
+                onJumpToTab={(tab) => setActiveTab(tab)}
+              />
             </div>
           )}
 

@@ -9,6 +9,7 @@ import {
 import { db, auth } from "@/lib/firebase";
 import { doc, getDoc, collection, getDocs, onSnapshot, query, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
 import { useUI } from "@/context/UIContext";
+import { useAuth } from "@/context/AuthContext";
 import { buildPrescriptionSrcDoc, prescriptionSrcDocToPdfBlob } from "@/lib/prescriptionPdfHtml";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
@@ -21,6 +22,7 @@ export default function PrescriptionStudio() {
   const router = useRouter();
   const id = (params?.id as string) || "";
   const { showToast } = useUI();
+  const { user } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [patient, setPatient] = useState<any>(null);
@@ -126,10 +128,13 @@ export default function PrescriptionStudio() {
       patientId: id,
       patientName: patient.name,
       date: new Date().toISOString().split("T")[0],
+      // `doctor` is whose name is printed on the prescription; `createdByName` is who wrote it up.
       doctor: selectedDoctor,
       diagnosis,
       drugs: rxItems,
       mode: "typed",
+      createdByUid: user?.uid || null,
+      createdByName: user?.name || user?.email || "",
       createdAt: serverTimestamp(),
       ...extra,
     });

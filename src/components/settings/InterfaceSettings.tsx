@@ -52,7 +52,11 @@ export default function InterfaceSettings() {
   const txt = {
     title: language === 'ar' ? "واجهة الاستخدام" : "Interface Settings",
     clinicalEditorLabel: language === 'ar' ? "محرر الإجراءات السريرية" : "Clinical Editor Mode",
-    clinicalEditorDesc: language === 'ar' ? "اختر كيف تريد عرض محرر الإجراءات (نافذة منبثقة أو شريط جانبي)." : "Choose how you want to display the procedure editor (Pop-up Modal or Side Drawer).",
+    // Desktop no longer uses either of these: the Clinical tab puts the teeth chart and the form
+    // straight on the page. Say so here rather than let the setting look broken on a laptop.
+    clinicalEditorDesc: language === 'ar'
+      ? "على الموبايل والتابلت: اختر شكل محرر الإجراءات (نافذة منبثقة أو شريط جانبي). على الكمبيوتر المحرر بيظهر في الصفحة نفسها تحت مخطط الأسنان."
+      : "On phones and tablets: choose how the procedure editor opens (pop-up modal or side drawer). On desktop the editor sits directly on the page, under the teeth chart.",
     appointmentEditorLabel: language === 'ar' ? "محرر المواعيد" : "Appointment Booking Mode",
     appointmentEditorDesc: language === 'ar' ? "اختر كيف تريد عرض نموذج حجز وتعديل المواعيد." : "Choose how you want to display the appointment booking and editing form.",
     modal: language === 'ar' ? "نافذة منبثقة" : "Pop-up Modal",

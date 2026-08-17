@@ -270,6 +270,9 @@ export async function saveBooking(
           note: "",
           doctor: data.doctor || userCtx.name || "System",
           doctorId: data.doctorId || null,
+          // The treating dentist above is not necessarily who booked this in.
+          createdByUid: userCtx.uid || null,
+          createdByName: userCtx.name || "System",
           date: normalizedDate || data.date,
           status: "Completed",
           ledgerId: newLedgerId,
@@ -361,6 +364,8 @@ export async function saveBooking(
         note: "",
         doctor: data.doctor || userCtx.name || "System",
         doctorId: data.doctorId || null,
+        createdByUid: userCtx.uid || null,
+        createdByName: userCtx.name || "System",
         date: normalizedDate || data.date,
         status: "Completed",
         ledgerId: newLedgerId,

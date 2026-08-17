@@ -9,7 +9,11 @@ export default function PatientClinical({ patient }: { patient: any }) {
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <ClinicalNotes patientId={p.id} onWriteRx={() => router.push(`/patients/${p.id}/rx`)} />
+      <ClinicalNotes
+        patientId={p.id}
+        teethData={p.teethData || {}}
+        onWriteRx={() => router.push(`/patients/${p.id}/rx`)}
+      />
     </div>
   );
 }

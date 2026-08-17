@@ -168,6 +168,10 @@ export interface ToothData {
   /** New: multiple diagnoses can be applied to the same tooth. */
   statuses?: string[];
   notes?: string;
+  /** Who typed `notes`, and when. Stamped only when the note text actually changes, so re-saving
+   *  a tooth's diagnoses does not reattribute someone else's sentence to the current user. */
+  notesBy?: string;
+  notesAt?: string;
   imageUrl?: string;
   /** Surfaces affected by a given diagnosis (e.g. { "caries_enamel": ["M", "O"] }) */
   surfaces?: Record<string, string[]>;
@@ -192,6 +196,10 @@ export function normalizeToothData(raw: any): ToothData {
     out.statuses = [raw.status];
   }
   if (typeof raw.notes === "string") out.notes = raw.notes;
+  // Carried through deliberately: the diagnosis page normalizes on read and writes the result
+  // straight back, so anything missing here is erased on the next save of any tooth.
+  if (typeof raw.notesBy === "string") out.notesBy = raw.notesBy;
+  if (typeof raw.notesAt === "string") out.notesAt = raw.notesAt;
   if (typeof raw.imageUrl === "string") out.imageUrl = raw.imageUrl;
   if (typeof raw.surfaces === "object" && raw.surfaces !== null) out.surfaces = raw.surfaces;
   return out;

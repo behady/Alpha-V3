@@ -1,20 +1,34 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { auth, db } from "@/lib/firebase";
 import { collection, onSnapshot, query, where, getDocs, doc, updateDoc, serverTimestamp, deleteDoc, addDoc } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
+import { useAuth } from "@/context/AuthContext";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { Note, RelatedAppointment, Staff, Service } from "./types";
 import TimelineCard from "./TimelineCard";
 import ServiceEditorDrawer from "./ServiceEditorDrawer";
+import ChartWorkspace from "./ChartWorkspace";
 import TransferServiceModal from "./TransferServiceModal";
+import { parseTeethString } from "./utils";
 import { resolveProcedureLedgerIdForNote } from "@/lib/syncProcedurePaymentLabFee";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-export default function ClinicalNotesContainer({ patientId, onWriteRx }: { patientId: string, onWriteRx?: () => void }) {
+import type { ToothData } from "@/lib/diagnosisCatalog";
+
+export default function ClinicalNotesContainer({
+  patientId,
+  teethData,
+  onWriteRx,
+}: {
+  patientId: string;
+  teethData?: Record<string, ToothData>;
+  onWriteRx?: () => void;
+}) {
   const { language } = useLanguage();
-  const { showToast, confirm, clinicalEditorMode } = useUI();
+  const { showToast, confirm } = useUI();
+  const { user } = useAuth();
 
   const [notes, setNotes] = useState<Note[]>([]);
   const [appointments, setAppointments] = useState<RelatedAppointment[]>([]);
@@ -32,10 +46,20 @@ export default function ClinicalNotesContainer({ patientId, onWriteRx }: { patie
     return () => window.removeEventListener("resize", checkIsDesktop);
   }, []);
 
-  // Drawer state
+  // Drawer state (mobile, and any desktop user who has not been switched over yet)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [drawerContextApptId, setDrawerContextApptId] = useState<string | null>(null);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
+
+  /**
+   * Chart-first desktop workspace. The tooth selection lives here rather than inside the editor
+   * because the chart sits above the form — clicking teeth is the first thing you do, before the
+   * form has been touched at all.
+   */
+  const [workspaceTeeth, setWorkspaceTeeth] = useState<string[]>([]);
+  /** Bumped after saving a new procedure, to remount the inline form back to a blank one. */
+  const [workspaceFormNonce, setWorkspaceFormNonce] = useState(0);
+  const workspaceRef = useRef<HTMLDivElement | null>(null);
 
   // Transfer state
   const [transferModalOpen, setTransferModalOpen] = useState(false);
@@ -86,23 +110,60 @@ export default function ClinicalNotesContainer({ patientId, onWriteRx }: { patie
   // Derived State
   const generalNotes = notes.filter(n => !n.appointmentId && !appointments.some(a => a.clinicalNoteId === n.id));
   
+  const scrollToWorkspace = () => {
+    workspaceRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   // Handlers for Services
   const handleAddGeneral = () => {
     setDrawerContextApptId(null);
     setEditingNote(null);
+    if (isDesktop) {
+      // Nothing to open — the form is already on the page. Clear it and take the user to it.
+      setWorkspaceTeeth([]);
+      setWorkspaceFormNonce((n) => n + 1);
+      scrollToWorkspace();
+      return;
+    }
     setIsDrawerOpen(true);
   };
 
   const handleAddAppointmentService = (apptId: string) => {
     setDrawerContextApptId(apptId);
     setEditingNote(null);
+    if (isDesktop) {
+      setWorkspaceTeeth([]);
+      setWorkspaceFormNonce((n) => n + 1);
+      scrollToWorkspace();
+      return;
+    }
     setIsDrawerOpen(true);
   };
 
   const handleEditService = (note: Note) => {
     setEditingNote(note);
     setDrawerContextApptId(note.appointmentId || null);
+    if (isDesktop) {
+      // Load the note's teeth back onto the chart so the edit reads the same as the entry did.
+      setWorkspaceTeeth(parseTeethString(note.tooth || ""));
+      scrollToWorkspace();
+      return;
+    }
     setIsDrawerOpen(true);
+  };
+
+  const handleWorkspaceCancelEdit = () => {
+    setEditingNote(null);
+    setDrawerContextApptId(null);
+    setWorkspaceTeeth([]);
+    setWorkspaceFormNonce((n) => n + 1);
+  };
+
+  const handleWorkspaceSaved = () => {
+    setEditingNote(null);
+    setDrawerContextApptId(null);
+    setWorkspaceTeeth([]);
+    setWorkspaceFormNonce((n) => n + 1);
   };
 
   const handleDeleteService = async (note: Note) => {
@@ -197,6 +258,11 @@ export default function ClinicalNotesContainer({ patientId, onWriteRx }: { patie
         date: newDate,
         status: "Ongoing",
         isContinued: true,
+        // A continuation is a new note in its own right, so it is signed by whoever continued it.
+        // The clone carries the original note's author forward under `continuedFromName`.
+        continuedFromName: (clonedData as any).createdByName || "",
+        createdByUid: auth.currentUser?.uid || null,
+        createdByName: user?.name || user?.email || "",
         createdAt: serverTimestamp(),
       };
       await addDoc(getClinicCollection("clinical_notes"), newNote);
@@ -206,100 +272,94 @@ export default function ClinicalNotesContainer({ patientId, onWriteRx }: { patie
     setTransferModalOpen(false);
   };
 
+  const timeline = (
+    <TimelineCard
+      services={notes}
+      appointments={appointments}
+      onAddService={handleAddGeneral}
+      onEditService={handleEditService}
+      onDeleteService={handleDeleteService}
+      onMoveService={(note) => openTransferModal(note, "move")}
+      onContinueService={(note) => openTransferModal(note, "continue")}
+      onReorder={handleReorder}
+    />
+  );
+
+  const transferModal = transferNote ? (
+    <TransferServiceModal
+      isOpen={transferModalOpen}
+      onClose={() => setTransferModalOpen(false)}
+      onConfirm={handleConfirmTransfer}
+      service={transferNote}
+      appointments={appointments}
+      actionType={transferAction}
+    />
+  ) : null;
+
+  /**
+   * Desktop: chart on top, form under it, work done below that — no pop-up anywhere. The editor
+   * modal/drawer preference still governs phones and tablets, where a full arch chart cannot sit
+   * above a form and the sheet is the only thing that fits.
+   */
+  if (isDesktop) {
+    return (
+      <div className="w-full space-y-6 pb-6">
+        <div ref={workspaceRef} className="scroll-mt-24">
+          <ChartWorkspace
+            patientId={patientId}
+            patientName={patientName}
+            teethData={teethData || {}}
+            servicesList={servicesList}
+            doctors={doctors}
+            editingNote={editingNote}
+            appointmentId={drawerContextApptId}
+            selectedTeeth={workspaceTeeth}
+            onSelectedTeethChange={setWorkspaceTeeth}
+            onCancelEdit={handleWorkspaceCancelEdit}
+            onSaved={handleWorkspaceSaved}
+            formKey={editingNote?.id || `new-${workspaceFormNonce}`}
+          />
+        </div>
+
+        {timeline}
+        {transferModal}
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col lg:flex-row gap-6 items-start">
       {/* Left Column: Cards */}
       <div className="flex-1 min-w-0 space-y-6 w-full pb-24 md:pb-6">
-
-        <TimelineCard
-          services={notes}
-          appointments={appointments}
-          onAddService={handleAddGeneral}
-          onEditService={handleEditService}
-          onDeleteService={handleDeleteService}
-          onMoveService={(note) => openTransferModal(note, "move")}
-          onContinueService={(note) => openTransferModal(note, "continue")}
-          onReorder={handleReorder}
-        />
+        {timeline}
       </div>
 
-      {/* Editor Logic */}
-      {clinicalEditorMode === 'drawer' ? (
-        <div 
-          className={`
-            fixed inset-0 z-[999] transition-opacity duration-300 lg:static lg:z-auto lg:w-[450px] lg:shrink-0 lg:sticky lg:top-[100px] lg:max-h-[calc(100vh-120px)] lg:flex lg:flex-col lg:bg-transparent bg-slate-900/40 backdrop-blur-sm
-            ${isDrawerOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none lg:opacity-100 lg:pointer-events-auto'}
-          `}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setIsDrawerOpen(false);
+      {/* Mobile editor. The component portals itself as a sheet or a modal depending on the
+          user's Interface setting; desktop never reaches this branch. */}
+      {isDrawerOpen && (
+        <ServiceEditorDrawer
+          isOpen={isDrawerOpen}
+          inline={false}
+          onClose={() => {
+            setIsDrawerOpen(false);
+            setEditingNote(null);
+            setDrawerContextApptId(null);
           }}
-        >
-          <div className={`
-            absolute bottom-0 left-0 right-0 h-[90vh] lg:h-full bg-transparent transition-transform duration-300
-            lg:static lg:w-full lg:flex lg:flex-col lg:flex-1 lg:min-h-0 lg:translate-y-0
-            ${isDrawerOpen ? 'translate-y-0' : 'translate-y-full lg:translate-y-0'}
-          `}>
-            {isDrawerOpen && (
-              <ServiceEditorDrawer
-                isOpen={isDrawerOpen}
-                inline={isDesktop}
-                onClose={() => {
-                   setIsDrawerOpen(false);
-                   setEditingNote(null);
-                   setDrawerContextApptId(null);
-                }}
-                patientId={patientId}
-                patientName={patientName}
-                appointmentId={drawerContextApptId}
-                initialNote={editingNote}
-                servicesList={servicesList}
-                doctors={doctors}
-                onSaved={() => {
-                  setIsDrawerOpen(false);
-                  setEditingNote(null);
-                  setDrawerContextApptId(null);
-                }}
-              />
-            )}
-          </div>
-        </div>
-      ) : (
-        <>
-          {isDrawerOpen && (
-            <ServiceEditorDrawer
-              isOpen={isDrawerOpen}
-              inline={false}
-              onClose={() => {
-                 setIsDrawerOpen(false);
-                 setEditingNote(null);
-                 setDrawerContextApptId(null);
-              }}
-              patientId={patientId}
-              patientName={patientName}
-              appointmentId={drawerContextApptId}
-              initialNote={editingNote}
-              servicesList={servicesList}
-              doctors={doctors}
-              onSaved={() => {
-                setIsDrawerOpen(false);
-                setEditingNote(null);
-                setDrawerContextApptId(null);
-              }}
-            />
-          )}
-        </>
-      )}
-
-      {transferNote && (
-        <TransferServiceModal
-          isOpen={transferModalOpen}
-          onClose={() => setTransferModalOpen(false)}
-          onConfirm={handleConfirmTransfer}
-          service={transferNote}
-          appointments={appointments}
-          actionType={transferAction}
+          patientId={patientId}
+          patientName={patientName}
+          appointmentId={drawerContextApptId}
+          initialNote={editingNote}
+          servicesList={servicesList}
+          doctors={doctors}
+          onSaved={() => {
+            setIsDrawerOpen(false);
+            setEditingNote(null);
+            setDrawerContextApptId(null);
+          }}
         />
       )}
+
+      {transferModal}
     </div>
   );
 }

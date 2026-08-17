@@ -22,6 +22,7 @@ import { doc, onSnapshot, updateDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
+import { useAuth } from "@/context/AuthContext";
 import PermissionGuard from "@/components/PermissionGuard";
 import TeethChart from "@/components/TeethChart";
 import PerioInputModal from "@/components/perio/PerioInputModal";
@@ -41,6 +42,7 @@ export default function DiagnosisPage() {
   const router = useRouter();
   const { language, isRTL, t } = useLanguage();
   const { showToast } = useUI();
+  const { user } = useAuth();
 
   const rawId = (params?.id as string) || "";
   const id = rawId ? decodeURIComponent(rawId) : "";
@@ -101,7 +103,19 @@ export default function DiagnosisPage() {
       delete next[toothId.toString()];
     } else {
       const payload: ToothData = { statuses };
-      if (notes) payload.notes = notes;
+      if (notes) {
+        payload.notes = notes;
+        // Keep the original author when only the diagnoses changed — otherwise every later edit
+        // to the same tooth would rewrite the note's byline to whoever happened to click.
+        const previous = teethData[toothId.toString()];
+        if (previous?.notes === notes && previous?.notesBy) {
+          payload.notesBy = previous.notesBy;
+          payload.notesAt = previous.notesAt;
+        } else {
+          payload.notesBy = user?.name || user?.email || "";
+          payload.notesAt = new Date().toISOString();
+        }
+      }
       if (imageUrl) payload.imageUrl = imageUrl;
       if (surfaces && Object.keys(surfaces).length > 0) payload.surfaces = surfaces;
       next[toothId.toString()] = payload;

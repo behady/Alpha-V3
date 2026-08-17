@@ -544,6 +544,10 @@ export default function AppointmentSidePanel({
                                     // clicking, so there is no user fallback.
                                     doctor: selectedAppointment.doctor || "Unassigned",
                                     doctorId: selectedAppointment.doctorId || null,
+                                    // Separate from `doctor` on purpose: this is who recorded it.
+                                    createdByUid: user?.uid || null,
+                                    createdByName: user?.name || user?.email || "",
+                                    createdByRole: user?.role || "",
                                     date: localDate,
                                     status: "Completed",
                                     ledgerId: newLedgerId,
