@@ -81,6 +81,36 @@ function verifyMetaSignature(rawBody, signatureHeader, appSecret) {
 }
 
 /**
+ * What the clinic already knows about an arriving phone number.
+ *
+ * The Cloud Functions twin of `findLeadMatches` in src/lib/leads.ts — kept in step with it
+ * so a lead that walks in through Facebook carries the same badges as one reception typed.
+ * Lookup failures are swallowed: a lead missing its badges is a small loss, a lead not
+ * written at all is the failure this whole system exists to prevent.
+ */
+async function findLeadMatches(db, clinicId, phone, ignoreLeadId) {
+  const empty = { existingPatientId: null, existingPatientName: null, duplicateOfLeadId: null };
+  const clean = String(phone || "").trim();
+  if (!clean) return empty;
+  try {
+    const [patients, leads] = await Promise.all([
+      db.collection(`clinics/${clinicId}/patients`).where("phone", "==", clean).limit(1).get(),
+      db.collection(`clinics/${clinicId}/leads`).where("phone", "==", clean).limit(2).get(),
+    ]);
+    const patient = patients.empty ? null : patients.docs[0];
+    const earlier = leads.docs.find((d) => d.id !== ignoreLeadId) || null;
+    return {
+      existingPatientId: patient ? patient.id : null,
+      existingPatientName: patient ? String(patient.data().name || "") : null,
+      duplicateOfLeadId: earlier ? earlier.id : null,
+    };
+  } catch (e) {
+    console.warn("findLeadMatches failed:", e);
+    return empty;
+  }
+}
+
+/**
  * Writes one lead into a clinic's inbox — or heals the stub left by an earlier failed try.
  *
  * Healing deliberately fills in only the facts Meta owns (name, phone, interest, notes,
@@ -107,10 +137,14 @@ async function writeLeadToClinic(db, clinicId, lead, todayStr) {
         patientId: null,
         branchId: null,
         branchName: null,
+        existingPatientId: lead.existingPatientId || null,
+        existingPatientName: lead.existingPatientName || null,
+        duplicateOfLeadId: lead.duplicateOfLeadId || null,
         createdBy: lead.createdBy || "meta-webhook",
         meta: lead.meta || null,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
+        stageChangedAt: FieldValue.serverTimestamp(),
       });
       return lead.pending ? "stub" : "created";
     }
@@ -124,6 +158,10 @@ async function writeLeadToClinic(db, clinicId, lead, todayStr) {
         interest: lead.interest || existing.interest || "",
         notes: lead.notes || existing.notes || "",
         meta: lead.meta || null,
+        // The stub had no phone, so its badges could not be looked up until now.
+        existingPatientId: lead.existingPatientId || existing.existingPatientId || null,
+        existingPatientName: lead.existingPatientName || existing.existingPatientName || null,
+        duplicateOfLeadId: lead.duplicateOfLeadId || existing.duplicateOfLeadId || null,
         updatedAt: FieldValue.serverTimestamp(),
       });
       return "healed";
@@ -225,6 +263,7 @@ async function processLeadEvent(db, event, todayStr) {
     noteLines.push(...parsed.extra);
 
     parsedName = parsed.name;
+    const matches = await findLeadMatches(db, clinicId, parsed.phone, `meta_${leadgenId}`);
     leadResult = await writeLeadToClinic(
       db,
       clinicId,
@@ -236,6 +275,7 @@ async function processLeadEvent(db, event, todayStr) {
         source: "Meta ads",
         notes: noteLines.join("\n"),
         createdBy: "meta-webhook",
+        ...matches,
         meta: { ...metaBase, fetchFailed: false },
       },
       todayStr

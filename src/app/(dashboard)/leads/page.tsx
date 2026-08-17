@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   Plus, Phone, MessageCircle, Search, ChevronDown, X, Loader2,
-  UserPlus, Building2, CalendarClock, Trash2, Inbox, Check,
+  UserPlus, Building2, CalendarClock, Trash2, Inbox, Check, UserCheck, Copy, Hourglass,
 } from "lucide-react";
 import { onSnapshot, orderBy, query, addDoc, updateDoc, deleteDoc, serverTimestamp, getDoc } from "firebase/firestore";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
@@ -17,8 +17,8 @@ import PermissionGuard from "@/components/PermissionGuard";
 import { logActivity } from "@/lib/logger";
 import { LOCATIONS_DOC, parseClinicBranches, type ClinicBranch } from "@/lib/clinicLocations";
 import {
-  DEFAULT_LEAD_SOURCES, LEAD_STAGES, findOrCreatePatientForLead,
-  leadStageLabel, leadStageStyles, type Lead, type LeadStage,
+  DEFAULT_LEAD_SOURCES, LEAD_STAGES, findOrCreatePatientForLead, findLeadMatches,
+  isLeadStale, STALE_AFTER_DAYS, leadStageLabel, leadStageStyles, type Lead, type LeadStage,
 } from "@/lib/leads";
 import {
   DEFAULT_COUNTRY_CODE, COUNTRY_CODE_OPTIONS, buildE164FromCountryCode,
@@ -185,13 +185,18 @@ export default function LeadsPage() {
       if (editingLead) {
         await updateDoc(getClinicDoc("leads", editingLead.id), payload);
       } else {
+        // What does the clinic already know about this number? Reception should see it on
+        // the card, not discover it halfway through a call.
+        const matches = await findLeadMatches(phone);
         await addDoc(getClinicCollection("leads"), {
           ...payload,
           stage: "new",
           patientId: null,
           lostReason: null,
+          ...matches,
           createdBy: user?.name || "",
           createdAt: serverTimestamp(),
+          stageChangedAt: serverTimestamp(),
         });
         await logActivity(
           { uid: user?.uid, name: user?.name, role: user?.role },
@@ -229,7 +234,16 @@ export default function LeadsPage() {
         if (reason === null) return;
         lostReason = reason.trim() || null;
       }
-      await updateDoc(getClinicDoc("leads", lead.id), { stage, lostReason, updatedAt: serverTimestamp() });
+      const patch: Record<string, unknown> = {
+        stage,
+        lostReason,
+        updatedAt: serverTimestamp(),
+        stageChangedAt: serverTimestamp(),
+      };
+      // The moment a lead stops being untouched, recorded once. Everything the funnel says
+      // about speed of reply is measured from here, so a later stage change must not move it.
+      if (stage !== "new" && !lead.firstContactedAt) patch.firstContactedAt = serverTimestamp();
+      await updateDoc(getClinicDoc("leads", lead.id), patch);
     } catch (e) {
       console.error("Stage change error:", e);
       showToast(isAr ? "حصل خطأ" : "Error", "error");
@@ -244,7 +258,14 @@ export default function LeadsPage() {
         name: lead.name, phone: lead.phone, source: lead.source,
       });
       await updateDoc(getClinicDoc("leads", lead.id), {
-        stage: "won", patientId, updatedAt: serverTimestamp(),
+        stage: "won",
+        patientId,
+        // `existed` is the authoritative answer to "did this channel bring a new patient?" —
+        // the funnel counts a returning patient's money in its own column.
+        isReturningPatient: existed,
+        updatedAt: serverTimestamp(),
+        stageChangedAt: serverTimestamp(),
+        ...(lead.firstContactedAt ? {} : { firstContactedAt: serverTimestamp() }),
       });
       await logActivity(
         { uid: user?.uid, name: user?.name, role: user?.role },
@@ -425,6 +446,7 @@ export default function LeadsPage() {
             {filtered.map((lead) => {
               const styles = leadStageStyles(lead.stage);
               const due = isDue(lead);
+              const stale = isLeadStale(lead);
               return (
                 <div key={lead.id} className={`bg-white rounded-2xl border shadow-sm p-3 sm:p-4 ${due ? "border-amber-300 ring-1 ring-amber-200" : "border-slate-100"}`}>
                   <div className="flex items-start justify-between gap-2 flex-wrap">
@@ -437,6 +459,26 @@ export default function LeadsPage() {
                         {due && (
                           <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 flex items-center gap-1">
                             <CalendarClock size={10} /> {lead.followUpDate === todayStr ? (isAr ? "متابعة اليوم" : "due today") : (isAr ? "متأخرة" : "overdue")}
+                          </span>
+                        )}
+                        {/* What the clinic already knows about this number — before the call, not during it. */}
+                        {lead.existingPatientId && (
+                          <button
+                            onClick={() => router.push(`/patients/${lead.existingPatientId}`)}
+                            className="text-[10px] font-black px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 flex items-center gap-1 hover:bg-violet-200 transition-colors"
+                            title={lead.existingPatientName || ""}
+                          >
+                            <UserCheck size={10} /> {isAr ? "مريض عندنا" : "already a patient"}
+                          </button>
+                        )}
+                        {lead.duplicateOfLeadId && (
+                          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 flex items-center gap-1">
+                            <Copy size={10} /> {isAr ? "سأل قبل كده" : "asked before"}
+                          </span>
+                        )}
+                        {stale && (
+                          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 flex items-center gap-1">
+                            <Hourglass size={10} /> {isAr ? `ساكن ${STALE_AFTER_DAYS}+ يوم` : `${STALE_AFTER_DAYS}+ days quiet`}
                           </span>
                         )}
                       </div>

@@ -25,6 +25,33 @@ interface LeadRow {
   normDate?: string;
   /** Stamped by the Meta webhook — what makes the per-campaign drill-down possible. */
   meta?: { campaignName?: string | null; adName?: string | null } | null;
+  /** Converted onto a patient file that already existed — money the channel did not create. */
+  isReturningPatient?: boolean;
+  createdAt?: { seconds?: number } | null;
+  firstContactedAt?: { seconds?: number } | null;
+  stageChangedAt?: { seconds?: number } | null;
+  updatedAt?: { seconds?: number } | null;
+}
+
+const STALE_LABEL_DAYS = 30;
+const STALE_AFTER_SECONDS = STALE_LABEL_DAYS * 24 * 60 * 60;
+
+function isStale(l: LeadRow, nowSeconds: number): boolean {
+  if (l.stage === "won" || l.stage === "lost") return false;
+  const last = l.stageChangedAt?.seconds || l.updatedAt?.seconds || l.createdAt?.seconds || 0;
+  return last > 0 && nowSeconds - last > STALE_AFTER_SECONDS;
+}
+
+/** "1h 40m" / "3d" — a duration a receptionist reads without doing arithmetic. */
+function humanMinutes(mins: number | null): string {
+  if (mins === null) return "—";
+  if (mins < 60) return `${Math.round(mins)}m`;
+  if (mins < 60 * 24) {
+    const h = Math.floor(mins / 60);
+    const m = Math.round(mins % 60);
+    return m ? `${h}h ${m}m` : `${h}h`;
+  }
+  return `${(mins / (60 * 24)).toFixed(1)}d`;
 }
 
 interface CampaignStat {
@@ -33,8 +60,11 @@ interface CampaignStat {
   won: number;
   lost: number;
   open: number;
+  stale: number;
   conversion: number;
   revenue: number;
+  /** Money from patients the clinic already had — shown apart, never inside `revenue`. */
+  returningRevenue: number;
 }
 
 interface FunnelStat {
@@ -43,8 +73,10 @@ interface FunnelStat {
   open: number;
   lost: number;
   won: number;
+  stale: number;
   conversion: number;
   revenue: number;
+  returningRevenue: number;
   /** Present only when the channel's leads carry campaign fingerprints (Meta ads). */
   campaigns: CampaignStat[];
 }
@@ -85,20 +117,38 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
       paidByPatient[pid] = (paidByPatient[pid] || 0) + paymentCash(pay);
     });
 
+    const nowSeconds = Date.now() / 1000;
+
     const summarize = (rows: LeadRow[], name: string) => {
       const won = rows.filter((l) => l.stage === "won").length;
       const lost = rows.filter((l) => l.stage === "lost").length;
-      const patientIds = new Set(rows.filter((l) => l.stage === "won" && l.patientId).map((l) => String(l.patientId)));
+
+      // New-business revenue and returning-patient revenue are counted apart: a channel may
+      // claim the patients it brought, not the treatment an existing patient was having anyway.
+      // Deduped per patient so one person converted twice cannot pay the channel twice.
+      const newPatients = new Set<string>();
+      const returningPatients = new Set<string>();
+      rows.forEach((l) => {
+        if (l.stage !== "won" || !l.patientId) return;
+        (l.isReturningPatient ? returningPatients : newPatients).add(String(l.patientId));
+      });
       let revenue = 0;
-      patientIds.forEach((pid) => { revenue += paidByPatient[pid] || 0; });
+      let returningRevenue = 0;
+      newPatients.forEach((pid) => { revenue += paidByPatient[pid] || 0; });
+      returningPatients.forEach((pid) => {
+        if (!newPatients.has(pid)) returningRevenue += paidByPatient[pid] || 0;
+      });
+
       return {
         name,
         total: rows.length,
         open: rows.length - won - lost,
         lost,
         won,
+        stale: rows.filter((l) => isStale(l, nowSeconds)).length,
         conversion: rows.length > 0 ? Math.round((won / rows.length) * 100) : 0,
         revenue,
+        returningRevenue,
       };
     };
 
@@ -127,8 +177,26 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
     open: stats.reduce((a, s) => a + s.open, 0),
     lost: stats.reduce((a, s) => a + s.lost, 0),
     won: stats.reduce((a, s) => a + s.won, 0),
+    stale: stats.reduce((a, s) => a + s.stale, 0),
     revenue: stats.reduce((a, s) => a + s.revenue, 0),
+    returningRevenue: stats.reduce((a, s) => a + s.returningRevenue, 0),
   }), [stats]);
+
+  /**
+   * How long the clinic takes to answer, in minutes, across leads that were answered at all.
+   * The one number on this page that changes what staff do tomorrow morning.
+   */
+  const avgMinutesToContact = useMemo(() => {
+    const gaps = (leads as LeadRow[])
+      .map((l) => {
+        const born = l.createdAt?.seconds || 0;
+        const touched = l.firstContactedAt?.seconds || 0;
+        return born && touched && touched >= born ? (touched - born) / 60 : null;
+      })
+      .filter((v): v is number => v !== null);
+    if (gaps.length === 0) return null;
+    return gaps.reduce((a, b) => a + b, 0) / gaps.length;
+  }, [leads]);
   const totalConversion = totals.total > 0 ? Math.round((totals.won / totals.total) * 100) : 0;
   const maxTotal = stats.length > 0 ? stats[0].total : 1;
 
@@ -140,6 +208,8 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
     won: isAr ? "وصلوا للكرسي" : "In the chair",
     conversion: isAr ? "نسبة التحويل" : "Conversion",
     revenue: isAr ? "الدخل (ج.م)" : "Revenue (EGP)",
+    returning: isAr ? "دخل مرضى قدامى" : "Returning-patient revenue",
+    stale: isAr ? "ساكن" : "Stale",
   };
 
   const handleExcelExport = () => {
@@ -149,19 +219,23 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
         [headers.source]: s.name,
         [headers.leadsIn]: s.total,
         [headers.open]: s.open,
+        [headers.stale]: s.stale,
         [headers.lost]: s.lost,
         [headers.won]: s.won,
         [headers.conversion]: `${s.conversion}%`,
         [headers.revenue]: s.revenue,
+        [headers.returning]: s.returningRevenue,
       }));
       exportData.push({
         [headers.source]: isAr ? "الإجمالي" : "TOTAL",
         [headers.leadsIn]: totals.total,
         [headers.open]: totals.open,
+        [headers.stale]: totals.stale,
         [headers.lost]: totals.lost,
         [headers.won]: totals.won,
         [headers.conversion]: `${totalConversion}%`,
         [headers.revenue]: totals.revenue,
+        [headers.returning]: totals.returningRevenue,
       });
       exportToExcel(exportData, `Marketing_Funnel_${new Date().toISOString().slice(0, 10)}`, isAr);
     } catch (err) {
@@ -184,11 +258,12 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
         <tr>
           ${td(s.name, "font-weight: 700;")}
           ${td(String(s.total))}
-          ${td(String(s.open))}
+          ${td(s.stale > 0 ? `${s.open} (${s.stale} ${isAr ? "ساكن" : "stale"})` : String(s.open))}
           ${td(String(s.lost), "color: #e11d48;")}
           ${td(String(s.won), "font-weight: 700; color: #059669;")}
           ${td(`${s.conversion}%`, "font-weight: 700;")}
           ${td(s.revenue.toLocaleString(), "font-weight: 700; color: #2563eb;")}
+          ${td(s.returningRevenue.toLocaleString(), "color: #64748b;")}
         </tr>
       `).join("");
 
@@ -201,6 +276,7 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
           ${td(String(totals.won), "color: #059669;")}
           ${td(`${totalConversion}%`)}
           ${td(totals.revenue.toLocaleString(), "color: #2563eb;")}
+          ${td(totals.returningRevenue.toLocaleString(), "color: #64748b;")}
         </tr>
       `;
 
@@ -208,7 +284,7 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
         <div style="margin-bottom: 24px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
           <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
             <thead><tr>
-              ${th(headers.source)}${th(headers.leadsIn)}${th(headers.open)}${th(headers.lost)}${th(headers.won)}${th(headers.conversion)}${th(headers.revenue)}
+              ${th(headers.source)}${th(headers.leadsIn)}${th(headers.open)}${th(headers.lost)}${th(headers.won)}${th(headers.conversion)}${th(headers.revenue)}${th(headers.returning)}
             </tr></thead>
             <tbody>${rowsHtml}${totalsHtml}</tbody>
           </table>
@@ -275,16 +351,30 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
   return (
     <div className="space-y-6">
       {/* KPI Strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         {[
-          { l: headers.leadsIn, v: totals.total.toString(), c: "text-slate-900" },
-          { l: headers.won, v: totals.won.toString(), c: "text-emerald-600" },
-          { l: headers.conversion, v: `${totalConversion}%`, c: "text-violet-600" },
-          { l: headers.revenue, v: `${totals.revenue.toLocaleString()} EGP`, c: "text-blue-600" },
+          { l: headers.leadsIn, v: totals.total.toString(), c: "text-slate-900", note: "" },
+          { l: headers.won, v: totals.won.toString(), c: "text-emerald-600", note: "" },
+          { l: headers.conversion, v: `${totalConversion}%`, c: "text-violet-600", note: "" },
+          {
+            l: isAr ? "متوسط زمن أول رد" : "Avg. time to reply",
+            v: humanMinutes(avgMinutesToContact),
+            c: avgMinutesToContact !== null && avgMinutesToContact <= 60 ? "text-emerald-600" : "text-amber-600",
+            note: isAr ? "من وصول العميل لأول تحرك" : "from arrival to first move",
+          },
+          {
+            l: headers.revenue,
+            v: `${totals.revenue.toLocaleString()} EGP`,
+            c: "text-blue-600",
+            note: totals.returningRevenue > 0
+              ? (isAr ? `+${totals.returningRevenue.toLocaleString()} من مرضى قدامى` : `+${totals.returningRevenue.toLocaleString()} from returning patients`)
+              : "",
+          },
         ].map((k) => (
           <div key={k.l} className="bg-white border border-slate-200 shadow-sm rounded-2xl p-4">
             <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">{k.l}</p>
             <p className={`text-xl font-black tabular-nums mt-1 ${k.c}`}>{k.v}</p>
+            {k.note && <p className="text-[10px] font-bold text-slate-400 mt-0.5">{k.note}</p>}
           </div>
         ))}
       </div>
@@ -352,11 +442,25 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
                       </div>
                     </td>
                     <td className="py-3 px-3 text-center font-black text-slate-800 tabular-nums">{s.total}</td>
-                    <td className="py-3 px-3 text-center font-bold text-sky-600 tabular-nums">{s.open}</td>
+                    <td className="py-3 px-3 text-center font-bold text-sky-600 tabular-nums">
+                      {s.open}
+                      {s.stale > 0 && (
+                        <span className="block text-[10px] font-black text-slate-400">
+                          {s.stale} {isAr ? "ساكن" : "stale"}
+                        </span>
+                      )}
+                    </td>
                     <td className="py-3 px-3 text-center font-bold text-rose-500 tabular-nums">{s.lost}</td>
                     <td className="py-3 px-3 text-center font-black text-emerald-600 tabular-nums">{s.won}</td>
                     <td className="py-3 px-3 text-center font-black text-violet-600 tabular-nums">{s.conversion}%</td>
-                    <td className="py-3 px-4 text-end font-black text-blue-600 tabular-nums">{s.revenue.toLocaleString()}</td>
+                    <td className="py-3 px-4 text-end font-black text-blue-600 tabular-nums">
+                      {s.revenue.toLocaleString()}
+                      {s.returningRevenue > 0 && (
+                        <span className="block text-[10px] font-black text-slate-400">
+                          +{s.returningRevenue.toLocaleString()} {isAr ? "عائد" : "returning"}
+                        </span>
+                      )}
+                    </td>
                   </tr>
                   {expanded === s.name &&
                     s.campaigns.map((c) => (
@@ -382,11 +486,25 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
               <tr className="bg-slate-50 font-black text-slate-800">
                 <td className="py-3 px-4">{isAr ? "الإجمالي" : "TOTAL"}</td>
                 <td className="py-3 px-3 text-center tabular-nums">{totals.total}</td>
-                <td className="py-3 px-3 text-center tabular-nums text-sky-600">{totals.open}</td>
+                <td className="py-3 px-3 text-center tabular-nums text-sky-600">
+                  {totals.open}
+                  {totals.stale > 0 && (
+                    <span className="block text-[10px] font-black text-slate-400">
+                      {totals.stale} {isAr ? "ساكن" : "stale"}
+                    </span>
+                  )}
+                </td>
                 <td className="py-3 px-3 text-center tabular-nums text-rose-500">{totals.lost}</td>
                 <td className="py-3 px-3 text-center tabular-nums text-emerald-600">{totals.won}</td>
                 <td className="py-3 px-3 text-center tabular-nums text-violet-600">{totalConversion}%</td>
-                <td className="py-3 px-4 text-end tabular-nums text-blue-600">{totals.revenue.toLocaleString()}</td>
+                <td className="py-3 px-4 text-end tabular-nums text-blue-600">
+                  {totals.revenue.toLocaleString()}
+                  {totals.returningRevenue > 0 && (
+                    <span className="block text-[10px] font-black text-slate-400">
+                      +{totals.returningRevenue.toLocaleString()} {isAr ? "عائد" : "returning"}
+                    </span>
+                  )}
+                </td>
               </tr>
             </tfoot>
           </table>
@@ -394,8 +512,8 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
 
         <p className="px-5 py-3 text-[11px] font-semibold text-slate-400 border-t border-slate-50">
           {isAr
-            ? `الدخل = المدفوعات خلال الفترة من المرضى اللي اتسجلوا كعملاء محتملين ووصلوا لمرحلة "${leadStageLabel("won", "ar")}".`
-            : `Revenue = payments in this period from patients whose lead reached "${leadStageLabel("won", "en")}". Channels only get credit for money traceable to a recorded lead.`}
+            ? `الدخل = المدفوعات خلال الفترة من المرضى اللي اتسجلوا كعملاء محتملين ووصلوا لمرحلة "${leadStageLabel("won", "ar")}". فلوس المرضى القدامى بتتحسب لوحدها ("عائد") — القناة تاخد فضل المرضى اللي جابتهم، مش علاج كان هيحصل أصلاً. و"ساكن" يعني مفيش أي حركة على العميل من ${STALE_LABEL_DAYS} يوم.`
+            : `Revenue = payments in this period from patients whose lead reached "${leadStageLabel("won", "en")}". Money from patients the clinic already had is counted separately ("returning") — a channel gets credit for the patients it brought, not treatment that was happening anyway. "Stale" means nobody has touched the lead in ${STALE_LABEL_DAYS} days.`}
         </p>
       </div>
     </div>

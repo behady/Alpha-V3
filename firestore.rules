@@ -101,7 +101,7 @@ service cloud.firestore {
               && subcollection != 'system_logs' && subcollection != 'staff' && subcollection != 'settings'
               && subcollection != 'ai_deletion_log' && subcollection != 'ai_pending_actions'
               && subcollection != 'message_drafts' && subcollection != 'sms_outbox'
-              && subcollection != 'sms_devices');
+              && subcollection != 'sms_devices' && subcollection != 'leads');
       }
 
       // --- SPECIFIC SUBCOLLECTION OVERRIDES ---
@@ -120,6 +120,19 @@ service cloud.firestore {
       // what every action in the app does via logActivity()), but nothing in the app ever
       // updates or deletes a log entry — not even a Clinic Admin can rewrite or erase history.
       // That's what makes it worth trusting as a record of what actually happened.
+      // Everyone who asked but never booked. Reception adds and works leads all day, so
+      // creating and updating stays open to any member — but deleting is Admin-only, because
+      // the marketing report is only as honest as its history. A lost lead with an awkward
+      // reason is exactly the record most worth keeping, and "lost" already hides it from
+      // the working list without erasing it. Note this subcollection is excluded from the
+      // blanket member-write grant above; without that exclusion the two rules would OR
+      // together and this restriction would do nothing at all.
+      match /leads/{leadId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow create, update: if isSuperAdmin() || (hasClinicRole(clinicId) && isClinicActive(clinicId));
+        allow delete: if isSuperAdmin() || (isClinicAdmin(clinicId) && isClinicActive(clinicId));
+      }
+
       match /system_logs/{logId} {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
         allow create: if isSuperAdmin() || (hasClinicRole(clinicId) && isClinicActive(clinicId));

@@ -169,6 +169,12 @@ async function main() {
       lastSeenAt: "2026-08-14T05:55:00.000Z",
       enabled: true,
     });
+    await setDoc(doc(db, "clinics/clinicA/leads/leadA1"), {
+      name: "Mona Adel",
+      phone: "+201000000900",
+      source: "Meta ads",
+      stage: "new",
+    });
     await setDoc(doc(db, "clinics/clinicB/patients/patB1"), { name: "Youssef" });
 
     // The WhatsApp gateway credentials. Whoever holds this token can message every patient in
@@ -551,6 +557,41 @@ async function main() {
   await check(
     "a phone's record cannot be deleted from the browser, only disabled",
     deleteDoc(doc(admin1, "clinics/clinicA/sms_devices/devA1")),
+    "deny"
+  );
+
+  // Leads are reception's daily work, so writing them stays open — but the marketing report is
+  // only as honest as its history, and a lost lead with an awkward reason is the record most
+  // worth keeping. Hence: anyone may work a lead, only an Admin may erase one.
+  console.log("leads");
+  await check(
+    "reception can add a lead",
+    setDoc(doc(assistant1, "clinics/clinicA/leads/leadA2"), {
+      name: "Walk-in caller",
+      phone: "+201000000901",
+      source: "Phone call",
+      stage: "new",
+    }),
+    "allow"
+  );
+  await check(
+    "reception can move a lead along",
+    updateDoc(doc(assistant1, "clinics/clinicA/leads/leadA1"), { stage: "contacted" }),
+    "allow"
+  );
+  await check(
+    "reception cannot delete a lead, only an Admin can",
+    deleteDoc(doc(assistant1, "clinics/clinicA/leads/leadA1")),
+    "deny"
+  );
+  await check(
+    "the clinic's Admin can delete a lead",
+    deleteDoc(doc(admin1, "clinics/clinicA/leads/leadA1")),
+    "allow"
+  );
+  await check(
+    "another clinic's Admin cannot read this clinic's leads",
+    getDoc(doc(adminB, "clinics/clinicA/leads/leadA2")),
     "deny"
   );
 

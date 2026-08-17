@@ -33,6 +33,35 @@ export interface Lead {
   createdBy?: string;
   createdAt?: { seconds: number } | null;
   updatedAt?: { seconds: number } | null;
+
+  // --- Intake findings, stamped once when the lead is written (see findLeadMatches) ---
+  /** This phone already belongs to a patient file. The clinic knows this person. */
+  existingPatientId?: string | null;
+  existingPatientName?: string | null;
+  /** An earlier lead carries the same phone — the same person asking twice. */
+  duplicateOfLeadId?: string | null;
+
+  /**
+   * True when converting linked to a patient who already existed. Marketing reports count
+   * their money separately: a channel may claim the patients it brought, not the treatment
+   * an old patient was going to have anyway.
+   */
+  isReturningPatient?: boolean;
+
+  /** First moment this lead stopped being untouched — the clock behind time-to-contact. */
+  firstContactedAt?: { seconds: number } | null;
+  /** Last stage movement, so a lead nobody has touched in a month can say so. */
+  stageChangedAt?: { seconds: number } | null;
+}
+
+/** A lead with no movement for this long is stale — visible as such rather than "in progress". */
+export const STALE_AFTER_DAYS = 30;
+
+export function isLeadStale(lead: Lead, nowSeconds = Date.now() / 1000): boolean {
+  if (lead.stage === "won" || lead.stage === "lost") return false;
+  const last = lead.stageChangedAt?.seconds || lead.updatedAt?.seconds || lead.createdAt?.seconds || 0;
+  if (!last) return false;
+  return nowSeconds - last > STALE_AFTER_DAYS * 24 * 60 * 60;
 }
 
 export function leadStageLabel(stage: string, language: "en" | "ar"): string {
@@ -76,6 +105,47 @@ export const DEFAULT_LEAD_SOURCES = [
   "TikTok",
   "Friend referral",
 ];
+
+/**
+ * Looks up what the clinic already knows about this phone, at the moment a lead arrives.
+ *
+ * Two different facts, deliberately kept apart: an existing *patient* means the clinic has
+ * treated this person before (so their money is not new business a channel can claim), while
+ * an earlier *lead* means the same enquiry arrived twice (so reception should not work it
+ * twice, and the funnel should not count two people where there is one).
+ *
+ * Both are stamped once at intake rather than computed on every render — the answer is about
+ * the moment the lead arrived, and recomputing it later would quietly rewrite history.
+ */
+export async function findLeadMatches(
+  phone: string,
+  ignoreLeadId?: string
+): Promise<{ existingPatientId: string | null; existingPatientName: string | null; duplicateOfLeadId: string | null }> {
+  const clean = (phone || "").trim();
+  const empty = { existingPatientId: null, existingPatientName: null, duplicateOfLeadId: null };
+  if (!clean) return empty;
+
+  try {
+    const [patientSnap, leadSnap] = await Promise.all([
+      getDocs(query(getClinicCollection("patients"), where("phone", "==", clean), limit(1))),
+      getDocs(query(getClinicCollection("leads"), where("phone", "==", clean), limit(2))),
+    ]);
+
+    const patient = patientSnap.empty ? null : patientSnap.docs[0];
+    const earlier = leadSnap.docs.find((d) => d.id !== ignoreLeadId) || null;
+
+    return {
+      existingPatientId: patient ? patient.id : null,
+      existingPatientName: patient ? String(patient.data().name || "") : null,
+      duplicateOfLeadId: earlier ? earlier.id : null,
+    };
+  } catch (e) {
+    // Never block an arriving lead over a lookup: a lead written without its badges is a
+    // small loss, a lead not written at all is the failure this whole system exists to avoid.
+    console.warn("findLeadMatches failed:", e);
+    return empty;
+  }
+}
 
 /**
  * Finds an existing patient with this exact phone, or creates one carrying the lead's source.
