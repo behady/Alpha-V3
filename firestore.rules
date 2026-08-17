@@ -225,6 +225,19 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // --- META LEAD ADS INTEGRATION ---
+    // App credentials (verify token, app secret) and the Facebook-page → clinic mapping with
+    // its page access tokens. Top-level for the same reason as clinic_secrets: the clinic
+    // wildcard grant must never reach them. Only the metaLeadsWebhook function and the
+    // connect-meta-page script touch these, both via the Admin SDK.
+    match /meta_integrations/{docId} {
+      allow read, write: if false;
+    }
+
+    match /meta_pages/{pageId} {
+      allow read, write: if false;
+    }
+
     // --- RETIRED: root SMS pairing (2026-08-14) ---
     // The old WebView app had no login of its own, so it authenticated to an API with a device
     // token obtained by pairing code, and both lived here at the root — out of reach of the
