@@ -83,11 +83,33 @@ if (args.list) {
   const clinicSnap = await db.doc(`clinics/${clinicId}`).get();
   if (!clinicSnap.exists) throw new Error(`Clinic ${clinicId} does not exist`);
 
+  const GRAPH = "https://graph.facebook.com/v23.0";
+
+  // A system-user (or user) token can mint the page's OWN token — that is what the
+  // webhook stores and uses. If the passed token already IS a page token, the lookup
+  // simply returns it back.
+  const pageRes = await fetch(`${GRAPH}/${pageId}?fields=name,access_token&access_token=${encodeURIComponent(token)}`);
+  const pageInfo = await pageRes.json();
+  if (!pageRes.ok) throw new Error(`Page lookup failed: ${JSON.stringify(pageInfo.error || pageInfo)}`);
+  const pageAccessToken = pageInfo.access_token || token;
+  const pageName = pageInfo.name || String(args["page-name"] || "");
+  console.log(`Page: ${pageName} (${pageId}) — ${pageInfo.access_token ? "derived the page's own token" : "using the provided token as-is"}`);
+
+  // Subscribing the app to the page is what makes Meta actually deliver leadgen pings.
+  const subRes = await fetch(`${GRAPH}/${pageId}/subscribed_apps`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: `subscribed_fields=leadgen&access_token=${encodeURIComponent(pageAccessToken)}`,
+  });
+  const subBody = await subRes.json();
+  if (!subRes.ok || !subBody.success) throw new Error(`subscribed_apps failed: ${JSON.stringify(subBody.error || subBody)}`);
+  console.log("App subscribed to the page for leadgen ✓");
+
   await db.doc(`meta_pages/${pageId}`).set(
     {
       clinicId,
-      pageAccessToken: token,
-      pageName: String(args["page-name"] || ""),
+      pageAccessToken,
+      pageName,
       enabled: true,
       updatedAt: FieldValue.serverTimestamp(),
     },
