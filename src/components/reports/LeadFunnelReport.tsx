@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Megaphone, FileSpreadsheet, Download } from "lucide-react";
+import React, { useMemo, useState } from "react";
+import { Megaphone, FileSpreadsheet, Download, ChevronDown, ChevronRight } from "lucide-react";
+import { SourceIcon } from "@/components/SourceIcon";
 import { exportToExcel, CHART_COLORS } from "./reportExcelUtils";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
 import { useUI } from "@/context/UIContext";
@@ -22,6 +23,18 @@ interface LeadRow {
   stage?: string;
   patientId?: string | null;
   normDate?: string;
+  /** Stamped by the Meta webhook — what makes the per-campaign drill-down possible. */
+  meta?: { campaignName?: string | null; adName?: string | null } | null;
+}
+
+interface CampaignStat {
+  name: string;
+  total: number;
+  won: number;
+  lost: number;
+  open: number;
+  conversion: number;
+  revenue: number;
 }
 
 interface FunnelStat {
@@ -32,6 +45,8 @@ interface FunnelStat {
   won: number;
   conversion: number;
   revenue: number;
+  /** Present only when the channel's leads carry campaign fingerprints (Meta ads). */
+  campaigns: CampaignStat[];
 }
 
 interface Props {
@@ -49,6 +64,7 @@ function paymentCash(d: Record<string, unknown>): number {
 export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: Props) {
   const { showToast } = useUI();
   const [exporting, setExporting] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   const stats: FunnelStat[] = useMemo(() => {
     const bySource: Record<string, { rows: LeadRow[]; patientIds: Set<string> }> = {};
@@ -69,21 +85,39 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
       paidByPatient[pid] = (paidByPatient[pid] || 0) + paymentCash(pay);
     });
 
+    const summarize = (rows: LeadRow[], name: string) => {
+      const won = rows.filter((l) => l.stage === "won").length;
+      const lost = rows.filter((l) => l.stage === "lost").length;
+      const patientIds = new Set(rows.filter((l) => l.stage === "won" && l.patientId).map((l) => String(l.patientId)));
+      let revenue = 0;
+      patientIds.forEach((pid) => { revenue += paidByPatient[pid] || 0; });
+      return {
+        name,
+        total: rows.length,
+        open: rows.length - won - lost,
+        lost,
+        won,
+        conversion: rows.length > 0 ? Math.round((won / rows.length) * 100) : 0,
+        revenue,
+      };
+    };
+
     return Object.entries(bySource)
       .map(([name, d]) => {
-        const won = d.rows.filter((l) => l.stage === "won").length;
-        const lost = d.rows.filter((l) => l.stage === "lost").length;
-        let revenue = 0;
-        d.patientIds.forEach((pid) => { revenue += paidByPatient[pid] || 0; });
-        return {
-          name,
-          total: d.rows.length,
-          open: d.rows.length - won - lost,
-          lost,
-          won,
-          conversion: d.rows.length > 0 ? Math.round((won / d.rows.length) * 100) : 0,
-          revenue,
-        };
+        // Campaign drill-down only where leads carry the webhook's fingerprint.
+        const tagged = d.rows.filter((l) => l.meta);
+        let campaigns: CampaignStat[] = [];
+        if (tagged.length > 0) {
+          const byCampaign = new Map<string, LeadRow[]>();
+          tagged.forEach((l) => {
+            const key = String(l.meta?.campaignName || "").trim() || (isAr ? "بدون حملة / طبيعي" : "Organic / no campaign");
+            byCampaign.set(key, [...(byCampaign.get(key) || []), l]);
+          });
+          campaigns = Array.from(byCampaign.entries())
+            .map(([cname, rows]) => summarize(rows, cname))
+            .sort((a, b) => b.total - a.total);
+        }
+        return { ...summarize(d.rows, name), campaigns };
       })
       .sort((a, b) => b.total - a.total);
   }, [leads, payments, isAr]);
@@ -294,26 +328,54 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
             </thead>
             <tbody className="divide-y divide-slate-50">
               {stats.map((s, i) => (
-                <tr key={s.name} className="hover:bg-slate-50/60 transition-colors">
-                  <td className="py-3 px-4">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
-                      <span className="font-bold text-slate-800">{s.name}</span>
-                    </div>
-                    <div className="mt-1.5 h-1.5 rounded-full bg-slate-100 overflow-hidden max-w-[160px]">
-                      <div
-                        className="h-full rounded-full"
-                        style={{ width: `${Math.max(6, Math.round((s.total / maxTotal) * 100))}%`, background: CHART_COLORS[i % CHART_COLORS.length] }}
-                      />
-                    </div>
-                  </td>
-                  <td className="py-3 px-3 text-center font-black text-slate-800 tabular-nums">{s.total}</td>
-                  <td className="py-3 px-3 text-center font-bold text-sky-600 tabular-nums">{s.open}</td>
-                  <td className="py-3 px-3 text-center font-bold text-rose-500 tabular-nums">{s.lost}</td>
-                  <td className="py-3 px-3 text-center font-black text-emerald-600 tabular-nums">{s.won}</td>
-                  <td className="py-3 px-3 text-center font-black text-violet-600 tabular-nums">{s.conversion}%</td>
-                  <td className="py-3 px-4 text-end font-black text-blue-600 tabular-nums">{s.revenue.toLocaleString()}</td>
-                </tr>
+                <React.Fragment key={s.name}>
+                  <tr
+                    className={`transition-colors ${s.campaigns.length > 0 ? "cursor-pointer hover:bg-indigo-50/40" : "hover:bg-slate-50/60"}`}
+                    onClick={() => s.campaigns.length > 0 && setExpanded(expanded === s.name ? null : s.name)}
+                  >
+                    <td className="py-3 px-4">
+                      <div className="flex items-center gap-2">
+                        <SourceIcon source={s.name} size={18} />
+                        <span className="font-bold text-slate-800">{s.name}</span>
+                        {s.campaigns.length > 0 && (
+                          <span className="flex items-center gap-0.5 text-[10px] font-black text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded-full">
+                            {s.campaigns.length} {isAr ? "حملة" : s.campaigns.length === 1 ? "campaign" : "campaigns"}
+                            {expanded === s.name ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1.5 h-1.5 rounded-full bg-slate-100 overflow-hidden max-w-[160px]">
+                        <div
+                          className="h-full rounded-full"
+                          style={{ width: `${Math.max(6, Math.round((s.total / maxTotal) * 100))}%`, background: CHART_COLORS[i % CHART_COLORS.length] }}
+                        />
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 text-center font-black text-slate-800 tabular-nums">{s.total}</td>
+                    <td className="py-3 px-3 text-center font-bold text-sky-600 tabular-nums">{s.open}</td>
+                    <td className="py-3 px-3 text-center font-bold text-rose-500 tabular-nums">{s.lost}</td>
+                    <td className="py-3 px-3 text-center font-black text-emerald-600 tabular-nums">{s.won}</td>
+                    <td className="py-3 px-3 text-center font-black text-violet-600 tabular-nums">{s.conversion}%</td>
+                    <td className="py-3 px-4 text-end font-black text-blue-600 tabular-nums">{s.revenue.toLocaleString()}</td>
+                  </tr>
+                  {expanded === s.name &&
+                    s.campaigns.map((c) => (
+                      <tr key={`${s.name}::${c.name}`} className="bg-indigo-50/30">
+                        <td className="py-2 px-4">
+                          <span className="flex items-center gap-1.5 ps-6 text-xs font-bold text-slate-600">
+                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-300 shrink-0" />
+                            {c.name}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 text-center text-xs font-bold text-slate-700 tabular-nums">{c.total}</td>
+                        <td className="py-2 px-3 text-center text-xs font-bold text-sky-600 tabular-nums">{c.open}</td>
+                        <td className="py-2 px-3 text-center text-xs font-bold text-rose-500 tabular-nums">{c.lost}</td>
+                        <td className="py-2 px-3 text-center text-xs font-bold text-emerald-600 tabular-nums">{c.won}</td>
+                        <td className="py-2 px-3 text-center text-xs font-bold text-violet-600 tabular-nums">{c.conversion}%</td>
+                        <td className="py-2 px-4 text-end text-xs font-bold text-blue-600 tabular-nums">{c.revenue.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                </React.Fragment>
               ))}
             </tbody>
             <tfoot>

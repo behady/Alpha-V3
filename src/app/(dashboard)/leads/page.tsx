@@ -23,6 +23,7 @@ import {
 import {
   DEFAULT_COUNTRY_CODE, COUNTRY_CODE_OPTIONS, buildE164FromCountryCode,
 } from "@/lib/phoneNumber";
+import { SourceIcon } from "@/components/SourceIcon";
 
 /**
  * The Leads inbox — the CRM's front door.
@@ -297,7 +298,7 @@ export default function LeadsPage() {
 
   return (
     <PermissionGuard permission="access.patients">
-      <div className="max-w-5xl mx-auto px-3 sm:px-6 py-5 sm:py-8">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 xl:px-10 py-5 sm:py-8">
         {/* Header */}
         <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
           <div className="flex items-center gap-3">
@@ -352,7 +353,9 @@ export default function LeadsPage() {
             <div className="px-4 pb-3 divide-y divide-slate-50">
               {stats.bySource.map(([source, row]) => (
                 <div key={source} className="flex items-center justify-between py-2 text-sm">
-                  <span className="font-bold text-slate-700">{source}</span>
+                  <span className="font-bold text-slate-700 flex items-center gap-2">
+                    <SourceIcon source={source} size={16} /> {source}
+                  </span>
                   <span className="font-bold text-slate-500 tabular-nums">
                     {row.total} {isAr ? "→ كرسي" : "→ chair"} <span className="text-emerald-600">{row.won}</span>
                   </span>
@@ -438,8 +441,9 @@ export default function LeadsPage() {
                         )}
                       </div>
                       <p className="text-xs text-slate-500 font-bold mt-1" dir="ltr">{lead.phone}</p>
-                      <p className="text-xs text-slate-600 font-medium mt-1 truncate">
-                        {[lead.interest, lead.source, lead.branchName].filter(Boolean).join(" · ")}
+                      <p className="text-xs text-slate-600 font-medium mt-1 truncate flex items-center gap-1.5">
+                        {lead.source && <SourceIcon source={lead.source} size={14} />}
+                        <span className="truncate">{[lead.interest, lead.source, lead.branchName].filter(Boolean).join(" · ")}</span>
                       </p>
                       {lead.notes && <p className="text-[11px] text-slate-400 font-medium mt-1 line-clamp-2">{lead.notes}</p>}
                       {lead.stage === "lost" && lead.lostReason && (
