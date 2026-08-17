@@ -9,7 +9,11 @@ import { doc, getDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { useLanguage } from "@/context/LanguageContext";
 
-export default function ClinicSwitcher() {
+/**
+ * `expanded` is passed by the desktop rail when it is showing labels. Collapsed (and on mobile)
+ * this stays the single icon button it has always been.
+ */
+export default function ClinicSwitcher({ expanded = false }: { expanded?: boolean } = {}) {
   const { user } = useAuth();
   const { clinicId, setClinicId } = useClinic();
   const router = useRouter();
@@ -66,19 +70,25 @@ export default function ClinicSwitcher() {
   const currentClinicName = clinics.find(c => c.id === clinicId)?.name || "Switch Clinic";
 
   return (
-    <div className="relative group w-full px-3 mb-4" ref={dropdownRef}>
+    <div className="relative group w-full shrink-0 px-3 mb-4 [@media(max-height:840px)]:mb-2" ref={dropdownRef}>
       <button 
         onClick={() => setIsOpen(!isOpen)}
         className={`
-          w-[46px] h-[46px] mx-auto rounded-xl flex items-center justify-center transition-all duration-300 relative z-10
+          rounded-xl flex items-center transition-all duration-300 relative z-10
+          ${expanded
+            ? 'w-full gap-3 px-2.5 py-2 justify-start'
+            : 'w-[46px] h-[46px] [@media(max-height:840px)]:w-[38px] [@media(max-height:840px)]:h-[38px] mx-auto justify-center'}
           ${isOpen ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-indigo-600 border border-indigo-100 hover:bg-indigo-50 shadow-sm'}
         `}
       >
-        <Building2 size={20} />
+        <Building2 className="size-5 [@media(max-height:840px)]:size-[18px] shrink-0" />
+        {expanded && (
+          <span className="truncate text-sm font-bold">{currentClinicName}</span>
+        )}
       </button>
 
       {/* Tooltip on hover if closed */}
-      {!isOpen && (
+      {!isOpen && !expanded && (
         <div className={`absolute top-1/2 -translate-y-1/2 z-[200] bg-[#2D3748] text-white text-xs font-bold px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg whitespace-nowrap ${isRTL ? 'right-full mr-4' : 'left-full ml-4'}`}>
           {currentClinicName}
         </div>

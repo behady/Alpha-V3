@@ -21,6 +21,7 @@ import NotificationBell from "@/components/NotificationBell";
 import ReceptionSummonOverlay from "@/components/summon/ReceptionSummonOverlay";
 import { useUI } from "@/context/UIContext";
 import ClinicSwitcher from "@/components/dashboard/ClinicSwitcher";
+import DesktopSidebar from "@/components/dashboard/DesktopSidebar";
 import AiChatWidget from "@/components/AiChatWidget";
 
 const plusJakartaSans = Plus_Jakarta_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
@@ -36,7 +37,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { appointmentsVisibility } = useUI();
   
   const [isOpen, setIsOpen] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [searchVal, setSearchVal] = useState("");
 
@@ -195,102 +195,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="absolute top-0 right-0 w-[60%] h-[70%] bg-gradient-to-bl from-white/[0.4] to-transparent blur-[120px] rounded-bl-full transform translate-x-1/4 -translate-y-1/4" />
         </div>
       
-        {/* --- SLIM DESKTOP SIDEBAR --- */}
-        <aside className={`
-          hidden lg:flex flex-col w-[88px] shrink-0 items-center py-6 bg-transparent z-[100]
-          ${isRTL ? 'right-0' : 'left-0'}
-        `}>
-          {/* LOGO */}
-          <div className="flex items-center justify-center mb-4 shrink-0">
-             <div className="w-12 h-12 bg-transparent text-slate-800 flex items-center justify-center">
-                {/* Simplified Sparkle logo from image */}
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
-             </div>
-          </div>
-
-          {/* CLINIC SWITCHER */}
-          <ClinicSwitcher />
-
-          {/* MAIN NAV ICONS */}
-          <nav className="flex-1 w-full flex flex-col items-center gap-2 mt-1">
-            {visibleItems.map((item) => {
-              const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
-              const label = t(item.key as any) || item.key.charAt(0).toUpperCase() + item.key.slice(1);
-
-              return (
-                <div key={item.href} className={`group relative flex w-full justify-center px-3`}>
-                  <Link 
-                    href={item.href}
-                    className={`
-                      w-[46px] h-[46px] flex items-center justify-center transition-all duration-300 relative z-10 rounded-full
-                      ${isActive ? `bg-[#2D3748] text-white shadow-[0_4px_12px_rgba(45,55,72,0.2)]` : "bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 shadow-sm border border-slate-100"}
-                    `}
-                  >
-                    <item.icon size={20} className={`transition-transform duration-300 ${isActive ? 'scale-105' : 'group-hover:scale-105'}`} strokeWidth={isActive ? 2.5 : 2} />
-                  </Link>
-                  {/* Tooltip */}
-                  <div className={`absolute top-1/2 -translate-y-1/2 z-[200] bg-[#2D3748] text-white text-xs font-bold px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg whitespace-nowrap ${isRTL ? 'right-full mr-4' : 'left-full ml-4'}`}>
-                    {label}
-                  </div>
-                </div>
-              );
-            })}
-          </nav>
-
-          {/* BOTTOM ICONS (Settings, Support, Logout) */}
-          <div className="flex flex-col items-center gap-2 mt-auto w-full">
-             {showSettings && (
-                 <div className={`group relative flex w-full justify-center px-3`}>
-                  <Link href="/settings" className={`w-[46px] h-[46px] rounded-full flex items-center justify-center transition-all duration-300 ${pathname.startsWith('/settings') ? `bg-[#2D3748] text-white shadow-md` : 'bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 shadow-sm border border-slate-100'}`}>
-                      <Settings size={20} strokeWidth={pathname.startsWith('/settings') ? 2.5 : 2}/>
-                  </Link>
-                  <div className={`absolute top-1/2 -translate-y-1/2 z-[200] bg-[#2D3748] text-white text-xs font-bold px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg whitespace-nowrap ${isRTL ? 'right-full mr-4' : 'left-full ml-4'}`}>
-                    {t('settings' as any) || (language === 'ar' ? 'الإعدادات' : 'Settings')}
-                  </div>
-                </div>
-             )}
-
-             {/* Help is deliberately ungated: the people most likely to need it are the ones with
-                 the fewest permissions. */}
-             <div className={`group relative flex w-full justify-center px-3`}>
-                <Link href="/help" className={`w-[46px] h-[46px] rounded-full flex items-center justify-center transition-all duration-300 ${pathname.startsWith('/help') ? `bg-[#2D3748] text-white shadow-md` : 'bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 shadow-sm border border-slate-100'}`}>
-                    <LifeBuoy size={20} strokeWidth={pathname.startsWith('/help') ? 2.5 : 2}/>
-                </Link>
-                <div className={`absolute top-1/2 -translate-y-1/2 z-[200] bg-[#2D3748] text-white text-xs font-bold px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg whitespace-nowrap ${isRTL ? 'right-full mr-4' : 'left-full ml-4'}`}>
-                    {language === 'ar' ? 'مركز المساعدة' : 'Help Center'}
-                </div>
-             </div>
-
-             <div className={`group relative flex w-full justify-center px-3`}>
-                <button onClick={toggleLanguage} className="w-[46px] h-[46px] rounded-full flex items-center justify-center transition-all duration-300 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 shadow-sm border border-slate-100">
-                    <Languages size={20} strokeWidth={2}/>
-                </button>
-                <div className={`absolute top-1/2 -translate-y-1/2 z-[200] bg-[#2D3748] text-white text-xs font-bold px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg whitespace-nowrap ${isRTL ? 'right-full mr-4' : 'left-full ml-4'}`}>
-                    {language === 'ar' ? 'English' : 'عربي'}
-                </div>
-             </div>
-
-             {user?.isSuperAdmin && (
-               <div className={`group relative flex w-full justify-center px-3 mb-2`}>
-                  <button onClick={handleReturnToSuperAdmin} className="w-[46px] h-[46px] rounded-full flex items-center justify-center transition-all duration-300 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 hover:text-emerald-700 shadow-sm border border-emerald-100">
-                      <ShieldCheck size={20} strokeWidth={2}/>
-                  </button>
-                  <div className={`absolute top-1/2 -translate-y-1/2 z-[200] bg-emerald-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg whitespace-nowrap ${isRTL ? 'right-full mr-4' : 'left-full ml-4'}`}>
-                      Return to Hub
-                  </div>
-               </div>
-             )}
-
-             <div className={`group relative flex w-full justify-center px-3`}>
-                <button onClick={handleLogout} className="w-[46px] h-[46px] rounded-full flex items-center justify-center transition-all duration-300 bg-white text-rose-500 hover:bg-rose-50 hover:text-rose-600 shadow-sm border border-rose-100">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-                </button>
-                <div className={`absolute top-1/2 -translate-y-1/2 z-[200] bg-rose-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg whitespace-nowrap ${isRTL ? 'right-full mr-4' : 'left-full ml-4'}`}>
-                  {language === 'en' ? 'Logout' : 'تسجيل الخروج'}
-                </div>
-             </div>
-          </div>
-        </aside>
+        {/* --- DESKTOP RAIL --- */}
+        <DesktopSidebar
+          items={visibleItems}
+          showSettings={showSettings}
+          isSuperAdmin={!!user?.isSuperAdmin}
+          onLogout={handleLogout}
+          onReturnToSuperAdmin={handleReturnToSuperAdmin}
+        />
 
         {/* MOBILE MENU OVERLAY */}
         {isOpen && (

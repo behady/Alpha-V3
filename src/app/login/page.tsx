@@ -113,6 +113,45 @@ export default function LoginPage() {
     }
   };
 
+  /**
+   * Google sign-in fails for reasons email sign-in never does, and they need different answers —
+   * a blocked pop-up is the user's browser, an unauthorised domain is the Firebase console, and a
+   * closed pop-up is not an error at all. This path used to render one sentence for all of them,
+   * which told nobody anything and made the failures impossible to report.
+   */
+  const getGoogleError = (errorCode: string) => {
+    const host = typeof window !== "undefined" ? window.location.hostname : "";
+    switch (errorCode) {
+      case 'auth/unauthorized-domain':
+        return language === 'ar'
+          ? `العنوان ده (${host}) مش مسموح بيه في Firebase. ضيفه من: Firebase Console ← Authentication ← Settings ← Authorized domains.`
+          : `This address (${host}) is not on Firebase's allowed list. Add it in Firebase Console → Authentication → Settings → Authorized domains.`;
+      case 'auth/popup-blocked':
+        return language === 'ar'
+          ? "المتصفح منع النافذة المنبثقة. اسمح بالنوافذ المنبثقة للموقع ده وجرّب تاني."
+          : "Your browser blocked the sign-in pop-up. Allow pop-ups for this site and try again.";
+      case 'auth/popup-closed-by-user':
+      case 'auth/cancelled-popup-request':
+        return language === 'ar'
+          ? "تم إغلاق نافذة جوجل قبل ما تكمل. جرّب تاني."
+          : "The Google window closed before sign-in finished. Try again.";
+      case 'auth/operation-not-allowed':
+        return language === 'ar'
+          ? "الدخول بحساب جوجل غير مفعّل على النظام. فعّله من: Firebase Console ← Authentication ← Sign-in method ← Google."
+          : "Google sign-in is not enabled for this project. Turn it on in Firebase Console → Authentication → Sign-in method → Google.";
+      case 'auth/account-exists-with-different-credential':
+        return language === 'ar'
+          ? "فيه حساب بنفس البريد ده مسجّل بطريقة تانية. سجّل الدخول بالبريد وكلمة المرور."
+          : "An account with this email already exists using a different sign-in method. Sign in with email and password instead.";
+      case 'auth/network-request-failed':
+        return language === 'ar' ? "مفيش اتصال بالإنترنت. اتأكد من الشبكة وجرّب تاني." : "No network connection. Check your internet and try again.";
+      default:
+        return language === 'ar'
+          ? `فشل تسجيل الدخول بواسطة جوجل (${errorCode || "unknown"}).`
+          : `Google sign-in failed (${errorCode || "unknown"}).`;
+    }
+  };
+
   // Confirms the signed-in account actually holds a role in the requested clinic, and records the
   // choice for ClinicContext to pick up. Note this is a routing guard, not an auth factor: Firebase
   // authenticates on the credential alone, and Firestore rules are what actually keep one clinic's
@@ -155,8 +194,8 @@ export default function LoginPage() {
       if (!(await applyClinicSelection(cred.user.uid))) return;
       router.push("/"); // Redirect to dashboard on success
     } catch (error: any) {
-      console.error(error);
-      setErrorMsg(language === 'ar' ? "فشل تسجيل الدخول بواسطة جوجل. يرجى المحاولة مرة أخرى." : "Failed to sign in with Google. Please try again.");
+      console.error("Google sign-in failed:", error?.code, error);
+      setErrorMsg(getGoogleError(error?.code || ""));
       setLoading(false);
     }
   };
