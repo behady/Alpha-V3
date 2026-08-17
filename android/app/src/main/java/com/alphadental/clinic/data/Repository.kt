@@ -516,7 +516,9 @@ object Repository {
 
         val today = todayKey()
         val toothLabel = formatTeeth(teeth)
-        val units = pricingUnits(teeth)
+        // Respects the service's billing rule: flat fees charge once, per-arch per
+        // jaw, everything else per tooth — the same maths the website applies.
+        val units = pricingUnitsFor(service?.pricingMode, teeth)
 
         // Four fillings is four times the money. The phone used to write the single-tooth price
         // whatever was selected, so exactly the treatments worth the most were the ones it
@@ -571,6 +573,7 @@ object Repository {
             "unitCost" to unitCost,
             "unitsCount" to units,
             "pricingFormula" to pricingFormula(unitCost, units),
+            "pricingMode" to (service?.pricingMode?.ifBlank { "per_tooth" } ?: "per_tooth"),
             "status" to status,
             "doctor" to (doctor?.name ?: ""),
             "doctorId" to doctor?.id,
@@ -1472,8 +1475,91 @@ object Repository {
                 estimatedLabFee = (doc.get("estimatedLabFee") as? Number)?.toDouble() ?: 0.0,
                 category = doc.getString("category").orEmpty(),
                 icon = doc.getString("icon").orEmpty(),
+                pricingMode = doc.getString("pricingMode").orEmpty(),
             )
         }.sortedBy { it.name }
+    }
+
+    // ---------------------------------------------------------------------- leads
+
+    private fun leads(clinicId: String) =
+        Firebase.db().collection("clinics").document(clinicId).collection("leads")
+
+    /**
+     * The CRM inbox, newest first. Capped: an inbox is worked from the top, and
+     * the website is where months of history get mined.
+     */
+    suspend fun loadLeads(clinicId: String): List<Lead> {
+        val snap = leads(clinicId)
+            .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+            .limit(200)
+            .get()
+            .await()
+        return snap.documents.map { doc ->
+            Lead(
+                id = doc.id,
+                name = doc.getString("name").orEmpty(),
+                phone = doc.getString("phone").orEmpty(),
+                interest = doc.getString("interest").orEmpty(),
+                source = doc.getString("source").orEmpty(),
+                stage = doc.getString("stage").orEmpty().ifBlank { "new" },
+                lostReason = doc.getString("lostReason").orEmpty(),
+                notes = doc.getString("notes").orEmpty(),
+                followUpDate = doc.getString("followUpDate").orEmpty(),
+                patientId = doc.getString("patientId").orEmpty(),
+                existingPatientName = doc.getString("existingPatientName").orEmpty(),
+                hasFirstContact = doc.get("firstContactedAt") != null,
+                createdAtMillis = doc.getTimestamp("createdAt")?.toDate()?.time ?: 0L,
+            )
+        }
+    }
+
+    /**
+     * Move a lead along the pipe. Mirrors the website's setStage: the first move
+     * off "new" stamps firstContactedAt — the speed-to-first-contact clock — and a
+     * later stage change never touches it again. "won" is deliberately not
+     * accepted here: converting creates or links a patient file, and that flow
+     * lives on the website.
+     */
+    suspend fun setLeadStage(clinicId: String, lead: Lead, stage: String, lostReason: String?): Result<Unit> = runCatching {
+        require(stage != "won") { "Converting a lead is done on the website." }
+        val patch = mutableMapOf<String, Any?>(
+            "stage" to stage,
+            "updatedAt" to FieldValue.serverTimestamp(),
+        )
+        if (stage == "lost") patch["lostReason"] = lostReason?.trim().orEmpty()
+        if (stage != "new" && !lead.hasFirstContact) patch["firstContactedAt"] = FieldValue.serverTimestamp()
+        leads(clinicId).document(lead.id).update(patch).await()
+        Unit
+    }
+
+    /** A lead typed in at the desk — a walk-in, a phone call. Same shape the website writes. */
+    suspend fun addLead(
+        clinicId: String,
+        name: String,
+        phone: String,
+        source: String,
+        interest: String,
+        notes: String,
+        byName: String,
+    ): Result<Unit> = runCatching {
+        require(name.isNotBlank()) { "A name is required." }
+        leads(clinicId).add(
+            mapOf(
+                "name" to name.trim(),
+                "phone" to phone.trim(),
+                "interest" to interest.trim(),
+                "source" to source.ifBlank { "Walk-in" },
+                "stage" to "new",
+                "notes" to notes.trim(),
+                "followUpDate" to null,
+                "patientId" to null,
+                "createdBy" to byName,
+                "createdAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp(),
+            )
+        ).await()
+        Unit
     }
 
     /**
@@ -1838,6 +1924,43 @@ object Repository {
             ledger = ledgerEntries,
             diagnosis = diagnosis,
         )
+    }
+
+    /**
+     * A photo taken or picked on the phone, saved exactly the way the website
+     * saves an upload: the image into Storage under patients/{id}/media, then a
+     * patient_media row pointing at it — so it appears in the website's gallery
+     * (and this app's Photos tab) like any other upload.
+     */
+    suspend fun uploadPatientMedia(
+        clinicId: String,
+        patientId: String,
+        patientName: String,
+        bytes: ByteArray,
+        category: String,
+        byName: String,
+    ): Result<Unit> = runCatching {
+        require(bytes.isNotEmpty()) { "The image could not be read." }
+        val path = "patients/$patientId/media/${System.currentTimeMillis()}_0.jpg"
+        val ref = com.google.firebase.storage.FirebaseStorage.getInstance().reference.child(path)
+        ref.putBytes(bytes).await()
+        val url = ref.downloadUrl.await().toString()
+        Firebase.db().collection("clinics").document(clinicId)
+            .collection("patient_media")
+            .add(
+                mapOf(
+                    "patientId" to patientId,
+                    "patientName" to patientName,
+                    "url" to url,
+                    "filename" to path.substringAfterLast('/'),
+                    "category" to category,
+                    "notes" to "",
+                    "uploadedBy" to byName,
+                    "createdAt" to FieldValue.serverTimestamp(),
+                )
+            )
+            .await()
+        Unit
     }
 
     /** The photos and x-rays the website uploaded for one patient, newest first. */

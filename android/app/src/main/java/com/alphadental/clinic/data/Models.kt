@@ -149,6 +149,29 @@ data class Service(
     val category: String = "",
     /** Icon id from the shared dental icon library; blank falls back to a keyword guess. */
     val icon: String = "",
+    /** "per_tooth", "flat" or "per_arch". Blank on services from before billing rules existed. */
+    val pricingMode: String = "",
+)
+
+/** One lead in the CRM inbox — same shape the website's Leads page reads. */
+data class Lead(
+    val id: String = "",
+    val name: String = "",
+    val phone: String = "",
+    /** What they asked about — a service name or free text. */
+    val interest: String = "",
+    val source: String = "",
+    val stage: String = "new",
+    val lostReason: String = "",
+    val notes: String = "",
+    /** YYYY-MM-DD; due or overdue leads float to the top of the inbox. */
+    val followUpDate: String = "",
+    /** Set once converted on the website — the proof a lead became revenue. */
+    val patientId: String = "",
+    /** This phone already belongs to a patient file. The clinic knows this person. */
+    val existingPatientName: String = "",
+    val hasFirstContact: Boolean = false,
+    val createdAtMillis: Long = 0L,
 )
 
 /**

@@ -61,5 +61,26 @@ fun formatTeeth(teeth: List<String>): String =
  */
 fun pricingUnits(teeth: List<String>): Int = maxOf(teeth.size, 1)
 
+/** Quadrants 1 and 2 (adult) or 5 and 6 (baby) are the upper arch. Mirrors isUpperToothCode(). */
+fun isUpperTooth(code: String): Boolean =
+    code.trim().firstOrNull()?.digitToIntOrNull() in setOf(1, 2, 5, 6)
+
+/**
+ * How many times the unit price is charged, respecting the service's billing rule.
+ *
+ * Mirrors pricingUnitsFor() in clinical-notes/utils.ts exactly: a flat-fee service
+ * charges once however many teeth are marked, per-arch charges once per jaw
+ * touched, and everything else — including services from before rules existed —
+ * charges per tooth, which is what the system always did.
+ */
+fun pricingUnitsFor(mode: String?, teeth: List<String>): Int = when (mode) {
+    "flat" -> 1
+    "per_arch" -> {
+        if (teeth.isEmpty()) 1
+        else teeth.map { if (isUpperTooth(it)) "upper" else "lower" }.toSet().size.coerceAtLeast(1)
+    }
+    else -> maxOf(teeth.size, 1)
+}
+
 /** The same string the website writes into `pricingFormula`, e.g. "350.0*3". */
 fun pricingFormula(unitCost: Double, units: Int): String = "$unitCost*$units"

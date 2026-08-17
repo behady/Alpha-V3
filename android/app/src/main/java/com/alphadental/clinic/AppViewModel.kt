@@ -91,6 +91,13 @@ data class AppState(
     val patientFile: PatientFile? = null,
     val patientMedia: List<com.alphadental.clinic.data.PatientMedia> = emptyList(),
     val patientOrtho: List<OrthoCase> = emptyList(),
+    val uploadingPhoto: Boolean = false,
+    // --- leads (CRM) ---
+    val leadsOpen: Boolean = false,
+    val leads: List<com.alphadental.clinic.data.Lead> = emptyList(),
+    val loadingLeads: Boolean = false,
+    val leadAddOpen: Boolean = false,
+    val savingLead: Boolean = false,
     val patientLoading: Boolean = false,
     val patientError: String? = null,
     // --- taking a payment ---
@@ -461,6 +468,99 @@ class AppViewModel : ViewModel() {
                 .onFailure { error ->
                     _state.value = _state.value.copy(message = error.message ?: "Could not delete the entry.")
                 }
+        }
+    }
+
+    // ---------------------------------------------------------------- leads (CRM)
+
+    fun openLeads() {
+        val session = _state.value.session ?: return
+        _state.value = _state.value.copy(leadsOpen = true, loadingLeads = true)
+        viewModelScope.launch {
+            val rows = runCatching { Repository.loadLeads(session.clinicId) }.getOrDefault(emptyList())
+            if (_state.value.leadsOpen) {
+                _state.value = _state.value.copy(leads = rows, loadingLeads = false)
+            }
+        }
+    }
+
+    fun closeLeads() {
+        _state.value = _state.value.copy(leadsOpen = false, leadAddOpen = false)
+    }
+
+    fun setLeadStage(lead: com.alphadental.clinic.data.Lead, stage: String, lostReason: String? = null) {
+        val session = _state.value.session ?: return
+        // Optimistic: the pill changes under the thumb, and a failure rolls back with a message.
+        val before = _state.value.leads
+        _state.value = _state.value.copy(
+            leads = before.map {
+                if (it.id == lead.id) it.copy(stage = stage, lostReason = lostReason.orEmpty(), hasFirstContact = true)
+                else it
+            }
+        )
+        viewModelScope.launch {
+            Repository.setLeadStage(session.clinicId, lead, stage, lostReason)
+                .onFailure { error ->
+                    _state.value = _state.value.copy(
+                        leads = before,
+                        message = error.message ?: "The lead could not be updated.",
+                    )
+                }
+        }
+    }
+
+    fun openLeadAdd() {
+        _state.value = _state.value.copy(leadAddOpen = true)
+    }
+
+    fun closeLeadAdd() {
+        _state.value = _state.value.copy(leadAddOpen = false)
+    }
+
+    fun saveLead(name: String, phone: String, source: String, interest: String, notes: String) {
+        val session = _state.value.session ?: return
+        _state.value = _state.value.copy(savingLead = true)
+        viewModelScope.launch {
+            Repository.addLead(session.clinicId, name, phone, source, interest, notes, session.name)
+                .onSuccess {
+                    _state.value = _state.value.copy(savingLead = false, leadAddOpen = false)
+                    openLeads()
+                }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(
+                        savingLead = false,
+                        message = error.message ?: "The lead could not be saved.",
+                    )
+                }
+        }
+    }
+
+    /** A photo from the camera or gallery, already downscaled to JPEG bytes by the screen. */
+    fun uploadPatientPhoto(bytes: ByteArray, category: String) {
+        val session = _state.value.session ?: return
+        val file = _state.value.patientFile ?: return
+        val patientId = _state.value.openPatientId ?: return
+        _state.value = _state.value.copy(uploadingPhoto = true)
+        viewModelScope.launch {
+            Repository.uploadPatientMedia(
+                clinicId = session.clinicId,
+                patientId = patientId,
+                patientName = file.patient.name,
+                bytes = bytes,
+                category = category,
+                byName = session.name,
+            ).onSuccess {
+                val media = runCatching { Repository.loadPatientMedia(session.clinicId, patientId) }
+                    .getOrDefault(emptyList())
+                if (_state.value.openPatientId == patientId) {
+                    _state.value = _state.value.copy(uploadingPhoto = false, patientMedia = media)
+                }
+            }.onFailure { error ->
+                _state.value = _state.value.copy(
+                    uploadingPhoto = false,
+                    message = error.message ?: "The photo could not be uploaded.",
+                )
+            }
         }
     }
 
@@ -1292,7 +1392,8 @@ class AppViewModel : ViewModel() {
                         addNoteOpen = false,
                         // The charged figure, not the per-tooth price that was typed.
                         message = if (draft.unitCost > 0) {
-                            val charged = draft.unitCost * pricingUnits(draft.teeth)
+                            val charged = draft.unitCost *
+                                com.alphadental.clinic.data.pricingUnitsFor(draft.service?.pricingMode, draft.teeth)
                             "Procedure saved and charged ${charged.toInt()} EGP."
                         } else {
                             "Procedure saved."

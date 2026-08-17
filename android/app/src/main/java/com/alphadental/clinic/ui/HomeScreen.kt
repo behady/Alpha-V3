@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.CircularProgressIndicator
@@ -86,6 +87,8 @@ fun HomeScreen(
     onOpenInventory: () -> Unit,
     onOpenWhatsappQueue: () -> Unit,
     onOpenAssistant: () -> Unit,
+    /** Null for roles that do not work the CRM inbox. */
+    onOpenLeads: (() -> Unit)?,
 ) {
     val active = appointments.filterNot { normalizeStatus(it.status) in FINISHED }
     val nowMinutes = Calendar.getInstance().let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
@@ -165,12 +168,12 @@ fun HomeScreen(
 
             session.isReception -> receptionHome(
                 appointments, active, arabic, whatsappWaiting,
-                onOpenAppointment, onOpenMoney, onOpenPatients, onOpenWhatsappQueue, onOpenAssistant,
+                onOpenAppointment, onOpenMoney, onOpenPatients, onOpenWhatsappQueue, onOpenAssistant, onOpenLeads,
             )
 
             else -> ownerHome(
                 appointments, active, arabic, takingsToday, whatsappWaiting,
-                onOpenAppointment, onOpenReports, onOpenMoney, onOpenInventory, onOpenAssistant,
+                onOpenAppointment, onOpenReports, onOpenMoney, onOpenInventory, onOpenAssistant, onOpenLeads,
             )
         }
 
@@ -278,10 +281,12 @@ private fun LazyListScope.receptionHome(
     onOpenPatients: () -> Unit,
     onOpenWhatsappQueue: () -> Unit,
     onOpenAssistant: () -> Unit,
+    onOpenLeads: (() -> Unit)?,
 ) {
     quickActions(
         arabic,
         listOfNotNull(
+            onOpenLeads?.let { QuickAction(Icons.Filled.PersonSearch, if (arabic) "عملاء" else "Leads", onClick = it) },
             onOpenMoney?.let { QuickAction(Icons.Filled.Payments, if (arabic) "الحسابات" else "Money", onClick = it) },
             QuickAction(Icons.Filled.People, if (arabic) "المرضى" else "Patients", onClick = onOpenPatients),
             QuickAction(
@@ -342,6 +347,7 @@ private fun LazyListScope.ownerHome(
     onOpenMoney: (() -> Unit)?,
     onOpenInventory: () -> Unit,
     onOpenAssistant: () -> Unit,
+    onOpenLeads: (() -> Unit)?,
 ) {
     val seen = all.count { normalizeStatus(it.status) in setOf("Completed", "Checking Out") }
     val noShow = all.count { normalizeStatus(it.status) == "No Show" }
@@ -409,6 +415,7 @@ private fun LazyListScope.ownerHome(
     quickActions(
         arabic,
         listOfNotNull(
+            onOpenLeads?.let { QuickAction(Icons.Filled.PersonSearch, if (arabic) "عملاء" else "Leads", onClick = it) },
             onOpenReports?.let { QuickAction(Icons.Filled.BarChart, if (arabic) "التقارير" else "Reports", onClick = it) },
             onOpenMoney?.let { QuickAction(Icons.Filled.Payments, if (arabic) "الحسابات" else "Money", onClick = it) },
             QuickAction(Icons.Filled.Inventory2, if (arabic) "المخزون" else "Stock", onClick = onOpenInventory),

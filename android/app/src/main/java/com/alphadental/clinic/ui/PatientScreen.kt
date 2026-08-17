@@ -2,8 +2,13 @@ package com.alphadental.clinic.ui
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -37,6 +42,7 @@ import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.MedicalServices
 import androidx.compose.material.icons.filled.Medication
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PhotoLibrary
@@ -68,7 +74,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.core.content.FileProvider
 import coil.compose.AsyncImage
+import com.alphadental.clinic.BuildConfig
 import com.alphadental.clinic.data.Appointment
 import com.alphadental.clinic.data.ClinicalNote
 import com.alphadental.clinic.data.OrthoCase
@@ -106,12 +114,44 @@ fun PatientScreen(
     onWriteRx: (() -> Unit)?,
     /** Null when this user may not change a recorded procedure. */
     onSetNoteStatus: ((noteId: String, status: String) -> Unit)?,
+    /** True while a photo is on its way up. */
+    uploadingPhoto: Boolean,
+    /** Null when this user may not add photos. Called with (jpeg bytes, category). */
+    onUploadPhoto: ((ByteArray, String) -> Unit)?,
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
     BackHandler { onClose() }
 
     var viewingImage by remember { mutableStateOf<PatientMedia?>(null) }
+
+    // Camera and gallery both end at the same place: JPEG bytes, downscaled on
+    // the phone so a 12-megapixel shot does not eat the clinic's storage.
+    var photoCategory by rememberSaveable { mutableStateOf("Clinical Photo") }
+    var cameraUri by remember { mutableStateOf<Uri?>(null) }
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null && onUploadPhoto != null) {
+            readScaledJpeg(context, uri)?.let { onUploadPhoto(it, photoCategory) }
+        }
+    }
+    val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { saved ->
+        val uri = cameraUri
+        if (saved && uri != null && onUploadPhoto != null) {
+            readScaledJpeg(context, uri)?.let { onUploadPhoto(it, photoCategory) }
+        }
+    }
+    val startCamera: () -> Unit = {
+        runCatching {
+            val dir = java.io.File(context.cacheDir, "camera").apply { mkdirs() }
+            val file = java.io.File(dir, "capture_${System.currentTimeMillis()}.jpg")
+            val uri = FileProvider.getUriForFile(context, BuildConfig.APPLICATION_ID + ".files", file)
+            cameraUri = uri
+            takePicture.launch(uri)
+        }
+    }
+    val startGallery: () -> Unit = {
+        pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    }
 
     viewingImage?.let { image ->
         Dialog(onDismissRequest = { viewingImage = null }) {
@@ -280,10 +320,22 @@ fun PatientScreen(
                                 file, notes, media, arabic, onTakePayment, onAddNote, onWriteRx,
                                 onSeeFinance = { tab = "finance" },
                             )
-                            "clinical" -> ClinicalTab(file, notes, arabic, onAddNote, onSetNoteStatus)
+                            "clinical" -> ClinicalTab(
+                                file, notes, arabic, onAddNote, onSetNoteStatus,
+                                onAddPhoto = if (onUploadPhoto != null) ({ tab = "photos" }) else null,
+                            )
                             "diagnosis" -> DiagnosisTab(file, arabic)
                             "finance" -> FinanceTab(file, arabic, onTakePayment)
-                            "photos" -> PhotosTab(media, arabic) { viewingImage = it }
+                            "photos" -> PhotosTab(
+                                media = media,
+                                arabic = arabic,
+                                uploading = uploadingPhoto,
+                                category = photoCategory,
+                                onCategory = { photoCategory = it },
+                                onCamera = if (onUploadPhoto != null) startCamera else null,
+                                onGallery = if (onUploadPhoto != null) startGallery else null,
+                                onOpen = { viewingImage = it },
+                            )
                             "ortho" -> OrthoTab(ortho, arabic)
                             "rx" -> RxTab(prescriptions, arabic, onWriteRx)
                         }
@@ -418,6 +470,7 @@ private fun ClinicalTab(
     arabic: Boolean,
     onAddNote: (() -> Unit)?,
     onSetNoteStatus: ((noteId: String, status: String) -> Unit)?,
+    onAddPhoto: (() -> Unit)?,
 ) {
     var selectedTooth by remember { mutableStateOf<String?>(null) }
 
@@ -438,6 +491,16 @@ private fun ClinicalTab(
         Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             SectionHeading(if (arabic) "العلاج" else "TREATMENT", Modifier.weight(1f))
+            if (onAddPhoto != null) {
+                IconButton(onClick = onAddPhoto, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        Icons.Filled.PhotoCamera,
+                        contentDescription = if (arabic) "إضافة صورة" else "Add a photo",
+                        tint = Alpha.Green,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
             if (onAddNote != null) {
                 TextButton(onClick = onAddNote) {
                     Text(
@@ -643,17 +706,110 @@ private fun FinanceTab(file: PatientFile, arabic: Boolean, onTakePayment: (() ->
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun PhotosTab(media: List<PatientMedia>, arabic: Boolean, onOpen: (PatientMedia) -> Unit) {
-    if (media.isEmpty()) {
-        Column(Modifier.padding(16.dp)) {
-            EmptyState(
-                if (arabic) "لا توجد صور أو أشعة لهذا المريض. الرفع يتم من الموقع."
-                else "No photos or x-rays for this patient. Uploading happens on the website.",
-            )
+private fun PhotosTab(
+    media: List<PatientMedia>,
+    arabic: Boolean,
+    uploading: Boolean,
+    category: String,
+    onCategory: (String) -> Unit,
+    onCamera: (() -> Unit)?,
+    onGallery: (() -> Unit)?,
+    onOpen: (PatientMedia) -> Unit,
+) {
+    Column(Modifier.fillMaxSize()) {
+        if (onCamera != null || onGallery != null) {
+            Column(Modifier.padding(horizontal = 16.dp)) {
+                // The category rides on the upload, matching the website's gallery filters.
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(MEDIA_CATEGORIES, key = { it.first }) { (id, labels) ->
+                        val selected = category == id
+                        Surface(
+                            onClick = { onCategory(id) },
+                            shape = Alpha.PillShape,
+                            color = if (selected) Alpha.Ink else Alpha.Card,
+                        ) {
+                            Text(
+                                if (arabic) labels.second else labels.first,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (selected) Color.White else Alpha.Slate600,
+                                modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (onCamera != null) {
+                        Button(
+                            onClick = onCamera,
+                            enabled = !uploading,
+                            shape = Alpha.CardShape,
+                            colors = ButtonDefaults.buttonColors(containerColor = Alpha.Ink, contentColor = Color.White),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Filled.PhotoCamera, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(7.dp))
+                            Text(if (arabic) "كاميرا" else "Camera", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    if (onGallery != null) {
+                        OutlinedButton(
+                            onClick = onGallery,
+                            enabled = !uploading,
+                            shape = Alpha.CardShape,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Icon(Icons.Filled.PhotoLibrary, null, tint = Alpha.Green, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(7.dp))
+                            Text(
+                                if (arabic) "من المعرض" else "Gallery",
+                                fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Alpha.Slate700,
+                            )
+                        }
+                    }
+                }
+                if (uploading) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(color = Alpha.Green, strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (arabic) "جارٍ الرفع…" else "Uploading…",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Alpha.Slate500,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+            }
         }
-        return
-    }
 
+        if (media.isEmpty()) {
+            Column(Modifier.padding(16.dp)) {
+                EmptyState(
+                    if (arabic) "لا توجد صور أو أشعة لهذا المريض بعد."
+                    else "No photos or x-rays for this patient yet.",
+                )
+            }
+            return
+        }
+
+        PhotoGrid(media, onOpen)
+    }
+}
+
+private val MEDIA_CATEGORIES = listOf(
+    "Clinical Photo" to ("Clinical" to "سريرية"),
+    "X-Ray" to ("X-Ray" to "أشعة"),
+    "Panoramic" to ("Panoramic" to "بانوراما"),
+    "CT Scan" to ("CT Scan" to "مقطعية"),
+    "Periodontal" to ("Periodontal" to "لثوية"),
+)
+
+@Composable
+private fun PhotoGrid(media: List<PatientMedia>, onOpen: (PatientMedia) -> Unit) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
@@ -1099,6 +1255,30 @@ private fun prettyFileDate(millis: Long, arabic: Boolean): String? {
     val locale = if (arabic) Locale("ar", "EG") else Locale.US
     return SimpleDateFormat("d MMM yyyy", locale).format(java.util.Date(millis))
 }
+
+/**
+ * A camera or gallery image as upload-ready JPEG bytes, capped at 1920px on the
+ * long side. A 12-megapixel original is chair-side detail nobody zooms into on
+ * a phone, uploaded five times slower and stored at five times the cost.
+ */
+private fun readScaledJpeg(context: Context, uri: Uri, maxSide: Int = 1920): ByteArray? = runCatching {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+    var sample = 1
+    while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxSide) sample *= 2
+
+    val options = BitmapFactory.Options().apply { inSampleSize = sample }
+    val bitmap = context.contentResolver.openInputStream(uri)?.use {
+        BitmapFactory.decodeStream(it, null, options)
+    } ?: return null
+
+    val out = java.io.ByteArrayOutputStream()
+    bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
+    bitmap.recycle()
+    out.toByteArray()
+}.getOrNull()
 
 private fun Context.dialNumber(phone: String) {
     runCatching { startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${phone.trim()}"))) }

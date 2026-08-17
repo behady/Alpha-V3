@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Timeline
@@ -77,7 +78,9 @@ import com.alphadental.clinic.data.Appointment
 import com.alphadental.clinic.ui.Alpha
 import com.alphadental.clinic.ui.AlphaCard
 import com.alphadental.clinic.ui.AlphaTheme
+import com.alphadental.clinic.ui.AddLeadSheet
 import com.alphadental.clinic.ui.AddNoteSheet
+import com.alphadental.clinic.ui.LeadsScreen
 import com.alphadental.clinic.ui.ClockCard
 import com.alphadental.clinic.ui.AppointmentSheet
 import com.alphadental.clinic.ui.BookingSheet
@@ -282,6 +285,9 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                                 onOpenInventory = viewModel::openInventory,
                                 onOpenWhatsappQueue = viewModel::openWhatsappQueue,
                                 onOpenAssistant = { viewModel.openAssistant(context) },
+                                onOpenLeads = if (session.isAdmin || session.isReception) {
+                                    { viewModel.openLeads() }
+                                } else null,
                             )
                         }
 
@@ -346,6 +352,9 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             // takings is a different conversation from them seeing their own.
                             onOpenReports = if (session.isAdmin || session.isReception) {
                                 { viewModel.openReports() }
+                            } else null,
+                            onOpenLeads = if (session.isAdmin || session.isReception) {
+                                { viewModel.openLeads() }
                             } else null,
                             onOpenOrtho = viewModel::openOrtho,
                             onOpenAssistant = { viewModel.openAssistant(context) },
@@ -427,7 +436,33 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     onSetNoteStatus = if (session.isAdmin || session.isDentist) {
                         { noteId, status -> viewModel.updateNoteStatus(noteId, status) }
                     } else null,
+                    uploadingPhoto = state.uploadingPhoto,
+                    // Any core role may add photos — reception files x-rays as often as dentists do.
+                    onUploadPhoto = if (session.isAdmin || session.isDentist || session.role == "Receptionist") {
+                        viewModel::uploadPatientPhoto
+                    } else null,
                     onClose = viewModel::closePatient,
+                )
+            }
+
+            // The CRM inbox, full page. Admin and reception, matching the website.
+            if (state.leadsOpen) {
+                LeadsScreen(
+                    leads = state.leads,
+                    loading = state.loadingLeads,
+                    arabic = state.arabic,
+                    onSetStage = viewModel::setLeadStage,
+                    onAdd = viewModel::openLeadAdd,
+                    onClose = viewModel::closeLeads,
+                )
+            }
+
+            if (state.leadAddOpen) {
+                AddLeadSheet(
+                    saving = state.savingLead,
+                    arabic = state.arabic,
+                    onSave = viewModel::saveLead,
+                    onDismiss = viewModel::closeLeadAdd,
                 )
             }
 
@@ -681,6 +716,8 @@ private fun MoreScreen(
     onOpenWhatsappQueue: () -> Unit,
     /** Null for roles that may not see the clinic's takings. */
     onOpenReports: (() -> Unit)?,
+    /** Null for roles that do not work the CRM inbox. */
+    onOpenLeads: (() -> Unit)?,
     onOpenOrtho: () -> Unit,
     onOpenAssistant: () -> Unit,
     /** Null for anyone who is not a clinic admin. */
@@ -782,6 +819,7 @@ private fun MoreScreen(
         // The WhatsApp tile is always present, even at zero — a tile that only
         // appears when there is work is a tile nobody learns is there.
         val tools = listOfNotNull(
+            onOpenLeads?.let { ToolSpec(Icons.Filled.PersonSearch, if (arabic) "عملاء" else "Leads", onClick = it) },
             ToolSpec(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", onClick = onOpenAssistant),
             ToolSpec(Icons.Filled.Timeline, if (arabic) "التقويم" else "Ortho", onClick = onOpenOrtho),
             ToolSpec(

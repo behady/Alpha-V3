@@ -65,6 +65,10 @@
         <intent>
             <action android:name="android.intent.action.DIAL" />
         </intent>
+        <!-- Lets the patient file hand a capture request to whatever camera app the phone has. -->
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" />

@@ -45,7 +45,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.alphadental.clinic.data.Doctor
 import com.alphadental.clinic.data.Service
-import com.alphadental.clinic.data.pricingUnits
+import com.alphadental.clinic.data.pricingUnitsFor
 
 /** What the sheet collects, handed straight to the repository. */
 data class NoteDraft(
@@ -89,7 +89,8 @@ fun AddNoteSheet(
     var serviceFilter by remember { mutableStateOf("") }
 
     val unitCost = costText.replace(",", "").toDoubleOrNull() ?: 0.0
-    val units = pricingUnits(draft.teeth)
+    // Flat-fee services charge once, per-arch per jaw — same rules as the website.
+    val units = pricingUnitsFor(draft.service?.pricingMode, draft.teeth)
     val cost = unitCost * units
     val canSave = draft.procedure.isNotBlank() && !saving
 
