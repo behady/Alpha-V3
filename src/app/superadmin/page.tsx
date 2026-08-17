@@ -8,15 +8,16 @@ import { query, getDocs, updateDoc, doc, deleteDoc, onSnapshot, collection } fro
 import { useRouter } from "next/navigation";
 import { Clinic, SubscriptionTier } from "@/types/saas";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-import { ShieldCheck, Search, Loader2, Check, X, Building2, BarChart3, Users, MoreVertical, RefreshCcw, Trash2, ExternalLink } from "lucide-react";
+import { ShieldCheck, Search, Loader2, Check, X, Building2, BarChart3, Users, MoreVertical, RefreshCcw, Trash2, ExternalLink, Megaphone } from "lucide-react";
 import { useUI } from "@/context/UIContext";
 import { KpiStrip } from "@/components/superadmin/KpiStrip";
 import { ClinicDetailPanel } from "@/components/superadmin/ClinicDetailPanel";
 import { AnalyticsTab } from "@/components/superadmin/AnalyticsTab";
 import { UsersTab } from "@/components/superadmin/UsersTab";
+import { MetaTab } from "@/components/superadmin/MetaTab";
 
 // Tabs
-type Tab = 'clinics' | 'analytics' | 'users';
+type Tab = 'clinics' | 'analytics' | 'users' | 'meta';
 
 interface RichClinic extends Clinic {
   ownerEmail?: string;
@@ -186,6 +187,9 @@ export default function SuperAdminDashboard() {
             <button onClick={() => setActiveTab('users')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'users' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
               <Users size={16} /> Users
             </button>
+            <button onClick={() => setActiveTab('meta')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'meta' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
+              <Megaphone size={16} /> Meta Leads
+            </button>
           </div>
         </div>
       </div>
@@ -347,6 +351,8 @@ export default function SuperAdminDashboard() {
         {activeTab === 'users' && (
           <UsersTab users={allUsers} onToggleSuperAdmin={handleToggleSuperAdmin} />
         )}
+
+        {activeTab === 'meta' && <MetaTab />}
 
       </div>
       
