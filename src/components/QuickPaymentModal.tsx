@@ -11,6 +11,7 @@ import {
     serverTimestamp, where, doc, getDoc, limit
 } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
+import { useUI } from "@/context/UIContext";
 import { useAuth } from "@/context/AuthContext";
 import { logActivity } from "@/lib/logger";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
@@ -27,6 +28,7 @@ const GENERAL_PAYMENT = {
 };
 
 export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, preSelectedPatient }: any) {
+  const { showToast } = useUI();
     const { language, isRTL } = useLanguage();
     const { user } = useAuth();
     
@@ -151,7 +153,7 @@ export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, p
         const amountToPay = Number(payAmount);
         
         if (selectedProcedure.id !== 'general_payment' && amountToPay > selectedProcedure.remaining) {
-            alert(t.errorExceed);
+            showToast(t.errorExceed, "error");
             return;
         }
 
@@ -252,7 +254,7 @@ export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, p
             onClose();
         } catch (error) {
             console.error(error);
-            alert(t.errorSync);
+            showToast(t.errorSync, "error");
         } finally {
             setLoading(false);
         }

@@ -32,7 +32,7 @@ interface VisitEntry {
 export default function PatientTimelineTab({ patientId }: { patientId: string }) {
   const { language } = useLanguage();
   const { user } = useAuth();
-  const { showToast } = useUI();
+  const { showToast, confirm } = useUI();
   const [visits, setVisits] = useState<VisitEntry[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -106,7 +106,12 @@ export default function PatientTimelineTab({ patientId }: { patientId: string })
 
   const handleDeleteVisit = async (visit: VisitEntry) => {
     const msg = language === "ar" ? "هل أنت متأكد من الحذف؟" : "Are you sure you want to delete?";
-    if (!window.confirm(msg)) return;
+    const ok = await confirm(msg, {
+      title: language === "ar" ? "حذف الزيارة" : "Delete visit",
+      confirmLabel: language === "ar" ? "احذف" : "Delete",
+      tone: "danger",
+    });
+    if (!ok) return;
 
     try {
       if (visit.type === "appointment") {

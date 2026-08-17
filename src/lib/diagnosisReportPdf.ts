@@ -318,6 +318,9 @@ export async function generateDiagnosisReport(input: DiagnosisReportInput): Prom
     URL.revokeObjectURL(url);
   } catch (e) {
     console.error("Diagnosis PDF Generation failed:", e);
-    alert(isAr ? "فشل إنشاء ملف PDF" : "Failed to generate PDF");
+    // Rethrown rather than alerted: this is a library, so it has no toast of its own, and
+    // swallowing the failure here meant the caller's own error handler never ran — the user got
+    // a raw browser alert instead of the app's message.
+    throw e;
   }
 }

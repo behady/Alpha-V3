@@ -35,7 +35,7 @@ export default function LeadsPage() {
   const isAr = language === "ar";
   const { user } = useAuth();
   const { isAdmin } = useClinic();
-  const { showToast, confirm } = useUI();
+  const { showToast, confirm, prompt } = useUI();
   const router = useRouter();
 
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -212,7 +212,20 @@ export default function LeadsPage() {
     try {
       let lostReason: string | null = lead.lostReason || null;
       if (stage === "lost") {
-        const reason = window.prompt(isAr ? "سبب الخسارة؟ (السعر، المسافة، مفيش رد...)" : "Why was it lost? (price, distance, no reply...)") || "";
+        const reason = await prompt(
+          isAr ? "ليه العميل ده ضاع؟ ده بيوضح فين الفلوس بتضيع." : "Why did this lead not convert? This is what shows you where leads leak.",
+          {
+            title: isAr ? "سبب الخسارة" : "Reason for losing",
+            placeholder: isAr ? "اكتب السبب…" : "Type the reason…",
+            defaultValue: lead.lostReason || "",
+            suggestions: isAr
+              ? ["السعر غالي", "المسافة بعيدة", "مفيش رد", "راح لعيادة تانية", "مجرد استفسار"]
+              : ["Price too high", "Too far", "No reply", "Went elsewhere", "Just asking"],
+            confirmLabel: isAr ? "علّمه كمفقود" : "Mark as lost",
+          }
+        );
+        // Dismissing the question must not quietly mark the lead lost — leave it as it was.
+        if (reason === null) return;
         lostReason = reason.trim() || null;
       }
       await updateDoc(getClinicDoc("leads", lead.id), { stage, lostReason, updatedAt: serverTimestamp() });

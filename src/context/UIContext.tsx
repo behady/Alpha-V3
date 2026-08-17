@@ -1,7 +1,8 @@
 "use client";
 
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
-import { X, CheckCircle2, AlertCircle, Info, AlertTriangle } from "lucide-react";
+import { X, CheckCircle2, AlertCircle, Info, AlertTriangle, HelpCircle, PenLine } from "lucide-react";
+import { useLanguage } from "@/context/LanguageContext";
 import { openWhatsAppWithText, registerWhatsAppManualHandler } from "@/lib/whatsappManual";
 import {
   ClinicalNoteDensity,
@@ -24,19 +25,43 @@ export interface ConfirmDialogOptions {
   title?: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  /**
+   * "danger" paints the confirm button red and shows a warning mark — for deletions and anything
+   * that loses data. The default tone is for ordinary questions ("Book an appointment now?"),
+   * which used to borrow the same alarming red triangle and read as though something had gone
+   * wrong.
+   */
+  tone?: "default" | "danger";
 }
 
-interface ConfirmOptions {
-  isOpen: boolean;
-  message: string;
+export interface PromptDialogOptions {
   title?: string;
+  placeholder?: string;
+  defaultValue?: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  /** One-tap answers shown as chips above the field — the common replies, typed for you. */
+  suggestions?: string[];
+  multiline?: boolean;
+  /** When true the confirm button stays disabled until something is typed. */
+  required?: boolean;
+}
+
+interface ConfirmOptions extends ConfirmDialogOptions {
+  isOpen: boolean;
+  message: string;
+}
+
+interface PromptOptions extends PromptDialogOptions {
+  isOpen: boolean;
+  message: string;
 }
 
 interface UIContextType {
   showToast: (message: string, type?: ToastType) => void;
   confirm: (message: string, options?: ConfirmDialogOptions) => Promise<boolean>;
+  /** Ask for one piece of text. Resolves to null when dismissed — never to an empty string. */
+  prompt: (message: string, options?: PromptDialogOptions) => Promise<string | null>;
   clinicalEditorMode: 'modal' | 'drawer';
   setClinicalEditorMode: (mode: 'modal' | 'drawer') => void;
   appointmentEditorMode: 'modal' | 'drawer';
@@ -67,10 +92,18 @@ interface UIContextType {
 const UIContext = createContext<UIContextType | undefined>(undefined);
 
 export function UIProvider({ children }: { children: React.ReactNode }) {
+  const { language, isRTL } = useLanguage();
+  const isAr = language === "ar";
+
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [confirmState, setConfirmState] = useState<ConfirmOptions>({ isOpen: false, message: "" });
   const confirmResolver = useRef<((value: boolean) => void) | null>(null);
-  
+
+  const [promptState, setPromptState] = useState<PromptOptions>({ isOpen: false, message: "" });
+  const [promptValue, setPromptValue] = useState("");
+  const promptResolver = useRef<((value: string | null) => void) | null>(null);
+  const promptInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+
   const [clinicalEditorMode, setClinicalEditorModeState] = useState<'modal' | 'drawer'>('modal');
   const [appointmentEditorMode, setAppointmentEditorModeState] = useState<'modal' | 'drawer'>('modal');
   const [appointmentPanelMode, setAppointmentPanelModeState] = useState<'editor' | 'avatar'>('editor');
@@ -204,9 +237,28 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
         title: options?.title,
         confirmLabel: options?.confirmLabel,
         cancelLabel: options?.cancelLabel,
+        tone: options?.tone,
       });
       confirmResolver.current = resolve;
     });
+  }, []);
+
+  // --- PROMPT LOGIC ---
+  const prompt = useCallback((message: string, options?: PromptDialogOptions): Promise<string | null> => {
+    return new Promise((resolve) => {
+      setPromptValue(options?.defaultValue ?? "");
+      setPromptState({ isOpen: true, message, ...options });
+      promptResolver.current = resolve;
+    });
+  }, []);
+
+  const closePrompt = useCallback((value: string | null) => {
+    setPromptState({ isOpen: false, message: "" });
+    setPromptValue("");
+    if (promptResolver.current) {
+      promptResolver.current(value);
+      promptResolver.current = null;
+    }
   }, []);
 
   /**
@@ -235,22 +287,40 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
     return () => registerWhatsAppManualHandler(null);
   }, [confirm]);
 
-  const handleConfirm = (result: boolean) => {
-    setConfirmState({
-      isOpen: false,
-      message: "",
-      title: undefined,
-      confirmLabel: undefined,
-      cancelLabel: undefined,
-    });
+  const handleConfirm = useCallback((result: boolean) => {
+    setConfirmState({ isOpen: false, message: "" });
     if (confirmResolver.current) {
       confirmResolver.current(result);
       confirmResolver.current = null;
     }
-  };
+  }, []);
+
+  /**
+   * Escape closes whichever dialog is open, and the prompt's field takes focus when it appears.
+   * A browser's own prompt does both; a hand-built one that does neither feels broken to anyone
+   * who works by keyboard.
+   */
+  useEffect(() => {
+    if (!confirmState.isOpen && !promptState.isOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (promptState.isOpen) closePrompt(null);
+      else handleConfirm(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [confirmState.isOpen, promptState.isOpen, closePrompt, handleConfirm]);
+
+  useEffect(() => {
+    if (!promptState.isOpen) return;
+    const id = window.setTimeout(() => promptInputRef.current?.focus(), 60);
+    return () => window.clearTimeout(id);
+  }, [promptState.isOpen]);
+
+  const promptCanSubmit = !promptState.required || promptValue.trim().length > 0;
 
   return (
-    <UIContext.Provider value={{ showToast, confirm, clinicalEditorMode, setClinicalEditorMode, appointmentEditorMode, setAppointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode, receptionPanelActive, setReceptionPanelActive, appointmentsVisibility, setAppointmentsVisibility, latePatientTrackerEnabled: latePatientTrackerEnabledState, setLatePatientTrackerEnabled, clinicalNoteSort, setClinicalNoteSort, clinicalNoteGrouping, setClinicalNoteGrouping, clinicalNoteDensity, setClinicalNoteDensity }}>
+    <UIContext.Provider value={{ showToast, confirm, prompt, clinicalEditorMode, setClinicalEditorMode, appointmentEditorMode, setAppointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode, receptionPanelActive, setReceptionPanelActive, appointmentsVisibility, setAppointmentsVisibility, latePatientTrackerEnabled: latePatientTrackerEnabledState, setLatePatientTrackerEnabled, clinicalNoteSort, setClinicalNoteSort, clinicalNoteGrouping, setClinicalNoteGrouping, clinicalNoteDensity, setClinicalNoteDensity }}>
       {children}
 
       {/* --- TOAST CONTAINER (Smartphone Style) --- */}
@@ -273,39 +343,164 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
         ))}
       </div>
 
-      {/* --- CONFIRM MODAL (Professional Blur) --- */}
+      {/* --- CONFIRM DIALOG --- */}
       {confirmState.isOpen && (
-        <div className="fixed inset-0 z-[9999] bg-[#003135]/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-[#AFDDE5] rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden scale-100 animate-in zoom-in-95 duration-200 border border-[#003135]/10">
-            <div className="p-8 text-center">
-              <div className="w-16 h-16 bg-[#964734]/10 rounded-full flex items-center justify-center mx-auto mb-4 text-[#964734]">
-                <AlertTriangle size={32} />
+        <div
+          className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-0 sm:p-4"
+          dir={isRTL ? "rtl" : "ltr"}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200"
+            onClick={() => handleConfirm(false)}
+          />
+          <div className="relative w-full max-w-sm bg-white rounded-t-[1.75rem] sm:rounded-3xl shadow-2xl border border-slate-200/70 overflow-hidden animate-in slide-in-from-bottom-8 sm:slide-in-from-bottom-0 sm:zoom-in-95 duration-200">
+            <div className="w-10 h-1.5 bg-slate-200 rounded-full mx-auto mt-3 sm:hidden" />
+            <div className="px-6 pt-6 pb-5 text-center">
+              <div
+                className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4 ${
+                  confirmState.tone === "danger" ? "bg-rose-50 text-rose-600" : "bg-teal-50 text-teal-600"
+                }`}
+              >
+                {confirmState.tone === "danger" ? <AlertTriangle size={26} /> : <HelpCircle size={26} />}
               </div>
-              <h3 className="text-xl font-black text-[#003135] mb-2">
-                {confirmState.title ?? "Are you sure?"}
+              <h3 className="text-lg font-black text-slate-900 mb-1.5 tracking-tight">
+                {confirmState.title ?? (isAr ? "متأكد؟" : "Are you sure?")}
               </h3>
-              <p className="text-[#003135]/70 text-sm font-medium whitespace-pre-line">
+              <p className="text-slate-500 text-sm font-medium whitespace-pre-line leading-relaxed">
                 {confirmState.message}
               </p>
             </div>
-            <div className="flex border-t border-[#003135]/10">
-              <button 
+            <div className="flex gap-2 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom,0px))]">
+              <button
                 type="button"
-                onClick={() => handleConfirm(false)} 
-                className="flex-1 py-4 text-sm font-bold text-[#003135]/70 hover:bg-[#003135]/5 transition-colors"
+                onClick={() => handleConfirm(false)}
+                className="flex-1 py-3 rounded-xl border border-slate-200 bg-white text-xs font-black uppercase tracking-wide text-slate-600 hover:bg-slate-50 transition-colors"
               >
-                {confirmState.cancelLabel ?? "Cancel"}
+                {confirmState.cancelLabel ?? (isAr ? "إلغاء" : "Cancel")}
               </button>
-              <div className="w-px bg-[#003135]/10"></div>
-              <button 
+              <button
                 type="button"
-                onClick={() => handleConfirm(true)} 
-                className="flex-1 py-4 text-sm font-bold text-[#964734] hover:bg-[#964734]/10 transition-colors"
+                autoFocus
+                onClick={() => handleConfirm(true)}
+                className={`flex-[1.4] py-3 rounded-xl text-xs font-black uppercase tracking-widest text-white shadow-md transition-colors ${
+                  confirmState.tone === "danger"
+                    ? "bg-rose-600 hover:bg-rose-700 shadow-rose-600/20"
+                    : "bg-teal-600 hover:bg-teal-700 shadow-teal-600/20"
+                }`}
               >
-                {confirmState.confirmLabel ?? "Confirm"}
+                {confirmState.confirmLabel ?? (isAr ? "تأكيد" : "Confirm")}
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* --- PROMPT DIALOG (replaces the browser's own window.prompt) --- */}
+      {promptState.isOpen && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-0 sm:p-4"
+          dir={isRTL ? "rtl" : "ltr"}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200"
+            onClick={() => closePrompt(null)}
+          />
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (promptCanSubmit) closePrompt(promptValue.trim());
+            }}
+            className="relative w-full max-w-md bg-white rounded-t-[1.75rem] sm:rounded-3xl shadow-2xl border border-slate-200/70 overflow-hidden animate-in slide-in-from-bottom-8 sm:slide-in-from-bottom-0 sm:zoom-in-95 duration-200"
+          >
+            <div className="w-10 h-1.5 bg-slate-200 rounded-full mx-auto mt-3 sm:hidden" />
+
+            <div className="flex items-start gap-3 px-5 sm:px-6 pt-5 pb-4">
+              <div className="w-11 h-11 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center shrink-0">
+                <PenLine size={20} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 className="text-base font-black text-slate-900 tracking-tight leading-snug">
+                  {promptState.title ?? (isAr ? "من فضلك اكتب" : "Quick question")}
+                </h3>
+                <p className="text-slate-500 text-sm font-medium mt-0.5 leading-relaxed">
+                  {promptState.message}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => closePrompt(null)}
+                className="w-8 h-8 rounded-full bg-slate-50 text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center transition-colors shrink-0"
+                aria-label={isAr ? "إغلاق" : "Close"}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="px-5 sm:px-6 pb-5 space-y-3">
+              {promptState.suggestions && promptState.suggestions.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {promptState.suggestions.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => {
+                        setPromptValue(s);
+                        promptInputRef.current?.focus();
+                      }}
+                      className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+                        promptValue.trim() === s
+                          ? "bg-teal-600 text-white border-teal-600"
+                          : "bg-white text-slate-600 border-slate-200 hover:border-teal-400 hover:text-teal-700"
+                      }`}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {promptState.multiline ? (
+                <textarea
+                  ref={(el) => { promptInputRef.current = el; }}
+                  value={promptValue}
+                  onChange={(e) => setPromptValue(e.target.value)}
+                  placeholder={promptState.placeholder}
+                  rows={3}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10 transition-all resize-none placeholder:font-medium placeholder:text-slate-400"
+                />
+              ) : (
+                <input
+                  ref={(el) => { promptInputRef.current = el; }}
+                  type="text"
+                  value={promptValue}
+                  onChange={(e) => setPromptValue(e.target.value)}
+                  placeholder={promptState.placeholder}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10 transition-all placeholder:font-medium placeholder:text-slate-400"
+                />
+              )}
+            </div>
+
+            <div className="flex gap-2 px-5 sm:px-6 pb-[max(1.25rem,env(safe-area-inset-bottom,0px))]">
+              <button
+                type="button"
+                onClick={() => closePrompt(null)}
+                className="flex-1 py-3 rounded-xl border border-slate-200 bg-white text-xs font-black uppercase tracking-wide text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                {promptState.cancelLabel ?? (isAr ? "إلغاء" : "Cancel")}
+              </button>
+              <button
+                type="submit"
+                disabled={!promptCanSubmit}
+                className="flex-[1.4] py-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-black uppercase tracking-widest shadow-md shadow-teal-600/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {promptState.confirmLabel ?? (isAr ? "حفظ" : "Save")}
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </UIContext.Provider>

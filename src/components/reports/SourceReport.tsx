@@ -5,6 +5,7 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { Network, ChevronDown, ChevronRight, FileBarChart, FileSpreadsheet, Download } from "lucide-react";
 import { exportToExcel, CHART_COLORS, parseMoney } from "./reportExcelUtils";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
+import { useUI } from "@/context/UIContext";
 
 interface SourceStat {
   name: string;
@@ -32,6 +33,7 @@ interface Props {
 }
 
 export default function SourceReport({ procedures, payments, allPatients, rangeLabel, isAr }: Props) {
+  const { showToast } = useUI();
   const chartRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -255,7 +257,7 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
       URL.revokeObjectURL(url);
     } catch (e) {
       console.error("PDF generation failed:", e);
-      alert(isAr ? "فشل إنشاء ملف PDF" : "Failed to generate PDF");
+      showToast(isAr ? "فشل إنشاء ملف PDF" : "Failed to generate PDF", "error");
     } finally {
       setExporting(false);
     }

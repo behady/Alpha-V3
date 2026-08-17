@@ -7,6 +7,7 @@ import {
 import { Download, FileBarChart, Stethoscope, FileSpreadsheet } from "lucide-react";
 import { exportToExcel, CHART_COLORS, parseMoney } from "./reportExcelUtils";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
+import { useUI } from "@/context/UIContext";
 
 interface ServiceStat {
   name: string;
@@ -25,6 +26,7 @@ interface Props {
 }
 
 export default function ServiceReport({ procedures, payments, rangeLabel, isAr }: Props) {
+  const { showToast } = useUI();
   const chartRef = useRef<HTMLDivElement>(null);
   const [exporting, setExporting] = useState(false);
 
@@ -195,7 +197,7 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
       URL.revokeObjectURL(url);
     } catch (e) {
       console.error("PDF generation failed:", e);
-      alert(isAr ? "فشل إنشاء ملف PDF" : "Failed to generate PDF");
+      showToast(isAr ? "فشل إنشاء ملف PDF" : "Failed to generate PDF", "error");
     } finally {
       setExporting(false);
     }

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Megaphone, FileSpreadsheet, Download } from "lucide-react";
 import { exportToExcel, CHART_COLORS } from "./reportExcelUtils";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
+import { useUI } from "@/context/UIContext";
 import { leadStageLabel } from "@/lib/leads";
 
 /**
@@ -46,6 +47,7 @@ function paymentCash(d: Record<string, unknown>): number {
 }
 
 export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: Props) {
+  const { showToast } = useUI();
   const [exporting, setExporting] = useState(false);
 
   const stats: FunnelStat[] = useMemo(() => {
@@ -216,7 +218,7 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
       URL.revokeObjectURL(url);
     } catch (e) {
       console.error("PDF generation failed:", e);
-      alert(isAr ? "فشل إنشاء ملف PDF" : "Failed to generate PDF");
+      showToast(isAr ? "فشل إنشاء ملف PDF" : "Failed to generate PDF", "error");
     } finally {
       setExporting(false);
     }

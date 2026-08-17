@@ -38,7 +38,7 @@ export default function SuperAdminDashboard() {
   useEffect(() => {
     if (!loading) {
       if (!user?.isSuperAdmin) {
-        alert("Access Denied. Super Admins only.");
+        showToast("Access denied — super admins only.", "error");
         router.push("/");
         return;
       }

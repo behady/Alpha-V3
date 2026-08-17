@@ -664,7 +664,12 @@ export default function DesktopDashboard() {
     if (!appointmentId) return;
 
     const msg = language === "ar" ? "هل أنت متأكد من الحذف؟" : "Are you sure you want to delete?";
-    if (window.confirm(msg)) {
+    const confirmed = await confirm(msg, {
+      title: language === "ar" ? "حذف الموعد" : "Delete appointment",
+      confirmLabel: language === "ar" ? "احذف" : "Delete",
+      tone: "danger",
+    });
+    if (confirmed) {
       try {
         await deleteBooking(appointmentId, {
           uid: user?.uid || "",
