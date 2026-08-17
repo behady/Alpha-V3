@@ -15,7 +15,11 @@ import ServiceCombobox from "@/components/shared/ServiceCombobox";
 import TeethChart from "@/components/TeethChart";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { Note, Service, Staff } from "./types";
-import { ALL_TEETH, UPPER_LEFT_TEETH, UPPER_RIGHT_TEETH, LOWER_LEFT_TEETH, LOWER_RIGHT_TEETH, compressImage, computeProcedureLabFee, parseTeethString } from "./utils";
+import {
+  ALL_TEETH, UPPER_LEFT_TEETH, UPPER_RIGHT_TEETH, LOWER_LEFT_TEETH, LOWER_RIGHT_TEETH,
+  compressImage, computeProcedureLabFee, parseTeethString,
+  DEFAULT_PRICING_MODE, isPricingMode, pricingUnitsFor, type PricingMode,
+} from "./utils";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 
 interface Props {
@@ -37,11 +41,13 @@ interface Props {
   hideTeethSelector?: boolean;
   selectedTeethOverride?: string[];
   onSelectedTeethChange?: (teeth: string[]) => void;
+  /** Full-width grid instead of the drawer's tall single column. Desktop chart-first layout. */
+  compact?: boolean;
 }
 
 export default function ServiceEditorDrawer({
   isOpen, onClose, patientId, patientName, appointmentId, initialNote, servicesList, doctors, onSaved, inline = false,
-  hideTeethSelector = false, selectedTeethOverride, onSelectedTeethChange
+  hideTeethSelector = false, selectedTeethOverride, onSelectedTeethChange, compact = false
 }: Props) {
   const { showToast, clinicalEditorMode } = useUI();
   const { language } = useLanguage();
@@ -78,6 +84,10 @@ export default function ServiceEditorDrawer({
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatusText, setSaveStatusText] = useState("");
   const [isChangingService, setIsChangingService] = useState(false);
+  /** Compact layout only: the extra-procedures box is folded away until someone needs it. */
+  const [showExtraProcedures, setShowExtraProcedures] = useState(false);
+  /** Set only when the user deliberately departs from the service's own billing rule. */
+  const [pricingModeOverride, setPricingModeOverride] = useState<PricingMode | null>(null);
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -121,6 +131,8 @@ export default function ServiceEditorDrawer({
       
       setAddToLedger(!!initialNote.ledgerId || Number(initialNote.cost) > 0);
       setLinkedLedgerId(initialNote.ledgerId || null);
+      // Reopen the note on the rule it was priced with, so simply re-saving never moves the total.
+      setPricingModeOverride(isPricingMode(initialNote.pricingMode) ? initialNote.pricingMode : null);
       
       // resolve ledger id asynchronously
       resolveProcedureLedgerIdForNote(initialNote.id, initialNote.ledgerId).then((resolvedId) => {
@@ -137,6 +149,7 @@ export default function ServiceEditorDrawer({
       setProcedureStatus('Planned');
       setAddToLedger(true); setLinkedLedgerId(null);
       setIsChangingService(false);
+      setPricingModeOverride(null);
       // When the chart above owns the selection, clearing it is the parent's call — the user may
       // well have picked the teeth before touching this form.
       if (!isTeethControlled) setSelectedTeeth([]);
@@ -174,6 +187,8 @@ export default function ServiceEditorDrawer({
     cancel: language === 'ar' ? "إلغاء" : "Cancel",
     addToFinance: language === 'ar' ? "إضافة للمالية" : "Add to Ledger",
     selectError: language === 'ar' ? "اختر الإجراء والطبيب" : "Select a procedure AND doctor",
+    extraProcedures: language === 'ar' ? "إجراءات إضافية" : "More procedures",
+    hide: language === 'ar' ? "إخفاء" : "Hide",
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -193,7 +208,10 @@ export default function ServiceEditorDrawer({
       const matchedServices = procedures.map((name) => servicesList.find((s) => s.name === name)).filter((s): s is Service => Boolean(s));
       const inferredCost = matchedServices.length > 0 ? matchedServices.reduce((sum, s) => sum + (Number(s.price) || 0), 0) : 0;
       const unitCost = Number(cost) || inferredCost;
-      const pricingUnits = Math.max(selectedTeeth.length, 1);
+      // The main procedure's rule governs the whole note. A note mixing a flat service with a
+      // per-tooth one is ambiguous by nature, which is what the manual override is for.
+      const effectiveMode = pricingModeOverride ?? servicePricingMode(matchedServices);
+      const pricingUnits = pricingUnitsFor(effectiveMode, selectedTeeth);
       const numCost = unitCost * pricingUnits;
       const pricingFormula = `${unitCost}*${pricingUnits}`;
       const selectedDocObj = doctors.find(d => d.id === selectedDoctorId);
@@ -212,6 +230,8 @@ export default function ServiceEditorDrawer({
           unitCost,
           unitsCount: pricingUnits,
           pricingFormula,
+          // Recorded so a note can be re-read (and re-edited) without guessing why 200 became 400.
+          pricingMode: effectiveMode,
           note: noteText,
           doctor: docName,
           doctorId: selectedDoctorId,
@@ -243,7 +263,7 @@ export default function ServiceEditorDrawer({
         patientName,
         type: "procedure" as const,
         category: "Treatment",
-        amount: numCost, cost: numCost, unitCost, unitsCount: pricingUnits, pricingFormula,
+        amount: numCost, cost: numCost, unitCost, unitsCount: pricingUnits, pricingFormula, pricingMode: effectiveMode,
         description: `${displayProcedure} (T: ${selectedToothText}) | ${pricingFormula}=${numCost}`,
         doctorId: selectedDoctorId, doctorName: docName, doctorCommissionPercentage: commPct,
         date, labFee, labFeePerUnit, labOrderService: "",
@@ -438,8 +458,303 @@ export default function ServiceEditorDrawer({
     );
   };
 
+  /** A service's own billing rule, taken from the main procedure. */
+  const servicePricingMode = (matched: Service[]): PricingMode => {
+    const first = matched[0];
+    return isPricingMode(first?.pricingMode) ? first.pricingMode : DEFAULT_PRICING_MODE;
+  };
+
+  // Live preview of what will actually be charged. Recomputed every render so the number on
+  // screen is the number that gets saved — the multiplication used to be invisible until the
+  // procedure showed up in the ledger at thirty-two times the price.
+  const previewProcedures = Array.from(
+    new Set([procedure.trim(), ...multiProceduresText.split("\n").map((s) => s.trim())].filter(Boolean))
+  );
+  const previewMatched = previewProcedures
+    .map((name) => servicesList.find((s) => s.name === name))
+    .filter((s): s is Service => Boolean(s));
+  const previewMode = pricingModeOverride ?? servicePricingMode(previewMatched);
+  const previewUnitCost =
+    Number(cost) || previewMatched.reduce((sum, s) => sum + (Number(s.price) || 0), 0);
+  const previewUnits = pricingUnitsFor(previewMode, selectedTeeth);
+  const previewTotal = previewUnitCost * previewUnits;
+  /** True when the picked service predates billing rules, so the fallback is being used. */
+  const pricingRuleUnset =
+    previewMatched.length > 0 && !isPricingMode(previewMatched[0]?.pricingMode) && !pricingModeOverride;
+
+  const modeLabels: Record<PricingMode, string> = {
+    per_tooth: language === "ar" ? "لكل سن" : "Per tooth",
+    flat: language === "ar" ? "سعر ثابت" : "Flat fee",
+    per_arch: language === "ar" ? "لكل فك" : "Per arch",
+  };
+
+  const unitsLabel =
+    previewMode === "flat"
+      ? language === "ar" ? "سعر ثابت" : "flat fee"
+      : previewMode === "per_arch"
+        ? `${previewUnits} ${language === "ar" ? (previewUnits === 1 ? "فك" : "فكين") : previewUnits === 1 ? "arch" : "arches"}`
+        : `${previewUnits} ${language === "ar" ? "سن" : previewUnits === 1 ? "tooth" : "teeth"}`;
+
+  const billingStrip = (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <p className="text-xs font-bold text-slate-600">
+          {previewMode === "flat" ? (
+            <>
+              {language === "ar" ? "هيتحسب" : "Charging"}{" "}
+              <span className="text-slate-900 tabular-nums">{previewTotal.toLocaleString()} EGP</span>{" "}
+              <span className="text-slate-400">({unitsLabel})</span>
+            </>
+          ) : (
+            <>
+              {language === "ar" ? "هيتحسب" : "Charging"}{" "}
+              <span className="tabular-nums">{previewUnitCost.toLocaleString()}</span>
+              {" × "}
+              <span className="tabular-nums">{unitsLabel}</span>
+              {" = "}
+              <span className="text-slate-900 tabular-nums">{previewTotal.toLocaleString()} EGP</span>
+            </>
+          )}
+        </p>
+
+        <label className="flex items-center gap-2 shrink-0">
+          <span className="text-[11px] font-bold text-slate-500">
+            {language === "ar" ? "طريقة الحساب" : "Billing"}
+          </span>
+          <select
+            value={previewMode}
+            onChange={(e) => setPricingModeOverride(e.target.value as PricingMode)}
+            className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-700 outline-none focus:border-blue-500"
+          >
+            <option value="per_tooth">{modeLabels.per_tooth}</option>
+            <option value="flat">{modeLabels.flat}</option>
+            <option value="per_arch">{modeLabels.per_arch}</option>
+          </select>
+        </label>
+      </div>
+
+      {pricingRuleUnset && (
+        <p className="text-[11px] font-semibold text-amber-700 mt-2">
+          {language === "ar"
+            ? "الخدمة دي لسه مالهاش طريقة حساب محددة — بنستخدم «لكل سن». حددها من الإعدادات ← الأسعار."
+            : "This service has no billing rule set yet — using per tooth. Set it in Settings → Pricing."}
+        </p>
+      )}
+    </div>
+  );
+
+  // --- Individual controls, so the two layouts below share one set of inputs ---
+  const inputClass =
+    "w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-blue-500";
+  const labelClass = "block text-xs font-bold text-slate-500 mb-1";
+
+  const dateField = (
+    <div>
+      <label className={labelClass}>{txt.date}</label>
+      <input type="date" value={date} onChange={e => setDate(e.target.value)} required className={inputClass} />
+    </div>
+  );
+
+  const statusField = (
+    <div>
+      <label className={labelClass}>{txt.status}</label>
+      <select value={procedureStatus} onChange={e => setProcedureStatus(e.target.value as any)} className={inputClass}>
+        <option value="Planned">Planned</option>
+        <option value="Ongoing">Ongoing</option>
+        <option value="Completed">Completed</option>
+      </select>
+    </div>
+  );
+
+  const doctorField = (
+    <div>
+      <label className={labelClass}>{txt.selectDoctor}</label>
+      <select value={selectedDoctorId} onChange={e => setSelectedDoctorId(e.target.value)} required className={inputClass}>
+        <option value="">Select doctor...</option>
+        {doctors.map(d => (
+          <option key={d.id} value={d.id}>{d.name}</option>
+        ))}
+      </select>
+    </div>
+  );
+
+  const costField = (
+    <div>
+      <label className={labelClass}>{txt.cost}</label>
+      <input
+        type="number" min="0" step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="0"
+        className={inputClass}
+      />
+    </div>
+  );
+
+  const procedureField = (
+    <div>
+      <label className={labelClass}>{txt.procedure}</label>
+      {initialNote && !isChangingService ? (
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={procedure}
+            onChange={(e) => setProcedure(e.target.value)}
+            className={`flex-1 ${inputClass}`}
+          />
+          <button
+            type="button"
+            onClick={() => setIsChangingService(true)}
+            className="p-2.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl border border-slate-200 transition-colors shrink-0"
+            title={language === "ar" ? "تغيير من القائمة" : "Change from list"}
+          >
+            <Edit2 size={18} />
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            <ServiceCombobox
+              services={servicesList} value={procedure}
+              onChange={handleProcedureChange}
+              placeholder="Search procedures..."
+              valueKey="name"
+              allowFreeText
+            />
+          </div>
+          {initialNote && isChangingService && (
+            <button
+              type="button"
+              onClick={() => setIsChangingService(false)}
+              className="p-2.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl border border-slate-200 transition-colors shrink-0"
+              title={language === "ar" ? "إلغاء" : "Cancel"}
+            >
+              <X size={18} />
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  const extraProceduresField = (rows: number) => (
+    <textarea
+      value={multiProceduresText} onChange={(e) => setMultiProceduresText(e.target.value)}
+      rows={rows}
+      placeholder="Additional procedures (one per line)"
+      className={`${inputClass} resize-y`}
+    />
+  );
+
+  const noteField = (rows: number) => (
+    <div>
+      <label className={labelClass}>{txt.notes}</label>
+      <textarea
+        value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="Clinical details..."
+        rows={rows}
+        className={`${inputClass} resize-y`}
+      />
+    </div>
+  );
+
+  const ledgerField = !(initialNote?.isContinued) ? (
+    <label className={`flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors ${compact ? "px-3 py-2.5" : "p-4"}`}>
+      <input
+        type="checkbox" checked={addToLedger} onChange={(e) => setAddToLedger(e.target.checked)}
+        className="w-5 h-5 rounded text-blue-600 focus:ring-blue-500 border-slate-300 shrink-0"
+      />
+      <span className={`font-bold text-slate-700 ${compact ? "text-xs" : "text-sm"}`}>{txt.addToFinance}</span>
+    </label>
+  ) : null;
+
+  const saveButton = (
+    <button
+      type="submit"
+      form="service-form"
+      disabled={isSaving}
+      className={`w-full flex justify-center items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-2xl shadow-lg shadow-blue-500/30 transition-all disabled:opacity-70 ${compact ? "py-2.5 text-sm" : "py-4"}`}
+    >
+      {isSaving ? (
+        <>
+          <Loader2 size={compact ? 16 : 20} className="animate-spin" />
+          <span>{saveStatusText}</span>
+        </>
+      ) : (
+        <>
+          <Save size={compact ? 16 : 20} />
+          <span>{txt.save}</span>
+        </>
+      )}
+    </button>
+  );
+
+  /**
+   * Desktop chart-first layout: one dense grid across the full width, no inner scroll area.
+   * The stacked version below is built for a ~450px drawer, and at full width it turned into a
+   * 700px-tall column with its own scrollbar — the form pushed the work it was describing off
+   * the bottom of the screen.
+   */
+  if (compact) {
+    return (
+      <div className="w-full">
+        {/*
+          Four equal columns, and every cell is exactly one label above one control of the same
+          height. That is what makes the rows line up — mixing a two-row textarea and a stacked
+          checkbox-plus-button into the same row as a select is what left everything ragged.
+        */}
+        <form id="service-form" onSubmit={handleSave} className="grid grid-cols-1 md:grid-cols-4 gap-x-4 gap-y-4 mt-3 items-start">
+          <div className="md:col-span-2">{procedureField}</div>
+          {doctorField}
+          {dateField}
+
+          {statusField}
+          {costField}
+          <div>
+            {/* Empty label so this lines up with the fields beside it. */}
+            <span className={labelClass} aria-hidden="true">&nbsp;</span>
+            {ledgerField}
+          </div>
+          <div>
+            <span className={labelClass} aria-hidden="true">&nbsp;</span>
+            {saveButton}
+          </div>
+
+          <div className="md:col-span-4">{billingStrip}</div>
+
+          <div className="md:col-span-4">{noteField(3)}</div>
+
+          {/* Rarely used, so it stays out of the way — but never hides text that would be saved. */}
+          <div className="md:col-span-4">
+            {showExtraProcedures || multiProceduresText.trim().length > 0 ? (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className={labelClass}>{txt.extraProcedures}</label>
+                  {multiProceduresText.trim().length === 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowExtraProcedures(false)}
+                      className="text-[11px] font-bold text-slate-400 hover:text-slate-600 transition-colors"
+                    >
+                      {txt.hide}
+                    </button>
+                  )}
+                </div>
+                {extraProceduresField(2)}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowExtraProcedures(true)}
+                className="text-[11px] font-bold text-blue-600 hover:text-blue-700 transition-colors"
+              >
+                + {txt.extraProcedures}
+              </button>
+            )}
+          </div>
+        </form>
+      </div>
+    );
+  }
+
   const content = (
-    <div 
+    <div
       className={`w-full bg-white flex flex-col ${!inline ? (clinicalEditorMode === 'modal' ? 'h-full max-h-[90vh] rounded-[2rem] shadow-2xl overflow-hidden' : 'h-full min-h-0 shadow-[0_4px_20px_-4px_rgba(6,81,237,0.1)] rounded-t-3xl rounded-b-none lg:rounded-3xl border border-slate-100 overflow-hidden') : 'rounded-2xl border border-slate-200 mt-4'}`}
     >
       {!inline && (
@@ -465,142 +780,36 @@ export default function ServiceEditorDrawer({
 
       <div className={`flex-1 overflow-y-auto custom-scrollbar ${!inline ? 'p-6' : 'p-4 max-h-[500px]'}`}>
         <form id="service-form" onSubmit={handleSave} className="space-y-6">
-          
+
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1">{txt.date}</label>
-              <input
-                type="date" value={date} onChange={e => setDate(e.target.value)} required
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 mb-1">{txt.status}</label>
-              <select
-                value={procedureStatus} onChange={e => setProcedureStatus(e.target.value as any)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-blue-500"
-              >
-                <option value="Planned">Planned</option>
-                <option value="Ongoing">Ongoing</option>
-                <option value="Completed">Completed</option>
-              </select>
-            </div>
+            {dateField}
+            {statusField}
           </div>
 
-          <div>
-            <label className="block text-xs font-bold text-slate-500 mb-1">{txt.selectDoctor}</label>
-            <select
-              value={selectedDoctorId} onChange={e => setSelectedDoctorId(e.target.value)} required
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-blue-500"
-            >
-              <option value="">Select doctor...</option>
-              {doctors.map(d => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </select>
-          </div>
+          {doctorField}
 
           <div className="space-y-2">
-            <label className="block text-xs font-bold text-slate-500 mb-1">{txt.procedure}</label>
-            {initialNote && !isChangingService ? (
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  value={procedure}
-                  onChange={(e) => setProcedure(e.target.value)}
-                  className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-blue-500"
-                />
-                <button
-                  type="button"
-                  onClick={() => setIsChangingService(true)}
-                  className="p-2.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl border border-slate-200 transition-colors"
-                  title={language === "ar" ? "تغيير من القائمة" : "Change from list"}
-                >
-                  <Edit2 size={18} />
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <div className="flex-1">
-                  <ServiceCombobox
-                    services={servicesList} value={procedure} 
-                    onChange={handleProcedureChange}
-                    placeholder="Search procedures..."
-                    valueKey="name"
-                    allowFreeText
-                  />
-                </div>
-                {initialNote && isChangingService && (
-                  <button
-                    type="button"
-                    onClick={() => setIsChangingService(false)}
-                    className="p-2.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl border border-slate-200 transition-colors"
-                    title={language === "ar" ? "إلغاء" : "Cancel"}
-                  >
-                    <X size={18} />
-                  </button>
-                )}
-              </div>
-            )}
-            <textarea
-              value={multiProceduresText} onChange={(e) => setMultiProceduresText(e.target.value)}
-              placeholder="Additional procedures (one per line)"
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-blue-500 min-h-[80px]"
-            />
+            {procedureField}
+            {extraProceduresField(3)}
           </div>
 
           {!hideTeethSelector && (
             <TeethChartSelector selected={selectedTeeth} onToggle={(t) => toggleTooth(t, setSelectedTeeth)} />
           )}
 
-          <div>
-            <label className="block text-xs font-bold text-slate-500 mb-1">{txt.cost}</label>
-            <input
-              type="number" min="0" step="0.01" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="0"
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-blue-500"
-            />
-          </div>
+          {costField}
 
-          <div>
-            <label className="block text-xs font-bold text-slate-500 mb-1">{txt.notes}</label>
-            <textarea
-              value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="Clinical details..."
-              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-blue-500 min-h-[100px]"
-            />
-          </div>
+          {billingStrip}
 
-          {!(initialNote?.isContinued) && (
-            <label className="flex items-center gap-3 p-4 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors">
-              <input
-                type="checkbox" checked={addToLedger} onChange={(e) => setAddToLedger(e.target.checked)}
-                className="w-5 h-5 rounded text-blue-600 focus:ring-blue-500 border-slate-300"
-              />
-              <span className="text-sm font-bold text-slate-700">{txt.addToFinance}</span>
-            </label>
-          )}
+          {noteField(4)}
+
+          {ledgerField}
 
         </form>
       </div>
 
       <div className={`p-6 border-t border-slate-100 bg-white shrink-0 ${!inline ? 'pb-24 lg:pb-6' : ''}`}>
-        <button
-          type="submit"
-          form="service-form"
-          disabled={isSaving}
-          className="w-full flex justify-center items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-2xl shadow-lg shadow-blue-500/30 transition-all disabled:opacity-70"
-        >
-          {isSaving ? (
-            <>
-              <Loader2 size={20} className="animate-spin" />
-              <span>{saveStatusText}</span>
-            </>
-          ) : (
-            <>
-              <Save size={20} />
-              <span>{txt.save}</span>
-            </>
-          )}
-        </button>
+        {saveButton}
       </div>
     </div>
   );

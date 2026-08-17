@@ -18,6 +18,39 @@ export const LOWER_RIGHT_TEETH = ["31","32","33","34","35","36","37","38"];
  * out, which is the only reason the system knows about labs at all — see resolvePaymentLabFee for
  * the rule that it is deducted once rather than on every instalment.
  */
+/**
+ * How a service's price relates to the teeth selected for it.
+ *
+ * Everything used to be multiplied by the number of teeth, which is right for a filling and badly
+ * wrong for a consultation — selecting a full mouth turned a 200 EGP check-up into 6,400 EGP, with
+ * nothing on screen showing the multiplication.
+ */
+export type PricingMode = "per_tooth" | "flat" | "per_arch";
+
+/** What a service with no rule recorded is treated as — i.e. exactly the old behaviour. */
+export const DEFAULT_PRICING_MODE: PricingMode = "per_tooth";
+
+export function isPricingMode(value: unknown): value is PricingMode {
+  return value === "per_tooth" || value === "flat" || value === "per_arch";
+}
+
+/** FDI numbering: quadrants 1, 2 (adult) and 5, 6 (primary) are the upper arch. */
+export function isUpperToothCode(code: string): boolean {
+  const quadrant = Number(String(code).trim().charAt(0));
+  return quadrant === 1 || quadrant === 2 || quadrant === 5 || quadrant === 6;
+}
+
+/** How many times the unit price is charged for this selection. Never less than one. */
+export function pricingUnitsFor(mode: PricingMode, selectedTeeth: string[]): number {
+  if (mode === "flat") return 1;
+  if (mode === "per_arch") {
+    if (selectedTeeth.length === 0) return 1;
+    const arches = new Set(selectedTeeth.map((t) => (isUpperToothCode(t) ? "upper" : "lower")));
+    return Math.max(arches.size, 1);
+  }
+  return Math.max(selectedTeeth.length, 1);
+}
+
 export function computeProcedureLabFee(options: {
   matchedServices: Service[];
   pricingUnits: number;

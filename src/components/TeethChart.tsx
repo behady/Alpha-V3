@@ -52,6 +52,12 @@ interface TeethChartProps {
   selectedTeeth?: number[];
   onToggleTooth?: (id: number) => void;
   compactMode?: boolean;
+  /**
+   * Let the chart use the whole container instead of the ~768px column it defaults to, and scale
+   * the teeth up to match. For the Clinical tab, where the chart is the main input on a full-width
+   * card rather than one element among many.
+   */
+  wide?: boolean;
   onSelectArch?: (arch: "upper" | "lower") => void;
   perioMode?: boolean;
   onPerioToothClick?: (id: number) => void;
@@ -69,6 +75,7 @@ export default function TeethChart({
   selectedTeeth = [],
   onToggleTooth,
   compactMode = false,
+  wide = false,
   onSelectArch,
   perioMode = false,
   onPerioToothClick,
@@ -327,8 +334,10 @@ export default function TeethChart({
         <div
           className={`transition-all duration-200 ${
             isPrimary
-              ? "w-[28px] h-[36px] sm:w-[28px] sm:h-[36px] md:w-[36px] md:h-[44px]"
-              : "w-[30px] h-[40px] sm:w-[30px] sm:h-[40px] md:w-[42px] md:h-[52px]"
+              ? `w-[28px] h-[36px] sm:w-[28px] sm:h-[36px] md:w-[36px] md:h-[44px] ${wide ? "lg:w-[44px] lg:h-[54px] xl:w-[52px] xl:h-[64px]" : ""}`
+              // Sized so 16 teeth plus their margins still fit the card without a scrollbar at
+              // each breakpoint: ~48px×16 inside a ~950px card at lg, ~58px×16 at xl and up.
+              : `w-[30px] h-[40px] sm:w-[30px] sm:h-[40px] md:w-[42px] md:h-[52px] ${wide ? "lg:w-[48px] lg:h-[60px] xl:w-[58px] xl:h-[72px]" : ""}`
           } ${
             selectionMode && selectedTeeth.includes(id) 
               ? "scale-110 z-10 shadow-[0_0_15px_rgba(37,99,235,0.5)] bg-blue-500/10 rounded-full" 
@@ -407,7 +416,7 @@ export default function TeethChart({
         <div className="md:hidden pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-white to-transparent z-20 rounded-l-3xl" />
         <div className="md:hidden pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-white to-transparent z-20 rounded-r-3xl" />
       <div ref={scrollRef} className="w-full overflow-x-auto no-scrollbar" dir="ltr">
-        <div className={`w-full max-w-5xl mx-auto ${isPrimary ? "min-w-[440px]" : "min-w-[620px]"} md:min-w-0`}>
+        <div className={`w-full ${wide ? "max-w-none" : "max-w-5xl"} mx-auto ${isPrimary ? "min-w-[440px]" : "min-w-[620px]"} md:min-w-0`}>
           {/* Arch label header */}
           <div className="flex items-center justify-between px-3 mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
             <span>{language === "ar" ? "يمين" : "Right"}</span>
@@ -421,7 +430,7 @@ export default function TeethChart({
 
           {/* Chart canvas (Grid Layout) */}
           <div className="rounded-3xl border border-slate-100 bg-white shadow-sm px-2 md:px-6 py-6 md:py-8 flex flex-col items-center justify-center overflow-hidden">
-            <div className="flex flex-col gap-6 md:gap-8 w-full max-w-3xl items-center relative">
+            <div className={`flex flex-col gap-6 md:gap-8 w-full ${wide ? "max-w-none" : "max-w-3xl"} items-center relative`}>
                
                {/* Global cross dividers for the entire grid */}
                <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 border-l-2 border-slate-100/80 z-0"></div>

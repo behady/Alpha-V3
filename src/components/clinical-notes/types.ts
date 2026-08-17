@@ -9,6 +9,8 @@ export interface Note {
   unitCost?: number | string;
   unitsCount?: number;
   pricingFormula?: string;
+  /** Which billing rule produced `cost`. Absent on notes written before rules existed. */
+  pricingMode?: "per_tooth" | "flat" | "per_arch";
   note?: string;
   doctor?: string;
   doctorId?: string;
@@ -48,4 +50,17 @@ export interface RelatedAppointment {
 }
 
 export interface Staff { id: string; name: string; role: string; commissionPercentage?: number; }
-export interface Service { id: string; name: string; price: number; requiresLab?: boolean; estimatedLabFee?: number; category?: string; icon?: string; }
+export interface Service {
+  id: string;
+  name: string;
+  price: number;
+  requiresLab?: boolean;
+  estimatedLabFee?: number;
+  category?: string;
+  icon?: string;
+  /**
+   * Whether the price multiplies by the teeth selected. Absent on services created before this
+   * existed — treated as "per_tooth", which is what the system always did.
+   */
+  pricingMode?: "per_tooth" | "flat" | "per_arch";
+}

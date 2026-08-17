@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { Eraser, Hand, Loader2, Pencil, X } from "lucide-react";
 import TeethChart from "@/components/TeethChart";
 import { useLanguage } from "@/context/LanguageContext";
-import { normalizeToothData, type ToothData } from "@/lib/diagnosisCatalog";
+import { getCategoryForStatus, normalizeToothData, type ToothData } from "@/lib/diagnosisCatalog";
 import ServiceEditorDrawer from "./ServiceEditorDrawer";
 import { Note, Service, Staff } from "./types";
 import { LOWER_LEFT_TEETH, LOWER_RIGHT_TEETH, UPPER_LEFT_TEETH, UPPER_RIGHT_TEETH } from "./utils";
@@ -61,6 +61,35 @@ export default function ChartWorkspace({
     [selectedTeeth]
   );
 
+  /**
+   * Only the diagnosis colours this patient actually has on the chart.
+   *
+   * The chart's built-in legend lists all eleven categories, which is right on the diagnosis page
+   * where you are choosing between them — but here it explained ten colours that were nowhere on
+   * screen for any patient without a charted diagnosis. A key should describe what you can see.
+   */
+  const presentCategories = useMemo(() => {
+    const seen = new Map<string, { color: string; label: string; teeth: string[] }>();
+    Object.entries(chartData).forEach(([toothId, data]) => {
+      (data.statuses || []).forEach((statusId) => {
+        if (statusId === "healthy") return;
+        const cat = getCategoryForStatus(statusId);
+        if (!cat) return;
+        const entry = seen.get(cat.id) || {
+          color: cat.color,
+          label: isAr ? cat.labelAr : cat.labelEn,
+          teeth: [] as string[],
+        };
+        if (!entry.teeth.includes(toothId)) entry.teeth.push(toothId);
+        seen.set(cat.id, entry);
+      });
+    });
+    return Array.from(seen.values()).map((e) => ({
+      ...e,
+      teeth: e.teeth.sort((a, b) => Number(a) - Number(b)),
+    }));
+  }, [chartData, isAr]);
+
   const toggleTooth = (id: number) => {
     const value = String(id);
     onSelectedTeethChange(
@@ -83,19 +112,26 @@ export default function ChartWorkspace({
 
   const txt = {
     title: isAr ? "الأسنان التي تم العمل عليها" : "Teeth worked on",
+    // Two versions on purpose: promising colours to someone whose chart is blank reads as a bug.
     hint: isAr
       ? "اضغط على الأسنان في المخطط، وبعدين املأ بيانات الإجراء تحت. الألوان هي التشخيص المسجل قبل كده."
       : "Click the teeth you treated, then fill in the procedure below. The colours are the diagnoses already on file.",
+    hintNoDiagnoses: isAr
+      ? "اضغط على الأسنان في المخطط، وبعدين املأ بيانات الإجراء تحت. مفيش تشخيص متسجل للمريض ده لسه — سجّله من صفحة التشخيص."
+      : "Click the teeth you treated, then fill in the procedure below. Nothing has been charted for this patient yet — record diagnoses on the Diagnosis page.",
     none: isAr ? "لم يتم اختيار أي سن — الإجراء هيتسجل كإجراء عام" : "No tooth selected — this will be logged as a general procedure",
     clear: isAr ? "مسح الاختيار" : "Clear selection",
     selected: isAr ? "المحدد" : "Selected",
     editing: isAr ? "بتعدّل إجراء مسجل" : "Editing a saved procedure",
     cancelEdit: isAr ? "إلغاء التعديل" : "Cancel edit",
     newEntry: isAr ? "تسجيل إجراء جديد" : "Log a new procedure",
+    onFile: isAr ? "التشخيصات المسجلة على المخطط" : "Diagnoses already charted",
   };
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
+    // No `overflow-hidden`: the procedure combobox drops its list with `absolute`, not a portal,
+    // so clipping this card to its rounded corners would cut the search results off mid-list.
+    <div className="bg-white rounded-3xl border border-slate-100 shadow-sm">
       {/* --- Chart header --- */}
       <div className="flex flex-wrap items-start justify-between gap-4 p-5 md:p-6 border-b border-slate-100">
         <div className="min-w-0">
@@ -103,7 +139,9 @@ export default function ChartWorkspace({
             <Hand size={18} className="text-blue-600" />
             {txt.title}
           </h3>
-          <p className="text-xs font-medium text-slate-500 mt-1 max-w-2xl">{txt.hint}</p>
+          <p className="text-xs font-medium text-slate-500 mt-1 max-w-2xl">
+            {presentCategories.length > 0 ? txt.hint : txt.hintNoDiagnoses}
+          </p>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
@@ -136,12 +174,34 @@ export default function ChartWorkspace({
           <TeethChart
             data={chartData}
             selectionMode
+            compactMode
+            wide
             selectedTeeth={selectedNumbers}
             onToggleTooth={toggleTooth}
             onSelectArch={handleSelectArch}
           />
         )}
       </div>
+
+      {/* --- What is already diagnosed on this patient, and nothing else --- */}
+      {presentCategories.length > 0 && (
+        <div className="px-5 md:px-6 pb-4 pt-3">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
+            {txt.onFile}
+          </p>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {presentCategories.map((cat) => (
+              <span key={cat.label} className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-600">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
+                {cat.label}
+                <span className="text-slate-400 font-semibold tabular-nums">
+                  {isAr ? "أسنان" : "teeth"} {cat.teeth.join(", ")}
+                </span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* --- What is currently selected --- */}
       <div className="px-5 md:px-6 py-4 border-t border-slate-100 bg-slate-50/60">
@@ -193,6 +253,7 @@ export default function ChartWorkspace({
           key={formKey}
           isOpen
           inline
+          compact
           hideTeethSelector
           selectedTeethOverride={selectedTeeth}
           onSelectedTeethChange={onSelectedTeethChange}

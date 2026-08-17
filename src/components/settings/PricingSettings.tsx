@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Search, Plus, Edit2, Trash2, X, Save, Clock, FlaskConical } from "lucide-react";
+import { Search, Plus, Edit2, Trash2, X, Save, Clock, FlaskConical, AlertTriangle } from "lucide-react";
 import { onSnapshot, query, orderBy, deleteDoc, updateDoc, addDoc } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { matchesTokenizedSubstring } from "@/lib/flexibleSearch";
+import { DEFAULT_PRICING_MODE, isPricingMode, type PricingMode } from "@/components/clinical-notes/utils";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import {
   DENTAL_CATEGORIES,
@@ -27,6 +28,8 @@ interface ServiceRow {
   requiresLab?: boolean;
   estimatedLabFee?: number;
   durationMinutes?: number | null;
+  /** Whether the price multiplies by the teeth treated. Absent = never set, treated as per tooth. */
+  pricingMode?: PricingMode;
 }
 
 /**
@@ -57,6 +60,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
     requiresLab: false,
     estimatedLabFee: "",
     durationMinutes: "",
+    pricingMode: DEFAULT_PRICING_MODE as PricingMode,
   });
   // Once someone picks a category or icon by hand, typing in the name stops overriding it.
   const [categoryTouched, setCategoryTouched] = useState(false);
@@ -81,6 +85,24 @@ export default function PricingSettings({ currency }: { currency: string }) {
     durationHint: ar
       ? "تُسجل للجدولة. اتركها فارغة إذا كانت تختلف."
       : "Recorded for scheduling. Leave blank if it varies.",
+    billing: ar ? "طريقة حساب السعر" : "How the price is charged",
+    billingModes: {
+      per_tooth: ar ? "لكل سن" : "Per tooth",
+      flat: ar ? "سعر ثابت" : "Flat fee",
+      per_arch: ar ? "لكل فك" : "Per arch",
+    } as Record<PricingMode, string>,
+    billingHint: {
+      per_tooth: ar
+        ? "السعر يتضرب في عدد الأسنان المختارة. مناسب للحشو والتيجان والخلع."
+        : "The price is multiplied by the number of teeth selected. Right for fillings, crowns, extractions.",
+      flat: ar
+        ? "سعر واحد مهما كان عدد الأسنان. مناسب للكشف والتنظيف والتبييض والفلورايد."
+        : "One price no matter how many teeth. Right for consultation, cleaning, bleaching, fluoride.",
+      per_arch: ar
+        ? "السعر يتضرب في عدد الفكوك المختارة (واحد أو اتنين)."
+        : "The price is multiplied by how many arches are selected (one or two).",
+    } as Record<PricingMode, string>,
+    ruleNotSet: ar ? "طريقة الحساب لم تُحدد" : "Billing rule not set",
     lab: ar ? "يحتاج معمل خارجي" : "Needs external lab work",
     labFee: ar ? "رسوم المعمل التقديرية" : "Estimated lab fee",
     newTreatment: ar ? "علاج جديد" : "New treatment",
@@ -100,7 +122,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
 
   const openAdd = () => {
     setEditingService(null);
-    setForm({ name: "", price: "", category: "other", icon: "tooth", requiresLab: false, estimatedLabFee: "", durationMinutes: "" });
+    setForm({ name: "", price: "", category: "other", icon: "tooth", requiresLab: false, estimatedLabFee: "", durationMinutes: "", pricingMode: DEFAULT_PRICING_MODE });
     setCategoryTouched(false);
     setIconTouched(false);
     setIsModalOpen(true);
@@ -116,6 +138,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
       requiresLab: s.requiresLab || false,
       estimatedLabFee: s.estimatedLabFee ? s.estimatedLabFee.toString() : "",
       durationMinutes: s.durationMinutes ? s.durationMinutes.toString() : "",
+      pricingMode: isPricingMode(s.pricingMode) ? s.pricingMode : DEFAULT_PRICING_MODE,
     });
     setCategoryTouched(true);
     setIconTouched(true);
@@ -145,6 +168,9 @@ export default function PricingSettings({ currency }: { currency: string }) {
       // Optional. Left null rather than defaulted, so slot suggestions can tell "this takes 60
       // minutes" from "nobody said how long this takes" instead of assuming one standard slot.
       durationMinutes: Number(form.durationMinutes) > 0 ? Number(form.durationMinutes) : null,
+      // Written explicitly on every save, so "never set" and "deliberately per tooth" stay
+      // distinguishable — that difference is what the review flag on the list below reads.
+      pricingMode: form.pricingMode,
     };
 
     try {
@@ -290,6 +316,17 @@ export default function PricingSettings({ currency }: { currency: string }) {
                             <FlaskConical size={11} /> {s.estimatedLabFee} {currency}
                           </span>
                         )}
+                        {/* Only worth showing when it is not the obvious default. */}
+                        {isPricingMode(s.pricingMode) && s.pricingMode !== "per_tooth" && (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500 bg-slate-200/70 px-1.5 py-0.5 rounded">
+                            {txt.billingModes[s.pricingMode]}
+                          </span>
+                        )}
+                        {!isPricingMode(s.pricingMode) && (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                            <AlertTriangle size={10} /> {txt.ruleNotSet}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="flex gap-1 shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
@@ -428,6 +465,31 @@ export default function PricingSettings({ currency }: { currency: string }) {
                   />
                 </div>
                 <p className="text-[11px] font-medium text-slate-400">{txt.durationHint}</p>
+              </div>
+
+              {/*
+                The rule that stops a full-arch selection turning a 200 EGP check-up into 6,400.
+                Sits next to the price because it is part of what the price means.
+              */}
+              <div className="space-y-1.5 pt-3 border-t border-slate-100">
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.billing}</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(["per_tooth", "flat", "per_arch"] as PricingMode[]).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setForm({ ...form, pricingMode: mode })}
+                      className={`px-3 py-2.5 rounded-xl border text-xs font-bold transition-all ${
+                        form.pricingMode === mode
+                          ? "border-primary-500 bg-primary-50 text-primary-700 shadow-sm"
+                          : "border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300"
+                      }`}
+                    >
+                      {txt.billingModes[mode]}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] font-medium text-slate-400">{txt.billingHint[form.pricingMode]}</p>
               </div>
 
               <div className="flex items-center gap-3 pt-3 border-t border-slate-100">
