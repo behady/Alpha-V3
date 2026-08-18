@@ -85,9 +85,11 @@ import com.alphadental.clinic.ui.ClockCard
 import com.alphadental.clinic.ui.AppointmentSheet
 import com.alphadental.clinic.ui.BookingSheet
 import com.alphadental.clinic.ui.DayScreen
+import com.alphadental.clinic.ui.DocumentActions
 import com.alphadental.clinic.ui.FinanceSheet
 import com.alphadental.clinic.ui.HomeScreen
 import com.alphadental.clinic.ui.InventorySheet
+import com.alphadental.clinic.ui.LedgerDetailSheet
 import com.alphadental.clinic.ui.WhatsappQueueSheet
 import com.alphadental.clinic.ui.LoginScreen
 import com.alphadental.clinic.ui.MoneyScreen
@@ -363,6 +365,26 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             onToday = viewModel::financeToday,
                             onAdd = viewModel::openFinanceAdd,
                             onDelete = viewModel::deleteFinanceEntry,
+                            onOpenRow = { row ->
+                                viewModel.openLedgerDetail(
+                                    entry = com.alphadental.clinic.data.PatientLedgerEntry(
+                                        id = row.id,
+                                        date = row.date,
+                                        type = row.type,
+                                        description = row.description,
+                                        amount = row.cash,
+                                        addedBy = row.addedBy,
+                                        createdAtMillis = row.createdAtMillis,
+                                        procedureId = row.procedureId,
+                                        method = row.method,
+                                        doctorName = row.doctorName,
+                                        labFee = row.labFee,
+                                        commission = row.commission,
+                                    ),
+                                    patientId = row.patientId,
+                                    patientName = row.patientName,
+                                )
+                            },
                         )
 
                         Tab.MORE -> MoreScreen(
@@ -467,6 +489,27 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     onSetNoteStatus = if (session.isAdmin || session.isDentist) {
                         { noteId, status -> viewModel.updateNoteStatus(noteId, status) }
                     } else null,
+                    rxBusy = state.rxBusy,
+                    onPrintRx = { rx ->
+                        viewModel.prescriptionPdf(context, rx) { file ->
+                            DocumentActions.print(context, file, "Prescription")
+                        }
+                    },
+                    onSendRx = { rx -> viewModel.sendPrescriptionWhatsapp(context, rx) },
+                    onShareRx = { rx ->
+                        viewModel.prescriptionPdf(context, rx) { file ->
+                            DocumentActions.shareToWhatsapp(context, file, "Prescription")
+                        }
+                    },
+                    onOpenLedgerEntry = { entry ->
+                        viewModel.openLedgerDetail(
+                            entry = entry,
+                            patientName = state.patientFile?.patient?.name.orEmpty(),
+                            // The statement is already in memory, so the treatment's
+                            // payments are assembled from it rather than read again.
+                            known = state.patientFile?.ledger.orEmpty(),
+                        )
+                    },
                     uploadingPhoto = state.uploadingPhoto,
                     // Any core role may add photos — reception files x-rays as often as dentists do.
                     onUploadPhoto = if (session.isAdmin || session.isDentist || session.role == "Receptionist") {
@@ -494,6 +537,27 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     arabic = state.arabic,
                     onSave = viewModel::saveLead,
                     onDismiss = viewModel::closeLeadAdd,
+                )
+            }
+
+            state.ledgerDetail?.let { entry ->
+                LedgerDetailSheet(
+                    entry = entry,
+                    patientName = state.ledgerDetailPatientName,
+                    history = state.ledgerDetailHistory,
+                    loading = state.loadingLedgerDetail,
+                    arabic = state.arabic,
+                    // Only offered when there is somewhere else to go: on the patient's
+                    // own page it would reopen the page you are already looking at.
+                    onOpenPatient = state.ledgerDetailPatientId
+                        .takeIf { it.isNotBlank() && it != state.openPatientId }
+                        ?.let { id ->
+                            {
+                                viewModel.closeLedgerDetail()
+                                viewModel.openPatient(id)
+                            }
+                        },
+                    onDismiss = viewModel::closeLedgerDetail,
                 )
             }
 

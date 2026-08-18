@@ -46,6 +46,8 @@ import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -112,8 +114,18 @@ fun PatientScreen(
     prescriptions: List<Prescription>,
     /** Null when this user may not prescribe. */
     onWriteRx: (() -> Unit)?,
+    /** True while a script is being drawn or sent. */
+    rxBusy: Boolean,
+    /** Print one prescription. */
+    onPrintRx: (Prescription) -> Unit,
+    /** Send it to the patient over the clinic gateway. */
+    onSendRx: (Prescription) -> Unit,
+    /** Open WhatsApp with the PDF attached for the staff member to send. */
+    onShareRx: (Prescription) -> Unit,
     /** Null when this user may not change a recorded procedure. */
     onSetNoteStatus: ((noteId: String, status: String) -> Unit)?,
+    /** Opens the detail of one money row from the Finance tab. */
+    onOpenLedgerEntry: (com.alphadental.clinic.data.PatientLedgerEntry) -> Unit,
     /** True while a photo is on its way up. */
     uploadingPhoto: Boolean,
     /** Null when this user may not add photos. Called with (jpeg bytes, category). */
@@ -325,7 +337,7 @@ fun PatientScreen(
                                 onAddPhoto = if (onUploadPhoto != null) ({ tab = "photos" }) else null,
                             )
                             "diagnosis" -> DiagnosisTab(file, arabic)
-                            "finance" -> FinanceTab(file, arabic, onTakePayment)
+                            "finance" -> FinanceTab(file, arabic, onTakePayment, onOpenLedgerEntry)
                             "photos" -> PhotosTab(
                                 media = media,
                                 arabic = arabic,
@@ -337,7 +349,15 @@ fun PatientScreen(
                                 onOpen = { viewingImage = it },
                             )
                             "ortho" -> OrthoTab(ortho, arabic)
-                            "rx" -> RxTab(prescriptions, arabic, onWriteRx)
+                            "rx" -> RxTab(
+                                prescriptions = prescriptions,
+                                arabic = arabic,
+                                onWriteRx = onWriteRx,
+                                busy = rxBusy,
+                                onPrint = onPrintRx,
+                                onSend = onSendRx,
+                                onShare = onShareRx,
+                            )
                         }
                     }
                 }
@@ -628,7 +648,12 @@ private fun DiagnosisTab(file: PatientFile, arabic: Boolean) {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun FinanceTab(file: PatientFile, arabic: Boolean, onTakePayment: (() -> Unit)?) {
+private fun FinanceTab(
+    file: PatientFile,
+    arabic: Boolean,
+    onTakePayment: (() -> Unit)?,
+    onOpenEntry: (com.alphadental.clinic.data.PatientLedgerEntry) -> Unit,
+) {
     Column(
         Modifier
             .fillMaxSize()
@@ -665,7 +690,9 @@ private fun FinanceTab(file: PatientFile, arabic: Boolean, onTakePayment: (() ->
                 AlphaCard(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 6.dp),
+                        .padding(bottom = 6.dp)
+                        .clip(Alpha.CardShape)
+                        .clickable { onOpenEntry(entry) },
                     shape = Alpha.CardShape,
                 ) {
                     Row(Modifier.padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -960,7 +987,15 @@ private fun OrthoTab(cases: List<OrthoCase>, arabic: Boolean) {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun RxTab(prescriptions: List<Prescription>, arabic: Boolean, onWriteRx: (() -> Unit)?) {
+private fun RxTab(
+    prescriptions: List<Prescription>,
+    arabic: Boolean,
+    onWriteRx: (() -> Unit)?,
+    busy: Boolean,
+    onPrint: (Prescription) -> Unit,
+    onSend: (Prescription) -> Unit,
+    onShare: (Prescription) -> Unit,
+) {
     Column(
         Modifier
             .fillMaxSize()
@@ -1010,9 +1045,73 @@ private fun RxTab(prescriptions: List<Prescription>, arabic: Boolean, onWriteRx:
                             fontWeight = FontWeight.Medium,
                             color = Alpha.Slate400,
                         )
+
+                        // What a prescription is for: getting it to the pharmacy.
+                        // Send hands it to the patient through the clinic gateway;
+                        // WhatsApp opens the chat for staff to send it themselves.
+                        Spacer(Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                            RxAction(
+                                label = if (arabic) "طباعة" else "Print",
+                                icon = Icons.Filled.Print,
+                                enabled = !busy,
+                                modifier = Modifier.weight(1f),
+                            ) { onPrint(rx) }
+                            RxAction(
+                                label = if (arabic) "إرسال" else "Send",
+                                icon = Icons.AutoMirrored.Filled.Send,
+                                enabled = !busy,
+                                primary = true,
+                                modifier = Modifier.weight(1f),
+                            ) { onSend(rx) }
+                            RxAction(
+                                label = "WhatsApp",
+                                icon = Icons.Filled.Chat,
+                                enabled = !busy,
+                                modifier = Modifier.weight(1f),
+                            ) { onShare(rx) }
+                        }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun RxAction(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    primary: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = Alpha.PillShape,
+        color = if (primary) Alpha.GreenSoft else Alpha.Slate50,
+        modifier = modifier,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(vertical = 8.dp),
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = if (primary) Alpha.Green else Alpha.Slate600,
+                modifier = Modifier.size(15.dp),
+            )
+            Spacer(Modifier.width(5.dp))
+            Text(
+                label,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (primary) Alpha.Green else Alpha.Slate600,
+            )
         }
     }
 }

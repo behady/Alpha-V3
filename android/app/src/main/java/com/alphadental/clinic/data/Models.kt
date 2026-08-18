@@ -208,6 +208,22 @@ data class DrugShortcut(
 )
 
 /** One issued prescription. */
+/**
+ * The clinic's letterhead, as Settings holds it.
+ *
+ * Read from clinics/{id}/settings/clinic_info — the same document the website's
+ * printed prescription takes its header from, so a script printed on the phone
+ * carries the same name, address and telephone as one printed at the desk.
+ */
+data class ClinicInfo(
+    val name: String = "",
+    val doctorName: String = "",
+    val phone: String = "",
+    val address: String = "",
+    /** The line under the clinic name; falls back to the prescribing doctor. */
+    val rxHeader: String = "",
+)
+
 data class Prescription(
     val id: String = "",
     val date: String = "",
@@ -243,8 +259,17 @@ data class PatientLedgerEntry(
     val amount: Double = 0.0,
     val addedBy: String = "",
     val createdAtMillis: Long = 0L,
+    /** The treatment this payment was made against; blank on charges and general payments. */
+    val procedureId: String = "",
+    val method: String = "",
+    val doctorName: String = "",
+    val labFee: Double = 0.0,
+    val commission: Double = 0.0,
+    val discount: Double = 0.0,
 ) {
     val isPayment: Boolean get() = type == "payment"
+    /** A charge: a treatment billed, whether or not anyone has paid it yet. */
+    val isCharge: Boolean get() = type != "payment" && type != "expense"
 }
 
 /** One tooth's entry on the website's diagnosis chart. */

@@ -1,6 +1,7 @@
 package com.alphadental.clinic.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -71,6 +72,7 @@ fun MoneyScreen(
     onToday: () -> Unit,
     onAdd: () -> Unit,
     onDelete: (Repository.FinanceRow) -> Unit,
+    onOpenRow: (Repository.FinanceRow) -> Unit,
 ) {
     var typeFilter by remember { mutableStateOf("all") } // all | in | out
     var doctorFilter by remember { mutableStateOf("") } // blank = all
@@ -321,6 +323,7 @@ fun MoneyScreen(
                         row = row,
                         arabic = arabic,
                         showDate = view == "month",
+                        onOpen = { onOpenRow(row) },
                         onDelete = if (row.isManual) ({ confirmDelete = row }) else null,
                     )
                 }
@@ -380,9 +383,16 @@ private fun FinanceRowCard(
     row: Repository.FinanceRow,
     arabic: Boolean,
     showDate: Boolean,
+    onOpen: () -> Unit,
     onDelete: (() -> Unit)?,
 ) {
-    AlphaCard(modifier = Modifier.fillMaxWidth(), shape = Alpha.CardShape) {
+    AlphaCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(Alpha.CardShape)
+            .clickable(onClick = onOpen),
+        shape = Alpha.CardShape,
+    ) {
         Row(Modifier.padding(start = 14.dp, end = 6.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(

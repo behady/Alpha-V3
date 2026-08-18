@@ -92,6 +92,8 @@ data class AppState(
     val patientMedia: List<com.alphadental.clinic.data.PatientMedia> = emptyList(),
     val patientOrtho: List<OrthoCase> = emptyList(),
     val uploadingPhoto: Boolean = false,
+    /** True while a prescription PDF is being built or sent. */
+    val rxBusy: Boolean = false,
     // --- leads (CRM) ---
     val leadsOpen: Boolean = false,
     val leads: List<com.alphadental.clinic.data.Lead> = emptyList(),
@@ -133,6 +135,12 @@ data class AppState(
     val loadingFinance: Boolean = false,
     val financeAddOpen: Boolean = false,
     val savingFinance: Boolean = false,
+    /** The money row being looked at in detail, and the treatment history behind it. */
+    val ledgerDetail: com.alphadental.clinic.data.PatientLedgerEntry? = null,
+    val ledgerDetailPatientId: String = "",
+    val ledgerDetailPatientName: String = "",
+    val ledgerDetailHistory: Repository.ProcedureHistory? = null,
+    val loadingLedgerDetail: Boolean = false,
     // --- inventory ---
     val inventory: List<InventoryItem> = emptyList(),
     val inventoryOpen: Boolean = false,
@@ -419,6 +427,78 @@ class AppViewModel : ViewModel() {
         }
     }
 
+    /**
+     * Open the detail of one money row.
+     *
+     * `known` is the patient's already-loaded statement when the tap came from
+     * their own file — the history is then assembled in memory rather than read
+     * again. From the clinic's Money tab there is no such list, so the
+     * treatment's history is fetched.
+     */
+    fun openLedgerDetail(
+        entry: com.alphadental.clinic.data.PatientLedgerEntry,
+        patientId: String = "",
+        patientName: String = "",
+        known: List<com.alphadental.clinic.data.PatientLedgerEntry>? = null,
+    ) {
+        val session = _state.value.session ?: return
+        // A treatment row is its own procedure; a payment names the one it paid.
+        val procedureId = if (entry.isCharge) entry.id else entry.procedureId
+
+        if (procedureId.isBlank()) {
+            _state.value = _state.value.copy(
+                ledgerDetail = entry,
+                ledgerDetailPatientId = patientId,
+                ledgerDetailPatientName = patientName,
+                ledgerDetailHistory = null,
+                loadingLedgerDetail = false,
+            )
+            return
+        }
+
+        if (known != null) {
+            val history = Repository.ProcedureHistory(
+                charge = known.firstOrNull { it.id == procedureId && it.isCharge },
+                payments = known.filter { it.isPayment && it.procedureId == procedureId }
+                    .sortedWith(
+                        compareByDescending<com.alphadental.clinic.data.PatientLedgerEntry> { it.date }
+                            .thenByDescending { it.createdAtMillis }
+                    ),
+            )
+            _state.value = _state.value.copy(
+                ledgerDetail = entry,
+                ledgerDetailPatientId = patientId,
+                ledgerDetailPatientName = patientName,
+                ledgerDetailHistory = history,
+                loadingLedgerDetail = false,
+            )
+            return
+        }
+
+        _state.value = _state.value.copy(
+            ledgerDetail = entry,
+            ledgerDetailPatientId = patientId,
+            ledgerDetailPatientName = patientName,
+            ledgerDetailHistory = null,
+            loadingLedgerDetail = true,
+        )
+        viewModelScope.launch {
+            val history = runCatching { Repository.loadProcedureHistory(session.clinicId, procedureId) }.getOrNull()
+            // Ignore a slow read for a row the user has already closed or moved past.
+            if (_state.value.ledgerDetail?.id == entry.id) {
+                _state.value = _state.value.copy(ledgerDetailHistory = history, loadingLedgerDetail = false)
+            }
+        }
+    }
+
+    fun closeLedgerDetail() {
+        _state.value = _state.value.copy(
+            ledgerDetail = null,
+            ledgerDetailHistory = null,
+            loadingLedgerDetail = false,
+        )
+    }
+
     fun openFinanceAdd() {
         _state.value = _state.value.copy(financeAddOpen = true)
     }
@@ -561,6 +641,85 @@ class AppViewModel : ViewModel() {
                     message = error.message ?: "The photo could not be uploaded.",
                 )
             }
+        }
+    }
+
+    // ------------------------------------------------------- prescription paper
+
+    /**
+     * Build the printable script for one prescription.
+     *
+     * The PDF is drawn from the same clinic letterhead the website prints, then
+     * handed to whatever the caller asked for — the print dialog, WhatsApp, or
+     * the share sheet. Everything runs off the main thread; drawing a page and
+     * reading the clinic document are both too slow to do under a tap.
+     */
+    fun prescriptionPdf(
+        context: android.content.Context,
+        prescription: com.alphadental.clinic.data.Prescription,
+        onReady: (java.io.File) -> Unit,
+    ) {
+        val session = _state.value.session ?: return
+        val file = _state.value.patientFile ?: return
+        _state.value = _state.value.copy(rxBusy = true)
+        viewModelScope.launch {
+            val built = runCatching {
+                val clinic = Repository.loadClinicInfo(session.clinicId)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.alphadental.clinic.data.PrescriptionPdf.write(
+                        context = context.applicationContext,
+                        clinic = clinic,
+                        patientName = file.patient.name,
+                        patientPhone = file.patient.phone,
+                        prescription = prescription,
+                        arabic = _state.value.arabic,
+                    )
+                }
+            }.getOrNull()
+
+            _state.value = _state.value.copy(
+                rxBusy = false,
+                message = if (built == null) "The prescription could not be prepared." else _state.value.message,
+            )
+            built?.let(onReady)
+        }
+    }
+
+    /**
+     * Send the script to the patient over the clinic's WhatsApp gateway — the
+     * same endpoint, and the same logging, as the website's send button.
+     */
+    fun sendPrescriptionWhatsapp(
+        context: android.content.Context,
+        prescription: com.alphadental.clinic.data.Prescription,
+    ) {
+        val session = _state.value.session ?: return
+        val file = _state.value.patientFile ?: return
+        val patientId = _state.value.openPatientId ?: return
+        _state.value = _state.value.copy(rxBusy = true)
+        viewModelScope.launch {
+            val result = runCatching {
+                val clinic = Repository.loadClinicInfo(session.clinicId)
+                val pdf = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.alphadental.clinic.data.PrescriptionPdf.write(
+                        context = context.applicationContext,
+                        clinic = clinic,
+                        patientName = file.patient.name,
+                        patientPhone = file.patient.phone,
+                        prescription = prescription,
+                        arabic = _state.value.arabic,
+                    ).readBytes()
+                }
+                Repository.sendPrescriptionWhatsapp(patientId, pdf).getOrThrow()
+            }
+            _state.value = _state.value.copy(
+                rxBusy = false,
+                message = if (result.isSuccess) {
+                    "Prescription sent to ${file.patient.name} on WhatsApp."
+                } else {
+                    result.exceptionOrNull()?.message ?: "The prescription could not be sent."
+                },
+            )
         }
     }
 
