@@ -165,6 +165,19 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
     }
   }
 
+  /**
+   * Record a finished copy. Deliberately the ONLY place that does so: this existed twice, once
+   * per import path, and the backup copy of it forgot to record whether the run had actually
+   * written — so a real import kept reporting itself as a practice run and the later steps
+   * stayed hidden behind a flag that was never set.
+   */
+  function finishCopy(commit: boolean, lines: string[], found: string[]) {
+    setCopySummary(lines.filter(Boolean));
+    setConflicts(found.slice(0, 50));
+    setCopyCommitted(commit);
+    setCopyStage("done");
+  }
+
   async function handleCopy(commit: boolean) {
     if (!plan) return;
     setCopyStage("running");
@@ -196,13 +209,15 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
           setCopyProgress(`${Math.min(i + IMPORT_CHUNK, docs.length).toLocaleString()} of ${docs.length.toLocaleString()} records`);
         }
 
-        setCopySummary([
-          `${stats.read.toLocaleString()} records read from the backup`,
-          `${stats.written.toLocaleString()} records ${commit ? "copied in" : "ready to copy"}`,
-          stats.rerouted ? `${stats.rerouted} secret moved to protected storage` : "",
-        ].filter(Boolean));
-        setConflicts(allConflicts.slice(0, 50));
-        setCopyStage("done");
+        finishCopy(
+          commit,
+          [
+            `${stats.read.toLocaleString()} records read from the backup`,
+            `${stats.written.toLocaleString()} records ${commit ? "copied in" : "ready to copy"}`,
+            stats.rerouted ? `${stats.rerouted} secret moved to protected storage` : "",
+          ],
+          allConflicts
+        );
       } else {
         const collections = plan.filter((entry) => entry.action === "copy").map((entry) => entry.name);
         let state: unknown = null;
@@ -216,15 +231,16 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
           setCopyProgress(`${done} of ${done + json.state.pending.length} sections — ${json.state.stats.read.toLocaleString()} records read`);
           if (json.done) {
             const stats = json.state.stats;
-            setCopySummary([
-              `${stats.read.toLocaleString()} records read`,
-              `${stats.written.toLocaleString()} records ${commit ? "copied" : "ready to copy"}`,
-              stats.refsRemapped ? `${stats.refsRemapped} internal links repointed` : "",
-              stats.storageUrls ? `${stats.storageUrls} photo/x-ray links found (step 4 copies these)` : "",
-            ].filter(Boolean));
-            setConflicts(json.state.conflicts || []);
-            setCopyCommitted(commit);
-            setCopyStage("done");
+            finishCopy(
+              commit,
+              [
+                `${stats.read.toLocaleString()} records read`,
+                `${stats.written.toLocaleString()} records ${commit ? "copied" : "ready to copy"}`,
+                stats.refsRemapped ? `${stats.refsRemapped} internal links repointed` : "",
+                stats.storageUrls ? `${stats.storageUrls} photo/x-ray links found (step 4 copies these)` : "",
+              ],
+              json.state.conflicts || []
+            );
             break;
           }
         }
