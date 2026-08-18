@@ -48,6 +48,18 @@ export interface Lead {
    */
   isReturningPatient?: boolean;
 
+  /**
+   * The instant WhatsApp reply, if the clinic switched it on: whether it went out by itself
+   * or is waiting in the send queue for a person. Its presence is also the guard that stops
+   * anybody being greeted twice.
+   */
+  welcomeMessage?: {
+    status: "sent" | "queued";
+    mode: "auto" | "manual";
+    text?: string;
+    error?: string;
+  } | null;
+
   /** First moment this lead stopped being untouched — the clock behind time-to-contact. */
   firstContactedAt?: { seconds: number } | null;
   /** Last stage movement, so a lead nobody has touched in a month can say so. */

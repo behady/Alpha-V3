@@ -476,6 +476,22 @@ export default function LeadsPage() {
                             <Copy size={10} /> {isAr ? "سأل قبل كده" : "asked before"}
                           </span>
                         )}
+                        {lead.welcomeMessage?.status === "sent" && (
+                          <span
+                            className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 flex items-center gap-1"
+                            title={lead.welcomeMessage.text || ""}
+                          >
+                            <MessageCircle size={10} /> {isAr ? "اتبعتله رد" : "auto-replied"}
+                          </span>
+                        )}
+                        {lead.welcomeMessage?.status === "queued" && (
+                          <span
+                            className="text-[10px] font-black px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 flex items-center gap-1"
+                            title={lead.welcomeMessage.text || ""}
+                          >
+                            <MessageCircle size={10} /> {isAr ? "رد جاهز للإرسال" : "reply waiting to send"}
+                          </span>
+                        )}
                         {stale && (
                           <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 flex items-center gap-1">
                             <Hourglass size={10} /> {isAr ? `ساكن ${STALE_AFTER_DAYS}+ يوم` : `${STALE_AFTER_DAYS}+ days quiet`}

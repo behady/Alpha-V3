@@ -20,7 +20,8 @@ import type {
 import { WHATSAPP_SETTINGS_DOC_REF } from "@/types/whatsapp";
 import { WHATSAPP_DEFAULT_BODIES } from "@/lib/whatsappDefaultBodies";
 import type { WapilotConfigStatus } from "@/types/wapilot";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";const OWNER_ALERT_MATRIX: { module: "appointments" | "finance"; labelEn: string; labelAr: string; keys: OwnerAlertKey[] }[] = [
+import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+const OWNER_ALERT_MATRIX: { module: "appointments" | "finance"; labelEn: string; labelAr: string; keys: OwnerAlertKey[] }[] = [
   {
     module: "appointments",
     labelEn: "Appointments",
@@ -53,6 +54,7 @@ const ALL_TEMPLATE_TYPES: WhatsAppTemplateType[] = [
   "treatment",
   "reminder24h",
   "google_review",
+  "lead_welcome",
 ];
 
 function isTemplateType(v: unknown): v is WhatsAppTemplateType {
@@ -62,6 +64,7 @@ function isTemplateType(v: unknown): v is WhatsAppTemplateType {
     v === "cancel" ||
     v === "invoice" ||
     v === "treatment" ||
+    v === "lead_welcome" ||
     v === "reminder24h" ||
     v === "google_review"
   );
@@ -112,6 +115,7 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
 
   return {
     isPatientAutomationEnabled: Boolean(data?.isPatientAutomationEnabled),
+    isLeadAutoReplyEnabled: Boolean(data?.isLeadAutoReplyEnabled),
     templates,
     ownerNumber: typeof data?.ownerNumber === "string" ? data.ownerNumber : "",
     ownerAlerts,
@@ -132,6 +136,7 @@ export default function WhatsAppSettings() {
   const [saving, setSaving] = useState(false);
   const [state, setState] = useState<WhatsAppSettingsDocument>({
     isPatientAutomationEnabled: false,
+    isLeadAutoReplyEnabled: false,
     templates: defaultTemplates(),
     ownerNumber: "",
     ownerAlerts: {},
@@ -228,7 +233,25 @@ export default function WhatsAppSettings() {
         treatment: language === "ar" ? "ملخص علاج (ملاحظة سريرية)" : "Treatment (clinical note)",
         reminder24h: language === "ar" ? "تذكير قبل ٢٤ ساعة (آلي)" : "24h reminder (scheduled)",
         google_review: language === "ar" ? "طلب تقييم جوجل" : "Google review request",
+        lead_welcome: language === "ar" ? "رد فوري على عميل محتمل" : "Instant reply to a new lead",
       },
+      leadCard: language === "ar" ? "الرد التلقائي على العملاء المحتملين" : "Lead auto-reply",
+      leadToggle:
+        language === "ar"
+          ? "رد تلقائي على كل عميل محتمل جديد من إعلانات فيسبوك"
+          : "Answer every new lead from Facebook ads automatically",
+      leadHint:
+        language === "ar"
+          ? "بيستخدم نفس طريقة الإرسال المختارة فوق: «تلقائي» يبعت لوحده خلال ثواني، و«يدوي» بيجهّز الرسالة في قائمة الإرسال وحد بيدوس. الرسالة بتتبعت مرة واحدة لكل عميل، ومش بتتبعت لو مفيش رقم."
+          : "Uses the same delivery method chosen above: Automatic sends within seconds on its own, Manual prepares the message in the send queue for a person to tap. One message per lead, ever — and none at all if the lead has no phone number.",
+      leadWarning:
+        language === "ar"
+          ? "الشخص ده إدّى رقمه بنفسه ولسه سائل — وده أأمن وقت للتواصل. بس متبعتش رسايل جماعية من نفس الرقم، ده أسرع طريق لإيقاف رقم العيادة من واتساب."
+          : "These people just handed you their number and asked to be contacted — the safest possible moment to message. Do not send bulk messages from the same number: that is the quickest way to get a clinic's WhatsApp restricted.",
+      leadWelcomeHint:
+        language === "ar"
+          ? "أول رسالة بتوصل للعميل المحتمل بعد ما يسأل بثواني. المتغيرات: {{patient_name}} {{clinic_name}} {{interest}} — خليها قصيرة وشخصية وفيها سؤال، مش إعلان."
+          : "The first message a lead receives, seconds after they ask. Variables: {{patient_name}} {{clinic_name}} {{interest}} — keep it short, personal and question-first, not an advert.",
       testCard: language === "ar" ? "اختبار واتساب" : "WhatsApp API test",
       testHint:
         language === "ar"
@@ -701,6 +724,32 @@ export default function WhatsAppSettings() {
             </div>
           </div>
 
+          {/* Leads are strangers, not patients — a separate switch on purpose. A clinic may want
+              reminders for its own people and no machine greeting anybody else, or the reverse. */}
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 space-y-3">
+            <label className="flex items-center justify-between gap-4 cursor-pointer">
+              <span className="text-sm font-black text-indigo-900">{txt.leadCard}</span>
+              <input
+                type="checkbox"
+                className="h-5 w-5 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
+                checked={state.isLeadAutoReplyEnabled ?? false}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setState((s) => {
+                    const next = { ...s, isLeadAutoReplyEnabled: checked };
+                    void persist(next, "silent");
+                    return next;
+                  });
+                }}
+              />
+            </label>
+            <p className="text-xs font-bold text-indigo-900/80 leading-relaxed">{txt.leadToggle}</p>
+            <p className="text-xs text-slate-600 leading-relaxed">{txt.leadHint}</p>
+            <p className="text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 leading-relaxed">
+              {txt.leadWarning}
+            </p>
+          </div>
+
           <div className="space-y-3">
             <label className="block">
               <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.templateType}</span>
@@ -716,10 +765,13 @@ export default function WhatsAppSettings() {
                 <option value="treatment">{txt.types.treatment}</option>
                 <option value="reminder24h">{txt.types.reminder24h}</option>
                 <option value="google_review">{txt.types.google_review}</option>
+                <option value="lead_welcome">{txt.types.lead_welcome}</option>
               </select>
             </label>
             <p className="text-xs text-slate-400 font-medium">
-              {templateType === "google_review"
+              {templateType === "lead_welcome"
+                ? txt.leadWelcomeHint
+                : templateType === "google_review"
                 ? txt.googleReviewHint
                 : templateType === "invoice"
                   ? txt.invoiceHint

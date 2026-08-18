@@ -24,6 +24,7 @@
 const crypto = require("node:crypto");
 const { FieldValue, Timestamp } = require("firebase-admin/firestore");
 const { sendClinicPush } = require("./clinicPush");
+const { sendLeadWelcome } = require("./leadWelcome");
 
 const GRAPH_VERSION = "v23.0";
 
@@ -312,6 +313,20 @@ async function processLeadEvent(db, event, todayStr) {
     health.lastErrorAt = FieldValue.serverTimestamp();
   }
   await pageRef.set(health, { merge: true }).catch(() => {});
+
+  // Answer them while they are still holding the phone, if the clinic asked for that. Failures
+  // here are logged and dropped: a greeting that did not go out must never undo a lead that did.
+  if (leadResult === "created" || leadResult === "healed") {
+    try {
+      const welcome = await sendLeadWelcome(db, clinicId, {
+        docId: `meta_${leadgenId}`,
+        name: parsedName,
+      });
+      if (welcome) console.log(`leadWelcome: ${leadgenId} → ${welcome.status} (${welcome.mode})`);
+    } catch (e) {
+      console.error(`leadWelcome failed for ${leadgenId}:`, e);
+    }
+  }
 
   // Speed to contact decides whether an ad lead converts, so announce it now. Never awaited
   // in a way that could fail the delivery above.

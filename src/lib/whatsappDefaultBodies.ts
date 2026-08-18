@@ -89,6 +89,21 @@ Regular check-ups keep small problems small — we would be glad to see you agai
 
 Reply to this message to book a time that suits you.
 يسعدنا حجز موعد في الوقت المناسب لك.`,
+
+  // The reply a lead gets seconds after asking. Deliberately short, personal and question-first:
+  // it should read like a receptionist who saw the enquiry, not like an advertisement — both
+  // because that is what converts, and because bulk-looking messages are what get numbers banned.
+  lead_welcome: `مرحباً {{patient_name}} 👋
+
+شكراً لتواصلك مع *{{clinic_name}}*. وصلنا استفسارك وحابين نساعدك.
+امتى يكون وقت مناسب نتصل بيك؟
+
+---
+
+Hi {{patient_name}} 👋
+
+Thanks for contacting *{{clinic_name}}*. We received your enquiry and we would be glad to help.
+When is a good time to call you?`,
 };
 
 /**

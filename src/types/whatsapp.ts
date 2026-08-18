@@ -11,7 +11,9 @@ export type WhatsAppTemplateType =
   | "treatment"
   | "reminder24h"
   | "google_review"
-  | "reactivation";
+  | "reactivation"
+  /** The instant reply to a brand-new lead — see functions/leadWelcome.js. */
+  | "lead_welcome";
 
 export interface WhatsAppMessageTemplate {
   id: string;
@@ -59,6 +61,12 @@ export interface WhatsAppSettingsDocument {
   ownerNumber: string;
   ownerAlerts: WhatsAppOwnerAlerts;
   deliveryMode?: WhatsAppDeliveryMode;
+  /**
+   * Answer new leads automatically. Separate from `isPatientAutomationEnabled` on purpose: a
+   * clinic may happily remind its own patients while wanting no machine to greet strangers,
+   * or the reverse. Off until a manager turns it on — nothing messages anybody by surprise.
+   */
+  isLeadAutoReplyEnabled?: boolean;
   updatedAt?: string;
 }
 
