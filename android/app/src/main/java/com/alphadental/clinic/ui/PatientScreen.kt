@@ -124,6 +124,10 @@ fun PatientScreen(
     onShareRx: (Prescription) -> Unit,
     /** Null when this user may not change a recorded procedure. */
     onSetNoteStatus: ((noteId: String, status: String) -> Unit)?,
+    /** Null when this user may not open or work an ortho case. */
+    onStartOrtho: (() -> Unit)?,
+    /** Opens the ortho tool on this patient's case. */
+    onOpenOrthoCase: (OrthoCase) -> Unit,
     /** Opens the detail of one money row from the Finance tab. */
     onOpenLedgerEntry: (com.alphadental.clinic.data.PatientLedgerEntry) -> Unit,
     /** True while a photo is on its way up. */
@@ -348,7 +352,7 @@ fun PatientScreen(
                                 onGallery = if (onUploadPhoto != null) startGallery else null,
                                 onOpen = { viewingImage = it },
                             )
-                            "ortho" -> OrthoTab(ortho, arabic)
+                            "ortho" -> OrthoTab(ortho, arabic, onStartOrtho, onOpenOrthoCase)
                             "rx" -> RxTab(
                                 prescriptions = prescriptions,
                                 arabic = arabic,
@@ -885,7 +889,12 @@ private fun PhotoGrid(media: List<PatientMedia>, onOpen: (PatientMedia) -> Unit)
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun OrthoTab(cases: List<OrthoCase>, arabic: Boolean) {
+private fun OrthoTab(
+    cases: List<OrthoCase>,
+    arabic: Boolean,
+    onStartOrtho: (() -> Unit)?,
+    onOpenCase: (OrthoCase) -> Unit,
+) {
     Column(
         Modifier
             .fillMaxSize()
@@ -895,6 +904,27 @@ private fun OrthoTab(cases: List<OrthoCase>, arabic: Boolean) {
     ) {
         if (cases.isEmpty()) {
             EmptyState(if (arabic) "لا توجد حالة تقويم لهذا المريض." else "No ortho case for this patient.")
+            // Starting the case here is the point: this is the screen someone is
+            // on when they decide the patient is going into treatment.
+            if (onStartOrtho != null) {
+                Spacer(Modifier.height(12.dp))
+                Button(
+                    onClick = onStartOrtho,
+                    shape = Alpha.CardShape,
+                    colors = ButtonDefaults.buttonColors(containerColor = Alpha.Ink, contentColor = Color.White),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                ) {
+                    Icon(Icons.Filled.Timeline, null, modifier = Modifier.size(17.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        if (arabic) "بدء حالة تقويم" else "Start ortho treatment",
+                        fontSize = 14.5.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
             return
         }
 
@@ -902,7 +932,9 @@ private fun OrthoTab(cases: List<OrthoCase>, arabic: Boolean) {
             AlphaCard(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 10.dp),
+                    .padding(bottom = 10.dp)
+                    .clip(Alpha.CardShape)
+                    .clickable { onOpenCase(case) },
                 shape = Alpha.CardShape,
             ) {
                 Column(Modifier.padding(14.dp)) {
@@ -935,6 +967,13 @@ private fun OrthoTab(cases: List<OrthoCase>, arabic: Boolean) {
                             color = Alpha.Slate400,
                         )
                     }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        if (arabic) "اضغط للتعديل وتسجيل زيارة" else "Tap to edit and log visits",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Alpha.Green,
+                    )
                     if (case.visits.isNotEmpty()) {
                         Spacer(Modifier.height(8.dp))
                         case.visits.sortedByDescending { it.visitNo }.forEach { visit ->

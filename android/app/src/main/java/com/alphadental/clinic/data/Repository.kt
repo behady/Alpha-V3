@@ -989,6 +989,13 @@ object Repository {
                 status = doc.getString("status").orEmpty().ifBlank { "Active" },
                 diagnosis = doc.getString("diagnosis").orEmpty(),
                 visits = doc.toOrthoVisits(),
+                completedDate = doc.getString("completedDate").orEmpty(),
+                cephData = (doc.get("cephData") as? Map<*, *>).orEmpty()
+                    .mapNotNull { (k, v) ->
+                        val key = k as? String ?: return@mapNotNull null
+                        val value = v?.toString().orEmpty()
+                        if (value.isBlank()) null else key to value
+                    }.toMap(),
             )
         }.sortedBy { it.patientName }
     }
@@ -1023,6 +1030,97 @@ object Repository {
     }
 
     /** Move a case between Active, Retention and Completed. */
+    /**
+     * Open an orthodontic case for a patient.
+     *
+     * The case document is keyed by the patient's own id — that is the website's
+     * scheme, and it is what lets the patient file find its case without a query.
+     * Merged rather than overwritten so re-opening a finished case keeps its
+     * visit history instead of erasing years of adjustments.
+     */
+    suspend fun startOrthoCase(clinicId: String, patient: Patient): Result<Unit> = runCatching {
+        orthoCases(clinicId).document(patient.id).set(
+            mapOf(
+                "patientId" to patient.id,
+                "patientName" to patient.name,
+                "patientPhone" to patient.phone,
+                "startDate" to todayKey(),
+                "status" to "Active",
+                "createdAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp(),
+            ),
+            SetOptions.merge(),
+        ).queueLocally("ortho case")
+
+        // The flag the website's patient list reads to badge ortho patients.
+        runCatching {
+            Firebase.db().collection("clinics").document(clinicId)
+                .collection("patients").document(patient.id)
+                .set(mapOf("isOrthoPatient" to true), SetOptions.merge())
+                .queueLocally("ortho flag")
+        }
+        Unit
+    }
+
+    /** The case header: the diagnosis and the cephalometric readings. */
+    suspend fun updateOrthoCase(
+        clinicId: String,
+        patientId: String,
+        diagnosis: String,
+        cephData: Map<String, String>,
+    ): Result<Unit> = runCatching {
+        orthoCases(clinicId).document(patientId).set(
+            mapOf(
+                "diagnosis" to diagnosis.trim(),
+                // Blank readings are dropped rather than stored empty, so the
+                // website's "has any ceph data" check stays truthful.
+                "cephData" to cephData.filterValues { it.isNotBlank() },
+                "updatedAt" to FieldValue.serverTimestamp(),
+            ),
+            SetOptions.merge(),
+        ).queueLocally("ortho case details")
+    }
+
+    /**
+     * Change or remove one visit.
+     *
+     * Visits live in an array on the case, so editing one means rewriting the
+     * whole list. Done in a transaction: two dentists saving adjustments in the
+     * same minute would otherwise each write the list as they last read it, and
+     * whoever saved second would erase the other's visit without either noticing.
+     *
+     * Matched on visit number, which is what the website numbers them by.
+     */
+    suspend fun reviseOrthoVisit(
+        clinicId: String,
+        patientId: String,
+        visitNo: Int,
+        /** Null removes the visit. */
+        replacement: OrthoVisit?,
+    ): Result<Unit> = runCatching {
+        val ref = orthoCases(clinicId).document(patientId)
+        Firebase.db().runTransaction { txn ->
+            val snap = txn.get(ref)
+            @Suppress("UNCHECKED_CAST")
+            val current = (snap.get("visits") as? List<Map<String, Any?>>).orEmpty()
+            val next = current.mapNotNull { row ->
+                val no = (row["visitNo"] as? Number)?.toInt() ?: 0
+                if (no != visitNo) return@mapNotNull row
+                replacement?.let {
+                    mapOf(
+                        "visitNo" to it.visitNo,
+                        "date" to it.date,
+                        "workDone" to it.workDone.trim(),
+                        "nextStep" to it.nextStep.trim(),
+                    )
+                }
+            }
+            txn.update(ref, mapOf("visits" to next, "updatedAt" to FieldValue.serverTimestamp()))
+            null
+        }.await()
+        Unit
+    }
+
     suspend fun setOrthoStatus(clinicId: String, patientId: String, status: String): Result<Unit> = runCatching {
         val updates = mutableMapOf<String, Any>(
             "status" to status,

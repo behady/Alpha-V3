@@ -97,7 +97,7 @@ import com.alphadental.clinic.ui.PatientScreen
 import com.alphadental.clinic.ui.PatientsScreen
 import com.alphadental.clinic.ui.PaymentSheet
 import com.alphadental.clinic.ui.HoursSheet
-import com.alphadental.clinic.ui.OrthoSheet
+import com.alphadental.clinic.ui.OrthoScreen
 import com.alphadental.clinic.ui.PrescriptionSheet
 import com.alphadental.clinic.ui.AssistantScreen
 import com.alphadental.clinic.ui.ReportsScreen
@@ -501,6 +501,13 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             DocumentActions.shareToWhatsapp(context, file, "Prescription")
                         }
                     },
+                    onStartOrtho = if (session.isAdmin || session.isDentist) {
+                        viewModel::startOrthoCase
+                    } else null,
+                    onOpenOrthoCase = { case ->
+                        viewModel.closePatient()
+                        viewModel.openOrtho(case)
+                    },
                     onOpenLedgerEntry = { entry ->
                         viewModel.openLedgerDetail(
                             entry = entry,
@@ -582,7 +589,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
             }
 
             if (state.orthoOpen) {
-                OrthoSheet(
+                OrthoScreen(
                     cases = state.orthoCases,
                     openCase = state.orthoCase,
                     loading = state.loadingOrtho,
@@ -591,8 +598,14 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     arabic = state.arabic,
                     onOpenCase = viewModel::openOrthoCase,
                     onLogVisit = viewModel::logOrthoVisit,
+                    onReviseVisit = viewModel::reviseOrthoVisit,
+                    onSaveDetails = viewModel::saveOrthoDetails,
                     onSetStatus = viewModel::setOrthoStatus,
-                    onDismiss = viewModel::closeOrtho,
+                    onOpenPatient = { id ->
+                        viewModel.closeOrtho()
+                        viewModel.openPatient(id)
+                    },
+                    onClose = viewModel::closeOrtho,
                 )
             }
 

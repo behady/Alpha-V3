@@ -777,9 +777,17 @@ class AppViewModel : ViewModel() {
 
     // --- ortho -----------------------------------------------------------------------------
 
-    fun openOrtho() {
+    /**
+     * Open the ortho tool.
+     *
+     * `onCase` jumps straight to one case — the patient file uses it, so tapping
+     * a case there lands on that case rather than on the list. It is applied
+     * synchronously and the reload below never clears it, or the jump would be
+     * undone the moment the cases came back.
+     */
+    fun openOrtho(onCase: OrthoCase? = null) {
         val session = _state.value.session ?: return
-        _state.value = _state.value.copy(orthoOpen = true, orthoCase = null, loadingOrtho = true)
+        _state.value = _state.value.copy(orthoOpen = true, orthoCase = onCase, loadingOrtho = true)
         viewModelScope.launch {
             val cases = runCatching { Repository.loadOrthoCases(session.clinicId) }.getOrDefault(emptyList())
             _state.value = _state.value.copy(orthoCases = cases, loadingOrtho = false)
@@ -1054,6 +1062,64 @@ class AppViewModel : ViewModel() {
                     _state.value = _state.value.copy(message = error.message ?: "The visit could not be saved.")
                 }
             applyOrthoChange(case.patientId) { it.copy(visits = it.visits + visit) }
+            _state.value = _state.value.copy(savingOrtho = false)
+        }
+    }
+
+    /** Open a case for the patient whose file is on screen. */
+    fun startOrthoCase() {
+        val session = _state.value.session ?: return
+        val file = _state.value.patientFile ?: return
+        _state.value = _state.value.copy(savingOrtho = true)
+        viewModelScope.launch {
+            Repository.startOrthoCase(session.clinicId, file.patient)
+                .onFailure { error ->
+                    _state.value = _state.value.copy(message = error.message ?: "The case could not be opened.")
+                }
+            // Refresh both the patient's own tab and the ortho tool's list.
+            val cases = runCatching { Repository.loadOrthoCases(session.clinicId) }.getOrDefault(emptyList())
+            _state.value = _state.value.copy(
+                savingOrtho = false,
+                orthoCases = cases,
+                patientOrtho = cases.filter { it.patientId == file.patient.id },
+            )
+        }
+    }
+
+    /** Save the case header — diagnosis and cephalometric readings. */
+    fun saveOrthoDetails(case: OrthoCase, diagnosis: String, cephData: Map<String, String>) {
+        val session = _state.value.session ?: return
+        _state.value = _state.value.copy(savingOrtho = true)
+        viewModelScope.launch {
+            Repository.updateOrthoCase(session.clinicId, case.patientId, diagnosis, cephData)
+                .onFailure { error ->
+                    _state.value = _state.value.copy(message = error.message ?: "The case could not be saved.")
+                }
+            applyOrthoChange(case.patientId) {
+                it.copy(diagnosis = diagnosis.trim(), cephData = cephData.filterValues { v -> v.isNotBlank() })
+            }
+            _state.value = _state.value.copy(savingOrtho = false)
+        }
+    }
+
+    /** Correct a logged visit, or remove one entered by mistake. */
+    fun reviseOrthoVisit(case: OrthoCase, visitNo: Int, replacement: OrthoVisit?) {
+        val session = _state.value.session ?: return
+        _state.value = _state.value.copy(savingOrtho = true)
+        viewModelScope.launch {
+            Repository.reviseOrthoVisit(session.clinicId, case.patientId, visitNo, replacement)
+                .onSuccess {
+                    applyOrthoChange(case.patientId) { current ->
+                        current.copy(
+                            visits = current.visits.mapNotNull {
+                                if (it.visitNo != visitNo) it else replacement
+                            }
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(message = error.message ?: "The visit could not be changed.")
+                }
             _state.value = _state.value.copy(savingOrtho = false)
         }
     }
