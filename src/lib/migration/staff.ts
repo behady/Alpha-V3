@@ -57,20 +57,37 @@ export async function collectStaff(
     src.collection("users").get(),
   ]);
 
+  return mergeStaff(
+    staffSnap.docs.map((doc) => ({ id: doc.id, data: doc.data() as Record<string, unknown> })),
+    usersSnap.docs.map((doc) => doc.data() as Record<string, unknown>),
+    forcedAdminEmail
+  );
+}
+
+/**
+ * The merge itself, separated from where the documents come from: the live path reads them from
+ * the old project, the backup path pulls them out of the uploaded file. Both must produce the
+ * same people, so there is exactly one implementation.
+ */
+export function mergeStaff(
+  staffDocs: { id: string; data: Record<string, unknown> }[],
+  userDocs: Record<string, unknown>[],
+  forcedAdminEmail?: string
+): { people: StaffPerson[]; noEmail: StaffNoEmail[] } {
   const usersByEmail = new Map<string, Record<string, unknown>>();
-  for (const doc of usersSnap.docs) {
-    const email = normaliseEmail(doc.get("email"));
-    if (email) usersByEmail.set(email, doc.data());
+  for (const data of userDocs) {
+    const email = normaliseEmail(data.email);
+    if (email) usersByEmail.set(email, data);
   }
 
   const forced = normaliseEmail(forcedAdminEmail);
   const people: StaffPerson[] = [];
   const noEmail: StaffNoEmail[] = [];
 
-  for (const doc of staffSnap.docs) {
-    const email = normaliseEmail(doc.get("email"));
+  for (const { id, data } of staffDocs) {
+    const email = normaliseEmail(data.email);
     if (!email) {
-      noEmail.push({ staffDocId: doc.id, name: doc.get("name") || "(unnamed)" });
+      noEmail.push({ staffDocId: id, name: (data.name as string) || "(unnamed)" });
       continue;
     }
 
@@ -78,15 +95,15 @@ export async function collectStaff(
     const role =
       forced === email
         ? "Admin"
-        : doc.get("role") || (user.role as string | undefined) || "Assistant";
+        : (data.role as string | undefined) || (user.role as string | undefined) || "Assistant";
 
     people.push({
-      staffDocId: doc.id,
+      staffDocId: id,
       email,
-      name: doc.get("name") || (user.name as string | undefined) || email,
+      name: (data.name as string | undefined) || (user.name as string | undefined) || email,
       role,
-      isDentist: Boolean(doc.get("isDentist") ?? user.isDentist ?? false),
-      permissions: (doc.get("permissions") || user.permissions || []) as string[],
+      isDentist: Boolean(data.isDentist ?? user.isDentist ?? false),
+      permissions: (data.permissions || user.permissions || []) as string[],
       hadLogin: usersByEmail.has(email),
     });
   }
@@ -96,7 +113,7 @@ export async function collectStaff(
 
 /** Create or reuse each account, grant the clinic, and repoint the migrated staff document. */
 export async function linkStaff(
-  creds: SourceCredentials,
+  sourceProject: string,
   clinicId: string,
   people: StaffPerson[],
   withResetLinks: boolean
@@ -143,7 +160,7 @@ export async function linkStaff(
         staffId: person.staffDocId,
         clinicRoles: { [clinicId]: person.role },
         defaultClinicId: clinicId,
-        migratedFrom: creds.projectId,
+        migratedFrom: sourceProject,
         createdAt: FieldValue.serverTimestamp(),
       },
       { merge: true }

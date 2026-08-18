@@ -9,27 +9,33 @@ import {
 import type { Clinic } from "@/types/saas";
 
 /**
- * Migrate one clinic from its own v2 Firebase project into this one.
+ * Migrate one clinic from v2 into this system as a tenant.
  *
- * v2 gave every clinic a separate project, so onboarding an existing clinic to the SaaS means
- * copying its whole database in as a tenant. That is a repeated job — every clinic still on v2
- * needs it — so it belongs behind a button rather than in a terminal.
+ * Normal path: the clinic's Admin presses "Download backup" in their old v2 app and hands the
+ * file over; it is uploaded here and this screen does the rest. No Firebase keys travel at all —
+ * the file is the thing that moves, and the old system is never touched.
  *
- * The screen is deliberately a numbered sequence rather than one "Migrate" button. Each stage
- * shows what it is about to do and waits, because the operator is the only one who can tell
- * whether the numbers look right for that clinic, and because the steps genuinely have to happen
- * in order: data first, then logins, then files.
+ * Fallback path: the same file input also accepts a service-account key for the old project
+ * (auto-detected), for a clinic whose v2 app never got the Backup button. That project is opened
+ * strictly read-only.
  *
- * Nothing here writes to the clinic's existing database — the server opens it read-only. The old
- * system keeps running as the clinic's live system throughout, so a run can be rehearsed as often
- * as needed and a bad run is fixed by clearing the target and going again.
+ * Either way the screen is a numbered sequence rather than one big button: each stage shows what
+ * it is about to do and waits, because the operator is the only one who can tell whether the
+ * numbers look right for that clinic, and the stages genuinely must run in order — data, then
+ * logins, then files.
  */
+
+type BackupFile = {
+  format: string;
+  projectId: string;
+  storageBucket: string;
+  docs: { path: string; data: unknown }[];
+};
 
 type PlanEntry = {
   name: string;
   action: "copy" | "skip";
   reason?: string;
-  target?: string;
   count: number;
   known: boolean;
   noConsumer?: string;
@@ -42,13 +48,22 @@ type VerifyReport = { counts: CheckRow[]; samples: CheckRow[]; links: CheckRow[]
 
 type Stage = "idle" | "running" | "done" | "error";
 
+const IMPORT_CHUNK = 200;
+
+/** Collection path of a backup document: its path minus the final (document id) segment. */
+const collectionOf = (path: string) => path.split("/").slice(0, -1).join("/");
+
 export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
   const [clinicId, setClinicId] = useState("");
+  const [mode, setMode] = useState<"backup" | "keyfile" | null>(null);
+  const [backup, setBackup] = useState<BackupFile | null>(null);
   const [credentials, setCredentials] = useState<Record<string, unknown> | null>(null);
-  const [keyFileName, setKeyFileName] = useState("");
+  const [fileName, setFileName] = useState("");
 
   const [plan, setPlan] = useState<PlanEntry[] | null>(null);
   const [sourceProject, setSourceProject] = useState("");
+  const [reroutedPaths, setReroutedPaths] = useState<string[]>([]);
+  const [runId, setRunId] = useState("");
   const [allowUnknown, setAllowUnknown] = useState(false);
 
   const [copyStage, setCopyStage] = useState<Stage>("idle");
@@ -74,24 +89,41 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
     const response = await fetch("/api/admin/migration", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ action, clinicId, credentials, ...extra }),
+      body: JSON.stringify({ action, clinicId, ...extra }),
     });
     const json = await response.json();
     if (!json.ok) throw new Error(json.error || "Something went wrong");
     return json;
   }
 
-  function onKeyFile(event: React.ChangeEvent<HTMLInputElement>) {
+  /**
+   * One input, two file kinds, told apart by their contents: a backup file declares its format,
+   * a service-account key carries a private_key. Auto-detecting removes a choice the operator
+   * should not have to understand.
+   */
+  function onFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        setCredentials(JSON.parse(String(reader.result)));
-        setKeyFileName(file.name);
+        const parsed = JSON.parse(String(reader.result));
+        if (parsed?.format === "alpha-dental-v2-backup") {
+          setBackup(parsed);
+          setCredentials(null);
+          setMode("backup");
+        } else if (parsed?.private_key || parsed?.privateKey) {
+          setCredentials(parsed);
+          setBackup(null);
+          setMode("keyfile");
+        } else {
+          throw new Error("unrecognised");
+        }
+        setFileName(file.name);
+        setPlan(null);
         setError("");
       } catch {
-        setError("That file is not a valid service account JSON file.");
+        setError("That file is neither a clinic backup nor a service account key.");
       }
     };
     reader.readAsText(file);
@@ -102,9 +134,24 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
     setError("");
     setPlan(null);
     try {
-      const json = await call("plan");
-      setPlan(json.plan);
-      setSourceProject(json.sourceProject);
+      if (mode === "backup" && backup) {
+        const counts = new Map<string, number>();
+        for (const doc of backup.docs) {
+          const col = collectionOf(doc.path);
+          counts.set(col, (counts.get(col) || 0) + 1);
+        }
+        const json = await call("plan-backup", {
+          collections: [...counts.entries()].map(([path, count]) => ({ path, count })),
+        });
+        setPlan(json.plan);
+        setReroutedPaths(json.reroutedPaths);
+        setRunId(json.runId);
+        setSourceProject(backup.projectId);
+      } else {
+        const json = await call("plan", { credentials });
+        setPlan(json.plan);
+        setSourceProject(json.sourceProject);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -112,10 +159,6 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
     }
   }
 
-  /**
-   * Drive the copy loop. The server returns after a time-boxed slice and hands back the state to
-   * continue from, so a big clinic is many short requests instead of one that times out.
-   */
   async function handleCopy(commit: boolean) {
     if (!plan) return;
     setCopyStage("running");
@@ -124,35 +167,58 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
     setConflicts([]);
 
     try {
-      const collections = plan.filter((entry) => entry.action === "copy").map((entry) => entry.name);
-      let state: unknown = null;
-      let guard = 0;
+      if (mode === "backup" && backup) {
+        const copyable = new Set(plan.filter((entry) => entry.action === "copy").map((entry) => entry.name));
+        const docs = backup.docs.filter((doc) => copyable.has(collectionOf(doc.path)));
 
-      for (;;) {
-        // A runaway loop here would hammer the API, so cap it well above any real clinic.
-        if (guard++ > 2000) throw new Error("Stopped after too many steps — tell your developer.");
+        const stats = { read: 0, written: 0, conflicts: 0, rerouted: 0, refsRemapped: 0, storageUrls: 0 };
+        const allConflicts: string[] = [];
 
-        const json: { state: { completed: string[]; pending: string[]; stats: Record<string, number>; conflicts: string[] }; done: boolean } =
-          await call("copy", { state, collections, commit, overwrite: false });
-        state = json.state;
+        for (let i = 0; i < docs.length; i += IMPORT_CHUNK) {
+          const json = await call("import", {
+            docs: docs.slice(i, i + IMPORT_CHUNK),
+            commit,
+            overwrite: false,
+            runId,
+            sourceProject: backup.projectId,
+          });
+          for (const key of Object.keys(stats) as (keyof typeof stats)[]) {
+            stats[key] += json.stats[key] || 0;
+          }
+          allConflicts.push(...(json.conflicts || []));
+          setCopyProgress(`${Math.min(i + IMPORT_CHUNK, docs.length).toLocaleString()} of ${docs.length.toLocaleString()} records`);
+        }
 
-        const done = json.state.completed.length;
-        const total = done + json.state.pending.length;
-        setCopyProgress(
-          `${done} of ${total} sections — ${json.state.stats.read.toLocaleString()} records read`
-        );
-
-        if (json.done) {
-          const stats = json.state.stats;
-          setCopySummary([
-            `${stats.read.toLocaleString()} records read`,
-            `${stats.written.toLocaleString()} records ${commit ? "copied" : "ready to copy"}`,
-            stats.refsRemapped ? `${stats.refsRemapped} internal links repointed` : "",
-            stats.storageUrls ? `${stats.storageUrls} photo/x-ray links found (step 4 copies these)` : "",
-          ].filter(Boolean));
-          setConflicts(json.state.conflicts || []);
-          setCopyStage("done");
-          break;
+        setCopySummary([
+          `${stats.read.toLocaleString()} records read from the backup`,
+          `${stats.written.toLocaleString()} records ${commit ? "copied in" : "ready to copy"}`,
+          stats.rerouted ? `${stats.rerouted} secret moved to protected storage` : "",
+        ].filter(Boolean));
+        setConflicts(allConflicts.slice(0, 50));
+        setCopyStage("done");
+      } else {
+        const collections = plan.filter((entry) => entry.action === "copy").map((entry) => entry.name);
+        let state: unknown = null;
+        let guard = 0;
+        for (;;) {
+          if (guard++ > 2000) throw new Error("Stopped after too many steps — tell your developer.");
+          const json: { state: { completed: string[]; pending: string[]; stats: Record<string, number>; conflicts: string[] }; done: boolean } =
+            await call("copy", { credentials, state, collections, commit, overwrite: false });
+          state = json.state;
+          const done = json.state.completed.length;
+          setCopyProgress(`${done} of ${done + json.state.pending.length} sections — ${json.state.stats.read.toLocaleString()} records read`);
+          if (json.done) {
+            const stats = json.state.stats;
+            setCopySummary([
+              `${stats.read.toLocaleString()} records read`,
+              `${stats.written.toLocaleString()} records ${commit ? "copied" : "ready to copy"}`,
+              stats.refsRemapped ? `${stats.refsRemapped} internal links repointed` : "",
+              stats.storageUrls ? `${stats.storageUrls} photo/x-ray links found (step 4 copies these)` : "",
+            ].filter(Boolean));
+            setConflicts(json.state.conflicts || []);
+            setCopyStage("done");
+            break;
+          }
         }
       }
     } catch (e) {
@@ -161,11 +227,27 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
     }
   }
 
+  function backupStaffArgs() {
+    if (!backup) return {};
+    return {
+      staffDocs: backup.docs
+        .filter((doc) => /^staff\/[^/]+$/.test(doc.path))
+        .map((doc) => ({ id: doc.path.split("/")[1], data: doc.data })),
+      userDocs: backup.docs
+        .filter((doc) => /^users\/[^/]+$/.test(doc.path))
+        .map((doc) => doc.data),
+      sourceProject: backup.projectId,
+    };
+  }
+
   async function handleStaffPreview() {
     setBusy("staff");
     setError("");
     try {
-      const json = await call("staff-preview", { adminEmail });
+      const json =
+        mode === "backup"
+          ? await call("staff-preview-backup", { ...backupStaffArgs(), adminEmail })
+          : await call("staff-preview", { credentials, adminEmail });
       setStaffPeople(json.people);
       setStaffNoEmail(json.noEmail || []);
     } catch (e) {
@@ -179,7 +261,10 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
     setBusy("staff-link");
     setError("");
     try {
-      const json = await call("staff-link", { adminEmail, resetLinks: true });
+      const json =
+        mode === "backup"
+          ? await call("staff-link-backup", { ...backupStaffArgs(), adminEmail, resetLinks: true })
+          : await call("staff-link", { credentials, adminEmail, resetLinks: true });
       setStaffResults(json.results);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -195,12 +280,13 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
     try {
       let state: unknown = null;
       let guard = 0;
-
       for (;;) {
         if (guard++ > 2000) throw new Error("Stopped after too many steps — tell your developer.");
 
-        const json: { state: { completed: string[]; pending: string[]; scanned: number; copied: number; alreadyThere: number; missing: string[]; documentsUpdated: number }; done: boolean } =
-          await call("storage", { state, commit });
+        const json =
+          mode === "backup"
+            ? await call("fetch-files", { state, commit, sourceBucket: backup?.storageBucket })
+            : await call("storage", { credentials, state, commit });
         state = json.state;
 
         setFilesProgress(
@@ -212,8 +298,11 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
             `${json.state.copied} files ${commit ? "copied" : "ready to copy"}`,
             json.state.alreadyThere ? `${json.state.alreadyThere} already here` : "",
             `${json.state.documentsUpdated} records ${commit ? "updated" : "would be updated"}`,
-            json.state.missing.length
-              ? `${json.state.missing.length} files were already missing in the old system (left alone)`
+            json.state.missing?.length
+              ? `${json.state.missing.length} files were already broken in the old system (left alone)`
+              : "",
+            json.state.needsCredentials?.length
+              ? `${json.state.needsCredentials.length} files cannot be fetched from the backup — redo this step with the old project's key file`
               : "",
           ].filter(Boolean));
           setFilesStage("done");
@@ -231,8 +320,33 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
     setError("");
     setReport(null);
     try {
-      const json = await call("verify", { sample: 25 });
-      setReport(json.report);
+      if (mode === "backup" && backup) {
+        const rerouted = new Set(reroutedPaths);
+        const counts = new Map<string, number>();
+        const samplesByRoot = new Map<string, { path: string; data: unknown }[]>();
+
+        for (const doc of backup.docs) {
+          if (rerouted.has(doc.path) || doc.path.startsWith("users/")) continue;
+          const col = collectionOf(doc.path);
+          counts.set(col, (counts.get(col) || 0) + 1);
+
+          const root = doc.path.split("/")[0];
+          const bucket = samplesByRoot.get(root) || [];
+          if (bucket.length < 25) bucket.push(doc);
+          samplesByRoot.set(root, bucket);
+        }
+
+        const json = await call("verify-backup", {
+          sourceBucket: backup.storageBucket,
+          counts: [...counts.entries()].map(([path, count]) => ({ path, count })),
+          samples: [...samplesByRoot.values()].flat(),
+          reroutesPresent: reroutedPaths.filter((path) => backup.docs.some((doc) => doc.path === path)),
+        });
+        setReport(json.report);
+      } else {
+        const json = await call("verify", { credentials, sample: 25 });
+        setReport(json.report);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -240,7 +354,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
     }
   }
 
-  const ready = Boolean(clinicId && credentials);
+  const ready = Boolean(clinicId && (backup || credentials));
   const unknowns = (plan || []).filter((entry) => entry.action === "copy" && !entry.known);
   const gaps = (plan || []).filter((entry) => entry.noConsumer && entry.count > 0);
   const blockedByUnknown = unknowns.length > 0 && !allowUnknown;
@@ -250,9 +364,10 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
       <Callout>
         <p className="font-bold text-white mb-1">This copies a clinic in. It never changes their old system.</p>
         <p>
-          The clinic&apos;s existing database is opened read-only, so they keep working normally in the
-          old system while you do this. Nothing is written until you press a button that says so, and
-          you can run these steps as many times as you like.
+          Easiest way: ask the clinic&apos;s Admin to open <span className="font-mono">/backup</span> in
+          their old system, press <em>Download backup</em>, and send you the file — no Firebase keys
+          needed at all. The clinic keeps working in the old system the whole time, nothing is written
+          here until you press a button that says so, and you can repeat any step safely.
         </p>
       </Callout>
 
@@ -263,7 +378,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
         </div>
       )}
 
-      <Step number={1} title="Choose the clinic and the old key file" icon={<Database size={18} />}>
+      <Step number={1} title="Choose the clinic and upload the file" icon={<Database size={18} />}>
         <label className="block text-xs font-bold text-slate-400 mb-2">Clinic in this system</label>
         <select
           value={clinicId}
@@ -282,22 +397,29 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
         </select>
 
         <label className="block text-xs font-bold text-slate-400 mb-2">
-          The old project&apos;s service account file (.json)
+          The clinic&apos;s backup file — or, if there is none, the old project&apos;s key file
         </label>
         <label className="flex items-center gap-3 px-4 py-3 rounded-lg border border-dashed border-slate-600 hover:border-indigo-500 cursor-pointer text-sm text-slate-300">
           <Upload size={16} />
-          {keyFileName || "Choose file…"}
-          <input type="file" accept="application/json,.json" onChange={onKeyFile} className="hidden" />
+          {fileName || "Choose file…"}
+          <input type="file" accept="application/json,.json" onChange={onFile} className="hidden" />
         </label>
-        <p className="text-xs text-slate-500 mt-2 flex items-start gap-2">
-          <Lock size={13} className="mt-0.5 shrink-0" />
-          <span>
-            In the clinic&apos;s old Firebase project: Project settings → Service accounts → Generate new
-            private key. Give that account only the <em>Viewer</em> roles for Firestore and Storage, and
-            it cannot change their data even by accident. The file is used for this session only and is
-            never saved anywhere.
-          </span>
-        </p>
+        {mode === "backup" && backup && (
+          <p className="text-xs text-emerald-400 mt-2">
+            Backup from <span className="font-mono">{backup.projectId}</span> —{" "}
+            {backup.docs.length.toLocaleString()} records. No keys needed.
+          </p>
+        )}
+        {mode === "keyfile" && (
+          <p className="text-xs text-slate-500 mt-2 flex items-start gap-2">
+            <Lock size={13} className="mt-0.5 shrink-0" />
+            <span>
+              Key file detected. The old project is opened read-only; give this account only the
+              <em> Viewer</em> roles for Firestore and Storage and it cannot change their data even by
+              accident. Used for this session only, never saved.
+            </span>
+          </p>
+        )}
 
         <button
           onClick={handleCheck}
@@ -312,8 +434,9 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
       {plan && (
         <Step number={2} title="Look at what will move" icon={<HardDriveDownload size={18} />}>
           <p className="text-xs text-slate-400 mb-3">
-            Reading <span className="font-mono text-slate-300">{sourceProject}</span>. Nothing has been
-            copied yet.
+            {mode === "backup" ? "From the backup of " : "Reading "}
+            <span className="font-mono text-slate-300">{sourceProject}</span>. Nothing has been copied
+            yet.
           </p>
 
           <div className="rounded-lg border border-slate-700 overflow-hidden">
@@ -395,9 +518,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
 
           {conflicts.length > 0 && (
             <Warning icon={<ShieldCheck size={16} />}>
-              <p className="font-bold mb-1">
-                {conflicts.length} records were left alone on purpose.
-              </p>
+              <p className="font-bold mb-1">{conflicts.length} records were left alone on purpose.</p>
               <p>
                 These already existed here and were not put there by a migration — they look like work
                 someone did in v3 after the clinic switched over. They were not overwritten with the
@@ -541,8 +662,9 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
       {copyStage === "done" && (
         <Step number={5} title="Check everything arrived" icon={<CheckCircle2 size={18} />}>
           <p className="text-sm text-slate-400 mb-3">
-            Compares both systems record by record, and checks that appointments still find their
-            patients. Run this before you let the clinic start working here.
+            Compares the records here against the {mode === "backup" ? "backup file" : "old system"},
+            and checks that appointments still find their patients. Run this before you let the clinic
+            start working here.
           </p>
           <button
             onClick={handleVerify}

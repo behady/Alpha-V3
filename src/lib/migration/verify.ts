@@ -154,6 +154,19 @@ export async function verifyMigration(
   }
 
   // ------------------------------------------------------------------------- 3. link checks
+  await checkReferenceLinks(dst, clinicId, report);
+
+  // ------------------------------------------------------------------------ 4. staff logins
+  await checkStaffLinkage(dst, clinicId, report);
+
+  return report;
+}
+
+async function checkReferenceLinks(
+  dst: FirebaseFirestore.Firestore,
+  clinicId: string,
+  report: VerifyReport
+): Promise<void> {
   for (const check of REFERENCE_CHECKS) {
     const page = await dst
       .collection(targetPathFor(clinicId, check.collection).join("/"))
@@ -191,8 +204,13 @@ export async function verifyMigration(
       report.links.push({ label, status: "ok", detail: `all ${ids.size} resolve` });
     }
   }
+}
 
-  // ------------------------------------------------------------------------ 4. staff logins
+async function checkStaffLinkage(
+  dst: FirebaseFirestore.Firestore,
+  clinicId: string,
+  report: VerifyReport
+): Promise<void> {
   const staffSnap = await dst.collection(targetPathFor(clinicId, "staff").join("/")).get();
   for (const doc of staffSnap.docs) {
     const name = doc.get("name") || doc.id;
@@ -226,8 +244,6 @@ export async function verifyMigration(
 
     report.staff.push({ label: name, status: "ok", detail: role });
   }
-
-  return report;
 }
 
 /**
@@ -281,4 +297,118 @@ function extractObjectPath(url: string, bucket: string): string | null {
   if (download && download[1] === bucket) return decodeURIComponent(download[2]);
   if (url.startsWith(`gs://${bucket}/`)) return url.slice(`gs://${bucket}/`.length);
   return null;
+}
+
+// ------------------------------------------------------------------- verify from a backup file
+
+/**
+ * The same four checks, driven by an uploaded v2 backup file instead of live source credentials.
+ *
+ * The browser holds the file, so it sends what the checks need: per-collection counts, a sample
+ * of documents to compare field by field, and which re-routed documents (the WhatsApp secret)
+ * the backup contained. Everything target-side — the link checks and the staff-login check —
+ * is the shared code the credentials path uses, so both paths hold the migration to the same
+ * standard.
+ */
+export async function verifyFromBackup(
+  clinicId: string,
+  sourceBucket: string,
+  counts: { path: string; count: number }[],
+  samples: { path: string; data: unknown }[],
+  reroutesPresent: string[]
+): Promise<VerifyReport> {
+  const { decodeValue } = await import("./backup");
+  const dst = adminDb();
+  const report: VerifyReport = { counts: [], samples: [], links: [], staff: [], failures: 0 };
+
+  // ---------------------------------------------------------------------------- 1. counts
+  for (const { path, count } of counts) {
+    const segments = path.split("/");
+    const rootName = segments[0];
+    if (SKIP_COLLECTIONS[rootName]) {
+      report.counts.push({ label: path, status: "info", detail: "handled by the staff step" });
+      continue;
+    }
+
+    const targetPath = [...targetPathFor(clinicId, rootName), ...segments.slice(1)].join("/");
+    const actual = (await dst.collection(targetPath).count().get()).data().count;
+
+    if (count === actual) {
+      report.counts.push({ label: path, status: "ok", detail: `${count}` });
+    } else if (actual > count) {
+      report.counts.push({
+        label: path,
+        status: "warn",
+        detail: `${actual} here vs ${count} in the backup (+${actual - count} added in v3?)`,
+      });
+    } else {
+      report.failures += 1;
+      report.counts.push({
+        label: path,
+        status: "fail",
+        detail: `${count - actual} missing — backup has ${count}, this system has ${actual}`,
+      });
+    }
+  }
+
+  for (const key of reroutesPresent) {
+    const reroute = DOCUMENT_REROUTES[key];
+    if (!reroute) continue;
+    const spec = reroute.target(clinicId);
+    const snap = await dst.doc(spec.path.join("/")).get();
+    if (snap.exists && snap.get(spec.field) !== undefined) {
+      report.counts.push({ label: key, status: "ok", detail: "moved to server-only secrets" });
+    } else {
+      report.failures += 1;
+      report.counts.push({ label: key, status: "fail", detail: "secret did not arrive" });
+    }
+  }
+
+  // -------------------------------------------------------------------------- 2. sampling
+  const byCollection = new Map<string, { missing: number; differing: number; sampled: number }>();
+  for (const sample of samples) {
+    const segments = sample.path.split("/");
+    const rootName = segments[0];
+    if (SKIP_COLLECTIONS[rootName] || DOCUMENT_REROUTES[sample.path]) continue;
+
+    const bucket = byCollection.get(rootName) || { missing: 0, differing: 0, sampled: 0 };
+    bucket.sampled += 1;
+
+    const targetRef = dst.doc([...targetPathFor(clinicId, rootName), ...segments.slice(1)].join("/"));
+    const snap = await targetRef.get();
+    if (!snap.exists) {
+      bucket.missing += 1;
+    } else {
+      const expected = decodeValue(sample.data, clinicId, dst) as Record<string, unknown>;
+      const target = snap.data() || {};
+      for (const [key, value] of Object.entries(expected)) {
+        if (key === MIGRATION_STAMP_FIELD) continue;
+        if (EXPECTED_REWRITTEN_FIELDS[rootName]?.has(key)) continue;
+        if (!sameValue(value, target[key], sourceBucket, clinicId)) {
+          bucket.differing += 1;
+          break;
+        }
+      }
+    }
+    byCollection.set(rootName, bucket);
+  }
+
+  for (const [name, bucket] of [...byCollection.entries()].sort()) {
+    if (bucket.missing || bucket.differing) {
+      report.failures += 1;
+      report.samples.push({
+        label: name,
+        status: "fail",
+        detail: `${bucket.missing} missing, ${bucket.differing} different of ${bucket.sampled} checked`,
+      });
+    } else {
+      report.samples.push({ label: name, status: "ok", detail: `${bucket.sampled} checked` });
+    }
+  }
+
+  // ------------------------------------------------------------------- 3 + 4. links, staff
+  await checkReferenceLinks(dst, clinicId, report);
+  await checkStaffLinkage(dst, clinicId, report);
+
+  return report;
 }

@@ -38,7 +38,7 @@ const COPY_CONCURRENCY = 8;
  * would overwrite the first clinic's images — one clinic silently looking at another clinic's
  * radiographs.
  */
-const targetObjectPath = (clinicId: string, objectPath: string) =>
+export const targetObjectPath = (clinicId: string, objectPath: string) =>
   `clinics/${clinicId}/${objectPath}`;
 
 /**
@@ -54,7 +54,7 @@ const targetObjectPath = (clinicId: string, objectPath: string) =>
  * the URL can fetch that file unauthenticated — so deriving one from the object path alone would
  * make every patient's radiographs reachable by anyone who can guess a path.
  */
-function tokenFor(salt: string, clinicId: string, objectPath: string): string {
+export function tokenFor(salt: string, clinicId: string, objectPath: string): string {
   const digest = createHash("sha256").update(`${salt}:${clinicId}:${objectPath}`).digest("hex");
   return [
     digest.slice(0, 8),

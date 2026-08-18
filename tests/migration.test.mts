@@ -277,7 +277,7 @@ async function main() {
   check("two staff have emails", people.length === 2);
   check("staff without an email is reported", noEmail.length === 1);
   check("email lower-cased for matching", people.some((p) => p.email === "sara@clinic.test"));
-  const results = await linkStaff(SOURCE_CREDENTIALS, CLINIC_ID, people, true);
+  const results = await linkStaff(SOURCE_CREDENTIALS.projectId, CLINIC_ID, people, true);
   check("reset links produced", results.every((r) => Boolean(r.resetLink)));
   const sara = results.find((r) => r.email === "sara@clinic.test");
   const saraUser = await dst.doc(`users/${sara?.uid}`).get();
