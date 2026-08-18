@@ -95,6 +95,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { key: "dashboard", href: "/", icon: LayoutDashboard },
     { key: "briefing", href: "/ai/briefing", icon: Sparkles },
     { key: "leads", href: "/leads", icon: Inbox },
+    { key: "messages", href: "/messages", icon: MessageCircle },
     { key: "patients", href: "/patients", icon: Users },
     { key: "appointments", href: "/appointments", icon: Calendar },
     { key: "inventory", href: "/inventory", icon: Package },
@@ -116,6 +117,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
     // Leads are worked by whoever answers the desk. Reception already holds patient access, so
     // that grant carries over — no clinic has to edit permissions to start using the CRM.
+    if (key === 'messages') {
+      return canAccessNavItem('patients', user, isAdmin);
+    }
+
     if (key === 'leads') {
       return canAccessNavItem('leads', user, isAdmin) || canAccessNavItem('patients', user, isAdmin);
     }

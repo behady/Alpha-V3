@@ -9,6 +9,7 @@ const translations = {
     // --- NAVIGATION ---
     dashboard: "Dashboard",
     leads: "Leads",
+    messages: "Messages",
     patients: "Patients",
     appointments: "Appointments",
     lab: "Lab Tracking",
@@ -222,6 +223,7 @@ const translations = {
     // --- NAVIGATION ---
     dashboard: "لوحة التحكم",
     leads: "العملاء المحتملين",
+    messages: "الرسايل",
     patients: "سجل المرضى",
     appointments: "المواعيد",
     lab: "متابعة المعمل",
