@@ -165,6 +165,8 @@ export type FetchFilesState = {
   /** gs:// references carry no download token, so they cannot be fetched without credentials. */
   needsCredentials: string[];
   documentsUpdated: number;
+  /** Records examined. Zero means the data step never ran, not that the clinic has no images. */
+  scanned: number;
   /** Buckets the image links actually pointed at — shown so a wrong guess cannot pass silently. */
   bucketsSeen: string[];
 };
@@ -184,6 +186,7 @@ export async function initialFetchFilesState(clinicId: string): Promise<FetchFil
     missing: [],
     needsCredentials: [],
     documentsUpdated: 0,
+    scanned: 0,
     bucketsSeen: [],
   };
 }
@@ -230,6 +233,7 @@ export async function runFetchFilesStep(
 
     for (const doc of page.docs) {
       state.cursor = doc.id;
+      state.scanned += 1;
 
       // Collect every URL in this document that points at the old bucket, keyed by object path
       // so one file referenced twice is fetched once.

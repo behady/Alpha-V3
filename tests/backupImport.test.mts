@@ -231,6 +231,16 @@ async function main() {
     (await dst.collection(`clinics/${CLINIC_ID}/patients`).count().get()).data().count === 0
   );
 
+  // The trap this guards: steps 3-5 used to unlock after a practice run too, so the files step
+  // would scan a clinic whose records were never copied and report "no images found" as if that
+  // described the clinic rather than an empty target.
+  const emptyScan = await runFetchFilesStep(CLINIC_ID, "test-salt", await initialFetchFilesState(CLINIC_ID), false);
+  check(
+    "after a practice run there is nothing for the files step to look at",
+    emptyScan.state.scanned === 0,
+    `scanned=${emptyScan.state.scanned}`
+  );
+
   console.log("\nImport in chunks (no credentials from here on)");
   const stats = { read: 0, written: 0, conflicts: 0, rerouted: 0 };
   for (let i = 0; i < importable.length; i += 4) {
@@ -303,6 +313,11 @@ async function main() {
     if (result.done || guard++ > 50) break;
   }
   check("reachable file fetched and stored", fileState.copied === 1, `copied=${fileState.copied}`);
+  check(
+    "records really were examined, so a zero would mean something",
+    fileState.scanned > 0,
+    `scanned=${fileState.scanned}`
+  );
   check("dead URL reported, not hidden", fileState.missing.length === 1);
 
   const p1 = await dst.doc(`clinics/${CLINIC_ID}/patients/p1`).get();

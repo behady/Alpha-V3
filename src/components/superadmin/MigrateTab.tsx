@@ -67,6 +67,12 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
   const [allowUnknown, setAllowUnknown] = useState(false);
 
   const [copyStage, setCopyStage] = useState<Stage>("idle");
+  /**
+   * Whether step 2 has actually written. Steps 3-5 used to unlock on any finished copy, practice
+   * runs included -- so the files step could scan a clinic whose records were never copied, find
+   * nothing, and report "no images" as though that were a fact about the clinic.
+   */
+  const [copyCommitted, setCopyCommitted] = useState(false);
   const [copyProgress, setCopyProgress] = useState("");
   const [copySummary, setCopySummary] = useState<string[]>([]);
   const [conflicts, setConflicts] = useState<string[]>([]);
@@ -165,6 +171,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
     setError("");
     setCopySummary([]);
     setConflicts([]);
+    if (commit) setCopyCommitted(false);
 
     try {
       if (mode === "backup" && backup) {
@@ -216,6 +223,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
               stats.storageUrls ? `${stats.storageUrls} photo/x-ray links found (step 4 copies these)` : "",
             ].filter(Boolean));
             setConflicts(json.state.conflicts || []);
+            setCopyCommitted(commit);
             setCopyStage("done");
             break;
           }
@@ -297,7 +305,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
           const buckets: string[] = json.state.bucketsSeen || [];
           setFilesSummary([
             json.state.copied === 0 && json.state.alreadyThere === 0
-              ? "No images found in this clinic's records — nothing to copy"
+              ? `Looked at ${(json.state.scanned || 0).toLocaleString()} records — no image links found`
               : `${json.state.copied} files ${commit ? "copied" : "ready to copy"}`,
             json.state.alreadyThere ? `${json.state.alreadyThere} already here` : "",
             `${json.state.documentsUpdated} records ${commit ? "updated" : "would be updated"}`,
@@ -564,6 +572,17 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
           {copyStage === "running" && <Progress text={copyProgress} />}
           {copyStage === "done" && <Summary lines={copySummary} />}
 
+          {copyStage === "done" && !copyCommitted && (
+            <Warning icon={<ShieldCheck size={16} />}>
+              <p className="font-bold mb-1">That was the practice run — nothing was copied.</p>
+              <p>
+                The remaining steps stay hidden until the data is really here, because they would
+                otherwise run against an empty clinic and report success. Press{" "}
+                <em>Copy the data for real</em> when the numbers above look right.
+              </p>
+            </Warning>
+          )}
+
           {conflicts.length > 0 && (
             <Warning icon={<ShieldCheck size={16} />}>
               <p className="font-bold mb-1">{conflicts.length} records were left alone on purpose.</p>
@@ -587,7 +606,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
         </Step>
       )}
 
-      {copyStage === "done" && (
+      {copyCommitted && (
         <Step number={3} title="Staff logins" icon={<Users size={18} />}>
           <Warning icon={<AlertTriangle size={16} />}>
             <p className="font-bold mb-1">Old passwords will not work.</p>
@@ -707,7 +726,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
         </Step>
       )}
 
-      {copyStage === "done" && (
+      {copyCommitted && (
         <Step number={4} title="Photos and x-rays" icon={<Images size={18} />}>
           <Warning icon={<AlertTriangle size={16} />}>
             <p className="font-bold mb-1">Do not skip this one.</p>
@@ -742,7 +761,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
         </Step>
       )}
 
-      {copyStage === "done" && (
+      {copyCommitted && (
         <Step number={5} title="Check everything arrived" icon={<CheckCircle2 size={18} />}>
           <p className="text-sm text-slate-400 mb-3">
             Compares the records here against the {mode === "backup" ? "backup file" : "old system"},
