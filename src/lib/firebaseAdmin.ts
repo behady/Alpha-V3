@@ -21,8 +21,22 @@ export function parseFirebasePrivateKey(raw: string | undefined): string {
     .trim();
 }
 
+/** firebase-admin's name for the unnamed app created by initializeApp() with no second argument. */
+const DEFAULT_APP_NAME = "[DEFAULT]";
+
 function getAdminApp(): App {
-  if (getApps().length > 0) return getApps()[0];
+  /**
+   * Resolve the default app BY NAME, not by position.
+   *
+   * `getApps()[0]` means "whichever app was initialised first", which was harmless while this
+   * project only ever had one. It is not harmless now: the clinic migration opens each clinic's
+   * old Firebase project as a second, named app. If one of those were ever created first in a
+   * serverless instance, `getApps()[0]` would return it, and every adminDb() caller in that
+   * instance would silently read and write the OLD clinic's database instead of this one —
+   * including the migration itself, which exists to never write there.
+   */
+  const existing = getApps().find((app) => app.name === DEFAULT_APP_NAME);
+  if (existing) return existing;
 
   const projectId = process.env.FIREBASE_PROJECT_ID?.trim();
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL?.trim();

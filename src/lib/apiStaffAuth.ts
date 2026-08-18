@@ -94,3 +94,37 @@ export async function requireAdminUser(request: Request, clinicId?: string) {
 }
 
 
+
+/**
+ * Platform-owner access. Stricter than requireAdminUser, which any CLINIC Admin satisfies.
+ *
+ * Endpoints that act across tenants — or that accept credentials for another Firebase project,
+ * as the migration does — must not be reachable by a clinic Admin. Otherwise the owner of one
+ * clinic could write arbitrary data into another clinic's records.
+ *
+ * Two route files already carry a private copy of this check; this is the shared one for new
+ * callers.
+ */
+export async function requireSuperAdmin(request: Request) {
+  const authHeader = request.headers.get("authorization") || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!token) {
+    return { ok: false as const, response: NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 }) };
+  }
+  try {
+    const decoded = await adminAuth().verifyIdToken(token);
+    const snap = await adminDb().collection("users").doc(decoded.uid).get();
+    const data = snap.data();
+    // Stored as a boolean, but tolerate the string form firestore.rules also accepts.
+    if (!data || (data.isSuperAdmin !== true && data.isSuperAdmin !== "true")) {
+      return {
+        ok: false as const,
+        response: NextResponse.json({ ok: false, error: "Super admins only" }, { status: 403 }),
+      };
+    }
+    return { ok: true as const, uid: decoded.uid };
+  } catch (error) {
+    console.error("requireSuperAdmin verifyIdToken failed", error);
+    return { ok: false as const, response: NextResponse.json({ ok: false, error: "Invalid token" }, { status: 401 }) };
+  }
+}
