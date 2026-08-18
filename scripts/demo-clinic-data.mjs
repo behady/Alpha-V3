@@ -204,6 +204,70 @@ export const PATIENTS = [
   { name: "Aya Nour", phone: "+201000000124", gender: "Female", dob: "1998-10-15", sourceIdx: 2 },
 ];
 
+/**
+ * The lead inbox, built to show what the CRM is for rather than to look busy.
+ *
+ * `patientIdx` points at a PATIENTS row: those two were converted, so the funnel has real money
+ * to attribute — one of them a returning patient, which is what makes the "returning" column
+ * visible instead of theoretical. Two leads carry a Meta fingerprint under different campaigns,
+ * so the campaign breakdown in the Marketing Funnel has something to compare, and one of them
+ * carries a welcome message so the "auto-replied" badge appears.
+ *
+ * `dueOffset` is days from today: negative is overdue, 0 is due today.
+ */
+export const LEADS = [
+  {
+    name: "Nada Mostafa", phone: "+201000000806", source: "Meta ads", interest: "Hollywood Smile",
+    stage: "new", dueOffset: 0, createdDaysAgo: 0,
+    campaign: "Hollywood Smile — August", ad: "Video — before & after",
+    welcomed: true,
+    notes: "",
+  },
+  {
+    name: "Tarek Nabil", phone: "+201000000107", source: "Meta ads", interest: "Implant",
+    stage: "won", patientIdx: 6, returning: true, createdDaysAgo: 9,
+    campaign: "Implants — Ramadan offer", ad: "Carousel — pricing",
+    notes: "",
+  },
+  {
+    name: "Hossam Ali", phone: "+201000000113", source: "Friend referral", interest: "Braces consult",
+    stage: "won", patientIdx: 12, createdDaysAgo: 12,
+    notes: "Referred by his brother.",
+  },
+  {
+    name: "Mariam Adel", phone: "+201000000801", source: "Google", interest: "Root canal",
+    stage: "booked", dueOffset: 2, createdDaysAgo: 3,
+    notes: "Prefers evening slots.",
+  },
+  {
+    name: "Omar Farouk", phone: "+201000000802", source: "WhatsApp", interest: "Teeth whitening",
+    stage: "contacted", dueOffset: 0, createdDaysAgo: 2,
+    notes: "Asked about price, will decide this week.",
+  },
+  {
+    name: "Salma Hassan", phone: "+201000000803", source: "Instagram", interest: "Veneers",
+    stage: "new", dueOffset: -1, createdDaysAgo: 1,
+    notes: "",
+  },
+  {
+    name: "Karim Nabil", phone: "+201000000804", source: "Walk-in", interest: "Cleaning",
+    stage: "new", createdDaysAgo: 4,
+    notes: "",
+  },
+  {
+    name: "Nour El-Din", phone: "+201000000805", source: "TikTok", interest: "Implant",
+    stage: "lost", lostReason: "Went to a closer clinic", createdDaysAgo: 15,
+    notes: "",
+  },
+  // Untouched for over a month — the one the funnel should be calling stale rather than
+  // counting as work in progress.
+  {
+    name: "Rania Fouad", phone: "+201000000807", source: "Google", interest: "Crown",
+    stage: "contacted", createdDaysAgo: 46, quietDays: 41,
+    notes: "Said she would call back.",
+  },
+];
+
 /** Three items sit under their reorder threshold so low-stock alerts have something to show. */
 export const INVENTORY = [
   { name: "Composite Resin A2", category: "Restorative", stock: 24, minStock: 10, costPerUnit: 320, unit: "syringe" },

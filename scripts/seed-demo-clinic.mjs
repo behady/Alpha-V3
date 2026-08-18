@@ -28,6 +28,7 @@ import {
   DEMO_MARKER,
   INVENTORY,
   JOIN_REQUESTS,
+  LEADS,
   ONLINE_BOOKING,
   PATIENTS,
   PATIENT_SOURCES,
@@ -169,6 +170,9 @@ async function main() {
       for (const sub of [
         "patients", "appointments", "ledger", "clinical_notes", "services",
         "inventory", "staff", "attendance", "notifications", "system_logs",
+        // Anything the CRM writes belongs here too, or a re-seed doubles it rather than
+        // rebuilding it — which is exactly what happened the first time leads were added.
+        "leads", "whatsapp_outbox",
       ]) {
         await deleteCollection(db, db.collection(`clinics/${clinicId}/${sub}`), sub);
       }
@@ -347,6 +351,61 @@ async function main() {
     });
   });
   plan.push(`${PATIENTS.length} patients`);
+
+  // --- leads ------------------------------------------------------------------------------------
+  // Written after patients so a converted lead can point at a real file, which is what lets the
+  // Marketing Funnel show money rather than counts.
+  const iso = (d) => d.toISOString().split("T")[0];
+  LEADS.forEach((l) => {
+    const id = db.collection(`clinics/${clinicId}/leads`).doc().id;
+    const patient = typeof l.patientIdx === "number" ? patientRefs[l.patientIdx] : null;
+    const born = dayOffset(-(l.createdDaysAgo ?? 0));
+    // A lead nobody has touched for weeks must look untouched: the funnel reads stageChangedAt.
+    const lastTouch = dayOffset(-(l.quietDays ?? l.createdDaysAgo ?? 0));
+    const meta = l.campaign
+      ? {
+          leadgenId: `demo_${id}`,
+          pageId: "demo-page",
+          pageName: "Demo Clinic — Alpha Dental",
+          formId: "demo-form",
+          adName: l.ad || null,
+          campaignName: l.campaign,
+          createdTime: born.toISOString(),
+          fetchFailed: false,
+        }
+      : null;
+
+    add(db.doc(`clinics/${clinicId}/leads/${id}`), {
+      name: l.name,
+      phone: l.phone,
+      interest: l.interest || "",
+      source: l.source,
+      stage: l.stage,
+      notes: [l.notes, meta ? `Campaign: ${l.campaign}` : "", meta && l.ad ? `Ad: ${l.ad}` : ""]
+        .filter(Boolean)
+        .join(String.fromCharCode(10)),
+      followUpDate: typeof l.dueOffset === "number" ? iso(dayOffset(l.dueOffset)) : null,
+      lostReason: l.lostReason || null,
+      patientId: patient ? patient.id : null,
+      isReturningPatient: Boolean(l.returning),
+      existingPatientId: patient ? patient.id : null,
+      existingPatientName: patient ? patient.name : null,
+      duplicateOfLeadId: null,
+      branchId: null,
+      branchName: null,
+      meta,
+      welcomeMessage: l.welcomed
+        ? { status: "sent", mode: "auto", text: "Hi — thanks for contacting the clinic. When is a good time to call you?" }
+        : null,
+      createdBy: "demo-seed",
+      createdAt: born,
+      updatedAt: lastTouch,
+      stageChangedAt: lastTouch,
+      firstContactedAt: l.stage === "new" ? null : dayOffset(-(l.createdDaysAgo ?? 0)),
+      [DEMO_MARKER]: true,
+    });
+  });
+  plan.push(`${LEADS.length} leads (${LEADS.filter((l) => l.campaign).length} from Meta campaigns)`);
 
   // --- appointments, procedures, money -----------------------------------------------------------
   const STATUS_PAST = ["Completed", "Completed", "Completed", "Completed", "No Show", "Cancelled"];
