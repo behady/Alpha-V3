@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonSearch
@@ -61,6 +62,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,6 +80,7 @@ import com.alphadental.clinic.data.Appointment
 import com.alphadental.clinic.ui.Alpha
 import com.alphadental.clinic.ui.AlphaCard
 import com.alphadental.clinic.ui.AlphaTheme
+import com.alphadental.clinic.ui.AppearanceScreen
 import com.alphadental.clinic.ui.AddLeadSheet
 import com.alphadental.clinic.ui.AddNoteSheet
 import com.alphadental.clinic.ui.LeadsScreen
@@ -205,6 +208,9 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbars = remember { SnackbarHostState() }
     var openAppointment by remember { mutableStateOf<Appointment?>(null) }
+    // Device-local, not clinic data: it never leaves the phone, so it does not
+    // belong in the shared view-model state.
+    var appearanceOpen by rememberSaveable { mutableStateOf(false) }
 
     // Once signed in: put this phone on the user's push list, and — on Android 13+ — ask for
     // notification permission the first time. Registration is repeated on every sign-in because
@@ -414,6 +420,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             // Admins only: hours decide what every other member of staff can book.
                             onOpenHours = if (session.isAdmin) ({ viewModel.openHours() }) else null,
                             onToggleLanguage = viewModel::toggleLanguage,
+                            onOpenAppearance = { appearanceOpen = true },
                             onSignOut = viewModel::signOut,
                         )
                     }
@@ -527,6 +534,10 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
             }
 
             // The CRM inbox, full page. Admin and reception, matching the website.
+            if (appearanceOpen) {
+                AppearanceScreen(arabic = state.arabic, onClose = { appearanceOpen = false })
+            }
+
             if (state.leadsOpen) {
                 LeadsScreen(
                     leads = state.leads,
@@ -831,6 +842,7 @@ private fun MoreScreen(
     /** Null for anyone who is not a clinic admin. */
     onOpenHours: (() -> Unit)?,
     onToggleLanguage: () -> Unit,
+    onOpenAppearance: () -> Unit,
     onSignOut: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -962,6 +974,13 @@ private fun MoreScreen(
         }
 
         SectionHeading(if (arabic) "الإعدادات" else "SETTINGS")
+
+        MoreRow(
+            icon = Icons.Filled.Palette,
+            label = if (arabic) "المظهر" else "Appearance",
+            caption = if (arabic) "الألوان والوضع الليلي" else "Colours and night mode",
+            onClick = onOpenAppearance,
+        )
 
         MoreRow(
             icon = Icons.Filled.Language,

@@ -8,6 +8,8 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
@@ -61,59 +63,110 @@ class AlphaPalette(
     val PillShape = RoundedCornerShape(999.dp)
 }
 
-val LightAlpha = AlphaPalette(
-    dark = false,
-    Ground = Color(0xFFF5F8F7),
-    GroundSoft = Color(0xFFFAFCFB),
-    Card = Color(0xFFFFFFFF),
-    Ink = Color(0xFF0E3F32),
-    Slate900 = Color(0xFF10201B),
-    Slate800 = Color(0xFF1E2E29),
-    Slate700 = Color(0xFF33443E),
-    Slate600 = Color(0xFF4A5B55),
-    Slate500 = Color(0xFF64756F),
-    Slate400 = Color(0xFF94A29D),
-    Slate300 = Color(0xFFCBD6D2),
-    Slate200 = Color(0xFFE2EAE7),
-    Slate100 = Color(0xFFF0F4F3),
-    Slate50 = Color(0xFFF7FAF9),
-    Green = Color(0xFF0D9E6F),
-    GreenSoft = Color(0xFFE3F5EE),
-    Mint = Color(0xFF8DE3C4),
-    Pink = Color(0xFFF6A5C0),
-    Danger = Color(0xFFE11D48),
-    DangerSoft = Color(0xFFFFF1F2),
-    DangerText = Color(0xFF9F1239),
-    WarnBg = Color(0xFFFEF3C7),
-    WarnText = Color(0xFF92400E),
+/**
+ * One theme, as the two colours that define it.
+ *
+ * Everything else — the neutral scale, the surfaces, the soft tints — is derived
+ * from these, so a new theme is two colours rather than thirty hand-tuned ones,
+ * and no theme can quietly ship an unreadable grey. The semantic colours
+ * (danger, warning, and the eleven appointment statuses) are deliberately NOT
+ * derived: a status must mean the same thing in every theme.
+ */
+class AlphaThemeOption(
+    val id: String,
+    val en: String,
+    val ar: String,
+    /** The primary-action colour in light mode: filled buttons, selected tabs. */
+    val ink: Color,
+    /** The accent in light mode: money in credit, highlights, success. */
+    val accent: Color,
+    /** Their brighter counterparts, for dark backgrounds. */
+    val inkDark: Color,
+    val accentDark: Color,
 )
 
-val DarkAlpha = AlphaPalette(
-    dark = true,
-    Ground = Color(0xFF0D1412),
-    GroundSoft = Color(0xFF101815),
-    Card = Color(0xFF171F1C),
-    Ink = Color(0xFF0F8A63),
-    Slate900 = Color(0xFFF2F5F4),
-    Slate800 = Color(0xFFE4E9E8),
-    Slate700 = Color(0xFFC9D2CF),
-    Slate600 = Color(0xFFA9B6B2),
-    Slate500 = Color(0xFF8B9995),
-    Slate400 = Color(0xFF6C7B75),
-    Slate300 = Color(0xFF3A4640),
-    Slate200 = Color(0xFF2B3530),
-    Slate100 = Color(0xFF1F2823),
-    Slate50 = Color(0xFF1A211E),
-    Green = Color(0xFF3DD69C),
-    GreenSoft = Color(0xFF14352A),
-    Mint = Color(0xFF2F5D4C),
-    Pink = Color(0xFFE884A6),
-    Danger = Color(0xFFFB7185),
-    DangerSoft = Color(0xFF38141C),
-    DangerText = Color(0xFFFDA4AF),
-    WarnBg = Color(0xFF33270E),
-    WarnText = Color(0xFFFBBF24),
+val ALPHA_THEMES: List<AlphaThemeOption> = listOf(
+    AlphaThemeOption("green", "Medical Green", "أخضر طبي", Color(0xFF0E3F32), Color(0xFF0D9E6F), Color(0xFF0F8A63), Color(0xFF3DD69C)),
+    AlphaThemeOption("blue", "Ocean Blue", "أزرق", Color(0xFF0C3A5A), Color(0xFF0E7FB8), Color(0xFF1173A8), Color(0xFF38BDF8)),
+    AlphaThemeOption("purple", "Royal Purple", "بنفسجي", Color(0xFF34275F), Color(0xFF7C5CD6), Color(0xFF6D4FC7), Color(0xFFA78BFA)),
+    AlphaThemeOption("amber", "Warm Amber", "عنبري", Color(0xFF573611), Color(0xFFC9820B), Color(0xFFB07A15), Color(0xFFF5B948)),
+    AlphaThemeOption("rose", "Rose", "وردي", Color(0xFF56203A), Color(0xFFD4487A), Color(0xFFB84A72), Color(0xFFF472A0)),
+    // Graphite keeps a steel-blue accent rather than a grey one: money and
+    // "settled" badges read as colour everywhere else, and a grey +500 EGP
+    // stops looking like a positive number at all.
+    AlphaThemeOption("graphite", "Graphite", "رمادي", Color(0xFF23272E), Color(0xFF4A7DB5), Color(0xFF54606E), Color(0xFF7FB0E0)),
 )
+
+fun themeById(id: String?): AlphaThemeOption = ALPHA_THEMES.firstOrNull { it.id == id } ?: ALPHA_THEMES.first()
+
+/** Mixes two colours; `amount` is how much of [b] ends up in the result. */
+private fun mix(a: Color, b: Color, amount: Float): Color =
+    androidx.compose.ui.graphics.lerp(a, b, amount.coerceIn(0f, 1f))
+
+/**
+ * Builds a full palette from a theme.
+ *
+ * The neutrals are a plain grey scale carrying a whisper of the brand hue — six
+ * per cent is enough to make a blue theme feel blue and a rose theme feel warm
+ * without tinting a patient's name pink.
+ */
+fun paletteFor(theme: AlphaThemeOption, dark: Boolean): AlphaPalette {
+    val brand = if (dark) theme.accentDark else theme.accent
+    return if (!dark) AlphaPalette(
+        dark = false,
+        Ground = mix(Color(0xFFF6F8F8), brand, .06f),
+        GroundSoft = mix(Color(0xFFFBFCFC), brand, .04f),
+        Card = Color(0xFFFFFFFF),
+        Ink = theme.ink,
+        Slate900 = mix(Color(0xFF141A18), brand, .05f),
+        Slate800 = mix(Color(0xFF232B29), brand, .05f),
+        Slate700 = mix(Color(0xFF3A4340), brand, .05f),
+        Slate600 = mix(Color(0xFF515B58), brand, .05f),
+        Slate500 = mix(Color(0xFF6B7572), brand, .05f),
+        Slate400 = mix(Color(0xFF98A19E), brand, .06f),
+        Slate300 = mix(Color(0xFFCED5D3), brand, .08f),
+        Slate200 = mix(Color(0xFFE4E9E8), brand, .08f),
+        Slate100 = mix(Color(0xFFF1F4F3), brand, .07f),
+        Slate50 = mix(Color(0xFFF8FAFA), brand, .05f),
+        Green = theme.accent,
+        GreenSoft = mix(Color.White, theme.accent, .13f),
+        Mint = mix(Color.White, theme.accent, .42f),
+        Pink = Color(0xFFF6A5C0),
+        Danger = Color(0xFFE11D48),
+        DangerSoft = Color(0xFFFFF1F2),
+        DangerText = Color(0xFF9F1239),
+        WarnBg = Color(0xFFFEF3C7),
+        WarnText = Color(0xFF92400E),
+    ) else AlphaPalette(
+        dark = true,
+        Ground = mix(Color(0xFF0D1113), brand, .05f),
+        GroundSoft = mix(Color(0xFF101517), brand, .05f),
+        Card = mix(Color(0xFF171D1F), brand, .05f),
+        Ink = theme.inkDark,
+        Slate900 = mix(Color(0xFFF2F5F4), brand, .04f),
+        Slate800 = mix(Color(0xFFE4E9E8), brand, .04f),
+        Slate700 = mix(Color(0xFFC9D2CF), brand, .05f),
+        Slate600 = mix(Color(0xFFA9B6B2), brand, .05f),
+        Slate500 = mix(Color(0xFF8B9995), brand, .06f),
+        Slate400 = mix(Color(0xFF6C7B75), brand, .07f),
+        Slate300 = mix(Color(0xFF3C4744), brand, .08f),
+        Slate200 = mix(Color(0xFF2C3533), brand, .08f),
+        Slate100 = mix(Color(0xFF202826), brand, .08f),
+        Slate50 = mix(Color(0xFF1A211F), brand, .07f),
+        Green = theme.accentDark,
+        GreenSoft = mix(Color(0xFF141A18), theme.accentDark, .20f),
+        Mint = mix(Color(0xFF141A18), theme.accentDark, .45f),
+        Pink = Color(0xFFE884A6),
+        Danger = Color(0xFFFB7185),
+        DangerSoft = Color(0xFF38141C),
+        DangerText = Color(0xFFFDA4AF),
+        WarnBg = Color(0xFF33270E),
+        WarnText = Color(0xFFFBBF24),
+    )
+}
+
+val LightAlpha = paletteFor(ALPHA_THEMES.first(), dark = false)
+val DarkAlpha = paletteFor(ALPHA_THEMES.first(), dark = true)
 
 val LocalAlpha = staticCompositionLocalOf { LightAlpha }
 
@@ -250,9 +303,82 @@ private fun materialScheme(p: AlphaPalette) = if (p.dark) darkColorScheme(
     error = p.Danger,
 )
 
+/**
+ * How the app is dressed, as the person chose it.
+ *
+ * Three values, saved on the phone: which theme, whether to follow the phone's
+ * own light/dark setting, and — when not following — which of the two to use.
+ * Held in a flow so a tap in Settings repaints the whole app at once, and read
+ * from disk in Application.onCreate so the first frame is already right rather
+ * than flashing white on a dark phone.
+ */
+data class Appearance(
+    val themeId: String = "green",
+    val followPhone: Boolean = true,
+    val dark: Boolean = false,
+)
+
+object AppearanceStore {
+
+    private const val PREFS = "alpha_ui"
+    private const val KEY_THEME = "theme_id"
+    private const val KEY_FOLLOW = "follow_phone"
+    private const val KEY_DARK = "dark_mode"
+
+    private var prefs: android.content.SharedPreferences? = null
+
+    val state = kotlinx.coroutines.flow.MutableStateFlow(Appearance())
+
+    /** Called from Application.onCreate, before any pixel is drawn. */
+    fun init(context: android.content.Context) {
+        val store = context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
+        prefs = store
+        state.value = Appearance(
+            themeId = store.getString(KEY_THEME, null) ?: "green",
+            followPhone = store.getBoolean(KEY_FOLLOW, true),
+            dark = store.getBoolean(KEY_DARK, false),
+        )
+    }
+
+    fun setTheme(id: String) = update { it.copy(themeId = id) }
+
+    fun setFollowPhone(follow: Boolean) = update { it.copy(followPhone = follow) }
+
+    /** Only meaningful while not following the phone. */
+    fun setDark(dark: Boolean) = update { it.copy(dark = dark, followPhone = false) }
+
+    private fun update(change: (Appearance) -> Appearance) {
+        val next = change(state.value)
+        state.value = next
+        prefs?.edit()
+            ?.putString(KEY_THEME, next.themeId)
+            ?.putBoolean(KEY_FOLLOW, next.followPhone)
+            ?.putBoolean(KEY_DARK, next.dark)
+            ?.apply()
+    }
+}
+
 @Composable
 fun AlphaTheme(content: @Composable () -> Unit) {
-    val palette = if (isSystemInDarkTheme()) DarkAlpha else LightAlpha
+    val appearance by AppearanceStore.state.collectAsState()
+    // Following the phone is the default; switching it off freezes the app on
+    // whichever of the two was chosen, whatever the phone does afterwards.
+    val dark = if (appearance.followPhone) isSystemInDarkTheme() else appearance.dark
+    val palette = paletteFor(themeById(appearance.themeId), dark)
+
+    // The status-bar icons have to invert with the ground under them, or they
+    // vanish: dark icons on a dark header is an unreadable strip at the top.
+    val view = androidx.compose.ui.platform.LocalView.current
+    if (!view.isInEditMode) {
+        androidx.compose.runtime.SideEffect {
+            val window = (view.context as? android.app.Activity)?.window ?: return@SideEffect
+            androidx.core.view.WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightStatusBars = !dark
+                isAppearanceLightNavigationBars = !dark
+            }
+        }
+    }
+
     CompositionLocalProvider(LocalAlpha provides palette) {
         MaterialTheme(
             colorScheme = materialScheme(palette),
