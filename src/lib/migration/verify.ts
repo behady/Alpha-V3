@@ -134,7 +134,7 @@ export async function verifyMigration(
       for (const [key, value] of Object.entries(doc.data())) {
         if (key === MIGRATION_STAMP_FIELD) continue;
         if (EXPECTED_REWRITTEN_FIELDS[name]?.has(key)) continue;
-        if (!sameValue(value, target[key], creds.storageBucket, clinicId)) {
+        if (!sameValue(value, target[key], clinicId)) {
           differing += 1;
           break;
         }
@@ -251,7 +251,7 @@ async function checkStaffLinkage(
  * difference as a fault would fail on a perfectly good migration — so each expected
  * transformation is validated rather than ignored.
  */
-function sameValue(a: unknown, b: unknown, sourceBucket: string, clinicId: string): boolean {
+function sameValue(a: unknown, b: unknown, clinicId: string): boolean {
   if (a === b) return true;
   if (a == null || b == null) return a == null && b == null;
 
@@ -268,14 +268,14 @@ function sameValue(a: unknown, b: unknown, sourceBucket: string, clinicId: strin
   }
   // A storage URL is expected to have been repointed at the v3 bucket under this clinic.
   if (typeof a === "string" && typeof b === "string") {
-    const sourcePath = extractObjectPath(a, sourceBucket);
+    const sourcePath = extractObjectPath(a);
     if (!sourcePath) return false;
     if (a === b) return true;
     return b.includes(encodeURIComponent(`clinics/${clinicId}/${sourcePath}`)) ||
       b.endsWith(`clinics/${clinicId}/${sourcePath}`);
   }
   if (Array.isArray(a) && Array.isArray(b)) {
-    return a.length === b.length && a.every((entry, i) => sameValue(entry, b[i], sourceBucket, clinicId));
+    return a.length === b.length && a.every((entry, i) => sameValue(entry, b[i], clinicId));
   }
   if (typeof a === "object" && typeof b === "object") {
     const keys = new Set([...Object.keys(a), ...Object.keys(b as object)]);
@@ -283,7 +283,6 @@ function sameValue(a: unknown, b: unknown, sourceBucket: string, clinicId: strin
       sameValue(
         (a as Record<string, unknown>)[key],
         (b as Record<string, unknown>)[key],
-        sourceBucket,
         clinicId
       )
     );
@@ -291,11 +290,19 @@ function sameValue(a: unknown, b: unknown, sourceBucket: string, clinicId: strin
   return false;
 }
 
-function extractObjectPath(url: string, bucket: string): string | null {
-  if (!bucket || !url.includes(bucket)) return null;
+/**
+ * Object path from a Firebase download URL or gs:// reference, whatever bucket it names.
+ *
+ * Matched against no expected bucket, for the same reason the copier does not: the bucket a
+ * backup records is a guess from the old project's env, and Firebase's modern default
+ * (`<project>.firebasestorage.app`) does not match the older `<project>.appspot.com` form. A
+ * name-based check reported correctly migrated images as corrupted.
+ */
+function extractObjectPath(url: string): string | null {
   const download = url.match(/\/v0\/b\/([^/]+)\/o\/([^?]+)/);
-  if (download && download[1] === bucket) return decodeURIComponent(download[2]);
-  if (url.startsWith(`gs://${bucket}/`)) return url.slice(`gs://${bucket}/`.length);
+  if (download) return decodeURIComponent(download[2]);
+  const gs = url.match(/^gs:\/\/[^/]+\/(.+)$/);
+  if (gs) return gs[1];
   return null;
 }
 
@@ -312,7 +319,6 @@ function extractObjectPath(url: string, bucket: string): string | null {
  */
 export async function verifyFromBackup(
   clinicId: string,
-  sourceBucket: string,
   counts: { path: string; count: number }[],
   samples: { path: string; data: unknown }[],
   reroutesPresent: string[]
@@ -384,7 +390,7 @@ export async function verifyFromBackup(
       for (const [key, value] of Object.entries(expected)) {
         if (key === MIGRATION_STAMP_FIELD) continue;
         if (EXPECTED_REWRITTEN_FIELDS[rootName]?.has(key)) continue;
-        if (!sameValue(value, target[key], sourceBucket, clinicId)) {
+        if (!sameValue(value, target[key], clinicId)) {
           bucket.differing += 1;
           break;
         }

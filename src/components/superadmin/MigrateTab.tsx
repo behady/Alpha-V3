@@ -285,7 +285,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
 
         const json =
           mode === "backup"
-            ? await call("fetch-files", { state, commit, sourceBucket: backup?.storageBucket })
+            ? await call("fetch-files", { state, commit })
             : await call("storage", { credentials, state, commit });
         state = json.state;
 
@@ -294,10 +294,14 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
         );
 
         if (json.done) {
+          const buckets: string[] = json.state.bucketsSeen || [];
           setFilesSummary([
-            `${json.state.copied} files ${commit ? "copied" : "ready to copy"}`,
+            json.state.copied === 0 && json.state.alreadyThere === 0
+              ? "No images found in this clinic's records — nothing to copy"
+              : `${json.state.copied} files ${commit ? "copied" : "ready to copy"}`,
             json.state.alreadyThere ? `${json.state.alreadyThere} already here` : "",
             `${json.state.documentsUpdated} records ${commit ? "updated" : "would be updated"}`,
+            buckets.length ? `Images came from: ${buckets.join(", ")}` : "",
             json.state.missing?.length
               ? `${json.state.missing.length} files were already broken in the old system (left alone)`
               : "",
@@ -337,7 +341,6 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
         }
 
         const json = await call("verify-backup", {
-          sourceBucket: backup.storageBucket,
           counts: [...counts.entries()].map(([path, count]) => ({ path, count })),
           samples: [...samplesByRoot.values()].flat(),
           reroutesPresent: reroutedPaths.filter((path) => backup.docs.some((doc) => doc.path === path)),
@@ -624,6 +627,31 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
               </button>
             )}
           </div>
+
+          {staffPeople && !staffResults && adminEmail.trim() &&
+            !staffPeople.some((p) => p.email === adminEmail.trim().toLowerCase()) && (
+              <Warning icon={<AlertTriangle size={16} />}>
+                <p className="font-bold mb-1">
+                  Nobody in this clinic uses {adminEmail.trim()}.
+                </p>
+                <p>
+                  The owner has to be one of the people below, so type one of their email addresses
+                  exactly. Your own super admin account already reaches every clinic — it does not
+                  need to be listed here.
+                </p>
+              </Warning>
+            )}
+
+          {staffPeople && !staffResults && !staffPeople.some((p) => p.role === "Admin") && (
+            <Warning icon={<AlertTriangle size={16} />}>
+              <p className="font-bold mb-1">Nobody would be an Admin.</p>
+              <p>
+                None of these people was an Admin in the old system, so no one could manage settings
+                or add staff here. Put the owner&apos;s email in the box above first — creating the
+                logins is blocked until someone is an Admin.
+              </p>
+            </Warning>
+          )}
 
           {staffPeople && !staffResults && (
             <div className="mt-4 rounded-lg border border-slate-700 overflow-hidden">

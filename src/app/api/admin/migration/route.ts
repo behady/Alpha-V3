@@ -161,21 +161,18 @@ export async function POST(request: Request) {
       case "fetch-files": {
         const salt = requireSalt();
         if (typeof salt !== "string") return salt;
-        const sourceBucket = String(body?.sourceBucket || "").trim();
-        if (!sourceBucket) {
-          return NextResponse.json({ ok: false, error: "The backup file has no bucket name." }, { status: 400 });
-        }
         const state: FetchFilesState = body?.state
           ? (body.state as FetchFilesState)
           : await initialFetchFilesState(clinicId);
-        const result = await runFetchFilesStep(clinicId, sourceBucket, salt, state, Boolean(body?.commit));
+        // No source bucket is needed: any image link not already in this project's bucket is
+        // one to bring across, which avoids trusting a guessed bucket name.
+        const result = await runFetchFilesStep(clinicId, salt, state, Boolean(body?.commit));
         return NextResponse.json({ ok: true, ...result });
       }
 
       case "verify-backup": {
         const report = await verifyFromBackup(
           clinicId,
-          String(body?.sourceBucket || ""),
           (body?.counts || []) as { path: string; count: number }[],
           (body?.samples || []) as BackupDoc[],
           (body?.reroutesPresent || []) as string[]
