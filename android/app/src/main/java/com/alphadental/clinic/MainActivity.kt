@@ -260,6 +260,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             "money" -> if (session.isAdmin || session.isReception) viewModel.selectTab(Tab.MONEY)
                             "leads" -> if (session.isAdmin || session.isReception) viewModel.openLeads()
                             "patients" -> viewModel.selectTab(Tab.PATIENTS)
+                            "inventory" -> viewModel.openInventory()
                         }
                     }
                 }

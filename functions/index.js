@@ -659,6 +659,8 @@ exports.dailyClinicReportToOwner = onSchedule(
 // brief, lead follow-ups due, and the owner's evening digest. See pushPhase1.js.
 const pushPhase1 = require("./pushPhase1");
 exports.onPatientCheckedIn = pushPhase1.onPatientCheckedIn;
+exports.onSlotFreed = pushPhase1.onSlotFreed;
+exports.onLowStock = pushPhase1.onLowStock;
 exports.morningBrief = pushPhase1.morningBrief;
 exports.leadsDueToday = pushPhase1.leadsDueToday;
 exports.eveningDigest = pushPhase1.eveningDigest;

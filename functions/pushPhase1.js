@@ -94,6 +94,97 @@ exports.onPatientCheckedIn = onDocumentUpdated(
 );
 
 // ---------------------------------------------------------------------------
+// A slot just freed → the desk, while there is still time to fill it.
+// ---------------------------------------------------------------------------
+
+exports.onSlotFreed = onDocumentUpdated(
+  {
+    document: "clinics/{clinicId}/appointments/{appointmentId}",
+    database: "default",
+    timeoutSeconds: 60,
+  },
+  async (event) => {
+    try {
+      const before = event.data?.before?.data();
+      const after = event.data?.after?.data();
+      if (!before || !after) return;
+
+      const freeing = new Set(["Cancelled", "No Show"]);
+      if (freeing.has(before.status) || !freeing.has(after.status)) return;
+
+      // A past appointment cancelling is bookkeeping; only today and the future
+      // are slots somebody could still fill.
+      const date = String(after.date || "");
+      if (!date || date < todayKey()) return;
+
+      const clinicId = event.params.clinicId;
+      const patient = String(after.patientName || "A patient").trim() || "A patient";
+      const whenLabel = date === todayKey() ? "today" : date;
+      const slot = [after.time, whenLabel].filter(Boolean).join(" ");
+      const what = after.status === "No Show" ? "did not show" : "cancelled";
+
+      await sendClinicPush(
+        db(),
+        clinicId,
+        {
+          title: `${slot || "A slot"} just freed`,
+          body: `${patient} ${what}${after.doctor ? ` · Dr. ${after.doctor}` : ""} — the waitlist or a due lead could take it.`,
+        },
+        { roles: ["Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
+      );
+    } catch (e) {
+      console.error("onSlotFreed failed:", e);
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Stock crossing its reorder line → the people who order.
+// ---------------------------------------------------------------------------
+
+exports.onLowStock = onDocumentUpdated(
+  {
+    document: "clinics/{clinicId}/inventory/{itemId}",
+    database: "default",
+    timeoutSeconds: 60,
+  },
+  async (event) => {
+    try {
+      const before = event.data?.before?.data();
+      const after = event.data?.after?.data();
+      if (!before || !after) return;
+
+      // minStock of 0 means "never configured", not "alert at empty" — the same
+      // rule every low-stock view in the system applies.
+      const min = Number(after.minStock) || 0;
+      if (min <= 0) return;
+
+      const was = Number(before.stock) || 0;
+      const now = Number(after.stock) || 0;
+      // Fires only on the crossing, so topping up and dipping again re-arms it
+      // but hovering below the line does not nag on every small adjustment.
+      if (!(was > min && now <= min)) return;
+
+      const clinicId = event.params.clinicId;
+      const name = String(after.name || "An item").trim() || "An item";
+      const unit = after.isPercentage ? "%" : "";
+
+      await sendClinicPush(
+        db(),
+        clinicId,
+        {
+          title: `${name} is running low`,
+          body: `${now}${unit} left · reorder point is ${min}${unit}.`,
+        },
+        { roles: ["Admin", "Receptionist"], channel: "alpha_clinic", data: { screen: "inventory" } }
+      );
+    } catch (e) {
+      console.error("onLowStock failed:", e);
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
 // 07:30 — the morning brief, per role.
 // ---------------------------------------------------------------------------
 
