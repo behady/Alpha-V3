@@ -678,7 +678,10 @@ object Repository {
         val description: String,
         val category: String,
         val method: String,
+        val patientId: String,
         val patientName: String,
+        /** The treatment this payment was made against; blank on manual entries. */
+        val procedureId: String,
         val doctorName: String,
         val addedBy: String,
         /** Cash that moved on this row. */
@@ -725,10 +728,14 @@ object Repository {
                 description = doc.getString("description").orEmpty(),
                 category = doc.getString("category").orEmpty(),
                 method = doc.getString("method").orEmpty(),
+                patientId = doc.getString("patientId").orEmpty(),
                 patientName = doc.getString("patientName").orEmpty(),
+                procedureId = doc.getString("procedureId").orEmpty(),
                 doctorName = doc.getString("doctorName").orEmpty()
                     .ifBlank { doc.getString("doctor").orEmpty() },
-                addedBy = doc.getString("addedBy").orEmpty(),
+                addedBy = WHO_KEYS.firstNotNullOfOrNull {
+                    doc.getString(it)?.takeIf(String::isNotBlank)
+                }.orEmpty(),
                 cash = cash,
                 commission = (doc.get("doctorCommissionAmount") as? Number)?.toDouble() ?: 0.0,
                 labFee = (doc.get("labFee") as? Number)?.toDouble() ?: 0.0,
@@ -737,6 +744,68 @@ object Repository {
                 createdAtMillis = doc.getTimestamp("createdAt")?.toDate()?.time ?: 0L,
             )
         }.sortedWith(compareByDescending<FinanceRow> { it.date }.thenByDescending { it.createdAtMillis })
+    }
+
+    /** A treatment and every payment made against it — the drill-down behind a finance row. */
+    data class ProcedureHistory(
+        /** The treatment row itself; null if it has since been deleted. */
+        val charge: PatientLedgerEntry?,
+        /** Payments against it, newest first. */
+        val payments: List<PatientLedgerEntry>,
+    ) {
+        val charged: Double get() = charge?.amount ?: 0.0
+        val paid: Double get() = payments.sumOf { it.amount }
+        /** Never negative: an overpaid treatment is a credit on the file, not a debt. */
+        val remaining: Double get() = (charged - paid).coerceAtLeast(0.0)
+    }
+
+    /**
+     * The payment history of one treatment.
+     *
+     * The treatment is a ledger document whose id every payment against it
+     * carries as `procedureId` — so this is one document read plus one small
+     * indexed query, not a scan of the clinic's ledger.
+     */
+    suspend fun loadProcedureHistory(clinicId: String, procedureId: String): ProcedureHistory {
+        val chargeSnap = runCatching { ledger(clinicId).document(procedureId).get().await() }.getOrNull()
+        val paymentsSnap = runCatching {
+            ledger(clinicId).whereEqualTo("procedureId", procedureId).get().await()
+        }.getOrNull()
+
+        fun map(doc: DocumentSnapshot): PatientLedgerEntry {
+            val type = doc.getString("type").orEmpty()
+            val amount = if (type == "payment") {
+                (doc.get("paid") as? Number)?.toDouble() ?: (doc.get("amount") as? Number)?.toDouble() ?: 0.0
+            } else {
+                (doc.get("amount") as? Number)?.toDouble() ?: (doc.get("cost") as? Number)?.toDouble() ?: 0.0
+            }
+            return PatientLedgerEntry(
+                id = doc.id,
+                date = doc.getString("date").orEmpty(),
+                type = type,
+                description = doc.getString("description").orEmpty(),
+                amount = amount,
+                addedBy = WHO_KEYS.firstNotNullOfOrNull {
+                    doc.getString(it)?.takeIf(String::isNotBlank)
+                }.orEmpty(),
+                createdAtMillis = doc.getTimestamp("createdAt")?.toDate()?.time ?: 0L,
+                procedureId = doc.getString("procedureId").orEmpty(),
+                method = doc.getString("method").orEmpty(),
+                doctorName = doc.getString("doctorName").orEmpty()
+                    .ifBlank { doc.getString("doctor").orEmpty() },
+                labFee = (doc.get("labFee") as? Number)?.toDouble() ?: 0.0,
+                commission = (doc.get("doctorCommissionAmount") as? Number)?.toDouble() ?: 0.0,
+                discount = (doc.get("discountAmount") as? Number)?.toDouble() ?: 0.0,
+            )
+        }
+
+        return ProcedureHistory(
+            charge = chargeSnap?.takeIf { it.exists() }?.let(::map),
+            payments = paymentsSnap?.documents.orEmpty()
+                .filter { it.getString("type") == "payment" }
+                .map(::map)
+                .sortedWith(compareByDescending<PatientLedgerEntry> { it.date }.thenByDescending { it.createdAtMillis }),
+        )
     }
 
     /**
@@ -1842,6 +1911,16 @@ object Repository {
     private val PHONE_KEYS = listOf("phone", "phoneNumber", "mobile", "whatsapp", "contactNumber")
 
     /**
+     * Who handled a money row, in the order the website resolves it.
+     *
+     * Several write paths over the years each recorded the person under a
+     * different name; reading only `addedBy` leaves older payments looking as
+     * though nobody took them — which is exactly the question this field exists
+     * to answer.
+     */
+    private val WHO_KEYS = listOf("receivedBy", "addedBy", "createdByName", "createdBy", "doctorName")
+
+    /**
      * Everything the patient file shows, in one call.
      *
      * The three reads run together rather than in sequence because on clinic wifi the difference
@@ -1883,8 +1962,19 @@ object Repository {
                 type = type,
                 description = doc.getString("description").orEmpty(),
                 amount = amount,
-                addedBy = doc.getString("addedBy").orEmpty(),
+                // Who took the money. The website reads the same chain of fields,
+                // because different write paths over the years filled different ones.
+                addedBy = WHO_KEYS.firstNotNullOfOrNull {
+                    doc.getString(it)?.takeIf(String::isNotBlank)
+                }.orEmpty(),
                 createdAtMillis = doc.getTimestamp("createdAt")?.toDate()?.time ?: 0L,
+                procedureId = doc.getString("procedureId").orEmpty(),
+                method = doc.getString("method").orEmpty(),
+                doctorName = doc.getString("doctorName").orEmpty()
+                    .ifBlank { doc.getString("doctor").orEmpty() },
+                labFee = (doc.get("labFee") as? Number)?.toDouble() ?: 0.0,
+                commission = (doc.get("doctorCommissionAmount") as? Number)?.toDouble() ?: 0.0,
+                discount = (doc.get("discountAmount") as? Number)?.toDouble() ?: 0.0,
             )
         }.sortedWith(compareByDescending<PatientLedgerEntry> { it.date }.thenByDescending { it.createdAtMillis })
 

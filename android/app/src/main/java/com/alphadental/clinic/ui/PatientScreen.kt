@@ -114,6 +114,8 @@ fun PatientScreen(
     onWriteRx: (() -> Unit)?,
     /** Null when this user may not change a recorded procedure. */
     onSetNoteStatus: ((noteId: String, status: String) -> Unit)?,
+    /** Opens the detail of one money row from the Finance tab. */
+    onOpenLedgerEntry: (com.alphadental.clinic.data.PatientLedgerEntry) -> Unit,
     /** True while a photo is on its way up. */
     uploadingPhoto: Boolean,
     /** Null when this user may not add photos. Called with (jpeg bytes, category). */
@@ -325,7 +327,7 @@ fun PatientScreen(
                                 onAddPhoto = if (onUploadPhoto != null) ({ tab = "photos" }) else null,
                             )
                             "diagnosis" -> DiagnosisTab(file, arabic)
-                            "finance" -> FinanceTab(file, arabic, onTakePayment)
+                            "finance" -> FinanceTab(file, arabic, onTakePayment, onOpenLedgerEntry)
                             "photos" -> PhotosTab(
                                 media = media,
                                 arabic = arabic,
@@ -628,7 +630,12 @@ private fun DiagnosisTab(file: PatientFile, arabic: Boolean) {
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun FinanceTab(file: PatientFile, arabic: Boolean, onTakePayment: (() -> Unit)?) {
+private fun FinanceTab(
+    file: PatientFile,
+    arabic: Boolean,
+    onTakePayment: (() -> Unit)?,
+    onOpenEntry: (com.alphadental.clinic.data.PatientLedgerEntry) -> Unit,
+) {
     Column(
         Modifier
             .fillMaxSize()
@@ -665,7 +672,9 @@ private fun FinanceTab(file: PatientFile, arabic: Boolean, onTakePayment: (() ->
                 AlphaCard(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 6.dp),
+                        .padding(bottom = 6.dp)
+                        .clip(Alpha.CardShape)
+                        .clickable { onOpenEntry(entry) },
                     shape = Alpha.CardShape,
                 ) {
                     Row(Modifier.padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {

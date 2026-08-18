@@ -243,8 +243,17 @@ data class PatientLedgerEntry(
     val amount: Double = 0.0,
     val addedBy: String = "",
     val createdAtMillis: Long = 0L,
+    /** The treatment this payment was made against; blank on charges and general payments. */
+    val procedureId: String = "",
+    val method: String = "",
+    val doctorName: String = "",
+    val labFee: Double = 0.0,
+    val commission: Double = 0.0,
+    val discount: Double = 0.0,
 ) {
     val isPayment: Boolean get() = type == "payment"
+    /** A charge: a treatment billed, whether or not anyone has paid it yet. */
+    val isCharge: Boolean get() = type != "payment" && type != "expense"
 }
 
 /** One tooth's entry on the website's diagnosis chart. */

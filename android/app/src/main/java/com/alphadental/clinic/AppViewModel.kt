@@ -133,6 +133,12 @@ data class AppState(
     val loadingFinance: Boolean = false,
     val financeAddOpen: Boolean = false,
     val savingFinance: Boolean = false,
+    /** The money row being looked at in detail, and the treatment history behind it. */
+    val ledgerDetail: com.alphadental.clinic.data.PatientLedgerEntry? = null,
+    val ledgerDetailPatientId: String = "",
+    val ledgerDetailPatientName: String = "",
+    val ledgerDetailHistory: Repository.ProcedureHistory? = null,
+    val loadingLedgerDetail: Boolean = false,
     // --- inventory ---
     val inventory: List<InventoryItem> = emptyList(),
     val inventoryOpen: Boolean = false,
@@ -417,6 +423,78 @@ class AppViewModel : ViewModel() {
                 _state.value = _state.value.copy(financeRows = rows, loadingFinance = false)
             }
         }
+    }
+
+    /**
+     * Open the detail of one money row.
+     *
+     * `known` is the patient's already-loaded statement when the tap came from
+     * their own file — the history is then assembled in memory rather than read
+     * again. From the clinic's Money tab there is no such list, so the
+     * treatment's history is fetched.
+     */
+    fun openLedgerDetail(
+        entry: com.alphadental.clinic.data.PatientLedgerEntry,
+        patientId: String = "",
+        patientName: String = "",
+        known: List<com.alphadental.clinic.data.PatientLedgerEntry>? = null,
+    ) {
+        val session = _state.value.session ?: return
+        // A treatment row is its own procedure; a payment names the one it paid.
+        val procedureId = if (entry.isCharge) entry.id else entry.procedureId
+
+        if (procedureId.isBlank()) {
+            _state.value = _state.value.copy(
+                ledgerDetail = entry,
+                ledgerDetailPatientId = patientId,
+                ledgerDetailPatientName = patientName,
+                ledgerDetailHistory = null,
+                loadingLedgerDetail = false,
+            )
+            return
+        }
+
+        if (known != null) {
+            val history = Repository.ProcedureHistory(
+                charge = known.firstOrNull { it.id == procedureId && it.isCharge },
+                payments = known.filter { it.isPayment && it.procedureId == procedureId }
+                    .sortedWith(
+                        compareByDescending<com.alphadental.clinic.data.PatientLedgerEntry> { it.date }
+                            .thenByDescending { it.createdAtMillis }
+                    ),
+            )
+            _state.value = _state.value.copy(
+                ledgerDetail = entry,
+                ledgerDetailPatientId = patientId,
+                ledgerDetailPatientName = patientName,
+                ledgerDetailHistory = history,
+                loadingLedgerDetail = false,
+            )
+            return
+        }
+
+        _state.value = _state.value.copy(
+            ledgerDetail = entry,
+            ledgerDetailPatientId = patientId,
+            ledgerDetailPatientName = patientName,
+            ledgerDetailHistory = null,
+            loadingLedgerDetail = true,
+        )
+        viewModelScope.launch {
+            val history = runCatching { Repository.loadProcedureHistory(session.clinicId, procedureId) }.getOrNull()
+            // Ignore a slow read for a row the user has already closed or moved past.
+            if (_state.value.ledgerDetail?.id == entry.id) {
+                _state.value = _state.value.copy(ledgerDetailHistory = history, loadingLedgerDetail = false)
+            }
+        }
+    }
+
+    fun closeLedgerDetail() {
+        _state.value = _state.value.copy(
+            ledgerDetail = null,
+            ledgerDetailHistory = null,
+            loadingLedgerDetail = false,
+        )
     }
 
     fun openFinanceAdd() {
