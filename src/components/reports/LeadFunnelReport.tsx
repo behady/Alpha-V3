@@ -210,24 +210,34 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
     revenue: isAr ? "الدخل (ج.م)" : "Revenue (EGP)",
     returning: isAr ? "دخل مرضى قدامى" : "Returning-patient revenue",
     stale: isAr ? "ساكن" : "Stale",
+    level: isAr ? "المستوى" : "Level",
+    levelChannel: isAr ? "قناة" : "Channel",
+    levelCampaign: isAr ? "حملة" : "Campaign",
   };
 
   const handleExcelExport = () => {
     setExporting(true);
     try {
-      const exportData = stats.map((s) => ({
-        [headers.source]: s.name,
-        [headers.leadsIn]: s.total,
-        [headers.open]: s.open,
-        [headers.stale]: s.stale,
-        [headers.lost]: s.lost,
-        [headers.won]: s.won,
-        [headers.conversion]: `${s.conversion}%`,
-        [headers.revenue]: s.revenue,
-        [headers.returning]: s.returningRevenue,
-      }));
+      const row = (name: string, r: FunnelStat | CampaignStat, level: "channel" | "campaign") => ({
+        [headers.source]: name,
+        [headers.level]: level === "channel" ? headers.levelChannel : headers.levelCampaign,
+        [headers.leadsIn]: r.total,
+        [headers.open]: r.open,
+        [headers.stale]: r.stale,
+        [headers.lost]: r.lost,
+        [headers.won]: r.won,
+        [headers.conversion]: `${r.conversion}%`,
+        [headers.revenue]: r.revenue,
+        [headers.returning]: r.returningRevenue,
+      });
+
+      const exportData = stats.flatMap((s) => [
+        row(s.name, s, "channel"),
+        ...s.campaigns.map((c) => row(`    ↳ ${c.name}`, c, "campaign")),
+      ]);
       exportData.push({
         [headers.source]: isAr ? "الإجمالي" : "TOTAL",
+        [headers.level]: headers.levelChannel,
         [headers.leadsIn]: totals.total,
         [headers.open]: totals.open,
         [headers.stale]: totals.stale,
@@ -254,6 +264,24 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
       const td = (val: string, extra = "") =>
         `<td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: ${align}; ${extra}">${val}</td>`;
 
+      const campaignRows = (s: FunnelStat) =>
+        s.campaigns
+          .map(
+            (c) => `
+        <tr style="background: #f8fafc;">
+          ${td(`&nbsp;&nbsp;&nbsp;&nbsp;↳ ${c.name}`, "color: #475569;")}
+          ${td(String(c.total), "color: #475569;")}
+          ${td(c.stale > 0 ? `${c.open} (${c.stale} ${isAr ? "ساكن" : "stale"})` : String(c.open), "color: #475569;")}
+          ${td(String(c.lost), "color: #9f1239;")}
+          ${td(String(c.won), "color: #047857;")}
+          ${td(`${c.conversion}%`, "color: #475569;")}
+          ${td(c.revenue.toLocaleString(), "color: #1d4ed8;")}
+          ${td(c.returningRevenue.toLocaleString(), "color: #94a3b8;")}
+        </tr>
+      `
+          )
+          .join("");
+
       const rowsHtml = stats.map((s) => `
         <tr>
           ${td(s.name, "font-weight: 700;")}
@@ -265,6 +293,7 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
           ${td(s.revenue.toLocaleString(), "font-weight: 700; color: #2563eb;")}
           ${td(s.returningRevenue.toLocaleString(), "color: #64748b;")}
         </tr>
+        ${campaignRows(s)}
       `).join("");
 
       const totalsHtml = `
