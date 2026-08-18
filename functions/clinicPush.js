@@ -12,19 +12,34 @@
 const admin = require("firebase-admin");
 const { FieldValue } = require("firebase-admin/firestore");
 
-async function sendClinicPush(db, clinicId, notification) {
+/**
+ * options:
+ *   roles   — only staff with one of these roles ("Admin", "Dentist", "Receptionist"…).
+ *   uids    — exactly these people, bypassing the role filter (still clinic staff only).
+ *   channel — Android notification channel id, so a phone can mute one category.
+ *   data    — string map delivered with the message; `screen` tells the app what to open.
+ */
+async function sendClinicPush(db, clinicId, notification, options = {}) {
   try {
-    const staffSnap = await db.collection(`clinics/${clinicId}/staff`).get();
-    const uids = [
-      ...new Set(
-        staffSnap.docs
-          .map((doc) => String(doc.data()?.uid || "").trim())
-          .filter(Boolean)
-      ),
-    ];
-    if (uids.length === 0) return;
+    const { roles = null, uids = null, channel = null, data = null } = options;
 
-    const userSnaps = await db.getAll(...uids.map((uid) => db.collection("users").doc(uid)));
+    const staffSnap = await db.collection(`clinics/${clinicId}/staff`).get();
+    const staffUids = staffSnap.docs
+      .filter((doc) => !roles || roles.includes(String(doc.data()?.role || "").trim()))
+      .map((doc) => String(doc.data()?.uid || "").trim())
+      .filter(Boolean);
+
+    // Explicit uids are still checked against the clinic's own staff — this
+    // helper must never be able to notify another clinic's people.
+    const allStaff = new Set(
+      staffSnap.docs.map((doc) => String(doc.data()?.uid || "").trim()).filter(Boolean)
+    );
+    const targetUids = [
+      ...new Set(uids ? uids.filter((uid) => allStaff.has(uid)) : staffUids),
+    ];
+    if (targetUids.length === 0) return;
+
+    const userSnaps = await db.getAll(...targetUids.map((uid) => db.collection("users").doc(uid)));
 
     // Remember which user owns which token, so a dead one is removed from the right list.
     const tokenOwner = new Map();
@@ -38,7 +53,16 @@ async function sendClinicPush(db, clinicId, notification) {
     const tokens = [...tokenOwner.keys()];
     if (tokens.length === 0) return;
 
-    const result = await admin.messaging().sendEachForMulticast({ tokens, notification });
+    const message = { tokens, notification };
+    // Data rides on the notification: Android delivers it as intent extras on
+    // tap, which is what lets the app open the right screen.
+    const dataEntries = Object.entries({ ...(data || {}), ...(channel ? { channel } : {}) })
+      .filter(([, v]) => v !== null && v !== undefined)
+      .map(([k, v]) => [k, String(v)]);
+    if (dataEntries.length > 0) message.data = Object.fromEntries(dataEntries);
+    if (channel) message.android = { notification: { channelId: channel } };
+
+    const result = await admin.messaging().sendEachForMulticast(message);
 
     const removals = new Map();
     result.responses.forEach((response, i) => {

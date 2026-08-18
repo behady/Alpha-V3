@@ -111,8 +111,21 @@ export default function NotificationSettings({ clinicData, setClinicData, handle
           <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm">
             <ToggleSwitch
               label={txt.eventPatientArrival}
-              checked={prefs.inApp?.patientArrival}
-              onChange={() => handleToggle("inApp", "patientArrival")}
+              // On unless deliberately switched off: the arrival push works out of the
+              // box, and this is the switch that turns it off (read by onPatientCheckedIn).
+              checked={prefs.inApp?.patientArrival !== false}
+              onChange={() =>
+                setClinicData((prev: any) => {
+                  const current = prev.alertPreferences?.inApp?.patientArrival !== false;
+                  return {
+                    ...prev,
+                    alertPreferences: {
+                      ...(prev.alertPreferences || {}),
+                      inApp: { ...(prev.alertPreferences?.inApp || {}), patientArrival: !current },
+                    },
+                  };
+                })
+              }
             />
             <ToggleSwitch label={txt.eventLabReady} checked={prefs.inApp?.labReady} onChange={() => handleToggle("inApp", "labReady")} />
           </div>

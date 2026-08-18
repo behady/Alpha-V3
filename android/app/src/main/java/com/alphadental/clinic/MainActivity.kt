@@ -109,9 +109,23 @@ import com.alphadental.clinic.ui.rememberPunchAction
 
 class MainActivity : ComponentActivity() {
 
+    /** A tapped notification lands here — cold start or already running. */
+    private fun takeScreenRequest(intent: android.content.Intent?) {
+        intent?.getStringExtra("screen")?.let {
+            com.alphadental.clinic.push.PushNav.requested.value = it
+            intent.removeExtra("screen")
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        takeScreenRequest(intent)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        takeScreenRequest(intent)
         setContent {
             AlphaTheme {
                 // Checked before anything that touches Firebase. If startup failed,
@@ -234,6 +248,22 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
         else -> {
             val session = state.session!!
             val context = LocalContext.current
+
+            // Navigation the notification asked for, honoured once a session
+            // exists — a cold start parks the request here until sign-in settles.
+            LaunchedEffect(session.uid) {
+                com.alphadental.clinic.push.PushNav.requested.collect { screen ->
+                    if (screen != null) {
+                        com.alphadental.clinic.push.PushNav.requested.value = null
+                        when (screen) {
+                            "day" -> viewModel.selectTab(Tab.DAY)
+                            "money" -> if (session.isAdmin || session.isReception) viewModel.selectTab(Tab.MONEY)
+                            "leads" -> if (session.isAdmin || session.isReception) viewModel.openLeads()
+                            "patients" -> viewModel.selectTab(Tab.PATIENTS)
+                        }
+                    }
+                }
+            }
 
             Scaffold(
                 containerColor = Alpha.Ground,

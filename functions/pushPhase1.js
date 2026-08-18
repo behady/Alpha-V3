@@ -1,0 +1,246 @@
+/**
+ * Push notifications, phase 1: the pushes that reach the right person at the
+ * right moment instead of everybody at once.
+ *
+ *  - A patient checking in pushes the treating dentist, and only them.
+ *  - 07:30: each dentist gets their own day; owners and reception get the
+ *    clinic's shape.
+ *  - 10:00: reception is told how many lead follow-ups are due today.
+ *  - 21:00: owners get the day's money and attendance in one line.
+ *
+ * All of it flows through sendClinicPush's targeting: roles, single uids, a
+ * notification channel the phone can mute per-category, and a `screen` hint the
+ * app uses to open the right page on tap.
+ */
+
+const admin = require("firebase-admin");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { onDocumentUpdated } = require("firebase-functions/v2/firestore");
+const { DateTime } = require("luxon");
+const { getFirestore } = require("firebase-admin/firestore");
+const { sendClinicPush } = require("./clinicPush");
+
+const TIMEZONE = process.env.CLINIC_TIMEZONE || "Africa/Cairo";
+
+/** This project's database is literally named "default" — see firebase.json. */
+const db = () => getFirestore(admin.app(), "default");
+
+const todayKey = () => DateTime.now().setZone(TIMEZONE).toFormat("yyyy-MM-dd");
+
+/** "Arrived" is the older vocabulary for "Checked In"; both mean in the waiting room. */
+const isCheckedIn = (status) => status === "Checked In" || status === "Arrived";
+
+const FINISHED = new Set(["Completed", "Cancelled", "No Show"]);
+
+async function allClinicIds() {
+  const snap = await db().collection("clinics").get();
+  return snap.docs.map((doc) => doc.id);
+}
+
+// ---------------------------------------------------------------------------
+// Patient arrived → the treating dentist's pocket.
+// ---------------------------------------------------------------------------
+
+exports.onPatientCheckedIn = onDocumentUpdated(
+  {
+    document: "clinics/{clinicId}/appointments/{appointmentId}",
+    database: "default",
+    timeoutSeconds: 60,
+  },
+  async (event) => {
+    try {
+      const before = event.data?.before?.data();
+      const after = event.data?.after?.data();
+      if (!before || !after) return;
+      if (isCheckedIn(before.status) || !isCheckedIn(after.status)) return;
+
+      const clinicId = event.params.clinicId;
+
+      // The settings toggle is respected: absent means on (the feature works out
+      // of the box), an explicit false means the clinic turned it off.
+      const clinicSnap = await db().collection("clinics").doc(clinicId).get();
+      const pref = clinicSnap.data()?.alertPreferences?.inApp?.patientArrival;
+      if (pref === false) return;
+
+      // The dentist is found by the appointment's doctorId (a staff doc id),
+      // falling back to the name — appointments written by hand carry only that.
+      const staffSnap = await db().collection(`clinics/${clinicId}/staff`).get();
+      const doctorName = String(after.doctor || "").trim().toLowerCase();
+      const match = staffSnap.docs.find((doc) => {
+        if (after.doctorId && doc.id === after.doctorId) return true;
+        const name = String(doc.data()?.name || "").trim().toLowerCase();
+        return doctorName && name && (name === doctorName || name.includes(doctorName) || doctorName.includes(name));
+      });
+      const uid = String(match?.data()?.uid || "").trim();
+      // No dentist to tell is a skip, not a broadcast — reception already knows,
+      // they are the ones who tapped Checked In.
+      if (!uid) return;
+
+      const patient = String(after.patientName || "A patient").trim() || "A patient";
+      const detail = [after.time, after.treatment].filter(Boolean).join(" · ");
+      await sendClinicPush(
+        db(),
+        clinicId,
+        {
+          title: `${patient} has arrived`,
+          body: detail ? `In the waiting room · ${detail}` : "In the waiting room",
+        },
+        { uids: [uid], channel: "alpha_arrivals", data: { screen: "day" } }
+      );
+    } catch (e) {
+      console.error("onPatientCheckedIn failed:", e);
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// 07:30 — the morning brief, per role.
+// ---------------------------------------------------------------------------
+
+exports.morningBrief = onSchedule(
+  { schedule: "30 7 * * *", timeZone: TIMEZONE, timeoutSeconds: 300, memory: "256MiB" },
+  async () => {
+    const date = todayKey();
+    for (const clinicId of await allClinicIds()) {
+      try {
+        const apptSnap = await db()
+          .collection(`clinics/${clinicId}/appointments`)
+          .where("date", "==", date)
+          .get();
+        const appts = apptSnap.docs.map((d) => d.data()).filter((a) => !FINISHED.has(a.status));
+        // A day with nothing booked is not worth a 07:30 buzz.
+        if (appts.length === 0) continue;
+
+        const firstTime = appts.map((a) => String(a.time || "")).filter(Boolean).sort()[0];
+
+        // Owners and reception: the clinic's shape.
+        await sendClinicPush(
+          db(),
+          clinicId,
+          {
+            title: "Today at the clinic",
+            body: `${appts.length} booked${firstTime ? ` · first at ${firstTime}` : ""}`,
+          },
+          { roles: ["Admin", "Receptionist"], channel: "alpha_reminders", data: { screen: "day" } }
+        );
+
+        // Each dentist: their own list, matched the way the app matches it —
+        // by doctorId when the appointment has one, by name otherwise.
+        const staffSnap = await db().collection(`clinics/${clinicId}/staff`).get();
+        const dentists = staffSnap.docs.filter(
+          (doc) => String(doc.data()?.role || "") === "Dentist" && String(doc.data()?.uid || "").trim()
+        );
+        for (const dentist of dentists) {
+          const name = String(dentist.data()?.name || "").trim().toLowerCase();
+          const mine = appts.filter((a) => {
+            if (a.doctorId && a.doctorId === dentist.id) return true;
+            const doc = String(a.doctor || "").trim().toLowerCase();
+            return doc && name && (name === doc || name.includes(doc) || doc.includes(name));
+          });
+          if (mine.length === 0) continue;
+          const myFirst = mine.map((a) => String(a.time || "")).filter(Boolean).sort()[0];
+          await sendClinicPush(
+            db(),
+            clinicId,
+            {
+              title: "Your day",
+              body: `${mine.length} patient${mine.length === 1 ? "" : "s"}${myFirst ? ` · first at ${myFirst}` : ""}`,
+            },
+            { uids: [String(dentist.data().uid).trim()], channel: "alpha_reminders", data: { screen: "day" } }
+          );
+        }
+      } catch (e) {
+        console.error(`morningBrief failed for ${clinicId}:`, e);
+      }
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// 10:00 — lead follow-ups due, to the people who work the inbox.
+// ---------------------------------------------------------------------------
+
+exports.leadsDueToday = onSchedule(
+  { schedule: "0 10 * * *", timeZone: TIMEZONE, timeoutSeconds: 300, memory: "256MiB" },
+  async () => {
+    const date = todayKey();
+    for (const clinicId of await allClinicIds()) {
+      try {
+        const snap = await db()
+          .collection(`clinics/${clinicId}/leads`)
+          .where("followUpDate", "<=", date)
+          .get();
+        const due = snap.docs
+          .map((d) => d.data())
+          .filter((l) => l.followUpDate && l.stage !== "won" && l.stage !== "lost");
+        if (due.length === 0) continue;
+
+        const named = due
+          .map((l) => String(l.name || "").trim())
+          .filter(Boolean)
+          .slice(0, 3)
+          .join(", ");
+        await sendClinicPush(
+          db(),
+          clinicId,
+          {
+            title: `${due.length} lead follow-up${due.length === 1 ? "" : "s"} due`,
+            body: named ? `Waiting on a call: ${named}${due.length > 3 ? "…" : ""}` : "Open the Leads inbox to work through them.",
+          },
+          { roles: ["Admin", "Receptionist"], channel: "alpha_leads", data: { screen: "leads" } }
+        );
+      } catch (e) {
+        console.error(`leadsDueToday failed for ${clinicId}:`, e);
+      }
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// 21:00 — the owner's evening digest: the three numbers they check anyway.
+// ---------------------------------------------------------------------------
+
+exports.eveningDigest = onSchedule(
+  { schedule: "0 21 * * *", timeZone: TIMEZONE, timeoutSeconds: 300, memory: "256MiB" },
+  async () => {
+    const date = todayKey();
+    for (const clinicId of await allClinicIds()) {
+      try {
+        const [ledgerSnap, apptSnap] = await Promise.all([
+          db().collection(`clinics/${clinicId}/ledger`).where("date", "==", date).get(),
+          db().collection(`clinics/${clinicId}/appointments`).where("date", "==", date).get(),
+        ]);
+
+        // Cash basis, same as everywhere: what actually came through the door.
+        let collected = 0;
+        ledgerSnap.forEach((doc) => {
+          const d = doc.data();
+          if (d.type !== "payment") return;
+          collected += Number(d.paid ?? d.amount ?? 0) || 0;
+        });
+
+        let seen = 0;
+        let noShows = 0;
+        apptSnap.forEach((doc) => {
+          const status = doc.data().status;
+          if (status === "Completed" || status === "Checking Out") seen += 1;
+          if (status === "No Show") noShows += 1;
+        });
+
+        // A day the clinic did not work is not worth a 21:00 buzz.
+        if (collected === 0 && apptSnap.size === 0) continue;
+
+        const parts = [`+${Math.round(collected).toLocaleString()} EGP`, `${seen} seen`];
+        if (noShows > 0) parts.push(`${noShows} no-show${noShows === 1 ? "" : "s"}`);
+        await sendClinicPush(
+          db(),
+          clinicId,
+          { title: "Today, closed out", body: parts.join(" · ") },
+          { roles: ["Admin"], channel: "alpha_money", data: { screen: "money" } }
+        );
+      } catch (e) {
+        console.error(`eveningDigest failed for ${clinicId}:`, e);
+      }
+    }
+  }
+);

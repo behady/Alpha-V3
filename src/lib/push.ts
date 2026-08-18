@@ -17,19 +17,41 @@ import { adminDb, adminMessaging } from "@/lib/firebaseAdmin";
  * Dead tokens are pruned as they are discovered. Phones get wiped and reinstalled; without
  * pruning, every send walks an ever-growing list of ghosts.
  */
+export interface ClinicPushOptions {
+  /** Only staff with one of these roles ("Admin", "Dentist", "Receptionist"…). */
+  roles?: string[];
+  /** Exactly these people, bypassing the role filter (still clinic staff only). */
+  uids?: string[];
+  /** Android notification channel id, so a phone can mute one category. */
+  channel?: string;
+  /** String map delivered with the message; `screen` tells the app what to open. */
+  data?: Record<string, string>;
+}
+
 export async function sendClinicPush(
   clinicId: string,
-  notification: { title: string; body: string }
+  notification: { title: string; body: string },
+  options: ClinicPushOptions = {}
 ): Promise<void> {
   try {
+    const { roles = null, uids = null, channel = null, data = null } = options;
+
     const staffSnap = await adminClinicCollection(clinicId, "staff").get();
-    const uids = staffSnap.docs
+    const roleUids = staffSnap.docs
+      .filter((doc) => !roles || roles.includes(String(doc.data()?.role || "").trim()))
       .map((doc) => String(doc.data()?.uid || "").trim())
       .filter(Boolean);
-    if (uids.length === 0) return;
+
+    // Explicit uids are still checked against the clinic's own staff — this
+    // helper must never be able to notify another clinic's people.
+    const allStaff = new Set(
+      staffSnap.docs.map((doc) => String(doc.data()?.uid || "").trim()).filter(Boolean)
+    );
+    const targetUids = [...new Set(uids ? uids.filter((uid) => allStaff.has(uid)) : roleUids)];
+    if (targetUids.length === 0) return;
 
     const db = adminDb();
-    const userRefs = [...new Set(uids)].map((uid) => db.collection("users").doc(uid));
+    const userRefs = targetUids.map((uid) => db.collection("users").doc(uid));
     const userSnaps = await db.getAll(...userRefs);
 
     // Remember which user owns which token, so a dead one can be removed from the right list.
@@ -44,9 +66,17 @@ export async function sendClinicPush(
     const tokens = [...tokenOwner.keys()];
     if (tokens.length === 0) return;
 
+    // Data rides on the notification: Android delivers it as intent extras on
+    // tap, which is what lets the app open the right screen.
+    const dataEntries = Object.entries({ ...(data || {}), ...(channel ? { channel } : {}) })
+      .filter(([, v]) => v !== null && v !== undefined)
+      .map(([k, v]) => [k, String(v)] as [string, string]);
+
     const result = await adminMessaging().sendEachForMulticast({
       tokens,
       notification,
+      ...(dataEntries.length > 0 ? { data: Object.fromEntries(dataEntries) } : {}),
+      ...(channel ? { android: { notification: { channelId: channel } } } : {}),
     });
 
     const removals = new Map<FirebaseFirestore.DocumentReference, string[]>();

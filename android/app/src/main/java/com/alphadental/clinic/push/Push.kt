@@ -40,17 +40,41 @@ import java.net.URL
  */
 const val CHANNEL_ID = "alpha_clinic"
 
+/**
+ * One channel per kind of news, so a dentist can silence the money digest
+ * without silencing "your patient arrived" — Android's own settings do the
+ * muting, the server only names the channel.
+ */
+private val CHANNELS = listOf(
+    Triple(CHANNEL_ID, "Clinic alerts", "General clinic events."),
+    Triple("alpha_arrivals", "Patient arrivals", "A patient of yours checked in."),
+    Triple("alpha_bookings", "Bookings", "New and changed appointments."),
+    Triple("alpha_leads", "Leads", "New leads and follow-ups due."),
+    Triple("alpha_money", "Money", "The owner's daily figures."),
+    Triple("alpha_reminders", "Daily briefs", "The morning brief and other reminders."),
+)
+
 fun ensureNotificationChannel(context: Context) {
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-    manager.createNotificationChannel(
-        NotificationChannel(
-            CHANNEL_ID,
-            "Clinic alerts",
-            NotificationManager.IMPORTANCE_DEFAULT,
-        ).apply {
-            description = "Bookings, messages waiting to send, and other clinic events."
-        }
-    )
+    CHANNELS.forEach { (id, name, about) ->
+        manager.createNotificationChannel(
+            NotificationChannel(id, name, NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = about
+            }
+        )
+    }
+}
+
+/**
+ * Where a tapped notification asks the app to go, e.g. "leads" or "day".
+ *
+ * A tiny mailbox rather than an intent dance: the service and the activity both
+ * write here, and the running UI collects it once the session is ready — which
+ * also covers the cold start, where the navigation target would otherwise be
+ * read before there is anywhere to navigate.
+ */
+object PushNav {
+    val requested = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
 }
 
 object PushRegistrar {
@@ -124,16 +148,23 @@ class AlphaMessagingService : FirebaseMessagingService() {
 
         ensureNotificationChannel(this)
 
+        // The channel the server named, when it is one this app creates.
+        val channel = message.data["channel"]
+            ?.takeIf { id -> CHANNELS.any { it.first == id } }
+            ?: CHANNEL_ID
+
         val open = PendingIntent.getActivity(
             this,
-            0,
-            Intent(this, MainActivity::class.java).addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            ),
+            // Distinct request codes, or every pending notification shares one intent
+            // and the last screen hint wins for all of them.
+            System.currentTimeMillis().toInt(),
+            Intent(this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                .apply { message.data["screen"]?.let { putExtra("screen", it) } },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(this, channel)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(title)
             .setContentText(body)

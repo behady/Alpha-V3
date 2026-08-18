@@ -333,10 +333,16 @@ async function processLeadEvent(db, event, todayStr) {
   if (leadResult === "created" || leadResult === "stub") {
     const who = graphLead ? parsedName || "New lead" : "Facebook lead (details pending)";
     const detail = parsedInterest ? `${who} — ${parsedInterest}` : who;
-    await sendClinicPush(db, clinicId, {
-      title: "New lead | عميل محتمل جديد 📣",
-      body: `${detail}\nFacebook · ${pageName || pageId}`,
-    }).catch(() => {});
+    await sendClinicPush(
+      db,
+      clinicId,
+      {
+        title: "New lead | عميل محتمل جديد 📣",
+        body: `${detail}\nFacebook · ${pageName || pageId}`,
+      },
+      // The inbox is reception's and the owner's; tapping opens it directly.
+      { roles: ["Admin", "Receptionist"], channel: "alpha_leads", data: { screen: "leads" } }
+    ).catch(() => {});
   }
 
   return {

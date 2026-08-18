@@ -198,10 +198,15 @@ export async function POST(request: Request) {
     // An online booking arrives when nobody is looking at a screen — that is the whole point of
     // online booking — so the phones are told. Fire-and-forget: the patient's booking must never
     // fail because a notification could not be delivered.
-    void sendClinicPush(clinicId, {
-      title: "حجز جديد أونلاين",
-      body: `${patientName} — ${dateKey} ${time} · New online booking`,
-    });
+    void sendClinicPush(
+      clinicId,
+      {
+        title: "حجز جديد أونلاين",
+        body: `${patientName} — ${dateKey} ${time} · New online booking`,
+      },
+      // The desk's news, not the chair's: a dentist mid-procedure does not need it.
+      { roles: ["Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
+    );
 
     return NextResponse.json({ ok: true, success: true, message: "Appointment requested successfully." });
   } catch (e) {

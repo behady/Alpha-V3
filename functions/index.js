@@ -655,6 +655,14 @@ exports.dailyClinicReportToOwner = onSchedule(
 // META LEAD ADS — see `metaLeads.js`
 // ==========================================
 
+// Push phase 1: targeted pushes — arrival to the treating dentist, the morning
+// brief, lead follow-ups due, and the owner's evening digest. See pushPhase1.js.
+const pushPhase1 = require("./pushPhase1");
+exports.onPatientCheckedIn = pushPhase1.onPatientCheckedIn;
+exports.morningBrief = pushPhase1.morningBrief;
+exports.leadsDueToday = pushPhase1.leadsDueToday;
+exports.eveningDigest = pushPhase1.eveningDigest;
+
 const { handleMetaWebhook, retryPendingLeadEvents } = require("./metaLeads");
 const { getFirestore } = require("firebase-admin/firestore");
 
