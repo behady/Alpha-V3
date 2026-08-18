@@ -17,7 +17,9 @@
     "test:sms": "npx tsx tests/smsCost.test.mjs",
     "test:sms-schedule": "npx tsx tests/smsSchedule.test.mjs",
     "test:optout": "npx tsx tests/patientMessaging.test.mjs",
-    "test:attendance": "npx tsx tests/attendanceGeofence.test.mjs"
+    "test:attendance": "npx tsx tests/attendanceGeofence.test.mjs",
+    "test:migration": "npx tsx tests/migration.test.mts",
+    "test:backup": "npx tsx tests/backupImport.test.mts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

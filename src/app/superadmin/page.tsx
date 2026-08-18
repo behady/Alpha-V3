@@ -8,16 +8,17 @@ import { query, getDocs, updateDoc, doc, deleteDoc, onSnapshot, collection } fro
 import { useRouter } from "next/navigation";
 import { Clinic, SubscriptionTier } from "@/types/saas";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-import { ShieldCheck, Search, Loader2, Check, X, Building2, BarChart3, Users, MoreVertical, RefreshCcw, Trash2, ExternalLink, Megaphone } from "lucide-react";
+import { ShieldCheck, Search, Loader2, Check, X, Building2, BarChart3, Users, MoreVertical, RefreshCcw, Trash2, ExternalLink, Megaphone, HardDriveDownload } from "lucide-react";
 import { useUI } from "@/context/UIContext";
 import { KpiStrip } from "@/components/superadmin/KpiStrip";
 import { ClinicDetailPanel } from "@/components/superadmin/ClinicDetailPanel";
 import { AnalyticsTab } from "@/components/superadmin/AnalyticsTab";
 import { UsersTab } from "@/components/superadmin/UsersTab";
 import { MetaTab } from "@/components/superadmin/MetaTab";
+import { MigrateTab } from "@/components/superadmin/MigrateTab";
 
 // Tabs
-type Tab = 'clinics' | 'analytics' | 'users' | 'meta';
+type Tab = 'clinics' | 'analytics' | 'users' | 'meta' | 'migrate';
 
 interface RichClinic extends Clinic {
   ownerEmail?: string;
@@ -190,6 +191,9 @@ export default function SuperAdminDashboard() {
             <button onClick={() => setActiveTab('meta')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'meta' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
               <Megaphone size={16} /> Meta Leads
             </button>
+            <button onClick={() => setActiveTab('migrate')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'migrate' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
+              <HardDriveDownload size={16} /> Migrate
+            </button>
           </div>
         </div>
       </div>
@@ -353,6 +357,8 @@ export default function SuperAdminDashboard() {
         )}
 
         {activeTab === 'meta' && <MetaTab />}
+
+        {activeTab === 'migrate' && <MigrateTab clinics={clinics} />}
 
       </div>
       
