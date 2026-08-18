@@ -208,6 +208,22 @@ data class DrugShortcut(
 )
 
 /** One issued prescription. */
+/**
+ * The clinic's letterhead, as Settings holds it.
+ *
+ * Read from clinics/{id}/settings/clinic_info — the same document the website's
+ * printed prescription takes its header from, so a script printed on the phone
+ * carries the same name, address and telephone as one printed at the desk.
+ */
+data class ClinicInfo(
+    val name: String = "",
+    val doctorName: String = "",
+    val phone: String = "",
+    val address: String = "",
+    /** The line under the clinic name; falls back to the prescribing doctor. */
+    val rxHeader: String = "",
+)
+
 data class Prescription(
     val id: String = "",
     val date: String = "",

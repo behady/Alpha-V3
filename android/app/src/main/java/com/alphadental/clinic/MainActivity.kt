@@ -85,6 +85,7 @@ import com.alphadental.clinic.ui.ClockCard
 import com.alphadental.clinic.ui.AppointmentSheet
 import com.alphadental.clinic.ui.BookingSheet
 import com.alphadental.clinic.ui.DayScreen
+import com.alphadental.clinic.ui.DocumentActions
 import com.alphadental.clinic.ui.FinanceSheet
 import com.alphadental.clinic.ui.HomeScreen
 import com.alphadental.clinic.ui.InventorySheet
@@ -488,6 +489,18 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     onSetNoteStatus = if (session.isAdmin || session.isDentist) {
                         { noteId, status -> viewModel.updateNoteStatus(noteId, status) }
                     } else null,
+                    rxBusy = state.rxBusy,
+                    onPrintRx = { rx ->
+                        viewModel.prescriptionPdf(context, rx) { file ->
+                            DocumentActions.print(context, file, "Prescription")
+                        }
+                    },
+                    onSendRx = { rx -> viewModel.sendPrescriptionWhatsapp(context, rx) },
+                    onShareRx = { rx ->
+                        viewModel.prescriptionPdf(context, rx) { file ->
+                            DocumentActions.shareToWhatsapp(context, file, "Prescription")
+                        }
+                    },
                     onOpenLedgerEntry = { entry ->
                         viewModel.openLedgerDetail(
                             entry = entry,

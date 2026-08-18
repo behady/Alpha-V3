@@ -1,6 +1,7 @@
 package com.alphadental.clinic.data
 
 import android.util.Log
+import com.alphadental.clinic.BuildConfig
 import com.alphadental.clinic.Firebase
 import com.google.android.gms.tasks.Task
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
@@ -17,7 +18,9 @@ import java.util.Locale
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 
 /**
  * Everything the app reads or writes.
@@ -243,6 +246,74 @@ object Repository {
             DrugShortcut(id = doc.id, name = name, dose = doc.getString("dose").orEmpty())
         }.sortedBy { it.name }
     }
+
+    /**
+     * The clinic's letterhead for printed documents.
+     *
+     * Cached for the session: it changes about once a year and every printed
+     * prescription would otherwise pay for a read.
+     */
+    private var clinicInfoCache: Pair<String, ClinicInfo>? = null
+
+    suspend fun loadClinicInfo(clinicId: String): ClinicInfo {
+        clinicInfoCache?.takeIf { it.first == clinicId }?.let { return it.second }
+        val info = runCatching {
+            val snap = Firebase.db().collection("clinics").document(clinicId)
+                .collection("settings").document("clinic_info").get().await()
+            ClinicInfo(
+                name = snap.getString("name").orEmpty(),
+                doctorName = snap.getString("doctorName").orEmpty(),
+                phone = snap.getString("phone").orEmpty(),
+                address = snap.getString("address").orEmpty(),
+                rxHeader = snap.getString("rxHeader").orEmpty(),
+            )
+        }.getOrDefault(ClinicInfo())
+        clinicInfoCache = clinicId to info
+        return info
+    }
+
+    /**
+     * Hand a prescription PDF to the clinic's WhatsApp gateway.
+     *
+     * Posts to the website's own endpoint rather than reimplementing the gateway:
+     * the credentials live on the server, the send is logged there, and the
+     * patient receives exactly what the desk would have sent.
+     */
+    suspend fun sendPrescriptionWhatsapp(patientId: String, pdf: ByteArray): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val token = Firebase.auth().currentUser?.getIdToken(false)?.await()?.token
+                    ?: error("Not signed in.")
+                val base64 = android.util.Base64.encodeToString(pdf, android.util.Base64.NO_WRAP)
+                val body = org.json.JSONObject()
+                    .put("patientId", patientId)
+                    .put("pdfBase64", base64)
+
+                val url = java.net.URL(BuildConfig.WEB_URL.trimEnd('/') + "/api/whatsapp/send-prescription-pdf")
+                val connection = (url.openConnection() as java.net.HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    doOutput = true
+                    connectTimeout = 15_000
+                    readTimeout = 60_000
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("Authorization", "Bearer $token")
+                }
+                try {
+                    connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+                    val stream = if (connection.responseCode in 200..299) connection.inputStream
+                    else connection.errorStream ?: connection.inputStream
+                    val text = stream.bufferedReader().use { it.readText() }
+                    val json = runCatching { org.json.JSONObject(text) }.getOrNull()
+                    if (json?.optBoolean("ok") != true) {
+                        error(json?.optString("error")?.takeIf { it.isNotBlank() }
+                            ?: "WhatsApp send failed (HTTP ${connection.responseCode}).")
+                    }
+                } finally {
+                    connection.disconnect()
+                }
+                Unit
+            }
+        }
 
     /** A patient's prescriptions, newest first. */
     suspend fun loadPrescriptions(clinicId: String, patientId: String): List<Prescription> {

@@ -92,6 +92,8 @@ data class AppState(
     val patientMedia: List<com.alphadental.clinic.data.PatientMedia> = emptyList(),
     val patientOrtho: List<OrthoCase> = emptyList(),
     val uploadingPhoto: Boolean = false,
+    /** True while a prescription PDF is being built or sent. */
+    val rxBusy: Boolean = false,
     // --- leads (CRM) ---
     val leadsOpen: Boolean = false,
     val leads: List<com.alphadental.clinic.data.Lead> = emptyList(),
@@ -639,6 +641,85 @@ class AppViewModel : ViewModel() {
                     message = error.message ?: "The photo could not be uploaded.",
                 )
             }
+        }
+    }
+
+    // ------------------------------------------------------- prescription paper
+
+    /**
+     * Build the printable script for one prescription.
+     *
+     * The PDF is drawn from the same clinic letterhead the website prints, then
+     * handed to whatever the caller asked for — the print dialog, WhatsApp, or
+     * the share sheet. Everything runs off the main thread; drawing a page and
+     * reading the clinic document are both too slow to do under a tap.
+     */
+    fun prescriptionPdf(
+        context: android.content.Context,
+        prescription: com.alphadental.clinic.data.Prescription,
+        onReady: (java.io.File) -> Unit,
+    ) {
+        val session = _state.value.session ?: return
+        val file = _state.value.patientFile ?: return
+        _state.value = _state.value.copy(rxBusy = true)
+        viewModelScope.launch {
+            val built = runCatching {
+                val clinic = Repository.loadClinicInfo(session.clinicId)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.alphadental.clinic.data.PrescriptionPdf.write(
+                        context = context.applicationContext,
+                        clinic = clinic,
+                        patientName = file.patient.name,
+                        patientPhone = file.patient.phone,
+                        prescription = prescription,
+                        arabic = _state.value.arabic,
+                    )
+                }
+            }.getOrNull()
+
+            _state.value = _state.value.copy(
+                rxBusy = false,
+                message = if (built == null) "The prescription could not be prepared." else _state.value.message,
+            )
+            built?.let(onReady)
+        }
+    }
+
+    /**
+     * Send the script to the patient over the clinic's WhatsApp gateway — the
+     * same endpoint, and the same logging, as the website's send button.
+     */
+    fun sendPrescriptionWhatsapp(
+        context: android.content.Context,
+        prescription: com.alphadental.clinic.data.Prescription,
+    ) {
+        val session = _state.value.session ?: return
+        val file = _state.value.patientFile ?: return
+        val patientId = _state.value.openPatientId ?: return
+        _state.value = _state.value.copy(rxBusy = true)
+        viewModelScope.launch {
+            val result = runCatching {
+                val clinic = Repository.loadClinicInfo(session.clinicId)
+                val pdf = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.alphadental.clinic.data.PrescriptionPdf.write(
+                        context = context.applicationContext,
+                        clinic = clinic,
+                        patientName = file.patient.name,
+                        patientPhone = file.patient.phone,
+                        prescription = prescription,
+                        arabic = _state.value.arabic,
+                    ).readBytes()
+                }
+                Repository.sendPrescriptionWhatsapp(patientId, pdf).getOrThrow()
+            }
+            _state.value = _state.value.copy(
+                rxBusy = false,
+                message = if (result.isSuccess) {
+                    "Prescription sent to ${file.patient.name} on WhatsApp."
+                } else {
+                    result.exceptionOrNull()?.message ?: "The prescription could not be sent."
+                },
+            )
         }
     }
 
