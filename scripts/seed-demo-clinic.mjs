@@ -407,6 +407,48 @@ async function main() {
   });
   plan.push(`${LEADS.length} leads (${LEADS.filter((l) => l.campaign).length} from Meta campaigns)`);
 
+  // --- the WhatsApp send list -------------------------------------------------------------------
+  // Two messages waiting, so the Messages screen shows what it is for: one greeting a lead the
+  // clinic answers by hand, one reminding tomorrow's patient.
+  const QUEUED = [
+    {
+      id: "demo_lead_welcome",
+      to: "+201000000803",
+      patientName: "Salma Hassan",
+      type: "lead_welcome",
+      text: [
+        "مرحباً Salma Hassan 👋",
+        "",
+        "شكراً لتواصلك مع *Demo Clinic — Alpha Dental*. وصلنا استفسارك وحابين نساعدك.",
+        "امتى يكون وقت مناسب نتصل بيك؟",
+      ].join(String.fromCharCode(10)),
+    },
+    {
+      id: "demo_reminder",
+      to: "+201000000104",
+      patientName: "Nada Farouk",
+      type: "reminder24h",
+      text: [
+        "Hi Nada Farouk,",
+        "",
+        "A reminder of your appointment tomorrow at Demo Clinic — Alpha Dental.",
+        "See you soon!",
+      ].join(String.fromCharCode(10)),
+    },
+  ];
+  QUEUED.forEach((m) => {
+    add(db.doc(`clinics/${clinicId}/whatsapp_outbox/${m.id}`), {
+      to: m.to,
+      text: m.text,
+      status: "queued",
+      type: m.type,
+      patientName: m.patientName,
+      createdAt: new Date().toISOString(),
+      [DEMO_MARKER]: true,
+    });
+  });
+  plan.push(`${QUEUED.length} WhatsApp messages waiting to be sent`);
+
   // --- appointments, procedures, money -----------------------------------------------------------
   const STATUS_PAST = ["Completed", "Completed", "Completed", "Completed", "No Show", "Cancelled"];
   const STATUS_TODAY = ["Completed", "Completed", "In Chair", "Checked In", "Confirmed", "Confirmed", "Scheduled"];
