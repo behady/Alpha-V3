@@ -328,4 +328,26 @@ data class OrthoCase(
     val status: String = "Active",
     val diagnosis: String = "",
     val visits: List<OrthoVisit> = emptyList(),
+    /** Stamped when the case is marked finished, so reports have a date to count. */
+    val completedDate: String = "",
+    /** Cephalometric readings, keyed by CEPH_FIELDS — the website's own field ids. */
+    val cephData: Map<String, String> = emptyMap(),
+)
+
+/**
+ * The cephalometric measurements an ortho case carries, in the website's order.
+ *
+ * Ids match CEPH_FIELDS in the web ortho page exactly: they are the map keys
+ * stored on the case, so a value typed on the phone lands in the box the
+ * website reads it from.
+ */
+val CEPH_FIELDS: List<Pair<String, String>> = listOf(
+    "sna" to "SNA (°)",
+    "snb" to "SNB (°)",
+    "anb" to "ANB (°)",
+    "overjet" to "Overjet (mm)",
+    "overbite" to "Overbite (mm)",
+    "crowding" to "Crowding",
+    "spacing" to "Spacing",
+    "impa" to "IMPA (°)",
 )

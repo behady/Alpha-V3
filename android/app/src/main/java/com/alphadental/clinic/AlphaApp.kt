@@ -37,6 +37,10 @@ class AlphaApp : Application() {
         // phone, from the app simply not opening. Recording the failure instead
         // lets MainActivity show an actual message on the very screen that would
         // otherwise have stayed blank.
+        // Read before anything draws, so the first frame is already in the right
+        // theme instead of flashing the default one on a dark phone.
+        com.alphadental.clinic.ui.AppearanceStore.init(this)
+
         try {
             val options = FirebaseOptions.Builder()
                 .setProjectId(BuildConfig.FB_PROJECT_ID)
