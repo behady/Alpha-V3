@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { auth } from "@/lib/firebase";
 import {
   AlertTriangle, ArrowRight, CheckCircle2, Copy, Database, FileWarning,
@@ -355,8 +355,48 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
   }
 
   const ready = Boolean(clinicId && (backup || credentials));
-  const unknowns = (plan || []).filter((entry) => entry.action === "copy" && !entry.known);
-  const gaps = (plan || []).filter((entry) => entry.noConsumer && entry.count > 0);
+
+  /**
+   * Collapse the plan to one row per top-level collection for display.
+   *
+   * A clinic with 40 chat threads produces 40 separate `conversations/<id>/messages` entries,
+   * which buried the real content of this screen in a wall of near-identical rows. Grouping is
+   * display-only — `plan` itself still drives which documents are copied, matched by their full
+   * collection path.
+   */
+  const planRows = useMemo(() => {
+    const groups = new Map<
+      string,
+      { name: string; count: number; action: "copy" | "skip"; known: boolean; noConsumer?: string; nested: number }
+    >();
+
+    for (const entry of plan || []) {
+      const root = entry.name.split("/")[0];
+      const nested = entry.name.includes("/") ? 1 : 0;
+      const group = groups.get(root);
+      if (!group) {
+        groups.set(root, {
+          name: root,
+          count: entry.count,
+          action: entry.action,
+          known: entry.known,
+          noConsumer: entry.noConsumer,
+          nested,
+        });
+      } else {
+        group.count += entry.count;
+        group.nested += nested;
+        if (entry.action === "copy") group.action = "copy";
+        group.known = group.known && entry.known;
+        group.noConsumer = group.noConsumer || entry.noConsumer;
+      }
+    }
+
+    return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [plan]);
+
+  const unknowns = planRows.filter((entry) => entry.action === "copy" && !entry.known);
+  const gaps = planRows.filter((entry) => entry.noConsumer && entry.count > 0);
   const blockedByUnknown = unknowns.length > 0 && !allowUnknown;
 
   return (
@@ -442,9 +482,14 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
           <div className="rounded-lg border border-slate-700 overflow-hidden">
             <table className="w-full text-sm">
               <tbody>
-                {plan.map((entry) => (
+                {planRows.map((entry) => (
                   <tr key={entry.name} className="border-b border-slate-800 last:border-0">
-                    <td className="px-3 py-2 font-mono text-slate-300">{entry.name}</td>
+                    <td className="px-3 py-2 font-mono text-slate-300">
+                      {entry.name}
+                      {entry.nested > 0 && (
+                        <span className="text-slate-500 font-sans"> + {entry.nested} inner list{entry.nested > 1 ? "s" : ""}</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right text-slate-400 tabular-nums">
                       {entry.count.toLocaleString()}
                     </td>
@@ -519,10 +564,20 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
           {conflicts.length > 0 && (
             <Warning icon={<ShieldCheck size={16} />}>
               <p className="font-bold mb-1">{conflicts.length} records were left alone on purpose.</p>
-              <p>
+              <p className="mb-2">
                 These already existed here and were not put there by a migration — they look like work
                 someone did in v3 after the clinic switched over. They were not overwritten with the
                 older copy.
+              </p>
+              <ul className="font-mono text-xs space-y-0.5 text-amber-200/80">
+                {conflicts.slice(0, 20).map((path) => (
+                  <li key={path}>{path.replace(`clinics/${clinicId}/`, "")}</li>
+                ))}
+                {conflicts.length > 20 && <li>… and {conflicts.length - 20} more</li>}
+              </ul>
+              <p className="mt-2">
+                If these are just the empty records v3 created when you made the clinic, that is normal
+                — carry on. If any of them hold real work, deal with that before switching over.
               </p>
             </Warning>
           )}

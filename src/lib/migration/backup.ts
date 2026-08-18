@@ -111,8 +111,10 @@ export async function importChunk(
         const spec = reroute.target(clinicId);
         if (writer) {
           writer.set(dst.doc(spec.path.join("/")), { [spec.field]: data }, { merge: true });
-          stats.written += 1;
         }
+        // Counted whether or not this run writes: a practice run whose "will be copied" figure
+        // is always zero tells the operator nothing, which is the whole point of a practice run.
+        stats.written += 1;
         continue;
       }
 
@@ -141,8 +143,8 @@ export async function importChunk(
             migratedAt: new Date().toISOString(),
           },
         });
-        stats.written += 1;
       }
+      stats.written += 1;
     }
   } finally {
     if (writer) await writer.close();

@@ -199,8 +199,9 @@ async function copyPage(args: {
       const spec = reroute.target(clinicId);
       if (commit && writer) {
         writer.set(dst.doc(spec.path.join("/")), { [spec.field]: data }, { merge: true });
-        state.stats.written += 1;
       }
+      // Counted whether or not this run writes — see the note in backup.ts.
+      state.stats.written += 1;
     } else {
       const targetRef = dst.doc([...targetSegments, doc.id].join("/"));
       const existing = await targetRef.get();
@@ -227,8 +228,8 @@ async function copyPage(args: {
             migratedAt: new Date().toISOString(),
           },
         });
-        state.stats.written += 1;
       }
+      state.stats.written += 1;
     }
 
     state.cursor = doc.id;

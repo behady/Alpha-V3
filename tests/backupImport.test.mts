@@ -211,8 +211,20 @@ async function main() {
   check("file survives JSON round trip", JSON.parse(JSON.stringify(backup)).docs.length === backup.docs.length);
   const file = JSON.parse(JSON.stringify(backup)) as typeof backup; // what actually travels
 
-  console.log("\nImport in chunks (no credentials from here on)");
+  console.log("\nPractice run (must predict, not write)");
   const importable = file.docs.filter((d) => !SKIP_COLLECTIONS[d.path.split("/")[0]]);
+  const dry = await importChunk(importable, CLINIC_ID, SOURCE_PROJECT, "dry", false, false);
+  check(
+    "practice run reports what WOULD be copied",
+    dry.stats.written === importable.length,
+    `said ${dry.stats.written}, should be ${importable.length}`
+  );
+  check(
+    "practice run wrote nothing",
+    (await dst.collection(`clinics/${CLINIC_ID}/patients`).count().get()).data().count === 0
+  );
+
+  console.log("\nImport in chunks (no credentials from here on)");
   const stats = { read: 0, written: 0, conflicts: 0, rerouted: 0 };
   for (let i = 0; i < importable.length; i += 4) {
     const result = await importChunk(importable.slice(i, i + 4), CLINIC_ID, SOURCE_PROJECT, "run-1", true, false);
