@@ -28,6 +28,8 @@ const SOURCE_PROJECT = "old-clinic";
 const TARGET_PROJECT = "v3-proj";
 const CLINIC_ID = "CLINIC_B";
 const SOURCE_BUCKET = `${SOURCE_PROJECT}.appspot.com`;
+/** What Firebase actually names buckets on projects created since late 2024. */
+const MODERN_BUCKET = `${SOURCE_PROJECT}.firebasestorage.app`;
 
 process.env.FIREBASE_PROJECT_ID = TARGET_PROJECT;
 process.env.FIREBASE_CLIENT_EMAIL = `sa@${TARGET_PROJECT}.iam.gserviceaccount.com`;
@@ -89,6 +91,9 @@ async function seed() {
     createdAt: ts("2024-03-01T09:00:00Z"),
     balance: 1250.5,
     xrayUrl: emulatorUrl("xrays/p1/panoramic.jpg"),
+    // Same file, addressed through the modern bucket domain. The backup file declares
+    // <project>.appspot.com, so this only migrates if bucket names are NOT trusted.
+    xrayUrlModern: emulatorUrl("xrays/p1/panoramic.jpg").replace(SOURCE_BUCKET, MODERN_BUCKET),
     attachments: [{ label: "consent", url: emulatorUrl("signatures/p1/consent.png") }],
   });
   await src.doc("patients/p2").set({ name: "Mona Adel", balance: 0 });
@@ -111,6 +116,8 @@ async function seed() {
 
   const bucket = getStorage(srcApp).bucket(SOURCE_BUCKET);
   await bucket.file("xrays/p1/panoramic.jpg").save(Buffer.from("xray-bytes"));
+  // The same object, reachable through the modern bucket domain too.
+  await getStorage(srcApp).bucket(MODERN_BUCKET).file("xrays/p1/panoramic.jpg").save(Buffer.from("xray-bytes"));
   // signatures/p1/consent.png deliberately NOT uploaded: already broken in v2.
 
   await dst.doc(`clinics/${CLINIC_ID}`).set({ name: "Clinic B", status: "Active" });
@@ -224,6 +231,16 @@ async function main() {
     (await dst.collection(`clinics/${CLINIC_ID}/patients`).count().get()).data().count === 0
   );
 
+  // The trap this guards: steps 3-5 used to unlock after a practice run too, so the files step
+  // would scan a clinic whose records were never copied and report "no images found" as if that
+  // described the clinic rather than an empty target.
+  const emptyScan = await runFetchFilesStep(CLINIC_ID, "test-salt", await initialFetchFilesState(CLINIC_ID), false);
+  check(
+    "after a practice run there is nothing for the files step to look at",
+    emptyScan.state.scanned === 0,
+    `scanned=${emptyScan.state.scanned}`
+  );
+
   console.log("\nImport in chunks (no credentials from here on)");
   const stats = { read: 0, written: 0, conflicts: 0, rerouted: 0 };
   for (let i = 0; i < importable.length; i += 4) {
@@ -291,11 +308,16 @@ async function main() {
   let fileState = await initialFetchFilesState(CLINIC_ID);
   let guard = 0;
   for (;;) {
-    const result = await runFetchFilesStep(CLINIC_ID, SOURCE_BUCKET, "test-salt", fileState, true);
+    const result = await runFetchFilesStep(CLINIC_ID, "test-salt", fileState, true);
     fileState = result.state;
     if (result.done || guard++ > 50) break;
   }
   check("reachable file fetched and stored", fileState.copied === 1, `copied=${fileState.copied}`);
+  check(
+    "records really were examined, so a zero would mean something",
+    fileState.scanned > 0,
+    `scanned=${fileState.scanned}`
+  );
   check("dead URL reported, not hidden", fileState.missing.length === 1);
 
   const p1 = await dst.doc(`clinics/${CLINIC_ID}/patients/p1`).get();
@@ -303,6 +325,21 @@ async function main() {
   check("x-ray URL repointed at the v3 bucket", xray.includes(`${TARGET_PROJECT}.appspot.com`));
   check("x-ray namespaced under this clinic", xray.includes(encodeURIComponent(`clinics/${CLINIC_ID}/`)));
   check("dead URL left pointing where it always did", p1.get("attachments")[0].url.includes(SOURCE_BUCKET));
+  check(
+    "URL naming a bucket the backup never declared is still migrated",
+    p1.get("xrayUrlModern")?.includes(`${TARGET_PROJECT}.appspot.com`),
+    p1.get("xrayUrlModern")
+  );
+  check(
+    "the same object seen under two bucket names is copied once, not twice",
+    fileState.copied === 1,
+    `copied=${fileState.copied}`
+  );
+  check(
+    "both spellings were reported so a wrong guess cannot pass silently",
+    fileState.bucketsSeen.includes(SOURCE_BUCKET) && fileState.bucketsSeen.includes(MODERN_BUCKET),
+    fileState.bucketsSeen.join(", ")
+  );
 
   const [meta] = await getStorage(dstApp)
     .bucket(`${TARGET_PROJECT}.appspot.com`)
@@ -330,7 +367,6 @@ async function main() {
   }
   const report = await verifyFromBackup(
     CLINIC_ID,
-    SOURCE_BUCKET,
     [...counts.entries()].map(([path, count]) => ({ path, count })),
     samples,
     reroutedPaths.filter((path) => file.docs.some((doc) => doc.path === path))
@@ -344,7 +380,6 @@ async function main() {
   await dst.doc(`clinics/${CLINIC_ID}/patients/p2`).delete();
   const broken = await verifyFromBackup(
     CLINIC_ID,
-    SOURCE_BUCKET,
     [...counts.entries()].map(([path, count]) => ({ path, count })),
     samples,
     []

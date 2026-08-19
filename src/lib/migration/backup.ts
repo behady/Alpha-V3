@@ -165,6 +165,10 @@ export type FetchFilesState = {
   /** gs:// references carry no download token, so they cannot be fetched without credentials. */
   needsCredentials: string[];
   documentsUpdated: number;
+  /** Records examined. Zero means the data step never ran, not that the clinic has no images. */
+  scanned: number;
+  /** Buckets the image links actually pointed at — shown so a wrong guess cannot pass silently. */
+  bucketsSeen: string[];
 };
 
 const TIME_BUDGET_MS = 40_000;
@@ -182,6 +186,8 @@ export async function initialFetchFilesState(clinicId: string): Promise<FetchFil
     missing: [],
     needsCredentials: [],
     documentsUpdated: 0,
+    scanned: 0,
+    bucketsSeen: [],
   };
 }
 
@@ -200,7 +206,6 @@ export async function initialFetchFilesState(clinicId: string): Promise<FetchFil
  */
 export async function runFetchFilesStep(
   clinicId: string,
-  sourceBucket: string,
   salt: string,
   state: FetchFilesState,
   commit: boolean
@@ -228,12 +233,15 @@ export async function runFetchFilesStep(
 
     for (const doc of page.docs) {
       state.cursor = doc.id;
+      state.scanned += 1;
 
       // Collect every URL in this document that points at the old bucket, keyed by object path
       // so one file referenced twice is fetched once.
       const urlsByPath = new Map<string, string>();
       const gsRefs: string[] = [];
-      collectUrls(doc.data(), sourceBucket, urlsByPath, gsRefs);
+      const bucketsSeen = new Set(state.bucketsSeen);
+      collectUrls(doc.data(), targetBucketName, urlsByPath, gsRefs, bucketsSeen);
+      state.bucketsSeen = [...bucketsSeen];
       if (!urlsByPath.size && !gsRefs.length) continue;
 
       for (const gs of gsRefs) {
@@ -251,7 +259,12 @@ export async function runFetchFilesStep(
               state.alreadyThere += 1;
               return;
             }
-            if (!commit) return;
+            if (!commit) {
+              // Counted even though nothing is written, so the practice run predicts instead of
+              // always reporting zero.
+              state.copied += 1;
+              return;
+            }
 
             const response = await fetch(url).catch(() => null);
             if (!response || !response.ok) {
@@ -278,7 +291,6 @@ export async function runFetchFilesStep(
 
       const rewritten = rewriteUrls(
         doc.data(),
-        sourceBucket,
         targetBucketName,
         clinicId,
         salt,
@@ -300,37 +312,63 @@ export async function runFetchFilesStep(
   return { state, done: state.pending.length === 0 };
 }
 
-function objectPathFromUrl(url: string, bucket: string): string | null {
-  if (!bucket || !url.includes(bucket)) return null;
-  const download = url.match(/\/v0\/b\/([^/]+)\/o\/([^?]+)/);
-  if (download && download[1] === bucket) return decodeURIComponent(download[2]);
-  return null;
+/**
+ * Pull the bucket and object path out of any Firebase download URL.
+ *
+ * Deliberately NOT matched against an expected bucket name. The backup file declares a bucket
+ * derived from the old project's env, falling back to `<projectId>.appspot.com` — but Firebase
+ * switched its default bucket domain to `<projectId>.firebasestorage.app`, so that guess is
+ * wrong on any recently-created project. Requiring an exact match meant every image URL failed
+ * to match, the step reported "0 files" and finished green, and the clinic's entire imaging
+ * history would have been left behind in a project scheduled for deletion.
+ *
+ * Anything not already in this project's own bucket is treated as a file to bring across, which
+ * needs no guess, survives a bucket rename, and handles a clinic whose images span two buckets.
+ */
+function parseDownloadUrl(url: string): { bucket: string; objectPath: string } | null {
+  const match = url.match(/\/v0\/b\/([^/]+)\/o\/([^?]+)/);
+  if (!match) return null;
+  return { bucket: decodeURIComponent(match[1]), objectPath: decodeURIComponent(match[2]) };
 }
 
 function collectUrls(
   value: unknown,
-  bucket: string,
+  targetBucket: string,
   urlsByPath: Map<string, string>,
-  gsRefs: string[]
+  gsRefs: string[],
+  bucketsSeen: Set<string>
 ): void {
   if (typeof value === "string") {
-    const objectPath = objectPathFromUrl(value, bucket);
-    if (objectPath) urlsByPath.set(objectPath, value);
-    else if (value.startsWith(`gs://${bucket}/`)) gsRefs.push(value);
+    const parsed = parseDownloadUrl(value);
+    if (parsed) {
+      // Already in this project's bucket means a previous run brought it over: nothing to do.
+      if (parsed.bucket !== targetBucket) {
+        bucketsSeen.add(parsed.bucket);
+        urlsByPath.set(parsed.objectPath, value);
+      }
+      return;
+    }
+    // A gs:// reference carries no token, so it cannot be fetched without credentials.
+    const gs = value.match(/^gs:\/\/([^/]+)\/(.+)$/);
+    if (gs && gs[1] !== targetBucket) {
+      bucketsSeen.add(gs[1]);
+      gsRefs.push(value);
+    }
     return;
   }
   if (Array.isArray(value)) {
-    for (const entry of value) collectUrls(entry, bucket, urlsByPath, gsRefs);
+    for (const entry of value) collectUrls(entry, targetBucket, urlsByPath, gsRefs, bucketsSeen);
     return;
   }
   if (value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
-    for (const entry of Object.values(value)) collectUrls(entry, bucket, urlsByPath, gsRefs);
+    for (const entry of Object.values(value)) {
+      collectUrls(entry, targetBucket, urlsByPath, gsRefs, bucketsSeen);
+    }
   }
 }
 
 function rewriteUrls(
   value: unknown,
-  sourceBucket: string,
   targetBucket: string,
   clinicId: string,
   salt: string,
@@ -340,13 +378,13 @@ function rewriteUrls(
 
   const walk = (entry: unknown): unknown => {
     if (typeof entry === "string") {
-      const objectPath = objectPathFromUrl(entry, sourceBucket);
-      if (!objectPath || !shouldRewrite(objectPath)) return entry;
+      const parsed = parseDownloadUrl(entry);
+      if (!parsed || parsed.bucket === targetBucket || !shouldRewrite(parsed.objectPath)) return entry;
       changed = true;
-      const newPath = targetObjectPath(clinicId, objectPath);
+      const newPath = targetObjectPath(clinicId, parsed.objectPath);
       return (
         `https://firebasestorage.googleapis.com/v0/b/${targetBucket}` +
-        `/o/${encodeURIComponent(newPath)}?alt=media&token=${tokenFor(salt, clinicId, objectPath)}`
+        `/o/${encodeURIComponent(newPath)}?alt=media&token=${tokenFor(salt, clinicId, parsed.objectPath)}`
       );
     }
     if (Array.isArray(entry)) return entry.map(walk);

@@ -67,6 +67,12 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
   const [allowUnknown, setAllowUnknown] = useState(false);
 
   const [copyStage, setCopyStage] = useState<Stage>("idle");
+  /**
+   * Whether step 2 has actually written. Steps 3-5 used to unlock on any finished copy, practice
+   * runs included -- so the files step could scan a clinic whose records were never copied, find
+   * nothing, and report "no images" as though that were a fact about the clinic.
+   */
+  const [copyCommitted, setCopyCommitted] = useState(false);
   const [copyProgress, setCopyProgress] = useState("");
   const [copySummary, setCopySummary] = useState<string[]>([]);
   const [conflicts, setConflicts] = useState<string[]>([]);
@@ -159,12 +165,26 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
     }
   }
 
+  /**
+   * Record a finished copy. Deliberately the ONLY place that does so: this existed twice, once
+   * per import path, and the backup copy of it forgot to record whether the run had actually
+   * written — so a real import kept reporting itself as a practice run and the later steps
+   * stayed hidden behind a flag that was never set.
+   */
+  function finishCopy(commit: boolean, lines: string[], found: string[]) {
+    setCopySummary(lines.filter(Boolean));
+    setConflicts(found.slice(0, 50));
+    setCopyCommitted(commit);
+    setCopyStage("done");
+  }
+
   async function handleCopy(commit: boolean) {
     if (!plan) return;
     setCopyStage("running");
     setError("");
     setCopySummary([]);
     setConflicts([]);
+    if (commit) setCopyCommitted(false);
 
     try {
       if (mode === "backup" && backup) {
@@ -189,13 +209,15 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
           setCopyProgress(`${Math.min(i + IMPORT_CHUNK, docs.length).toLocaleString()} of ${docs.length.toLocaleString()} records`);
         }
 
-        setCopySummary([
-          `${stats.read.toLocaleString()} records read from the backup`,
-          `${stats.written.toLocaleString()} records ${commit ? "copied in" : "ready to copy"}`,
-          stats.rerouted ? `${stats.rerouted} secret moved to protected storage` : "",
-        ].filter(Boolean));
-        setConflicts(allConflicts.slice(0, 50));
-        setCopyStage("done");
+        finishCopy(
+          commit,
+          [
+            `${stats.read.toLocaleString()} records read from the backup`,
+            `${stats.written.toLocaleString()} records ${commit ? "copied in" : "ready to copy"}`,
+            stats.rerouted ? `${stats.rerouted} secret moved to protected storage` : "",
+          ],
+          allConflicts
+        );
       } else {
         const collections = plan.filter((entry) => entry.action === "copy").map((entry) => entry.name);
         let state: unknown = null;
@@ -209,14 +231,16 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
           setCopyProgress(`${done} of ${done + json.state.pending.length} sections — ${json.state.stats.read.toLocaleString()} records read`);
           if (json.done) {
             const stats = json.state.stats;
-            setCopySummary([
-              `${stats.read.toLocaleString()} records read`,
-              `${stats.written.toLocaleString()} records ${commit ? "copied" : "ready to copy"}`,
-              stats.refsRemapped ? `${stats.refsRemapped} internal links repointed` : "",
-              stats.storageUrls ? `${stats.storageUrls} photo/x-ray links found (step 4 copies these)` : "",
-            ].filter(Boolean));
-            setConflicts(json.state.conflicts || []);
-            setCopyStage("done");
+            finishCopy(
+              commit,
+              [
+                `${stats.read.toLocaleString()} records read`,
+                `${stats.written.toLocaleString()} records ${commit ? "copied" : "ready to copy"}`,
+                stats.refsRemapped ? `${stats.refsRemapped} internal links repointed` : "",
+                stats.storageUrls ? `${stats.storageUrls} photo/x-ray links found (step 4 copies these)` : "",
+              ],
+              json.state.conflicts || []
+            );
             break;
           }
         }
@@ -285,7 +309,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
 
         const json =
           mode === "backup"
-            ? await call("fetch-files", { state, commit, sourceBucket: backup?.storageBucket })
+            ? await call("fetch-files", { state, commit })
             : await call("storage", { credentials, state, commit });
         state = json.state;
 
@@ -294,10 +318,14 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
         );
 
         if (json.done) {
+          const buckets: string[] = json.state.bucketsSeen || [];
           setFilesSummary([
-            `${json.state.copied} files ${commit ? "copied" : "ready to copy"}`,
+            json.state.copied === 0 && json.state.alreadyThere === 0
+              ? `Looked at ${(json.state.scanned || 0).toLocaleString()} records — no image links found`
+              : `${json.state.copied} files ${commit ? "copied" : "ready to copy"}`,
             json.state.alreadyThere ? `${json.state.alreadyThere} already here` : "",
             `${json.state.documentsUpdated} records ${commit ? "updated" : "would be updated"}`,
+            buckets.length ? `Images came from: ${buckets.join(", ")}` : "",
             json.state.missing?.length
               ? `${json.state.missing.length} files were already broken in the old system (left alone)`
               : "",
@@ -337,7 +365,6 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
         }
 
         const json = await call("verify-backup", {
-          sourceBucket: backup.storageBucket,
           counts: [...counts.entries()].map(([path, count]) => ({ path, count })),
           samples: [...samplesByRoot.values()].flat(),
           reroutesPresent: reroutedPaths.filter((path) => backup.docs.some((doc) => doc.path === path)),
@@ -561,6 +588,17 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
           {copyStage === "running" && <Progress text={copyProgress} />}
           {copyStage === "done" && <Summary lines={copySummary} />}
 
+          {copyStage === "done" && !copyCommitted && (
+            <Warning icon={<ShieldCheck size={16} />}>
+              <p className="font-bold mb-1">That was the practice run — nothing was copied.</p>
+              <p>
+                The remaining steps stay hidden until the data is really here, because they would
+                otherwise run against an empty clinic and report success. Press{" "}
+                <em>Copy the data for real</em> when the numbers above look right.
+              </p>
+            </Warning>
+          )}
+
           {conflicts.length > 0 && (
             <Warning icon={<ShieldCheck size={16} />}>
               <p className="font-bold mb-1">{conflicts.length} records were left alone on purpose.</p>
@@ -584,7 +622,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
         </Step>
       )}
 
-      {copyStage === "done" && (
+      {copyCommitted && (
         <Step number={3} title="Staff logins" icon={<Users size={18} />}>
           <Warning icon={<AlertTriangle size={16} />}>
             <p className="font-bold mb-1">Old passwords will not work.</p>
@@ -624,6 +662,31 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
               </button>
             )}
           </div>
+
+          {staffPeople && !staffResults && adminEmail.trim() &&
+            !staffPeople.some((p) => p.email === adminEmail.trim().toLowerCase()) && (
+              <Warning icon={<AlertTriangle size={16} />}>
+                <p className="font-bold mb-1">
+                  Nobody in this clinic uses {adminEmail.trim()}.
+                </p>
+                <p>
+                  The owner has to be one of the people below, so type one of their email addresses
+                  exactly. Your own super admin account already reaches every clinic — it does not
+                  need to be listed here.
+                </p>
+              </Warning>
+            )}
+
+          {staffPeople && !staffResults && !staffPeople.some((p) => p.role === "Admin") && (
+            <Warning icon={<AlertTriangle size={16} />}>
+              <p className="font-bold mb-1">Nobody would be an Admin.</p>
+              <p>
+                None of these people was an Admin in the old system, so no one could manage settings
+                or add staff here. Put the owner&apos;s email in the box above first — creating the
+                logins is blocked until someone is an Admin.
+              </p>
+            </Warning>
+          )}
 
           {staffPeople && !staffResults && (
             <div className="mt-4 rounded-lg border border-slate-700 overflow-hidden">
@@ -679,7 +742,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
         </Step>
       )}
 
-      {copyStage === "done" && (
+      {copyCommitted && (
         <Step number={4} title="Photos and x-rays" icon={<Images size={18} />}>
           <Warning icon={<AlertTriangle size={16} />}>
             <p className="font-bold mb-1">Do not skip this one.</p>
@@ -714,7 +777,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
         </Step>
       )}
 
-      {copyStage === "done" && (
+      {copyCommitted && (
         <Step number={5} title="Check everything arrived" icon={<CheckCircle2 size={18} />}>
           <p className="text-sm text-slate-400 mb-3">
             Compares the records here against the {mode === "backup" ? "backup file" : "old system"},
