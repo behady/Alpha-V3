@@ -28,11 +28,10 @@ export async function POST(request: Request) {
   if (!authz.ok) return authz.response;
 
   try {
-    const clinicId = await resolveUserClinicId(authz.uid);
-
     const body = (await request.json().catch(() => ({}))) as {
       patientId?: string;
       pdfBase64?: string;
+      clinicId?: string;
     };
 
     const patientId = typeof body.patientId === "string" ? body.patientId.trim() : "";
@@ -40,6 +39,12 @@ export async function POST(request: Request) {
     if (!patientId || !pdfBase64) {
       return NextResponse.json({ ok: false, error: "patientId and pdfBase64 are required" }, { status: 400 });
     }
+
+    // The clinic the screen is actually showing, not the caller's default one. Anyone with more
+    // than one clinic — and every superadmin viewing another tenant — would otherwise have the
+    // patient looked up in the wrong tenant and be told "Patient not found" for a patient that
+    // is plainly on screen. resolveUserClinicId still proves membership before honouring it.
+    const clinicId = await resolveUserClinicId(authz.uid, body.clinicId);
 
     let buffer: Buffer;
     try {

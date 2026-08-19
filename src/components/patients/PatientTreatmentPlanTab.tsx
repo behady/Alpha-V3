@@ -902,7 +902,7 @@ export default function PatientTreatmentPlanTab({
       const res = await fetch("/api/whatsapp/send-treatment-plan-pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ patientId, pdfBase64 }),
+        body: JSON.stringify({ patientId, pdfBase64, clinicId }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.ok) {
