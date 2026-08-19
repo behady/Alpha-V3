@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Send
@@ -82,6 +83,9 @@ fun AssistantScreen(
     pending: AiClient.PendingAction?,
     speak: String?,
     arabic: Boolean,
+    /** What the conversation is acting on, e.g. "Dina Samir · 9:00 AM"; null when nothing is. */
+    actingOn: String?,
+    onClearActingOn: () -> Unit,
     onAsk: (String) -> Unit,
     onSpoken: () -> Unit,
     onSettle: (Boolean) -> Unit,
@@ -173,6 +177,39 @@ fun AssistantScreen(
                         color = if (voiceState == VoiceState.LISTENING) Alpha.Green else Alpha.Slate400,
                         maxLines = 1,
                     )
+                }
+            }
+
+            // The appointment the chat is acting on. On the website this is a
+            // visible panel; on the phone this chip is that visibility — and its X
+            // is the way out of acting mode.
+            if (actingOn != null) {
+                Surface(
+                    shape = Alpha.PillShape,
+                    color = Alpha.GreenSoft,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 3.dp, bottom = 3.dp),
+                    ) {
+                        Text(
+                            (if (arabic) "يعمل على: " else "Acting on: ") + actingOn.ifBlank { if (arabic) "موعد" else "an appointment" },
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Alpha.Green,
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        IconButton(onClick = onClearActingOn, modifier = Modifier.size(28.dp)) {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = if (arabic) "إلغاء" else "Stop acting on it",
+                                tint = Alpha.Green,
+                                modifier = Modifier.size(14.dp),
+                            )
+                        }
+                    }
                 }
             }
 

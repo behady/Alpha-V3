@@ -29,6 +29,13 @@ object AiClient {
         val reply: String,
         /** Set when the assistant wants to act and is asking for approval first. */
         val pending: PendingAction?,
+        /**
+         * Set when the assistant identified WHICH appointment the user means.
+         * The website opens its reception panel on it; the phone must hold it and
+         * send it back as `appointmentId` on the next ask, or every acting
+         * request dead-ends at "Opened ..." forever.
+         */
+        val selectAppointmentId: String? = null,
     )
 
     /**
@@ -61,11 +68,21 @@ object AiClient {
         prompt: String,
         history: List<ChatMessage>,
         voiceMode: Boolean,
+        /**
+         * The appointment the conversation is acting on, if one has been opened.
+         * Sending it switches the server to reception mode — the mode whose tools
+         * can stage status changes, reschedules, payments and patient messages.
+         */
+        appointmentId: String? = null,
     ): Turn = withContext(Dispatchers.IO) {
         val body = JSONObject().apply {
             put("clinicId", clinicId)
             put("userName", userName)
             put("prompt", prompt)
+            if (!appointmentId.isNullOrBlank()) {
+                put("mode", "reception")
+                put("appointmentId", appointmentId)
+            }
             put("history", JSONArray().apply {
                 history.takeLast(6).forEach { msg ->
                     put(JSONObject().apply {
@@ -99,6 +116,7 @@ object AiClient {
         Turn(
             reply = json.optString("reply").ifBlank { "…" },
             pending = json.optJSONObject("pendingAction")?.toPendingAction(),
+            selectAppointmentId = json.optString("selectAppointmentId").takeIf { it.isNotBlank() },
         )
     }
 

@@ -139,6 +139,12 @@ object Repository {
     private fun appointments(clinicId: String) =
         Firebase.db().collection("clinics").document(clinicId).collection("appointments")
 
+    /** One appointment by id, for showing what the assistant is acting on. */
+    suspend fun loadAppointment(clinicId: String, appointmentId: String): Appointment? {
+        val snap = appointments(clinicId).document(appointmentId).get().await()
+        return if (snap.exists()) snap.toAppointment(pendingWrite = false) else null
+    }
+
     /**
      * Live appointments for one calendar day.
      *

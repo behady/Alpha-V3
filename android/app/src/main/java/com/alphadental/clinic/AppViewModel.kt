@@ -177,6 +177,9 @@ data class AppState(
     val aiPending: AiClient.PendingAction? = null,
     /** A reply waiting to be read aloud. One-shot: the screen speaks it and calls aiSpoken(). */
     val aiSpeak: String? = null,
+    /** The appointment the assistant is acting on — its id and a human label for the chip. */
+    val aiAppointmentId: String? = null,
+    val aiAppointmentLabel: String = "",
 )
 
 /** Null target means a new booking; a set one means that appointment is being moved. */
@@ -275,6 +278,9 @@ class AppViewModel : ViewModel() {
         // Per clinic and user; the next account must not inherit them.
         chatStore = null
         answerCache = null
+        // The acting context is per account too: the next person to sign in must
+        // not inherit an appointment the assistant was about to change.
+        _state.value = _state.value.copy(aiAppointmentId = null, aiAppointmentLabel = "")
         // Cancelled explicitly: this listener was left running after sign-out, still watching the
         // old clinic's message queue with credentials the rules now reject — a stream of permission
         // errors, and a stale queue briefly shown if a different account signed in next.
@@ -934,12 +940,33 @@ class AppViewModel : ViewModel() {
         // in Firestore and the PDF is drawn locally, so no AI credit is spent.
         if (tryLocalReport(prompt)) return
 
-        answerCache?.lookup(prompt)?.let { cached ->
-            appendAiMessage(ChatMessage(fromUser = false, text = cached, at = System.currentTimeMillis()))
-            _state.value = _state.value.copy(aiSpeak = cached)
-            return
+        // The cache is only for context-free questions. With an appointment on
+        // screen the same words mean something else entirely, and an acting
+        // request replayed from disk would speak a confidence nothing backs.
+        if (_state.value.aiAppointmentId == null) {
+            answerCache?.lookup(prompt)?.let { cached ->
+                appendAiMessage(ChatMessage(fromUser = false, text = cached, at = System.currentTimeMillis()))
+                _state.value = _state.value.copy(aiSpeak = cached)
+                return
+            }
         }
 
+        askAiTurn(prompt, continued = false)
+    }
+
+    /**
+     * One round trip to the assistant.
+     *
+     * When the server answers with `selectAppointmentId` it has only IDENTIFIED
+     * the appointment — on the website that opens a panel, which is itself the
+     * next step; on a phone "Opened Dina's 9:00 AM" followed by silence is a
+     * dead end (and was: every retry re-opened the same appointment forever).
+     * So the phone re-sends the same request once with the appointment attached,
+     * and one spoken "cancel her appointment" lands directly on the
+     * confirmation card. `continued` caps that at one hop.
+     */
+    private fun askAiTurn(prompt: String, continued: Boolean) {
+        val session = _state.value.session ?: return
         _state.value = _state.value.copy(aiThinking = true)
         viewModelScope.launch {
             runCatching {
@@ -950,18 +977,33 @@ class AppViewModel : ViewModel() {
                     // History from before this prompt was appended.
                     history = _state.value.aiMessages.dropLast(1),
                     voiceMode = true,
+                    appointmentId = _state.value.aiAppointmentId,
                 )
             }
                 .onSuccess { turn ->
+                    val selected = turn.selectAppointmentId
+                    if (selected != null) {
+                        setAiAppointment(session.clinicId, selected)
+                        if (!continued && turn.pending == null) {
+                            // Note what was found, then finish the actual request.
+                            appendAiMessage(ChatMessage(fromUser = false, text = turn.reply, at = System.currentTimeMillis()))
+                            askAiTurn(prompt, continued = true)
+                            return@onSuccess
+                        }
+                    }
+
                     appendAiMessage(ChatMessage(fromUser = false, text = turn.reply, at = System.currentTimeMillis()))
                     _state.value = _state.value.copy(
                         aiThinking = false,
                         aiPending = turn.pending,
                         aiSpeak = turn.reply,
                     )
-                    // Only plain answers are cached. A turn that staged an action must never be
-                    // replayed from disk — the spoken confirmation would have nothing behind it.
-                    if (turn.pending == null) answerCache?.store(prompt, turn.reply)
+                    // Only plain, context-free answers are cached. A turn that staged an
+                    // action must never be replayed from disk — the spoken confirmation
+                    // would have nothing behind it.
+                    if (turn.pending == null && selected == null && _state.value.aiAppointmentId == null) {
+                        answerCache?.store(prompt, turn.reply)
+                    }
                 }
                 .onFailure { error ->
                     val message = error.message ?: "The assistant could not be reached."
@@ -969,6 +1011,29 @@ class AppViewModel : ViewModel() {
                     _state.value = _state.value.copy(aiThinking = false, aiSpeak = message)
                 }
         }
+    }
+
+    /** Remember which appointment the chat is acting on, with a label the chip can show. */
+    private fun setAiAppointment(clinicId: String, appointmentId: String) {
+        _state.value = _state.value.copy(aiAppointmentId = appointmentId, aiAppointmentLabel = "")
+        viewModelScope.launch {
+            val label = runCatching { Repository.loadAppointment(clinicId, appointmentId) }
+                .getOrNull()
+                ?.let { appt ->
+                    listOf(appt.patientName, appt.time, appt.date)
+                        .filter(String::isNotBlank)
+                        .joinToString(" \u00b7 ")
+                }
+                .orEmpty()
+            if (_state.value.aiAppointmentId == appointmentId) {
+                _state.value = _state.value.copy(aiAppointmentLabel = label)
+            }
+        }
+    }
+
+    /** The chip's X: back to the general assistant, nothing on screen. */
+    fun clearAiAppointment() {
+        _state.value = _state.value.copy(aiAppointmentId = null, aiAppointmentLabel = "", aiPending = null)
     }
 
     fun settlePending(approve: Boolean) {
