@@ -9,6 +9,7 @@ const translations = {
     // --- NAVIGATION ---
     dashboard: "Dashboard",
     leads: "Leads",
+    marketing: "Marketing",
     messages: "Messages",
     patients: "Patients",
     appointments: "Appointments",
@@ -223,6 +224,7 @@ const translations = {
     // --- NAVIGATION ---
     dashboard: "لوحة التحكم",
     leads: "العملاء المحتملين",
+    marketing: "التسويق",
     messages: "الرسايل",
     patients: "سجل المرضى",
     appointments: "المواعيد",

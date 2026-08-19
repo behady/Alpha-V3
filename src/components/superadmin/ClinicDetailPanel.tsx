@@ -242,10 +242,13 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
             <Building2 size={16} className="text-emerald-500" /> Feature Overrides
           </h3>
           <div className="space-y-3">
-            {['aiChat', 'whatsappIntegration', 'inventory', 'attendance'].map((feature) => (
+            {['aiChat', 'whatsappIntegration', 'inventory', 'attendance', 'marketingText', 'marketingDesign'].map((feature) => (
               <div key={feature} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-xl">
                 <span className="font-bold text-sm text-slate-700 capitalize">
-                  {feature === 'aiChat' ? 'AI Assistant' : feature.replace(/([A-Z])/g, ' $1').trim()}
+                  {feature === 'aiChat' ? 'AI Assistant'
+                    : feature === 'marketingText' ? 'Marketing — Text & Strategy'
+                    : feature === 'marketingDesign' ? 'Marketing — Design'
+                    : feature.replace(/([A-Z])/g, ' $1').trim()}
                 </span>
                 <button
                   onClick={() => handleToggleFeature(feature as any)}

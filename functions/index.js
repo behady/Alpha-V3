@@ -657,6 +657,14 @@ exports.dailyClinicReportToOwner = onSchedule(
 
 // Push phase 1: targeted pushes — arrival to the treating dentist, the morning
 // brief, lead follow-ups due, and the owner's evening digest. See pushPhase1.js.
+// Marketing automations (Phase 2b): nightly review requests with the happy-check link,
+// birthday campaigns, lead speed alerts, and the occasion radar. See marketingAutomations.js.
+const marketingAutomations = require("./marketingAutomations");
+exports.reviewRequestsNightly = marketingAutomations.reviewRequestsNightly;
+exports.birthdayCampaigns = marketingAutomations.birthdayCampaigns;
+exports.leadSpeedAlerts = marketingAutomations.leadSpeedAlerts;
+exports.occasionRadarPush = marketingAutomations.occasionRadarPush;
+
 const pushPhase1 = require("./pushPhase1");
 exports.onPatientCheckedIn = pushPhase1.onPatientCheckedIn;
 exports.onSlotFreed = pushPhase1.onSlotFreed;

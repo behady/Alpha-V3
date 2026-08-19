@@ -22,6 +22,12 @@ export interface Clinic {
     aiMonthlyCredits?: number;
     extraAiCredits?: number;
     maxStaff?: number;
+    /** Marketing add-on, level 1: AI content studio, calendar, playbooks. Sold separately from tiers. */
+    marketingText?: boolean;
+    /** Marketing add-on, level 2: branded designs (Brand Kit, templates, before/after studio). */
+    marketingDesign?: boolean;
+    /** Monthly cap on marketing AI generations. A single generation costs 1, a month plan costs 5. */
+    marketingMonthlyCredits?: number;
   };
   billingCycle?: 'Monthly' | 'Yearly' | '2-Yearly';
   customPrice?: number;

@@ -15,6 +15,13 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
     aiEmbedded: boolean;
     /** Dictated clinical notes transcribed and structured into records. */
     aiVoice: boolean;
+    /**
+     * Marketing add-on, level 1 (Text & Strategy). False on every tier on purpose: it is sold as
+     * a separate add-on, switched on per clinic via the feature overrides in the superadmin panel.
+     */
+    marketingText: boolean;
+    /** Marketing add-on, level 2 (Design). Implies nothing by itself — gate design features on it IN ADDITION to marketingText. */
+    marketingDesign: boolean;
   }
 }> = {
   'Free Trial': {
@@ -28,6 +35,8 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiProactive: false,
       aiEmbedded: false,
       aiVoice: false,
+      marketingText: false,
+      marketingDesign: false,
     }
   },
   'Basic': {
@@ -41,6 +50,8 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiProactive: false,
       aiEmbedded: false,
       aiVoice: false,
+      marketingText: false,
+      marketingDesign: false,
     }
   },
   'Pro': {
@@ -54,6 +65,8 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiProactive: false,
       aiEmbedded: false,
       aiVoice: false,
+      marketingText: false,
+      marketingDesign: false,
     }
   },
   'Premium': {
@@ -67,6 +80,8 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiProactive: true,
       aiEmbedded: true,
       aiVoice: true,
+      marketingText: false,
+      marketingDesign: false,
     }
   }
 };
@@ -100,6 +115,20 @@ export function getAiCreditLimit(clinic: Clinic | null): number {
 
   const extraBonus = typeof clinic.features?.extraAiCredits === 'number' ? clinic.features.extraAiCredits : 0;
   return baseLimit + extraBonus;
+}
+
+/**
+ * Marketing generations allowed per month. Separate meter from the clinical AI credits on
+ * purpose: the marketing add-on is sold on its own, so a clinic can hold it without aiChat —
+ * and burning through campaign content must never eat the credits the chair-side AI runs on.
+ */
+export const MARKETING_MONTHLY_CREDITS_DEFAULT = 120;
+
+export function getMarketingCreditLimit(clinic: Clinic | null): number {
+  if (!clinic) return 0;
+  if (!hasFeature(clinic, "marketingText")) return 0;
+  const custom = clinic.features?.marketingMonthlyCredits;
+  return typeof custom === "number" && custom >= 0 ? custom : MARKETING_MONTHLY_CREDITS_DEFAULT;
 }
 
 /**

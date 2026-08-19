@@ -17,7 +17,7 @@ import { resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
  */
 
 export type DraftStatus = "pending_review" | "approved" | "sent" | "rejected" | "failed";
-export type DraftReason = "dormant_reactivation";
+export type DraftReason = "dormant_reactivation" | "marketing_campaign";
 
 export interface MessageDraft {
   id: string;
@@ -53,6 +53,14 @@ export async function createMessageDrafts(
 ): Promise<{ created: number; skipped: number }> {
   if (inputs.length === 0) return { created: 0, skipped: 0 };
 
+  // Campaign drafts dedupe per CAMPAIGN, not per reason: a patient may rightly appear in next
+  // month's campaign, but never twice in the same one (a double launch must be a no-op).
+  // Reason-level dedupe stays for everything else — a weekly reactivation scan must not stack.
+  const keyFor = (reason: string, patientId: string, context?: Record<string, unknown> | null) => {
+    const campaignId = context && typeof context.campaignId === "string" ? context.campaignId : "";
+    return campaignId ? `${reason}:${campaignId}:${patientId}` : `${reason}:${patientId}`;
+  };
+
   const reasons = Array.from(new Set(inputs.map((i) => i.reason)));
   const existing = new Set<string>();
 
@@ -63,7 +71,9 @@ export async function createMessageDrafts(
       .get();
     snap.forEach((doc) => {
       const d = doc.data() || {};
-      if (typeof d.patientId === "string") existing.add(`${reason}:${d.patientId}`);
+      if (typeof d.patientId === "string") {
+        existing.add(keyFor(reason, d.patientId, d.context as Record<string, unknown> | null));
+      }
     });
   }
 
@@ -71,7 +81,7 @@ export async function createMessageDrafts(
   let skipped = 0;
 
   for (const input of inputs) {
-    if (existing.has(`${input.reason}:${input.patientId}`)) {
+    if (existing.has(keyFor(input.reason, input.patientId, input.context))) {
       skipped++;
       continue;
     }
@@ -87,7 +97,7 @@ export async function createMessageDrafts(
       createdBy: "system",
       createdAt: FieldValue.serverTimestamp(),
     });
-    existing.add(`${input.reason}:${input.patientId}`);
+    existing.add(keyFor(input.reason, input.patientId, input.context));
     created++;
   }
 

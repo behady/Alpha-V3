@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   Plus, Phone, MessageCircle, Search, ChevronDown, X, Loader2,
-  UserPlus, Building2, CalendarClock, Trash2, Inbox, Check, UserCheck, Copy, Hourglass,
+  UserPlus, Building2, CalendarClock, Trash2, Inbox, Check, UserCheck, Copy, Hourglass, Timer,
 } from "lucide-react";
 import { onSnapshot, orderBy, query, addDoc, updateDoc, deleteDoc, serverTimestamp, getDoc } from "firebase/firestore";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
@@ -41,6 +41,25 @@ export default function LeadsPage() {
 
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
+
+  /**
+   * Speed-to-lead clock. Ads leads answered within minutes convert several times better than
+   * ones answered hours later, so every untouched lead wears its waiting time — amber while
+   * fresh, red once it crosses the mark where conversion measurably drops.
+   */
+  const [nowSec, setNowSec] = useState(() => Date.now() / 1000);
+  useEffect(() => {
+    const t = setInterval(() => setNowSec(Date.now() / 1000), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  const SPEED_TO_LEAD_RED_MINUTES = 15;
+  const waitingLabel = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    if (m < 60) return isAr ? `${m} د` : `${m}m`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return isAr ? `${h} س` : `${h}h`;
+    return isAr ? `${Math.floor(h / 24)} يوم` : `${Math.floor(h / 24)}d`;
+  };
   const [branches, setBranches] = useState<ClinicBranch[]>([]);
   const [sources, setSources] = useState<string[]>(DEFAULT_LEAD_SOURCES);
   const [servicesList, setServicesList] = useState<string[]>([]);
@@ -456,6 +475,20 @@ export default function LeadsPage() {
                         <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${styles.pill}`}>
                           {leadStageLabel(lead.stage, isAr ? "ar" : "en")}
                         </span>
+                        {lead.stage === "new" && lead.createdAt?.seconds ? (() => {
+                          const waited = Math.max(0, nowSec - lead.createdAt.seconds);
+                          const late = waited >= SPEED_TO_LEAD_RED_MINUTES * 60;
+                          return (
+                            <span
+                              className={`text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                                late ? "bg-rose-100 text-rose-600 animate-pulse" : "bg-amber-50 text-amber-700"
+                              }`}
+                              title={isAr ? "من غير رد من ساعة ما وصل — الرد في أول دقايق بيكسب العميل" : "Unanswered since it arrived — the first minutes win the lead"}
+                            >
+                              <Timer size={10} /> {isAr ? `مستني ${waitingLabel(waited)}` : `waiting ${waitingLabel(waited)}`}
+                            </span>
+                          );
+                        })() : null}
                         {due && (
                           <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 flex items-center gap-1">
                             <CalendarClock size={10} /> {lead.followUpDate === todayStr ? (isAr ? "متابعة اليوم" : "due today") : (isAr ? "متأخرة" : "overdue")}

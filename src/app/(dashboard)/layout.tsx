@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Users, Calendar, Wallet, Settings, Sparkles,
   FileBarChart, Menu, X, LogOut, Loader2, Languages,
   Package, ChevronLeft, ChevronRight, Clock, FlaskConical, MessageCircle, ShieldCheck, UserCheck,
-  LifeBuoy, Inbox
+  LifeBuoy, Inbox, Megaphone
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { auth } from "@/lib/firebase";
@@ -95,6 +95,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { key: "dashboard", href: "/", icon: LayoutDashboard },
     { key: "briefing", href: "/ai/briefing", icon: Sparkles },
     { key: "leads", href: "/leads", icon: Inbox },
+    { key: "marketing", href: "/marketing", icon: Megaphone },
     { key: "messages", href: "/messages", icon: MessageCircle },
     { key: "patients", href: "/patients", icon: Users },
     { key: "appointments", href: "/appointments", icon: Calendar },
@@ -114,6 +115,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     // Tier based gating
     if (key === 'inventory' && !hasFeature(clinic, 'inventory')) return false;
     if (key === 'attendance' && !hasFeature(clinic, 'attendance')) return false;
+
+    // The marketing studio is a paid add-on. Admins see the entry even without it — the page
+    // shows the upgrade pitch, which is how the add-on gets discovered. Staff only see it once
+    // the add-on is active AND they hold the access.marketing grant.
+    if (key === 'marketing') {
+      if (isAdmin) return true;
+      if (!hasFeature(clinic, 'marketingText')) return false;
+      return canAccessNavItem('marketing', user, isAdmin);
+    }
 
     // Leads are worked by whoever answers the desk. Reception already holds patient access, so
     // that grant carries over — no clinic has to edit permissions to start using the CRM.

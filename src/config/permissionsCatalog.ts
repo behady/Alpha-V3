@@ -35,6 +35,13 @@ export const PERMISSIONS_CATALOG: PermissionCatalogGroup[] = [
       { id: "access.finance", labelEn: "Finance / ledger", labelAr: "المالية / السجل" },
       { id: "access.inventory", labelEn: "Inventory", labelAr: "المخزون" },
       { id: "access.reports", labelEn: "Reports", labelAr: "التقارير" },
+      {
+        id: "access.marketing",
+        labelEn: "Marketing studio",
+        labelAr: "استوديو التسويق",
+        hintEn: "Only matters for clinics with the Marketing add-on. Admins always see it.",
+        hintAr: "تعمل فقط للعيادات المشتركة في إضافة التسويق. المديرون يرونها دائماً.",
+      },
       { id: "access.settings", labelEn: "Settings (full page)", labelAr: "الإعدادات (الصفحة)" },
       {
         id: "access.clinical",
