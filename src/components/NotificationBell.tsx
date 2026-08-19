@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Bell, AlertTriangle, Calendar, Package, Trash2, ChevronRight } from "lucide-react";
+import { Bell, AlertTriangle, Calendar, Package, Trash2, ChevronRight, BellRing, Loader2 } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, query, orderBy, limit, onSnapshot, doc, writeBatch } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
 import { useRouter } from "next/navigation";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { enableFcmPushForUser } from "@/lib/fcmClient";
 
 // --- TELL TYPESCRIPT EXACTLY WHAT A NOTIFICATION LOOKS LIKE ---
 interface AppNotification {
@@ -27,6 +28,35 @@ export default function NotificationBell() {
   const [isOpen, setIsOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Device push registration. Historically only the reception-summon overlay ever asked for
+   * notification permission, so admins and dentists silently had zero registered devices and
+   * every push (review alerts, lead alerts, complaints) went nowhere. Two repairs here:
+   * already-granted browsers re-register their token quietly on load, and everyone else gets
+   * a visible "enable" button inside the bell.
+   */
+  const [pushState, setPushState] = useState<"unknown" | "needed" | "enabling" | "on" | "blocked">("unknown");
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission === "granted") {
+      // Permission exists but the token may never have been saved — self-heal silently.
+      void enableFcmPushForUser().then((r) => setPushState(r.ok ? "on" : "needed"));
+    } else if (Notification.permission === "denied") {
+      setPushState("blocked");
+    } else {
+      setPushState("needed");
+    }
+  }, []);
+
+  const enablePush = async () => {
+    setPushState("enabling");
+    const r = await enableFcmPushForUser();
+    if (r.ok) setPushState("on");
+    else if (r.reason === "denied") setPushState("blocked");
+    else setPushState("needed");
+  };
 
   useEffect(() => {
     const q = query(getClinicCollection("notifications"), orderBy("createdAt", "desc"), limit(20));
@@ -107,6 +137,37 @@ export default function NotificationBell() {
             )}
           </div>
           
+          {pushState === "needed" && (
+            <button
+              onClick={enablePush}
+              className="w-full flex items-center gap-2.5 px-5 py-3 bg-emerald-50 hover:bg-emerald-100 border-b border-emerald-100 text-start transition-colors"
+            >
+              <BellRing size={16} className="text-emerald-600 shrink-0" />
+              <span className="text-xs font-black text-emerald-800">
+                {language === 'ar'
+                  ? 'فعّل الإشعارات على هذا الجهاز — تنبيهات العملاء والتقييمات تصلك هنا'
+                  : 'Enable notifications on this device — lead & review alerts arrive here'}
+              </span>
+            </button>
+          )}
+          {pushState === "enabling" && (
+            <div className="w-full flex items-center gap-2.5 px-5 py-3 bg-emerald-50 border-b border-emerald-100">
+              <Loader2 size={16} className="text-emerald-600 animate-spin shrink-0" />
+              <span className="text-xs font-black text-emerald-800">
+                {language === 'ar' ? 'جارٍ التفعيل… اسمح للإشعارات لو سألك المتصفح' : 'Enabling… allow notifications if the browser asks'}
+              </span>
+            </div>
+          )}
+          {pushState === "blocked" && (
+            <div className="w-full px-5 py-3 bg-amber-50 border-b border-amber-100">
+              <span className="text-xs font-bold text-amber-800">
+                {language === 'ar'
+                  ? 'الإشعارات محظورة لهذا الموقع — فعّلها من إعدادات المتصفح (رمز القفل بجوار العنوان)'
+                  : 'Notifications are blocked for this site — allow them from the browser settings (the lock icon by the address)'}
+              </span>
+            </div>
+          )}
+
           <div className="max-h-[400px] overflow-y-auto p-2">
             {notifications.length === 0 ? (
               <div className="text-center py-10 opacity-50 flex flex-col items-center">
