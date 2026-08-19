@@ -77,7 +77,22 @@ function StatusChip({ status, isAr }: { status: string; isAr: boolean }) {
 
 /* ------------------------------------ the page ------------------------------------ */
 
-type Tab = "create" | "campaigns" | "calendar" | "library" | "playbooks";
+type Tab = "create" | "campaigns" | "reviews" | "calendar" | "library" | "playbooks";
+
+/** One row of clinics/{id}/review_requests — written by the nightly robot and the public page. */
+type ReviewRequest = {
+  id: string;
+  patientId: string;
+  patientName: string;
+  phone: string;
+  appointmentDate?: string;
+  status: "queued" | "rated";
+  rating?: number;
+  feedback?: string;
+  handled?: boolean;
+  createdAt?: unknown;
+  ratedAt?: unknown;
+};
 
 type CampaignDraft = {
   id: string;
@@ -841,6 +856,35 @@ export default function MarketingPage() {
     }
   };
 
+  /* ------- reviews history ------- */
+
+  const [reviews, setReviews] = useState<ReviewRequest[]>([]);
+
+  useEffect(() => {
+    if (!user || !unlocked) return;
+    const q = query(getClinicCollection("review_requests"), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(q, (snap) =>
+      setReviews(snap.docs.map((d) => ({ id: d.id, ...d.data() } as ReviewRequest)))
+    );
+    return () => unsub();
+  }, [user, unlocked]);
+
+  const reviewStats = useMemo(() => {
+    const rated = reviews.filter((r) => r.status === "rated" && typeof r.rating === "number");
+    const happy = rated.filter((r) => (r.rating || 0) >= 4);
+    const unhappy = rated.filter((r) => (r.rating || 0) <= 3);
+    const unhandled = unhappy.filter((r) => !r.handled);
+    const avg = rated.length ? rated.reduce((s, r) => s + (r.rating || 0), 0) / rated.length : 0;
+    return {
+      asked: reviews.length,
+      rated: rated.length,
+      happy: happy.length,
+      unhappy: unhappy.length,
+      unhandled: unhandled.length,
+      avg: Math.round(avg * 10) / 10,
+    };
+  }, [reviews]);
+
   const pendingCampaignDrafts = useMemo(
     () => campaignDrafts.filter((d) => d.status === "pending_review"),
     [campaignDrafts]
@@ -876,6 +920,7 @@ export default function MarketingPage() {
   const tabs: { id: Tab; icon: any; en: string; ar: string }[] = [
     { id: "create", icon: Wand2, en: "Create", ar: "إنشاء" },
     { id: "campaigns", icon: Send, en: "Campaigns", ar: "الحملات" },
+    { id: "reviews", icon: Star, en: "Reviews", ar: "التقييمات" },
     { id: "calendar", icon: CalendarDays, en: "Calendar", ar: "التقويم" },
     { id: "library", icon: FolderOpen, en: "Library", ar: "المكتبة" },
     { id: "playbooks", icon: BookOpen, en: "Playbooks", ar: "خطط جاهزة" },
@@ -1708,6 +1753,132 @@ export default function MarketingPage() {
                   ? "اختر جمهوراً بالأعلى — النظام يفحص سجلاتك الحقيقية ويجهز رسالة لكل شخص، وأنت تراجع وترسل."
                   : "Pick an audience above — the system scans your real records and prepares one message per person; you review and send."}
               </p>
+            )}
+          </div>
+        )}
+
+        {/* ============================== REVIEWS ============================== */}
+        {tab === "reviews" && (
+          <div className="space-y-5">
+            {/* Stats strip */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              {[
+                { label: isAr ? "طلبات مُرسلة" : "Requests", value: reviewStats.asked, cls: "text-slate-800" },
+                { label: isAr ? "ردود" : "Answered", value: reviewStats.rated, cls: "text-slate-800" },
+                { label: isAr ? "متوسط النجوم" : "Avg stars", value: reviewStats.rated ? `${reviewStats.avg} ⭐` : "—", cls: "text-amber-600" },
+                { label: isAr ? "راضون → جوجل" : "Happy → Google", value: reviewStats.happy, cls: "text-emerald-600" },
+                { label: isAr ? "غير راضين" : "Unhappy", value: reviewStats.unhappy, cls: reviewStats.unhandled > 0 ? "text-rose-600" : "text-slate-800" },
+              ].map((s) => (
+                <div key={s.label} className="bg-white rounded-2xl border border-slate-200 px-4 py-3.5">
+                  <p className={`text-xl font-black tabular-nums ${s.cls}`}>{s.value}</p>
+                  <p className="text-[11px] font-black text-slate-400">{s.label}</p>
+                </div>
+              ))}
+            </div>
+
+            {reviewStats.unhandled > 0 && (
+              <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 rounded-2xl px-4 py-3 text-sm font-bold text-rose-700">
+                <AlertTriangle size={16} className="shrink-0" />
+                {isAr
+                  ? `${reviewStats.unhandled} شكوى تحتاج مكالمة — اتصل بالمريض ثم علّمها "تمت المعالجة"`
+                  : `${reviewStats.unhandled} complaint${reviewStats.unhandled === 1 ? "" : "s"} need${reviewStats.unhandled === 1 ? "s" : ""} a call — phone the patient, then mark it handled`}
+              </div>
+            )}
+
+            {/* History list */}
+            {reviews.length === 0 ? (
+              <div className="bg-white/60 border border-dashed border-slate-300 rounded-3xl p-10 text-center">
+                <Star size={28} className="mx-auto text-slate-300 mb-3" />
+                <p className="text-sm font-black text-slate-500">
+                  {isAr
+                    ? "لا توجد طلبات تقييم بعد — فعّل «طلبات التقييم بعد الزيارة» في تبويب الحملات، وستظهر هنا تلقائياً"
+                    : "No review requests yet — switch on post-visit review requests in the Campaigns tab and they'll appear here automatically"}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {reviews.map((r) => {
+                  const isUnhappy = r.status === "rated" && (r.rating || 0) <= 3;
+                  return (
+                    <div
+                      key={r.id}
+                      className={`bg-white rounded-2xl border p-4 ${
+                        isUnhappy && !r.handled ? "border-rose-200 ring-1 ring-rose-100" : "border-slate-200"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p dir="auto" className="text-sm font-black text-slate-800">{r.patientName}</p>
+                            {r.status === "rated" ? (
+                              <span className="flex items-center gap-0.5" dir="ltr">
+                                {[1, 2, 3, 4, 5].map((s) => (
+                                  <Star
+                                    key={s}
+                                    size={13}
+                                    className={s <= (r.rating || 0) ? "text-amber-400 fill-amber-400" : "text-slate-200"}
+                                  />
+                                ))}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
+                                {isAr ? "في انتظار الرد" : "awaiting answer"}
+                              </span>
+                            )}
+                            {r.status === "rated" && (r.rating || 0) >= 4 && (
+                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
+                                {isAr ? "تحوّل لتقييم جوجل" : "sent to Google"}
+                              </span>
+                            )}
+                            {isUnhappy && r.handled && (
+                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 flex items-center gap-1">
+                                <Check size={10} /> {isAr ? "تمت المعالجة" : "handled"}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] font-bold text-slate-400 mt-0.5">
+                            {isAr ? "زيارة" : "Visit"} {r.appointmentDate || "—"}
+                            <span dir="ltr" className="ms-2">{r.phone}</span>
+                          </p>
+                          {r.feedback && (
+                            <p dir="auto" className={`mt-2 text-xs leading-relaxed rounded-xl px-3 py-2.5 ${
+                              isUnhappy ? "bg-rose-50 text-rose-800 font-bold" : "bg-slate-50 text-slate-600"
+                            }`}>
+                              &ldquo;{r.feedback}&rdquo;
+                            </p>
+                          )}
+                        </div>
+
+                        {isUnhappy && (
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <a
+                              href={`tel:${r.phone}`}
+                              className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-700 text-white text-[11px] font-black transition-colors"
+                            >
+                              {isAr ? "اتصال" : "Call"}
+                            </a>
+                            {!r.handled && (
+                              <button
+                                onClick={async () => {
+                                  await updateDoc(getClinicDoc("review_requests", r.id), {
+                                    handled: true,
+                                    handledBy: user?.uid || "",
+                                    handledAt: serverTimestamp(),
+                                  });
+                                  showToast(isAr ? "تم — أحسنت 👏" : "Marked handled 👏", "success");
+                                }}
+                                className="px-3 py-2 rounded-xl bg-white border border-slate-200 hover:border-emerald-300 text-slate-600 text-[11px] font-black transition-colors"
+                              >
+                                {isAr ? "تمت المعالجة" : "Mark handled"}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
         )}
