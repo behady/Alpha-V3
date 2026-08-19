@@ -7,7 +7,7 @@ import {
   Activity, User, CalendarDays, Stethoscope, Trash2, 
   ChevronDown, MessageCircle, AlertCircle, Wallet, LayoutDashboard, Users, History, CreditCard,
   PhoneForwarded, CheckCircle2, UserX, Globe, MessageCircleOff, MessageSquare, MessageSquareOff, ScrollText,
-  Star, Printer, Pill, Check, Calendar, Camera, UploadCloud, FilePlus, Eye, Download, StickyNote
+  Star, Printer, Pill, Check, Calendar, Camera, UploadCloud, FilePlus, Eye, Download, StickyNote, ClipboardList
 } from "lucide-react";
 import { auth, db, storage } from "@/lib/firebase";
 import { doc, onSnapshot, updateDoc, deleteDoc, collection, query, where, limit, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
@@ -27,6 +27,7 @@ import PatientTimeTrackerWidget from "@/components/patient/PatientTimeTrackerWid
 import PatientTimelineTab from "@/components/patients/PatientTimelineTab";
 import PatientNotesTab from "@/components/patients/PatientNotesTab";
 import PatientMediaGallery from "@/components/patients/PatientMediaGallery";
+import PatientTreatmentPlanTab from "@/components/patients/PatientTreatmentPlanTab";
 import { buildPrescriptionSrcDoc, prescriptionSrcDocToPdfBlob, type RxItem } from "@/lib/prescriptionPdfHtml";
 import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
 import {
@@ -51,6 +52,8 @@ function formatWhatsAppLogType(type: string) {
       return "Treatment";
     case "prescription_pdf":
       return "Prescription (PDF)";
+    case "treatment_plan_pdf":
+      return "Treatment Plan (PDF)";
     case "receipt":
       return "Receipt Summary";
     case "lab_order":
@@ -201,7 +204,7 @@ export default function PatientProfile() {
   const canViewOrtho = isAdmin || user?.role === "Admin" || user?.role === "Dentist" || user?.permissions?.includes("access.ortho");
 
   // Start empty so we don't flash the wrong tab during auth load
-  const [activeTab, setActiveTab] = useState<"overview" | "clinical" | "finance" | "timeline" | "xrays" | "prescriptions" | "notes" | "">("");
+  const [activeTab, setActiveTab] = useState<"overview" | "clinical" | "plan" | "finance" | "timeline" | "xrays" | "prescriptions" | "notes" | "">("");
   const [hasSetInitialTab, setHasSetInitialTab] = useState(false);
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -236,7 +239,7 @@ export default function PatientProfile() {
           if (
               tabParam === "finance" || tabParam === "clinical" || tabParam === "overview" ||
               tabParam === "timeline" || tabParam === "xrays" || tabParam === "prescriptions" ||
-              tabParam === "notes"
+              tabParam === "notes" || tabParam === "plan"
           ) {
               setActiveTab(tabParam);
           } else {
@@ -865,8 +868,9 @@ export default function PatientProfile() {
   ];
   const avatarGradient = avatarPalette[(patient.name || "").length % avatarPalette.length];
 
-  const tabs: Array<{ id: "clinical" | "overview" | "finance" | "timeline" | "xrays" | "prescriptions" | "notes"; label: string; icon: any; show: boolean }> = [
+  const tabs: Array<{ id: "clinical" | "overview" | "plan" | "finance" | "timeline" | "xrays" | "prescriptions" | "notes"; label: string; icon: any; show: boolean }> = [
     { id: "clinical", label: language === "ar" ? "السجل السريري" : "Clinical", icon: Activity, show: !!canViewClinical },
+    { id: "plan", label: language === "ar" ? "خطة العلاج" : "Treatment Plan", icon: ClipboardList, show: !!canViewClinical },
     { id: "finance", label: language === "ar" ? "المالية" : "Finance", icon: Wallet, show: true },
     { id: "timeline", label: language === "ar" ? "سجل الزيارات" : "Timeline", icon: History, show: true },
     { id: "overview", label: language === "ar" ? "نظرة عامة" : "Overview", icon: LayoutDashboard, show: true },
@@ -1648,6 +1652,13 @@ export default function PatientProfile() {
           {activeTab === "clinical" && canViewClinical && (
             <div className="animate-in fade-in duration-300 mt-6">
               <PatientClinical patient={patient} />
+            </div>
+          )}
+
+          {/* --- TREATMENT PLAN TAB --- */}
+          {activeTab === "plan" && canViewClinical && (
+            <div className="animate-in fade-in duration-300 mt-6">
+              <PatientTreatmentPlanTab patientId={id} patient={patient} clinicInfo={clinicRxInfo} />
             </div>
           )}
 
