@@ -7,7 +7,11 @@ import {
   ChevronLeft, ChevronRight, Trash2, Clock, X, FileText, Clapperboard, Target,
   Sparkles, CheckCircle2, AlertTriangle, CalendarPlus, Film, Star, SlidersHorizontal,
   Send, UserX, ClipboardList, Cake, Armchair, PartyPopper, ThumbsDown,
+  TrendingUp, QrCode, Printer, Link2, Search,
 } from "lucide-react";
+import QRCode from "qrcode";
+import LeadFunnelReport from "@/components/reports/LeadFunnelReport";
+import { DEFAULT_LEAD_SOURCES } from "@/lib/leads";
 import {
   onSnapshot, orderBy, query, addDoc, updateDoc, deleteDoc, serverTimestamp,
   getDocs, setDoc, where,
@@ -77,7 +81,7 @@ function StatusChip({ status, isAr }: { status: string; isAr: boolean }) {
 
 /* ------------------------------------ the page ------------------------------------ */
 
-type Tab = "create" | "campaigns" | "reviews" | "calendar" | "library" | "playbooks";
+type Tab = "create" | "campaigns" | "reviews" | "results" | "calendar" | "library" | "playbooks";
 
 /** One row of clinics/{id}/review_requests — written by the nightly robot and the public page. */
 type ReviewRequest = {
@@ -885,6 +889,216 @@ export default function MarketingPage() {
     };
   }, [reviews]);
 
+  /* ------- results (spend, ROI, funnel, referrals) ------- */
+
+  const normalizeDate = (val: unknown): string => {
+    if (!val) return "1970-01-01";
+    if (typeof val === "object" && val !== null && "toDate" in val) {
+      try {
+        return (val as { toDate: () => Date }).toDate().toISOString().split("T")[0];
+      } catch {
+        return "1970-01-01";
+      }
+    }
+    const raw = String(val).trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+    const d = new Date(raw);
+    return isNaN(d.getTime()) ? "1970-01-01" : d.toISOString().split("T")[0];
+  };
+
+  const [resRaw, setResRaw] = useState<{
+    ledger: Record<string, unknown>[];
+    leads: Record<string, unknown>[];
+    patients: { id: string; name: string; phone: string }[];
+  } | null>(null);
+  const [resLoading, setResLoading] = useState(false);
+  const [resMonth, setResMonth] = useState(() => {
+    const d = new Date();
+    return { y: d.getFullYear(), m: d.getMonth() };
+  });
+
+  useEffect(() => {
+    if (tab !== "results" || resRaw || resLoading || !user || !unlocked) return;
+    setResLoading(true);
+    Promise.all([
+      getDocs(getClinicCollection("ledger")),
+      getDocs(getClinicCollection("leads")),
+      getDocs(getClinicCollection("patients")),
+    ])
+      .then(([ledgerSnap, leadsSnap, patientsSnap]) => {
+        setResRaw({
+          ledger: ledgerSnap.docs
+            .map((d) => ({ id: d.id, ...d.data() } as Record<string, unknown>))
+            .filter((r) => !["deleted", "cancelled"].includes(String(r.status || "").toLowerCase())),
+          leads: leadsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Record<string, unknown>)),
+          patients: patientsSnap.docs.map((d) => ({
+            id: d.id,
+            name: String((d.data() as any)?.name || ""),
+            phone: String((d.data() as any)?.phone || (d.data() as any)?.phoneNumber || ""),
+          })),
+        });
+      })
+      .catch(() => showToast(isAr ? "تعذر تحميل البيانات" : "Could not load the data", "error"))
+      .finally(() => setResLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, resRaw, resLoading, user, unlocked]);
+
+  const resRange = useMemo(() => {
+    const start = `${resMonth.y}-${pad(resMonth.m + 1)}-01`;
+    const end = toYmd(new Date(resMonth.y, resMonth.m + 1, 0));
+    return { start, end };
+  }, [resMonth]);
+
+  type DatedRow = Record<string, unknown> & { normDate: string };
+
+  const monthLeads = useMemo<DatedRow[]>(() => {
+    if (!resRaw) return [];
+    return resRaw.leads
+      .map((l): DatedRow => ({ ...l, normDate: normalizeDate(l.createdAt) }))
+      .filter((l) => l.normDate >= resRange.start && l.normDate <= resRange.end);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resRaw, resRange]);
+
+  const monthPayments = useMemo<DatedRow[]>(() => {
+    if (!resRaw) return [];
+    return resRaw.ledger
+      .filter((r) => r.type === "payment" || r.type === "expense" || r.type === "income")
+      .map((r): DatedRow => ({ ...r, normDate: normalizeDate(r.date || r.createdAt) }))
+      .filter((r) => r.normDate >= resRange.start && r.normDate <= resRange.end);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resRaw, resRange]);
+
+  // Ad spend for the month — typed in by the clinic, the one number no system can know for them.
+  const spendDocId = `spend-${resMonth.y}-${pad(resMonth.m + 1)}`;
+  const [spendMap, setSpendMap] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (!user || !unlocked || tab !== "results") return;
+    const unsub = onSnapshot(getClinicDoc("marketing_settings", spendDocId), (snap) => {
+      const by = snap.exists() ? (snap.data()?.byChannel as Record<string, number>) : null;
+      setSpendMap(by && typeof by === "object" ? by : {});
+    });
+    return () => unsub();
+  }, [user, unlocked, tab, spendDocId]);
+
+  const saveSpend = async (channel: string, value: number) => {
+    try {
+      await setDoc(
+        getClinicDoc("marketing_settings", spendDocId),
+        { byChannel: { ...spendMap, [channel]: value }, updatedAt: serverTimestamp(), updatedBy: user?.uid || "" },
+        { merge: true }
+      );
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e), "error");
+    }
+  };
+
+  /** Channel economics: spend beside what the channel's won leads actually paid this month. */
+  const roiRows = useMemo(() => {
+    const paidByPatient: Record<string, number> = {};
+    monthPayments.forEach((p) => {
+      if (p.type === "expense") return;
+      const pid = String(p.patientId || "");
+      if (!pid) return;
+      paidByPatient[pid] = (paidByPatient[pid] || 0) + (Number(p.paid) || Number(p.amount) || 0);
+    });
+
+    const channels = new Set<string>([
+      ...DEFAULT_LEAD_SOURCES,
+      ...Object.keys(spendMap),
+      ...monthLeads.map((l) => String(l.source || "").trim()).filter(Boolean),
+    ]);
+
+    const rows = Array.from(channels).map((channel) => {
+      const rows_ = monthLeads.filter((l) => String(l.source || "").trim() === channel);
+      const won = rows_.filter((l) => l.stage === "won");
+      const newPatientIds = new Set(
+        won.filter((l) => !l.isReturningPatient && l.patientId).map((l) => String(l.patientId))
+      );
+      let revenue = 0;
+      newPatientIds.forEach((pid) => (revenue += paidByPatient[pid] || 0));
+      const spend = Number(spendMap[channel]) || 0;
+      return {
+        channel,
+        spend,
+        leads: rows_.length,
+        won: won.length,
+        revenue,
+        costPerPatient: won.length > 0 && spend > 0 ? Math.round(spend / won.length) : null,
+        roi: spend > 0 ? Math.round((revenue / spend) * 10) / 10 : null,
+      };
+    });
+    return rows
+      .filter((r) => r.spend > 0 || r.leads > 0)
+      .sort((a, b) => b.revenue - a.revenue || b.leads - a.leads);
+  }, [monthLeads, monthPayments, spendMap]);
+
+  /* ------- referral cards ------- */
+
+  const [refSearch, setRefSearch] = useState("");
+  const [refSelected, setRefSelected] = useState<{ id: string; name: string } | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState("");
+
+  const referralLink = refSelected
+    ? `${typeof window !== "undefined" ? window.location.origin : ""}/refer/${clinicId}/${refSelected.id}`
+    : "";
+
+  useEffect(() => {
+    if (!referralLink) {
+      setQrDataUrl("");
+      return;
+    }
+    QRCode.toDataURL(referralLink, { width: 480, margin: 1, color: { dark: "#0f172a" } })
+      .then(setQrDataUrl)
+      .catch(() => setQrDataUrl(""));
+  }, [referralLink]);
+
+  const refMatches = useMemo(() => {
+    const q = refSearch.trim().toLowerCase();
+    if (!resRaw || q.length < 2) return [];
+    return resRaw.patients
+      .filter((p) => p.name.toLowerCase().includes(q) || p.phone.includes(q))
+      .slice(0, 6);
+  }, [refSearch, resRaw]);
+
+  const topReferrers = useMemo(() => {
+    if (!resRaw) return [];
+    const byRef = new Map<string, { name: string; total: number; won: number }>();
+    resRaw.leads.forEach((l) => {
+      const rid = String(l.referredByPatientId || "");
+      if (!rid) return;
+      const row = byRef.get(rid) || { name: String(l.referredByName || "Unknown"), total: 0, won: 0 };
+      row.total++;
+      if (l.stage === "won") row.won++;
+      byRef.set(rid, row);
+    });
+    return Array.from(byRef.values()).sort((a, b) => b.won - a.won || b.total - a.total).slice(0, 8);
+  }, [resRaw]);
+
+  const printReferralCard = () => {
+    if (!refSelected || !qrDataUrl) return;
+    const clinicName = clinic?.name || "";
+    const w = window.open("", "_blank", "width=480,height=640");
+    if (!w) return;
+    w.document.write(`<!doctype html><html dir="rtl"><head><title>Referral card</title><style>
+      body{font-family:'Segoe UI',Tahoma,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#fff}
+      .card{width:340px;border:2px solid #0f172a;border-radius:20px;padding:28px;text-align:center}
+      .clinic{font-size:15px;font-weight:800;color:#059669;letter-spacing:.5px;margin-bottom:6px}
+      h1{font-size:19px;color:#0f172a;margin:0 0 4px}
+      .sub{font-size:12px;color:#64748b;font-weight:700;margin-bottom:16px}
+      img{width:220px;height:220px}
+      .from{font-size:12px;color:#334155;font-weight:800;margin-top:12px}
+      .link{font-size:9px;color:#94a3b8;margin-top:8px;word-break:break-all;direction:ltr}
+    </style></head><body><div class="card">
+      <div class="clinic">${clinicName}</div>
+      <h1>امسح الكود واحجز كشفك 🦷</h1>
+      <div class="sub">Scan to book your visit</div>
+      <img src="${qrDataUrl}" alt="QR"/>
+      <div class="from">ترشيح من: ${refSelected.name}</div>
+      <div class="link">${referralLink}</div>
+    </div><script>window.onload=function(){window.print()}</script></body></html>`);
+    w.document.close();
+  };
+
   const pendingCampaignDrafts = useMemo(
     () => campaignDrafts.filter((d) => d.status === "pending_review"),
     [campaignDrafts]
@@ -921,6 +1135,7 @@ export default function MarketingPage() {
     { id: "create", icon: Wand2, en: "Create", ar: "إنشاء" },
     { id: "campaigns", icon: Send, en: "Campaigns", ar: "الحملات" },
     { id: "reviews", icon: Star, en: "Reviews", ar: "التقييمات" },
+    { id: "results", icon: TrendingUp, en: "Results", ar: "النتائج" },
     { id: "calendar", icon: CalendarDays, en: "Calendar", ar: "التقويم" },
     { id: "library", icon: FolderOpen, en: "Library", ar: "المكتبة" },
     { id: "playbooks", icon: BookOpen, en: "Playbooks", ar: "خطط جاهزة" },
@@ -1879,6 +2094,232 @@ export default function MarketingPage() {
                   );
                 })}
               </div>
+            )}
+          </div>
+        )}
+
+        {/* ============================== RESULTS ============================== */}
+        {tab === "results" && (
+          <div className="space-y-5">
+            {/* Month picker */}
+            <div className="flex items-center justify-between bg-white rounded-2xl border border-slate-200 px-4 py-3">
+              <button
+                onClick={() => setResMonth((p) => (p.m === 0 ? { y: p.y - 1, m: 11 } : { y: p.y, m: p.m - 1 }))}
+                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+              >
+                {isAr ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+              </button>
+              <h2 className="text-sm font-black text-slate-900">
+                {new Date(resMonth.y, resMonth.m, 1).toLocaleDateString(isAr ? "ar-EG" : "en-US", { month: "long", year: "numeric" })}
+              </h2>
+              <button
+                onClick={() => setResMonth((p) => (p.m === 11 ? { y: p.y + 1, m: 0 } : { y: p.y, m: p.m + 1 }))}
+                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+              >
+                {isAr ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+              </button>
+            </div>
+
+            {resLoading && (
+              <div className="bg-white rounded-3xl border border-slate-200 p-10 text-center">
+                <Loader2 size={24} className="mx-auto text-emerald-500 animate-spin" />
+              </div>
+            )}
+
+            {resRaw && (
+              <>
+                {/* Spend & ROI */}
+                <div className="bg-white rounded-3xl border border-slate-200 p-5">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-8 h-8 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
+                      <TrendingUp size={15} />
+                    </div>
+                    <h3 className="text-sm font-black text-slate-900">
+                      {isAr ? "الإنفاق والعائد لكل قناة" : "Spend & return per channel"}
+                    </h3>
+                  </div>
+                  <p className="text-[11px] font-bold text-slate-400 mb-4">
+                    {isAr
+                      ? "اكتب ما أنفقته على كل قناة هذا الشهر — النظام يعرف الباقي من بياناتك الحقيقية: العملاء، من وصل للكرسي، وما دفعوه."
+                      : "Type what you spent on each channel this month — the system already knows the rest from your real data: leads, who reached the chair, and what they paid."}
+                  </p>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[620px] text-sm">
+                      <thead>
+                        <tr className="text-[11px] font-black text-slate-400 border-b border-slate-100">
+                          <th className="text-start py-2 pe-2">{isAr ? "القناة" : "Channel"}</th>
+                          <th className="text-center py-2 px-2">{isAr ? "الإنفاق" : "Spend"}</th>
+                          <th className="text-center py-2 px-2">{isAr ? "عملاء" : "Leads"}</th>
+                          <th className="text-center py-2 px-2">{isAr ? "وصلوا للكرسي" : "In the chair"}</th>
+                          <th className="text-center py-2 px-2">{isAr ? "الدخل" : "Revenue"}</th>
+                          <th className="text-center py-2 px-2">{isAr ? "تكلفة المريض" : "Cost / patient"}</th>
+                          <th className="text-center py-2 ps-2">{isAr ? "العائد" : "Return"}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="tabular-nums">
+                        {roiRows.map((r) => (
+                          <tr key={r.channel} className="border-b border-slate-50">
+                            <td className="py-2.5 pe-2 font-black text-slate-800">{r.channel}</td>
+                            <td className="py-2.5 px-2 text-center">
+                              <input
+                                type="number"
+                                min={0}
+                                defaultValue={r.spend || ""}
+                                key={`${spendDocId}-${r.channel}-${r.spend}`}
+                                onBlur={(e) => {
+                                  const v = Math.max(0, Number(e.target.value) || 0);
+                                  if (v !== r.spend) void saveSpend(r.channel, v);
+                                }}
+                                placeholder="0"
+                                disabled={!isAdmin}
+                                className="w-24 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-center text-xs font-bold text-slate-700 outline-none focus:border-emerald-400 disabled:opacity-50"
+                              />
+                            </td>
+                            <td className="py-2.5 px-2 text-center font-bold text-slate-600">{r.leads}</td>
+                            <td className="py-2.5 px-2 text-center font-bold text-emerald-600">{r.won}</td>
+                            <td className="py-2.5 px-2 text-center font-black text-slate-800">{r.revenue.toLocaleString()}</td>
+                            <td className="py-2.5 px-2 text-center font-bold text-slate-500">
+                              {r.costPerPatient !== null ? r.costPerPatient.toLocaleString() : "—"}
+                            </td>
+                            <td className="py-2.5 ps-2 text-center">
+                              {r.roi !== null ? (
+                                <span className={`px-2 py-1 rounded-lg text-xs font-black ${
+                                  r.roi >= 1 ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-600"
+                                }`}>
+                                  ×{r.roi}
+                                </span>
+                              ) : (
+                                <span className="text-slate-300 font-bold">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                        {roiRows.length === 0 && (
+                          <tr>
+                            <td colSpan={7} className="py-6 text-center text-xs font-bold text-slate-400">
+                              {isAr ? "لا عملاء محتملين ولا إنفاق مسجل في هذا الشهر" : "No leads and no spend recorded for this month"}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-[11px] font-bold text-slate-400 mt-3">
+                    {isAr
+                      ? "الدخل = ما دفعه هذا الشهر المرضى الجدد الذين جاءوا من عملاء هذه القناة. مرضى قدامى عادوا عبر إعلان لا يُحسبون — القناة تأخذ فضل من جلبته فقط."
+                      : "Revenue = what NEW patients converted from this channel's leads paid this month. Returning patients aren't counted — a channel gets credit only for people it actually brought."}
+                  </p>
+                </div>
+
+                {/* Referral cards */}
+                <div className="grid lg:grid-cols-2 gap-5 items-start">
+                  <div className="bg-white rounded-3xl border border-slate-200 p-5">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="w-8 h-8 bg-violet-50 text-violet-600 rounded-xl flex items-center justify-center">
+                        <QrCode size={15} />
+                      </div>
+                      <h3 className="text-sm font-black text-slate-900">{isAr ? "كروت الترشيح" : "Referral cards"}</h3>
+                    </div>
+                    <p className="text-[11px] font-bold text-slate-400 mb-3">
+                      {isAr
+                        ? "اختر مريضاً سعيداً — يحصل على كارت QR ورابط شخصي. صديقه يمسح، يسيب رقمه، ويظهر في صندوق العملاء باسم من رشّحه."
+                        : "Pick a happy patient — they get a personal QR card and link. Their friend scans, leaves a number, and lands in your Leads inbox tagged with who referred them."}
+                    </p>
+
+                    <div className="relative mb-3">
+                      <Search size={14} className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                      <input
+                        value={refSearch}
+                        onChange={(e) => { setRefSearch(e.target.value); setRefSelected(null); }}
+                        dir="auto"
+                        placeholder={isAr ? "ابحث باسم المريض أو رقمه…" : "Search patient name or phone…"}
+                        className="w-full ps-9 pe-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-emerald-400"
+                      />
+                    </div>
+                    {!refSelected && refMatches.length > 0 && (
+                      <div className="border border-slate-100 rounded-xl overflow-hidden mb-3">
+                        {refMatches.map((p) => (
+                          <button
+                            key={p.id}
+                            onClick={() => { setRefSelected({ id: p.id, name: p.name }); setRefSearch(p.name); }}
+                            className="w-full text-start px-3.5 py-2.5 text-xs font-bold text-slate-700 hover:bg-emerald-50 border-b border-slate-50 last:border-0"
+                          >
+                            {p.name} <span className="text-slate-400" dir="ltr">{p.phone}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {refSelected && qrDataUrl && (
+                      <div className="text-center border border-slate-100 rounded-2xl p-4">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={qrDataUrl} alt="QR" className="w-40 h-40 mx-auto mb-2" />
+                        <p className="text-xs font-black text-slate-800 mb-3">
+                          {isAr ? `كارت ترشيح — ${refSelected.name}` : `Referral card — ${refSelected.name}`}
+                        </p>
+                        <div className="flex items-center justify-center gap-2 flex-wrap">
+                          <button
+                            onClick={() => copyText("reflink", referralLink)}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-black transition-colors"
+                          >
+                            {copiedKey === "reflink" ? <Check size={13} className="text-emerald-600" /> : <Link2 size={13} />}
+                            {isAr ? "نسخ الرابط (للواتساب)" : "Copy link (for WhatsApp)"}
+                          </button>
+                          <button
+                            onClick={printReferralCard}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-700 text-white text-xs font-black transition-colors"
+                          >
+                            <Printer size={13} /> {isAr ? "طباعة الكارت" : "Print card"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Top referrers */}
+                  <div className="bg-white rounded-3xl border border-slate-200 p-5">
+                    <h3 className="text-sm font-black text-slate-900 mb-3">
+                      {isAr ? "أبطال الترشيح 🏆" : "Referral champions 🏆"}
+                    </h3>
+                    {topReferrers.length === 0 ? (
+                      <p className="text-xs font-bold text-slate-400">
+                        {isAr
+                          ? "لا ترشيحات مسجلة بعد — أول كارت QR يبدأ العد."
+                          : "No tracked referrals yet — the first QR card starts the count."}
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {topReferrers.map((r, i) => (
+                          <div key={r.name + i} className="flex items-center justify-between gap-3 border border-slate-100 rounded-xl px-3.5 py-2.5">
+                            <p dir="auto" className="text-xs font-black text-slate-800 truncate">
+                              {i === 0 ? "🥇 " : i === 1 ? "🥈 " : i === 2 ? "🥉 " : ""}{r.name}
+                            </p>
+                            <p className="text-[11px] font-bold text-slate-500 shrink-0">
+                              {isAr
+                                ? `${r.total} ترشيح · ${r.won} وصلوا`
+                                : `${r.total} referred · ${r.won} in the chair`}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-[11px] font-bold text-slate-400 mt-3">
+                      {isAr
+                        ? "هؤلاء سفراء عيادتك — كافئهم (خصم على جلسة، تنظيف مجاني) وسيجلبون المزيد."
+                        : "These are your clinic's ambassadors — reward them (a session discount, a free cleaning) and they'll bring more."}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Full funnel with per-campaign drill-down */}
+                <LeadFunnelReport
+                  leads={monthLeads}
+                  payments={monthPayments}
+                  rangeLabel={`${resRange.start} → ${resRange.end}`}
+                  isAr={isAr}
+                />
+              </>
             )}
           </div>
         )}
