@@ -62,6 +62,37 @@ async function uploadImage(path: string, buffer: Buffer, contentType: string): P
   return url;
 }
 
+/**
+ * Streams a case photo to the browser. Exists because the composer must draw photos onto an
+ * exportable canvas, and the bucket's signed URLs don't carry CORS headers (bucket config is
+ * locked behind the project's billing state). Same-origin + staff-authed beats loosening the
+ * bucket anyway. The path check pins reads inside the clinic's own marketing-cases folder.
+ */
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const clinicId = url.searchParams.get("c")?.trim() || "";
+  const path = url.searchParams.get("path")?.trim() || "";
+  if (!clinicId || !path) return bad("c and path are required", 400);
+
+  const authz = await requireStaffUser(request, clinicId);
+  if (!authz.ok) return authz.response;
+
+  if (!path.startsWith(`clinics/${clinicId}/marketing-cases/`) || path.includes("..")) {
+    return bad("Invalid path", 400);
+  }
+
+  try {
+    const [buffer] = await adminBucket().file(path).download();
+    const type = path.endsWith(".png") ? "image/png" : path.endsWith(".webp") ? "image/webp" : "image/jpeg";
+    return new NextResponse(new Uint8Array(buffer), {
+      headers: { "Content-Type": type, "Cache-Control": "private, max-age=3600" },
+    });
+  } catch (e) {
+    console.error("[MarketingCases] photo read failed", e);
+    return bad("Photo not found", 404);
+  }
+}
+
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as ConsentBody & CaseBody;
   const clinicId = typeof body.clinicId === "string" ? body.clinicId.trim() : "";

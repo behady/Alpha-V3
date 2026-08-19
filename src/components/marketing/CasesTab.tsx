@@ -5,8 +5,9 @@ import { createPortal } from "react-dom";
 import SignatureCanvas from "react-signature-canvas";
 import {
   Search, Loader2, X, Check, ShieldCheck, ShieldOff, Camera, Trash2, Eraser,
-  ImagePlus, Images,
+  ImagePlus, Images, Palette,
 } from "lucide-react";
+import CaseComposer from "@/components/marketing/CaseComposer";
 import { onSnapshot, orderBy, query, getDocs } from "firebase/firestore";
 import { auth } from "@/lib/firebase";
 import { getClinicCollection } from "@/lib/db-utils";
@@ -39,6 +40,8 @@ export type MarketingCase = {
   description?: string;
   beforeUrl: string;
   afterUrl: string;
+  beforePath?: string;
+  afterPath?: string;
   faceAllowed?: boolean;
   createdAt?: unknown;
 };
@@ -73,6 +76,9 @@ export default function CasesTab({
   isAdmin,
   services,
   userName,
+  clinicName,
+  logoUrl,
+  designUnlocked,
   showToast,
 }: {
   clinicId: string;
@@ -80,8 +86,12 @@ export default function CasesTab({
   isAdmin: boolean;
   services: string[];
   userName?: string;
+  clinicName: string;
+  logoUrl: string;
+  designUnlocked: boolean;
   showToast: (msg: string, type?: "success" | "error" | "info") => void;
 }) {
+  const [composing, setComposing] = useState<MarketingCase | null>(null);
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
   useEffect(() => setPortalTarget(document.body), []);
 
@@ -434,14 +444,25 @@ export default function CasesTab({
                 <div className="p-3">
                   <div className="flex items-center justify-between gap-2">
                     <p dir="auto" className="text-xs font-black text-slate-800 truncate">{c.procedure}</p>
-                    {isAdmin && (
-                      <button
-                        onClick={() => void deleteCase(c)}
-                        className="p-1.5 rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-colors shrink-0"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    )}
+                    <div className="flex items-center gap-1 shrink-0">
+                      {designUnlocked && (
+                        <button
+                          onClick={() => setComposing(c)}
+                          title={isAr ? "تصميم بوست قبل/بعد" : "Design a before/after post"}
+                          className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-violet-50 hover:bg-violet-100 text-violet-700 text-[10px] font-black transition-colors"
+                        >
+                          <Palette size={12} /> {isAr ? "صمّمه" : "Design"}
+                        </button>
+                      )}
+                      {isAdmin && (
+                        <button
+                          onClick={() => void deleteCase(c)}
+                          className="p-1.5 rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 transition-colors"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <p dir="auto" className="text-[11px] font-bold text-slate-400 truncate">
                     {c.patientName}
@@ -456,6 +477,18 @@ export default function CasesTab({
           </div>
         )}
       </div>
+
+      {/* Before/after composer */}
+      {composing && (
+        <CaseComposer
+          caseItem={composing}
+          clinicId={clinicId}
+          clinicName={clinicName}
+          logoUrl={logoUrl}
+          isAr={isAr}
+          onClose={() => setComposing(null)}
+        />
+      )}
 
       {/* Consent signing modal */}
       {consentOpen && selected && portalTarget &&

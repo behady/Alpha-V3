@@ -2067,6 +2067,9 @@ export default function MarketingPage() {
             isAdmin={isAdmin}
             services={services}
             userName={user?.name}
+            clinicName={profileLite.clinicName || clinic?.name || ""}
+            logoUrl={profileLite.logoUrl}
+            designUnlocked={designUnlocked}
             showToast={showToast}
           />
         )}
