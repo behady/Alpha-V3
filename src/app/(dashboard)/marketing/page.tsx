@@ -7,12 +7,13 @@ import {
   ChevronLeft, ChevronRight, Trash2, Clock, X, FileText, Clapperboard, Target,
   Sparkles, CheckCircle2, AlertTriangle, CalendarPlus, Film, Star, SlidersHorizontal,
   Send, UserX, ClipboardList, Cake, Armchair, PartyPopper, ThumbsDown,
-  TrendingUp, QrCode, Printer, Link2, Search, Palette,
+  TrendingUp, QrCode, Printer, Link2, Search, Palette, Camera,
 } from "lucide-react";
 import QRCode from "qrcode";
 import LeadFunnelReport from "@/components/reports/LeadFunnelReport";
 import { DEFAULT_LEAD_SOURCES } from "@/lib/leads";
 import DesignStudio, { type DesignInput } from "@/components/marketing/DesignStudio";
+import CasesTab from "@/components/marketing/CasesTab";
 import {
   onSnapshot, orderBy, query, addDoc, updateDoc, deleteDoc, serverTimestamp,
   getDocs, setDoc, where,
@@ -82,7 +83,7 @@ function StatusChip({ status, isAr }: { status: string; isAr: boolean }) {
 
 /* ------------------------------------ the page ------------------------------------ */
 
-type Tab = "create" | "campaigns" | "reviews" | "results" | "calendar" | "library" | "playbooks";
+type Tab = "create" | "campaigns" | "cases" | "reviews" | "results" | "calendar" | "library" | "playbooks";
 
 /** One row of clinics/{id}/review_requests — written by the nightly robot and the public page. */
 type ReviewRequest = {
@@ -1192,6 +1193,7 @@ export default function MarketingPage() {
   const tabs: { id: Tab; icon: any; en: string; ar: string }[] = [
     { id: "create", icon: Wand2, en: "Create", ar: "إنشاء" },
     { id: "campaigns", icon: Send, en: "Campaigns", ar: "الحملات" },
+    { id: "cases", icon: Camera, en: "Cases", ar: "الحالات" },
     { id: "reviews", icon: Star, en: "Reviews", ar: "التقييمات" },
     { id: "results", icon: TrendingUp, en: "Results", ar: "النتائج" },
     { id: "calendar", icon: CalendarDays, en: "Calendar", ar: "التقويم" },
@@ -2055,6 +2057,18 @@ export default function MarketingPage() {
               </p>
             )}
           </div>
+        )}
+
+        {/* ============================== CASES ============================== */}
+        {tab === "cases" && (
+          <CasesTab
+            clinicId={clinicId || ""}
+            isAr={isAr}
+            isAdmin={isAdmin}
+            services={services}
+            userName={user?.name}
+            showToast={showToast}
+          />
         )}
 
         {/* ============================== REVIEWS ============================== */}
