@@ -12,6 +12,8 @@ data class ChatMessage(
     val at: Long,
     /** Set when this reply carries a generated report — the path of the PDF on this phone. */
     val pdfPath: String? = null,
+    /** Set when this reply identified an appointment — the chat renders an open button for it. */
+    val appointmentId: String? = null,
 )
 
 /**
@@ -41,6 +43,7 @@ class ChatStore(private val context: Context, clinicId: String, uid: String) {
                 // The file may have been cleaned from cache since; the screen
                 // checks it still exists before offering to open it.
                 pdfPath = row.optString("pdf").takeIf { it.isNotBlank() },
+                appointmentId = row.optString("appt").takeIf { it.isNotBlank() },
             )
         }
     }.getOrDefault(emptyList())
@@ -55,6 +58,7 @@ class ChatStore(private val context: Context, clinicId: String, uid: String) {
                         .put("text", msg.text)
                         .put("at", msg.at)
                         .put("pdf", msg.pdfPath ?: "")
+                        .put("appt", msg.appointmentId ?: "")
                 )
             }
             file.writeText(array.toString())

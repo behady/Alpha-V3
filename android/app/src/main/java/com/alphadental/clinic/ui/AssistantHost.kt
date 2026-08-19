@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,9 +28,13 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
@@ -86,6 +91,10 @@ fun AssistantScreen(
     /** What the conversation is acting on, e.g. "Dina Samir · 9:00 AM"; null when nothing is. */
     actingOn: String?,
     onClearActingOn: () -> Unit,
+    /** "Admin", "Dentist", "Receptionist"… — picks which example questions to offer. */
+    role: String,
+    /** Opens the appointment a reply identified, in the normal appointment sheet. */
+    onOpenAppointment: (String) -> Unit,
     onAsk: (String) -> Unit,
     onSpoken: () -> Unit,
     onSettle: (Boolean) -> Unit,
@@ -281,9 +290,9 @@ fun AssistantScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (messages.isEmpty()) {
-                    item { EmptyChat(arabic, onAsk) }
+                    item { EmptyChat(arabic, role, onAsk) }
                 }
-                items(messages) { message -> ChatBubbleRow(message, arabic) }
+                items(messages) { message -> ChatBubbleRow(message, arabic, onOpenAppointment) }
 
                 // The approval card — answerable by voice too: a plain spoken yes or no settles it.
                 pending?.let { action ->
@@ -366,18 +375,44 @@ fun AssistantScreen(
     }
 }
 
-/** What the assistant can do, as tappable examples rather than a paragraph. */
+/**
+ * What the assistant can do, as tappable examples rather than a paragraph.
+ *
+ * Picked per role: an owner opens this asking about money, reception about the
+ * floor, a dentist about their own chair — the same three chips for everyone
+ * taught each of them the wrong things to ask.
+ */
 @Composable
-private fun EmptyChat(arabic: Boolean, onAsk: (String) -> Unit) {
-    val suggestions = if (arabic) listOf(
-        "مين محجوز اليوم؟",
-        "تقرير مالي PDF عن هذا الشهر",
-        "كم حصّلنا هذا الأسبوع؟",
-    ) else listOf(
-        "Who is booked today?",
-        "Finance PDF for this month",
-        "How much did we collect this week?",
-    )
+private fun EmptyChat(arabic: Boolean, role: String, onAsk: (String) -> Unit) {
+    val suggestions = when (role) {
+        "Admin" -> if (arabic) listOf(
+            "كم حصّلنا هذا الأسبوع؟",
+            "تقرير مالي PDF عن هذا الشهر",
+            "مين محجوز اليوم؟",
+        ) else listOf(
+            "How much did we collect this week?",
+            "Finance PDF for this month",
+            "Who is booked today?",
+        )
+        "Dentist" -> if (arabic) listOf(
+            "مين التالي عندي؟",
+            "افتح جدول اليوم",
+            "إيه آخر علاج اتعمل لمريضي الجاي؟",
+        ) else listOf(
+            "Who is next for me?",
+            "Open the day view",
+            "What was my next patient's last treatment?",
+        )
+        else -> if (arabic) listOf(
+            "مين في الانتظار دلوقتي؟",
+            "ألغِ موعد مريض",
+            "افتح العملاء المحتملين",
+        ) else listOf(
+            "Who is waiting right now?",
+            "Cancel a patient's appointment",
+            "Open the leads inbox",
+        )
+    }
     Column(Modifier.padding(top = 12.dp)) {
         Text(
             if (arabic)
@@ -428,7 +463,11 @@ private fun openPlayStore(context: Context, packageName: String) {
 }
 
 @Composable
-private fun ChatBubbleRow(message: ChatMessage, arabic: Boolean) {
+private fun ChatBubbleRow(
+    message: ChatMessage,
+    arabic: Boolean,
+    onOpenAppointment: (String) -> Unit,
+) {
     val context = LocalContext.current
     Row(
         Modifier.fillMaxWidth(),
@@ -449,12 +488,11 @@ private fun ChatBubbleRow(message: ChatMessage, arabic: Boolean) {
                 )
             }
 
-            // The report the reply carries, if its file is still on this phone.
-            val pdf = message.pdfPath?.let(::File)?.takeIf { it.exists() }
-            if (pdf != null) {
+            // The appointment the reply identified: a real way in, not a sentence.
+            message.appointmentId?.let { appointmentId ->
                 Spacer(Modifier.height(6.dp))
                 Surface(
-                    onClick = { openPdf(context, pdf) },
+                    onClick = { onOpenAppointment(appointmentId) },
                     shape = Alpha.CardShape,
                     color = Alpha.GreenSoft,
                 ) {
@@ -463,29 +501,82 @@ private fun ChatBubbleRow(message: ChatMessage, arabic: Boolean) {
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                     ) {
                         Icon(
-                            Icons.Filled.PictureAsPdf,
+                            Icons.Filled.CalendarMonth,
                             contentDescription = null,
                             tint = Alpha.Green,
-                            modifier = Modifier.size(20.dp),
+                            modifier = Modifier.size(18.dp),
                         )
                         Spacer(Modifier.width(9.dp))
-                        Column {
+                        Text(
+                            if (arabic) "فتح الموعد" else "Open the appointment",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Alpha.Green,
+                        )
+                    }
+                }
+            }
+
+            // The report the reply carries, if its file is still on this phone.
+            val pdf = message.pdfPath?.let(::File)?.takeIf { it.exists() }
+            if (pdf != null) {
+                Spacer(Modifier.height(6.dp))
+                Surface(shape = Alpha.CardShape, color = Alpha.GreenSoft) {
+                    Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(Alpha.CardShape)
+                                .clickable { openPdf(context, pdf) },
+                        ) {
+                            Icon(
+                                Icons.Filled.PictureAsPdf,
+                                contentDescription = null,
+                                tint = Alpha.Green,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Spacer(Modifier.width(9.dp))
                             Text(
                                 if (arabic) "فتح التقرير PDF" else "Open the PDF report",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Alpha.Green,
                             )
-                            Text(
-                                pdf.name,
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Alpha.Slate500,
-                            )
+                        }
+                        // The rest of the report's life: paper, or someone's WhatsApp.
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            PdfAction(if (arabic) "طباعة" else "Print", Icons.Filled.Print) {
+                                DocumentActions.print(context, pdf, "Finance report")
+                            }
+                            PdfAction(if (arabic) "مشاركة" else "Share", Icons.Filled.Share) {
+                                DocumentActions.share(context, pdf, "Finance report")
+                            }
+                            PdfAction("WhatsApp", Icons.Filled.Chat) {
+                                DocumentActions.shareToWhatsapp(context, pdf, "Finance report")
+                            }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PdfAction(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    onClick: () -> Unit,
+) {
+    Surface(onClick = onClick, shape = Alpha.PillShape, color = Alpha.Card) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+        ) {
+            Icon(icon, contentDescription = null, tint = Alpha.Slate600, modifier = Modifier.size(13.dp))
+            Spacer(Modifier.width(5.dp))
+            Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Alpha.Slate600)
         }
     }
 }

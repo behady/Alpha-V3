@@ -839,6 +839,98 @@ class AppViewModel : ViewModel() {
     }
 
     /**
+     * "Open the leads", handled without the server.
+     *
+     * Navigation closes the chat — the point of the request is to look at the
+     * screen, not to read a sentence about it. "Open Sara's file" runs the
+     * register search: one clear match opens; several matches list the options
+     * in the chat; none says so plainly.
+     */
+    private fun tryLocalNavigation(prompt: String): Boolean {
+        val session = _state.value.session ?: return false
+        val target = com.alphadental.clinic.ai.NavIntent.parse(prompt) ?: return false
+        val arabic = _state.value.arabic
+
+        fun done(reply: String, close: Boolean = true) {
+            appendAiMessage(ChatMessage(fromUser = false, text = reply, at = System.currentTimeMillis()))
+            _state.value = _state.value.copy(aiSpeak = reply)
+            if (close) closeAssistant()
+        }
+
+        fun refused() {
+            done(
+                if (arabic) "هذه الشاشة ليست متاحة لحسابك." else "That screen is not available on your account.",
+                close = false,
+            )
+        }
+
+        when (target) {
+            is com.alphadental.clinic.ai.NavIntent.Target.Day -> {
+                selectTab(Tab.DAY); done(if (arabic) "تم فتح جدول اليوم." else "Opening the day view.")
+            }
+            is com.alphadental.clinic.ai.NavIntent.Target.Patients -> {
+                selectTab(Tab.PATIENTS); done(if (arabic) "تم فتح قائمة المرضى." else "Opening the patients list.")
+            }
+            is com.alphadental.clinic.ai.NavIntent.Target.Money -> {
+                if (session.isAdmin || session.isReception) {
+                    selectTab(Tab.MONEY); done(if (arabic) "تم فتح الحسابات." else "Opening finance.")
+                } else refused()
+            }
+            is com.alphadental.clinic.ai.NavIntent.Target.Leads -> {
+                if (session.isAdmin || session.isReception) {
+                    openLeads(); done(if (arabic) "تم فتح العملاء المحتملين." else "Opening the leads inbox.")
+                } else refused()
+            }
+            is com.alphadental.clinic.ai.NavIntent.Target.Reports -> {
+                if (session.isAdmin || session.isReception) {
+                    openReports(); done(if (arabic) "تم فتح التقارير." else "Opening reports.")
+                } else refused()
+            }
+            is com.alphadental.clinic.ai.NavIntent.Target.Inventory -> {
+                openInventory(); done(if (arabic) "تم فتح المخزون." else "Opening stock.")
+            }
+            is com.alphadental.clinic.ai.NavIntent.Target.Ortho -> {
+                openOrtho(); done(if (arabic) "تم فتح حالات التقويم." else "Opening ortho cases.")
+            }
+            is com.alphadental.clinic.ai.NavIntent.Target.WhatsappQueue -> {
+                openWhatsappQueue(); done(if (arabic) "تم فتح رسائل واتساب." else "Opening the WhatsApp queue.")
+            }
+            is com.alphadental.clinic.ai.NavIntent.Target.PatientFile -> {
+                _state.value = _state.value.copy(aiThinking = true)
+                viewModelScope.launch {
+                    val matches = runCatching {
+                        Repository.searchPatients(session.clinicId, target.name).patients
+                    }.getOrDefault(emptyList())
+                    _state.value = _state.value.copy(aiThinking = false)
+                    when {
+                        matches.isEmpty() -> done(
+                            if (arabic) "لا يوجد مريض باسم \"${target.name}\"."
+                            else "No patient called \"${target.name}\" in the register.",
+                            close = false,
+                        )
+                        matches.size == 1 -> {
+                            done(
+                                if (arabic) "تم فتح ملف ${matches.first().name}."
+                                else "Opening ${matches.first().name}'s file.",
+                            )
+                            openPatient(matches.first().id)
+                        }
+                        else -> done(
+                            (if (arabic) "يوجد أكثر من مريض بهذا الاسم — أيهم تقصد؟\n"
+                            else "More than one patient matches — which one?\n") +
+                                matches.take(4).joinToString("\n") { patient ->
+                                    "• ${patient.name}${if (patient.phone.isNotBlank()) " (${patient.phone})" else ""}"
+                                },
+                            close = false,
+                        )
+                    }
+                }
+            }
+        }
+        return true
+    }
+
+    /**
      * "Make me a finance PDF for last month", handled without the server.
      *
      * Returns true when the prompt was a report request and has been dealt with —
@@ -940,6 +1032,10 @@ class AppViewModel : ViewModel() {
         // in Firestore and the PDF is drawn locally, so no AI credit is spent.
         if (tryLocalReport(prompt)) return
 
+        // So is navigation: the screens have names, and matching a name needs
+        // no model. Instant, free, and it works with no signal.
+        if (tryLocalNavigation(prompt)) return
+
         // The cache is only for context-free questions. With an appointment on
         // screen the same words mean something else entirely, and an acting
         // request replayed from disk would speak a confidence nothing backs.
@@ -969,7 +1065,7 @@ class AppViewModel : ViewModel() {
         val session = _state.value.session ?: return
         _state.value = _state.value.copy(aiThinking = true)
         viewModelScope.launch {
-            runCatching {
+            var attempt = runCatching {
                 AiClient.ask(
                     clinicId = session.clinicId,
                     userName = session.name,
@@ -980,19 +1076,44 @@ class AppViewModel : ViewModel() {
                     appointmentId = _state.value.aiAppointmentId,
                 )
             }
+            // One silent retry, and only for transport failures: an AiError means
+            // the server answered (and charged), so replaying it buys nothing.
+            if (attempt.exceptionOrNull() is java.io.IOException) {
+                attempt = runCatching {
+                    AiClient.ask(
+                        clinicId = session.clinicId,
+                        userName = session.name,
+                        prompt = prompt,
+                        history = _state.value.aiMessages.dropLast(1),
+                        voiceMode = true,
+                        appointmentId = _state.value.aiAppointmentId,
+                    )
+                }
+            }
+            attempt
                 .onSuccess { turn ->
                     val selected = turn.selectAppointmentId
                     if (selected != null) {
                         setAiAppointment(session.clinicId, selected)
                         if (!continued && turn.pending == null) {
                             // Note what was found, then finish the actual request.
-                            appendAiMessage(ChatMessage(fromUser = false, text = turn.reply, at = System.currentTimeMillis()))
+                            appendAiMessage(
+                                ChatMessage(
+                                    fromUser = false, text = turn.reply,
+                                    at = System.currentTimeMillis(), appointmentId = selected,
+                                )
+                            )
                             askAiTurn(prompt, continued = true)
                             return@onSuccess
                         }
                     }
 
-                    appendAiMessage(ChatMessage(fromUser = false, text = turn.reply, at = System.currentTimeMillis()))
+                    appendAiMessage(
+                        ChatMessage(
+                            fromUser = false, text = turn.reply,
+                            at = System.currentTimeMillis(), appointmentId = selected,
+                        )
+                    )
                     _state.value = _state.value.copy(
                         aiThinking = false,
                         aiPending = turn.pending,

@@ -74,6 +74,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.alphadental.clinic.data.Appointment
@@ -105,6 +106,8 @@ import com.alphadental.clinic.ui.PrescriptionSheet
 import com.alphadental.clinic.ui.AssistantScreen
 import com.alphadental.clinic.ui.ReportsScreen
 import com.alphadental.clinic.data.LocationFinder
+import com.alphadental.clinic.data.Repository
+import kotlinx.coroutines.launch
 import com.alphadental.clinic.sms.SmsPrefs
 import com.alphadental.clinic.sms.SmsWorker
 import com.alphadental.clinic.ui.SectionHeading
@@ -211,6 +214,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
     // Device-local, not clinic data: it never leaves the phone, so it does not
     // belong in the shared view-model state.
     var appearanceOpen by rememberSaveable { mutableStateOf(false) }
+    val assistantScope = rememberCoroutineScope()
 
     // Once signed in: put this phone on the user's push list, and — on Android 13+ — ask for
     // notification permission the first time. Registration is repeated on every sign-in because
@@ -439,6 +443,19 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     arabic = state.arabic,
                     actingOn = state.aiAppointmentId?.let { state.aiAppointmentLabel },
                     onClearActingOn = viewModel::clearAiAppointment,
+                    role = session.role,
+                    onOpenAppointment = { appointmentId ->
+                        // Today's list already holds it when it is today's; anything
+                        // else is read once. The sheet floats above the chat, so the
+                        // conversation is exactly where it was on dismiss.
+                        state.appointments.firstOrNull { it.id == appointmentId }
+                            ?.let { openAppointment = it }
+                            ?: assistantScope.launch {
+                                runCatching { Repository.loadAppointment(session.clinicId, appointmentId) }
+                                    .getOrNull()
+                                    ?.let { openAppointment = it }
+                            }
+                    },
                     onAsk = viewModel::askAi,
                     onSpoken = viewModel::aiSpoken,
                     onSettle = viewModel::settlePending,
