@@ -8,7 +8,7 @@ import { hasFeature, getMarketingCreditLimit } from "@/lib/subscriptions";
 import { getClinicProfileAdmin } from "@/lib/clinicProfileServer";
 import {
   MARKETING_GOALS, MARKETING_OCCASIONS, MARKETING_TONES, MARKETING_PLAYBOOKS,
-  MARKETING_CREDIT_COST, VOICE_FORMALITY, VOICE_EMOJI, VOICE_PRICE,
+  MARKETING_CREDIT_COST, VOICE_FORMALITY, VOICE_EMOJI, VOICE_PRICE, REEL_FORMATS,
   type MarketingKind, type MarketingLanguage, type MarketingVariant, type MarketingPlanEntry,
   type MarketingVoiceProfile,
 } from "@/types/marketing";
@@ -45,6 +45,8 @@ type RequestBody = {
   notes?: string;
   playbook?: string;
   postsPerWeek?: number;
+  /** Reels only: which of the market-proven formats to script (REEL_FORMATS id). */
+  reelFormat?: string;
 };
 
 const clean = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
@@ -137,11 +139,39 @@ function languageBlock(language: MarketingLanguage): string {
 
 const label = (list: { id: string; en: string }[], id: string) => list.find((x) => x.id === id)?.en || id;
 
+/**
+ * Filming instructions per reel format — the shapes that measurably run on clinic pages.
+ * Each block tells the model WHO is on camera and what the scenes must feel like; the shared
+ * honesty rules still apply on top (especially: never script a patient's "testimonial").
+ */
+const REEL_FORMAT_BRIEFS: Record<string, string> = {
+  dentist_talk: `FORMAT FOCUS — THE DENTIST SPEAKS TO CAMERA:
+- One person on camera: the dentist, at the chair or desk. Expert but warm — a trusted doctor, not a presenter.
+- ONE topic only (the goal above). The first line must be a hook a scroller can't skip (a surprising fact, a myth, a question).
+- Scenes are mostly the dentist talking, with 1–2 cutaway shots (hands, tools, a smile model) to keep the eye busy.
+- End with a soft invitation, not a hard sell.`,
+  clinic_tour: `FORMAT FOCUS — CLINIC TOUR:
+- A walking phone shot through the clinic: entrance → reception → treatment room → sterilization corner.
+- The unspoken message is cleanliness, calm and modern equipment. Scenes describe what the camera passes and what to SAY (voiceover) or SHOW as on-screen text.
+- Keep movement slow and steady; each scene names one thing worth noticing ("the sterilization station — everything sealed per patient").
+- End at reception with a warm booking invitation.`,
+  patient_interview: `FORMAT FOCUS — PATIENT REVIEW INTERVIEW:
+- A REAL consenting patient answers on camera; a staff member asks from behind it.
+- Your scenes are the QUESTIONS to ask (short, open, easy) plus b-roll suggestions between answers (the patient smiling, the treatment room).
+- CRITICAL: never write the patient's answers or put words in their mouth — authentic beats polished, and invented testimonials are forbidden. Questions only.
+- Suggested arc: what brought you to us → how did it feel → what would you tell someone hesitant.`,
+  transformation: `FORMAT FOCUS — BEFORE/AFTER TRANSFORMATION:
+- Built around the clinic's real before/after case photos or clips (already consented).
+- Scene arc: a 2-second teaser hook ("wait for the result…") → the BEFORE shots → one glimpse of the process → the AFTER reveal held longest.
+- Scenes describe which photo/clip to show and the ON-SCREEN TEXT for each moment (short, punchy).
+- Note in the caption that this pairs best with a trending sound added inside the app.`,
+};
+
 function singlePrompt(args: {
   kind: GenKind; language: MarketingLanguage; goal: string; occasion: string; tone: string;
-  facts: string;
+  facts: string; reelFormat?: string;
 }): string {
-  const { kind, language, goal, occasion, tone, facts } = args;
+  const { kind, language, goal, occasion, tone, facts, reelFormat } = args;
   const goalText = label(MARKETING_GOALS, goal);
   const toneText = label(MARKETING_TONES, tone);
   const occasionText = occasion ? label(MARKETING_OCCASIONS, occasion) : "";
@@ -176,10 +206,11 @@ FORMAT — a personal WHATSAPP MESSAGE the clinic sends to ONE existing patient 
   }
 
   if (kind === "reel") {
+    const brief = reelFormat && REEL_FORMAT_BRIEFS[reelFormat] ? `\n${REEL_FORMAT_BRIEFS[reelFormat]}\n` : "";
     return `${shared}
-
-FORMAT — 30-second REEL a clinic can film on a PHONE, inside the clinic, with only the doctor or staff on camera (no actors, no studio):
-- "scenes": 4–6 entries, each formatted exactly "SHOT: what to film — SAY: the exact spoken line". Keep total spoken time ≈ 30 seconds. First scene must hook in under 3 seconds.
+${brief}
+FORMAT — 30-second REEL a clinic can film on a PHONE, inside the clinic, with only the doctor, staff, or a consenting patient on camera (no actors, no studio):
+- "scenes": 4–6 entries, each formatted exactly "SHOT: what to film — SAY: the exact spoken line or on-screen text". Keep total spoken time ≈ 30 seconds. First scene must hook in under 3 seconds.
 - "body": the caption to publish WITH the reel — 20–60 words plus call-to-action.
 - "hashtags": 5–8, reels-appropriate.`;
   }
@@ -275,6 +306,10 @@ export async function POST(request: Request) {
     const occasion = MARKETING_OCCASIONS.some((o) => o.id === body.occasion) ? String(body.occasion || "") : "";
     const tone = MARKETING_TONES.some((t) => t.id === body.tone) ? String(body.tone) : "friendly";
     const playbook = MARKETING_PLAYBOOKS.some((p) => p.id === body.playbook) ? String(body.playbook) : "balanced_month";
+    const reelFormat =
+      kind === "reel" && REEL_FORMATS.some((f) => f.id === body.reelFormat && f.id !== "auto")
+        ? String(body.reelFormat)
+        : "";
     const postsPerWeek = Math.min(4, Math.max(2, Math.round(Number(body.postsPerWeek) || 3)));
     const serviceName = clean(body.serviceName, 120);
     const offer = clean(body.offer, 400);
@@ -387,7 +422,7 @@ export async function POST(request: Request) {
         },
       });
 
-      const prompt = singlePrompt({ kind, language, goal, occasion, tone, facts });
+      const prompt = singlePrompt({ kind, language, goal, occasion, tone, facts, reelFormat });
       const result = await model.generateContent(prompt);
 
       let parsed: { variants?: Record<string, unknown>[] };

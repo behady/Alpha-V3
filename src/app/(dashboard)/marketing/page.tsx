@@ -31,7 +31,7 @@ import { logActivity } from "@/lib/logger";
 import {
   MARKETING_GOALS, MARKETING_OCCASIONS, MARKETING_TONES, MARKETING_PLAYBOOKS,
   MARKETING_CHANNELS, MARKETING_CREDIT_COST, VOICE_FORMALITY, VOICE_EMOJI, VOICE_PRICE,
-  CAMPAIGN_SEGMENTS, OCCASION_DATES, MARKETING_THEMES,
+  CAMPAIGN_SEGMENTS, OCCASION_DATES, MARKETING_THEMES, REEL_FORMATS,
   type MarketingItem, type MarketingKind, type MarketingLanguage, type MarketingVariant,
   type MarketingPlanEntry, type MarketingChannel, type MarketingVoiceProfile,
   type CampaignSegment, type CampaignRecipient, type MarketingCampaign, type BrandKit,
@@ -452,6 +452,7 @@ export default function MarketingPage() {
   const [genKind, setGenKind] = useState<MarketingKind>("post");
   const [genLanguage, setGenLanguage] = useState<MarketingLanguage>(isAr ? "ar" : "en");
   const [genGoal, setGenGoal] = useState("offer");
+  const [genReelFormat, setGenReelFormat] = useState("auto");
   const [genService, setGenService] = useState("");
   const [genOccasion, setGenOccasion] = useState("");
   const [genTone, setGenTone] = useState("friendly");
@@ -494,6 +495,7 @@ export default function MarketingPage() {
         tone: genTone,
         offer: genOffer,
         notes: genNotes,
+        reelFormat: genKind === "reel" ? genReelFormat : undefined,
       });
       setVariants(data.variants || []);
     } catch (e) {
@@ -922,6 +924,22 @@ export default function MarketingPage() {
   /* ------- reviews history ------- */
 
   const [reviews, setReviews] = useState<ReviewRequest[]>([]);
+  /** The on-camera interview modal for 5-star patients — static questions, zero AI cost. */
+  const [interviewFor, setInterviewFor] = useState<ReviewRequest | null>(null);
+
+  const INTERVIEW_QUESTIONS = isAr
+    ? [
+        "إيه اللي خلاك تختار عيادتنا في الأول؟",
+        "إيه اللي كنت خايف منه قبل ما تيجي؟ وحصل إيه فعلاً؟",
+        "احكيلنا إحساسك لما شفت النتيجة.",
+        "لو حد متردد يعالج أسنانه، تقوله إيه؟",
+      ]
+    : [
+        "What made you choose our clinic in the first place?",
+        "What were you worried about before coming — and what actually happened?",
+        "Tell us how it felt when you saw the result.",
+        "What would you say to someone hesitating about treatment?",
+      ];
 
   useEffect(() => {
     if (!user || !unlocked) return;
@@ -1591,6 +1609,17 @@ export default function MarketingPage() {
                 </select>
               </div>
 
+              {genKind === "reel" && (
+                <div>
+                  <label className={labelCls}>{isAr ? "شكل الريل" : "Reel format"}</label>
+                  <select value={genReelFormat} onChange={(e) => setGenReelFormat(e.target.value)} className={selectCls}>
+                    {REEL_FORMATS.map((f) => (
+                      <option key={f.id} value={f.id}>{isAr ? f.ar : f.en}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className={labelCls}>{isAr ? "الخدمة (اختياري)" : "Service (optional)"}</label>
@@ -2146,6 +2175,15 @@ export default function MarketingPage() {
                               <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
                                 {isAr ? "تحوّل لتقييم جوجل" : "sent to Google"}
                               </span>
+                            )}
+                            {r.status === "rated" && r.rating === 5 && (
+                              <button
+                                onClick={() => setInterviewFor(r)}
+                                className="text-[10px] font-black px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 hover:bg-violet-100 transition-colors"
+                                title={isAr ? "مرشح مثالي لريل تقييم بالفيديو" : "Perfect candidate for a video review reel"}
+                              >
+                                🎥 {isAr ? "اطلب فيديو تقييم" : "ask for video review"}
+                              </button>
                             )}
                             {isUnhappy && r.handled && (
                               <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 flex items-center gap-1">
@@ -2877,6 +2915,43 @@ export default function MarketingPage() {
                   </button>
                 )}
               </div>
+            </div>
+          </div>,
+          portalTarget
+        )}
+
+      {/* Video-review interview questions */}
+      {interviewFor && portalTarget &&
+        createPortal(
+          <div className="fixed inset-0 z-[320] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4" dir={isAr ? "rtl" : "ltr"}>
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-base font-black text-slate-900">
+                  {isAr ? `🎥 فيديو تقييم — ${interviewFor.patientName}` : `🎥 Video review — ${interviewFor.patientName}`}
+                </h3>
+                <button onClick={() => setInterviewFor(null)} className="p-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500">
+                  <X size={16} />
+                </button>
+              </div>
+              <p className="text-xs font-bold text-slate-500 leading-relaxed mb-3">
+                {isAr
+                  ? "المريض أعطى ٥ نجوم — أفضل لحظة تطلب فيها فيديو قصير. صوّر بالموبايل عمودياً، واسأل الأسئلة دي واحداً واحداً، وسيب المريض يرد بكلامه هو (ممنوع تلقينه):"
+                  : "They gave 5 stars — the perfect moment to ask for a short video. Film vertical on a phone, ask these one by one, and let the patient answer in their own words (never script them):"}
+              </p>
+              <ol className="space-y-2 mb-4">
+                {INTERVIEW_QUESTIONS.map((q, i) => (
+                  <li key={i} className="flex gap-2 text-sm font-bold text-slate-700 bg-slate-50 border border-slate-100 rounded-xl px-3.5 py-2.5">
+                    <span className="font-black text-violet-500">{i + 1}.</span> {q}
+                  </li>
+                ))}
+              </ol>
+              <button
+                onClick={() => copyText("interview", INTERVIEW_QUESTIONS.map((q, i) => `${i + 1}. ${q}`).join("\n"))}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-slate-900 hover:bg-violet-600 text-white font-black text-sm transition-colors"
+              >
+                {copiedKey === "interview" ? <Check size={15} /> : <Copy size={15} />}
+                {isAr ? "نسخ الأسئلة (ابعتها لمن سيصوّر)" : "Copy questions (send to whoever films)"}
+              </button>
             </div>
           </div>,
           portalTarget

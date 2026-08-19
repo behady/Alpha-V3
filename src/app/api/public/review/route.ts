@@ -84,6 +84,20 @@ export async function POST(request: Request) {
     });
 
     if (rating >= 4) {
+      // A 5-star patient is the reel engine's best casting call: reels of real delighted
+      // patients outperform everything else the clinic can film. Tell the desk while the
+      // delight is fresh — the interview questions live in Marketing → Reviews.
+      if (rating === 5) {
+        const patientName = String(data.patientName || "A patient");
+        void sendClinicPush(
+          clinicId,
+          {
+            title: `🌟 ${patientName} rated 5/5`,
+            body: "Golden chance: ask them for a 30-second video review on their next visit. Interview questions are in Marketing → Reviews.",
+          },
+          { roles: ["Admin", "Receptionist"], channel: "alpha_clinic", data: { screen: "marketing" } }
+        );
+      }
       const profile = await getClinicProfileAdmin(clinicId);
       const redirectUrl =
         String(profile?.googleReviewUrl || "").trim() || String(profile?.googleMapsUrl || "").trim();

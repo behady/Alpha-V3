@@ -88,6 +88,19 @@ export const MARKETING_OCCASIONS: CatalogEntry[] = [
   { id: "wedding_season", en: "Wedding season", ar: "موسم الأفراح" },
 ];
 
+/**
+ * Reel formats — the shapes that actually run on clinic pages right now, straight from the
+ * user's market survey (2026-08): talking dentist, clinic tour, patient interview,
+ * transformation. "auto" keeps the old behavior: the model picks what fits the goal.
+ */
+export const REEL_FORMATS: CatalogEntry[] = [
+  { id: "auto", en: "Let the AI choose", ar: "خلّي الذكاء يختار" },
+  { id: "dentist_talk", en: "Dentist to camera", ar: "الطبيب يتكلم للكاميرا" },
+  { id: "clinic_tour", en: "Clinic tour", ar: "جولة في العيادة" },
+  { id: "patient_interview", en: "Patient review interview", ar: "مقابلة تقييم مريض" },
+  { id: "transformation", en: "Before/after transformation", ar: "تحوّل قبل / بعد" },
+];
+
 export const MARKETING_TONES: CatalogEntry[] = [
   { id: "friendly", en: "Friendly & warm", ar: "ودّي وقريب" },
   { id: "professional", en: "Professional & calm", ar: "احترافي وهادئ" },
