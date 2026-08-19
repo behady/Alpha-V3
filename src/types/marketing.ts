@@ -227,6 +227,69 @@ export const OCCASION_DATES: { id: string; date: string }[] = [
   { id: "eid_adha", date: "2028-05-05" },
 ];
 
+/* ------------------------------------ brand kit ------------------------------------ */
+
+export type MarketingTheme = "modern" | "luxury" | "basic";
+
+/**
+ * The Design tier's visual identity — clinics/{id}/marketing_settings/brand.
+ * Deliberately tiny: a theme picked by pointing at examples plus an optional exact brand
+ * color. The theme carries the real design decisions (palette, type, shapes) inside the
+ * Design Studio's templates, so every export looks professionally made, never "configured".
+ */
+export type BrandKit = {
+  theme: MarketingTheme;
+  /** Exact brand color, when the clinic has one. Empty = the theme's own accent. */
+  accent?: string;
+  showPhone?: boolean;
+  showLogo?: boolean;
+  updatedAt?: unknown;
+  updatedBy?: string;
+};
+
+export const MARKETING_THEMES: {
+  id: MarketingTheme;
+  en: string;
+  ar: string;
+  descEn: string;
+  descAr: string;
+  /** Swatches for the picker card — accent / ground / ink. */
+  accent: string;
+  ground: string;
+  ink: string;
+}[] = [
+  {
+    id: "modern",
+    en: "Modern",
+    ar: "عصري",
+    descEn: "Fresh, friendly, energetic — bright color and bold type.",
+    descAr: "منعش وودود وحيوي — ألوان مبهجة وخط جريء.",
+    accent: "#10b981",
+    ground: "#f0fdf9",
+    ink: "#0f172a",
+  },
+  {
+    id: "luxury",
+    en: "Luxury",
+    ar: "فاخر",
+    descEn: "Dark, calm, premium — gold details on deep charcoal.",
+    descAr: "هادئ وراقي — تفاصيل ذهبية على خلفية داكنة.",
+    accent: "#c9a227",
+    ground: "#0e1116",
+    ink: "#f4efe3",
+  },
+  {
+    id: "basic",
+    en: "Basic",
+    ar: "بسيط",
+    descEn: "Clean and clear — white space, one color, no noise.",
+    descAr: "نظيف وواضح — مساحات بيضاء ولون واحد بلا ضوضاء.",
+    accent: "#2563eb",
+    ground: "#ffffff",
+    ink: "#1e293b",
+  },
+];
+
 /* ------------------------------- clinic voice profile ------------------------------- */
 
 /**

@@ -7,11 +7,12 @@ import {
   ChevronLeft, ChevronRight, Trash2, Clock, X, FileText, Clapperboard, Target,
   Sparkles, CheckCircle2, AlertTriangle, CalendarPlus, Film, Star, SlidersHorizontal,
   Send, UserX, ClipboardList, Cake, Armchair, PartyPopper, ThumbsDown,
-  TrendingUp, QrCode, Printer, Link2, Search,
+  TrendingUp, QrCode, Printer, Link2, Search, Palette,
 } from "lucide-react";
 import QRCode from "qrcode";
 import LeadFunnelReport from "@/components/reports/LeadFunnelReport";
 import { DEFAULT_LEAD_SOURCES } from "@/lib/leads";
+import DesignStudio, { type DesignInput } from "@/components/marketing/DesignStudio";
 import {
   onSnapshot, orderBy, query, addDoc, updateDoc, deleteDoc, serverTimestamp,
   getDocs, setDoc, where,
@@ -29,10 +30,10 @@ import { logActivity } from "@/lib/logger";
 import {
   MARKETING_GOALS, MARKETING_OCCASIONS, MARKETING_TONES, MARKETING_PLAYBOOKS,
   MARKETING_CHANNELS, MARKETING_CREDIT_COST, VOICE_FORMALITY, VOICE_EMOJI, VOICE_PRICE,
-  CAMPAIGN_SEGMENTS, OCCASION_DATES,
+  CAMPAIGN_SEGMENTS, OCCASION_DATES, MARKETING_THEMES,
   type MarketingItem, type MarketingKind, type MarketingLanguage, type MarketingVariant,
   type MarketingPlanEntry, type MarketingChannel, type MarketingVoiceProfile,
-  type CampaignSegment, type CampaignRecipient, type MarketingCampaign,
+  type CampaignSegment, type CampaignRecipient, type MarketingCampaign, type BrandKit,
 } from "@/types/marketing";
 import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
 
@@ -116,7 +117,64 @@ export default function MarketingPage() {
   const { showToast, confirm } = useUI();
 
   const unlocked = hasFeature(clinic, "marketingText");
+  const designUnlocked = unlocked && hasFeature(clinic, "marketingDesign");
   const creditLimit = getMarketingCreditLimit(clinic);
+
+  /* ------- brand kit + design studio (the Design tier) ------- */
+
+  const [brand, setBrand] = useState<BrandKit>({ theme: "modern" });
+  const [brandOpen, setBrandOpen] = useState(false);
+  const [brandSaving, setBrandSaving] = useState(false);
+  const [designItem, setDesignItem] = useState<DesignInput | null>(null);
+  const [profileLite, setProfileLite] = useState<{ clinicName: string; phone: string; logoUrl: string }>({
+    clinicName: "",
+    phone: "",
+    logoUrl: "",
+  });
+
+  useEffect(() => {
+    if (!user || !designUnlocked) return;
+    const unsub = onSnapshot(getClinicDoc("marketing_settings", "brand"), (snap) => {
+      if (snap.exists()) {
+        const d = snap.data() as BrandKit;
+        setBrand({ ...d, theme: d.theme || "modern" });
+      }
+    });
+    return () => unsub();
+  }, [user, designUnlocked]);
+
+  useEffect(() => {
+    if (!user || !designUnlocked) return;
+    getDocs(query(getClinicCollection("settings")))
+      .then((snap) => {
+        const doc_ = snap.docs.find((d) => d.id === "clinicProfile");
+        const d = (doc_?.data() || {}) as Record<string, unknown>;
+        setProfileLite({
+          clinicName: String(d.clinicName || clinic?.name || ""),
+          phone: String(d.phone || ""),
+          logoUrl: String(d.logoUrl || ""),
+        });
+      })
+      .catch(() => setProfileLite({ clinicName: clinic?.name || "", phone: "", logoUrl: "" }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, designUnlocked]);
+
+  const saveBrand = async (patch: Partial<BrandKit>) => {
+    setBrandSaving(true);
+    try {
+      const next = { ...brand, ...patch };
+      setBrand(next);
+      await setDoc(
+        getClinicDoc("marketing_settings", "brand"),
+        { ...next, updatedAt: serverTimestamp(), updatedBy: user?.uid || "" },
+        { merge: true }
+      );
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e), "error");
+    } finally {
+      setBrandSaving(false);
+    }
+  };
 
   const [tab, setTab] = useState<Tab>("create");
   const [items, setItems] = useState<MarketingItem[]>([]);
@@ -1275,6 +1333,14 @@ export default function MarketingPage() {
           >
             <CalendarPlus size={14} /> {isAr ? "جدولة" : "Schedule"}
           </button>
+          {designUnlocked && (
+            <button
+              onClick={() => setDesignItem({ language: genLanguage, title: v.title, body: bodyValue })}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-violet-500 hover:bg-violet-600 text-white text-xs font-black transition-colors"
+            >
+              <Palette size={14} /> {isAr ? "صمّمه" : "Design it"}
+            </button>
+          )}
         </div>
       </div>
     );
@@ -1314,6 +1380,14 @@ export default function MarketingPage() {
         {copiedKey === item.id ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
         {isAr ? "نسخ" : "Copy"}
       </button>
+      {designUnlocked && (
+        <button
+          onClick={() => setDesignItem({ language: item.language, title: item.title, body: item.body })}
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-violet-50 hover:bg-violet-100 text-violet-700 text-[11px] font-black transition-colors"
+        >
+          <Palette size={12} /> {isAr ? "صمّمه" : "Design"}
+        </button>
+      )}
       {item.status !== "posted" && (
         <button
           onClick={() => markPosted(item)}
@@ -1386,6 +1460,17 @@ export default function MarketingPage() {
               <Wand2 size={14} className="text-emerald-500" />
               {isAr ? `التوليدات: ${creditsUsed} / ${creditLimit}` : `Generations: ${creditsUsed} / ${creditLimit}`}
             </div>
+            {/* Brand kit (Design tier) */}
+            {designUnlocked && (
+              <button
+                onClick={() => setBrandOpen(true)}
+                title={isAr ? "هوية العيادة — الثيم والألوان للتصاميم" : "Brand kit — theme and colors for designs"}
+                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-slate-200 hover:border-emerald-300 text-xs font-black text-slate-600 transition-colors"
+              >
+                <Palette size={14} className="text-slate-400" />
+                {isAr ? "هوية العيادة" : "Brand kit"}
+              </button>
+            )}
             {/* Voice settings */}
             <button
               onClick={openWizard}
@@ -2779,6 +2864,126 @@ export default function MarketingPage() {
           </div>,
           portalTarget
         )}
+
+      {/* Brand kit modal */}
+      {brandOpen && portalTarget &&
+        createPortal(
+          <div className="fixed inset-0 z-[310] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4" dir={isAr ? "rtl" : "ltr"}>
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between p-5 border-b border-slate-100">
+                <div>
+                  <h3 className="text-base font-black text-slate-900">{isAr ? "هوية العيادة" : "Brand kit"}</h3>
+                  <p className="text-[11px] font-bold text-slate-400">
+                    {isAr ? "كل تصميم يخرج بهذه الهوية تلقائياً" : "Every design comes out in this identity automatically"}
+                  </p>
+                </div>
+                <button onClick={() => setBrandOpen(false)} className="p-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500">
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="p-5 overflow-y-auto space-y-5">
+                <div>
+                  <label className={labelCls}>{isAr ? "أي شكل يشبه عيادتك؟" : "Which look feels like your clinic?"}</label>
+                  <div className="space-y-2">
+                    {MARKETING_THEMES.map((t) => (
+                      <button
+                        key={t.id}
+                        onClick={() => void saveBrand({ theme: t.id })}
+                        className={`w-full flex items-center gap-3.5 p-3.5 rounded-2xl border text-start transition-colors ${
+                          brand.theme === t.id ? "border-emerald-400 ring-1 ring-emerald-200 bg-emerald-50/40" : "border-slate-200 hover:border-slate-300"
+                        }`}
+                      >
+                        {/* Mini style preview — pointing beats describing. */}
+                        <div
+                          className="w-16 h-16 rounded-xl shrink-0 flex flex-col justify-between p-2"
+                          style={{ background: t.ground, border: "1px solid #e2e8f0" }}
+                        >
+                          <div className="h-1.5 rounded-full" style={{ background: t.accent, width: "60%" }} />
+                          <div className="space-y-1">
+                            <div className="h-1 rounded-full" style={{ background: t.ink, opacity: 0.85, width: "90%" }} />
+                            <div className="h-1 rounded-full" style={{ background: t.ink, opacity: 0.4, width: "70%" }} />
+                          </div>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-black text-slate-900">{isAr ? t.ar : t.en}</p>
+                          <p className="text-[11px] font-bold text-slate-400 leading-relaxed">{isAr ? t.descAr : t.descEn}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <label className={labelCls}>{isAr ? "لون العلامة (اختياري)" : "Brand color (optional)"}</label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={brand.accent || MARKETING_THEMES.find((t) => t.id === brand.theme)?.accent || "#10b981"}
+                        onChange={(e) => void saveBrand({ accent: e.target.value })}
+                        className="w-10 h-10 rounded-xl border border-slate-200 cursor-pointer"
+                      />
+                      {brand.accent && (
+                        <button
+                          onClick={() => void saveBrand({ accent: "" })}
+                          className="text-[11px] font-black text-slate-400 hover:text-slate-600"
+                        >
+                          {isAr ? "استخدم لون الثيم" : "Use theme color"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-end">
+                    <label className={labelCls}>{isAr ? "رقم الهاتف على التصاميم" : "Phone on designs"}</label>
+                    <button
+                      onClick={() => void saveBrand({ showPhone: brand.showPhone === false })}
+                      className={`w-11 h-6 rounded-full transition-colors relative ${
+                        brand.showPhone !== false ? "bg-emerald-500" : "bg-slate-200"
+                      }`}
+                    >
+                      <div
+                        className={`w-5 h-5 bg-white rounded-full absolute top-0.5 shadow transition-transform ${
+                          brand.showPhone !== false ? "translate-x-5 rtl:-translate-x-5" : "translate-x-0.5 rtl:-translate-x-0.5"
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                {!profileLite.logoUrl && (
+                  <p className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3.5 py-2.5">
+                    {isAr
+                      ? "لا يوجد لوجو محفوظ — أضِفه في الإعدادات ← ملف العيادة وسيظهر على التصاميم تلقائياً."
+                      : "No logo saved — add it in Settings → Clinic profile and it appears on designs automatically."}
+                  </p>
+                )}
+
+                <button
+                  onClick={() => setBrandOpen(false)}
+                  disabled={brandSaving}
+                  className="w-full py-3 rounded-2xl bg-slate-900 hover:bg-emerald-600 text-white font-black text-sm transition-colors"
+                >
+                  {isAr ? "تم" : "Done"}
+                </button>
+              </div>
+            </div>
+          </div>,
+          portalTarget
+        )}
+
+      {/* Design studio */}
+      {designItem && (
+        <DesignStudio
+          item={designItem}
+          brand={brand}
+          clinicName={profileLite.clinicName || clinic?.name || ""}
+          phone={profileLite.phone}
+          logoUrl={profileLite.logoUrl}
+          isAr={isAr}
+          onClose={() => setDesignItem(null)}
+        />
+      )}
 
       {/* Schedule modal */}
       {scheduleTarget && portalTarget &&
