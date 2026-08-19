@@ -24,6 +24,8 @@ import { getClinicCollection } from "@/lib/db-utils";
 type Consent = {
   id: string;
   status: "granted" | "revoked";
+  /** "signed" carries a signature image; "verbal" is a staff-recorded agreement. */
+  method?: "signed" | "verbal";
   patientName?: string;
   faceAllowed?: boolean;
   signedAt?: unknown;
@@ -150,20 +152,24 @@ export default function CasesTab({
   const sigRef = useRef<SignatureCanvas | null>(null);
 
   const saveConsent = async () => {
-    if (!selected || !sigRef.current || sigRef.current.isEmpty()) {
-      showToast(isAr ? "توقيع المريض مطلوب" : "The patient's signature is required", "error");
-      return;
-    }
+    if (!selected) return;
     setConsentSaving(true);
     try {
+      // Signature optional: an empty pad records a verbal consent (still stamped who + when).
+      const signed = sigRef.current && !sigRef.current.isEmpty();
       await api({
         action: "consent",
         patientId: selected.id,
         faceAllowed,
-        signatureDataUrl: sigRef.current.getTrimmedCanvas().toDataURL("image/png"),
+        signatureDataUrl: signed ? sigRef.current!.getTrimmedCanvas().toDataURL("image/png") : "",
       });
       setConsentOpen(false);
-      showToast(isAr ? "تم تسجيل الموافقة الموقعة ✅" : "Signed consent recorded ✅", "success");
+      showToast(
+        signed
+          ? isAr ? "تم تسجيل الموافقة الموقعة ✅" : "Signed consent recorded ✅"
+          : isAr ? "تم تسجيل الموافقة الشفهية ✅" : "Verbal consent recorded ✅",
+        "success"
+      );
     } catch (e) {
       showToast(e instanceof Error ? e.message : String(e), "error");
     } finally {
@@ -313,8 +319,8 @@ export default function CasesTab({
                   <p className="text-[11px] font-black text-emerald-600 flex items-center gap-1 mt-0.5">
                     <ShieldCheck size={12} />
                     {isAr
-                      ? `موافقة موقعة${consent?.faceAllowed ? " — الوجه مسموح" : " — بدون وجه (ابتسامة فقط)"}`
-                      : `Signed consent${consent?.faceAllowed ? " — face allowed" : " — no face (smile only)"}`}
+                      ? `موافقة ${consent?.method === "verbal" ? "شفهية" : "موقعة"}${consent?.faceAllowed ? " — الوجه مسموح" : " — بدون وجه (ابتسامة فقط)"}`
+                      : `${consent?.method === "verbal" ? "Verbal" : "Signed"} consent${consent?.faceAllowed ? " — face allowed" : " — no face (smile only)"}`}
                   </p>
                 ) : (
                   <p className="text-[11px] font-black text-slate-400 flex items-center gap-1 mt-0.5">
@@ -503,7 +509,7 @@ export default function CasesTab({
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="text-xs font-black text-slate-500">
-                      {isAr ? "توقيع المريض هنا 👇" : "Patient signs here 👇"}
+                      {isAr ? "توقيع المريض (اختياري — اتركه فارغاً للموافقة الشفهية)" : "Patient signature (optional — leave empty for verbal consent)"}
                     </label>
                     <button
                       onClick={() => sigRef.current?.clear()}

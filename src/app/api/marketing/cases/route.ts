@@ -100,16 +100,20 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: true, status: "revoked" });
       }
 
-      // A consent without a signature is a checkbox, not a consent.
-      const signature = parseDataUrl(body.signatureDataUrl, 300 * 1024);
-      if (!signature) return bad("A signature is required.", 400);
+      // The signature is optional (clinic's choice): a verbal consent is still recorded with
+      // who took it and when. When a signature IS sent, it must be a valid small image.
+      const hasSignature = typeof body.signatureDataUrl === "string" && body.signatureDataUrl.length > 0;
+      if (hasSignature && !parseDataUrl(body.signatureDataUrl, 300 * 1024)) {
+        return bad("The signature image is not valid.", 400);
+      }
 
       await ref.set({
         status: "granted",
+        method: hasSignature ? "signed" : "verbal",
         patientId,
         patientName: String(patientSnap.data()?.name || ""),
         faceAllowed: body.faceAllowed === true,
-        signatureDataUrl: body.signatureDataUrl,
+        signatureDataUrl: hasSignature ? body.signatureDataUrl : "",
         signedAt: FieldValue.serverTimestamp(),
         recordedBy: authz.uid,
       });
