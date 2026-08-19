@@ -13,6 +13,7 @@ import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { logAiAction } from "@/lib/serverLogger";
+import { logAiCreditUsage } from "@/lib/aiCreditLog";
 
 /**
  * One question can take several model round-trips: the assistant calls a tool, reads the result,
@@ -310,6 +311,14 @@ export async function POST(req: Request) {
               },
               { merge: true }
             );
+            await logAiCreditUsage({
+              clinicId,
+              feature: isReception ? "reception" : "chat",
+              credits: requiredCredits,
+              userId,
+              userName: typeof userName === "string" ? userName : "",
+              detail: image ? "with image" : "",
+            });
           };
         }
       } catch (err) {

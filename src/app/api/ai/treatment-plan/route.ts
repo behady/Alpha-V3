@@ -6,6 +6,7 @@ import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { fetchPatientAiContext, patientContextBlock } from "@/lib/aiPatientContext";
+import { logAiCreditUsage } from "@/lib/aiCreditLog";
 import { suggestSlots, type SlotSuggestion } from "@/lib/automation/slotSuggestions";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 
@@ -15,7 +16,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 90;
 
 /** A full plan generation reads the whole chart and price list — priced like an image turn. */
-const REQUIRED_CREDITS = 2;
+const BASE_CREDITS = 2;
 
 type SuggestedStepRaw = {
   serviceId?: string;
@@ -70,6 +71,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "clinicId and patientId are required." }, { status: 400 });
     }
 
+    // Powerful (default) runs on the fast model; Super runs on the deeper Pro model and costs
+    // triple. The price is decided here, never by the client.
+    const superMode = body?.mode === "super";
+    const modelName = superMode ? "gemini-pro-latest" : "gemini-flash-latest";
+    const requiredCredits = superMode ? BASE_CREDITS * 3 : BASE_CREDITS;
+
     const authz = await requireStaffUser(req, clinicId);
     if (!authz.ok) return authz.response;
 
@@ -97,7 +104,7 @@ export async function POST(req: Request) {
       const currentUsed = usageSnap.exists ? (Number(usageSnap.data()?.creditsUsed) || 0) : 0;
       const limit = getAiCreditLimit(clinicData);
 
-      if (limit > 0 && currentUsed + REQUIRED_CREDITS > limit) {
+      if (limit > 0 && currentUsed + requiredCredits > limit) {
         return NextResponse.json(
           { ok: false, error: `Monthly AI credits limit reached (${currentUsed} / ${limit} credits used). Resets on the 1st of next month.` },
           { status: 429 }
@@ -108,7 +115,7 @@ export async function POST(req: Request) {
         await usageRef.set(
           {
             monthKey,
-            creditsUsed: FieldValue.increment(REQUIRED_CREDITS),
+            creditsUsed: FieldValue.increment(requiredCredits),
             updatedAt: FieldValue.serverTimestamp(),
           },
           { merge: true }
@@ -210,7 +217,7 @@ ${priceListText}`;
 
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({
-      model: "gemini-flash-latest",
+      model: modelName,
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -398,6 +405,15 @@ ${priceListText}`;
     }
 
     await chargeCredits?.();
+    await logAiCreditUsage({
+      clinicId,
+      feature: "treatment_plan",
+      credits: requiredCredits,
+      userId: authz.uid,
+      patientId,
+      patientName: String((ctx.patient as any).name || ""),
+      detail: [refinement ? "refinement round" : "", superMode ? "super mode" : ""].filter(Boolean).join(" · "),
+    });
 
     return NextResponse.json({ ok: true, options, questions, currency, calendarNotes: Array.from(calendarNotes) });
   } catch (e) {

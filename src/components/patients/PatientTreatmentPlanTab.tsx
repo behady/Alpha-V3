@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ClipboardList, Plus, Sparkles, Printer, Download, MessageCircle, Edit2, Trash2, X,
   Loader2, AlertTriangle, ChevronDown, Check, CalendarDays, Languages,
-  Stethoscope, ImagePlus, Paperclip, Send, ArrowRight,
+  Stethoscope, ImagePlus, Paperclip, Send, ArrowRight, Zap, Rocket,
 } from "lucide-react";
 import { onSnapshot, query, where, orderBy, addDoc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -86,7 +86,8 @@ type DiagMessage = { role: "user" | "assistant"; content: string; images?: strin
 /** An image queued for the next diagnosis message: uploaded bytes or a gallery link. */
 type PendingImage = { kind: "data" | "url"; value: string; preview: string };
 type MediaRow = { id: string; url: string; category: string; filename: string; createdMs: number };
-type DiagSession = { id: string; title: string; messages: DiagMessage[]; updatedMs: number };
+type AiMode = "power" | "super";
+type DiagSession = { id: string; title: string; messages: DiagMessage[]; updatedMs: number; mode: AiMode };
 
 function normalizeDiagMessages(raw: unknown): DiagMessage[] {
   if (!Array.isArray(raw)) return [];
@@ -330,6 +331,7 @@ export default function PatientTreatmentPlanTab({
   const [aiLoading, setAiLoading] = useState(false);
   const [aiOptions, setAiOptions] = useState<AiOption[] | null>(null);
   const [aiSavingIdx, setAiSavingIdx] = useState<number | null>(null);
+  const [aiMode, setAiMode] = useState<AiMode>("power");
   // The Q&A loop: questions the AI asked, the dentist's answers, and a compact summary of the
   // previous round so a refinement request carries its own context.
   const [aiQuestions, setAiQuestions] = useState<string[]>([]);
@@ -342,6 +344,7 @@ export default function PatientTreatmentPlanTab({
   const [diagView, setDiagView] = useState<"list" | "chat">("list");
   const [diagChatId, setDiagChatId] = useState<string | null>(null);
   const [diagSessions, setDiagSessions] = useState<DiagSession[]>([]);
+  const [diagMode, setDiagMode] = useState<AiMode>("power");
   const [diagMessages, setDiagMessages] = useState<DiagMessage[]>([]);
   const [diagInput, setDiagInput] = useState("");
   const [diagSending, setDiagSending] = useState(false);
@@ -457,6 +460,16 @@ export default function PatientTreatmentPlanTab({
     formNeedOne: ar ? "املأ إجابة واحدة على الأقل" : "Fill in at least one answer",
     formYes: ar ? "نعم" : "Yes",
     formNo: ar ? "لا" : "No",
+    modePower: ar ? "قوي" : "Powerful",
+    modeSuper: ar ? "خارق" : "Super",
+    diagModeHintPower: ar ? "١ رصيد للرسالة (٣ بالصور)" : "1 credit per message (3 with photos)",
+    diagModeHintSuper: ar
+      ? "٣ رصيد للرسالة (٩ بالصور) — تفكير أعمق وذاكرة أطول للحالات المعقدة"
+      : "3 credits per message (9 with photos) — deeper thinking and longer memory for complex cases",
+    planModeHintPower: ar ? "٢ رصيد لكل توليد" : "2 credits per generation",
+    planModeHintSuper: ar
+      ? "٦ رصيد لكل توليد — تحليل أعمق للحالات المعقدة"
+      : "6 credits per generation — deeper analysis for complex cases",
     priceMissing: ar ? "السعر مش في القائمة — حدده يدوياً" : "Not in price list — set price manually",
     aiBadge: ar ? "ذكاء اصطناعي" : "AI",
     manualBadge: ar ? "يدوي" : "Manual",
@@ -521,6 +534,7 @@ export default function PatientTreatmentPlanTab({
           title: String(data.title || ""),
           messages: normalizeDiagMessages(data.messages),
           updatedMs: data.updatedAt?.toMillis?.() || data.createdAt?.toMillis?.() || 0,
+          mode: data.mode === "super" ? "super" : "power",
         } as DiagSession;
       });
       rows.sort((a, b) => b.updatedMs - a.updatedMs);
@@ -956,6 +970,7 @@ export default function PatientTreatmentPlanTab({
           patientId,
           instructions: aiInstructions,
           language,
+          mode: aiMode,
           ...(refine && (aiPrevSummary || aiAnswers.trim())
             ? { refinement: { previous: aiPrevSummary, answers: aiAnswers.trim() } }
             : {}),
@@ -1077,6 +1092,7 @@ export default function PatientTreatmentPlanTab({
   const openDiagSession = (session: DiagSession | null) => {
     setDiagChatId(session?.id || null);
     setDiagMessages(session ? session.messages : []);
+    setDiagMode(session?.mode || "power");
     setDiagPendingImages([]);
     setDiagInput("");
     setDiagGalleryOpen(false);
@@ -1108,6 +1124,7 @@ export default function PatientTreatmentPlanTab({
       await updateDoc(getClinicDoc("diagnosis_chats", diagChatId), {
         messages: stored,
         title,
+        mode: diagMode,
         updatedAt: serverTimestamp(),
       });
     } else {
@@ -1115,6 +1132,7 @@ export default function PatientTreatmentPlanTab({
         patientId,
         patientName: String(patient?.name || ""),
         title,
+        mode: diagMode,
         messages: stored,
         createdBy: user?.uid || "",
         createdByName: user?.name || "",
@@ -1179,6 +1197,7 @@ export default function PatientTreatmentPlanTab({
           history,
           imageUrls,
           language,
+          mode: diagMode,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1238,6 +1257,7 @@ export default function PatientTreatmentPlanTab({
           summarize: true,
           history: diagMessages.map((m) => ({ role: m.role, content: m.content })),
           language,
+          mode: diagMode,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -1364,6 +1384,33 @@ export default function PatientTreatmentPlanTab({
       </div>
     );
   };
+
+  /** Powerful vs Super: the fast model at base price, or the deep-thinking model at double credits. */
+  const renderModeToggle = (value: AiMode, onChange: (m: AiMode) => void, hint: string, disabled: boolean) => (
+    <div className="flex items-center justify-between gap-3 flex-wrap">
+      <div className="flex rounded-xl border border-slate-200 overflow-hidden shrink-0">
+        <button
+          onClick={() => onChange("power")}
+          disabled={disabled}
+          className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black transition-colors disabled:opacity-60 ${
+            value === "power" ? "bg-slate-800 text-white" : "bg-white text-slate-500 hover:bg-slate-50"
+          }`}
+        >
+          <Zap size={13} /> {txt.modePower}
+        </button>
+        <button
+          onClick={() => onChange("super")}
+          disabled={disabled}
+          className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-black transition-colors disabled:opacity-60 ${
+            value === "super" ? "bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white" : "bg-white text-slate-500 hover:bg-slate-50"
+          }`}
+        >
+          <Rocket size={13} /> {txt.modeSuper} <span className="opacity-80">×3</span>
+        </button>
+      </div>
+      <span className="text-[11px] font-semibold text-slate-400 min-w-0">{hint}</span>
+    </div>
+  );
 
   const pdfLangToggle = (planId: string) => {
     const current = pdfLangFor(planId);
@@ -1987,6 +2034,14 @@ export default function PatientTreatmentPlanTab({
             {/* Input row */}
             {diagView === "chat" && (
             <div className="px-5 py-3.5 border-t border-slate-100 shrink-0 bg-white rounded-b-3xl">
+              <div className="mb-2.5">
+                {renderModeToggle(
+                  diagMode,
+                  setDiagMode,
+                  diagMode === "super" ? txt.diagModeHintSuper : txt.diagModeHintPower,
+                  diagSending || diagSummarizing
+                )}
+              </div>
               <div className="flex items-end gap-2">
                 <input
                   ref={diagFileRef}
@@ -2081,6 +2136,12 @@ export default function PatientTreatmentPlanTab({
                     disabled={aiLoading}
                     className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all resize-y disabled:opacity-60"
                   />
+                  {renderModeToggle(
+                    aiMode,
+                    setAiMode,
+                    aiMode === "super" ? txt.planModeHintSuper : txt.planModeHintPower,
+                    aiLoading
+                  )}
                   <button
                     onClick={() => handleGenerateAi(false)}
                     disabled={aiLoading}
@@ -2097,6 +2158,12 @@ export default function PatientTreatmentPlanTab({
 
               {aiOptions && (
                 <>
+                  {renderModeToggle(
+                    aiMode,
+                    setAiMode,
+                    aiMode === "super" ? txt.planModeHintSuper : txt.planModeHintPower,
+                    aiLoading || aiSavingIdx !== null
+                  )}
                   {/* The AI's questions about durations and visit division — answering refines the plans. */}
                   {aiQuestions.length > 0 && (
                     <div className="border border-amber-200 bg-amber-50/60 rounded-2xl p-4 space-y-3">

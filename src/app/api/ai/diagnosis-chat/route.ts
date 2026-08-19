@@ -5,6 +5,7 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { fetchPatientAiContext, patientContextBlock } from "@/lib/aiPatientContext";
+import { logAiCreditUsage } from "@/lib/aiCreditLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +13,6 @@ export const maxDuration = 90;
 
 const MAX_IMAGES = 4;
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
-const MAX_HISTORY = 14;
 
 /**
  * The open diagnostic discussion: the dentist and the AI examine one patient together.
@@ -35,6 +35,13 @@ export async function POST(req: Request) {
     const language = body?.language === "ar" ? "ar" : "en";
     const summarize = body?.summarize === true;
 
+    // Powerful (default) runs on the fast model; Super runs on the deeper Pro model with a
+    // longer memory window, and costs triple the credits. The mode comes from the dentist's
+    // toggle, but the price is decided HERE — a client cannot ask for Super at Powerful rates.
+    const superMode = body?.mode === "super";
+    const modelName = superMode ? "gemini-pro-latest" : "gemini-flash-latest";
+    const maxHistory = superMode ? 30 : 14;
+
     if (!clinicId || !patientId) {
       return NextResponse.json({ ok: false, error: "clinicId and patientId are required." }, { status: 400 });
     }
@@ -55,7 +62,7 @@ export async function POST(req: Request) {
       : [];
 
     const hasImages = imagesBase64.length > 0 || imageUrls.length > 0;
-    const requiredCredits = hasImages ? 3 : 1;
+    const requiredCredits = (hasImages ? 3 : 1) * (superMode ? 3 : 1);
 
     const db = adminDb();
 
@@ -141,7 +148,7 @@ ${patientContextBlock(ctx)}`;
 
     // History travels as plain text turns; images ride only on the current turn (same policy as
     // the chat assistant — resending every historical image would triple the cost of every turn).
-    const historyRaw = Array.isArray(body?.history) ? body.history.slice(-MAX_HISTORY) : [];
+    const historyRaw = Array.isArray(body?.history) ? body.history.slice(-maxHistory) : [];
     const contents: any[] = historyRaw
       .map((m: any) => ({
         role: m?.role === "assistant" ? "model" : "user",
@@ -179,7 +186,7 @@ ${patientContextBlock(ctx)}`;
 
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({
-      model: "gemini-flash-latest",
+      model: modelName,
       systemInstruction,
     });
 
@@ -191,6 +198,17 @@ ${patientContextBlock(ctx)}`;
     }
 
     await chargeCredits?.();
+    await logAiCreditUsage({
+      clinicId,
+      feature: "diagnosis_chat",
+      credits: requiredCredits,
+      userId: authz.uid,
+      patientId,
+      patientName: String((ctx.patient as any).name || ""),
+      detail: [summarize ? "diagnosis summary" : hasImages ? "with photos" : "", superMode ? "super mode" : ""]
+        .filter(Boolean)
+        .join(" · "),
+    });
 
     return NextResponse.json({ ok: true, reply });
   } catch (e) {

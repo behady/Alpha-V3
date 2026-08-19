@@ -5,6 +5,7 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
+import { logAiCreditUsage } from "@/lib/aiCreditLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -212,6 +213,15 @@ ${JSON.stringify(source)}`;
     );
 
     await chargeCredits?.();
+    await logAiCreditUsage({
+      clinicId,
+      feature: "plan_translation",
+      credits: REQUIRED_CREDITS,
+      userId: authz.uid,
+      patientId: String(plan.patientId || ""),
+      patientName: String(plan.patientName || ""),
+      detail: target === "ar" ? "to Arabic" : "to English",
+    });
 
     return NextResponse.json({ ok: true, translation: safe, cached: false });
   } catch (e) {

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { 
   Building, Building2, MapPin, Clock, Pill, Stethoscope, Users, Bell, Palette, ChevronDown, 
-  X, User, Mail, Lock, Badge, Save, MessageCircle, Monitor, CalendarDays, MessagesSquare
+  X, User, Mail, Lock, Badge, Save, MessageCircle, Monitor, CalendarDays, MessagesSquare, Sparkles
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
@@ -34,6 +34,7 @@ import PatientSourcesSettings from "@/components/settings/PatientSourcesSettings
 import VisitReasonsSettings from "@/components/settings/VisitReasonsSettings";
 import OnlineBookingSettings from "@/components/settings/OnlineBookingSettings";
 import LocationsSettings from "@/components/settings/LocationsSettings";
+import AiCreditsSettings from "@/components/settings/AiCreditsSettings";
 import { logActivity } from "@/lib/logger";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";export default function SettingsPage() {
   const { language, isRTL } = useLanguage();
@@ -71,6 +72,7 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";export defau
     { id: "users", label: language === 'ar' ? "المستخدمين" : "Users", icon: Users, adminOnly: true },
     { id: "join_requests", label: language === 'ar' ? "طلبات الانضمام" : "Join Requests", icon: Users, adminOnly: true },
     { id: "logs", label: language === 'ar' ? "سجل النشاط" : "Activity Logs", icon: Clock, adminOnly: true },
+    { id: "ai_credits", label: language === 'ar' ? "رصيد الذكاء الاصطناعي" : "AI Credits", icon: Sparkles, adminOnly: true },
     { id: "notifications", label: language === 'ar' ? "التنبيهات" : "Alerts", icon: Bell, adminOnly: true },
     ...(hasFeature(clinic, "whatsappIntegration") ? [{ id: "whatsapp", label: language === 'ar' ? "واتساب" : "WhatsApp", icon: MessageCircle, adminOnly: true }] : []),
     // Not gated on whatsappIntegration: sending from the clinic's own SIM needs no gateway and no
@@ -382,6 +384,7 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";export defau
             )}
             {activeTab === 'join_requests' && isAdmin && <JoinRequests />}
             {activeTab === 'logs' && isAdmin && <ActivityLogs />}
+            {activeTab === 'ai_credits' && isAdmin && <AiCreditsSettings />}
             {activeTab === 'notifications' && isAdmin && (
               <NotificationSettings clinicData={clinicData} setClinicData={setClinicData} handleSaveClinic={handleSaveClinic} />
             )}
