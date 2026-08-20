@@ -462,10 +462,12 @@ export default function PatientTreatmentPlanTab({
     formNo: ar ? "لا" : "No",
     modePower: ar ? "قوي" : "Powerful",
     modeSuper: ar ? "خارق" : "Super",
-    diagModeHintPower: ar ? "١ رصيد للرسالة (٣ بالصور)" : "1 credit per message (3 with photos)",
+    diagModeHintPower: ar
+      ? "١ رصيد للرسالة (٣ بالصور) — سريع ومباشر: تشخيص مبدئي من أول رد وأقل أسئلة"
+      : "1 credit per message (3 with photos) — fast and decisive: a working diagnosis from the first reply, minimal questions",
     diagModeHintSuper: ar
-      ? "٣ رصيد للرسالة (٩ بالصور) — تفكير أعمق وذاكرة أطول للحالات المعقدة"
-      : "3 credits per message (9 with photos) — deeper thinking and longer memory for complex cases",
+      ? "٣ رصيد للرسالة (٩ بالصور) — فحص شامل للحالات المعقدة: تفكير أعمق وأسئلة واختبارات أكتر"
+      : "3 credits per message (9 with photos) — exhaustive workup for complex cases: deeper thinking, more tests and views",
     planModeHintPower: ar ? "٢ رصيد لكل توليد" : "2 credits per generation",
     planModeHintSuper: ar
       ? "٦ رصيد لكل توليد — تحليل أعمق للحالات المعقدة"
