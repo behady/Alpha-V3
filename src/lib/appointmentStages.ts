@@ -77,11 +77,13 @@ export function getAppointmentStatusStyles(status?: string): AppointmentStatusSt
   // falling through to the default grey.
   switch (normalizeAppointmentStatus(status)) {
     case "Scheduled":
+      // Unconfirmed is a to-do — someone still has to call the patient — so it
+      // wears a warm yellow rather than a grey that reads as "all settled".
       return {
-        card: "bg-slate-100 border-0 shadow-[0_4px_15px_rgba(0,0,0,0.05)] text-slate-800",
-        accent: "bg-slate-400",
-        pill: "bg-slate-200 text-slate-700 font-bold",
-        dot: "bg-slate-400",
+        card: "bg-yellow-50 border-0 shadow-[0_4px_15px_rgba(0,0,0,0.05)] text-slate-800",
+        accent: "bg-yellow-400",
+        pill: "bg-yellow-100 text-yellow-800 font-bold",
+        dot: "bg-yellow-400",
       };
     case "Confirmed":
       return {

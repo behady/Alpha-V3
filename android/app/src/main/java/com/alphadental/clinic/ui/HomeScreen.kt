@@ -39,11 +39,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.alphadental.clinic.data.Appointment
+import com.alphadental.clinic.data.DOCTOR_TITLES
 import com.alphadental.clinic.data.Session
 import java.util.Calendar
 import kotlinx.coroutines.delay
@@ -100,18 +102,20 @@ fun HomeScreen(
     ) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                // Solid ink rather than a soft tint: on the tinted ground the pale
+                // circle all but vanished, and the header lost its anchor.
                 Box(
                     modifier = Modifier
                         .size(46.dp)
                         .clip(CircleShape)
-                        .background(Alpha.GreenSoft),
+                        .background(Alpha.Ink),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         session.name.trim().firstOrNull()?.uppercase() ?: "•",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Alpha.Green,
+                        color = Color.White,
                     )
                 }
                 Spacer(Modifier.width(12.dp))
@@ -352,41 +356,31 @@ private fun LazyListScope.ownerHome(
     val seen = all.count { normalizeStatus(it.status) in setOf("Completed", "Checking Out") }
     val noShow = all.count { normalizeStatus(it.status) == "No Show" }
 
-    // Money collected today. Deliberately what came through the door, not what was
-    // charged — billed-but-unpaid would flatter the figure badly and this is the
-    // one number an owner acts on, so it gets the one coloured card.
-    item {
-        AlphaCard(modifier = Modifier.fillMaxWidth(), shape = Alpha.CardShape, color = Alpha.GreenSoft) {
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 18.dp)) {
-                Text(
-                    text = takingsToday?.let { "${it.toInt()} EGP" } ?: "—",
-                    fontSize = 30.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Alpha.Green,
-                )
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    text = if (arabic) "تحصيل اليوم" else "Collected today",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Alpha.Slate600,
-                )
-            }
-        }
-    }
-
-    // The day at a glance: how far through the bookings the clinic is.
+    // The owner's day on one card: the money in, then how far through the
+    // bookings the clinic is. The figure is deliberately what came through the
+    // door, not what was charged — billed-but-unpaid would flatter it badly.
+    // One white card instead of the old tinted-money-card-plus-progress-card
+    // pair: the tinted card sat on the tinted ground and the pair ate half the
+    // screen between them.
     item {
         AlphaCard(modifier = Modifier.fillMaxWidth(), shape = Alpha.CardShape) {
             Column(Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = if (arabic) "سير اليوم" else "Today's progress",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Alpha.Slate800,
-                        modifier = Modifier.weight(1f),
-                    )
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = takingsToday?.let { "${it.toInt()} EGP" } ?: "—",
+                            fontSize = 27.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Alpha.Green,
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = if (arabic) "تحصيل اليوم" else "Collected today",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Alpha.Slate600,
+                        )
+                    }
                     Text(
                         text = when {
                             arabic -> "$seen من ${all.size}"
@@ -535,6 +529,10 @@ private fun HeroAppointment(
 /**
  * Clock in/out as a pill in the header: the dot says the state, the text says
  * how long, and one tap punches. The full card still lives on the More tab.
+ *
+ * Off shift the chip is the day's first action, so it dresses as a filled
+ * button — the old grey pill read as disabled. On shift it relaxes into a soft
+ * tint that reads as state, not another thing to press.
  */
 @Composable
 private fun ClockChip(
@@ -556,7 +554,7 @@ private fun ClockChip(
         onClick = onPunch,
         enabled = !clocking,
         shape = Alpha.PillShape,
-        color = if (onShift) Alpha.GreenSoft else Alpha.Slate100,
+        color = if (onShift) Alpha.GreenSoft else Alpha.Ink,
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -564,7 +562,7 @@ private fun ClockChip(
         ) {
             if (clocking) {
                 CircularProgressIndicator(
-                    color = Alpha.Slate400,
+                    color = if (onShift) Alpha.Slate400 else Color.White,
                     strokeWidth = 2.dp,
                     modifier = Modifier.size(12.dp),
                 )
@@ -573,7 +571,7 @@ private fun ClockChip(
                     Modifier
                         .size(8.dp)
                         .clip(CircleShape)
-                        .background(if (onShift) Alpha.Green else Alpha.Slate400)
+                        .background(if (onShift) Alpha.Green else Color.White.copy(alpha = .9f))
                 )
             }
             Spacer(Modifier.width(7.dp))
@@ -589,7 +587,7 @@ private fun ClockChip(
                 },
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                color = if (onShift) Alpha.Green else Alpha.Slate600,
+                color = if (onShift) Alpha.Green else Color.White,
             )
         }
     }
@@ -625,13 +623,11 @@ private fun greeting(name: String, arabic: Boolean): String {
     val parts = name.trim().split(" ").filter { it.isNotBlank() }
     val short = when {
         parts.isEmpty() -> ""
-        parts.size > 1 && parts[0].trimEnd('.').lowercase() in TITLES -> "${parts[0]} ${parts[1]}"
+        parts.size > 1 && parts[0].trimEnd('.').lowercase() in DOCTOR_TITLES -> "${parts[0]} ${parts[1]}"
         else -> parts[0]
     }
     return if (arabic) "أهلاً $short" else "Hello $short"
 }
-
-private val TITLES = setOf("dr", "د", "دكتور", "doctor", "prof", "أستاذ", "استاذ")
 
 /** "Sat, 16 Aug" in the greeting line, in the app's language. */
 private fun todayLabel(arabic: Boolean): String {

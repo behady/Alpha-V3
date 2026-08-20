@@ -86,6 +86,7 @@ import com.alphadental.clinic.data.PatientFile
 import com.alphadental.clinic.data.PatientMedia
 import com.alphadental.clinic.data.Prescription
 import com.alphadental.clinic.data.parseTeeth
+import com.alphadental.clinic.data.withDoctorTitle
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -1098,7 +1099,7 @@ private fun RxTab(
                         Text(
                             listOfNotNull(
                                 rx.date.takeIf { it.isNotBlank() },
-                                rx.doctor.takeIf { it.isNotBlank() }?.let { "Dr. $it" },
+                                rx.doctor.takeIf { it.isNotBlank() }?.let { withDoctorTitle(it) },
                             ).joinToString("  ·  "),
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Medium,
@@ -1291,7 +1292,7 @@ private fun NoteRow(
             val detail = listOfNotNull(
                 note.tooth.takeIf { it.isNotBlank() && it != "Gen" }?.let { (if (arabic) "سن " else "Tooth ") + it },
                 note.date.takeIf { it.isNotBlank() },
-                note.doctor.takeIf { it.isNotBlank() }?.let { "Dr. $it" },
+                note.doctor.takeIf { it.isNotBlank() }?.let { withDoctorTitle(it) },
             ).joinToString("  ·  ")
             if (detail.isNotBlank()) {
                 Text(detail, fontSize = 11.5.sp, fontWeight = FontWeight.Medium, color = Alpha.Slate400)
@@ -1390,7 +1391,7 @@ private fun VisitRow(visit: Appointment, arabic: Boolean) {
             val detail = listOfNotNull(
                 visit.time.takeIf { it.isNotBlank() },
                 visit.treatment.takeIf { it.isNotBlank() },
-                visit.doctor.takeIf { it.isNotBlank() }?.let { "Dr. $it" },
+                visit.doctor.takeIf { it.isNotBlank() }?.let { withDoctorTitle(it) },
             ).joinToString(" · ")
             if (detail.isNotBlank()) {
                 Text(detail, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = Alpha.Slate400)

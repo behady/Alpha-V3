@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.alphadental.clinic.data.Appointment
+import com.alphadental.clinic.data.withDoctorTitle
 
 /**
  * The app's panel: a soft rounded card on the calm ground.
@@ -164,8 +165,7 @@ fun AppointmentCard(
                     Text(
                         text = listOfNotNull(
                             appointment.time.ifBlank { "—" },
-                            appointment.doctor.takeIf { it.isNotBlank() }?.let { "Dr. $it" },
-                            appointment.treatment.takeIf { it.isNotBlank() },
+                            appointment.doctor.takeIf { it.isNotBlank() }?.let { withDoctorTitle(it) },
                         ).joinToString("  ·  "),
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.Medium,
@@ -173,6 +173,20 @@ fun AppointmentCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+
+                    // The treatment gets a line of its own: sharing one with the time
+                    // and doctor left it truncated more often than not.
+                    if (appointment.treatment.isNotBlank()) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = appointment.treatment,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Alpha.Slate500,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
 
                     // Says plainly that this change is still only on this phone. Without
                     // it, a check-in made with no signal looks exactly like one that

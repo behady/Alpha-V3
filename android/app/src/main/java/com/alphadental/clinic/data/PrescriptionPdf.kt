@@ -58,8 +58,8 @@ object PrescriptionPdf {
             MARGIN, y + 15, paint(15f, INK, bold = true),
         )
         val subtitle = clinic.rxHeader.ifBlank {
-            prescription.doctor.takeIf { it.isNotBlank() }?.let { "Dr. $it" }
-                ?: clinic.doctorName.takeIf { it.isNotBlank() }?.let { "Dr. $it" }
+            prescription.doctor.takeIf { it.isNotBlank() }?.let { withDoctorTitle(it) }
+                ?: clinic.doctorName.takeIf { it.isNotBlank() }?.let { withDoctorTitle(it) }
                 ?: ""
         }
         if (subtitle.isNotBlank()) {

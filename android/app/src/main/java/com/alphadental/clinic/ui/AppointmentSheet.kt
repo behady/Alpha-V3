@@ -43,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.alphadental.clinic.data.Appointment
+import com.alphadental.clinic.data.withDoctorTitle
 
 /**
  * What you can do to one appointment.
@@ -117,7 +118,7 @@ fun AppointmentSheet(
                     Text(
                         text = listOfNotNull(
                             appointment.time.ifBlank { "—" },
-                            appointment.doctor.takeIf { it.isNotBlank() }?.let { "Dr. $it" },
+                            appointment.doctor.takeIf { it.isNotBlank() }?.let { withDoctorTitle(it) },
                         ).joinToString("  ·  "),
                         fontSize = 13.5.sp,
                         fontWeight = FontWeight.Medium,

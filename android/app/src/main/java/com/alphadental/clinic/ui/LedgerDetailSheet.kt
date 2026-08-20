@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import com.alphadental.clinic.AppViewModel
 import com.alphadental.clinic.data.PatientLedgerEntry
 import com.alphadental.clinic.data.Repository
+import com.alphadental.clinic.data.withDoctorTitle
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -135,7 +136,7 @@ fun LedgerDetailSheet(
                 DetailRow(if (arabic) "طريقة الدفع" else "Method", entry.method)
             }
             if (entry.doctorName.isNotBlank()) {
-                DetailRow(if (arabic) "الطبيب" else "Doctor", "Dr. ${entry.doctorName}")
+                DetailRow(if (arabic) "الطبيب" else "Doctor", withDoctorTitle(entry.doctorName))
             }
             if (entry.discount > 0) {
                 DetailRow(if (arabic) "خصم" else "Discount", "${entry.discount.toInt()} EGP")

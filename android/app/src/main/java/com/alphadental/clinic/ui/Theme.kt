@@ -200,6 +200,9 @@ data class StatusStyle(
 fun statusStyle(status: String?): StatusStyle = statusStyle(status, LocalAlpha.current.dark)
 
 fun statusStyle(status: String?, dark: Boolean): StatusStyle = if (!dark) when (normalizeStatus(status)) {
+    // Unconfirmed is a to-do — someone still has to call the patient — so it
+    // wears a warm yellow rather than a grey that reads as "all settled".
+    "Scheduled" -> StatusStyle(Color(0xFFFEFCE8), Color(0xFFFACC15), Color(0xFFFEF9C3), Color(0xFF854D0E))
     "Confirmed" -> StatusStyle(Color(0xFFF0FDFA), Color(0xFF2DD4BF), Color(0xFFCCFBF1), Color(0xFF0F766E))
     "Checked In" -> StatusStyle(Color(0xFFD1FAE5), Color(0xFF10B981), Color(0xFFA7F3D0), Color(0xFF065F46))
     "In Chair" -> StatusStyle(Color(0xFFE0F2FE), Color(0xFF0EA5E9), Color(0xFFBAE6FD), Color(0xFF075985))
@@ -210,9 +213,10 @@ fun statusStyle(status: String?, dark: Boolean): StatusStyle = if (!dark) when (
     "Cancelled" -> StatusStyle(Color(0xFFFFF1F2), Color(0xFFFDA4AF), Color(0xFFFFE4E6), Color(0xFFE11D48))
     "No Show" -> StatusStyle(Color(0xFFFFE4E6), Color(0xFFF43F5E), Color(0xFFFECDD3), Color(0xFF9F1239))
     "Rescheduled" -> StatusStyle(Color(0xFFEDE9FE), Color(0xFF8B5CF6), Color(0xFFDDD6FE), Color(0xFF5B21B6))
-    // "Scheduled" and anything unrecognised.
+    // Anything unrecognised.
     else -> StatusStyle(Color(0xFFF1F5F9), Color(0xFF94A3B8), Color(0xFFE2E8F0), Color(0xFF334155))
 } else when (normalizeStatus(status)) {
+    "Scheduled" -> StatusStyle(Color(0xFF2E2908), Color(0xFFFACC15), Color(0xFF713F12), Color(0xFFFEF08A))
     "Confirmed" -> StatusStyle(Color(0xFF122A27), Color(0xFF2DD4BF), Color(0xFF134E4A), Color(0xFF99F6E4))
     "Checked In" -> StatusStyle(Color(0xFF122A1E), Color(0xFF34D399), Color(0xFF065F46), Color(0xFFA7F3D0))
     "In Chair" -> StatusStyle(Color(0xFF0F2536), Color(0xFF38BDF8), Color(0xFF075985), Color(0xFFBAE6FD))

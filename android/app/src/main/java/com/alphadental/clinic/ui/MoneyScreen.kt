@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.alphadental.clinic.AppViewModel
 import com.alphadental.clinic.data.Repository
+import com.alphadental.clinic.data.withDoctorTitle
 import java.text.SimpleDateFormat
 import java.util.Locale
 
@@ -282,7 +283,7 @@ fun MoneyScreen(
                             )
                         }
                         items(doctors) { doctor ->
-                            FilterPill("Dr. $doctor", doctorFilter == doctor) {
+                            FilterPill(withDoctorTitle(doctor), doctorFilter == doctor) {
                                 doctorFilter = if (doctorFilter == doctor) "" else doctor
                             }
                         }
@@ -405,7 +406,7 @@ private fun FinanceRowCard(
                 )
                 val detail = listOfNotNull(
                     row.patientName.takeIf { it.isNotBlank() },
-                    row.doctorName.takeIf { it.isNotBlank() }?.let { "Dr. $it" },
+                    row.doctorName.takeIf { it.isNotBlank() }?.let { withDoctorTitle(it) },
                     row.category.takeIf { it.isNotBlank() },
                     if (showDate) prettyShortDate(row.date, arabic) else null,
                 ).joinToString("  ·  ")

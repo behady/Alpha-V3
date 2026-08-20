@@ -146,7 +146,7 @@ object ReportPdf {
                 val desc = listOfNotNull(
                     row.description.ifBlank { row.category }.takeIf { it.isNotBlank() },
                     row.patientName.takeIf { it.isNotBlank() },
-                    row.doctorName.takeIf { it.isNotBlank() }?.let { "Dr. $it" },
+                    row.doctorName.takeIf { it.isNotBlank() }?.let { withDoctorTitle(it) },
                 ).joinToString(" · ")
                 canvas.drawText(ellipsize(desc, cell, CONTENT_W - 140), MARGIN + 44, y + 12, cell)
                 val amount = (if (positive) "+" else "-") + row.cash.toInt()
@@ -173,7 +173,7 @@ object ReportPdf {
             y += 22
             perDoctor.forEach { (doctor, total) ->
                 ensure(20f)
-                canvas.drawText("Dr. $doctor", MARGIN, y + 12, cell)
+                canvas.drawText(withDoctorTitle(doctor), MARGIN, y + 12, cell)
                 canvas.drawText("${total.toInt()}", PAGE_W - MARGIN - 60, y + 12, paint(9.5f, AMBER, bold = true))
                 y += 17
                 canvas.drawLine(MARGIN, y, PAGE_W - MARGIN, y, line)
