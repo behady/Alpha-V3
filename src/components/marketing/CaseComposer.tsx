@@ -93,8 +93,11 @@ export default function CaseComposer({
         if (!cancelled) setLoadError(isAr ? "تعذر تحميل صور الحالة" : "Could not load the case photos");
       }
 
-      // The logo is best-effort: an external host that blocks reading simply means no logo.
-      if (logoUrl) {
+      // Brand Kit logos are already data URLs — use directly. External URLs are best-effort:
+      // a host that blocks reading simply means the clinic name takes the logo's place.
+      if (logoUrl.startsWith("data:")) {
+        if (!cancelled) setLogoData(logoUrl);
+      } else if (logoUrl) {
         try {
           const res = await fetch(logoUrl);
           if (res.ok) {
@@ -174,7 +177,9 @@ export default function CaseComposer({
         style={{ position: "absolute", bottom: 0, left: 0, width: "100%", height: "50%", objectFit: "cover", objectPosition: `50% ${afterFocus}%` }}
       />
 
-      {/* The seam overlay — logo + script name, like the references. */}
+      {/* The seam overlay, matched to the user's reference design: a LARGE logo sitting
+          across the seam on the start side, and the dentist's name in handwriting beside it
+          with a thin underline resting on the seam line. */}
       <div
         style={{
           position: "absolute",
@@ -184,8 +189,8 @@ export default function CaseComposer({
           transform: "translateY(-50%)",
           display: "flex",
           alignItems: "center",
-          gap: w * 0.03,
-          paddingInline: w * 0.05,
+          gap: w * 0.04,
+          paddingInline: w * 0.055,
         }}
       >
         {showLogo && logoData ? (
@@ -194,39 +199,56 @@ export default function CaseComposer({
             src={logoData}
             alt=""
             style={{
-              width: w * 0.16,
-              height: w * 0.16,
+              width: w * 0.23,
+              height: w * 0.23,
               objectFit: "contain",
-              filter: "drop-shadow(0 2px 10px rgba(0,0,0,0.55))",
+              flexShrink: 0,
+              filter: "drop-shadow(0 3px 14px rgba(0,0,0,0.6))",
             }}
           />
         ) : (
           <span
             style={{
+              display: "inline-block",
               color: "#fff",
-              fontSize: w * 0.034,
+              fontSize: w * 0.042,
               fontWeight: 800,
-              letterSpacing: 3,
+              letterSpacing: 4,
               textTransform: "uppercase",
-              textShadow: "0 2px 12px rgba(0,0,0,0.75)",
-              whiteSpace: "nowrap",
+              textAlign: "center",
+              lineHeight: 1.3,
+              maxWidth: w * 0.32,
+              textShadow: "0 2px 14px rgba(0,0,0,0.8)",
+              flexShrink: 0,
             }}
           >
             {clinicName}
           </span>
         )}
         {dentistName.trim() && (
-          <span
-            className={/[؀-ۿ]/.test(dentistName) ? undefined : script.className}
-            style={{
-              color: "#fff",
-              fontSize: /[؀-ۿ]/.test(dentistName) ? w * 0.045 : w * 0.062,
-              fontWeight: /[؀-ۿ]/.test(dentistName) ? 700 : 400,
-              textShadow: "0 2px 12px rgba(0,0,0,0.75)",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {dentistName}
+          <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-start" }}>
+            <span
+              className={/[؀-ۿ]/.test(dentistName) ? undefined : script.className}
+              style={{
+                color: "#fff",
+                fontSize: /[؀-ۿ]/.test(dentistName) ? w * 0.055 : w * 0.075,
+                fontWeight: /[؀-ۿ]/.test(dentistName) ? 700 : 400,
+                lineHeight: 1.1,
+                textShadow: "0 2px 14px rgba(0,0,0,0.8)",
+                whiteSpace: "nowrap",
+                paddingBottom: w * 0.012,
+              }}
+            >
+              {dentistName}
+            </span>
+            <span
+              style={{
+                width: "100%",
+                height: Math.max(2, w * 0.0028),
+                background: "rgba(255,255,255,0.92)",
+                boxShadow: "0 1px 8px rgba(0,0,0,0.6)",
+              }}
+            />
           </span>
         )}
       </div>

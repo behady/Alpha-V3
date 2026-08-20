@@ -2097,7 +2097,7 @@ export default function MarketingPage() {
             services={services}
             userName={user?.name}
             clinicName={profileLite.clinicName || clinic?.name || ""}
-            logoUrl={profileLite.logoUrl}
+            logoUrl={brand.logoDataUrl || profileLite.logoUrl}
             designUnlocked={designUnlocked}
             showToast={showToast}
           />
@@ -3043,13 +3043,66 @@ export default function MarketingPage() {
                   </div>
                 </div>
 
-                {!profileLite.logoUrl && (
-                  <p className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3.5 py-2.5">
-                    {isAr
-                      ? "لا يوجد لوجو محفوظ — أضِفه في الإعدادات ← ملف العيادة وسيظهر على التصاميم تلقائياً."
-                      : "No logo saved — add it in Settings → Clinic profile and it appears on designs automatically."}
-                  </p>
-                )}
+                {/* Marketing logo — ideally the white/transparent version that sits on photos. */}
+                <div>
+                  <label className={labelCls}>{isAr ? "لوجو التسويق (يفضَّل نسخة بيضاء بخلفية شفافة)" : "Marketing logo (ideally white on transparent)"}</label>
+                  <div className="flex items-center gap-3">
+                    {brand.logoDataUrl ? (
+                      <div className="w-16 h-16 rounded-xl bg-slate-800 flex items-center justify-center p-1.5 shrink-0">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={brand.logoDataUrl} alt="logo" className="max-w-full max-h-full object-contain" />
+                      </div>
+                    ) : null}
+                    <label className="px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-emerald-600 text-white text-xs font-black cursor-pointer transition-colors">
+                      {brand.logoDataUrl ? (isAr ? "تغيير اللوجو" : "Change logo") : isAr ? "رفع اللوجو" : "Upload logo"}
+                      <input
+                        type="file"
+                        accept="image/png,image/webp,image/jpeg,image/svg+xml"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const url = URL.createObjectURL(file);
+                          const img = new Image();
+                          img.onload = () => {
+                            URL.revokeObjectURL(url);
+                            // PNG output keeps transparency; shrink until it fits a Firestore doc comfortably.
+                            let dim = 512;
+                            let out = "";
+                            do {
+                              const scale = Math.min(1, dim / Math.max(img.width, img.height));
+                              const canvas = document.createElement("canvas");
+                              canvas.width = Math.max(1, Math.round(img.width * scale));
+                              canvas.height = Math.max(1, Math.round(img.height * scale));
+                              canvas.getContext("2d")?.drawImage(img, 0, 0, canvas.width, canvas.height);
+                              out = canvas.toDataURL("image/png");
+                              dim = Math.round(dim / 2);
+                            } while (out.length > 280 * 1024 && dim >= 64);
+                            void saveBrand({ logoDataUrl: out });
+                          };
+                          img.onerror = () => showToast(isAr ? "تعذر قراءة الملف" : "Could not read that file", "error");
+                          img.src = url;
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                    {brand.logoDataUrl && (
+                      <button
+                        onClick={() => void saveBrand({ logoDataUrl: "" })}
+                        className="text-[11px] font-black text-slate-400 hover:text-rose-500"
+                      >
+                        {isAr ? "إزالة" : "Remove"}
+                      </button>
+                    )}
+                  </div>
+                  {!brand.logoDataUrl && !profileLite.logoUrl && (
+                    <p className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3.5 py-2.5 mt-2">
+                      {isAr
+                        ? "بدون لوجو سيظهر اسم العيادة نصاً على التصاميم."
+                        : "Without a logo, the clinic name appears as text on designs."}
+                    </p>
+                  )}
+                </div>
 
                 <button
                   onClick={() => setBrandOpen(false)}
@@ -3071,7 +3124,7 @@ export default function MarketingPage() {
           brand={brand}
           clinicName={profileLite.clinicName || clinic?.name || ""}
           phone={profileLite.phone}
-          logoUrl={profileLite.logoUrl}
+          logoUrl={brand.logoDataUrl || profileLite.logoUrl}
           isAr={isAr}
           onClose={() => setDesignItem(null)}
         />

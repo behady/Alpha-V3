@@ -254,6 +254,13 @@ export type BrandKit = {
   theme: MarketingTheme;
   /** Exact brand color, when the clinic has one. Empty = the theme's own accent. */
   accent?: string;
+  /**
+   * The marketing logo, stored inline as a small data URL (PNG keeps transparency).
+   * Deliberately independent of the clinic-settings logo: marketing usually wants the
+   * white/transparent version that sits on photos, and a data URL exports cleanly with
+   * no cross-origin worries.
+   */
+  logoDataUrl?: string;
   showPhone?: boolean;
   showLogo?: boolean;
   updatedAt?: unknown;
