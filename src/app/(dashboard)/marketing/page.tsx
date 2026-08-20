@@ -126,6 +126,7 @@ export default function MarketingPage() {
   const [brand, setBrand] = useState<BrandKit>({ theme: "modern" });
   const [brandOpen, setBrandOpen] = useState(false);
   const [brandSaving, setBrandSaving] = useState(false);
+  const [logoAiBusy, setLogoAiBusy] = useState(false);
   const [designItem, setDesignItem] = useState<DesignInput | null>(null);
   const [profileLite, setProfileLite] = useState<{ clinicName: string; phone: string; logoUrl: string }>({
     clinicName: "",
@@ -3129,6 +3130,57 @@ export default function MarketingPage() {
                       </button>
                     )}
                   </div>
+                  {brand.logoDataUrl && (
+                    <button
+                      disabled={logoAiBusy}
+                      onClick={async () => {
+                        setLogoAiBusy(true);
+                        try {
+                          // Real segmentation for textured backgrounds the color trick can't
+                          // touch. Runs entirely in the browser; the first use downloads the
+                          // model (~30-60s), after that it's seconds.
+                          const { removeBackground } = await import("@imgly/background-removal");
+                          const blob = await removeBackground(brand.logoDataUrl!);
+                          const dataUrl = await new Promise<string>((resolve, reject) => {
+                            const r = new FileReader();
+                            r.onload = () => resolve(String(r.result));
+                            r.onerror = reject;
+                            r.readAsDataURL(blob);
+                          });
+                          // Shrink if the cut-out came back too heavy for the settings doc.
+                          const img = new Image();
+                          img.onload = () => {
+                            let dim = 512;
+                            let out = dataUrl;
+                            while (out.length > 280 * 1024 && dim >= 64) {
+                              const scale = Math.min(1, dim / Math.max(img.width, img.height));
+                              const canvas = document.createElement("canvas");
+                              canvas.width = Math.max(1, Math.round(img.width * scale));
+                              canvas.height = Math.max(1, Math.round(img.height * scale));
+                              canvas.getContext("2d")?.drawImage(img, 0, 0, canvas.width, canvas.height);
+                              out = canvas.toDataURL("image/png");
+                              dim = Math.round(dim / 2);
+                            }
+                            void saveBrand({ logoDataUrl: out });
+                            showToast(isAr ? "تمت إزالة الخلفية ✅" : "Background removed ✅", "success");
+                            setLogoAiBusy(false);
+                          };
+                          img.onerror = () => setLogoAiBusy(false);
+                          img.src = dataUrl;
+                        } catch (e) {
+                          console.error("bg removal failed", e);
+                          showToast(isAr ? "تعذرت إزالة الخلفية — جرّب ملف PNG شفاف من المصمم" : "Background removal failed — try the designer's transparent PNG", "error");
+                          setLogoAiBusy(false);
+                        }
+                      }}
+                      className="mt-2 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-700 text-xs font-black transition-colors disabled:opacity-60"
+                    >
+                      {logoAiBusy ? <Loader2 size={13} className="animate-spin" /> : <Wand2 size={13} />}
+                      {logoAiBusy
+                        ? isAr ? "جارٍ الإزالة… أول مرة تأخذ حتى دقيقة" : "Removing… first time takes up to a minute"
+                        : isAr ? "إزالة الخلفية بالذكاء الاصطناعي" : "Remove background (AI)"}
+                    </button>
+                  )}
                   {!brand.logoDataUrl && !profileLite.logoUrl && (
                     <p className="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3.5 py-2.5 mt-2">
                       {isAr

@@ -12,6 +12,8 @@
     "lint": "eslint",
     "_comment_test_rules": "Pinned to firebase-tools 13: version 14+ requires JDK 21, and this machine has JDK 11. Install a JDK 21+ and you can drop the @13 to track latest.",
     "test:rules": "npx firebase-tools@13 emulators:exec --only firestore \"node tests/firestore.rules.test.mjs\"",
+    "_comment_test_permissions": "Role baselines, what a role change does to stored permissions, and a drift check that the collection maps in firestore.rules still match lib/permissions.ts. No emulator needed.",
+    "test:permissions": "npx tsx tests/permissions.test.mts",
     "test:recovery": "npx tsx tests/revenueRecovery.test.mjs",
     "test:dues": "npx tsx tests/paymentRecovery.test.mjs",
     "test:sms": "npx tsx tests/smsCost.test.mjs",
@@ -23,6 +25,7 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@imgly/background-removal": "^1.7.0",
     "@types/qrcode": "^1.5.6",
     "arabic-persian-reshaper": "^1.0.1",
     "arabic-reshaper": "^1.1.0",
