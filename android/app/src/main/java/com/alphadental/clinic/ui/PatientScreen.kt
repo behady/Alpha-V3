@@ -124,6 +124,9 @@ fun PatientScreen(
     onShareRx: (Prescription) -> Unit,
     /** Null when this user may not change a recorded procedure. */
     onSetNoteStatus: ((noteId: String, status: String) -> Unit)?,
+    /** Null when this user may not chart diagnoses. */
+    onSaveDiagnosis: ((tooth: String, statuses: List<String>, notes: String) -> Unit)?,
+    savingDiagnosis: Boolean,
     /** Null when this user may not open or work an ortho case. */
     onStartOrtho: (() -> Unit)?,
     /** Opens the ortho tool on this patient's case. */
@@ -340,7 +343,7 @@ fun PatientScreen(
                                 file, notes, arabic, onAddNote, onSetNoteStatus,
                                 onAddPhoto = if (onUploadPhoto != null) ({ tab = "photos" }) else null,
                             )
-                            "diagnosis" -> DiagnosisTab(file, arabic)
+                            "diagnosis" -> DiagnosisTab(file, arabic, savingDiagnosis, onSaveDiagnosis)
                             "finance" -> FinanceTab(file, arabic, onTakePayment, onOpenLedgerEntry)
                             "photos" -> PhotosTab(
                                 media = media,
@@ -567,7 +570,12 @@ private fun ClinicalTab(
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun DiagnosisTab(file: PatientFile, arabic: Boolean) {
+private fun DiagnosisTab(
+    file: PatientFile,
+    arabic: Boolean,
+    saving: Boolean,
+    onSave: ((tooth: String, statuses: List<String>, notes: String) -> Unit)?,
+) {
     Column(
         Modifier
             .fillMaxSize()
@@ -575,22 +583,33 @@ private fun DiagnosisTab(file: PatientFile, arabic: Boolean) {
             .padding(horizontal = 16.dp)
             .padding(bottom = 24.dp),
     ) {
+        DiagnosisChart(
+            diagnosis = file.diagnosis,
+            arabic = arabic,
+            saving = saving,
+            onSave = onSave,
+        )
+
+        Spacer(Modifier.height(14.dp))
+        DiagnosisLegend(arabic)
+
+        Spacer(Modifier.height(18.dp))
+        SectionHeading(
+            if (file.diagnosis.isEmpty()) {
+                if (arabic) "لا يوجد تشخيص بعد" else "NOTHING CHARTED YET"
+            } else {
+                if (arabic) "المسجَّل (${file.diagnosis.size})" else "CHARTED (${file.diagnosis.size})"
+            }
+        )
+        Spacer(Modifier.height(8.dp))
+
         if (file.diagnosis.isEmpty()) {
             EmptyState(
-                if (arabic) "لا يوجد تشخيص مسجل بعد. مخطط التشخيص يُملأ من الموقع."
-                else "No diagnosis recorded yet. The diagnosis chart is filled in on the website.",
+                if (arabic) "اضغط على أي سن في المخطط لتسجيل حالته."
+                else "Tap any tooth on the chart above to record its condition.",
             )
             return
         }
-
-        Text(
-            if (arabic) "يُعدل التشخيص من الموقع؛ هنا للقراءة."
-            else "Edited on the website; read-only here.",
-            fontSize = 11.5.sp,
-            fontWeight = FontWeight.Medium,
-            color = Alpha.Slate400,
-        )
-        Spacer(Modifier.height(10.dp))
 
         file.diagnosis.forEach { tooth ->
             AlphaCard(
@@ -599,40 +618,41 @@ private fun DiagnosisTab(file: PatientFile, arabic: Boolean) {
                     .padding(bottom = 8.dp),
                 shape = Alpha.CardShape,
             ) {
-                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.Top) {
                     Box(
                         modifier = Modifier
                             .size(38.dp)
                             .clip(Alpha.CardShape)
-                            .background(Alpha.Slate100),
+                            .background(
+                                com.alphadental.clinic.data.diagnosisColor(tooth.statuses) ?: Alpha.Slate100
+                            ),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
                             tooth.tooth,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = Alpha.Slate700,
+                            color = if (com.alphadental.clinic.data.diagnosisColor(tooth.statuses) != null) {
+                                Color.White
+                            } else Alpha.Slate700,
                         )
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         if (tooth.statuses.isNotEmpty()) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                                tooth.statuses.take(3).forEach { status ->
-                                    Surface(shape = Alpha.PillShape, color = Alpha.WarnBg) {
-                                        Text(
-                                            status,
-                                            fontSize = 10.5.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Alpha.WarnText,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                        )
-                                    }
-                                }
-                            }
+                            Text(
+                                // The catalogue's own wording, so the phone and the
+                                // website describe a tooth in identical language.
+                                tooth.statuses.joinToString("  ·  ") {
+                                    com.alphadental.clinic.data.diagnosisLabel(it, arabic)
+                                },
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Alpha.Slate800,
+                            )
                         }
                         if (tooth.notes.isNotBlank()) {
-                            Spacer(Modifier.height(4.dp))
+                            Spacer(Modifier.height(3.dp))
                             Text(
                                 tooth.notes,
                                 fontSize = 12.sp,

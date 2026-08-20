@@ -527,6 +527,11 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             DocumentActions.shareToWhatsapp(context, file, "Prescription")
                         }
                     },
+                    // Charting a tooth is a clinical act: dentists and the owner.
+                    onSaveDiagnosis = if (session.isAdmin || session.isDentist) {
+                        viewModel::saveToothDiagnosis
+                    } else null,
+                    savingDiagnosis = state.savingDiagnosis,
                     onStartOrtho = if (session.isAdmin || session.isDentist) {
                         viewModel::startOrthoCase
                     } else null,

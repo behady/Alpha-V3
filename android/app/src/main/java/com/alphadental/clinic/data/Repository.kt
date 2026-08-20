@@ -2228,6 +2228,42 @@ object Repository {
         Unit
     }
 
+    /**
+     * Write one tooth's diagnosis onto the patient record.
+     *
+     * teethData is a map keyed by tooth number on the patient document — the
+     * same field the website's diagnosis chart edits. Written with dotted field
+     * paths so two dentists charting different teeth cannot overwrite each
+     * other's tooth, and an empty diagnosis deletes its key rather than leaving
+     * a hollow entry the website would still count as charted.
+     */
+    suspend fun setToothDiagnosis(
+        clinicId: String,
+        patientId: String,
+        tooth: String,
+        statuses: List<String>,
+        notes: String,
+        byName: String,
+    ): Result<Unit> = runCatching {
+        val ref = Firebase.db().collection("clinics").document(clinicId)
+            .collection("patients").document(patientId)
+        val key = com.google.firebase.firestore.FieldPath.of("teethData", tooth)
+
+        if (statuses.isEmpty() && notes.isBlank()) {
+            ref.update(key, FieldValue.delete()).queueLocally("tooth diagnosis cleared")
+        } else {
+            ref.update(
+                key,
+                mapOf(
+                    "statuses" to statuses,
+                    "notes" to notes.trim(),
+                    "notesBy" to byName,
+                ),
+            ).queueLocally("tooth diagnosis")
+        }
+        Unit
+    }
+
     /** The photos and x-rays the website uploaded for one patient, newest first. */
     suspend fun loadPatientMedia(clinicId: String, patientId: String): List<PatientMedia> {
         val snap = Firebase.db().collection("clinics").document(clinicId)

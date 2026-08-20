@@ -17,6 +17,7 @@ import com.alphadental.clinic.data.Prescription
 import com.alphadental.clinic.data.Repository
 import com.alphadental.clinic.data.RxItem
 import com.alphadental.clinic.data.Service
+import com.alphadental.clinic.data.ToothDiagnosis
 import com.alphadental.clinic.data.Session
 import com.alphadental.clinic.data.Slot
 import com.alphadental.clinic.data.UnpaidProcedure
@@ -92,6 +93,7 @@ data class AppState(
     val patientMedia: List<com.alphadental.clinic.data.PatientMedia> = emptyList(),
     val patientOrtho: List<OrthoCase> = emptyList(),
     val uploadingPhoto: Boolean = false,
+    val savingDiagnosis: Boolean = false,
     /** True while a prescription PDF is being built or sent. */
     val rxBusy: Boolean = false,
     // --- leads (CRM) ---
@@ -618,6 +620,49 @@ class AppViewModel : ViewModel() {
                         message = error.message ?: "The lead could not be saved.",
                     )
                 }
+        }
+    }
+
+    /**
+     * Chart one tooth's condition.
+     *
+     * The patient file is updated in memory as well as written, because the
+     * write is queued rather than confirmed — re-reading could come back from
+     * the cache without it and the diagnosis would appear to vanish the moment
+     * it was saved.
+     */
+    fun saveToothDiagnosis(tooth: String, statuses: List<String>, notes: String) {
+        val session = _state.value.session ?: return
+        val patientId = _state.value.openPatientId ?: return
+        val file = _state.value.patientFile ?: return
+
+        _state.value = _state.value.copy(savingDiagnosis = true)
+        viewModelScope.launch {
+            Repository.setToothDiagnosis(
+                clinicId = session.clinicId,
+                patientId = patientId,
+                tooth = tooth,
+                statuses = statuses,
+                notes = notes,
+                byName = session.name,
+            ).onFailure { error ->
+                _state.value = _state.value.copy(message = error.message ?: "The diagnosis could not be saved.")
+            }
+
+            val cleared = statuses.isEmpty() && notes.isBlank()
+            val updated = file.diagnosis.filterNot { it.tooth == tooth } +
+                if (cleared) emptyList() else listOf(ToothDiagnosis(tooth, statuses, notes.trim()))
+
+            if (_state.value.openPatientId == patientId) {
+                _state.value = _state.value.copy(
+                    savingDiagnosis = false,
+                    patientFile = file.copy(
+                        diagnosis = updated.sortedBy { it.tooth.toIntOrNull() ?: Int.MAX_VALUE },
+                    ),
+                )
+            } else {
+                _state.value = _state.value.copy(savingDiagnosis = false)
+            }
         }
     }
 

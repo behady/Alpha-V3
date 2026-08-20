@@ -16,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -73,12 +74,15 @@ fun PrescriptionSheet(
     var diagnosis by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
     var dose by remember { mutableStateOf("") }
+    var instructions by remember { mutableStateOf("") }
+    var drugFilter by remember { mutableStateOf("") }
 
     fun addCurrent() {
         if (name.isBlank()) return
-        drugs += RxItem(name = name.trim(), dose = dose.trim())
+        drugs += RxItem(name = name.trim(), dose = dose.trim(), note = instructions.trim())
         name = ""
         dose = ""
+        instructions = ""
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Alpha.Card) {
@@ -118,16 +122,58 @@ fun PrescriptionSheet(
 
             if (shortcuts.isNotEmpty()) {
                 Spacer(Modifier.height(16.dp))
-                SectionHeading(if (arabic) "الأدوية المحفوظة" else "SAVED MEDICINES")
+                SectionHeading(if (arabic) "من قائمة أدوية العيادة" else "FROM THE CLINIC'S DRUG LIST")
                 Spacer(Modifier.height(8.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(shortcuts, key = { it.id }) { shortcut ->
-                        AssistChip(
-                            onClick = { drugs += RxItem(name = shortcut.name, dose = shortcut.dose) },
-                            label = { Text(shortcut.name, fontSize = 13.sp, fontWeight = FontWeight.Bold) },
-                            shape = Alpha.PillShape,
-                            colors = AssistChipDefaults.assistChipColors(labelColor = Alpha.Slate700),
+
+                // Searchable: a clinic's list runs to dozens, and a sideways row of
+                // chips is unusable past about six.
+                OutlinedTextField(
+                    value = drugFilter,
+                    onValueChange = { drugFilter = it },
+                    placeholder = {
+                        Text(
+                            if (arabic) "ابحث في الأدوية المحفوظة" else "Search saved medicines",
+                            color = Alpha.Slate400,
+                            fontSize = 13.sp,
                         )
+                    },
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Filled.Search, null, tint = Alpha.Slate400, modifier = Modifier.size(18.dp)) },
+                    shape = Alpha.PillShape,
+                    colors = rxFieldColors(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                val matches = remember(drugFilter, shortcuts) {
+                    if (drugFilter.isBlank()) shortcuts
+                    else shortcuts.filter { it.name.contains(drugFilter.trim(), ignoreCase = true) }
+                }
+
+                Spacer(Modifier.height(6.dp))
+                if (matches.isEmpty()) {
+                    Text(
+                        if (arabic) "لا يوجد دواء بهذا الاسم في القائمة." else "No saved medicine matches that.",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Alpha.Slate400,
+                        modifier = Modifier.padding(4.dp),
+                    )
+                } else {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(matches, key = { it.id }) { shortcut ->
+                            AssistChip(
+                                // Fills the fields rather than adding straight away, as the
+                                // website does: the dose usually needs adjusting for the
+                                // patient, and the instructions still have to be written.
+                                onClick = {
+                                    name = shortcut.name
+                                    if (shortcut.dose.isNotBlank()) dose = shortcut.dose
+                                },
+                                label = { Text(shortcut.name, fontSize = 13.sp, fontWeight = FontWeight.Bold) },
+                                shape = Alpha.PillShape,
+                                colors = AssistChipDefaults.assistChipColors(labelColor = Alpha.Slate700),
+                            )
+                        }
                     }
                 }
             }
@@ -153,6 +199,29 @@ fun PrescriptionSheet(
                     shape = Alpha.CardShape,
                     colors = rxFieldColors(),
                     modifier = Modifier.weight(1f),
+                )
+            }
+
+            // How to take it. The field existed on the record and printed on the
+            // script all along — there was simply nowhere to type it, so every
+            // prescription written on a phone reached the pharmacy without it.
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = instructions,
+                    onValueChange = { instructions = it },
+                    label = { Text(if (arabic) "التعليمات" else "Instructions") },
+                    placeholder = {
+                        Text(
+                            if (arabic) "٣ مرات يومياً بعد الأكل" else "3 times daily after meals",
+                            color = Alpha.Slate400,
+                            fontSize = 12.5.sp,
+                        )
+                    },
+                    shape = Alpha.CardShape,
+                    colors = rxFieldColors(),
+                    modifier = Modifier.weight(1f),
+                    maxLines = 2,
                 )
                 IconButton(onClick = { addCurrent() }, enabled = name.isNotBlank()) {
                     Icon(
@@ -187,9 +256,13 @@ fun PrescriptionSheet(
                                         fontWeight = FontWeight.Bold,
                                         color = Alpha.Slate800,
                                     )
-                                    if (item.dose.isNotBlank()) {
+                                    val detail = listOfNotNull(
+                                        item.dose.takeIf { it.isNotBlank() },
+                                        item.note.takeIf { it.isNotBlank() },
+                                    ).joinToString("  ·  ")
+                                    if (detail.isNotBlank()) {
                                         Text(
-                                            item.dose,
+                                            detail,
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Medium,
                                             color = Alpha.Slate500,
@@ -226,7 +299,7 @@ fun PrescriptionSheet(
                     // Anything half-typed in the fields counts too — losing a medicine because
                     // the + was never tapped is exactly the kind of slip that matters here.
                     val finalDrugs = if (name.isNotBlank()) {
-                        drugs + RxItem(name = name.trim(), dose = dose.trim())
+                        drugs + RxItem(name = name.trim(), dose = dose.trim(), note = instructions.trim())
                     } else {
                         drugs.toList()
                     }
