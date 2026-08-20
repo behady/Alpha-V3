@@ -158,10 +158,13 @@ private fun ArchRow(
     selected: String?,
     onSelect: (String?) -> Unit,
 ) {
+    // Every tooth takes an equal share of whatever width there is. Sized in fixed
+    // dp, sixteen teeth needed about 510dp and a phone has 360 — so a third of
+    // the mouth ran off the right edge and was simply not there to tap.
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-        right.forEach { Tooth(it, byTooth, selected, onSelect) }
-        Spacer(Modifier.width(6.dp))
-        left.forEach { Tooth(it, byTooth, selected, onSelect) }
+        right.forEach { Tooth(it, byTooth, selected, onSelect, Modifier.weight(1f)) }
+        Spacer(Modifier.width(5.dp))
+        left.forEach { Tooth(it, byTooth, selected, onSelect, Modifier.weight(1f)) }
     }
 }
 
@@ -171,6 +174,7 @@ private fun Tooth(
     byTooth: Map<String, List<ClinicalNote>>,
     selected: String?,
     onSelect: (String?) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val key = number.toString()
     val notes = byTooth[key].orEmpty()
@@ -193,9 +197,9 @@ private fun Tooth(
     }
 
     Box(
-        Modifier
-            .padding(horizontal = 1.dp)
-            .size(width = 20.dp, height = 26.dp)
+        modifier
+            .padding(horizontal = 0.5.dp)
+            .height(26.dp)
             .clip(RoundedCornerShape(4.dp))
             .background(fill)
             // Tapping the selected tooth again clears the filter, so there is always a way back
@@ -209,6 +213,8 @@ private fun Tooth(
             fontWeight = FontWeight.Bold,
             color = textColor,
             textAlign = TextAlign.Center,
+            maxLines = 1,
+            softWrap = false,
         )
     }
 }
@@ -317,22 +323,29 @@ private fun PickerArch(
     selected: List<String>,
     onToggle: (String) -> Unit,
 ) {
+    // Weighted, not fixed: see ArchRow. Sixteen 26dp teeth overflowed every phone
+    // in portrait, taking the whole upper-left and lower-left quadrants with them.
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-        right.forEach { PickerTooth(it, selected, onToggle) }
-        Spacer(Modifier.width(6.dp))
-        left.forEach { PickerTooth(it, selected, onToggle) }
+        right.forEach { PickerTooth(it, selected, onToggle, Modifier.weight(1f)) }
+        Spacer(Modifier.width(5.dp))
+        left.forEach { PickerTooth(it, selected, onToggle, Modifier.weight(1f)) }
     }
 }
 
 @Composable
-private fun PickerTooth(number: Int, selected: List<String>, onToggle: (String) -> Unit) {
+private fun PickerTooth(
+    number: Int,
+    selected: List<String>,
+    onToggle: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val key = number.toString()
     val isSelected = key in selected
 
     Box(
-        Modifier
-            .padding(1.dp)
-            .size(width = 26.dp, height = 30.dp)
+        modifier
+            .padding(horizontal = 0.5.dp, vertical = 1.dp)
+            .height(32.dp)
             .clip(RoundedCornerShape(6.dp))
             .background(if (isSelected) Alpha.Green else if (Alpha.dark) Alpha.Slate100 else Color.White)
             .clickable { onToggle(key) },
@@ -340,10 +353,12 @@ private fun PickerTooth(number: Int, selected: List<String>, onToggle: (String) 
     ) {
         Text(
             key,
-            fontSize = 10.sp,
+            fontSize = 9.5.sp,
             fontWeight = FontWeight.ExtraBold,
             color = if (isSelected) Color.White else Alpha.Slate600,
             textAlign = TextAlign.Center,
+            maxLines = 1,
+            softWrap = false,
         )
     }
 }
