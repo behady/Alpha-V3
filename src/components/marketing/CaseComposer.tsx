@@ -177,81 +177,94 @@ export default function CaseComposer({
         style={{ position: "absolute", bottom: 0, left: 0, width: "100%", height: "50%", objectFit: "cover", objectPosition: `50% ${afterFocus}%` }}
       />
 
-      {/* The seam overlay, matched to the user's reference design: a LARGE logo sitting
-          across the seam on the start side, and the dentist's name in handwriting beside it
-          with a thin underline resting on the seam line. */}
-      <div
-        style={{
-          position: "absolute",
-          top: "50%",
-          left: 0,
-          right: 0,
-          transform: "translateY(-50%)",
-          display: "flex",
-          alignItems: "center",
-          gap: w * 0.04,
-          paddingInline: w * 0.055,
-        }}
-      >
-        {showLogo && logoData ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={logoData}
-            alt=""
-            style={{
-              width: w * 0.23,
-              height: w * 0.23,
-              objectFit: "contain",
-              flexShrink: 0,
-              filter: "drop-shadow(0 3px 14px rgba(0,0,0,0.6))",
-            }}
-          />
-        ) : (
-          <span
-            style={{
-              display: "inline-block",
-              color: "#fff",
-              fontSize: w * 0.042,
-              fontWeight: 800,
-              letterSpacing: 4,
-              textTransform: "uppercase",
-              textAlign: "center",
-              lineHeight: 1.3,
-              maxWidth: w * 0.32,
-              textShadow: "0 2px 14px rgba(0,0,0,0.8)",
-              flexShrink: 0,
-            }}
-          >
-            {clinicName}
-          </span>
-        )}
-        {dentistName.trim() && (
-          <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-start" }}>
-            <span
-              className={/[؀-ۿ]/.test(dentistName) ? undefined : script.className}
+      {/* The seam, matched to the user's annotated design:
+          — the logo sits across the exact middle on the left,
+          — a THIN LINE runs along the seam from just after the logo to a few mm short of the
+            right edge,
+          — the dentist's name rests ON that line (text above, line under it), at the seam. */}
+      {(() => {
+        const padX = w * 0.055;
+        const logoSize = w * 0.2;
+        const hasLogo = showLogo && !!logoData;
+        const leftBlockEnd = padX + (hasLogo ? logoSize : w * 0.3) + w * 0.03;
+        const lineThickness = Math.max(2, w * 0.003);
+        return (
+          <>
+            {hasLogo ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={logoData}
+                alt=""
+                style={{
+                  position: "absolute",
+                  left: padX,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  width: logoSize,
+                  height: logoSize,
+                  objectFit: "contain",
+                  filter: "drop-shadow(0 3px 14px rgba(0,0,0,0.6))",
+                }}
+              />
+            ) : (
+              <span
+                style={{
+                  position: "absolute",
+                  left: padX,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  color: "#fff",
+                  fontSize: w * 0.04,
+                  fontWeight: 800,
+                  letterSpacing: 4,
+                  textTransform: "uppercase",
+                  textAlign: "center",
+                  lineHeight: 1.3,
+                  maxWidth: w * 0.3,
+                  textShadow: "0 2px 14px rgba(0,0,0,0.8)",
+                }}
+              >
+                {clinicName}
+              </span>
+            )}
+
+            {/* The seam line — from after the logo to a few mm short of the edge. */}
+            <div
               style={{
-                color: "#fff",
-                fontSize: /[؀-ۿ]/.test(dentistName) ? w * 0.055 : w * 0.075,
-                fontWeight: /[؀-ۿ]/.test(dentistName) ? 700 : 400,
-                lineHeight: 1.1,
-                textShadow: "0 2px 14px rgba(0,0,0,0.8)",
-                whiteSpace: "nowrap",
-                paddingBottom: w * 0.012,
-              }}
-            >
-              {dentistName}
-            </span>
-            <span
-              style={{
-                width: "100%",
-                height: Math.max(2, w * 0.0028),
+                position: "absolute",
+                left: leftBlockEnd,
+                right: w * 0.045,
+                top: "50%",
+                transform: "translateY(-50%)",
+                height: lineThickness,
                 background: "rgba(255,255,255,0.92)",
-                boxShadow: "0 1px 8px rgba(0,0,0,0.6)",
+                boxShadow: "0 1px 8px rgba(0,0,0,0.55)",
               }}
             />
-          </span>
-        )}
-      </div>
+
+            {/* The name stands ON the line, at the seam. */}
+            {dentistName.trim() && (
+              <span
+                className={/[؀-ۿ]/.test(dentistName) ? undefined : script.className}
+                style={{
+                  position: "absolute",
+                  left: leftBlockEnd + w * 0.02,
+                  bottom: `calc(50% + ${lineThickness}px)`,
+                  color: "#fff",
+                  fontSize: /[؀-ۿ]/.test(dentistName) ? w * 0.05 : w * 0.068,
+                  fontWeight: /[؀-ۿ]/.test(dentistName) ? 700 : 400,
+                  lineHeight: 1.05,
+                  textShadow: "0 2px 14px rgba(0,0,0,0.8)",
+                  whiteSpace: "nowrap",
+                  paddingBottom: w * 0.006,
+                }}
+              >
+                {dentistName}
+              </span>
+            )}
+          </>
+        );
+      })()}
     </div>
   );
 

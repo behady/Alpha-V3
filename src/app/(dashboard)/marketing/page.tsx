@@ -3066,6 +3066,39 @@ export default function MarketingPage() {
                           const img = new Image();
                           img.onload = () => {
                             URL.revokeObjectURL(url);
+
+                            /**
+                             * Auto background removal: logos usually arrive on a solid box
+                             * (the user's arrived on a dark square). If all four corners agree
+                             * on one opaque color, that color becomes transparent, with a soft
+                             * edge. Photos and already-transparent PNGs are left untouched.
+                             */
+                            const stripBackground = (canvas: HTMLCanvasElement) => {
+                              const ctx = canvas.getContext("2d");
+                              if (!ctx) return;
+                              const { width, height } = canvas;
+                              const image = ctx.getImageData(0, 0, width, height);
+                              const px = image.data;
+                              const corner = (x: number, y: number) => {
+                                const i = (y * width + x) * 4;
+                                return [px[i], px[i + 1], px[i + 2], px[i + 3]];
+                              };
+                              const corners = [corner(0, 0), corner(width - 1, 0), corner(0, height - 1), corner(width - 1, height - 1)];
+                              if (corners.some((c) => c[3] < 250)) return; // already transparent
+                              const avg = [0, 1, 2].map((c) => corners.reduce((s, k) => s + k[c], 0) / 4);
+                              const spread =
+                                corners.reduce((s, k) => s + Math.hypot(k[0] - avg[0], k[1] - avg[1], k[2] - avg[2]), 0) / 4;
+                              if (spread > 30) return; // corners disagree — not a solid background
+                              const tol = 72;
+                              const soft = 32;
+                              for (let i = 0; i < px.length; i += 4) {
+                                const d = Math.hypot(px[i] - avg[0], px[i + 1] - avg[1], px[i + 2] - avg[2]);
+                                if (d < tol - soft) px[i + 3] = 0;
+                                else if (d < tol) px[i + 3] = Math.round(px[i + 3] * ((d - (tol - soft)) / soft));
+                              }
+                              ctx.putImageData(image, 0, 0);
+                            };
+
                             // PNG output keeps transparency; shrink until it fits a Firestore doc comfortably.
                             let dim = 512;
                             let out = "";
@@ -3075,6 +3108,7 @@ export default function MarketingPage() {
                               canvas.width = Math.max(1, Math.round(img.width * scale));
                               canvas.height = Math.max(1, Math.round(img.height * scale));
                               canvas.getContext("2d")?.drawImage(img, 0, 0, canvas.width, canvas.height);
+                              stripBackground(canvas);
                               out = canvas.toDataURL("image/png");
                               dim = Math.round(dim / 2);
                             } while (out.length > 280 * 1024 && dim >= 64);
