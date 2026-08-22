@@ -29,6 +29,13 @@ export const PERMISSIONS_CATALOG: PermissionCatalogGroup[] = [
     descriptionEn: "Opens the main module. Usually pair with action permissions below.",
     descriptionAr: "يفتح الوحدة الرئيسية. غالباً مع صلاحيات الإجراءات أدناه.",
     items: [
+      {
+        id: "dashboard.view",
+        labelEn: "Dashboard & AI insights",
+        labelAr: "الرئيسية ولوحات الذكاء",
+        hintEn: "Seeded at signup and required by the AI briefing, operations, and attendance screens.",
+        hintAr: "تُمنح عند إنشاء الحساب، ومطلوبة لشاشات الذكاء الاصطناعي (الملخص، التشغيل، الحضور).",
+      },
       { id: "access.patients", labelEn: "Patients", labelAr: "المرضى" },
       { id: "access.appointments", labelEn: "Appointments / calendar", labelAr: "المواعيد / التقويم" },
       { id: "access.lab", labelEn: "Lab tracking", labelAr: "متابعة المعامل" },
