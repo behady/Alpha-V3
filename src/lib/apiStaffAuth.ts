@@ -55,7 +55,19 @@ export async function requireStaffUser(request: Request, clinicId?: string) {
     if (!role || role === "Patient") {
       return { ok: false as const, response: NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 }) };
     }
-    return { ok: true as const, uid: decoded.uid, role };
+    // Granular permissions live on the user document as a flat string[] (managed by User
+    // Management via /api/admin/update-user). They were only ever read in the browser, where they
+    // hid buttons; routes that enforce them need them here. Absent means "none granted", not
+    // "everything" — a user with no permissions array is a user who has been given nothing.
+    const permissions = Array.isArray(data.permissions)
+      ? (data.permissions as unknown[]).filter((p): p is string => typeof p === "string")
+      : [];
+    const name =
+      (typeof data.name === "string" && data.name.trim()) ||
+      (typeof data.displayName === "string" && data.displayName.trim()) ||
+      (typeof data.email === "string" && data.email.trim()) ||
+      "Staff";
+    return { ok: true as const, uid: decoded.uid, role, permissions, name };
   } catch (error) {
     console.error("requireStaffUser verifyIdToken failed", error);
     return { ok: false as const, response: NextResponse.json({ ok: false, error: "Invalid token" }, { status: 401 }) };
@@ -79,6 +91,36 @@ export async function requireAuthedUser(request: Request) {
     console.error("requireAuthedUser verifyIdToken failed", error);
     return { ok: false as const, response: NextResponse.json({ ok: false, error: "Invalid token" }, { status: 401 }) };
   }
+}
+
+/**
+ * Does this caller hold a specific granular permission in this clinic?
+ *
+ * Until money writes moved server-side, `finance.edit` and friends were checked only in the
+ * browser, where they decide whether a button renders. Anyone signed in to the clinic could write
+ * any ledger row straight through the Firestore SDK regardless — the lock was a sticker. The
+ * routes that now own those writes check here instead, so the permission means something.
+ *
+ * A Clinic Admin passes every check by definition: the catalogue exists to grant slices of what an
+ * Admin already has, and User Management does not (and should not) require an Admin to tick their
+ * own boxes.
+ */
+export async function requireStaffPermission(
+  request: Request,
+  clinicId: string | undefined,
+  permission: string
+) {
+  const staff = await requireStaffUser(request, clinicId);
+  if (!staff.ok) return staff;
+  if (staff.role === "Admin") return staff;
+  if (staff.permissions.includes(permission)) return staff;
+  return {
+    ok: false as const,
+    response: NextResponse.json(
+      { ok: false, error: `You do not have permission to do this (${permission}).` },
+      { status: 403 }
+    ),
+  };
 }
 
 export async function requireAdminUser(request: Request, clinicId?: string) {
