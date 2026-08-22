@@ -22,6 +22,15 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { requireStaffPermission } from "@/lib/apiStaffAuth";
 import { computeProcedurePricing, type PricedService } from "@/lib/procedurePricing";
+import { allowedDiscount, checkDiscountAllowed } from "@/lib/discountMath";
+import {
+  DISCOUNTS_DOC,
+  PRICE_LISTS_DOC,
+  findPriceList,
+  parseDiscountSettings,
+  parsePriceLists,
+  resolveActiveListId,
+} from "@/lib/priceLists";
 import { buildDeleteContext, evaluateDelete } from "@/lib/deletePolicy";
 import { applyProcedureSync, readProcedureCommissionBasis, readProcedurePayments } from "@/lib/server/ledgerSync";
 import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
@@ -29,7 +38,10 @@ import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type Actor = { uid: string; name: string; role: string };
+type Actor = { uid: string; name: string; role: string; permissions: string[] };
+
+/** A discount the caller is not allowed to give. Carries the reason so the user reads it. */
+class DiscountRefused extends Error {}
 
 function bad(error: string, status = 400) {
   return NextResponse.json({ ok: false, error }, { status });
@@ -51,11 +63,33 @@ async function loadServices(clinicId: string): Promise<PricedService[]> {
       id: d.id,
       name: String(data.name || ""),
       price: Number(data.price) || 0,
+      // Per-list overrides. Only numbers survive; a malformed entry falls back to `price` rather
+      // than pricing a treatment at NaN.
+      prices:
+        data.prices && typeof data.prices === "object"
+          ? Object.fromEntries(
+              Object.entries(data.prices as Record<string, unknown>)
+                .filter(([, v]) => typeof v === "number" && Number.isFinite(v))
+                .map(([k, v]) => [k, Number(v)])
+            )
+          : null,
       requiresLab: data.requiresLab === true,
       estimatedLabFee: Number(data.estimatedLabFee) || 0,
       pricingMode: typeof data.pricingMode === "string" ? data.pricingMode : null,
     };
   });
+}
+
+/** The clinic's price lists and its discount policy, both seeded on first read. */
+async function loadPricingPolicy(clinicId: string) {
+  const [listsSnap, discountsSnap] = await Promise.all([
+    adminClinicDoc(clinicId, "settings", PRICE_LISTS_DOC).get(),
+    adminClinicDoc(clinicId, "settings", DISCOUNTS_DOC).get(),
+  ]);
+  return {
+    priceLists: parsePriceLists(listsSnap.exists ? listsSnap.data() : null),
+    discountSettings: parseDiscountSettings(discountsSnap.exists ? discountsSnap.data() : null),
+  };
 }
 
 /**
@@ -65,8 +99,9 @@ async function loadServices(clinicId: string): Promise<PricedService[]> {
  * who is whoever is at the keyboard — an assistant typing up a session is a different person, and
  * the note is only trustworthy if it says which is which.
  */
-async function priceRequest(clinicId: string, body: Record<string, unknown>) {
+async function priceRequest(clinicId: string, body: Record<string, unknown>, actor: Actor) {
   const services = await loadServices(clinicId);
+  const { priceLists, discountSettings } = await loadPricingPolicy(clinicId);
 
   const doctorId = String(body.doctorId || "").trim();
   if (!doctorId) throw new Error("NO_DOCTOR");
@@ -79,6 +114,17 @@ async function priceRequest(clinicId: string, body: Record<string, unknown>) {
   const procedures = asStringArray(body.procedures);
   if (procedures.length === 0) throw new Error("NO_PROCEDURE_NAME");
 
+  // Which list to charge from. An unknown or deactivated list falls back to the clinic default
+  // rather than being honoured — a request naming a retired list must not resurrect its prices.
+  const patientDefaultListId =
+    typeof body.patientDefaultPriceListId === "string" ? body.patientDefaultPriceListId : null;
+  const priceListId = resolveActiveListId(
+    priceLists,
+    typeof body.priceListId === "string" ? body.priceListId : null,
+    patientDefaultListId
+  );
+  const priceList = findPriceList(priceLists, priceListId);
+
   const pricing = computeProcedurePricing({
     procedures,
     services,
@@ -86,7 +132,26 @@ async function priceRequest(clinicId: string, body: Record<string, unknown>) {
     typedUnitCost: body.unitCost === undefined || body.unitCost === null || body.unitCost === "" ? null : Number(body.unitCost),
     pricingModeOverride: typeof body.pricingMode === "string" ? body.pricingMode : null,
     commissionPct: Number(staff.commissionPercentage) || 0,
+    priceListId,
+    priceListName: priceList?.name || null,
+    discountMode: typeof body.discountMode === "string" ? body.discountMode : null,
+    discountValue:
+      body.discountValue === undefined || body.discountValue === null || body.discountValue === ""
+        ? null
+        : Number(body.discountValue),
+    discountReason: typeof body.discountReason === "string" ? body.discountReason : null,
   });
+
+  // The ceiling and the reason are enforced here, which is the only place either means anything.
+  // A cap checked in the browser decides whether a field is disabled; it does not stop a request.
+  const check = checkDiscountAllowed({
+    listPrice: pricing.listPrice,
+    discountAmount: pricing.discountAmount,
+    reason: pricing.discountReason,
+    authority: allowedDiscount(actor.role, actor.permissions, discountSettings),
+    availableReasons: discountSettings.reasons,
+  });
+  if (!check.ok) throw new DiscountRefused(check.error);
 
   const toothText = selectedTeeth.length > 0 ? selectedTeeth.join(",") : String(body.tooth || "").trim() || "Gen";
   const displayProcedure = pricing.procedures.join(" + ");
@@ -111,6 +176,16 @@ function noteFields(p: Priced, body: Record<string, unknown>, appointmentId: str
     unitsCount: p.pricing.pricingUnits,
     pricingFormula: p.pricing.pricingFormula,
     pricingMode: p.pricing.pricingMode,
+    // Structured, not prose. The old edit screen rewrote the description into
+    // "Before 500 → After 400 (20% off)", so the only record of a discount was a sentence nothing
+    // could total, group, or explain the reason for.
+    listPrice: p.pricing.listPrice,
+    priceListId: p.pricing.priceListId,
+    priceListName: p.pricing.priceListName,
+    discountMode: p.pricing.discountMode,
+    discountValue: p.pricing.discountValue,
+    discountAmount: p.pricing.discountAmount,
+    discountReason: p.pricing.discountReason,
     note: String(body.note || ""),
     doctor: p.doctorName,
     doctorId: p.doctorId,
@@ -136,6 +211,13 @@ function ledgerFields(p: Priced, patientId: string, patientName: string | null, 
     pricingFormula: p.pricing.pricingFormula,
     pricingMode: p.pricing.pricingMode,
     description: `${p.displayProcedure} (T: ${p.toothText}) | ${p.pricing.pricingFormula}=${p.pricing.cost}`,
+    listPrice: p.pricing.listPrice,
+    priceListId: p.pricing.priceListId,
+    priceListName: p.pricing.priceListName,
+    discountMode: p.pricing.discountMode,
+    discountValue: p.pricing.discountValue,
+    discountAmount: p.pricing.discountAmount,
+    discountReason: p.pricing.discountReason,
     serviceId: p.pricing.serviceIds[0] || null,
     serviceIds: p.pricing.serviceIds,
     serviceName: p.pricing.matchedServices[0]?.name || null,
@@ -217,7 +299,7 @@ async function createProcedure(args: { clinicId: string; actor: Actor; body: Rec
   const patientId = String(body.patientId || "").trim();
   if (!patientId) return bad("A treatment needs a patient.");
 
-  const priced = await priceRequest(clinicId, body);
+  const priced = await priceRequest(clinicId, body, actor);
   const appointmentId = body.appointmentId ? String(body.appointmentId).trim() : null;
   const addToLedger = body.addToLedger !== false;
 
@@ -293,7 +375,7 @@ async function updateProcedure(args: { clinicId: string; actor: Actor; body: Rec
   const noteId = String(body.noteId || "").trim();
   if (!noteId) return bad("Which treatment?");
 
-  const priced = await priceRequest(clinicId, body);
+  const priced = await priceRequest(clinicId, body, actor);
   const addToLedger = body.addToLedger !== false;
 
   const result = await adminDb().runTransaction(async (txn) => {
@@ -615,7 +697,7 @@ export async function POST(request: Request) {
     return bad(e instanceof Error ? e.message : "No clinic for this account.", 403);
   }
 
-  const actor: Actor = { uid: authz.uid, name: authz.name, role: authz.role };
+  const actor: Actor = { uid: authz.uid, name: authz.name, role: authz.role, permissions: authz.permissions };
 
   try {
     switch (action) {
@@ -633,6 +715,7 @@ export async function POST(request: Request) {
         return bad("Unknown action.");
     }
   } catch (e) {
+    if (e instanceof DiscountRefused) return bad(e.message, 403);
     const message = e instanceof Error ? e.message : "";
     switch (message) {
       case "NO_DOCTOR":

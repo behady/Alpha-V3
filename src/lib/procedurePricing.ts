@@ -11,6 +11,7 @@
  * caller chose.
  */
 
+import { applyDiscount, isDiscountMode, resolveListPrice, type DiscountMode } from "@/lib/discountMath";
 import {
   DEFAULT_PRICING_MODE,
   computeProcedureLabFee,
@@ -23,6 +24,8 @@ export type PricedService = {
   id: string;
   name: string;
   price?: number | null;
+  /** Per-price-list overrides. An absent entry charges `price`. */
+  prices?: Record<string, number> | null;
   requiresLab?: boolean | null;
   estimatedLabFee?: number | null;
   pricingMode?: string | null;
@@ -41,6 +44,13 @@ export type ProcedurePricingInput = {
   pricingModeOverride?: string | null;
   /** The treating dentist's commission rate, from their staff record. */
   commissionPct?: number | null;
+  /** Which price list to charge from. Falls back to each service's standard price. */
+  priceListId?: string | null;
+  priceListName?: string | null;
+  discountMode?: string | null;
+  /** The percentage or the fixed amount, as entered. */
+  discountValue?: number | null;
+  discountReason?: string | null;
 };
 
 export type ProcedurePricing = {
@@ -54,7 +64,15 @@ export type ProcedurePricing = {
   pricingUnits: number;
   pricingMode: PricingMode;
   pricingFormula: string;
-  /** unitCost × pricingUnits — what the patient is charged. */
+  /** unitCost × pricingUnits, before any discount. */
+  listPrice: number;
+  priceListId: string | null;
+  priceListName: string | null;
+  discountMode: DiscountMode;
+  discountValue: number | null;
+  discountAmount: number;
+  discountReason: string | null;
+  /** What the patient is charged: listPrice minus the discount. */
   cost: number;
   labFee: number;
   labFeePerUnit: number;
@@ -82,7 +100,10 @@ export function computeProcedurePricing(input: ProcedurePricingInput): Procedure
     .map((name) => byName.get(name))
     .filter((s): s is PricedService => Boolean(s));
 
-  const catalogueTotal = matchedServices.reduce((sum, s) => sum + (Number(s.price) || 0), 0);
+  // Priced from the chosen list. `price` is the standard list's price, so a service with no entry
+  // for this list simply charges its standard rate — which is why lists needed no migration.
+  const priceListId = input.priceListId || null;
+  const catalogueTotal = matchedServices.reduce((sum, s) => sum + resolveListPrice(s, priceListId), 0);
   const typed = Number(input.typedUnitCost);
   // A typed cost wins, but only when it is a real number — `0` means "free", and `Number("")`
   // is NaN, which must fall through to the catalogue rather than poisoning the total.
@@ -92,7 +113,11 @@ export function computeProcedurePricing(input: ProcedurePricingInput): Procedure
     ? (input.pricingModeOverride as PricingMode)
     : modeFor(matchedServices);
   const pricingUnits = pricingUnitsFor(pricingMode, input.selectedTeeth);
-  const cost = money(unitCost * pricingUnits);
+  const listPrice = money(unitCost * pricingUnits);
+
+  const discountMode: DiscountMode = isDiscountMode(input.discountMode) ? input.discountMode : "none";
+  const discount = applyDiscount(listPrice, discountMode, input.discountValue);
+  const cost = discount.net;
 
   const { labFee, labFeePerUnit, reqLab } = computeProcedureLabFee({
     // computeProcedureLabFee only reads requiresLab and estimatedLabFee.
@@ -101,8 +126,11 @@ export function computeProcedurePricing(input: ProcedurePricingInput): Procedure
   });
 
   const commissionPct = Number(input.commissionPct) || 0;
-  // The lab is paid before the dentist's share is worked out — the fee leaves the clinic either
-  // way, so a percentage of it was never the dentist's to take.
+  // Two rules, both easy to get wrong in a way nobody notices for months:
+  //   - the lab fee is NOT discounted. The lab charges its full price whatever the patient pays,
+  //     so a discount comes out of the clinic's and the dentist's share, never the lab's;
+  //   - commission is on the NET. A dentist earning a percentage of a price the patient never paid
+  //     would be paid out of money that never arrived.
   const net = cost - labFee;
   const doctorCommissionAmount = net > 0 ? money(net * (commissionPct / 100)) : 0;
   const clinicProfit = money(cost - doctorCommissionAmount - labFee);
@@ -116,6 +144,13 @@ export function computeProcedurePricing(input: ProcedurePricingInput): Procedure
     pricingUnits,
     pricingMode,
     pricingFormula: `${money(unitCost)}*${pricingUnits}`,
+    listPrice,
+    priceListId,
+    priceListName: input.priceListName || null,
+    discountMode: discount.discountMode,
+    discountValue: discount.discountValue,
+    discountAmount: discount.discountAmount,
+    discountReason: discount.discountAmount > 0 ? String(input.discountReason || "").trim() || null : null,
     cost,
     labFee: money(labFee),
     labFeePerUnit: money(labFeePerUnit),
