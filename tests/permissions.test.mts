@@ -105,8 +105,9 @@ assert.deepEqual(
 // Collections that MUST stay out of the "any clinic member may write" grant. Rules OR together,
 // so dropping one here re-opens it to every member regardless of the narrower block below it.
 //
-// Phase 2 of the repair plan adds ledger, clinical_notes, services and ledger_audit to this list;
-// until those land, the expectation is today's set.
+// `ledger`, `ledger_audit`, `clinical_notes` and `services` joined this list when money writes
+// moved behind the API routes: their own match blocks deny the client, and that deny only holds
+// while they are also held out of the blanket grant.
 const MUST_BE_EXCLUDED = [
   "system_logs",
   "staff",
@@ -117,6 +118,10 @@ const MUST_BE_EXCLUDED = [
   "sms_outbox",
   "sms_devices",
   "leads",
+  "ledger",
+  "ledger_audit",
+  "clinical_notes",
+  "services",
 ];
 
 const rules = readFileSync(join(REPO, "firestore.rules"), "utf8");

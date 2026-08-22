@@ -134,6 +134,12 @@ async function main() {
     await setDoc(doc(db, "clinics/clinicA/clinical_notes/noteA1"), {
       patientId: "patA1",
       procedure: "Crown",
+      cost: 3000,
+      sortIndex: 0,
+    });
+    await setDoc(doc(db, "clinics/clinicA/services/svcA1"), {
+      name: "Crown",
+      price: 3000,
     });
     await setDoc(doc(db, "clinics/clinicA/attendance/attA1"), {
       userId: "assistant1",
@@ -606,6 +612,48 @@ async function main() {
     setDoc(doc(admin1, "sms_pairing_codes/AAAA-BBBB"), { clinicId: "clinicA" }),
     "deny"
   );
+
+  // Money moved behind the API routes. These are the tests that prove the lock is real rather
+  // than a sticker: the finance.* permissions only ever hid buttons, so until these rules landed
+  // a receptionist with no finance permission could rewrite any charge through the SDK.
+  console.log("money is server-only");
+  await check("a member can still READ the ledger (every live screen depends on it)", getDoc(doc(assistant1, "clinics/clinicA/ledger/ledA1")), "allow");
+  await check("a member cannot create a payment", setDoc(doc(assistant1, "clinics/clinicA/ledger/forged1"), { type: "payment", paid: 5000 }), "deny");
+  await check("a member cannot edit a payment", updateDoc(doc(assistant1, "clinics/clinicA/ledger/ledA1"), { paid: 1 }), "deny");
+  await check("a member cannot delete a payment", deleteDoc(doc(assistant1, "clinics/clinicA/ledger/ledA1")), "deny");
+  // An Admin is no exception. The transaction boundaries and the arithmetic live in the routes,
+  // so a direct write would bypass them whoever made it.
+  await check("even a clinic Admin cannot write the ledger directly", updateDoc(doc(admin1, "clinics/clinicA/ledger/ledA1"), { paid: 1 }), "deny");
+  await check("even a clinic Admin cannot delete a ledger row directly", deleteDoc(doc(admin1, "clinics/clinicA/ledger/ledA1")), "deny");
+
+  console.log("the audit trail cannot be edited by the audited");
+  await check("a member can read the audit trail", getDoc(doc(assistant1, "clinics/clinicA/ledger_audit/anything")), "allow");
+  await check("a member cannot write an audit entry", setDoc(doc(assistant1, "clinics/clinicA/ledger_audit/forged1"), { action: "delete" }), "deny");
+  await check("an Admin cannot erase an audit entry", deleteDoc(doc(admin1, "clinics/clinicA/ledger_audit/anything")), "deny");
+
+  console.log("clinical notes are server-only, except the drag order");
+  await check("a member can read a note", getDoc(doc(assistant1, "clinics/clinicA/clinical_notes/noteA1")), "allow");
+  await check("a member cannot create a note", setDoc(doc(assistant1, "clinics/clinicA/clinical_notes/forged1"), { procedure: "Crown", cost: 9000 }), "deny");
+  await check("a member cannot delete a note", deleteDoc(doc(assistant1, "clinics/clinicA/clinical_notes/noteA1")), "deny");
+  await check("a member cannot change what a treatment cost", updateDoc(doc(assistant1, "clinics/clinicA/clinical_notes/noteA1"), { cost: 1 }), "deny");
+  // Dragging the timeline into order moves no money and must keep working from the browser.
+  await check("a member CAN reorder the timeline", updateDoc(doc(assistant1, "clinics/clinicA/clinical_notes/noteA1"), { sortIndex: 3 }), "allow");
+  // ...but a drag must not be able to smuggle a price change along with the new position.
+  await check(
+    "a reorder cannot carry a cost change with it",
+    updateDoc(doc(assistant1, "clinics/clinicA/clinical_notes/noteA1"), { sortIndex: 4, cost: 1 }),
+    "deny"
+  );
+
+  console.log("the price list is admin-only");
+  await check("a member can read the price list", getDoc(doc(assistant1, "clinics/clinicA/services/svcA1")), "allow");
+  await check("a member cannot change a price", updateDoc(doc(assistant1, "clinics/clinicA/services/svcA1"), { price: 1 }), "deny");
+  await check("a member cannot add a service", setDoc(doc(assistant1, "clinics/clinicA/services/forged1"), { name: "X", price: 1 }), "deny");
+  await check("an Admin can change a price", updateDoc(doc(admin1, "clinics/clinicA/services/svcA1"), { price: 3200 }), "allow");
+
+  console.log("money stays tenant-isolated");
+  await check("another clinic's Admin cannot read this ledger", getDoc(doc(adminB, "clinics/clinicA/ledger/ledA1")), "deny");
+  await check("another clinic's Admin cannot read this price list", getDoc(doc(adminB, "clinics/clinicA/services/svcA1")), "deny");
 
   // The public booking page reads nothing directly for exactly this reason. If someone ever
   // "fixes" that page by loosening these rules, these four fail and say so.

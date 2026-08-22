@@ -101,7 +101,9 @@ service cloud.firestore {
               && subcollection != 'system_logs' && subcollection != 'staff' && subcollection != 'settings'
               && subcollection != 'ai_deletion_log' && subcollection != 'ai_pending_actions'
               && subcollection != 'message_drafts' && subcollection != 'sms_outbox'
-              && subcollection != 'sms_devices' && subcollection != 'leads');
+              && subcollection != 'sms_devices' && subcollection != 'leads'
+              && subcollection != 'ledger' && subcollection != 'ledger_audit'
+              && subcollection != 'clinical_notes' && subcollection != 'services');
       }
 
       // --- SPECIFIC SUBCOLLECTION OVERRIDES ---
@@ -131,6 +133,58 @@ service cloud.firestore {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
         allow create, update: if isSuperAdmin() || (hasClinicRole(clinicId) && isClinicActive(clinicId));
         allow delete: if isSuperAdmin() || (isClinicAdmin(clinicId) && isClinicActive(clinicId));
+      }
+
+      // Money. Every write goes through /api/finance/ledger or /api/clinical/procedures on the
+      // Admin SDK, and the client is denied outright here.
+      //
+      // This is what makes the finance.* permissions mean anything. They were checked only in the
+      // browser, where they decide whether a button renders — while this collection was writable
+      // by every member of the clinic through the SDK regardless. A receptionist with no finance
+      // permission at all could rewrite any charge, any payment, any commission.
+      //
+      // It is also what makes the arithmetic hold. The routes decide inside a transaction which
+      // payment carries the lab fee, resolve the treating dentist from the procedure, and refuse
+      // to delete a charge that has money against it. None of that can be enforced from a browser
+      // that is free to write whatever it likes.
+      //
+      // Note this subcollection is excluded from the blanket member-write grant above; without
+      // that exclusion the two rules would OR together and this deny would do nothing at all.
+      match /ledger/{rowId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow write: if false;
+      }
+
+      // Before/after snapshots of every money change: who altered a charge, and what it held
+      // beforehand. Server-written only — an audit trail the audited party can edit is not an
+      // audit trail. Staff can read it.
+      match /ledger_audit/{entryId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow write: if false;
+      }
+
+      // Clinical records. A note and its charge are written together in one transaction, and the
+      // note carries the cost the patient is billed — so the same reasoning as `ledger` applies.
+      //
+      // The single exception is `sortIndex`: dragging the treatment timeline into order is a
+      // display arrangement the whole clinic shares (see Note.sortIndex), it moves no money, and
+      // routing a drag through an API would make it feel broken. `hasOnly` is what keeps that
+      // narrow — a drag cannot smuggle a changed `cost` along with the new position.
+      match /clinical_notes/{noteId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow update: if isSuperAdmin()
+          || (hasClinicRole(clinicId) && isClinicActive(clinicId)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['sortIndex']));
+        allow create, delete: if false;
+      }
+
+      // The price list. Admin-only to write: it is the instrument that decides what every
+      // treatment costs, and the server prices procedures from it rather than from the browser,
+      // so a member who could edit it could set any price they liked. Settings is already an
+      // admin-only area; this makes the data agree with the screen.
+      match /services/{serviceId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow write: if isSuperAdmin() || (isClinicAdmin(clinicId) && isClinicActive(clinicId));
       }
 
       match /system_logs/{logId} {
