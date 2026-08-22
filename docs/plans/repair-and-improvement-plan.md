@@ -721,3 +721,62 @@ viewer UI, approval workflows, appointments behind APIs.
 New npm scripts expected by the end: `test:ledger`, `test:delete`, `test:repair`,
 `test:discount` — plus the repaired `test:permissions`, extended `test:rules`, and the extended
 `test:recovery`.
+
+---
+
+## 11. Execution record (completed 2026-08-22)
+
+All five phases are implemented, tested and pushed to
+`claude/booking-clinical-finance-blueprint-oylayc`. Verified at the end of each phase:
+12 test suites green, `tsc --noEmit` clean, the production build compiling with all three new API
+routes, and lint errors unchanged at the pre-existing baseline of 80.
+
+| Phase | Commit | Notes |
+|---|---|---|
+| 0 | `35ae5c4`, `04f1751`, `832d2d5`, `8cdef4a`, `952c603` | Housekeeping |
+| 1 | `e317ff0` | `ledgerWrite`, `deletePolicy` |
+| 2 | `457df70`, `9383ceb`, `801b9b8` | Routes → UIs → rules, in that order |
+| 3 | `6af22e4` | Repair classifier + script |
+| 4 | `c8cd0fb`, `9ad6dec`, `6b00181` | Price lists and discounts |
+
+### Found during execution, beyond the plan
+
+- **`dashboard.view` was ungrantable.** Enforced by three AI screens and seeded by both signup
+  routes, but missing from `PERMISSIONS_CATALOG` — so User Management, which renders its
+  checkboxes from the catalogue, had no control for it. Added, and the new drift test is what
+  caught it.
+- **Four extra write sites** the plan had not listed: the patient timeline's delete, the side
+  panel's session-procedure removal, and both dashboards' appointment delete. All switched.
+- **Both dashboards swallowed delete errors** — a refused delete looked to the user like nothing
+  had happened. They now surface the server's message.
+- **`set-commission` route action.** The payout screen's manual split override wrote the ledger
+  directly and recorded nothing about the figure having been chosen rather than computed. It now
+  stamps `commissionSetManually`, which is what lets the Phase 3 classifier recognise a deliberate
+  override. This screen is the most likely origin of the hand-corrected rows the owner asked to
+  protect.
+- **Procedure discount edits stayed on the finance route** rather than being pushed to the clinical
+  route as §P2.1 suggested, so the patient-ledger edit modal kept working through Phase 2 instead
+  of being broken for a phase. §P4.3 always intended the finance route to own those fields.
+
+### Two things only the owner can run
+
+1. **Deploy the tightened rules — after the app is live.**
+   `firebase deploy --only firestore:rules`
+   Deploying before the new app is serving would deny every money screen at once, because the
+   client can no longer write `ledger` or `clinical_notes` and the routes would not yet be there.
+
+2. **The historical repair, when you are ready.**
+   ```
+   node scripts/repair-payment-attribution.mjs --clinic <id>          # look, write nothing
+   node scripts/repair-payment-attribution.mjs --clinic <id> --apply  # only after reading the report
+   ```
+   Dry run writes `repair-report-<clinic>-<date>.json` and `.csv`. Rows carrying any commission
+   figure are never touched, and REVIEW rows are applied only from an approved list via
+   `--apply-reviewed`.
+
+   `scripts/strip-vestigial-patient-fields.mjs` is the same shape and equally optional.
+
+### Defaults now live, changeable in Settings → Services
+
+Non-Admin discount ceiling 20%; reasons Promotion, Family & friends, Insurance, Staff, Complaint
+resolution, Other; one "Standard" price list at full price, seeded on first read.
