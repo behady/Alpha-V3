@@ -5,7 +5,7 @@ import {
   FileBarChart, Loader2, RefreshCw, Stethoscope, UserCheck, Network, Building2, CalendarDays, Megaphone,
 } from "lucide-react";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, Timestamp } from "firebase/firestore";
+import { collection, getDocs, query, where, Timestamp } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import PermissionGuard from "@/components/PermissionGuard";
@@ -57,11 +57,37 @@ export default function ReportsPage() {
   const buildSnapshot = useCallback(async () => {
     setLoading(true);
     try {
+      // Bounded by the selected range rather than pulled whole. This screen used to download
+      // every ledger row and every lead the clinic had ever recorded and then throw away all but
+      // the chosen month — fine in year one, progressively slower and more expensive after that.
+      //
+      // `date` is stored as YYYY-MM-DD, so a string range is a real range (the finance page relies
+      // on the same property). Rows carrying no `date` at all now fall outside every range; they
+      // were only ever reachable through the `r.date || r.createdAt` fallback below, and a money
+      // row with no date cannot be attributed to a period honestly anyway.
+      //
+      // patients and staff stay whole: new-vs-returning classification needs every patient's
+      // creation date, name lookups need every staff member, and both collections are small.
+      const leadsFrom = Timestamp.fromDate(new Date(`${startDate}T00:00:00`));
+      const leadsTo = Timestamp.fromDate(new Date(`${endDate}T23:59:59.999`));
+
       const [ledgerSnap, patientsSnap, staffSnap, leadsSnap] = await Promise.all([
-        getDocs(getClinicCollection("ledger")),
+        getDocs(
+          query(
+            getClinicCollection("ledger"),
+            where("date", ">=", startDate),
+            where("date", "<=", endDate)
+          )
+        ),
         getDocs(getClinicCollection("patients")),
         getDocs(getClinicCollection("staff")),
-        getDocs(getClinicCollection("leads")),
+        getDocs(
+          query(
+            getClinicCollection("leads"),
+            where("createdAt", ">=", leadsFrom),
+            where("createdAt", "<=", leadsTo)
+          )
+        ),
       ]);
 
       const staff = staffSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Record<string, unknown>));
