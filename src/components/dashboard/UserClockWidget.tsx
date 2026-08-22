@@ -10,7 +10,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 
-export default function UserClockWidget({ mobileVariant = false }: { mobileVariant?: boolean }) {
+export default function UserClockWidget({ mobileVariant = false, compact = false }: { mobileVariant?: boolean; compact?: boolean }) {
   const { language } = useLanguage();
   const { user } = useAuth();
   const router = useRouter();
@@ -94,6 +94,14 @@ export default function UserClockWidget({ mobileVariant = false }: { mobileVaria
   }, [user]);
 
   if (loading) {
+    if (compact) {
+      return (
+        <div className="bg-white/90 backdrop-blur-md rounded-2xl px-4 py-2.5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/60 flex items-center justify-center shrink-0">
+          <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+        </div>
+      );
+    }
+
     return (
       <div className="bg-white/80 backdrop-blur-md rounded-[2rem] p-5 shadow-[0_12px_40px_rgba(0,0,0,0.04)] border border-white flex items-center justify-center min-w-[200px]">
         <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
@@ -104,6 +112,24 @@ export default function UserClockWidget({ mobileVariant = false }: { mobileVaria
 
   // Not clocked in state
   if (!activeSession) {
+    if (compact) {
+      return (
+        <Link
+          href="/attendance"
+          title={language === 'ar' ? 'لم تقم بتسجيل الدخول!' : "You haven't clocked in!"}
+          className="flex items-center gap-2 shrink-0 bg-rose-50/90 backdrop-blur-md border border-rose-100 text-rose-600 rounded-2xl px-3 py-2 shadow-[0_8px_30px_rgba(244,63,94,0.08)] hover:-translate-y-0.5 transition-all duration-300"
+        >
+          <AlertCircle size={16} className="text-rose-500 animate-pulse shrink-0" />
+          <span className="hidden 2xl:inline text-xs font-bold uppercase tracking-wide whitespace-nowrap">
+            {language === 'ar' ? 'لم تسجل الحضور' : 'Not clocked in'}
+          </span>
+          <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest bg-rose-500 text-white rounded-lg px-2 py-1 shrink-0">
+            <LogIn size={11} /> {language === 'ar' ? 'تسجيل' : 'Clock in'}
+          </span>
+        </Link>
+      );
+    }
+
     if (mobileVariant) {
       return (
         <Link href="/attendance" className="flex bg-rose-50 border border-rose-100 rounded-2xl p-3 items-center justify-between shadow-sm hover:scale-[1.02] transition-transform w-full">
@@ -140,6 +166,35 @@ export default function UserClockWidget({ mobileVariant = false }: { mobileVaria
   }
 
   // Clocked in state
+  if (compact) {
+    return (
+      <Link
+        href="/attendance"
+        title={language === 'ar' ? 'الوقت الحالي' : 'Active Shift'}
+        className="flex items-center gap-2.5 shrink-0 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-2xl px-3.5 py-2 shadow-[0_8px_24px_rgba(16,185,129,0.25)] hover:-translate-y-0.5 transition-all duration-300"
+      >
+        <span className="relative flex h-2 w-2 shrink-0">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-200 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-100"></span>
+        </span>
+        <span className="text-base font-mono font-light tracking-tight leading-none whitespace-nowrap">
+          {liveDuration || "00:00:00"}
+        </span>
+        <span className="hidden 2xl:flex items-center gap-1.5 border-s border-white/25 ps-2.5 text-[11px] font-bold whitespace-nowrap">
+          <Wallet size={13} className="text-emerald-100 shrink-0" />
+          {monthlyIncome === null ? (
+            <Loader2 size={12} className="animate-spin text-emerald-100" />
+          ) : (
+            <>
+              {monthlyIncome.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}
+              <span className="font-normal opacity-80">{language === 'ar' ? 'ج.م' : 'EGP'}</span>
+            </>
+          )}
+        </span>
+      </Link>
+    );
+  }
+
   if (mobileVariant) {
     return (
       <Link href="/attendance" className="flex bg-gradient-to-r from-emerald-500 to-teal-500 text-white p-3 rounded-2xl shadow-sm hover:scale-[1.02] transition-transform w-full items-center justify-between">

@@ -1,6 +1,7 @@
 package com.alphadental.clinic.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -40,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -119,21 +122,25 @@ fun HomeScreen(
                     )
                 }
                 Spacer(Modifier.width(12.dp))
+                // The greeting is context, the person is the headline — so the small
+                // line goes on top and the name sits alone underneath, in the serif
+                // that marks out the screen's few important words and figures.
                 Column(Modifier.weight(1f)) {
                     Text(
-                        text = greeting(session.name, arabic),
-                        fontSize = 21.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Alpha.Slate900,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = "${roleCaption(session.role, arabic)} · ${todayLabel(arabic)}",
+                        text = "${timeGreeting(arabic)} · ${todayLabel(arabic)}",
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.Medium,
                         color = Alpha.Slate500,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = shortName(session.name),
+                        fontSize = 23.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontFamily = FontFamily.Serif,
+                        color = Alpha.Slate900,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 Spacer(Modifier.width(8.dp))
@@ -259,10 +266,10 @@ private fun LazyListScope.dentistHome(
     quickActions(
         arabic,
         listOf(
-            QuickAction(Icons.Filled.People, if (arabic) "المرضى" else "Patients", onClick = onOpenPatients),
-            QuickAction(Icons.Filled.Timeline, if (arabic) "التقويم" else "Ortho", onClick = onOpenOrtho),
-            QuickAction(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", onClick = onOpenAssistant),
-            QuickAction(Icons.Filled.Inventory2, if (arabic) "المخزون" else "Stock", onClick = onOpenInventory),
+            QuickAction(Icons.Filled.People, if (arabic) "المرضى" else "Patients", ToolSky, onClick = onOpenPatients),
+            QuickAction(Icons.Filled.Timeline, if (arabic) "التقويم" else "Ortho", ToolViolet, onClick = onOpenOrtho),
+            QuickAction(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", ToolRose, onClick = onOpenAssistant),
+            QuickAction(Icons.Filled.Inventory2, if (arabic) "المخزون" else "Stock", ToolAmber, onClick = onOpenInventory),
         ),
     )
 
@@ -290,14 +297,14 @@ private fun LazyListScope.receptionHome(
     quickActions(
         arabic,
         listOfNotNull(
-            onOpenLeads?.let { QuickAction(Icons.Filled.PersonSearch, if (arabic) "عملاء" else "Leads", onClick = it) },
-            onOpenMoney?.let { QuickAction(Icons.Filled.Payments, if (arabic) "الحسابات" else "Money", onClick = it) },
-            QuickAction(Icons.Filled.People, if (arabic) "المرضى" else "Patients", onClick = onOpenPatients),
+            onOpenLeads?.let { QuickAction(Icons.Filled.PersonSearch, if (arabic) "عملاء" else "Leads", ToolViolet, onClick = it) },
+            onOpenMoney?.let { QuickAction(Icons.Filled.Payments, if (arabic) "الحسابات" else "Money", ToolGreen, onClick = it) },
+            QuickAction(Icons.Filled.People, if (arabic) "المرضى" else "Patients", ToolSky, onClick = onOpenPatients),
             QuickAction(
-                Icons.Filled.Send, if (arabic) "واتساب" else "WhatsApp",
+                Icons.Filled.Send, if (arabic) "واتساب" else "WhatsApp", ToolTeal,
                 badge = whatsappWaiting, onClick = onOpenWhatsappQueue,
             ),
-            QuickAction(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", onClick = onOpenAssistant),
+            QuickAction(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", ToolRose, onClick = onOpenAssistant),
         ),
     )
 
@@ -371,6 +378,7 @@ private fun LazyListScope.ownerHome(
                             text = takingsToday?.let { "${it.toInt()} EGP" } ?: "—",
                             fontSize = 27.sp,
                             fontWeight = FontWeight.ExtraBold,
+                            fontFamily = FontFamily.Serif,
                             color = Alpha.Green,
                         )
                         Spacer(Modifier.height(2.dp))
@@ -409,11 +417,11 @@ private fun LazyListScope.ownerHome(
     quickActions(
         arabic,
         listOfNotNull(
-            onOpenLeads?.let { QuickAction(Icons.Filled.PersonSearch, if (arabic) "عملاء" else "Leads", onClick = it) },
-            onOpenReports?.let { QuickAction(Icons.Filled.BarChart, if (arabic) "التقارير" else "Reports", onClick = it) },
-            onOpenMoney?.let { QuickAction(Icons.Filled.Payments, if (arabic) "الحسابات" else "Money", onClick = it) },
-            QuickAction(Icons.Filled.Inventory2, if (arabic) "المخزون" else "Stock", onClick = onOpenInventory),
-            QuickAction(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", onClick = onOpenAssistant),
+            onOpenLeads?.let { QuickAction(Icons.Filled.PersonSearch, if (arabic) "عملاء" else "Leads", ToolViolet, onClick = it) },
+            onOpenReports?.let { QuickAction(Icons.Filled.BarChart, if (arabic) "التقارير" else "Reports", ToolSky, onClick = it) },
+            onOpenMoney?.let { QuickAction(Icons.Filled.Payments, if (arabic) "الحسابات" else "Money", ToolGreen, onClick = it) },
+            QuickAction(Icons.Filled.Inventory2, if (arabic) "المخزون" else "Stock", ToolAmber, onClick = onOpenInventory),
+            QuickAction(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", ToolRose, onClick = onOpenAssistant),
         ),
     )
 
@@ -432,23 +440,74 @@ private fun LazyListScope.ownerHome(
 private data class QuickAction(
     val icon: androidx.compose.ui.graphics.vector.ImageVector,
     val label: String,
+    val color: Color,
     val badge: Int = 0,
     val onClick: () -> Unit,
 )
 
+/**
+ * The tools each keep one hue — Leads is always violet, Stock always amber —
+ * so the row is read by colour long before the labels are. This is the only
+ * place the dashboard spends colour beyond the brand green and the statuses;
+ * everything around it stays quiet so the belt can be loud.
+ */
+private val ToolViolet = Color(0xFF8B5CF6)
+private val ToolSky = Color(0xFF0EA5E9)
+private val ToolGreen = Color(0xFF0D9E6F)
+private val ToolAmber = Color(0xFFF59E0B)
+private val ToolTeal = Color(0xFF14B8A6)
+private val ToolRose = Color(0xFFEC4899)
+
+// A slim scrollable belt of chips rather than a grid of white tiles: it needs no
+// heading, saves most of a row of screen, and stops every shortcut wearing the
+// same uniform.
 private fun LazyListScope.quickActions(arabic: Boolean, actions: List<QuickAction>) {
     item {
-        Column {
-            SectionHeading(if (arabic) "اختصارات" else "SHORTCUTS")
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                actions.forEach { action ->
-                    ToolTile(
-                        icon = action.icon,
-                        label = action.label,
-                        badge = action.badge,
-                        modifier = Modifier.weight(1f),
-                        onClick = action.onClick,
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+        ) {
+            actions.forEach { QuickChip(it) }
+        }
+    }
+}
+
+@Composable
+private fun QuickChip(action: QuickAction) {
+    Surface(
+        onClick = action.onClick,
+        shape = Alpha.PillShape,
+        color = action.color.copy(alpha = if (Alpha.dark) .20f else .11f),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+        ) {
+            Icon(action.icon, contentDescription = null, tint = action.color, modifier = Modifier.size(17.dp))
+            Spacer(Modifier.width(7.dp))
+            Text(
+                text = action.label,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = Alpha.Slate800,
+                maxLines = 1,
+            )
+            if (action.badge > 0) {
+                Spacer(Modifier.width(6.dp))
+                Box(
+                    modifier = Modifier
+                        .size(17.dp)
+                        .clip(CircleShape)
+                        .background(Alpha.Danger),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = if (action.badge > 9) "9+" else action.badge.toString(),
+                        fontSize = 9.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
                     )
                 }
             }
@@ -619,14 +678,25 @@ private fun ProgressTrack(fraction: Float) {
  * Mirrors getWelcomeName() on the website: keep a title if there is one, otherwise
  * just the first name.
  */
-private fun greeting(name: String, arabic: Boolean): String {
+private fun shortName(name: String): String {
     val parts = name.trim().split(" ").filter { it.isNotBlank() }
-    val short = when {
+    return when {
         parts.isEmpty() -> ""
         parts.size > 1 && parts[0].trimEnd('.').lowercase() in DOCTOR_TITLES -> "${parts[0]} ${parts[1]}"
         else -> parts[0]
     }
-    return if (arabic) "أهلاً $short" else "Hello $short"
+}
+
+/** Follows the clock — a dashboard opened at 8 pm should not say good morning. */
+private fun timeGreeting(arabic: Boolean): String {
+    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+    return when {
+        arabic && hour < 12 -> "صباح الخير"
+        arabic -> "مساء الخير"
+        hour < 12 -> "Good morning"
+        hour < 18 -> "Good afternoon"
+        else -> "Good evening"
+    }
 }
 
 /** "Sat, 16 Aug" in the greeting line, in the app's language. */
@@ -635,9 +705,3 @@ private fun todayLabel(arabic: Boolean): String {
     return java.text.SimpleDateFormat("EEE, d MMM", locale).format(java.util.Date())
 }
 
-private fun roleCaption(role: String, arabic: Boolean): String = when (role) {
-    "Admin" -> if (arabic) "مدير العيادة" else "Clinic owner"
-    "Dentist" -> if (arabic) "طبيب" else "Dentist"
-    "Receptionist" -> if (arabic) "استقبال" else "Reception"
-    else -> if (arabic) "فريق العيادة" else "Clinic staff"
-}

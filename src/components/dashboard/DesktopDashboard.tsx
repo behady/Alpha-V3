@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { 
     Calendar, Plus, ChevronRight, ChevronLeft, Wallet, User, Clock, Check,
     Loader2, Edit, Printer, UserX, MessageCircle, Pill, Receipt,
-    X, Save, Trash2, FileText, ChevronDown, Bell, UserPlus, AlertCircle, CheckCircle
+    X, Save, Trash2, FileText, ChevronDown, Bell, UserPlus, AlertCircle
 } from "lucide-react";
 import { db, auth } from "@/lib/firebase";
 import { 
@@ -847,123 +847,122 @@ export default function DesktopDashboard() {
     <div className={`min-h-screen lg:min-h-0 lg:h-full relative overflow-hidden pb-24 lg:pb-0 font-sans text-[#1E293B] lg:text-white ${isRTL ? 'text-right' : 'text-left'}`}>
       <div className="relative z-10 w-full max-w-[1920px] mx-auto p-4 md:p-6 md:pt-8 lg:p-4 lg:pt-3 space-y-3 md:space-y-4 lg:space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:h-full lg:flex lg:flex-col">
         
-        {/* === DESKTOP: High Contrast Greeting Bar === */}
+        {/* === DESKTOP: Compact Command Bar (greeting + stats + actions in one strip) === */}
         {!isFullScreen && (
-          <div className="hidden lg:flex items-end justify-between shrink-0 pt-4 pb-2">
-            <div className="flex flex-col min-w-0">
-            <h1 className="text-5xl font-light text-slate-800 tracking-tight mb-1">
-              {language === 'ar' ? 'أهلاً بك،' : 'Welcome in,'} <span className="font-medium text-slate-900">{getWelcomeName(user?.name)}</span>
-            </h1>
-            <p className="flex items-center gap-3 text-base font-medium text-slate-500 mt-2">
-              <span className="flex items-center gap-1.5"><Calendar size={18} className="text-slate-400" /> {currentTime.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
-              <span className="flex items-center gap-1.5"><Clock size={18} className="text-slate-400" /> {currentTime.toLocaleTimeString(language === 'ar' ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>
-            </p>
-          </div>
-          <div className="flex items-center gap-3 shrink-0">
-            <button onClick={() => setActiveModal('patient')} className="group flex items-center gap-2 bg-white/90 backdrop-blur-md text-slate-700 font-bold text-base px-6 py-3.5 rounded-full hover:-translate-y-0.5 transition-all duration-300 shadow-[0_4px_20px_rgb(0,0,0,0.04)] border border-white/50">
-              <div className="text-slate-500 group-hover:scale-110 group-hover:text-[#2D3748] transition-all"><Plus size={20} strokeWidth={2.5} /></div>
-              {language === 'ar' ? 'مريض جديد' : 'New Patient'}
-            </button>
-            <button onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }} className="group flex items-center gap-2 bg-[#2D3748] text-white font-bold text-base px-6 py-3.5 rounded-full hover:-translate-y-0.5 transition-all duration-300 shadow-[0_8px_20px_rgba(45,55,72,0.2)] border border-[#2D3748]">
-              <div className="text-white group-hover:scale-110 transition-transform"><Wallet size={20} strokeWidth={2.5} /></div>
-              {language === 'ar' ? 'دفع سريع' : 'Quick Pay'}
-            </button>
-          </div>
-        </div>
-        )}
+          <div className="hidden lg:flex items-center gap-3 shrink-0 py-1">
 
-        {/* === DESKTOP: Floating High-Contrast Stats === */}
-        {!isFullScreen && (
-          <div className="hidden lg:flex items-center gap-12 shrink-0 py-4 px-2">
-          {/* Daily Income - Dark Contrast Card -> Updated to Mint Style */}
-          <div className="bg-white/90 backdrop-blur-xl text-slate-800 border border-white/60 p-5 rounded-[2rem] shadow-[0_12px_40px_rgba(0,0,0,0.04)] flex flex-col min-w-[200px] hover:scale-[1.02] transition-transform">
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-base font-medium text-slate-500">{language === 'ar' ? 'دخل اليوم' : 'Daily Income'}</span>
-              <Wallet size={22} className="text-slate-400" />
-            </div>
-            <span className="text-4xl font-light tracking-tight text-slate-800">
-              {dailyIncome === null ? <Loader2 className="w-6 h-6 animate-spin text-slate-500" /> : <><span className="font-normal">{dailyIncome?.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}</span> <span className="text-xl text-slate-400">{language === 'ar' ? 'ج.م' : 'EGP'}</span></>}
-            </span>
-          </div>
-          
-          {/* Total Appointments - Floating Huge Number */}
-          <div className="flex flex-col justify-center px-4">
-            <span className="text-base font-medium text-slate-500 mb-1">{language === 'ar' ? 'المواعيد' : 'Appointments'}</span>
-            <span className="text-6xl font-light text-[#2D3748] tracking-tighter leading-none">{activeAppointmentsCount}</span>
-          </div>
-
-          {/* Live Patient Flow - Custom Widget */}
-          <div className="flex flex-col justify-center px-4 flex-1 max-w-sm bg-white/90 backdrop-blur-xl border border-white/60 p-5 rounded-[2rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
-            <div className="flex items-center justify-between text-sm font-bold text-slate-600 mb-2">
-              <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                {language === 'ar' ? 'حالة المواعيد' : 'Appointments Status'}
-              </span>
-              <span className="text-xs text-slate-400">
-                {language === 'ar' ? 'اليوم' : 'Today'}
-              </span>
-            </div>
-            
-            {/* Stats Row */}
-            <div className="grid grid-cols-3 gap-2 mb-2">
-              <div className="bg-slate-100/50 rounded-xl p-2 text-center flex flex-col justify-center">
-                <span className="text-xs text-slate-500 font-medium mb-1">{language === 'ar' ? 'مؤكد' : 'Confirmed'}</span>
-                <span className="text-2xl font-extrabold text-[#1A2130] leading-none">{summaryStats.confirmed}</span>
-              </div>
-              <div className="bg-slate-100/50 rounded-xl p-2 text-center flex flex-col justify-center">
-                <span className="text-xs text-slate-500 font-medium mb-1">{language === 'ar' ? 'غير مؤكد' : 'Unconfirmed'}</span>
-                <span className="text-2xl font-extrabold text-amber-600 leading-none">{summaryStats.unconfirmed}</span>
-              </div>
-              <div className="bg-slate-100/50 rounded-xl p-2 text-center flex flex-col justify-center">
-                <span className="text-xs text-slate-500 font-medium mb-1">{language === 'ar' ? 'مكتمل' : 'Completed'}</span>
-                <span className="text-2xl font-extrabold text-emerald-600 leading-none">{summaryStats.completed}</span>
-              </div>
+            {/* Greeting */}
+            <div className="flex flex-col min-w-0 shrink">
+              <h1 className="text-2xl xl:text-[1.75rem] font-light text-slate-800 tracking-tight leading-tight truncate">
+                {language === 'ar' ? 'أهلاً بك،' : 'Welcome in,'} <span className="font-semibold text-slate-900">{getWelcomeName(user?.name)}</span>
+              </h1>
+              <p className="flex items-center gap-2 text-xs font-medium text-slate-500 mt-0.5 whitespace-nowrap">
+                <span className="flex items-center gap-1"><Calendar size={13} className="text-slate-400" /> {currentTime.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+                <span className="w-1 h-1 rounded-full bg-slate-300"></span>
+                <span className="flex items-center gap-1"><Clock size={13} className="text-slate-400" /> {currentTime.toLocaleTimeString(language === 'ar' ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>
+              </p>
             </div>
 
-            {/* Alert / Status Bar */}
-            {(() => {
-              let waitingTooLongCount = 0;
-              const now = new Date();
-              appointments.forEach(app => {
-                if (app.status?.toLowerCase() === 'checked in' && app.checkInTime) {
-                  const checkInDate = typeof app.checkInTime.toDate === 'function' 
-                    ? app.checkInTime.toDate() 
-                    : new Date(app.checkInTime);
-                  const diffMins = (now.getTime() - checkInDate.getTime()) / (1000 * 60);
-                  if (diffMins > 20) {
-                    waitingTooLongCount++;
-                  }
-                }
-              });
+            {/* Stat strip */}
+            <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
+              <div className="flex items-center gap-1 min-w-0 bg-white/90 backdrop-blur-xl border border-white/60 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] px-3 py-2">
 
-              if (waitingTooLongCount > 0) {
-                return (
-                  <div className="flex items-center gap-1.5 bg-rose-50 border border-rose-100 text-rose-700 px-3 py-1.5 rounded-xl text-xs font-bold animate-pulse shadow-sm mt-1">
-                    <AlertCircle size={14} className="shrink-0 text-rose-500" />
-                    <span>
-                      {language === 'ar' 
-                        ? `${waitingTooLongCount} مريض ينتظر لأكثر من ٢٠ دقيقة!` 
-                        : `${waitingTooLongCount} patient(s) waiting > 20m!`}
-                    </span>
-                  </div>
-                );
-              }
-
-              return (
-                <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-100 text-emerald-700 px-3 py-1.5 rounded-xl text-xs font-bold shadow-sm mt-1">
-                  <CheckCircle size={14} className="shrink-0 text-emerald-500" />
-                  <span>
-                    {language === 'ar' ? 'حالة التدفق ممتازة ومستقرة' : 'Flow is smooth & steady'}
+                {/* Daily Income */}
+                <div className="flex flex-col justify-center px-2 shrink-0">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 leading-none">{language === 'ar' ? 'دخل اليوم' : 'Income'}</span>
+                  <span className="flex items-center text-lg font-semibold text-slate-800 leading-none mt-1.5">
+                    {dailyIncome === null
+                      ? <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+                      : <>{dailyIncome.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}<span className="text-[11px] font-normal text-slate-400 ms-1">{language === 'ar' ? 'ج.م' : 'EGP'}</span></>}
                   </span>
                 </div>
-              );
-            })()}
-          </div>
 
-          {/* User Clock & Income Widget */}
-          <UserClockWidget />
-        </div>
+                <span className="w-px h-8 bg-slate-200/70 shrink-0" />
+
+                {/* Appointments */}
+                <div className="flex flex-col justify-center px-2 shrink-0">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 leading-none">{language === 'ar' ? 'المواعيد' : 'Appts'}</span>
+                  <span className="text-lg font-semibold text-[#2D3748] leading-none mt-1.5">{activeAppointmentsCount}</span>
+                </div>
+
+                <span className="w-px h-8 bg-slate-200/70 shrink-0" />
+
+                {/* Appointment status chips */}
+                <div className="flex items-center gap-1.5 px-1 shrink-0">
+                  <div className="flex items-center gap-1.5 rounded-xl bg-slate-100/70 px-2.5 py-1.5" title={language === 'ar' ? 'مؤكد' : 'Confirmed'}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#1A2130] shrink-0" />
+                    <span className="hidden 2xl:inline text-[10px] font-bold uppercase tracking-wide text-slate-500">{language === 'ar' ? 'مؤكد' : 'Confirmed'}</span>
+                    <span className="text-sm font-extrabold text-[#1A2130] leading-none">{summaryStats.confirmed}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 rounded-xl bg-amber-50 px-2.5 py-1.5" title={language === 'ar' ? 'غير مؤكد' : 'Unconfirmed'}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                    <span className="hidden 2xl:inline text-[10px] font-bold uppercase tracking-wide text-amber-700/70">{language === 'ar' ? 'غير مؤكد' : 'Unconfirmed'}</span>
+                    <span className="text-sm font-extrabold text-amber-600 leading-none">{summaryStats.unconfirmed}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 rounded-xl bg-emerald-50 px-2.5 py-1.5" title={language === 'ar' ? 'مكتمل' : 'Completed'}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                    <span className="hidden 2xl:inline text-[10px] font-bold uppercase tracking-wide text-emerald-700/70">{language === 'ar' ? 'مكتمل' : 'Completed'}</span>
+                    <span className="text-sm font-extrabold text-emerald-600 leading-none">{summaryStats.completed}</span>
+                  </div>
+                </div>
+
+                {/* Long-wait alert (only shown when someone has actually been waiting) */}
+                {(() => {
+                  let waitingTooLongCount = 0;
+                  const now = new Date();
+                  appointments.forEach(app => {
+                    if (app.status?.toLowerCase() === 'checked in' && app.checkInTime) {
+                      const checkInDate = typeof app.checkInTime.toDate === 'function'
+                        ? app.checkInTime.toDate()
+                        : new Date(app.checkInTime);
+                      const diffMins = (now.getTime() - checkInDate.getTime()) / (1000 * 60);
+                      if (diffMins > 20) {
+                        waitingTooLongCount++;
+                      }
+                    }
+                  });
+
+                  if (waitingTooLongCount === 0) return null;
+
+                  return (
+                    <div
+                      className="flex items-center gap-1.5 bg-rose-50 border border-rose-100 text-rose-700 px-2.5 py-1.5 rounded-xl text-xs font-bold animate-pulse shrink-0 ms-1"
+                      title={language === 'ar'
+                        ? waitingTooLongCount + ' مريض ينتظر لأكثر من ٢٠ دقيقة!'
+                        : waitingTooLongCount + ' patient(s) waiting > 20m!'}
+                    >
+                      <AlertCircle size={14} className="shrink-0 text-rose-500" />
+                      <span>{waitingTooLongCount}</span>
+                      <span className="hidden 2xl:inline">{language === 'ar' ? 'ينتظر +٢٠ د' : 'waiting > 20m'}</span>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Attendance / shift clock */}
+              <UserClockWidget compact />
+            </div>
+
+            {/* Quick actions */}
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => setActiveModal('patient')}
+                title={language === 'ar' ? 'مريض جديد' : 'New Patient'}
+                className="group flex items-center gap-2 bg-white/90 backdrop-blur-md text-slate-700 font-bold text-sm px-4 py-2.5 rounded-2xl hover:-translate-y-0.5 transition-all duration-300 shadow-[0_4px_20px_rgb(0,0,0,0.04)] border border-white/50"
+              >
+                <Plus size={18} strokeWidth={2.5} className="text-slate-500 group-hover:text-[#2D3748] transition-colors shrink-0" />
+                <span className="hidden xl:inline whitespace-nowrap">{language === 'ar' ? 'مريض جديد' : 'New Patient'}</span>
+              </button>
+              <button
+                onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }}
+                title={language === 'ar' ? 'دفع سريع' : 'Quick Pay'}
+                className="group flex items-center gap-2 bg-[#2D3748] text-white font-bold text-sm px-4 py-2.5 rounded-2xl hover:-translate-y-0.5 transition-all duration-300 shadow-[0_8px_20px_rgba(45,55,72,0.2)] border border-[#2D3748]"
+              >
+                <Wallet size={18} strokeWidth={2.5} className="shrink-0" />
+                <span className="hidden xl:inline whitespace-nowrap">{language === 'ar' ? 'دفع سريع' : 'Quick Pay'}</span>
+              </button>
+            </div>
+          </div>
         )}
 
 

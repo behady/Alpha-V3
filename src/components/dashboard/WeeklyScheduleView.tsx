@@ -39,7 +39,9 @@ export default function WeeklyScheduleView({ appointments, currentDate, language
 
 
     const slotDuration = config.slotDuration || 30;
-    const rowHeight = 60; // Make rows shorter for weekly view to fit more
+    // The compact dashboard header freed ~260px, so rows can breathe. A 30-minute
+    // slot is now tall enough to show name, phone and treatment without hovering.
+    const rowHeight = 88;
     const pixelsPerMinute = rowHeight / slotDuration;
     const totalMinutes = bounds.end - bounds.start;
     const containerHeight = totalMinutes * pixelsPerMinute;
@@ -68,15 +70,15 @@ export default function WeeklyScheduleView({ appointments, currentDate, language
         <div className="flex flex-col min-w-[800px] h-full bg-white/40 backdrop-blur-xl rounded-[2rem] border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.02)] overflow-hidden">
             {/* Header Row (Days of Week) */}
             <div className="flex border-b border-white/60 shadow-sm shrink-0 bg-white/30 backdrop-blur-md sticky top-0 z-20">
-                <div className="w-[72px] md:w-[88px] shrink-0 border-e border-white/60"></div>
+                <div className="w-[84px] md:w-[100px] shrink-0 border-e border-white/60"></div>
                 {weekDates.map((d, i) => {
                     const isToday = new Date().toISOString().split('T')[0] === d.toISOString().split('T')[0];
                     return (
                         <div key={i} className={`flex-1 min-w-0 border-e border-white/40 last:border-e-0 p-2 md:p-3 text-center flex flex-col items-center justify-center ${isToday ? 'bg-primary-50/50' : ''}`}>
-                            <span className={`text-[10px] md:text-xs font-bold uppercase tracking-wider ${isToday ? 'text-primary-600' : 'text-slate-500'}`}>
+                            <span className={`text-xs md:text-sm font-bold uppercase tracking-wider ${isToday ? 'text-primary-600' : 'text-slate-500'}`}>
                                 {d.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { weekday: 'short' })}
                             </span>
-                            <span className={`text-lg md:text-xl font-light mt-0.5 ${isToday ? 'text-primary-700 font-bold' : 'text-slate-800'}`}>
+                            <span className={`text-xl md:text-2xl font-light mt-0.5 ${isToday ? 'text-primary-700 font-bold' : 'text-slate-800'}`}>
                                 {d.getDate()}
                             </span>
                         </div>
@@ -88,10 +90,10 @@ export default function WeeklyScheduleView({ appointments, currentDate, language
             <div className="flex-1 overflow-y-auto custom-scrollbar relative">
                 <div className="relative" style={{ height: `${containerHeight}px` }}>
                     {/* Time Labels Column */}
-                    <div className="absolute inset-y-0 start-0 w-[72px] md:w-[88px] border-e border-white/60 flex flex-col pointer-events-none z-10 bg-white/20 backdrop-blur-sm">
+                    <div className="absolute inset-y-0 start-0 w-[84px] md:w-[100px] border-e border-white/60 flex flex-col pointer-events-none z-10 bg-white/20 backdrop-blur-sm">
                         {timeSlots.map((slot, idx) => (
                             <div key={idx} className="relative flex-1" style={{ height: `${rowHeight}px` }}>
-                                <div className={`absolute end-2 md:end-3 text-[10px] font-bold text-slate-500 ${idx === 0 ? 'top-4' : 'top-0 -translate-y-1/2'}`}>
+                                <div className={`absolute end-2 md:end-3 text-xs font-bold text-slate-500 ${idx === 0 ? 'top-4' : 'top-0 -translate-y-1/2'}`}>
                                     {slot.label}
                                 </div>
                             </div>
@@ -99,7 +101,7 @@ export default function WeeklyScheduleView({ appointments, currentDate, language
                     </div>
 
                     {/* Day Columns */}
-                    <div className="absolute inset-y-0 start-[72px] md:start-[88px] end-0 flex">
+                    <div className="absolute inset-y-0 start-[84px] md:start-[100px] end-0 flex">
                         {weekDates.map((d, i) => {
                             const dateStr = d.toISOString().split('T')[0];
                             const dayAppts = appointments.filter(a => a.date === dateStr);
@@ -205,14 +207,17 @@ export default function WeeklyScheduleView({ appointments, currentDate, language
                                                 const maxStagger = 75; // Cap stagger so cards always have at least 25% width
                                                 const leftPercent = apt.totalCols > 1 ? Math.min(apt.colIndex * staggerPercent, maxStagger) : 0;
                                                 const widthPercent = 100 - leftPercent;
-                                                const isVeryShort = apt.dur <= 15;
-                                                const isShort = apt.dur <= 30;
+                                                // Judge by rendered pixels, not minutes: how much fits depends on
+                                                // rowHeight and the clinic's slot duration, not on the duration alone.
+                                                const cardHeight = h - 2;
+                                                const isVeryShort = cardHeight < 58;  // name only
+                                                const isShort = cardHeight < 80;      // name + phone, no treatment
 
                                                 return (
                                                     <div 
                                                         key={apt.id}
                                                         onClick={(e) => { e.stopPropagation(); onSelectAppointment(apt); }}
-                                                        className={`absolute p-1 md:p-1.5 rounded-xl border pointer-events-auto cursor-pointer group hover:!z-[60] hover:scale-110 hover:shadow-2xl transition-all duration-300 flex flex-col ${styles.card.replace('opacity-80', '')} cursor-grab active:cursor-grabbing hover:-translate-y-1`}
+                                                        className={`absolute p-1.5 md:p-2 rounded-xl border pointer-events-auto cursor-pointer group hover:!z-[60] hover:scale-105 hover:shadow-2xl transition-all duration-300 flex flex-col ${styles.card.replace('opacity-80', '')} cursor-grab active:cursor-grabbing hover:-translate-y-1`}
                                                         draggable={true}
                                                         onDragStart={(e) => {
                                                             e.dataTransfer.setData("text/plain", JSON.stringify({ id: apt.id }));
@@ -229,11 +234,11 @@ export default function WeeklyScheduleView({ appointments, currentDate, language
                                                             zIndex: 10 + apt.colIndex
                                                         }}
                                                     >
-                                                        <div className={`absolute start-0 top-1 bottom-1 w-0.5 rounded-r-full ${styles.accent}`}></div>
-                                                        <div className="flex flex-col min-w-0 h-full overflow-hidden ms-1 relative z-10">
-                                                            <span className="text-xs md:text-sm font-bold text-slate-900 truncate leading-tight group-hover:text-base transition-all">{apt.patientName}</span>
-                                                            {!isVeryShort && phone && <span className="text-[10px] text-slate-600 truncate flex items-center gap-1 mt-0.5 group-hover:text-xs transition-all"><svg className="w-2.5 h-2.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>{phone}</span>}
-                                                            {!isShort && <span className="text-[10px] md:text-xs text-slate-700 truncate mt-0.5 group-hover:whitespace-normal group-hover:line-clamp-2 transition-all">{apt.treatment}</span>}
+                                                        <div className={`absolute start-0 top-1 bottom-1 w-1 rounded-r-full ${styles.accent}`}></div>
+                                                        <div className="flex flex-col min-w-0 h-full overflow-hidden ms-1.5 relative z-10">
+                                                            <span className="text-sm md:text-base font-bold text-slate-900 truncate leading-tight group-hover:text-lg transition-all">{apt.patientName}</span>
+                                                            {!isVeryShort && phone && <span className="text-xs text-slate-600 truncate flex items-center gap-1.5 mt-1 group-hover:text-sm transition-all"><svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>{phone}</span>}
+                                                            {!isShort && <span className="text-xs md:text-sm text-slate-700 truncate mt-1 group-hover:whitespace-normal group-hover:line-clamp-2 transition-all">{apt.treatment}</span>}
                                                         </div>
                                                         {/* Enhanced Tooltip for Hover */}
                                                         <div className={`absolute hidden group-hover:flex flex-col z-[100] bg-white shadow-[0_20px_50px_rgba(0,0,0,0.2)] rounded-2xl p-4 border border-slate-200 w-64 top-0 ${i >= 4 ? 'end-full me-2' : 'start-full ms-2'} scale-100 transform`}>
