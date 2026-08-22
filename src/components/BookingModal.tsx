@@ -37,7 +37,11 @@ import { isDentistStaff } from "@/lib/staffRoles";
 import { clinicDayBoundsMinutes, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { LOCATIONS_DOC, parseClinicBranches, type ClinicBranch } from "@/lib/clinicLocations";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
-import { parseApptTimeToMinutes } from "@/lib/bookingService";
+import {
+  findDoctorConflicts,
+  findRoomConflicts,
+  type ConflictCandidate,
+} from "@/lib/appointmentConflicts";
 import PatientPicker from "./appointments/booking/PatientPicker";
 
 import SlotPicker from "./appointments/booking/SlotPicker";
@@ -519,57 +523,20 @@ export default function BookingModal({
     return missing;
   }, [isNewPatient, newPatientName, newPatientPhone, selectedPatient, doctor, date, time, txt]);
 
-  const checkConflicts = async (
-    checkDate: string,
-    checkTime: string,
-    checkDuration: number,
-    checkDoctor: string,
-    excludeAppointmentId?: string
-  ) => {
-    const q = query(
-      getClinicCollection("appointments"),
-      where("date", "==", checkDate),
-      where("doctor", "==", checkDoctor)
+  /**
+   * The day's appointments, fetched once and filtered in memory.
+   *
+   * This used to add `where("doctor", "==", name)` to the query. `doctor` is a display string
+   * captured at booking time, so renaming a dentist left every appointment they already had
+   * unmatchable — the conflict check found nothing and the clinic could double-book them with no
+   * warning. Matching now happens in lib/appointmentConflicts, which keys on the stable `doctorId`
+   * and falls back to the name only for rows old enough not to have one.
+   */
+  const fetchDayAppointments = async (checkDate: string): Promise<ConflictCandidate[]> => {
+    const snapshot = await getDocs(
+      query(getClinicCollection("appointments"), where("date", "==", checkDate))
     );
-    const snapshot = await getDocs(q);
-    const targetStart = parseApptTimeToMinutes(checkTime);
-    const targetEnd = targetStart + checkDuration;
-
-    return snapshot.docs.some((d) => {
-      if (excludeAppointmentId && d.id === excludeAppointmentId) return false;
-      const status = String(d.data().status || "").toLowerCase();
-      if (status === "cancelled" || status === "canceled") return false;
-      const existingStart = parseApptTimeToMinutes(d.data().time);
-      const existingEnd = existingStart + (d.data().duration || 30);
-      return targetStart < existingEnd && targetEnd > existingStart;
-    });
-  };
-
-  /** Does another (non-cancelled) appointment already hold this room at an overlapping time? */
-  const checkRoomConflict = async (
-    checkDate: string,
-    checkTime: string,
-    checkDuration: number,
-    checkRoomId: string,
-    excludeAppointmentId?: string
-  ) => {
-    const q = query(
-      getClinicCollection("appointments"),
-      where("date", "==", checkDate),
-      where("roomId", "==", checkRoomId)
-    );
-    const snapshot = await getDocs(q);
-    const targetStart = parseApptTimeToMinutes(checkTime);
-    const targetEnd = targetStart + checkDuration;
-
-    return snapshot.docs.some((d) => {
-      if (excludeAppointmentId && d.id === excludeAppointmentId) return false;
-      const status = String(d.data().status || "").toLowerCase();
-      if (status === "cancelled" || status === "canceled") return false;
-      const existingStart = parseApptTimeToMinutes(d.data().time);
-      const existingEnd = existingStart + (d.data().duration || 30);
-      return targetStart < existingEnd && targetEnd > existingStart;
-    });
+    return snapshot.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<ConflictCandidate, "id">) }));
   };
 
   const handleSubmit = async () => {
@@ -599,7 +566,18 @@ export default function BookingModal({
         if (!proceedClosed) return;
       }
 
-      const hasConflict = await checkConflicts(date, time, Number(duration), doctor, editAppointment?.id);
+      // One fetch of the day serves both checks below.
+      const dayAppointments = await fetchDayAppointments(date);
+      const resolvedDoctorId = doctors.find((d) => d.name === doctor)?.id || editAppointment?.doctorId || null;
+
+      const hasConflict =
+        findDoctorConflicts(dayAppointments, {
+          time,
+          duration: Number(duration),
+          doctorId: resolvedDoctorId,
+          doctorName: doctor,
+          excludeAppointmentId: editAppointment?.id,
+        }).length > 0;
       if (hasConflict) {
         const proceedConflict = await confirm(txt.confirmSlotTakenBody, {
           title: txt.confirmSlotTakenTitle,
@@ -613,7 +591,13 @@ export default function BookingModal({
       }
 
       if (roomId) {
-        const roomBusy = await checkRoomConflict(date, time, Number(duration), roomId, editAppointment?.id);
+        const roomBusy =
+          findRoomConflicts(dayAppointments, {
+            time,
+            duration: Number(duration),
+            roomId,
+            excludeAppointmentId: editAppointment?.id,
+          }).length > 0;
         if (roomBusy) {
           const proceedRoom = await confirm(txt.confirmRoomTakenBody, {
             title: txt.confirmRoomTakenTitle,

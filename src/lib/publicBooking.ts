@@ -19,6 +19,7 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { parseClinicBranches, type ClinicBranch } from "@/lib/clinicLocations";
 import { clinicDayBoundsMinutes, parseClinicSchedule, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
+import { apptBlocksDoctor } from "@/lib/appointmentConflicts";
 import { minutesToTimeKey, normalizeDateKey, parseApptTimeToMinutes } from "@/lib/appointmentTime";
 
 /** Statuses that do NOT hold a slot. A cancelled 3pm must not block 3pm forever. */
@@ -32,6 +33,8 @@ export type PublicClinicProfile = {
   defaultDurationMinutes: number;
   reasons: string[];
   doctors: string[];
+  /** Lower-cased dentist name → staff id, so availability can match on the stable key. */
+  doctorIdsByName: Record<string, string>;
   schedule: ClinicScheduleConfig;
   /** Configured branches. Empty for single-location clinics — the page then never mentions branches. */
   branches: ClinicBranch[];
@@ -75,16 +78,23 @@ export async function loadPublicClinicProfile(clinicId: string): Promise<PublicC
       ? rawReasons.map((r: unknown) => String(r)).filter(Boolean)
       : ["كشف", "استشارة", "متابعة", "طوارئ"];
 
-  let doctors: string[] = [];
+  const doctors: string[] = [];
+  const doctorIdsByName: Record<string, string> = {};
   if (booking.enableDoctorSelection === true) {
     // Dentists live in `staff`, not `users` — the page previously queried a `users` subcollection
     // that this app never writes to, so the dentist list came back empty every time.
     const staffSnap = await ref.collection("staff").get();
-    doctors = staffSnap.docs
-      .map((d) => d.data())
-      .filter((s) => s?.role === "Dentist" || (s?.role === "Admin" && s?.isDentist === true))
-      .map((s) => String(s?.name || "").trim())
-      .filter(Boolean);
+    for (const doc of staffSnap.docs) {
+      const s = doc.data();
+      if (!(s?.role === "Dentist" || (s?.role === "Admin" && s?.isDentist === true))) continue;
+      const name = String(s?.name || "").trim();
+      if (!name) continue;
+      doctors.push(name);
+      // Availability is decided against the stable staff id, not this display name — a renamed
+      // dentist's existing appointments still carry the old string. The patient picks a name, so
+      // the id has to be resolved here, where the staff records are already in hand.
+      doctorIdsByName[name.toLowerCase()] = doc.id;
+    }
   }
 
   let defaultDurationMinutes = parseInt(String(booking.defaultDurationMinutes ?? schedule.slotDuration), 10);
@@ -101,6 +111,7 @@ export async function loadPublicClinicProfile(clinicId: string): Promise<PublicC
     defaultDurationMinutes,
     reasons,
     doctors,
+    doctorIdsByName,
     schedule,
     branches,
   };
@@ -140,6 +151,7 @@ export async function computeAvailableSlots(args: {
   const snap = await clinicRef(clinicId).collection("appointments").where("date", "==", dateKey).get();
 
   const wanted = String(doctorName || "").trim().toLowerCase();
+  const wantedDoctorId = wanted ? profile.doctorIdsByName[wanted] || null : null;
   const wantedBranch = String(branchId || "").trim();
   const busy: Array<{ start: number; end: number }> = [];
 
@@ -156,9 +168,14 @@ export async function computeAvailableSlots(args: {
 
     // With no dentist chosen, any booking blocks the slot — one chair is the assumption for the
     // clinics this is built for. With a dentist chosen, only that dentist's own bookings matter.
-    if (wanted) {
-      const apptDoctor = String(a.doctor || "").trim().toLowerCase();
-      if (apptDoctor && apptDoctor !== wanted) continue;
+    //
+    // Matched through appointmentConflicts so this agrees with the clinic-side checks, and so a
+    // renamed dentist's existing appointments — which still carry the old display string — are
+    // found by their stable id rather than silently offered to another patient.
+    if (wanted || wantedDoctorId) {
+      if (!apptBlocksDoctor({ doctor: a.doctor, doctorId: a.doctorId }, wantedDoctorId, doctorName)) {
+        continue;
+      }
     }
 
     const start = parseApptTimeToMinutes(String(a.time || ""));

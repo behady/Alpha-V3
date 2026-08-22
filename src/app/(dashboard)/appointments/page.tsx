@@ -28,7 +28,9 @@ import PermissionGuard from "@/components/PermissionGuard";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { getAppointmentStatusStyles, getAppointmentStageLabel } from "@/lib/appointmentStages";
 import { LOCATIONS_DOC, parseClinicBranches, flattenRooms, type ClinicBranch } from "@/lib/clinicLocations";
-interface Appointment {
+import { findDoctorConflicts, type ConflictCandidate } from "@/lib/appointmentConflicts";
+
+interface Appointment {
   id: string;
   patientId: string;
   patientName: string;
@@ -38,6 +40,8 @@ import { LOCATIONS_DOC, parseClinicBranches, flattenRooms, type ClinicBranch } f
   time: string; 
   duration: number;
   doctor: string;
+  /** Stable staff id. `doctor` is a display string and goes stale when a dentist is renamed. */
+  doctorId?: string | null;
   status: string;
   notes?: string;
   cost?: number;
@@ -328,26 +332,26 @@ export default function AppointmentsPage() {
 
     // Optional: Conflict checking
     try {
-      const q = query(
-        getClinicCollection("appointments"),
-        where("date", "==", targetDate),
-        where("doctor", "==", nextDoctor)
+      // Fetch the target day and match in memory. Adding `where("doctor", "==", …)` to the query
+      // meant a renamed dentist's existing appointments no longer matched, so dragging on top of
+      // one raised no conflict at all — see lib/appointmentConflicts.
+      const snap = await getDocs(
+        query(getClinicCollection("appointments"), where("date", "==", targetDate))
       );
-      const snap = await getDocs(q);
-      let conflict = false;
-      const targetStart = parseApptTimeToMinutes(targetTime);
-      const targetEnd = targetStart + (movingAppt.duration || 30);
+      const dayAppointments = snap.docs.map(
+        (d) => ({ id: d.id, ...d.data() }) as ConflictCandidate
+      );
+      const nextDoctorId =
+        doctorsList.find((d) => d.name === nextDoctor)?.id || movingAppt.doctorId || null;
 
-      snap.forEach((docSnap) => {
-        if (docSnap.id === apptId) return;
-        const data = docSnap.data();
-        if (data.status === "Cancelled") return;
-        const existingStart = parseApptTimeToMinutes(data.time);
-        const existingEnd = existingStart + (data.duration || 30);
-        if (targetStart < existingEnd && targetEnd > existingStart) {
-          conflict = true;
-        }
-      });
+      const conflict =
+        findDoctorConflicts(dayAppointments, {
+          time: targetTime,
+          duration: movingAppt.duration || 30,
+          doctorId: nextDoctorId,
+          doctorName: nextDoctor,
+          excludeAppointmentId: apptId,
+        }).length > 0;
 
       if (conflict) {
         if (!(await confirm("This slot conflicts with another appointment. Continue?"))) {
