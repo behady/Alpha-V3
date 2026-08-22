@@ -131,8 +131,10 @@ export async function saveBooking(
       // Left blank rather than asserting health nobody screened for. See NewPatientModal.
       medicalHistory: "",
       status: "New",
-      balance: 0,
-      totalSpent: 0,
+      // No `balance` / `totalSpent` here on purpose. Both were written once at creation and never
+      // updated again, so every patient carried a permanent `balance: 0` that read as authoritative
+      // while the real figure lived in the ledger. Balance is derived — see PatientFinance and
+      // lib/paymentRecovery, which both recompute it from procedure and payment rows.
       createdAt: serverTimestamp(),
       searchableName: data.patientName.toLowerCase(),
       searchablePhone: (data.newPatientPhone || "").replace(/\D/g, ""),

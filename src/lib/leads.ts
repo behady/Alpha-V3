@@ -200,8 +200,7 @@ export async function findOrCreatePatientForLead(lead: {
     source: lead.source,
     medicalHistory: "",
     status: "New",
-    balance: 0,
-    totalSpent: 0,
+    // See bookingService: balance is derived from the ledger, never stored on the patient.
     createdAt: serverTimestamp(),
     searchableName: lead.name.toLowerCase(),
     searchablePhone: phone.replace(/\D/g, ""),
