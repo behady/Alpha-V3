@@ -61,7 +61,7 @@ export interface BookingSavePayload {
   discountPercent?: number | null;
   discountFixed?: number | null;
   discountAmount?: number | null;
-  sessionProcedures?: { name: string; cost: number; addToLedger: boolean }[];
+  sessionProcedures?: { serviceId?: string | null; name: string; cost: number; addToLedger: boolean }[];
   status?: string;
   delayedPromptUntil?: number | null;
   services?: Array<{
@@ -249,6 +249,10 @@ export async function saveBooking(
             amount: sp.cost,
             cost: sp.cost,
             description: sp.name,
+            // Stable catalog key, so revenue-by-service never depends on this description.
+            serviceId: sp.serviceId || null,
+            serviceIds: sp.serviceId ? [sp.serviceId] : [],
+            serviceName: sp.name,
             date: normalizedDate || data.date,
             appointmentId: aid,
             paid: 0,
@@ -265,6 +269,9 @@ export async function saveBooking(
           tooth: "Gen",
           procedure: sp.name,
           procedures: [sp.name],
+          serviceId: sp.serviceId || null,
+          serviceIds: sp.serviceId ? [sp.serviceId] : [],
+          serviceName: sp.name,
           cost: sp.cost,
           unitCost: sp.cost,
           unitsCount: 1,
@@ -343,6 +350,10 @@ export async function saveBooking(
           amount: sp.cost,
           cost: sp.cost,
           description: sp.name,
+          // Stable catalog key, so revenue-by-service never depends on this description.
+          serviceId: sp.serviceId || null,
+          serviceIds: sp.serviceId ? [sp.serviceId] : [],
+          serviceName: sp.name,
           date: normalizedDate || data.date,
           appointmentId: appRef.id,
           paid: 0,
@@ -359,6 +370,9 @@ export async function saveBooking(
         tooth: "Gen",
         procedure: sp.name,
         procedures: [sp.name],
+        serviceId: sp.serviceId || null,
+        serviceIds: sp.serviceId ? [sp.serviceId] : [],
+        serviceName: sp.name,
         cost: sp.cost,
         unitCost: sp.cost,
         unitsCount: 1,

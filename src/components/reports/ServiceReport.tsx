@@ -8,6 +8,7 @@ import { Download, FileBarChart, Stethoscope, FileSpreadsheet } from "lucide-rea
 import { exportToExcel, CHART_COLORS, parseMoney } from "./reportExcelUtils";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
 import { useUI } from "@/context/UIContext";
+import { attributeService, buildProcedureIndex, type AttributableRow } from "@/lib/serviceAttribution";
 
 interface ServiceStat {
   name: string;
@@ -31,41 +32,35 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
   const [exporting, setExporting] = useState(false);
 
   const stats: ServiceStat[] = useMemo(() => {
-    const map: Record<string, { count: number; income: number; commission: number; labFee: number }> = {};
+    const map: Record<string, { name: string; count: number; income: number; commission: number; labFee: number }> = {};
     
+    // Grouped on the catalogue id when the row carries one — see lib/serviceAttribution for why
+    // reading the description was never a safe way to answer "how much did crowns earn".
+    const procedureIndex = buildProcedureIndex(procedures);
+    const bucket = (row: AttributableRow) => {
+      const { key, name } = attributeService(row, procedureIndex);
+      if (!map[key]) map[key] = { name, count: 0, income: 0, commission: 0, labFee: 0 };
+      return map[key];
+    };
+
     // 1. Procedures for Counts and Lab Fees
     procedures.forEach((proc) => {
-      const key = String(proc.description || proc.procedure || "General")
-        .split("(")[0]
-        .trim() || "General";
-      if (!map[key]) map[key] = { count: 0, income: 0, commission: 0, labFee: 0 };
-      map[key].count += 1;
-      map[key].labFee += parseMoney(proc.labFee);
+      const row = bucket(proc);
+      row.count += 1;
+      row.labFee += parseMoney(proc.labFee);
     });
 
     // 2. Payments for Cash Income and Doctor Commissions
     payments?.forEach((pay) => {
       if (pay.type === "expense") return;
-      let key = "General";
-      const desc = String(pay.description || "");
-      if (desc.includes("Payment for ")) {
-        key = desc.replace("Payment for ", "").split("(")[0].trim();
-      } else if (desc.includes("دفعة مقابل ")) {
-        key = desc.replace("دفعة مقابل ", "").split("(")[0].trim();
-      } else if (pay.procedureName) {
-        key = String(pay.procedureName).split("(")[0].trim();
-      } else if (pay.category === "Treatment" && desc) {
-        key = desc.split("(")[0].trim() || "General";
-      }
-
-      if (!map[key]) map[key] = { count: 0, income: 0, commission: 0, labFee: 0 };
-      map[key].income += parseMoney(pay.val ?? pay.amount ?? pay.paid);
-      map[key].commission += parseMoney(pay.doctorCommissionAmount);
+      const row = bucket(pay);
+      row.income += parseMoney(pay.val ?? pay.amount ?? pay.paid);
+      row.commission += parseMoney(pay.doctorCommissionAmount);
     });
 
-    return Object.entries(map)
-      .map(([name, d]) => ({
-        name,
+    return Object.values(map)
+      .map((d) => ({
+        name: d.name,
         count: d.count,
         income: d.income,
         commission: d.commission,

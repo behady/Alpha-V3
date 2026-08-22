@@ -85,7 +85,7 @@ interface AppointmentData {
   existingAppointmentId?: string | null;
   status?: string;
   discountDistribution?: "total" | "each";
-  sessionProcedures?: { id?: string, name: string; cost: number; addToLedger: boolean }[];
+  sessionProcedures?: { id?: string; serviceId?: string | null; name: string; cost: number; addToLedger: boolean }[];
 }
 
 export type BookingEditSnapshot = {
@@ -220,7 +220,7 @@ export default function BookingModal({
   const [procCost, setProcCost] = useState<number | "">("");
   const [addProcToLedger, setAddProcToLedger] = useState(true);
   const [addingProcedure, setAddingProcedure] = useState(false);
-  const [sessionProcedures, setSessionProcedures] = useState<{ id: string, name: string, cost: number, addToLedger: boolean }[]>([]);
+  const [sessionProcedures, setSessionProcedures] = useState<{ id: string; serviceId: string | null; name: string; cost: number; addToLedger: boolean }[]>([]);
 
   // Local State: Financial & Payment
   const [chargeForVisit, setChargeForVisit] = useState(true);
@@ -931,6 +931,9 @@ export default function BookingModal({
                 try {
                   const newProcedure = {
                     id: Date.now().toString(),
+                    // The catalog entry this came from. Carried through to the ledger row so
+                    // reports can group on a stable id instead of parsing the description.
+                    serviceId: String(svc.id),
                     name: svc.name,
                     cost: numCost,
                     addToLedger: addProcToLedger,

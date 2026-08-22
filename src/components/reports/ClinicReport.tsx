@@ -9,6 +9,7 @@ import { Download, Building2, FileSpreadsheet, FileBarChart } from "lucide-react
 import { exportToExcel, CHART_COLORS, parseMoney } from "./reportExcelUtils";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
 import { useUI } from "@/context/UIContext";
+import { attributeService, buildProcedureIndex, type AttributableRow } from "@/lib/serviceAttribution";
 
 interface Props {
   procedures: Record<string, unknown>[];
@@ -40,36 +41,30 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
 
   // a) Procedure counts per service
   const serviceStats = useMemo(() => {
-    const map: Record<string, { count: number; income: number }> = {};
-    
+    // Grouped on the catalogue id where the row carries one, so renaming a service keeps its
+    // history together instead of splitting it in two. See lib/serviceAttribution.
+    const map: Record<string, { name: string; count: number; income: number }> = {};
+    const procedureIndex = buildProcedureIndex(procedures);
+
+    const bucket = (row: AttributableRow) => {
+      const { key, name } = attributeService(row, procedureIndex);
+      if (!map[key]) map[key] = { name, count: 0, income: 0 };
+      return map[key];
+    };
+
     // 1. Counts
     procedures.forEach((proc) => {
-      const key = String(proc.description || proc.procedure || "General").split("(")[0].trim() || "General";
-      if (!map[key]) map[key] = { count: 0, income: 0 };
-      map[key].count += 1;
+      bucket(proc).count += 1;
     });
 
-    // 2. Cash Income
+    // 2. Cash Income — attributed through the procedure each payment settles.
     payments?.forEach((pay) => {
       if (pay.type === "expense") return;
-      let key = "General";
-      const desc = String(pay.description || "");
-      if (desc.includes("Payment for ")) {
-        key = desc.replace("Payment for ", "").split("(")[0].trim();
-      } else if (desc.includes("دفعة مقابل ")) {
-        key = desc.replace("دفعة مقابل ", "").split("(")[0].trim();
-      } else if (pay.procedureName) {
-        key = String(pay.procedureName).split("(")[0].trim();
-      } else if (pay.category === "Treatment" && desc) {
-        key = desc.split("(")[0].trim() || "General";
-      }
-
-      if (!map[key]) map[key] = { count: 0, income: 0 };
-      map[key].income += parseMoney(pay.val ?? pay.amount ?? pay.paid);
+      bucket(pay).income += parseMoney(pay.val ?? pay.amount ?? pay.paid);
     });
 
-    return Object.entries(map)
-      .map(([name, d]) => ({ name, count: d.count, income: d.income }))
+    return Object.values(map)
+      .map((d) => ({ name: d.name, count: d.count, income: d.income }))
       .sort((a, b) => b.income - a.income);
   }, [procedures, payments]);
 

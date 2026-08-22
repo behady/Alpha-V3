@@ -262,28 +262,44 @@ function extractServiceLabel(raw: string): string {
  * Procedures charged below the clinic's own price list.
  *
  * Reported as "worth checking" rather than an error: discounts, family rates and partial work are
- * all normal. Matching is on the service name (see extractServiceLabel above for why that isn't
- * simply `description`), since fuzzy matching here would produce false accusations about a
- * colleague's pricing.
+ * all normal.
+ *
+ * Rows now carry `serviceId`, which is matched first: a service renamed in the price list keeps
+ * the same id, so its charges stay comparable instead of silently dropping out of this check.
+ * Name matching (see extractServiceLabel above for why that isn't simply `description`) remains
+ * for rows written before that field existed. Fuzzy matching is deliberately not attempted —
+ * a wrong match here is a false accusation about a colleague's pricing.
  */
 function findUnderpriced(
   ledger: Record<string, unknown>[],
   services: Record<string, unknown>[]
 ): RecoveryFinding[] {
   const priceByName = new Map<string, number>();
+  const priceById = new Map<string, number>();
+  const nameById = new Map<string, string>();
   for (const s of services) {
-    const name = String(s.name || "").trim().toLowerCase();
+    const name = String(s.name || "").trim();
+    const id = String(s.id || "").trim();
     const price = toNumber(s.price);
-    if (name && price > 0) priceByName.set(name, price);
+    if (price <= 0) continue;
+    if (name) priceByName.set(name.toLowerCase(), price);
+    if (id) {
+      priceById.set(id, price);
+      if (name) nameById.set(id, name);
+    }
   }
-  if (priceByName.size === 0) return [];
+  if (priceByName.size === 0 && priceById.size === 0) return [];
 
   const out: RecoveryFinding[] = [];
   for (const row of ledger) {
     if (String(row.type) !== "procedure") continue;
 
-    const label = extractServiceLabel(String(row.description || row.category || ""));
-    const listPrice = priceByName.get(label.toLowerCase());
+    const serviceId = typeof row.serviceId === "string" ? row.serviceId.trim() : "";
+    const descriptionLabel = extractServiceLabel(String(row.description || row.category || ""));
+    const listPrice = serviceId
+      ? priceById.get(serviceId)
+      : priceByName.get(descriptionLabel.toLowerCase());
+    const label = serviceId ? nameById.get(serviceId) || descriptionLabel : descriptionLabel;
     if (!listPrice) continue;
 
     const charged = rowAmount(row);

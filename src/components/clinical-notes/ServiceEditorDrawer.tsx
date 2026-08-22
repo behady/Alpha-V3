@@ -265,6 +265,12 @@ export default function ServiceEditorDrawer({
         category: "Treatment",
         amount: numCost, cost: numCost, unitCost, unitsCount: pricingUnits, pricingFormula, pricingMode: effectiveMode,
         description: `${displayProcedure} (T: ${selectedToothText}) | ${pricingFormula}=${numCost}`,
+        // The price-list entries this line resolved to. Reports used to recover the service by
+        // parsing the description above — so renaming a service, or any change to that string's
+        // shape, silently changed revenue-by-service. These ids are the stable answer.
+        serviceId: matchedServices[0]?.id || null,
+        serviceIds: matchedServices.map((svc) => svc.id),
+        serviceName: matchedServices[0]?.name || null,
         doctorId: selectedDoctorId, doctorName: docName, doctorCommissionPercentage: commPct,
         date, labFee, labFeePerUnit, labOrderService: "",
         doctorCommissionAmount, clinicProfit,

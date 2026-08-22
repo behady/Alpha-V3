@@ -58,10 +58,27 @@ const notes = [
   { id: "N4", patientId: "p_zainab", procedure: "Bridge", cost: 450, date: daysAgo(5) },
 ];
 
+// Renamed in the price list ("Scaling" -> "Deep Cleaning") but the ledger row still carries the
+// description written when it was billed. Name matching cannot find this; the serviceId can.
+ledger.push({
+  id: "L12", patientId: "p_renamed", patientName: "Renamed", type: "procedure",
+  amount: 300, cost: 300, unitsCount: 1, date: daysAgo(6),
+  description: "Scaling (T: Gen) | 300*1=300",
+  serviceId: "S4",
+});
+// Same service, same charge, but written before serviceId existed — must still fall back to the
+// description, and must NOT match, because the price list no longer holds that name.
+ledger.push({
+  id: "L13", patientId: "p_legacy", patientName: "Legacy", type: "procedure",
+  amount: 300, cost: 300, unitsCount: 1, date: daysAgo(6),
+  description: "Scaling (T: Gen) | 300*1=300",
+});
+
 const services = [
   { id: "S1", name: "Filling", price: 500 },
   { id: "S2", name: "Crown", price: 1000 },
   { id: "S3", name: "Zirconia Crown", price: 3500 },
+  { id: "S4", name: "Deep Cleaning", price: 800 },
 ];
 
 const patientNameById = new Map([["p_zainab", "Zainab Test"]]);
@@ -106,8 +123,23 @@ assert.equal(nesreenFinding.amount, 200, "must report the real paid value, not t
 // Two single-unit fillings were charged 300 against a 500 list price (Omar L5, Hana L8), plus
 // Karim's composite-description crown (L11). The 3-unit row (L9) must NOT appear.
 const under = kinds("underpriced_procedure");
-assert.equal(under.length, 3, "both plain-name rows plus the composite-description row");
+assert.equal(under.length, 4, "both plain-name rows, the composite-description row, and the renamed-service row");
 assert.ok(!under.some((f) => f.evidence[0].docId === "L9"), "multi-unit row must not be flagged");
+
+// The renamed service: found by id, and reported under its CURRENT name so the owner recognises it.
+const renamedFinding = under.find((f) => f.patientName === "Renamed");
+assert.ok(renamedFinding, "a row carrying serviceId must match even when its description is a stale name");
+assert.equal(renamedFinding.amount, 500, "800 list - 300 charged");
+assert.ok(
+  renamedFinding.detail.includes("Deep Cleaning"),
+  "the finding must name the service as the price list calls it today, not as the ledger row spells it"
+);
+
+// The same charge without a serviceId cannot be matched, and must not be guessed at.
+assert.ok(
+  !under.some((f) => f.patientName === "Legacy"),
+  "a legacy row whose description no longer matches any price-list name must not be flagged"
+);
 
 const karimFinding = under.find((f) => f.patientName === "Karim");
 assert.ok(karimFinding, "composite ServiceEditorDrawer-style description must still match the price list");
@@ -117,7 +149,7 @@ assert.equal(karimFinding.amount, 500, "3500 list - 3000 charged");
 assert.equal(r.totals.unbilledWork, 1200, "750 (Sara) + 450 (Zainab)");
 assert.equal(r.totals.outstandingBalance, 600);
 assert.equal(r.totals.duplicates, 450, "250 (Nour) + 200 (Nesreen)");
-assert.equal(r.totals.underpriced, 900, "200 + 200 + 500");
+assert.equal(r.totals.underpriced, 1400, "200 + 200 + 500 + 500");
 assert.equal(r.totals.recoverable, 2250, "1200 + 600 + 450; underpriced excluded by design");
 
 // --- ranking ---

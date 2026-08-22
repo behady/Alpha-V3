@@ -6,6 +6,7 @@ import { Network, ChevronDown, ChevronRight, FileBarChart, FileSpreadsheet, Down
 import { exportToExcel, CHART_COLORS, parseMoney } from "./reportExcelUtils";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
 import { useUI } from "@/context/UIContext";
+import { attributeService, buildProcedureIndex } from "@/lib/serviceAttribution";
 
 interface SourceStat {
   name: string;
@@ -47,11 +48,13 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
   const stats: SourceStat[] = useMemo(() => {
     const map: Record<string, {
       patientIds: Set<string>;
-      services: Record<string, { count: number; income: number }>;
+      services: Record<string, { name: string; count: number; income: number }>;
       commission: number;
       income: number;
       patientPaid: Record<string, number>;
     }> = {};
+
+    const procedureIndex = buildProcedureIndex(procedures);
 
     // 1. Procedures for counts
     procedures.forEach((proc) => {
@@ -62,11 +65,12 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
       if (!map[source]) {
         map[source] = { patientIds: new Set(), services: {}, commission: 0, income: 0, patientPaid: {} };
       }
-      const svc = String(proc.description || proc.procedure || "General").split("(")[0].trim() || "General";
+      // Keyed on the catalogue id when the row has one — see lib/serviceAttribution.
+      const svc = attributeService(proc, procedureIndex);
 
       if (pid) map[source].patientIds.add(pid);
-      if (!map[source].services[svc]) map[source].services[svc] = { count: 0, income: 0 };
-      map[source].services[svc].count += 1;
+      if (!map[source].services[svc.key]) map[source].services[svc.key] = { name: svc.name, count: 0, income: 0 };
+      map[source].services[svc.key].count += 1;
     });
 
     // 2. Payments for cash income
@@ -80,23 +84,15 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
         map[source] = { patientIds: new Set(), services: {}, commission: 0, income: 0, patientPaid: {} };
       }
 
-      let svc = "General";
-      const desc = String(pay.description || "");
-      if (desc.includes("Payment for ")) {
-        svc = desc.replace("Payment for ", "").split("(")[0].trim();
-      } else if (desc.includes("دفعة مقابل ")) {
-        svc = desc.replace("دفعة مقابل ", "").split("(")[0].trim();
-      } else if (pay.procedureName) {
-        svc = String(pay.procedureName).split("(")[0].trim();
-      } else if (pay.category === "Treatment" && desc) {
-        svc = desc.split("(")[0].trim() || "General";
-      }
+      // A payment is attributed through the procedure it settles, not by re-reading its own
+      // "Payment for …" prose.
+      const svc = attributeService(pay, procedureIndex);
 
-      if (!map[source].services[svc]) map[source].services[svc] = { count: 0, income: 0 };
-      
+      if (!map[source].services[svc.key]) map[source].services[svc.key] = { name: svc.name, count: 0, income: 0 };
+
       const inc = parseMoney(pay.val ?? pay.amount ?? pay.paid);
-      
-      map[source].services[svc].income += inc;
+
+      map[source].services[svc.key].income += inc;
       map[source].income += inc;
       map[source].commission += parseMoney(pay.doctorCommissionAmount);
       if (pid) {
@@ -112,8 +108,8 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
         totalIncome: d.income,
         commission: d.commission,
         netIncome: d.income - d.commission,
-        services: Object.entries(d.services)
-          .map(([svc, s]) => ({ name: svc, count: s.count, income: s.income }))
+        services: Object.values(d.services)
+          .map((s) => ({ name: s.name, count: s.count, income: s.income }))
           .sort((a, b) => b.income - a.income),
         patients: Object.entries(d.patientPaid)
           .map(([pId, paid]) => ({
