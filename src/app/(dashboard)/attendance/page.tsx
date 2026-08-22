@@ -37,6 +37,7 @@ import {
 } from "@/lib/attendanceLocation";
 import { localYmd } from "@/lib/clinicDate";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { MoneyApiError, setPaymentCommission } from "@/lib/moneyApi";
 
 // --- HELPERS ---
 // Distance is now measured by metresBetween() in lib/attendanceLocation, alongside the accuracy
@@ -560,17 +561,10 @@ export default function AttendancePage() {
           recalcCommissionFromPayment(paidAmount, labFee, newPct);
 
       try {
-          await updateDoc(getClinicDoc("ledger", entryId), {
-              labFee,
-              doctorCommissionPercentage: newPct,
-              doctorCommissionAmount: nextCommission,
-              clinicProfit: nextProfit,
-          });
-          await logActivity(
-              { uid: user?.uid, name: user?.name, role: user?.role },
-              "Commission Split Updated",
-              `Updated ledger commission split to ${newPct}% for row ${entryId}`
-          );
+          // Recomputed and logged server-side, and — importantly — stamped as set by hand. Without
+          // that stamp a later repair pass cannot tell a deliberate override from a row that was
+          // never computed properly, and would quietly put it back to the standing rate.
+          await setPaymentCommission(entryId, newPct);
           showToast("Commission split updated", "success");
       } catch (error) {
           console.error(error);

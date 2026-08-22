@@ -1,5 +1,6 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
+import { buildPaymentRow } from "@/lib/ledgerWrite";
 import { logAiAction } from "@/lib/serverLogger";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
@@ -524,20 +525,27 @@ export async function resolvePendingAiAction(args: {
   // --- Payment --------------------------------------------------------------------------------
   if (kind === "payment") {
     const ref = adminClinicCollection(clinicId, "ledger").doc();
+    // Built through the shared builder so an assistant-recorded payment is the same shape as one
+    // taken at the desk. This used to be assembled by hand with `amount: 0` and no commission
+    // fields at all — a legacy shape that reads as zero to anything summing `amount`, and that the
+    // payout report skips entirely for having no commission on it.
+    //
+    // The assistant only ever records payments on account (procedureId stays null), so there is no
+    // procedure to attribute to and the commission fields are explicit zeroes. Allocating one to a
+    // treatment is a decision for a person looking at the patient's ledger.
     const record = {
+      ...buildPaymentRow({
+        patientId: String(payload.patientId || ""),
+        patientName: typeof payload.patientName === "string" ? payload.patientName : null,
+        amount: Number(payload.amount) || 0,
+        date: String(payload.date || new Date().toISOString().split("T")[0]),
+        description: String(payload.description || "Payment"),
+        procedure: null,
+        actor: { uid: userId, name: `${userName || "Alpha AI"} (via assistant)` },
+      }),
       id: ref.id,
-      patientId: payload.patientId,
-      patientName: payload.patientName,
-      type: "payment",
-      date: payload.date,
-      amount: 0,
-      paid: Number(payload.amount) || 0,
-      description: payload.description || "Payment",
-      procedureId: null,
-      createdAt: FieldValue.serverTimestamp(),
-      createdBy: userId,
-      addedBy: `${userName || "Alpha AI"} (via assistant)`,
       receivedBy: userName || "Alpha AI",
+      createdAt: FieldValue.serverTimestamp(),
     };
     await ref.set(record);
 

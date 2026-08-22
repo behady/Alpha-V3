@@ -17,6 +17,7 @@ import { useUI } from "@/context/UIContext";
 import { getAppointmentStatusStyles, APPOINTMENT_STAGES, getAppointmentStageLabel } from "@/lib/appointmentStages";
 import { saveBooking } from "@/lib/bookingService";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { MoneyApiError, createPayment, createProcedure, deleteProcedure } from "@/lib/moneyApi";
 import ServiceCombobox from "@/components/shared/ServiceCombobox";
 
 interface AppointmentSidePanelProps {
@@ -215,19 +216,18 @@ export default function AppointmentSidePanel({
          ledgerDesc = `Payment for ${selectedProcedure.description}`;
       }
 
-      await addDoc(getClinicCollection("ledger"), {
+      // This is the write that lost the dentist. It recorded the money and nothing else — no
+      // doctorId, no lab fee, no commission — so the treating dentist earned nothing on it and the
+      // clinic booked all of it as profit, while the commission report skipped the row entirely
+      // for having no commission on it. The server now resolves all of that from the procedure.
+      await createPayment({
         patientId: selectedAppointment.patientId,
         patientName: selectedAppointment.patientName,
-        type: "payment",
-        date: localDate,
-        amount: 0,
-        paid: Number(inlinePayAmount),
+        amount: Number(inlinePayAmount),
+        method: "Cash",
         description: ledgerDesc,
         procedureId: selectedProcedure.id === 'general_payment' ? null : selectedProcedure.id,
-        createdAt: serverTimestamp(),
-        createdBy: user?.uid || "system",
-        addedBy: user?.name || user?.email || "Staff",
-        receivedBy: user?.name || user?.email || "Staff",
+        date: localDate,
       });
 
       showToast(language === 'ar' ? "تم تسجيل الدفعة بنجاح" : "Payment recorded successfully", "success");
@@ -236,7 +236,12 @@ export default function AppointmentSidePanel({
       setSelectedProcedure(null);
     } catch (e) {
       console.error("Error inline payment:", e);
-      showToast(language === 'ar' ? "خطأ في تسجيل الدفعة" : "Error recording payment", "error");
+      showToast(
+        e instanceof MoneyApiError
+          ? e.message
+          : language === 'ar' ? "خطأ في تسجيل الدفعة" : "Error recording payment",
+        "error"
+      );
     } finally {
       setInlinePayLoading(false);
     }
@@ -502,68 +507,37 @@ export default function AppointmentSidePanel({
                                 try {
                                   const today = new Date();
                                   const localDate = new Date(today.getTime() - (today.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
-                                  
-                                  let newLedgerId = null;
 
-                                  if (addProcToLedger && numCost > 0) {
-                                    const ref = await addDoc(getClinicCollection("ledger"), {
-                                      patientId: selectedAppointment.patientId,
-                                      patientName: selectedAppointment.patientName,
-                                      type: "procedure",
-                                      category: "Treatment",
-                                      amount: numCost,
-                                      cost: numCost,
-                                      description: svc.name,
-                                      // Stable catalog key for revenue-by-service reporting.
-                                      serviceId: String(svc.id),
-                                      serviceIds: [String(svc.id)],
-                                      serviceName: svc.name,
-                                      date: localDate,
-                                      appointmentId: null,
-                                      paid: 0,
-                                      createdAt: serverTimestamp(),
-                                      createdBy: user?.uid || "system",
-                                    });
-                                    newLedgerId = ref.id;
+                                  // The charge, the note and their back-link used to be three
+                                  // separate writes from here; a failure between them left a
+                                  // charge nobody could explain, or a treatment nobody was
+                                  // billed for. One call, one transaction.
+                                  //
+                                  // Attribution follows the appointment's dentist, never whoever
+                                  // is clicking — a receptionist recording a procedure must not
+                                  // become the person it pays out to.
+                                  if (!selectedAppointment.doctorId) {
+                                    showToast(
+                                      language === 'ar'
+                                        ? 'الموعد ده مش متسجل عليه دكتور — عدّل الموعد الأول'
+                                        : 'This visit has no dentist assigned. Set one on the appointment first.',
+                                      'error'
+                                    );
+                                    return;
                                   }
 
-                                  // Create clinical note so it shows in the patient profile
-                                  const noteRef = await addDoc(getClinicCollection("clinical_notes"), {
+                                  const { noteId, ledgerId: newLedgerId } = await createProcedure({
                                     patientId: selectedAppointment.patientId,
-                                    createdAt: serverTimestamp(),
-                                    appointmentId: null,
-                                    tooth: "Gen",
-                                    procedure: svc.name,
+                                    appointmentId: selectedAppointment.id,
                                     procedures: [svc.name],
-                                    serviceId: String(svc.id),
-                                    serviceIds: [String(svc.id)],
-                                    serviceName: svc.name,
-                                    cost: numCost,
+                                    selectedTeeth: [],
+                                    tooth: "Gen",
                                     unitCost: numCost,
-                                    unitsCount: 1,
-                                    pricingFormula: `${numCost}*1`,
-                                    note: "",
-                                    // Appointments store the display name on `doctor`, not
-                                    // `doctorName` — reading the wrong field meant this fell through
-                                    // to the editing user's raw uid, so notes surfaced under a
-                                    // "doctor" named like x7Kd9.... Attribution belongs to the
-                                    // treating dentist on the appointment, never to whoever is
-                                    // clicking, so there is no user fallback.
-                                    doctor: selectedAppointment.doctor || "Unassigned",
-                                    doctorId: selectedAppointment.doctorId || null,
-                                    // Separate from `doctor` on purpose: this is who recorded it.
-                                    createdByUid: user?.uid || null,
-                                    createdByName: user?.name || user?.email || "",
-                                    createdByRole: user?.role || "",
-                                    date: localDate,
+                                    doctorId: selectedAppointment.doctorId,
                                     status: "Completed",
-                                    ledgerId: newLedgerId,
+                                    date: localDate,
+                                    addToLedger: addProcToLedger,
                                   });
-
-                                  // If ledger was created, link back the clinicalNoteId to the ledger
-                                  if (newLedgerId) {
-                                    await updateDoc(getClinicDoc("ledger", newLedgerId), { clinicalNoteId: noteRef.id });
-                                  }
 
                                   showToast(
                                     addProcToLedger
@@ -575,10 +549,15 @@ export default function AppointmentSidePanel({
                                   setProcServiceId("");
                                   setProcCost("");
                                   setAddProcToLedger(true);
-                                  setSessionProcedures(prev => [...prev, { name: svc.name, cost: numCost, clinicalNoteId: noteRef.id, ledgerId: newLedgerId }]);
+                                  setSessionProcedures(prev => [...prev, { name: svc.name, cost: numCost, clinicalNoteId: noteId, ledgerId: newLedgerId }]);
                                 } catch (err) {
                                   console.error('Error adding procedure:', err);
-                                  showToast(language === 'ar' ? 'خطأ في إضافة الإجراء' : 'Error adding procedure', 'error');
+                                  showToast(
+                                    err instanceof MoneyApiError
+                                      ? err.message
+                                      : language === 'ar' ? 'خطأ في إضافة الإجراء' : 'Error adding procedure',
+                                    'error'
+                                  );
                                 } finally {
                                   setAddingProcedure(false);
                                 }
@@ -611,10 +590,10 @@ export default function AppointmentSidePanel({
                                     onClick={async () => {
                                       if (await confirm(language === 'ar' ? 'هل أنت متأكد من حذف هذا الإجراء؟' : 'Are you sure you want to delete this procedure?')) {
                                         try {
-                                          await deleteDoc(getClinicDoc("clinical_notes", sp.clinicalNoteId));
-                                          if (sp.ledgerId) {
-                                            await deleteDoc(getClinicDoc("ledger", sp.ledgerId));
-                                          }
+                                          // One call: the charge goes with the treatment, and the
+                                          // delete is refused outright if money has been taken
+                                          // against it.
+                                          await deleteProcedure(sp.clinicalNoteId);
                                           setSessionProcedures(prev => prev.filter(p => p.clinicalNoteId !== sp.clinicalNoteId));
                                           showToast(language === 'ar' ? 'تم الحذف بنجاح' : 'Deleted successfully', 'success');
                                         } catch (e) {

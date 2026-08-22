@@ -15,7 +15,9 @@ import LateAppointmentPrompt from "@/components/appointments/LateAppointmentProm
 import PatientHistoryDrawer from "@/components/appointments/PatientHistoryDrawer";
 import { db, auth } from "@/lib/firebase";
 import { collection, onSnapshot, query, orderBy, doc, updateDoc, addDoc, serverTimestamp, where, getDocs, limit } from "firebase/firestore";
-import { saveBooking, normalizeDateKey, normalizeTimeKey, parseApptTimeToMinutes, deleteBooking } from "@/lib/bookingService";
+import { saveBooking, normalizeDateKey, normalizeTimeKey, parseApptTimeToMinutes } from "@/lib/bookingService";
+import { MoneyApiError, deleteAppointment } from "@/lib/moneyApi";
+import DeleteAppointmentDialog from "@/components/appointments/DeleteAppointmentDialog";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { parseClinicSchedule, clinicDayBoundsMinutes, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import Protect from "@/components/Protect";
@@ -75,6 +77,8 @@ export default function AppointmentsPage() {
   const [selectedTimeForBooking, setSelectedTimeForBooking] = useState("");
 
   const [selectedAppt, setSelectedAppt] = useState<Appointment | null>(null);
+  /** The appointment awaiting the "what about its treatments?" dialog. */
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; patientName?: string } | null>(null);
 
   // Filters State
   const [selectedDoctors, setSelectedDoctors] = useState<string[]>([]);
@@ -445,25 +449,44 @@ export default function AppointmentsPage() {
     }
   };
 
+  /**
+   * Deleting a booking now asks what to do with the treatments recorded against it, rather than
+   * silently stranding them — see DeleteAppointmentDialog. Every entry point (the calendar card,
+   * the booking modal, the side panel) opens the same dialog.
+   */
   const handleDeleteBooking = async (id: string) => {
+    const appt = appointments.find((a) => a.id === id) || null;
+    setPendingDelete({ id, patientName: appt?.patientName });
+  };
+
+  const performDelete = async (servicesAction: "keep" | "delete") => {
+    if (!pendingDelete) return;
     try {
-      await deleteBooking(id, {
-        uid: user?.uid || "",
-        name: user?.name || "System",
-        role: user?.role || "",
-        language: language as "en" | "ar",
-      });
+      const result = await deleteAppointment(pendingDelete.id, servicesAction);
+      setPendingDelete(null);
       setAppointmentToEdit(null);
       setIsBookingModalOpen(false);
       setSelectedAppt(null);
-      showToast(language === "ar" ? "تم الحذف بنجاح" : "Deleted Successfully", "success");
-    } catch (error: any) {
+      showToast(
+        result.detachedNotes > 0
+          ? language === "ar"
+            ? `تم حذف الموعد، واتحفظ ${result.detachedNotes} علاج في سجل المريض`
+            : `Appointment deleted; ${result.detachedNotes} treatment(s) kept in the patient's record`
+          : language === "ar"
+            ? "تم الحذف بنجاح"
+            : "Deleted Successfully",
+        "success"
+      );
+    } catch (error) {
       console.error("Booking delete error:", error);
-      if (error?.message === "HAS_PAYMENTS") {
-          showToast(language === "ar" ? "لا يمكن حذف هذا الموعد لوجود مدفوعات مسجلة له. يرجى حذف المدفوعات أولاً من صفحة المريض." : "Cannot delete appointment because payments exist. Delete payments first.", "error");
-      } else {
-          showToast(language === "ar" ? "حدث خطأ أثناء الحذف" : "Error deleting appointment", "error");
-      }
+      showToast(
+        error instanceof MoneyApiError
+          ? error.message
+          : language === "ar"
+            ? "حدث خطأ أثناء الحذف"
+            : "Error deleting appointment",
+        "error"
+      );
     }
   };
 
@@ -1554,6 +1577,14 @@ export default function AppointmentsPage() {
         <Plus size={24} />
       </button>
 
+      {pendingDelete && (
+        <DeleteAppointmentDialog
+          appointmentId={pendingDelete.id}
+          patientName={pendingDelete.patientName}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={performDelete}
+        />
+      )}
     </PermissionGuard>
   );
 }

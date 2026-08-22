@@ -13,8 +13,8 @@ import ServiceEditorDrawer from "./ServiceEditorDrawer";
 import ChartWorkspace from "./ChartWorkspace";
 import TransferServiceModal from "./TransferServiceModal";
 import { parseTeethString } from "./utils";
-import { resolveProcedureLedgerIdForNote } from "@/lib/syncProcedurePaymentLabFee";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { MoneyApiError, continueProcedure, deleteProcedure, moveProcedure } from "@/lib/moneyApi";
 import type { ToothData } from "@/lib/diagnosisCatalog";
 
 export default function ClinicalNotesContainer({
@@ -168,23 +168,17 @@ export default function ClinicalNotesContainer({
 
   const handleDeleteService = async (note: Note) => {
     if (!(await confirm("Delete this record? Any linked finance rows will also be removed."))) return;
-    
-    const relatedRows = new Map<string, Record<string, unknown>>();
-    const addLedgerRow = (id: string, data: Record<string, unknown>) => { if (!relatedRows.has(id)) relatedRows.set(id, { id, ...data }); };
 
-    const byClinicalNoteSnap = await getDocs(query(getClinicCollection("ledger"), where("clinicalNoteId", "==", note.id)));
-    byClinicalNoteSnap.docs.forEach(d => addLedgerRow(d.id, d.data()));
-
-    if (note.ledgerId) {
-      const legacySnap = await getDocs(query(getClinicCollection("ledger"), where("__name__", "==", note.ledgerId)));
-      if (!legacySnap.empty) addLedgerRow(legacySnap.docs[0].id, legacySnap.docs[0].data());
+    try {
+      // Deleting a treatment takes its charge with it, in both link directions — and is refused
+      // outright when money has been collected against it. That last rule is new here: this screen
+      // never checked, so a paid-for treatment could be removed from the timeline while its
+      // payments stayed behind pointing at nothing.
+      await deleteProcedure(note.id);
+      showToast("Record deleted", "info");
+    } catch (error) {
+      showToast(error instanceof MoneyApiError ? error.message : "Could not delete that record", "error");
     }
-
-    await Promise.all([
-      deleteDoc(getClinicDoc("clinical_notes", note.id)),
-      ...Array.from(relatedRows.keys()).map(id => deleteDoc(getClinicDoc("ledger", id))),
-    ]);
-    showToast("Record deleted", "info");
   };
 
   /**
@@ -215,61 +209,23 @@ export default function ClinicalNotesContainer({
 
   const handleConfirmTransfer = async (targetApptId: string) => {
     if (!transferNote) return;
-    
-    const targetAppt = appointments.find(a => a.id === targetApptId);
-    const newDate = targetAppt ? targetAppt.date : transferNote.date;
 
-    if (transferAction === "move") {
-      // 1. Move updates appointmentId AND date
-      const updates = {
-        appointmentId: targetApptId,
-        date: newDate
-      };
-      await updateDoc(getClinicDoc("clinical_notes", transferNote.id), updates);
-
-      // 2. Also update the associated ledger date if it exists
-      const byClinicalNoteSnap = await getDocs(query(getClinicCollection("ledger"), where("clinicalNoteId", "==", transferNote.id)));
-      for (const d of byClinicalNoteSnap.docs) {
-        await updateDoc(getClinicDoc("ledger", d.id), { date: newDate });
+    try {
+      if (transferAction === "move") {
+        // The charge follows the treatment so their dates stay in step; doing it in two client
+        // writes meant a failure between them left the ledger dated to the old visit.
+        await moveProcedure(transferNote.id, targetApptId);
+        showToast("Service moved to appointment", "success");
+      } else {
+        // A continuation is the same treatment across two visits. The clone carries no cost and no
+        // ledger link, because the work was already invoiced once.
+        await continueProcedure(transferNote.id, targetApptId);
+        showToast("Service continued in appointment", "success");
       }
-      if (transferNote.ledgerId) {
-        const legacySnap = await getDocs(query(getClinicCollection("ledger"), where("__name__", "==", transferNote.ledgerId)));
-        if (!legacySnap.empty) {
-          await updateDoc(getClinicDoc("ledger", legacySnap.docs[0].id), { date: newDate });
-        }
-      }
-
-      showToast("Service moved to appointment", "success");
-    } else {
-      // Continue clones the note for the new appointment
-      const clonedData = { ...transferNote };
-      delete (clonedData as any).id;
-      delete (clonedData as any).createdAt;
-      delete (clonedData as any).ledgerId; // Don't carry over the old ledger ID
-      
-      // Fix double-billing: reset cost to 0 for the continued session
-      clonedData.cost = 0;
-      clonedData.unitCost = 0;
-      clonedData.pricingFormula = "";
-      
-      const newNote = {
-        ...clonedData,
-        appointmentId: targetApptId,
-        date: newDate,
-        status: "Ongoing",
-        isContinued: true,
-        // A continuation is a new note in its own right, so it is signed by whoever continued it.
-        // The clone carries the original note's author forward under `continuedFromName`.
-        continuedFromName: (clonedData as any).createdByName || "",
-        createdByUid: auth.currentUser?.uid || null,
-        createdByName: user?.name || user?.email || "",
-        createdAt: serverTimestamp(),
-      };
-      await addDoc(getClinicCollection("clinical_notes"), newNote);
-      showToast("Service continued in appointment", "success");
+      setTransferModalOpen(false);
+    } catch (error) {
+      showToast(error instanceof MoneyApiError ? error.message : "Could not move that service", "error");
     }
-    
-    setTransferModalOpen(false);
   };
 
   const timeline = (

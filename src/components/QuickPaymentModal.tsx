@@ -17,6 +17,7 @@ import { logActivity } from "@/lib/logger";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
 import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClient";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { MoneyApiError, createPayment } from "@/lib/moneyApi";
 
 const GENERAL_PAYMENT = {
     id: 'general_payment',
@@ -159,102 +160,41 @@ export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, p
 
         setLoading(true);
         try {
-            const dateStr = new Date().toISOString().split('T')[0];
+            const isGeneral = selectedProcedure.id === 'general_payment';
 
-            if (selectedProcedure.id === 'general_payment') {
-                const paymentRef = await addDoc(getClinicCollection("ledger"), {
-                    patientId: selectedPatient.id,
-                    patientName: selectedPatient.name,
-                    date: dateStr,
-                    type: 'payment',
-                    category: 'Advance Payment',
-                    description: language === 'ar' ? GENERAL_PAYMENT.descriptionAr : GENERAL_PAYMENT.description,
-                    cost: 0, 
-                    paid: amountToPay,
-                    amount: amountToPay,
-                    method: "Cash",
-                    addedBy: user?.name || "System",
-                    createdAt: serverTimestamp()
-                });
-                void sendPatientPaymentWhatsApp({
-                    patientId: selectedPatient.id,
-                    ledgerId: paymentRef.id,
-                });
-                await logActivity(
-                    { uid: user?.uid, name: user?.name, role: user?.role },
-                    "Payment Received",
-                    `General payment received from ${selectedPatient.name}: ${amountToPay} EGP`
-                );
-            } else {
-                const paidBefore = Number(selectedProcedure.paid) || 0;
+            // The dentist, their percentage, the lab fee and whether this is the first payment are
+            // all resolved server-side from the procedure being settled. This screen used to look
+            // the dentist up itself, which meant three screens with three slightly different
+            // versions of the same lookup.
+            const { id: paymentId } = await createPayment({
+                patientId: String(selectedPatient.id),
+                patientName: selectedPatient.name,
+                amount: amountToPay,
+                method: "Cash",
+                description: isGeneral
+                    ? (language === 'ar' ? GENERAL_PAYMENT.descriptionAr : GENERAL_PAYMENT.description)
+                    : `${language === 'ar' ? 'تسديد دفعة لـ' : 'Payment for'}: ${selectedProcedure.description}`,
+                procedureId: isGeneral ? null : selectedProcedure.id,
+                category: isGeneral ? 'Advance Payment' : 'Treatment Payment',
+            });
 
-                const procDoctorId = (selectedProcedure.doctorId && String(selectedProcedure.doctorId).trim()) || "";
-                let procDoctorName = (selectedProcedure.doctorName || selectedProcedure.doctor || "").trim();
-                let commPct = 0;
-                let resolvedDoctorId = procDoctorId;
+            // Fire-and-forget: the payment is recorded either way, and a messaging outage must
+            // not make it look like the money was not taken.
+            void sendPatientPaymentWhatsApp({ patientId: String(selectedPatient.id), ledgerId: paymentId });
 
-                if (procDoctorId) {
-                    const st = await getDoc(getClinicDoc("staff", procDoctorId));
-                    if (st.exists()) {
-                        const d = st.data();
-                        commPct = Number(d.commissionPercentage || 0);
-                        procDoctorName = (d.name || procDoctorName).trim();
-                        resolvedDoctorId = st.id;
-                    }
-                } else if (procDoctorName) {
-                    const nameQ = query(getClinicCollection("staff"), where("name", "==", procDoctorName), limit(1));
-                    const nameSnap = await getDocs(nameQ);
-                    if (!nameSnap.empty) {
-                        const sd = nameSnap.docs[0];
-                        const d = sd.data();
-                        commPct = Number(d.commissionPercentage || 0);
-                        resolvedDoctorId = sd.id;
-                        procDoctorName = (d.name || procDoctorName).trim();
-                    }
-                }
-
-                const appliedLabFee = paidBefore === 0 ? (Number(selectedProcedure.labFee) || 0) : 0;
-                const netAmount = amountToPay - appliedLabFee;
-                const doctorCommissionAmount = netAmount > 0 ? (netAmount * (commPct / 100)) : 0;
-                const clinicProfit = amountToPay - doctorCommissionAmount - appliedLabFee;
-
-                const paymentRef = await addDoc(getClinicCollection("ledger"), {
-                    patientId: selectedPatient.id,
-                    patientName: selectedPatient.name,
-                    date: dateStr,
-                    type: 'payment',
-                    category: 'Treatment Payment',
-                    description: `${language === 'ar' ? 'تسديد دفعة لـ' : 'Payment for'}: ${selectedProcedure.description}`,
-                    procedureId: selectedProcedure.id,
-                    doctorId: resolvedDoctorId || null,
-                    doctorName: procDoctorName || null,
-                    doctorCommissionPercentage: commPct,
-                    labFee: appliedLabFee,
-                    doctorCommissionAmount,
-                    clinicProfit,
-                    cost: 0, 
-                    paid: amountToPay,
-                    amount: amountToPay,
-                    method: "Cash",
-                    addedBy: user?.name || "System",
-                    createdAt: serverTimestamp()
-                });
-                void sendPatientPaymentWhatsApp({
-                    patientId: selectedPatient.id,
-                    ledgerId: paymentRef.id,
-                });
-                await logActivity(
-                    { uid: user?.uid, name: user?.name, role: user?.role },
-                    "Payment Received",
-                    `Treatment payment for ${selectedPatient.name}: ${amountToPay} EGP toward "${selectedProcedure.description}"`
-                );
-            }
+            await logActivity(
+                { uid: user?.uid, name: user?.name, role: user?.role },
+                "Payment Received",
+                isGeneral
+                    ? `General payment received from ${selectedPatient.name}: ${amountToPay} EGP`
+                    : `Treatment payment for ${selectedPatient.name}: ${amountToPay} EGP toward "${selectedProcedure.description}"`
+            );
 
             onSave();
             onClose();
         } catch (error) {
             console.error(error);
-            showToast(t.errorSync, "error");
+            showToast(error instanceof MoneyApiError ? error.message : t.errorSync, "error");
         } finally {
             setLoading(false);
         }

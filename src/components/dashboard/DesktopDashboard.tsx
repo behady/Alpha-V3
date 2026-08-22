@@ -23,7 +23,6 @@ import WeeklyScheduleView from "@/components/dashboard/WeeklyScheduleView";
 import {
   parseApptTimeToMinutes,
   normalizeDateKey,
-  deleteBooking,
   saveBooking,
   normalizeTimeKey,
   updateBookingTime,
@@ -39,6 +38,7 @@ import WaitingMoodPicker from "@/components/appointments/WaitingMoodPicker";
 import ServiceCombobox from "@/components/shared/ServiceCombobox";
 import ServiceEditorDrawer from "@/components/clinical-notes/ServiceEditorDrawer";
 import { logActivity } from "@/lib/logger";
+import { MoneyApiError, deleteAppointment } from "@/lib/moneyApi";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { parseClinicSchedule, clinicDayBoundsMinutes, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import type { OwnerAlertKey } from "@/types/whatsapp";
@@ -54,7 +54,8 @@ import { printPatientReceipt } from "@/lib/printPatientReceipt";
 import ReceptionSummonPanel from "@/components/summon/ReceptionSummonPanel";
 import { getAppointmentStatusStyles } from "@/lib/appointmentStages";
 import UserClockWidget from "@/components/dashboard/UserClockWidget";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";function getLocalDateKey(): string {
+import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+function getLocalDateKey(): string {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split("T")[0];
 }
@@ -671,12 +672,11 @@ export default function DesktopDashboard() {
     });
     if (confirmed) {
       try {
-        await deleteBooking(appointmentId, {
-          uid: user?.uid || "",
-          name: user?.name || "System",
-          role: user?.role || "",
-          language: language as "en" | "ar",
-        });
+        // "keep" is the safe default from a dashboard card: the confirm here is a plain yes/no,
+        // with no room to show what would be lost, so a visit's recorded treatments are detached
+        // into the patient's history rather than deleted. The calendar's own delete offers the
+        // full choice — see DeleteAppointmentDialog.
+        await deleteAppointment(appointmentId, "keep");
         setAllAppointments((prev) => prev.filter((appt) => appt.id !== appointmentId));
         showToast(language === "ar" ? "تم الحذف" : "Deleted", "success");
         
@@ -688,7 +688,15 @@ export default function DesktopDashboard() {
           setActiveModal(null);
         }
       } catch (error) {
+        // This used to swallow the error entirely, so a refused delete looked to the user like
+        // nothing had happened at all — the exact silent failure worth never shipping again.
         console.error(error);
+        showToast(
+          error instanceof MoneyApiError
+            ? error.message
+            : language === "ar" ? "حدث خطأ أثناء الحذف" : "Could not delete that appointment",
+          "error"
+        );
       }
     }
   };

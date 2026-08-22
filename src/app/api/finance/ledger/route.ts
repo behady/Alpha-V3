@@ -49,6 +49,50 @@ function todayKey(): string {
 /** Only the fields a client is allowed to change, per row type. Everything else is derived. */
 const EDITABLE_PAYMENT_FIELDS = ["date", "description", "paid", "method"] as const;
 const EDITABLE_ENTRY_FIELDS = ["date", "description", "amount", "category", "method", "isRecurring"] as const;
+/**
+ * A treatment charge may have its date and its discount adjusted here — that is the edit the
+ * patient-ledger screen offers. Everything that describes the treatment itself (which procedure,
+ * which teeth, how many units, which dentist) belongs to the clinical route, which recomputes the
+ * price, the lab fee and the payout together.
+ */
+const EDITABLE_PROCEDURE_FIELDS = ["date", "description", "discountMode", "discountPercent", "discountFixed", "listPrice"] as const;
+
+/**
+ * Apply a discount to a charge, server-side.
+ *
+ * The client used to compute this and send the result, which meant the stored cost was whatever
+ * the browser said it was. The inputs are the list price and the discount the user chose; the
+ * charged amount is derived from them here.
+ */
+function applyProcedureDiscount(args: {
+  listPrice: number;
+  mode: string;
+  percent?: number | null;
+  fixed?: number | null;
+  fallbackCost: number;
+}): { cost: number; listPrice: number; discountMode: string; discountPercent: number | null; discountFixed: number | null; discountAmount: number } {
+  const list = Math.max(0, Number(args.listPrice) || 0) || Math.max(0, args.fallbackCost);
+
+  if (args.mode === "percent") {
+    const percent = Math.min(100, Math.max(0, Number(args.percent) || 0));
+    const discountAmount = Math.round(((list * percent) / 100) * 100) / 100;
+    return {
+      cost: Math.max(0, Math.round((list - discountAmount) * 100) / 100),
+      listPrice: list, discountMode: "percent", discountPercent: percent, discountFixed: null, discountAmount,
+    };
+  }
+  if (args.mode === "fixed") {
+    const fixed = Math.max(0, Number(args.fixed) || 0);
+    const discountAmount = Math.min(list, fixed);
+    return {
+      cost: Math.max(0, Math.round((list - discountAmount) * 100) / 100),
+      listPrice: list, discountMode: "fixed", discountPercent: null, discountFixed: fixed, discountAmount,
+    };
+  }
+  return {
+    cost: list, listPrice: list, discountMode: "none", discountPercent: null, discountFixed: null, discountAmount: 0,
+  };
+}
 
 async function loadStaff(clinicId: string): Promise<StaffLite[]> {
   const snap = await adminClinicCollection(clinicId, "staff").get();
@@ -232,7 +276,12 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
     const before = snap.data() || {};
     const type = String(before.type || "");
 
-    const allowed = type === "payment" ? EDITABLE_PAYMENT_FIELDS : EDITABLE_ENTRY_FIELDS;
+    const allowed =
+      type === "payment"
+        ? EDITABLE_PAYMENT_FIELDS
+        : type === "procedure"
+          ? EDITABLE_PROCEDURE_FIELDS
+          : EDITABLE_ENTRY_FIELDS;
     const update: Record<string, unknown> = {};
     for (const key of allowed) {
       if (patch[key] !== undefined) update[key] = patch[key];
@@ -293,11 +342,33 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
         update.paid = type === "income" ? amount : 0;
         update.cost = type === "expense" ? amount : 0;
       }
+    } else if (type === "procedure") {
+      // Only the discount is adjustable here; what the treatment IS belongs to the clinical route.
+      const discounted = applyProcedureDiscount({
+        listPrice: Number(update.listPrice ?? before.listPrice ?? before.cost ?? 0),
+        mode: String(update.discountMode ?? before.discountMode ?? "none"),
+        percent: update.discountPercent !== undefined ? Number(update.discountPercent) : Number(before.discountPercent),
+        fixed: update.discountFixed !== undefined ? Number(update.discountFixed) : Number(before.discountFixed),
+        fallbackCost: Number(before.cost) || 0,
+      });
+      Object.assign(update, discounted, { amount: discounted.cost });
+
+      // The dentist's share follows the discounted amount: the lab is paid in full either way, so
+      // a discount comes out of what is left, not off the lab's invoice.
+      const labFee = Number(before.labFee) || 0;
+      const commissionPct = Number(before.doctorCommissionPercentage) || 0;
+      const net = discounted.cost - labFee;
+      update.doctorCommissionAmount = net > 0 ? Number((net * (commissionPct / 100)).toFixed(2)) : 0;
+      update.clinicProfit = Number((discounted.cost - Number(update.doctorCommissionAmount) - labFee).toFixed(2));
+
+      // The clinical note holds its own copy of the cost; leaving it stale would mean the next
+      // save from the clinical screen silently undid the discount.
+      const noteId = typeof before.clinicalNoteId === "string" ? before.clinicalNoteId : "";
+      if (noteId) {
+        txn.update(adminClinicDoc(clinicId, "clinical_notes", noteId), { cost: discounted.cost });
+      }
     } else {
-      // Procedure rows are edited through /api/clinical/procedures, which recomputes the pricing,
-      // the lab fee and the commission projection together. Letting them be patched here would
-      // let a cost change without its note, its units or its payout following.
-      throw new Error("USE_CLINICAL_ROUTE");
+      throw new Error("UNKNOWN_ROW_TYPE");
     }
 
     if (Object.keys(update).length === 0) throw new Error("NOTHING_TO_DO");
@@ -317,6 +388,68 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
     },
     action: "Finance Entry Updated",
     details: `${result.type} ${id}`,
+  });
+
+  return NextResponse.json({ ok: true, id });
+}
+
+// ---------------------------------------------------------------------------------------------
+// set-commission — the payout screen's manual split override
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Set a payment's commission percentage by hand.
+ *
+ * The payout screen lets an Admin override the split on a single payment — a locum on different
+ * terms, a case shared between two dentists, a correction agreed after the fact. The recalculation
+ * is the same as everywhere else; what is different is that the result did NOT come from the
+ * dentist's standing rate, and nothing recorded that.
+ *
+ * `commissionSetManually` is that record. It matters because a repair script cannot otherwise tell
+ * a deliberate override from a row that was never computed properly, and "helpfully" recomputing
+ * an override back to the standing rate silently reverses a decision someone made on purpose.
+ */
+async function setCommission(args: { clinicId: string; actor: Actor; body: Record<string, unknown> }) {
+  const { clinicId, actor, body } = args;
+  const id = String(body.id || "").trim();
+  if (!id) return bad("Which payment?");
+
+  const percent = Number(body.commissionPercentage);
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+    return bad("Enter a percentage between 0 and 100.");
+  }
+
+  const result = await adminDb().runTransaction(async (txn) => {
+    const ref = adminClinicDoc(clinicId, "ledger", id);
+    const snap = await txn.get(ref);
+    if (!snap.exists) throw new Error("NOT_FOUND");
+    const before = snap.data() || {};
+    if (String(before.type || "") !== "payment") throw new Error("NOT_A_PAYMENT");
+
+    const paid = Number(before.paid ?? before.amount ?? 0) || 0;
+    const labFee = Number(before.labFee) || 0;
+    const { doctorCommissionAmount, clinicProfit } = recalcCommissionFromPayment(paid, labFee, percent);
+
+    const update = {
+      doctorCommissionPercentage: percent,
+      doctorCommissionAmount,
+      clinicProfit,
+      commissionSetManually: true,
+      commissionSetByUid: actor.uid,
+      commissionSetByName: actor.name,
+      commissionSetAt: FieldValue.serverTimestamp(),
+    };
+    txn.update(ref, update);
+    return { before, update };
+  });
+
+  await recordMoneyChange({
+    entry: {
+      clinicId, action: "update", collection: "ledger", documentId: id,
+      before: result.before, after: result.update, actor, via: "finance/ledger:set-commission",
+    },
+    action: "Commission Split Updated",
+    details: `Set the split on payment ${id} to ${percent}% by hand`,
   });
 
   return NextResponse.json({ ok: true, id });
@@ -433,6 +566,7 @@ const PERMISSION_BY_ACTION: Record<string, string> = {
   "create-payment": "finance.add",
   "create-entry": "finance.add",
   update: "finance.edit",
+  "set-commission": "finance.edit",
   delete: "finance.delete",
 };
 
@@ -472,6 +606,8 @@ export async function POST(request: Request) {
         return await createEntry({ clinicId, actor, body });
       case "update":
         return await updateRow({ clinicId, actor, body });
+      case "set-commission":
+        return await setCommission({ clinicId, actor, body });
       case "delete":
         return await deleteRow({ clinicId, actor, body });
       default:
@@ -486,14 +622,16 @@ export async function POST(request: Request) {
         return bad("A payment can only be linked to a treatment charge.");
       case "NOT_FOUND":
         return bad("That row no longer exists. Refresh and try again.", 404);
+      case "NOT_A_PAYMENT":
+        return bad("Only a payment carries a commission split.");
       case "BAD_AMOUNT":
         return bad("Enter an amount greater than zero.");
       case "BAD_DATE":
         return bad("Enter a valid date.");
       case "NOTHING_TO_DO":
         return bad("Nothing to change.");
-      case "USE_CLINICAL_ROUTE":
-        return bad("Edit a treatment charge from the patient's clinical record, so its note and payout stay in step.");
+      case "UNKNOWN_ROW_TYPE":
+        return bad("That row cannot be edited here.");
       default:
         console.error("finance/ledger failed", { action }, e);
         return bad("Something went wrong saving that. Nothing was changed.", 500);

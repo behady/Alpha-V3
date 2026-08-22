@@ -7,7 +7,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext";
 import { Loader2, CalendarDays, Clock, CheckCircle2, AlertCircle, Star, FileText, Trash2 } from "lucide-react";
-import { deleteBooking } from "@/lib/bookingService";
+import { MoneyApiError, deleteAppointment, deleteProcedure } from "@/lib/moneyApi";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 
 interface StatusHistoryEntry {
@@ -115,28 +115,27 @@ export default function PatientTimelineTab({ patientId }: { patientId: string })
 
     try {
       if (visit.type === "appointment") {
-        await deleteBooking(visit.id, {
-          uid: user?.uid || "",
-          name: user?.name || "System",
-          role: user?.role || "",
-          language: language as "en" | "ar",
-        });
+        // Treatments are kept: this timeline is the patient's history, and removing a visit from
+        // it must not quietly take the record of what was done with it.
+        await deleteAppointment(visit.id, "keep");
       } else {
-        await deleteDoc(getClinicDoc("clinical_notes", visit.id));
-        
-        // Find and delete the associated ledger entry to prevent the patient from being falsely charged
-        const ledgerSnap = await getDocs(query(getClinicCollection("ledger"), where("clinicalNoteId", "==", visit.id)));
-        if (!ledgerSnap.empty) {
-          const batch = ledgerSnap.docs.map(d => deleteDoc(getClinicDoc("ledger", d.id)));
-          await Promise.all(batch);
-        }
+        // Deleting a treatment takes its charge with it, and is refused when money has been
+        // collected — the same rule every other screen now gets.
+        // The charge goes with it — the route cascades both link directions, so the hand-rolled
+        // ledger sweep that used to follow this line is gone.
+        await deleteProcedure(visit.id);
       }
       
       setVisits(prev => prev.filter(v => v.id !== visit.id));
       showToast(language === "ar" ? "تم الحذف بنجاح" : "Deleted successfully", "success");
     } catch (error) {
       console.error(error);
-      showToast(language === "ar" ? "حدث خطأ أثناء الحذف" : "Error deleting record", "error");
+      showToast(
+        error instanceof MoneyApiError
+          ? error.message
+          : language === "ar" ? "حدث خطأ أثناء الحذف" : "Error deleting record",
+        "error"
+      );
     }
   };
 

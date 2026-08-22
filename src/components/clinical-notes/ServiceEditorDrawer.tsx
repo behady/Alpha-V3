@@ -10,7 +10,7 @@ import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { logActivity } from "@/lib/logger";
-import { resolveProcedureLedgerIdForNote, syncProcedureAndPaymentsFromClinicalNote } from "@/lib/syncProcedurePaymentLabFee";
+import { MoneyApiError, createProcedure, updateProcedure } from "@/lib/moneyApi";
 import ServiceCombobox from "@/components/shared/ServiceCombobox";
 import TeethChart from "@/components/TeethChart";
 import { isDentistStaff } from "@/lib/staffRoles";
@@ -79,7 +79,6 @@ export default function ServiceEditorDrawer({
   const [selectedDoctorId, setSelectedDoctorId] = useState("");
   const [procedureStatus, setProcedureStatus] = useState<'Planned' | 'Ongoing' | 'Completed'>('Planned');
   const [addToLedger, setAddToLedger] = useState(true);
-  const [linkedLedgerId, setLinkedLedgerId] = useState<string | null>(null);
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatusText, setSaveStatusText] = useState("");
@@ -129,25 +128,19 @@ export default function ServiceEditorDrawer({
           if (docObj) setSelectedDoctorId(docObj.id);
       }
       
+      // A note that carries a cost was billed, whether or not its own ledgerId survived. The
+      // charge itself no longer has to be looked up from here: the server follows both link
+      // directions when it saves, so this checkbox only has to represent what the user intends.
       setAddToLedger(!!initialNote.ledgerId || Number(initialNote.cost) > 0);
-      setLinkedLedgerId(initialNote.ledgerId || null);
       // Reopen the note on the rule it was priced with, so simply re-saving never moves the total.
       setPricingModeOverride(isPricingMode(initialNote.pricingMode) ? initialNote.pricingMode : null);
-      
-      // resolve ledger id asynchronously
-      resolveProcedureLedgerIdForNote(initialNote.id, initialNote.ledgerId).then((resolvedId) => {
-        if (resolvedId) {
-          setLinkedLedgerId(resolvedId);
-          setAddToLedger(true);
-        }
-      });
     } else {
       // Reset form
       setDate(new Date().toISOString().split('T')[0]);
       setTooth("");
       setProcedure(""); setMultiProceduresText(""); setCost(""); setNoteText("");
       setProcedureStatus('Planned');
-      setAddToLedger(true); setLinkedLedgerId(null);
+      setAddToLedger(true);
       setIsChangingService(false);
       setPricingModeOverride(null);
       // When the chart above owns the selection, clearing it is the parent's call — the user may
@@ -201,210 +194,41 @@ export default function ServiceEditorDrawer({
     setSaveStatusText("Saving to Database...");
 
     try {
-      const extraProcedures = multiProceduresText.split("\n").map((s) => s.trim()).filter(Boolean);
-      const parsedProcedures = [procedure.trim(), ...extraProcedures].filter(Boolean);
-      const procedures = Array.from(new Set(parsedProcedures));
-      
-      const matchedServices = procedures.map((name) => servicesList.find((s) => s.name === name)).filter((s): s is Service => Boolean(s));
-      const inferredCost = matchedServices.length > 0 ? matchedServices.reduce((sum, s) => sum + (Number(s.price) || 0), 0) : 0;
-      const unitCost = Number(cost) || inferredCost;
-      // The main procedure's rule governs the whole note. A note mixing a flat service with a
-      // per-tooth one is ambiguous by nature, which is what the manual override is for.
-      const effectiveMode = pricingModeOverride ?? servicePricingMode(matchedServices);
-      const pricingUnits = pricingUnitsFor(effectiveMode, selectedTeeth);
-      const numCost = unitCost * pricingUnits;
-      const pricingFormula = `${unitCost}*${pricingUnits}`;
-      const selectedDocObj = doctors.find(d => d.id === selectedDoctorId);
-      const docName = selectedDocObj?.name || "Unknown Doctor";
-      const selectedToothText = selectedTeeth.length > 0 ? selectedTeeth.join(",") : (tooth || "Gen");
-      const displayProcedure = procedures.join(" + ");
-      
-      const noteData = { 
-          // If editing, preserve old appt if no appointmentId context was explicitly passed,
-          // otherwise if adding, use appointmentId context.
-          appointmentId: initialNote ? initialNote.appointmentId : (appointmentId || null),
-          tooth: selectedToothText, 
-          procedure: displayProcedure,
-          procedures,
-          cost: numCost, 
-          unitCost,
-          unitsCount: pricingUnits,
-          pricingFormula,
-          // Recorded so a note can be re-read (and re-edited) without guessing why 200 became 400.
-          pricingMode: effectiveMode,
-          note: noteText,
-          doctor: docName,
-          doctorId: selectedDoctorId,
-          // `procedure` is free text, so counting "how many crowns this month" meant string
-          // matching against whatever was typed. These are the ids of the price-list entries the
-          // procedure names actually resolved to, so procedures can be grouped on a stable key.
-          // serviceId/serviceName were declared on the note type but no write site ever set them.
-          serviceIds: matchedServices.map((s) => s.id),
-          serviceId: matchedServices[0]?.id || null,
-          serviceName: matchedServices[0]?.name || null,
-          // Names that matched no price-list entry. Recorded rather than dropped so a report can
-          // say what it could not classify instead of silently undercounting.
-          unmatchedProcedures: procedures.filter((name) => !servicesList.some((s) => s.name === name)),
-          date,
-          status: procedureStatus,
-      };
+      const extraProcedures = multiProceduresText.split("\n").map((line) => line.trim()).filter(Boolean);
+      const procedures = Array.from(new Set([procedure.trim(), ...extraProcedures].filter(Boolean)));
 
-      const { labFee, labFeePerUnit, reqLab } = computeProcedureLabFee({
-        matchedServices, pricingUnits,
-      });
-
-      const commPct = Number(selectedDocObj?.commissionPercentage || 0);
-      const netAmount = numCost - labFee;
-      const doctorCommissionAmount = netAmount > 0 ? (netAmount * (commPct / 100)) : 0;
-      const clinicProfit = numCost - doctorCommissionAmount - labFee; 
-
-      const ledgerProcedureFields = {
+      // The figures shown on screen are a preview. The server recomputes the cost, the lab fee and
+      // the commission from the price list and the staff record it reads itself — a cost arriving
+      // in a request body is a number the caller chose — and writes the note, its charge, their
+      // back-link and the appointment's services[] mirror as one transaction. Those were four
+      // separate writes from here, and a failure between any two left a charge with no treatment
+      // behind it or a treatment nobody was billed for.
+      const payload = {
         patientId,
-        patientName,
-        type: "procedure" as const,
-        category: "Treatment",
-        amount: numCost, cost: numCost, unitCost, unitsCount: pricingUnits, pricingFormula, pricingMode: effectiveMode,
-        description: `${displayProcedure} (T: ${selectedToothText}) | ${pricingFormula}=${numCost}`,
-        // The price-list entries this line resolved to. Reports used to recover the service by
-        // parsing the description above — so renaming a service, or any change to that string's
-        // shape, silently changed revenue-by-service. These ids are the stable answer.
-        serviceId: matchedServices[0]?.id || null,
-        serviceIds: matchedServices.map((svc) => svc.id),
-        serviceName: matchedServices[0]?.name || null,
-        doctorId: selectedDoctorId, doctorName: docName, doctorCommissionPercentage: commPct,
-        date, labFee, labFeePerUnit, labOrderService: "",
-        doctorCommissionAmount, clinicProfit,
-        appointmentId: appointmentId || null,
-      };
-
-      const cleanData = (obj: any) => Object.fromEntries(Object.entries(obj).filter(([_, v]) => v !== undefined));
-
-      /**
-       * Who is at the keyboard, which is not the same thing as `doctor` above. `doctor` is the
-       * treating dentist the procedure is attributed and paid out to; an assistant typing up the
-       * session is a different person, and the note is only trustworthy if it says which is which.
-       */
-      const authorName = user?.name || user?.email || "";
-      const authorFields = {
-        createdByUid: user?.uid || null,
-        createdByName: authorName,
-        createdByRole: user?.role || "",
+        appointmentId: initialNote ? initialNote.appointmentId ?? null : appointmentId || null,
+        procedures,
+        selectedTeeth,
+        tooth,
+        unitCost: cost === "" ? null : Number(cost),
+        pricingMode: pricingModeOverride,
+        doctorId: selectedDoctorId,
+        status: procedureStatus,
+        note: noteText,
+        date,
+        addToLedger,
       };
 
       if (initialNote) {
-          let procLedgerId = linkedLedgerId || (await resolveProcedureLedgerIdForNote(initialNote.id));
-          const noteLedgerId = addToLedger ? procLedgerId : null;
-          const cleanNoteData = cleanData({
-            ...noteData,
-            ledgerId: noteLedgerId,
-            updatedByUid: user?.uid || null,
-            updatedByName: authorName,
-            updatedAt: serverTimestamp(),
-          });
-
-          await updateDoc(getClinicDoc("clinical_notes", initialNote.id), cleanNoteData);
-
-          if (addToLedger) {
-              const linkedLedgerData = cleanData({ ...ledgerProcedureFields, clinicalNoteId: initialNote.id });
-              if (procLedgerId) {
-                await syncProcedureAndPaymentsFromClinicalNote(procLedgerId, linkedLedgerData, labFee, commPct);
-              } else {
-                  const ref = await addDoc(getClinicCollection("ledger"), cleanData({ ...linkedLedgerData, paid: 0, createdAt: serverTimestamp() }));
-                  procLedgerId = ref.id;
-                  await updateDoc(getClinicDoc("clinical_notes", initialNote.id), { ledgerId: ref.id });
-              }
-          } else if (procLedgerId) {
-            await deleteDoc(getClinicDoc("ledger", procLedgerId));
-          }
-
-          // Sync back to linked appointment
-          const apptId = initialNote.appointmentId;
-          if (apptId) {
-            const apptDoc = await getDoc(getClinicDoc("appointments", apptId));
-            if (apptDoc.exists()) {
-              const apptData = apptDoc.data();
-              let apptServices = apptData.services || [];
-              let updated = false;
-
-              apptServices = apptServices.map((s: any) => {
-                if (s.clinicalNoteId === initialNote.id) {
-                  updated = true;
-                  return {
-                    ...s,
-                    status: procedureStatus,
-                    cost: numCost,
-                    listPrice: numCost,
-                    serviceName: displayProcedure,
-                    ledgerId: noteLedgerId || null,
-                  };
-                }
-                return s;
-              });
-
-              if (updated) {
-                const newTotalCost = apptServices.reduce((sum: number, s: any) => sum + (Number(s.cost) || 0), 0);
-                const newTotalListPrice = apptServices.reduce((sum: number, s: any) => sum + (Number(s.listPrice) || Number(s.cost) || 0), 0);
-                await updateDoc(getClinicDoc("appointments", apptId), {
-                  services: apptServices,
-                  listPrice: newTotalListPrice,
-                  cost: apptData.discountMode && apptData.discountMode !== 'none' ? Math.max(0, newTotalListPrice - (Number(apptData.discountAmount) || 0)) : newTotalListPrice
-                });
-              }
-            }
-          }
+        await updateProcedure(initialNote.id, payload);
       } else {
-          let newLedgerId = null;
-          if (addToLedger && numCost > 0) {
-              const ref = await addDoc(getClinicCollection("ledger"), cleanData({ ...ledgerProcedureFields, paid: 0, createdAt: serverTimestamp() }));
-              newLedgerId = ref.id;
-          }
-          const noteRef = await addDoc(getClinicCollection("clinical_notes"), cleanData({
-            patientId, createdAt: serverTimestamp(), ...noteData, ...authorFields, ledgerId: newLedgerId,
-          }));
-          if (newLedgerId) {
-            await updateDoc(getClinicDoc("ledger", newLedgerId), { clinicalNoteId: noteRef.id });
-            await syncProcedureAndPaymentsFromClinicalNote(newLedgerId, { ...ledgerProcedureFields, clinicalNoteId: noteRef.id }, labFee, commPct);
-          }
-          
-          if (appointmentId) {
-            const apptDoc = await getDoc(getClinicDoc("appointments", appointmentId));
-            if (apptDoc.exists()) {
-              const apptData = apptDoc.data();
-              const svcs = apptData.services || [];
-              if (apptData.serviceId && svcs.length === 0) {
-                svcs.push({
-                  serviceId: apptData.serviceId,
-                  serviceName: apptData.serviceName || apptData.treatment || "",
-                  cost: Number(apptData.cost) || 0,
-                  listPrice: Number(apptData.listPrice) || Number(apptData.cost) || 0,
-                  status: "Planned"
-                });
-              }
-              svcs.push({
-                serviceId: matchedServices[0]?.id || "",
-                serviceName: matchedServices[0]?.name || displayProcedure,
-                cost: numCost,
-                listPrice: numCost,
-                clinicalNoteId: noteRef.id,
-                ledgerId: newLedgerId,
-                status: procedureStatus
-              });
-              const newTotalCost = svcs.reduce((sum: number, s: any) => sum + (Number(s.cost) || 0), 0);
-              const newTotalListPrice = svcs.reduce((sum: number, s: any) => sum + (Number(s.listPrice) || Number(s.cost) || 0), 0);
-              await updateDoc(getClinicDoc("appointments", appointmentId), { 
-                services: svcs,
-                listPrice: newTotalListPrice,
-                cost: apptData.discountMode && apptData.discountMode !== 'none' ? Math.max(0, newTotalListPrice - (Number(apptData.discountAmount) || 0)) : newTotalListPrice
-              });
-            }
-          }
+        await createProcedure(payload);
       }
-      
+
       showToast(initialNote ? "Procedure Updated" : "Procedure Logged", "success");
       onSaved();
       onClose();
-    } catch (err) { 
-        showToast("Error saving procedure", "error"); 
+    } catch (err) {
+        showToast(err instanceof MoneyApiError ? err.message : "Error saving procedure", "error");
         console.error(err);
     } finally {
         setIsSaving(false);

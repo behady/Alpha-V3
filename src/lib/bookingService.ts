@@ -16,6 +16,7 @@ import {
 import { logActivity } from "@/lib/logger";
 import { sendPatientAppointmentWhatsApp } from "@/lib/sendPatientAppointmentWhatsAppClient";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { createProcedure } from "@/lib/moneyApi";
 import {
   normalizeDateKey,
   normalizeTimeKey,
@@ -94,6 +95,49 @@ export interface BookingUserContext {
  * Validates, normalizes, and saves the booking (creates/updates appointment, ledger, and clinical note).
  * Dispatches WhatsApp alerts and activity logs.
  */
+
+/**
+ * Procedures staged in the booking modal, written after the appointment exists.
+ *
+ * These used to be built here as a ledger row, a clinical note and a back-link — three separate
+ * writes, duplicated across both branches of saveBooking, and a fourth slightly different copy of
+ * the same shape lived in the appointment side panel. They now go through the clinical route,
+ * which does all of it in one transaction and prices each procedure from the catalogue rather than
+ * trusting the cost the browser worked out.
+ *
+ * A procedure whose dentist cannot be resolved is skipped rather than attributed to nobody: a
+ * charge with no dentist pays no commission and is invisible to the payout report, which is the
+ * failure this whole change exists to stop.
+ */
+async function writeSessionProcedures(
+  data: BookingSavePayload,
+  appointmentId: string,
+  date: string,
+  userCtx: BookingUserContext
+): Promise<void> {
+  if (!data.sessionProcedures || data.sessionProcedures.length === 0) return;
+  if (!data.doctorId) {
+    throw new Error("NO_DOCTOR_FOR_PROCEDURE");
+  }
+
+  for (const sp of data.sessionProcedures) {
+    await createProcedure({
+      patientId: String(data.patientId),
+      appointmentId,
+      procedures: [sp.name],
+      selectedTeeth: [],
+      tooth: "Gen",
+      unitCost: Number(sp.cost) || 0,
+      doctorId: data.doctorId,
+      status: "Completed",
+      date,
+      addToLedger: sp.addToLedger,
+    });
+  }
+
+  void userCtx; // attribution is resolved server-side from doctorId
+}
+
 export async function saveBooking(
   data: BookingSavePayload & { existingAppointmentId?: string | null; status?: string },
   userCtx: BookingUserContext,
@@ -237,61 +281,7 @@ export async function saveBooking(
       });
     }
 
-    if (data.sessionProcedures && data.sessionProcedures.length > 0) {
-      for (const sp of data.sessionProcedures) {
-        let newLedgerId = null;
-        if (sp.addToLedger && sp.cost > 0) {
-          const lRef = await addDoc(getClinicCollection("ledger"), {
-            patientId: data.patientId,
-            patientName: data.patientName,
-            type: "procedure",
-            category: "Treatment",
-            amount: sp.cost,
-            cost: sp.cost,
-            description: sp.name,
-            // Stable catalog key, so revenue-by-service never depends on this description.
-            serviceId: sp.serviceId || null,
-            serviceIds: sp.serviceId ? [sp.serviceId] : [],
-            serviceName: sp.name,
-            date: normalizedDate || data.date,
-            appointmentId: aid,
-            paid: 0,
-            createdAt: serverTimestamp(),
-            createdBy: userCtx.uid || "system",
-          });
-          newLedgerId = lRef.id;
-        }
-
-        const noteRef = await addDoc(getClinicCollection("clinical_notes"), {
-          patientId: data.patientId,
-          createdAt: serverTimestamp(),
-          appointmentId: aid,
-          tooth: "Gen",
-          procedure: sp.name,
-          procedures: [sp.name],
-          serviceId: sp.serviceId || null,
-          serviceIds: sp.serviceId ? [sp.serviceId] : [],
-          serviceName: sp.name,
-          cost: sp.cost,
-          unitCost: sp.cost,
-          unitsCount: 1,
-          pricingFormula: `${sp.cost}*1`,
-          note: "",
-          doctor: data.doctor || userCtx.name || "System",
-          doctorId: data.doctorId || null,
-          // The treating dentist above is not necessarily who booked this in.
-          createdByUid: userCtx.uid || null,
-          createdByName: userCtx.name || "System",
-          date: normalizedDate || data.date,
-          status: "Completed",
-          ledgerId: newLedgerId,
-        });
-
-        if (newLedgerId) {
-          await updateDoc(getClinicDoc("ledger", newLedgerId), { clinicalNoteId: noteRef.id });
-        }
-      }
-    }
+    await writeSessionProcedures(data, aid, normalizedDate || data.date, userCtx);
 
     return;
   }
@@ -338,60 +328,7 @@ export async function saveBooking(
   });
 
 
-  if (data.sessionProcedures && data.sessionProcedures.length > 0) {
-    for (const sp of data.sessionProcedures) {
-      let newLedgerId = null;
-      if (sp.addToLedger && sp.cost > 0) {
-        const lRef = await addDoc(getClinicCollection("ledger"), {
-          patientId: data.patientId,
-          patientName: data.patientName,
-          type: "procedure",
-          category: "Treatment",
-          amount: sp.cost,
-          cost: sp.cost,
-          description: sp.name,
-          // Stable catalog key, so revenue-by-service never depends on this description.
-          serviceId: sp.serviceId || null,
-          serviceIds: sp.serviceId ? [sp.serviceId] : [],
-          serviceName: sp.name,
-          date: normalizedDate || data.date,
-          appointmentId: appRef.id,
-          paid: 0,
-          createdAt: serverTimestamp(),
-          createdBy: userCtx.uid || "system",
-        });
-        newLedgerId = lRef.id;
-      }
-
-      const noteRef = await addDoc(getClinicCollection("clinical_notes"), {
-        patientId: data.patientId,
-        createdAt: serverTimestamp(),
-        appointmentId: appRef.id,
-        tooth: "Gen",
-        procedure: sp.name,
-        procedures: [sp.name],
-        serviceId: sp.serviceId || null,
-        serviceIds: sp.serviceId ? [sp.serviceId] : [],
-        serviceName: sp.name,
-        cost: sp.cost,
-        unitCost: sp.cost,
-        unitsCount: 1,
-        pricingFormula: `${sp.cost}*1`,
-        note: "",
-        doctor: data.doctor || userCtx.name || "System",
-        doctorId: data.doctorId || null,
-        createdByUid: userCtx.uid || null,
-        createdByName: userCtx.name || "System",
-        date: normalizedDate || data.date,
-        status: "Completed",
-        ledgerId: newLedgerId,
-      });
-
-      if (newLedgerId) {
-        await updateDoc(getClinicDoc("ledger", newLedgerId), { clinicalNoteId: noteRef.id });
-      }
-    }
-  }
+  await writeSessionProcedures(data, appRef.id, normalizedDate || data.date, userCtx);
 
   await logActivity(
     { uid: userCtx.uid, name: userCtx.name, role: userCtx.role },
@@ -417,44 +354,16 @@ export async function saveBooking(
   }
 }
 
-export async function deleteBooking(appointmentId: string, userCtx: BookingUserContext): Promise<void> {
-  const apptSnap = await getDoc(getClinicDoc("appointments", appointmentId));
-  if (!apptSnap.exists()) return;
-  const apptData = apptSnap.data();
-
-  // Fix Scenario 1: The Phantom Charge
-  // Check if this appointment has a ledger invoice attached
-  const ledgerQuery = query(getClinicCollection("ledger"), where("appointmentId", "==", appointmentId), where("type", "==", "procedure"));
-  const ledgerSnap = await getDocs(ledgerQuery);
-  
-  if (!ledgerSnap.empty) {
-    for (const procedureLedger of ledgerSnap.docs) {
-      const paymentsQuery = query(getClinicCollection("ledger"), where("procedureId", "==", procedureLedger.id), where("type", "==", "payment"));
-      const paymentsSnap = await getDocs(paymentsQuery);
-      
-      if (!paymentsSnap.empty) {
-          throw new Error("HAS_PAYMENTS");
-      }
-    }
-    for (const procedureLedger of ledgerSnap.docs) {
-        await deleteDoc(getClinicDoc("ledger", procedureLedger.id));
-    }
-  }
-
-  // Delete associated clinical notes
-  const notesQuery = query(getClinicCollection("clinical_notes"), where("lastAppointmentId", "==", appointmentId));
-  const notesSnap = await getDocs(notesQuery);
-  for (const docSnap of notesSnap.docs) {
-    await deleteDoc(docSnap.ref);
-  }
-
-  await deleteDoc(getClinicDoc("appointments", appointmentId));
-  await logActivity(
-    { uid: userCtx.uid, name: userCtx.name, role: userCtx.role },
-    "Appointment Deleted",
-    `Deleted appointment for ${apptData.patientName || "Unknown"}`
-  );
-}
+/**
+ * Deleting a booking moved to /api/appointments/delete.
+ *
+ * The version that lived here searched for the visit's clinical notes with
+ * `where("lastAppointmentId", "==", id)` — a field nothing in this app has ever written — so it
+ * matched nothing and left every treatment behind, pointing at an appointment that no longer
+ * existed. Nobody was told. Fixing the field name alone would have swung it the other way and
+ * started quietly deleting clinical records whenever someone tidied the calendar, so the decision
+ * is now the user's and the write is one guarded transaction. See DeleteAppointmentDialog.
+ */
 
 export async function updateBookingTime(id: string, newDate: string, newTime: string): Promise<void> {
   const ref = getClinicDoc('appointments', id);

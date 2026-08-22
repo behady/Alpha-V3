@@ -16,6 +16,7 @@ import { useRouter } from "next/navigation";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { MoneyApiError, createLedgerEntry, deleteLedgerRow, updateLedgerRow } from "@/lib/moneyApi";
 
 const ITEMS_PER_PAGE = 15;
 
@@ -248,76 +249,57 @@ export default function FinancePage() {
   };
 
   const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault(); if (!amount || !description) return showToast(t('fillRequired'), "error");
+    e.preventDefault();
+    if (!amount || !description) return showToast(t('fillRequired'), "error");
     try {
-      const payload = { type: formType, amount: Number(amount), paid: formType === 'income' ? Number(amount) : 0, cost: formType === 'expense' ? Number(amount) : 0, description: description || "No Description", category: category || "General", date, method: method || "Cash", isRecurring: formType === 'expense' ? isRecurring : false, addedBy: user?.name || "System", updatedAt: serverTimestamp() };
+      // The income/expense split (which field the money lands in) and the audit entry are both the
+      // server's job now — this screen used to build the row and log it itself, and the same row
+      // shape was rebuilt slightly differently in three other places.
       if (editingId) {
-        await updateDoc(getClinicDoc("ledger", editingId), payload);
-        await logActivity(
-          { uid: user?.uid, name: user?.name, role: user?.role },
-          "Finance Entry Updated",
-          `${formType.toUpperCase()} ${Number(amount)} EGP - ${description}`
-        );
+        await updateLedgerRow(editingId, {
+          date,
+          description: description || "No Description",
+          amount: Number(amount),
+          category: category || "General",
+          method: method || "Cash",
+          isRecurring: formType === 'expense' ? isRecurring : false,
+        });
         showToast("Updated", "success");
-      } 
-      else {
-        await addDoc(getClinicCollection("ledger"), { ...payload, createdAt: serverTimestamp(), patientId: null, doctor: null });
-        await logActivity(
-          { uid: user?.uid, name: user?.name, role: user?.role },
-          "Finance Entry Created",
-          `${formType.toUpperCase()} ${Number(amount)} EGP - ${description}`
-        );
+      } else {
+        await createLedgerEntry({
+          type: formType,
+          amount: Number(amount),
+          description: description || "No Description",
+          category: category || "General",
+          date,
+          method: method || "Cash",
+          isRecurring: formType === 'expense' ? isRecurring : false,
+        });
         showToast("Saved", "success");
       }
       closeModal();
-    } catch (error) { showToast(t('saveFailed'), "error"); }
+    } catch (error) {
+      showToast(error instanceof MoneyApiError ? error.message : t('saveFailed'), "error");
+    }
   };
 
   const handleDelete = async (id: string, desc: string) => {
+    if (!(await confirm(t("deleteConfirm")))) return;
     try {
-      const targetRef = getClinicDoc("ledger", id);
-      const targetSnap = await getDoc(targetRef);
-      if (!targetSnap.exists()) return;
-      const target = targetSnap.data() as Record<string, unknown>;
-
-      // Linked clinical procedure: one confirmation explains full cascade (note + all ledger rows).
-      if (typeof target.clinicalNoteId === "string" && target.clinicalNoteId.trim()) {
-        const clinicalNoteId = target.clinicalNoteId.trim();
-        const relatedQ = query(getClinicCollection("ledger"), where("clinicalNoteId", "==", clinicalNoteId));
-        const relatedSnap = await getDocs(relatedQ);
-        const relatedDocs = relatedSnap.docs;
-        const hasPayment = relatedDocs.some((d) => d.data().type === "payment" || Number(d.data().paid || 0) > 0);
-        const ok = await confirm(
-          hasPayment
-            ? language === "ar"
-              ? "هذا الإجراء عليه مدفوعات مسجلة. الحذف سيزيل الإجراء وكل قيود المالية المرتبطة. هل تريد المتابعة؟"
-              : "This procedure has recorded payments. Deleting will remove the procedure and all linked finance rows. Continue?"
-            : language === "ar"
-              ? "سيتم حذف الإجراء وكل قيوده المالية المرتبطة. متابعة؟"
-              : "This will delete the procedure and all linked finance rows. Continue?"
-        );
-        if (!ok) return;
-
-        await Promise.all([
-          deleteDoc(getClinicDoc("clinical_notes", clinicalNoteId)),
-          ...relatedDocs.map((d) => deleteDoc(getClinicDoc("ledger", d.id))),
-        ]);
-      } else {
-        if (!(await confirm(t("deleteConfirm")))) return;
-        await deleteDoc(targetRef);
-      }
-
-      await logActivity(
-        { uid: user?.uid, name: user?.name, role: user?.role },
-        "Finance Entry Deleted",
-        `Deleted ledger entry: ${desc}`,
-        "system_logs",
-        { severity: "HIGH", module: "finance" }
-      );
+      // This screen used to warn that payments existed and then cascade through them anyway,
+      // leaving the patient's balance short by whatever had been collected and nothing on any
+      // screen explaining why. The server refuses now, with the same rule every other screen gets.
+      const { deleted } = await deleteLedgerRow(id);
       showToast(t("deleteSuccess"), "info");
-      setAllTransactions((prev) => prev.filter((row) => row.id !== id));
+      const removed = new Set(deleted.map((row) => row.id));
+      setAllTransactions((prev) => prev.filter((row) => !removed.has(row.id)));
     } catch (e) {
-      showToast(t("error"), "error");
+      showToast(
+        e instanceof MoneyApiError
+          ? e.message
+          : language === "ar" ? "تعذر الحذف" : "Could not delete that.",
+        "error"
+      );
     }
   };
 

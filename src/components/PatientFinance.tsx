@@ -33,8 +33,14 @@ import {
 import { parseLedgerProcedureDescription } from "@/lib/ledgerProcedureParse";
 import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClient";
 import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
-import { syncProcedureAndPaymentsFromClinicalNote } from "@/lib/syncProcedurePaymentLabFee";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";function formatWhatsAppLedgerMessage(
+import {
+  MoneyApiError,
+  createPayment,
+  deleteLedgerRow,
+  updateLedgerRow,
+} from "@/lib/moneyApi";
+import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+function formatWhatsAppLedgerMessage(
   patientName: string,
   clinicName: string,
   totalTreatment: number,
@@ -316,82 +322,31 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
     setIsAddingPaymentStateLocked(true);
 
     let finalDescription = payNote;
-    let procDoctorId = "";
-    let procDoctorName = "";
-    let appliedLabFee = 0;
 
-    // --- NEW SMART SPLIT MATH ---
+    // Description is the only thing worth composing here. The dentist, the lab fee and the
+    // commission are resolved server-side from the procedure being settled — this screen used to
+    // work them out itself, and the three other screens that took payments each had their own
+    // version, two of which left them out entirely.
     if (selectedProcedureId) {
-        const linkedProc = proceduresWithBalance.find(p => p.id === selectedProcedureId);
-        if (linkedProc) {
-            const procName = linkedProc.description.split('(')[0].trim();
-            if (!finalDescription) finalDescription = `${txt.payFor} ${procName}`;
-            
-            procDoctorId = linkedProc.doctorId || "";
-            procDoctorName = linkedProc.doctorName || linkedProc.doctor || "";
-
-            // Check if this is the FIRST payment for this procedure to apply the lab fee exactly once
-            const previousPayments = transactions.filter(t => t.type === 'payment' && t.procedureId === selectedProcedureId);
-            if (previousPayments.length === 0 && linkedProc.labFee) {
-                appliedLabFee = Number(linkedProc.labFee);
-            }
-        }
+      const linkedProc = proceduresWithBalance.find(p => p.id === selectedProcedureId);
+      if (linkedProc && !finalDescription) {
+        finalDescription = `${txt.payFor} ${linkedProc.description.split('(')[0].trim()}`;
+      }
     }
     if (!finalDescription) finalDescription = txt.payAccount;
 
-    // Find doctor to calculate their specific commission percentage
-    const docObj = doctors.find(d => d.id === procDoctorId || d.name === procDoctorName);
-    if (docObj) {
-        procDoctorId = docObj.id;
-        procDoctorName = docObj.name;
-    }
-    const commPct = Number(docObj?.commissionPercentage || 0);
-
-    
-    // Core Math: Deduct lab fee (if any), then give doc their cut from the rest
-    const netAmount = payNum - appliedLabFee;
-    const doctorCommissionAmount = netAmount > 0 ? (netAmount * (commPct / 100)) : 0;
-    const clinicProfit = payNum - doctorCommissionAmount - appliedLabFee;
-
     try {
-      const paymentRef = await addDoc(getClinicCollection("ledger"), {
+      const { id: paymentId } = await createPayment({
         patientId,
-        patientName, 
-        date: new Date().toISOString().split('T')[0],
-        type: 'payment',
-        category: 'Treatment', // So the main finance dashboard catches it
-        description: finalDescription,
-        amount: payNum, // For the main finance dashboard
-        cost: 0,
-        paid: payNum,   // For the patient ledger
+        patientName,
+        amount: payNum,
         method: payMethod,
+        description: finalDescription,
         procedureId: selectedProcedureId || null,
-        doctorId: procDoctorId || null,
-        doctorName: procDoctorName || null,
-        doctorCommissionPercentage: commPct,
-        doctorCommissionAmount,
-        clinicProfit,
-        labFee: appliedLabFee,
-        addedBy: user?.name || user?.email || "Staff",
-        receivedBy: user?.name || user?.email || "Staff",
-        createdAt: serverTimestamp()
+        clinicId: clinic?.id,
       });
 
-      // Fix Scenario 3: The Ghost Payment
-      // Sync the master procedure ledger immediately so 'paid' and 'balance' update in DB, not just UI
-      if (selectedProcedureId) {
-          const linkedProc = proceduresWithBalance.find(p => p.id === selectedProcedureId);
-          if (linkedProc) {
-              await syncProcedureAndPaymentsFromClinicalNote(
-                  linkedProc.id, 
-                  { ...linkedProc }, 
-                  Number(linkedProc.labFee) || 0, 
-                  Number(linkedProc.doctorCommissionPercentage) || 0
-              );
-          }
-      }
-
-      const wa = await sendPatientPaymentWhatsApp({ patientId, ledgerId: paymentRef.id });
+      const wa = await sendPatientPaymentWhatsApp({ patientId, ledgerId: paymentId });
       if (wa.error) {
         showToast(`${txt.whatsappFail}: ${wa.error}`.trim(), "error");
       }
@@ -399,8 +354,8 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
       setIsDropdownOpen(false);
       setPayAmount(""); setPayNote(""); setSelectedProcedureId("");
       showToast(txt.paidSuccess, "success");
-    } catch (err) { 
-      showToast(txt.addError, "error"); 
+    } catch (err) {
+      showToast(err instanceof MoneyApiError ? err.message : txt.addError, "error");
     } finally {
       setIsAddingPaymentStateLocked(false);
     }
@@ -425,98 +380,33 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
     e.preventDefault();
     if (!editingItem) return;
     try {
-        let payload: Record<string, unknown> = {
-            date: editingItem.date,
-            description: editingItem.description,
-        };
-
-        if (editingItem.type === "procedure") {
-            const list = Number(editingItem.listPrice) || 0;
-            const mode = (editingItem.discountMode || "none") as string;
-            let discountAmount = 0;
-            let discountPercent: number | null = null;
-            let discountFixed: number | null = null;
-            let finalCost = Number(editingItem.cost) || 0;
-
-            if (mode === "percent") {
-                discountPercent = Math.min(100, Math.max(0, Number(editingItem.discountPercent) || 0));
-                discountAmount = Math.round(((list * discountPercent) / 100) * 100) / 100;
-                finalCost = Math.max(0, Math.round((list - discountAmount) * 100) / 100);
-            } else if (mode === "fixed") {
-                discountFixed = Math.max(0, Number(editingItem.discountFixed) || 0);
-                discountAmount = Math.min(list, discountFixed);
-                finalCost = Math.max(0, Math.round((list - discountAmount) * 100) / 100);
-            } else {
-                finalCost = Number(editingItem.cost) || 0;
-                discountAmount = list > finalCost ? Math.round((list - finalCost) * 100) / 100 : 0;
+      // Inputs only. The charged amount, the commission and the linked note's copy of the cost are
+      // all derived server-side — this screen used to compute them and send the answer, which meant
+      // the stored figure was whatever the browser decided it was.
+      const patch: Record<string, unknown> =
+        editingItem.type === "procedure"
+          ? {
+              date: editingItem.date,
+              description: editingItem.description,
+              listPrice: Number(editingItem.listPrice) || Number(editingItem.cost) || 0,
+              discountMode: editingItem.discountMode || "none",
+              discountPercent: editingItem.discountPercent ?? null,
+              discountFixed: editingItem.discountFixed ?? null,
             }
-
-            payload = {
-                ...payload,
-                description: buildProcedureDiscountDescription(
-                    editingItem.description,
-                    list || finalCost,
-                    finalCost,
-                    discountAmount,
-                    mode,
-                    discountPercent
-                ),
-                cost: finalCost,
-                listPrice: list || finalCost,
-                discountMode: mode,
-                discountPercent,
-                discountFixed,
-                discountAmount,
-                amount: finalCost,
+          : {
+              date: editingItem.date,
+              description: editingItem.description,
+              paid: Number(editingItem.paid),
+              method: editingItem.method || null,
             };
 
-            // Fix Scenario C: Sync discounted cost back to clinical note to prevent overwrite
-            if (editingItem.clinicalNoteId) {
-                await updateDoc(getClinicDoc("clinical_notes", editingItem.clinicalNoteId), {
-                    cost: finalCost
-                });
-            }
-        } else {
-            let updatedComm = editingItem.doctorCommissionAmount || 0;
-            let updatedProfit = editingItem.clinicProfit || 0;
+      await updateLedgerRow(editingItem.id, patch, clinic?.id);
 
-            if (editingItem.doctorId || editingItem.doctorName) {
-                const docObj = doctors.find(d => d.id === editingItem.doctorId || d.name === editingItem.doctorName);
-                const commPct = Number(docObj?.commissionPercentage || 0);
-                const netAmount = Number(editingItem.paid) - (editingItem.labFee || 0);
-                updatedComm = netAmount > 0 ? netAmount * (commPct / 100) : 0;
-                updatedProfit = Number(editingItem.paid) - updatedComm - (editingItem.labFee || 0);
-            }
-
-            payload = {
-                ...payload,
-                amount: Number(editingItem.paid),
-                cost: Number(editingItem.cost),
-                paid: Number(editingItem.paid),
-                method: editingItem.method || null,
-                doctorCommissionAmount: updatedComm,
-                clinicProfit: updatedProfit,
-            };
-        }
-
-        await updateDoc(getClinicDoc("ledger", editingItem.id), payload as any);
-
-        // Fix Scenario B: Sync Lab Fee balancing across payments if a payment was updated
-        if (editingItem.type === "payment" && editingItem.procedureId) {
-            const linkedProc = proceduresWithBalance.find(p => p.id === editingItem.procedureId);
-            if (linkedProc) {
-                await syncProcedureAndPaymentsFromClinicalNote(
-                    linkedProc.id, 
-                    { ...linkedProc }, 
-                    Number(linkedProc.labFee) || 0, 
-                    Number(linkedProc.doctorCommissionPercentage) || 0
-                );
-            }
-        }
-
-        setEditingItem(null);
-        showToast(txt.updateSuccess, "success");
-    } catch (error) { showToast(txt.updateError, "error"); }
+      setEditingItem(null);
+      showToast(txt.updateSuccess, "success");
+    } catch (error) {
+      showToast(error instanceof MoneyApiError ? error.message : txt.updateError, "error");
+    }
   };
 
   const buildReceiptLedgerPayload = () => {
@@ -649,34 +539,22 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
   };
 
   const handleDelete = async (id: string) => {
-    const itemToDelete = transactions.find(t => t.id === id);
-
-    // Fix Scenario 3: Block deletion of procedures that have attached payments
-    if (itemToDelete?.type === "procedure") {
-        const attachedPayments = transactions.filter(t => t.type === "payment" && t.procedureId === id);
-        if (attachedPayments.length > 0) {
-            showToast(language === 'ar' ? "لا يمكن حذف إجراء له مدفوعات مرتبطة. يرجى حذف المدفوعات أولاً." : "Cannot delete procedure with attached payments. Delete the payments first.", "error");
-            return;
-        }
-    }
-
-    if (await confirm(txt.deleteConfirm)) {
-      await deleteDoc(getClinicDoc("ledger", id));
-      
-      // Fix Scenario B: Recover lost lab fee on payment deletion
-      if (itemToDelete?.type === "payment" && itemToDelete?.procedureId) {
-          const linkedProc = proceduresWithBalance.find(p => p.id === itemToDelete.procedureId);
-          if (linkedProc) {
-              await syncProcedureAndPaymentsFromClinicalNote(
-                  linkedProc.id, 
-                  { ...linkedProc }, 
-                  Number(linkedProc.labFee) || 0, 
-                  Number(linkedProc.doctorCommissionPercentage) || 0
-              );
-          }
-      }
-
+    if (!(await confirm(txt.deleteConfirm))) return;
+    try {
+      // The rule about what may be deleted, and the rebalancing that follows a payment being
+      // removed, both live server-side now — the same rule the finance page and the clinical
+      // timeline reach, rather than three screens each deciding for themselves.
+      await deleteLedgerRow(id, clinic?.id);
       showToast(txt.deleteSuccess, "info");
+    } catch (error) {
+      showToast(
+        error instanceof MoneyApiError
+          ? error.message
+          : language === "ar"
+            ? "تعذر الحذف"
+            : "Could not delete that.",
+        "error"
+      );
     }
   };
 
