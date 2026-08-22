@@ -23,6 +23,7 @@ import ScheduleSettings from "@/components/settings/ScheduleSettings";
 import RecallSettings from "@/components/settings/RecallSettings";
 import PrescriptionSettings from "@/components/settings/PrescriptionSettings";
 import PricingSettings from "@/components/settings/PricingSettings";
+import PriceListSettings from "@/components/settings/PriceListSettings";
 import AppearanceSettings from "@/components/settings/AppearanceSettings";
 import UserProfile from "@/components/settings/UserProfile"; // <-- NEW IMPORT
 import InterfaceSettings from "@/components/settings/InterfaceSettings";
@@ -36,7 +37,8 @@ import OnlineBookingSettings from "@/components/settings/OnlineBookingSettings";
 import LocationsSettings from "@/components/settings/LocationsSettings";
 import AiCreditsSettings from "@/components/settings/AiCreditsSettings";
 import { logActivity } from "@/lib/logger";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";export default function SettingsPage() {
+import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+export default function SettingsPage() {
   const { language, isRTL } = useLanguage();
   const { user, loading: authLoading } = useAuth(); 
   const { clinic, clinicId, isAdmin } = useClinic();
@@ -369,7 +371,14 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";export defau
             {activeTab === 'clinical' && <ScheduleSettings schedule={schedule} setSchedule={setSchedule} handleSaveClinic={handleSaveClinic} />}
             {activeTab === 'recall' && isAdmin && <RecallSettings />}
             {activeTab === 'prescriptions' && <PrescriptionSettings />}
-            {activeTab === 'services' && <PricingSettings currency={clinicData.currency} />}
+            {activeTab === 'services' && (
+              <div className="space-y-6">
+                {/* Lists first: which list a service is priced on is the question you answer
+                    before its price, and the blanket discount belongs beside that decision. */}
+                <PriceListSettings currency={clinicData.currency} />
+                <PricingSettings currency={clinicData.currency} />
+              </div>
+            )}
             {activeTab === 'users' && isAdmin && (
                <>
                   <DatabaseRepairBot /> 

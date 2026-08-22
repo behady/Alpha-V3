@@ -16,6 +16,9 @@ export type ReceiptPdfProcedureRow = {
   teeth?: string;
   pricingBreakdown?: string;
   doctorLine?: string;
+  /** What the treatment charged before any discount. Shown only when a discount was given. */
+  listPrice?: number;
+  discountAmount?: number;
   amount: number;
 };
 
@@ -95,13 +98,23 @@ export function buildDentalReceiptSrcDoc(p: DentalReceiptPdfPayload): string {
       const detailsCell = details
         ? `<div style="font-size:10px;color:#6b7280;line-height:1.4;">${esc(details)}</div>`
         : `<span style="color:#d1d5db;">—</span>`;
+      // A discount is shown as struck-through list price above the charged amount, so the patient
+      // can see what they were given rather than only a number that happens to be lower.
+      const discount = Number(row.discountAmount) || 0;
+      const listed = Number(row.listPrice) || 0;
+      const amountCell =
+        discount > 0 && listed > row.amount
+          ? `<div style="font-size:10px;font-weight:600;color:#9ca3af;text-decoration:line-through;">${fmtMoneyAr(listed)}</div>
+             <div style="font-size:10px;font-weight:700;color:#b45309;">-${fmtMoneyAr(discount)}</div>
+             <div>${fmtMoneyAr(row.amount)}</div>`
+          : fmtMoneyAr(row.amount);
       return `<tr>
         <td style="padding:10px 6px;border-bottom:1px solid #f3f4f6;font-size:11px;font-weight:600;color:#4b5563;white-space:nowrap;vertical-align:top;">${esc(row.date || "—")}</td>
         <td style="padding:10px 6px;border-bottom:1px solid #f3f4f6;font-size:12px;font-weight:700;color:#111827;line-height:1.4;vertical-align:top;">
           ${esc(row.procedureLine)}${teethLine}
         </td>
         <td style="padding:10px 6px;border-bottom:1px solid #f3f4f6;vertical-align:top;">${detailsCell}</td>
-        <td style="padding:10px 6px;border-bottom:1px solid #f3f4f6;text-align:left;font-size:12px;font-weight:800;color:#111827;vertical-align:top;white-space:nowrap;">${fmtMoneyAr(row.amount)}</td>
+        <td style="padding:10px 6px;border-bottom:1px solid #f3f4f6;text-align:left;font-size:12px;font-weight:800;color:#111827;vertical-align:top;white-space:nowrap;">${amountCell}</td>
       </tr>`;
     })
     .join("");
@@ -353,6 +366,8 @@ export function buildDentalReceiptPayloadFromLedger(options: {
     paid: number;
     method?: string;
     doctorName?: string;
+    /** Charge before any discount, so the receipt can show what the patient was given. */
+    listPrice?: number;
     discountAmount?: number;
     status?: string;
   }>;
@@ -383,6 +398,10 @@ export function buildDentalReceiptPayloadFromLedger(options: {
         teeth: parsed.teeth,
         pricingBreakdown: parsed.pricingBreakdown,
         doctorLine,
+        // The patient sees what came off. A discount that shows only as a smaller number is a
+        // discount the clinic gets no credit for having given.
+        listPrice: Number(item.listPrice) || undefined,
+        discountAmount: Number(item.discountAmount) || undefined,
         amount: Number(item.cost) || 0,
       });
     } else if (item.type === "payment") {

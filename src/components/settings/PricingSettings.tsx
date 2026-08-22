@@ -8,6 +8,7 @@ import { useUI } from "@/context/UIContext";
 import { matchesTokenizedSubstring } from "@/lib/flexibleSearch";
 import { DEFAULT_PRICING_MODE, isPricingMode, type PricingMode } from "@/components/clinical-notes/utils";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { PRICE_LISTS_DOC, STANDARD_LIST_ID, parsePriceLists, type PriceList } from "@/lib/priceLists";
 import {
   DENTAL_CATEGORIES,
   DENTAL_ICONS,
@@ -62,6 +63,13 @@ export default function PricingSettings({ currency }: { currency: string }) {
     durationMinutes: "",
     pricingMode: DEFAULT_PRICING_MODE as PricingMode,
   });
+  /**
+   * Per-list prices, keyed by list id. Blank means "charge the standard price" rather than zero —
+   * a clinic only fills these in for the treatments it actually charges differently, so an empty
+   * field has to mean "same as standard" or every new list would price everything at nothing.
+   */
+  const [listPrices, setListPrices] = useState<Record<string, string>>({});
+  const [priceLists, setPriceLists] = useState<PriceList[]>(() => parsePriceLists(null));
   // Once someone picks a category or icon by hand, typing in the name stops overriding it.
   const [categoryTouched, setCategoryTouched] = useState(false);
   const [iconTouched, setIconTouched] = useState(false);
@@ -117,12 +125,19 @@ export default function PricingSettings({ currency }: { currency: string }) {
     const unsub = onSnapshot(q, (s) =>
       setServices(s.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<ServiceRow, "id">) })))
     );
-    return () => unsub();
+    const unsubLists = onSnapshot(getClinicDoc("settings", PRICE_LISTS_DOC), (snap) => {
+      setPriceLists(parsePriceLists(snap.exists() ? snap.data() : null));
+    });
+    return () => {
+      unsub();
+      unsubLists();
+    };
   }, []);
 
   const openAdd = () => {
     setEditingService(null);
     setForm({ name: "", price: "", category: "other", icon: "tooth", requiresLab: false, estimatedLabFee: "", durationMinutes: "", pricingMode: DEFAULT_PRICING_MODE });
+    loadListPrices(null);
     setCategoryTouched(false);
     setIconTouched(false);
     setIsModalOpen(true);
@@ -140,6 +155,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
       durationMinutes: s.durationMinutes ? s.durationMinutes.toString() : "",
       pricingMode: isPricingMode(s.pricingMode) ? s.pricingMode : DEFAULT_PRICING_MODE,
     });
+    loadListPrices(s);
     setCategoryTouched(true);
     setIconTouched(true);
     setIsModalOpen(true);
@@ -171,6 +187,13 @@ export default function PricingSettings({ currency }: { currency: string }) {
       // Written explicitly on every save, so "never set" and "deliberately per tooth" stay
       // distinguishable — that difference is what the review flag on the list below reads.
       pricingMode: form.pricingMode,
+      // Only lists with a number typed against them are stored. An absent entry falls back to
+      // `price`, which is what makes the standard list the one that needs no configuration.
+      prices: Object.fromEntries(
+        Object.entries(listPrices)
+          .filter(([, v]) => v !== "" && Number.isFinite(Number(v)))
+          .map(([listId, v]) => [listId, Number(v)])
+      ),
     };
 
     try {
@@ -185,6 +208,18 @@ export default function PricingSettings({ currency }: { currency: string }) {
     } catch {
       showToast(ar ? "فشل حفظ العلاج" : "Failed to save treatment", "error");
     }
+  };
+
+  /** Load a service's per-list prices into the form, blank where it charges the standard price. */
+  const loadListPrices = (service: ServiceRow | null) => {
+    const stored = (service as unknown as { prices?: Record<string, number> })?.prices || {};
+    setListPrices(
+      Object.fromEntries(
+        priceLists
+          .filter((l) => l.id !== STANDARD_LIST_ID)
+          .map((l) => [l.id, typeof stored[l.id] === "number" ? String(stored[l.id]) : ""])
+      )
+    );
   };
 
   const deleteService = async (id: string, name: string) => {
@@ -394,6 +429,38 @@ export default function PricingSettings({ currency }: { currency: string }) {
                   />
                 </div>
               </div>
+
+              {/* Per-list prices. Blank means "charge the standard price", not zero — a clinic only
+                  fills these in for the treatments it genuinely charges differently. */}
+              {priceLists.filter((l) => l.active && l.id !== STANDARD_LIST_ID).length > 0 && (
+                <div className="space-y-2 rounded-xl border border-slate-200/70 bg-slate-50/50 p-3">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    {ar ? "أسعار القوائم الأخرى" : "Other price lists"}
+                  </p>
+                  <p className="text-[11px] font-medium text-slate-400">
+                    {ar ? "سيبها فاضية لو نفس السعر الأساسي." : "Leave blank to charge the standard price."}
+                  </p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {priceLists
+                      .filter((l) => l.active && l.id !== STANDARD_LIST_ID)
+                      .map((list) => (
+                        <label key={list.id} className="space-y-1">
+                          <span className="text-[11px] font-bold text-slate-500">
+                            {ar && list.nameAr ? list.nameAr : list.name}
+                          </span>
+                          <input
+                            type="number"
+                            min={0}
+                            value={listPrices[list.id] ?? ""}
+                            onChange={(e) => setListPrices({ ...listPrices, [list.id]: e.target.value })}
+                            placeholder={form.price || "0"}
+                            className="w-full rounded-xl border border-slate-200/60 bg-white px-3 py-2.5 text-sm font-semibold tabular-nums text-slate-900 outline-none transition-all focus:border-primary-500"
+                          />
+                        </label>
+                      ))}
+                  </div>
+                </div>
+              )}
 
               {/* Category */}
               <div className="space-y-1.5">

@@ -445,6 +445,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
         paid: Number(t.paid) || 0,
         method: t.method,
         doctorName: t.doctorName || t.doctor,
+        listPrice: t.listPrice,
         discountAmount: t.discountAmount,
         status: t.status,
       })),
