@@ -22,6 +22,10 @@
     "test:attendance": "npx tsx tests/attendanceGeofence.test.mjs",
     "_comment_test_conflicts": "Double-booking detection: a renamed dentist's existing appointments must still block their own slots, and cancellations must release theirs.",
     "test:conflicts": "npx tsx tests/appointmentConflicts.test.mjs",
+    "_comment_test_ledger": "The one place a ledger row is built: every payment carries its dentist, and the lab fee is charged exactly once per procedure.",
+    "test:ledger": "npx tsx tests/ledgerWrite.test.mjs",
+    "_comment_test_delete": "The one delete rule, shared by every screen: a charge with payments recorded against it cannot be deleted until they are.",
+    "test:delete": "npx tsx tests/deletePolicy.test.mjs",
     "test:migration": "npx tsx tests/migration.test.mts",
     "test:backup": "npx tsx tests/backupImport.test.mts"
   },
