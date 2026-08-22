@@ -60,6 +60,8 @@ export default function FinancePage() {
   const router = useRouter();
 
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
+  /** Treatment charges raised in the period. Not cash — used only for the discount figures. */
+  const [periodProcedures, setPeriodProcedures] = useState<Record<string, unknown>[]>([]);
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all');
   const [filterDoctor, setFilterDoctor] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState("");
@@ -168,6 +170,18 @@ export default function FinancePage() {
             return t.val > 0;
           });
         setAllTransactions(data);
+        // Discounts are an accrual figure: the money was given away when the treatment was
+        // charged, not when it was paid for. Procedure rows are dropped from the cash list two
+        // lines above, which is exactly why the Discounts tile could never show anything but zero
+        // — the branches that accumulated it ran after the filter had already removed every row
+        // that carries a discount. They are kept here instead, alongside rather than inside the
+        // cash figures.
+        setPeriodProcedures(
+          snapshot.docs
+            .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as Record<string, unknown>))
+            .filter((row) => String(row.type || "") === "procedure")
+            .filter((row) => !["deleted", "cancelled"].includes(String(row.status || "").toLowerCase()))
+        );
         setCurrentPage(1);
         setIsLoading(false);
       },
@@ -214,8 +228,41 @@ export default function FinancePage() {
               totalProcedureDiscounts += Number(t.discountAmount) || 0;
           }
       });
+      // Discounts, from the charges rather than the cash. Filtered by the same dentist selection
+      // so the tile agrees with the rest of the screen.
+      for (const row of periodProcedures) {
+        const docLabel = String(row.doctorName || row.doctor || "").trim();
+        if (filterDoctor !== 'all' && docLabel !== filterDoctor) continue;
+        totalProcedureDiscounts += Number(row.discountAmount) || 0;
+      }
+
       return { availableDoctors: Array.from(docsList), kpiStats: { grossIncome, totalCommissions, totalLabFees, explicitExpenses, netClinicProfit, totalProcedureDiscounts, finalNet: netClinicProfit - explicitExpenses } };
-  }, [allTransactions, filterDoctor]);
+  }, [allTransactions, periodProcedures, filterDoctor]);
+
+  /**
+   * What the clinic gave away in this period, and why.
+   *
+   * The question this answers is the one an owner actually asks at month end — not "how much
+   * discount" but "on what". A total with no breakdown is a number nobody can act on.
+   */
+  const discountsByReason = useMemo(() => {
+    const map = new Map<string, { amount: number; count: number }>();
+    for (const row of periodProcedures) {
+      const amount = Number(row.discountAmount) || 0;
+      if (amount <= 0) continue;
+      const docLabel = String(row.doctorName || row.doctor || "").trim();
+      if (filterDoctor !== 'all' && docLabel !== filterDoctor) continue;
+      // Charges discounted before reasons were recorded are grouped honestly rather than hidden.
+      const reason = String(row.discountReason || "").trim() || (language === "ar" ? "بدون سبب مسجل" : "No reason recorded");
+      const entry = map.get(reason) || { amount: 0, count: 0 };
+      entry.amount += amount;
+      entry.count += 1;
+      map.set(reason, entry);
+    }
+    return Array.from(map.entries())
+      .map(([reason, v]) => ({ reason, amount: v.amount, count: v.count }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [periodProcedures, filterDoctor, language]);
 
   const filteredList = useMemo(() => {
       return allTransactions.filter(t => {
@@ -636,8 +683,17 @@ export default function FinancePage() {
               <div className="rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "خصومات" : "Discounts"}</p>
-                    <p className="text-xs text-slate-500 mt-1 font-medium">{language === "ar" ? "بنود الإجراء" : "On procedures"}</p>
+                    <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "خصومات ممنوحة" : "Discounts granted"}</p>
+                    {/* Named apart from the cash tiles on purpose: this is what was given away when
+                        treatments were charged in this period, not what was collected. */}
+                    <p
+                      className="text-xs text-slate-500 mt-1 font-medium"
+                      title={language === "ar"
+                        ? "محسوبة على الإجراءات اللي اتسجلت في الفترة دي، مش على المتحصل."
+                        : "Counted on treatments charged in this period, not on cash collected."}
+                    >
+                      {language === "ar" ? "على العلاج المسجل" : "On treatments charged"}
+                    </p>
                   </div>
                   <div className="w-11 h-11 rounded-2xl bg-violet-50 text-violet-600 flex items-center justify-center shrink-0">
                     <PieChart size={22} />
@@ -681,6 +737,43 @@ export default function FinancePage() {
               </div>
             </div>
           </div>
+
+          {/* What was given away, and on what. A total with no breakdown is a number nobody can
+              act on — "we discounted 8,000" invites the question this table answers. */}
+          {discountsByReason.length > 0 && (
+            <div className="rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 shadow-sm p-5 xl:p-6">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <div>
+                  <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">
+                    {language === "ar" ? "الخصومات حسب السبب" : "Discounts by reason"}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1 font-medium">
+                    {language === "ar" ? "على العلاج المسجل في الفترة" : "On treatments charged this period"}
+                  </p>
+                </div>
+                <p className="text-xl font-black text-violet-600 tabular-nums">
+                  {formatCurrency(kpiStats.totalProcedureDiscounts)}
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <tbody>
+                    {discountsByReason.map((row) => (
+                      <tr key={row.reason} className="border-b border-slate-100 last:border-0">
+                        <td className="py-2.5 pr-3 font-bold text-slate-700">{row.reason}</td>
+                        <td className="py-2.5 px-3 text-right text-xs font-medium text-slate-400 tabular-nums whitespace-nowrap">
+                          {row.count} {language === "ar" ? "بند" : row.count === 1 ? "item" : "items"}
+                        </td>
+                        <td className="py-2.5 pl-3 text-right font-black text-slate-800 tabular-nums whitespace-nowrap">
+                          {formatCurrency(row.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Toolbar */}
           <div className="rounded-2xl xl:rounded-3xl bg-white/95 backdrop-blur border border-slate-200/80 shadow-sm p-4 xl:p-5 flex flex-col gap-4 shrink-0 sticky top-0 z-20">

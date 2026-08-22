@@ -21,12 +21,17 @@ import {
   DEFAULT_PRICING_MODE, isPricingMode, pricingUnitsFor, type PricingMode,
 } from "./utils";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import DiscountEditor, { EMPTY_DISCOUNT, discountPayload, type DiscountState } from "@/components/shared/DiscountEditor";
+import { isDiscountMode, type DiscountMode } from "@/lib/discountMath";
+import { usePricingPolicy } from "@/lib/usePricingPolicy";
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   patientId: string;
   patientName: string;
+  /** The patient's own price list, used when this note has none of its own. */
+  patientDefaultPriceListId?: string | null;
   appointmentId: string | null;
   initialNote: Note | null;
   servicesList: Service[];
@@ -46,7 +51,7 @@ interface Props {
 }
 
 export default function ServiceEditorDrawer({
-  isOpen, onClose, patientId, patientName, appointmentId, initialNote, servicesList, doctors, onSaved, inline = false,
+  isOpen, onClose, patientId, patientName, patientDefaultPriceListId, appointmentId, initialNote, servicesList, doctors, onSaved, inline = false,
   hideTeethSelector = false, selectedTeethOverride, onSelectedTeethChange, compact = false
 }: Props) {
   const { showToast, clinicalEditorMode } = useUI();
@@ -79,6 +84,10 @@ export default function ServiceEditorDrawer({
   const [selectedDoctorId, setSelectedDoctorId] = useState("");
   const [procedureStatus, setProcedureStatus] = useState<'Planned' | 'Ongoing' | 'Completed'>('Planned');
   const [addToLedger, setAddToLedger] = useState(true);
+  // Price list + discount for this line. The server recomputes and enforces both; this is the
+  // preview and the input.
+  const { priceLists, discountSettings, maxDiscountPercent } = usePricingPolicy();
+  const [discount, setDiscount] = useState<DiscountState>(EMPTY_DISCOUNT);
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatusText, setSaveStatusText] = useState("");
@@ -128,6 +137,19 @@ export default function ServiceEditorDrawer({
           if (docObj) setSelectedDoctorId(docObj.id);
       }
       
+      // Reopen the note on the list and discount it was priced with, so re-saving never silently
+      // re-prices it at today's rates.
+      setDiscount({
+        priceListId: (initialNote as { priceListId?: string }).priceListId || "",
+        mode: isDiscountMode((initialNote as { discountMode?: string }).discountMode)
+          ? ((initialNote as { discountMode?: DiscountMode }).discountMode as DiscountMode)
+          : "none",
+        value:
+          typeof (initialNote as { discountValue?: number }).discountValue === "number"
+            ? ((initialNote as { discountValue?: number }).discountValue as number)
+            : "",
+        reason: (initialNote as { discountReason?: string }).discountReason || "",
+      });
       // A note that carries a cost was billed, whether or not its own ledgerId survived. The
       // charge itself no longer has to be looked up from here: the server follows both link
       // directions when it saves, so this checkbox only has to represent what the user intends.
@@ -141,6 +163,7 @@ export default function ServiceEditorDrawer({
       setProcedure(""); setMultiProceduresText(""); setCost(""); setNoteText("");
       setProcedureStatus('Planned');
       setAddToLedger(true);
+      setDiscount(EMPTY_DISCOUNT);
       setIsChangingService(false);
       setPricingModeOverride(null);
       // When the chart above owns the selection, clearing it is the parent's call — the user may
@@ -216,6 +239,8 @@ export default function ServiceEditorDrawer({
         note: noteText,
         date,
         addToLedger,
+        ...discountPayload(discount),
+        patientDefaultPriceListId: patientDefaultPriceListId || null,
       };
 
       if (initialNote) {
@@ -484,6 +509,18 @@ export default function ServiceEditorDrawer({
     </div>
   );
 
+  const discountField = (
+    <DiscountEditor
+      listTotal={previewTotal}
+      priceLists={priceLists}
+      reasons={discountSettings.reasons}
+      maxPercent={maxDiscountPercent}
+      value={discount}
+      onChange={setDiscount}
+      disabled={isSaving}
+    />
+  );
+
   const ledgerField = !(initialNote?.isContinued) ? (
     <label className={`flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors ${compact ? "px-3 py-2.5" : "p-4"}`}>
       <input
@@ -539,7 +576,9 @@ export default function ServiceEditorDrawer({
           <div>
             {/* Empty label so this lines up with the fields beside it. */}
             <span className={labelClass} aria-hidden="true">&nbsp;</span>
-            {ledgerField}
+            {discountField}
+            {discountField}
+          {ledgerField}
           </div>
           <div>
             <span className={labelClass} aria-hidden="true">&nbsp;</span>
