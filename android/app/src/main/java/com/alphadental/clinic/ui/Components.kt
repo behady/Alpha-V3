@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -267,7 +268,9 @@ fun StatTile(
 ) {
     AlphaCard(modifier = modifier, shape = Alpha.CardShape) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 16.dp)) {
-            Text(value, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, color = tint)
+            // Figures wear the serif everywhere on the dashboard — the numbers are
+            // what the screen is for, so they get the one face with a voice.
+            Text(value, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, fontFamily = FontFamily.Serif, color = tint)
             Spacer(Modifier.height(3.dp))
             Text(
                 caption,
