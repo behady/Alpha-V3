@@ -11,7 +11,8 @@ import { logActivity } from "@/lib/logger";
 import { PERMISSIONS_CATALOG, getAllPermissionIds, type PermissionCatalogGroup } from "@/config/permissionsCatalog";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import UserAccessModal from "./UserAccessModal";
-import Protect from "@/components/Protect";type StaffMember = { id: string; uid?: string; [k: string]: unknown };
+import Protect from "@/components/Protect";
+type StaffMember = { id: string; uid?: string; [k: string]: unknown };
 type UserRow = {
   id: string;
   uid?: string;
@@ -41,6 +42,11 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
   const [resetTarget, setResetTarget] = useState<{ uid: string; name: string } | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [isResetting, setIsResetting] = useState(false);
+  const [backfill, setBackfill] = useState<{
+    busy: boolean;
+    plan: { uid: string; name: string; role: string; willStore: string[] }[] | null;
+    done: number | null;
+  }>({ busy: false, plan: null, done: null });
 
   const totalAssignable = getAllPermissionIds().length;
 
@@ -67,6 +73,17 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
     active: isAr ? "نشط" : "Active",
     missing: isAr ? "مفقود! (احذف وأعد الإنشاء)" : "Missing! (Delete & Recreate)",
     successMsg: isAr ? "تم تحديث الصلاحيات" : "Permission updated",
+    backfillTitle: isAr ? "تفعيل نظام الصلاحيات" : "Switch the permission system on",
+    backfillHelp: isAr
+      ? "الصلاحيات لم تكن مطبّقة فعلياً: قواعد الأمان كانت تقرأ حقلاً لم يكتبه أي شيء، فكان الجميع يمرّ. اضغط للمعاينة أولاً — لن يُكتب شيء."
+      : "Permissions were never actually enforced: the security rules read a field nothing ever wrote, so everyone passed every check. Preview first — nothing is written.",
+    backfillPreview: isAr ? "معاينة" : "Preview changes",
+    backfillApply: isAr ? "تطبيق" : "Apply",
+    backfillNone: isAr ? "لا شيء لتحديثه — الجميع محدّث بالفعل." : "Nothing to update — everyone is already set.",
+    backfillDone: isAr ? "تم التحديث" : "Updated",
+    backfillNext: isAr
+      ? "الخطوة الأخيرة: انشر قواعد Firestore الآن."
+      : "Last step: publish the Firestore rules now.",
     errorMsg: isAr ? "فشل التحديث" : "Update failed",
     resetBtnTitle: isAr ? "تغيير كلمة المرور" : "Direct Password Override",
     searchPlaceholder: isAr ? "بحث في الصلاحيات..." : "Search permissions...",
@@ -268,6 +285,35 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
     }
   };
 
+  /**
+   * Runs the permission backfill. Preview first, always: the second press is what writes, and what
+   * it writes decides what every member of staff can do.
+   */
+  const runBackfill = async (apply: boolean) => {
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser || !clinicId) return;
+    setBackfill((s) => ({ ...s, busy: true }));
+    try {
+      const token = await firebaseUser.getIdToken();
+      const res = await fetch("/api/admin/backfill-permissions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ clinicId, apply }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) throw new Error(data?.error || txt.errorMsg);
+      setBackfill({
+        busy: false,
+        plan: apply ? null : data.plan || [],
+        done: apply ? (data.written ?? 0) : null,
+      });
+      if (apply) showToast(`${txt.backfillDone}: ${data.written ?? 0}`, "success");
+    } catch (err) {
+      setBackfill((s) => ({ ...s, busy: false }));
+      showToast(err instanceof Error ? err.message : txt.errorMsg, "error");
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in" dir={isRTL ? "rtl" : "ltr"}>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
@@ -288,6 +334,72 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
           <Plus size={18} /> {txt.addBtn}
         </button>
       </div>
+
+      {/* One-time: fills in users/{uid}.clinicPermissions, the field firestore.rules reads to
+          decide what somebody may write. Nothing ever wrote it, so every permission check in the
+          rules passed for everyone and the checkboxes below were decoration.
+
+          Deliberately always visible rather than self-hiding: the first cut hid the panel as soon
+          as a preview came back empty, which is precisely the moment it needs to say "nothing to
+          update" — the reader could not tell success from a panel that had never run. It is a
+          one-time migration; delete this block once every clinic has been through it. */}
+      {clinicId && (
+        <div className="bg-amber-50 p-6 rounded-3xl border border-amber-200 shadow-sm">
+          <h4 className="text-sm font-black text-amber-900">{txt.backfillTitle}</h4>
+          <p className="text-xs font-semibold text-amber-800/80 mt-1 leading-relaxed">{txt.backfillHelp}</p>
+
+          {backfill.plan && backfill.plan.length > 0 && (
+            <div className="mt-4 max-h-64 overflow-y-auto rounded-xl border border-amber-200 bg-white">
+              <table className="w-full text-xs">
+                <tbody>
+                  {backfill.plan.map((row) => (
+                    <tr key={row.uid} className="border-b border-slate-100 last:border-0">
+                      <td className="px-3 py-2 font-bold text-slate-800 whitespace-nowrap">{row.name}</td>
+                      <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{row.role}</td>
+                      <td className="px-3 py-2 text-slate-600">
+                        {row.willStore.length === 0
+                          ? (isAr ? "مدير — يتجاوز كل الصلاحيات" : "Admin — bypasses every check")
+                          : row.willStore.join(", ")}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {backfill.plan !== null && backfill.plan.length === 0 && backfill.done === null && (
+            <p className="mt-3 text-xs font-bold text-amber-900">{txt.backfillNone}</p>
+          )}
+
+          {backfill.done !== null && (
+            <p className="mt-3 text-xs font-bold text-emerald-700">
+              {txt.backfillDone}: {backfill.done} — {txt.backfillNext}
+            </p>
+          )}
+
+          <div className="mt-4 flex flex-col sm:flex-row gap-2">
+            <button
+              type="button"
+              disabled={backfill.busy}
+              onClick={() => void runBackfill(false)}
+              className="px-5 py-3 rounded-2xl font-bold text-sm bg-white border border-amber-300 text-amber-900 hover:bg-amber-100 disabled:opacity-50 transition-all"
+            >
+              {txt.backfillPreview}
+            </button>
+            {backfill.plan && backfill.plan.length > 0 && (
+              <button
+                type="button"
+                disabled={backfill.busy}
+                onClick={() => void runBackfill(true)}
+                className="px-5 py-3 rounded-2xl font-bold text-sm bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 transition-all"
+              >
+                {txt.backfillApply} ({backfill.plan.length})
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* The onboarding screen tells anyone joining an existing clinic to "ask your admin for the
           Clinic ID — they'll find it in Settings". Until now it was shown nowhere in Settings, so

@@ -128,14 +128,24 @@ simply written from now on, and the rules still ignore it until step 3.
 
 ### 2. Backfill the accounts that already exist
 
+**From the app (no terminal needed):** Settings → Users → the amber panel at the top →
+**Preview changes**. It lists every member of staff and exactly what they will be given. Read it,
+then press **Apply**. Nothing is written until you press Apply.
+
+The route behind it is `POST /api/admin/backfill-permissions`, scoped to the clinic you administer:
+it only ever writes the single `clinicPermissions.<thisClinic>` key, through a dotted path that
+merges rather than replacing, so an Admin of one clinic can neither read nor rewrite what someone
+may do at another.
+
+**From a terminal, across every clinic at once** — needs `.env.local` with a service-account key:
+
 ```bash
 node scripts/backfill-clinic-permissions.mjs --clinic <id>     # dry run, writes nothing
 # read clinic-permissions-backfill-<clinic>-<date>.csv, then:
 node scripts/backfill-clinic-permissions.mjs --clinic <id> --apply
 ```
 
-The CSV has one row per person per clinic, showing what they were explicitly granted and what will
-be stored. Read it before applying — this decides what each member of staff can do.
+Either way, read the list before applying — this decides what each member of staff can do.
 
 **Why it does not simply copy the existing array.** The browser's guards also let people through on
 their *role* (`PermissionGuard`'s `allowedRoles`, and a dozen ad-hoc `user?.role === "Dentist"`
