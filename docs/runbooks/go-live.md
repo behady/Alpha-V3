@@ -128,7 +128,16 @@ simply written from now on, and the rules still ignore it until step 3.
 
 ### 2. Backfill the accounts that already exist
 
-**From the app (no terminal needed):** Settings → Users → the amber panel at the top →
+> **2026-08-23: this step is complete and its UI is gone.** The owner ran the preview, revoked the
+> ghost accounts, applied the backfill, and published the rules. The amber panel and the
+> "Temporary Database Repair Bot" card were then removed from Settings — one-time migration tools
+> earn their exit, and a button that rewrites every account's permissions should not sit in a
+> settings page forever. The server routes remain (`/api/admin/backfill-permissions`,
+> `/api/admin/repair` — both Admin-scoped to the caller's own clinic) and so does the terminal
+> script, for any OTHER pre-existing clinic that migrates later; a clinic created after this date
+> never needs them, because every route that seeds staff writes `clinicPermissions` from day one.
+
+**From the app (no terminal needed — UI since removed, see above):** Settings → Users → the amber panel at the top →
 **Preview changes**. It lists every member of staff and exactly what they will be given. Read it,
 then press **Apply**. Nothing is written until you press Apply.
 

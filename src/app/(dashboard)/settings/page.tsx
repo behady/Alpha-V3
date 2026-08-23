@@ -17,7 +17,6 @@ import { hasFeature } from "@/lib/subscriptions";
 // Sub-components
 import NotificationSettings from "@/components/settings/NotificationSettings";
 import UserManagement from "@/components/settings/UserManagement";
-import DatabaseRepairBot from "@/components/settings/DatabaseRepairBot";
 import AttendanceSettings from "@/components/settings/AttendanceSettings";
 import ScheduleSettings from "@/components/settings/ScheduleSettings";
 import RecallSettings from "@/components/settings/RecallSettings";
@@ -381,7 +380,6 @@ export default function SettingsPage() {
             )}
             {activeTab === 'users' && isAdmin && (
                <>
-                  <DatabaseRepairBot /> 
                   <UserManagement 
                      usersList={usersList} 
                      staffMembers={staffMembers} 
