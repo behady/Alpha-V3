@@ -270,14 +270,18 @@ async function main() {
     }),
     "deny"
   );
+  // Filing goes through /api/join-requests/create on the Admin SDK, so the browser is denied
+  // even when it is honest about who it is. A client write cannot check that the Clinic ID is
+  // real — the rules deny reading a clinic you hold no role in, which is the very situation the
+  // request exists to resolve — so a typo was accepted silently and waited on forever.
   await check(
-    "user can file a join request as themselves",
+    "user cannot file a join request from the browser, even as themselves",
     setDoc(doc(rando1, "join_requests/own1"), {
       clinicId: "clinicA",
       userId: "rando1",
-      status: "Pending",
+      status: "pending",
     }),
-    "allow"
+    "deny"
   );
   await check(
     "clinic Admin approving a request may change only status",

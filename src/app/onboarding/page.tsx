@@ -5,8 +5,6 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
-import { getClinicCollection } from "@/lib/db-utils";
 import { Building2, Loader2, LogOut, Check, AlertCircle, ArrowLeft } from "lucide-react";
 
 /**
@@ -176,23 +174,22 @@ export default function OnboardingPage() {
     setError("");
     setJoining(true);
     try {
-      const requestRef = doc(getClinicCollection("join_requests"));
-      await setDoc(requestRef, {
-        clinicId: id,
-        userId: user.uid,
-        // Both spellings are written on purpose: the admin's review screen reads `name`/`email`,
-        // and older requests in the collection carry the `user*` names. Reading one and writing
-        // the other is why join requests used to show up blank.
-        email: user.email,
-        name: user.name,
-        userEmail: user.email,
-        userName: user.name,
-        // Lowercase, matching the query on the admin's Join Requests screen. A capitalised
-        // "Pending" is stored but never matched, so the request is filed and never seen.
-        status: "pending",
-        createdAt: serverTimestamp(),
-        requestedAt: serverTimestamp(),
+      // Filed server-side. A write from here cannot check that the Clinic ID is real — the rules
+      // deny reading a clinic you hold no role in, which is exactly this situation — so a typo
+      // used to be accepted silently and waited on forever. The route looks the clinic up, takes
+      // the name and email from the signed-in Auth record rather than anything typed here, and
+      // keys the request on (user, clinic) so a second press cannot file a duplicate.
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) return setError(t.sessionExpired);
+      const res = await fetch("/api/join-requests/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ clinicId: id }),
       });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || payload?.ok === false) {
+        return setError(payload?.error || t.joinFailed);
+      }
       setJoinSent(true);
       setJoinClinicId("");
     } catch (err) {
@@ -200,7 +197,7 @@ export default function OnboardingPage() {
     } finally {
       setJoining(false);
     }
-  }, [joinClinicId, user, t.idRequired, t.joinFailed]);
+  }, [joinClinicId, user, t.idRequired, t.joinFailed, t.sessionExpired]);
 
   if (!user || healing) {
     return (
