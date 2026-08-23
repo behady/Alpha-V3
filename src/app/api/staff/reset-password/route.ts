@@ -1,14 +1,38 @@
 import { NextResponse } from "next/server";
-import { adminAuth } from "@/lib/firebaseAdmin";
+import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
 
+/**
+ * An admin sets a new password for a member of their own clinic — the recovery path for "I forgot
+ * it", and for re-invited staff, whose old password survives re-inviting (the invite route reuses
+ * an existing Auth account, so the password field on the invite form is ignored for them).
+ *
+ * "Their own clinic" is the entire point of this file. This used to check only "is the caller an
+ * Admin somewhere" and then reset ANY uid it was handed — and anyone can become an Admin somewhere
+ * in about a minute, because self-signup creates you a clinic and makes you its Admin. Admin of
+ * your own empty trial clinic, plus any uid you could learn, equalled signing in as that person at
+ * THEIR clinic. So the caller must administer a named clinic, and the target must demonstrably
+ * work there:
+ *
+ *  - a `clinicRoles` entry for that clinic on the target's user document, or
+ *  - a staff record in that clinic carrying the target's uid — which is what a freshly invited
+ *    person may have before their user document ever gets a role written.
+ *
+ * Anyone else is "not yours to reset", however real the uid is.
+ */
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { uid, newPassword } = body;
+    const uid = typeof body?.uid === "string" ? body.uid.trim() : "";
+    const newPassword = typeof body?.newPassword === "string" ? body.newPassword : "";
+    const clinicId = typeof body?.clinicId === "string" ? body.clinicId.trim() : "";
 
-    // Enforce admin auth (global or specific clinic admin)
-    const authCheck = await requireAdminUser(request);
+    if (!clinicId) {
+      return NextResponse.json({ error: "clinicId is required" }, { status: 400 });
+    }
+
+    // Admin of *this* clinic — not "an admin somewhere".
+    const authCheck = await requireAdminUser(request, clinicId);
     if (!authCheck.ok) return authCheck.response;
 
     if (!uid || !newPassword) {
@@ -19,11 +43,29 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Password must be at least 6 characters long" }, { status: 400 });
     }
 
-    const auth = adminAuth();
-    
-    await auth.updateUser(uid, {
-      password: newPassword
-    });
+    const db = adminDb();
+
+    const userSnap = await db.collection("users").doc(uid).get();
+    const hasRoleHere = Boolean((userSnap.data()?.clinicRoles || {})[clinicId]);
+
+    let worksHere = hasRoleHere;
+    if (!worksHere) {
+      const staffMatch = await db
+        .collection(`clinics/${clinicId}/staff`)
+        .where("uid", "==", uid)
+        .limit(1)
+        .get();
+      worksHere = !staffMatch.empty;
+    }
+
+    if (!worksHere) {
+      return NextResponse.json(
+        { error: "That account is not a member of this clinic." },
+        { status: 403 }
+      );
+    }
+
+    await adminAuth().updateUser(uid, { password: newPassword });
 
     return NextResponse.json({
       success: true,

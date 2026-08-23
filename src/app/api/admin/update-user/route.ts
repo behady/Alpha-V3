@@ -71,7 +71,17 @@ export async function POST(request: Request) {
     const body = await request.json();
     const clinicId = typeof body?.clinicId === "string" ? body.clinicId.trim() : "";
 
-    const auth = await requireAdminUser(request, clinicId || undefined);
+    // Required, not optional. With no clinic named, requireAdminUser degrades to "is this caller
+    // an Admin anywhere" — and anyone is, a minute after self-signup creates them a trial clinic
+    // they administer. That plus an arbitrary userDocId meant any account on the platform could
+    // have its role, permissions and staffId rewritten by a stranger. Same hole, same fix as
+    // staff/reset-password: name the clinic, prove the caller administers it, prove the target
+    // works there.
+    if (!clinicId) {
+      return NextResponse.json({ ok: false, error: "clinicId is required" }, { status: 400 });
+    }
+
+    const auth = await requireAdminUser(request, clinicId);
     if (!auth.ok) return auth.response;
 
     const userDocId = typeof body?.userDocId === "string" ? body.userDocId.trim() : "";
@@ -92,6 +102,27 @@ export async function POST(request: Request) {
     }
 
     const userData = userSnap.data() || {};
+
+    // The target must be a member of the clinic the caller administers — either a role on the
+    // user document, or a staff record carrying their uid (a freshly invited person can have the
+    // second before the first).
+    const targetRoles = (userData.clinicRoles || {}) as Record<string, unknown>;
+    let targetWorksHere = Boolean(targetRoles[clinicId]);
+    if (!targetWorksHere) {
+      const targetUid = (typeof userData.uid === "string" && userData.uid) || userDocId;
+      const staffMatch = await db
+        .collection(`clinics/${clinicId}/staff`)
+        .where("uid", "==", targetUid)
+        .limit(1)
+        .get();
+      targetWorksHere = !staffMatch.empty;
+    }
+    if (!targetWorksHere) {
+      return NextResponse.json(
+        { ok: false, error: "That account is not a member of this clinic." },
+        { status: 403 }
+      );
+    }
 
     // Update root user document
     const userPatch: Record<string, unknown> = { ...patch, updatedAt: FieldValue.serverTimestamp() };

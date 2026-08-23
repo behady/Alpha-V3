@@ -8,12 +8,16 @@ export async function POST(request: Request) {
   const body = await request.json();
   const clinicId = typeof body?.clinicId === "string" ? body.clinicId.trim() : "";
 
-  const authCheck = await requireAdminUser(request, clinicId || undefined);
-  if (!authCheck.ok) return authCheck.response;
-
+  // clinicId first, then auth AGAINST that clinic. The old order authenticated with
+  // `clinicId || undefined`, and undefined degrades requireAdminUser to "Admin anywhere" —
+  // harmless here only because the 400 below fired before any write, which is one refactor away
+  // from not being true.
   if (!clinicId) {
     return NextResponse.json({ ok: false, error: "clinicId is required" }, { status: 400 });
   }
+
+  const authCheck = await requireAdminUser(request, clinicId);
+  if (!authCheck.ok) return authCheck.response;
 
   try {
     const db = adminDb();

@@ -9,8 +9,12 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { email, password, name, role, createDbRecords, clinicId, isDentist } = body;
 
-    // Enforce admin auth with clinic context
-    const authCheck = await requireAdminUser(request, clinicId || undefined);
+    // The clinic is required: without one, this degraded to "any Admin anywhere may create Auth
+    // accounts", and every invite is for a specific clinic anyway.
+    if (!clinicId) {
+      return NextResponse.json({ error: "clinicId is required" }, { status: 400 });
+    }
+    const authCheck = await requireAdminUser(request, clinicId);
     if (!authCheck.ok) return authCheck.response;
 
     if (!email || !password) {

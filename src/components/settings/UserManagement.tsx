@@ -162,7 +162,9 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}` 
         },
-        body: JSON.stringify({ uid: resetTarget.uid, newPassword }),
+        // clinicId is what scopes the reset: the route refuses any account that is not a member
+        // of the clinic the caller administers, so an Admin can only ever reset their own staff.
+        body: JSON.stringify({ uid: resetTarget.uid, newPassword, clinicId }),
       });
 
       const result = await response.json();
