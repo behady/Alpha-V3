@@ -758,14 +758,67 @@ routes, and lint errors unchanged at the pre-existing baseline of 80.
   route as §P2.1 suggested, so the patient-ledger edit modal kept working through Phase 2 instead
   of being broken for a phase. §P4.3 always intended the finance route to own those fields.
 
-### Two things only the owner can run
+## 12. Go-live record (2026-08-23)
 
-1. **Deploy the tightened rules — after the app is live.**
-   `firebase deploy --only firestore:rules`
-   Deploying before the new app is serving would deny every money screen at once, because the
-   client can no longer write `ledger` or `clinical_notes` and the routes would not yet be there.
+Shipped and verified in production, in this order. `docs/runbooks/go-live.md` holds the sequence
+and the reasoning; this is what actually happened.
 
-2. **The historical repair, when you are ready.**
+1. **App deployed.** Vercel had already built the merge commit as a *Preview*, so pushing the same
+   SHA to `main` produced no Production build — Vercel reuses a build it has seen. Landing a fresh
+   commit on `main` forced a genuine Production build. Promoting the Preview build instead would
+   have been wrong here: Next.js inlines the seven `NEXT_PUBLIC_FIREBASE_*` values into the client
+   bundle at build time, so a build carries whichever environment's Firebase config it was built
+   under, wherever it is later served from.
+
+2. **A real payment taken against the deployed app, before touching the rules.** This is what
+   proved `/api/finance/ledger`, `/api/clinical/procedures` and `/api/appointments/delete` were
+   actually serving. Publishing first would have denied the client its money collections while the
+   routes might not have been reachable.
+
+3. **Rules published**, then **a second payment taken** — confirming the denies did not break the
+   path the first payment proved.
+
+### The rules were not where this file thought they were
+
+`firestore.rules` in this repo was **behind production, and on no branch**. The live ruleset carried
+a granular-permissions layer written directly in the Firebase console and never committed:
+`clinicPermissions`, `holdsPermission`, the `permCreate`/`permUpdate`/`permDelete` maps,
+`memberMayWrite`, the `settings/counters` widening that lets a receptionist mint a patient file
+number, the `ai_usage` denies, the staff self-profile and uid-claim blocks, and the read scoping on
+`/users` and `/join_requests`.
+
+Publishing this repo's file would have silently reverted all of it. What shipped instead is the
+live ruleset with the money changes applied on top — verified additive, line by line.
+
+**Two defects surfaced from that comparison, both pre-existing and neither caused by this work:**
+
+- **`whatsapp_outbox` was writable by every clinic member.** Its own block said
+  `allow create, delete: if false`, and that line did nothing: the collection was never held out of
+  the blanket member-write grant, and rules OR together, so the general "staff may write" won. Any
+  staff member could create a WhatsApp message to any number in the clinic's name. Now excluded.
+  The browser only ever writes `status`/`sentAt`, which the narrow update rule still permits.
+
+- **"Join an existing clinic" was failing for every user.** The live rules denied client-side
+  `join_requests` create and pointed at `/api/join-requests/create`; that route had never been
+  written, and the onboarding screen still wrote straight to Firestore. The route now exists and
+  the screen posts to it — it validates the Clinic ID (a browser cannot: reading a clinic you hold
+  no role in is denied, which is the very situation the request exists to resolve), takes the name
+  and email from the Auth record rather than the form, and keys on `(uid, clinicId)` so a second
+  press cannot file a duplicate.
+
+The drift check in `tests/permissions.test.mts` had been pinned to `subcollection != '...'`, the
+parameter name the exclusion chain carried before it moved into `memberMayWrite(clinicId, sub)`. It
+matched nothing against the live shape and would have passed forever while the chain emptied out.
+It now accepts both names, and asserts `whatsapp_outbox`, `ai_usage` and `ai_usage_log` alongside
+the money collections.
+
+**Standing lesson:** a rules edit made in the Firebase console must be pasted back into
+`firestore.rules` and committed. This one was only recoverable because the live text happened to be
+pasted into a chat; the next divergence may have no second copy.
+
+### Still only the owner can run
+
+1. **The historical repair, when you are ready.**
    ```
    node scripts/repair-payment-attribution.mjs --clinic <id>          # look, write nothing
    node scripts/repair-payment-attribution.mjs --clinic <id> --apply  # only after reading the report
@@ -775,6 +828,10 @@ routes, and lint errors unchanged at the pre-existing baseline of 80.
    `--apply-reviewed`.
 
    `scripts/strip-vestigial-patient-fields.mjs` is the same shape and equally optional.
+
+2. **Check "Join an existing clinic" once, with a deliberately wrong Clinic ID.** It should answer
+   *"No clinic has that ID"* rather than appearing to succeed. That flow has been broken long enough
+   that nobody will report it fixed.
 
 ### Defaults now live, changeable in Settings → Services
 
