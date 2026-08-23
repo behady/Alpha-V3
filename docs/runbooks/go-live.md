@@ -94,3 +94,89 @@ back as `REVIEW` and are only applied if you name them explicitly with
 # 2. Removes the vestigial patient fields nothing reads any more.
 node scripts/strip-vestigial-patient-fields.mjs
 ```
+
+---
+
+# Second rollout — making the permission checkboxes real
+
+**The order here is not a preference. Publishing the rules before the backfill denies every write
+by every non-Admin in every clinic, immediately.**
+
+## What was wrong
+
+`firestore.rules` reads `users/{uid}.clinicPermissions[clinicId]`. The app writes a flat
+`users/{uid}.permissions` array. **Nothing, anywhere, wrote `clinicPermissions`.**
+
+A missing map read as null, and `holdsPermission` treated null as "this account predates the
+permission system, let it through". Since the field was never written, that branch was the only one
+anyone ever took: every permission check in the rules returned true, for every account, always.
+Unticking a box on the Users screen hid a button in the browser and changed nothing else — a
+receptionist with "Delete patients" switched off could still delete every patient in the clinic
+through the console or a copied fetch call.
+
+It also meant permissions could not be per-clinic: one flat array applied at every clinic a person
+worked at.
+
+## The three steps, in this order
+
+### 1. Deploy the app
+
+The routes that seed and edit permissions now write `clinicPermissions` through
+`src/lib/server/clinicPermissions.ts`: `admin/update-user`, `staff/create`,
+`join-requests/approve`, `admin/repair`. Nothing breaks by deploying this first — the field is
+simply written from now on, and the rules still ignore it until step 3.
+
+### 2. Backfill the accounts that already exist
+
+```bash
+node scripts/backfill-clinic-permissions.mjs --clinic <id>     # dry run, writes nothing
+# read clinic-permissions-backfill-<clinic>-<date>.csv, then:
+node scripts/backfill-clinic-permissions.mjs --clinic <id> --apply
+```
+
+The CSV has one row per person per clinic, showing what they were explicitly granted and what will
+be stored. Read it before applying — this decides what each member of staff can do.
+
+**Why it does not simply copy the existing array.** The browser's guards also let people through on
+their *role* (`PermissionGuard`'s `allowedRoles`, and a dozen ad-hoc `user?.role === "Dentist"`
+checks), so a dentist whose stored array is the one permission the invite seeds can still edit a
+treatment chart today. Store only that array and enforce it, and that dentist is locked out of their
+own job. So each person gets **their role's baseline UNION whatever was explicitly granted** —
+nobody loses anything they demonstrably had. The baselines are in `src/lib/permissions.ts`, which is
+where to argue with them.
+
+Admins get an empty list on purpose: `isClinicAdmin` short-circuits ahead of the lookup in both the
+rules and `apiStaffAuth`, so nothing ever consults a list for them.
+
+### 3. Publish the rules
+
+Only now. `holdsPermission` no longer has its allow-everything branch, so an account with no map is
+an account granted nothing.
+
+### 4. Check it
+
+- Sign in as a non-Admin and confirm normal work still works: book an appointment, add a patient,
+  write a treatment note.
+- Untick a box for someone in Settings → Users, then have them try that action. It should now fail
+  in Firestore, not just be hidden.
+
+## Rollback
+
+Firebase console → Firestore Database → Rules → **History** → restore the previous ruleset. That
+reopens the fallback and everyone can write again while you work out what went wrong. The backfilled
+`clinicPermissions` field is harmless to leave in place — nothing reads it once the old rules are
+back.
+
+## What stops this recurring
+
+`tests/permissions.test.mts` now fails if `firestore.rules` reads a field off the user document that
+no server route or server lib writes. That check, run against the code as it was, reports:
+
+```
+firestore.rules reads these user-document fields, but no server route or server lib ever writes
+them — so the rules that consult them decide nothing: clinicPermissions
+```
+
+It also asserts the collection→permission maps in `firestore.rules` match
+`COLLECTION_WRITE_PERMISSIONS` in `src/lib/permissions.ts`, since that decision is written down
+twice and only one copy is enforced.

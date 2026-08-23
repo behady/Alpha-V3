@@ -60,15 +60,35 @@ service cloud.firestore {
 
     /**
      * A null permission means the collection is open to any member (shared working data).
-     * A null LIST means this account predates per-clinic permissions and has not been
-     * backfilled yet — those fall through to allowed, so switching enforcement on cannot lock
-     * out existing staff mid-shift. /api/admin/backfill-permissions retires that fallback.
+     *
+     * There used to be a third branch here: a null LIST also passed, on the theory that an account
+     * predating per-clinic permissions should not be locked out mid-shift. Nothing ever wrote
+     * `clinicPermissions`, so that branch was the only one anyone took — every permission check in
+     * this file passed, for everybody, always. The checkboxes on the Users screen hid buttons in
+     * the browser and nothing more, which is the exact bug this layer was written to fix.
+     *
+     * The field is now written by src/lib/server/clinicPermissions.ts on every route that seeds or
+     * edits permissions, and scripts/backfill-clinic-permissions.mjs filled it in for accounts that
+     * predate it. So a missing list is no longer "not migrated yet" — it is an account nobody has
+     * granted anything, and the safe reading of that is nothing.
+     *
+     * `tests/permissions.test.mts` fails if a field this file reads is one no server route writes,
+     * which is what would have caught the original bug.
+     *
+     * An empty list denies too, and deliberately: an admin who unticks every box means it.
+     * Admins never consult a list — isClinicAdmin short-circuits above — so this cannot lock an
+     * owner out of their own clinic.
+     *
+     * The null check is written out rather than left to `null.hasAny()` raising and being counted
+     * as a deny. Both end in a refusal, but only one of them says so on purpose, and an error is a
+     * poor thing to build a security boundary on: it reads as an oversight to the next person, and
+     * it denies for a reason that never appears in the rule.
      */
     function holdsPermission(clinicId, permission) {
       return permission == null
         || isClinicAdmin(clinicId)
-        || clinicPermissions(clinicId) == null
-        || clinicPermissions(clinicId).hasAny([permission]);
+        || (clinicPermissions(clinicId) != null
+            && clinicPermissions(clinicId).hasAny([permission]));
     }
 
     // Kept as maps rather than ternary chains so this reads as the table it is, and so a

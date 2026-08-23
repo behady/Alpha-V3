@@ -76,6 +76,31 @@ async function main() {
     });
     await setDoc(doc(db, "users/assistant1"), {
       clinicRoles: { clinicA: "Assistant" },
+      // The Assistant baseline from src/lib/permissions.ts. Every account that works in a clinic
+      // now carries one of these; the routes write it and the backfill filled it in.
+      clinicPermissions: {
+        clinicA: [
+          "access.appointments", "access.clinical", "access.inventory", "access.lab",
+          "access.patients", "appointments.add", "appointments.edit", "clinical.edit",
+          "dashboard.view", "inventory.add", "inventory.edit", "patients.add", "patients.edit",
+        ],
+      },
+    });
+    // Reception, given exactly one thing: add a patient. Nothing else.
+    await setDoc(doc(db, "users/limited1"), {
+      clinicRoles: { clinicA: "Receptionist" },
+      clinicPermissions: { clinicA: ["patients.add"] },
+    });
+    // A member of the clinic carrying no permission map at all. Before the fallback closed, this
+    // account could write anything any member could write — which was every account, because
+    // nothing wrote the field.
+    await setDoc(doc(db, "users/nolist1"), {
+      clinicRoles: { clinicA: "Assistant" },
+    });
+    // An admin who has unticked every box for someone. An empty list is a decision, not a gap.
+    await setDoc(doc(db, "users/empty1"), {
+      clinicRoles: { clinicA: "Assistant" },
+      clinicPermissions: { clinicA: [] },
     });
     await setDoc(doc(db, "users/super1"), {
       isSuperAdmin: true,
@@ -199,6 +224,9 @@ async function main() {
   const newu2 = testEnv.authenticatedContext("newu2").firestore();
   const adminB = testEnv.authenticatedContext("adminB").firestore();
   const multi1 = testEnv.authenticatedContext("multi1").firestore();
+  const limited1 = testEnv.authenticatedContext("limited1").firestore();
+  const nolist1 = testEnv.authenticatedContext("nolist1").firestore();
+  const empty1 = testEnv.authenticatedContext("empty1").firestore();
   const anon = testEnv.unauthenticatedContext().firestore();
 
   console.log("clinics/{clinicId}");
@@ -654,6 +682,75 @@ async function main() {
   await check("a member cannot change a price", updateDoc(doc(assistant1, "clinics/clinicA/services/svcA1"), { price: 1 }), "deny");
   await check("a member cannot add a service", setDoc(doc(assistant1, "clinics/clinicA/services/forged1"), { name: "X", price: 1 }), "deny");
   await check("an Admin can change a price", updateDoc(doc(admin1, "clinics/clinicA/services/svcA1"), { price: 3200 }), "allow");
+
+  // These are the checks that had no teeth. firestore.rules read `clinicPermissions[clinicId]`,
+  // the app wrote a flat `permissions` array, and nothing wrote the field the rules read — so
+  // `holdsPermission` fell through its "not backfilled yet" branch and returned true for every
+  // permission, for every account, on every collection reached by the blanket member-write grant.
+  // Unticking a box hid a button in the browser and changed nothing else.
+  console.log("granular permissions are enforced, not decorative");
+
+  await check(
+    "a member with patients.add can add a patient",
+    setDoc(doc(limited1, "clinics/clinicA/patients/newPat1"), { name: "Hoda" }),
+    "allow"
+  );
+  await check(
+    "the same member cannot DELETE a patient — the box is unticked",
+    deleteDoc(doc(limited1, "clinics/clinicA/patients/patA1")),
+    "deny"
+  );
+  await check(
+    "...nor book an appointment they were never granted",
+    setDoc(doc(limited1, "clinics/clinicA/appointments/forgedAppt1"), { date: "2026-09-01" }),
+    "deny"
+  );
+  await check(
+    "...but can still READ, because reads are not permission-gated inside a clinic",
+    getDoc(doc(limited1, "clinics/clinicA/appointments/apptA1")),
+    "allow"
+  );
+
+  await check(
+    "an Assistant holding appointments.edit can edit one",
+    updateDoc(doc(assistant1, "clinics/clinicA/appointments/apptA1"), { status: "Confirmed" }),
+    "allow"
+  );
+  await check(
+    "an Assistant cannot delete a patient — no role is granted a delete by default",
+    deleteDoc(doc(assistant1, "clinics/clinicA/patients/patA1")),
+    "deny"
+  );
+
+  await check(
+    "a member carrying no permission map is granted nothing",
+    setDoc(doc(nolist1, "clinics/clinicA/patients/forgedPat1"), { name: "Ghost" }),
+    "deny"
+  );
+  await check(
+    "an EMPTY permission map denies too — unticking every box is a decision",
+    setDoc(doc(empty1, "clinics/clinicA/patients/forgedPat2"), { name: "Ghost" }),
+    "deny"
+  );
+
+  await check(
+    "an Admin passes without any permission map at all",
+    setDoc(doc(admin1, "clinics/clinicA/patients/adminPat1"), { name: "Owner added" }),
+    "allow"
+  );
+  await check(
+    "an Admin can delete a patient nobody else may touch",
+    deleteDoc(doc(admin1, "clinics/clinicA/patients/adminPat1")),
+    "allow"
+  );
+
+  // Permissions are per clinic, which is the whole reason the map is keyed by clinic id. A flat
+  // array on the user document could not express this: one list applied everywhere they worked.
+  await check(
+    "permissions do not leak between clinics — Admin at B is not Admin at A",
+    deleteDoc(doc(multi1, "clinics/clinicA/patients/patA1")),
+    "deny"
+  );
 
   console.log("money stays tenant-isolated");
   await check("another clinic's Admin cannot read this ledger", getDoc(doc(adminB, "clinics/clinicA/ledger/ledA1")), "deny");

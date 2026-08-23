@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
+import { clinicPermissionsPatch } from "@/lib/server/clinicPermissions";
 
 const ALLOWED_KEYS = new Set(["role", "isDentist", "permissions", "staffId"]);
 
@@ -98,6 +99,18 @@ export async function POST(request: Request) {
     // Also update clinicRoles if role is being changed and clinicId is provided
     if (patch.role && clinicId) {
       userPatch[`clinicRoles.${clinicId}`] = patch.role;
+    }
+
+    // The field firestore.rules reads. `permissions` above is the flat list the browser's guards
+    // consult; the rules have always looked up clinicPermissions[clinicId] instead, and nothing
+    // wrote it — so every rule that consulted it passed for everyone. Written here whenever either
+    // the ticked boxes or the role changes, because the stored value is the two combined.
+    if (clinicId && (patch.permissions !== undefined || patch.role !== undefined)) {
+      const effectiveRole =
+        (typeof patch.role === "string" && patch.role) ||
+        ((userData.clinicRoles as Record<string, string> | undefined)?.[clinicId] ?? null);
+      const granted = patch.permissions !== undefined ? patch.permissions : userData.permissions;
+      Object.assign(userPatch, clinicPermissionsPatch(clinicId, effectiveRole, granted));
     }
 
     await userRef.update(userPatch);

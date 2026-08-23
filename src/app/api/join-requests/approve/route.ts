@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
 import { FieldValue } from "firebase-admin/firestore";
+import { clinicPermissionsPatch, clinicPermissionsSeed } from "@/lib/server/clinicPermissions";
 
 const ALLOWED_ROLES = new Set(["Admin", "Dentist", "Assistant", "Receptionist"]);
 
@@ -56,13 +57,19 @@ export async function POST(request: Request) {
     const name = String(reqData.name || reqData.userName || "New Team Member");
     const email = String(reqData.email || reqData.userEmail || "").toLowerCase();
 
+    // "appointments.view" and "patients.view" are not permission ids — the catalogue spells those
+    // access.appointments and access.patients — so the seed granted one real permission and two
+    // strings that match nothing. Harmless while nothing enforced the list; not harmless now.
+    // expandPermissions() supplies the role's floor, which is what this was reaching for.
+    const seededPermissions = ["dashboard.view"];
+
     const staffRef = await db.collection(`clinics/${clinicId}/staff`).add({
       name,
       email,
       role,
       uid: targetUid,
       isDentist: false,
-      permissions: ["dashboard.view", "appointments.view", "patients.view"],
+      permissions: seededPermissions,
       createdAt: FieldValue.serverTimestamp(),
     });
 
@@ -70,10 +77,23 @@ export async function POST(request: Request) {
     const userSnap = await userRef.get();
     if (userSnap.exists) {
       // Dotted key with update(): the only form Firestore reads as a path into the nested map.
-      await userRef.update({ [`clinicRoles.${clinicId}`]: role, staffId: staffRef.id });
+      await userRef.update({
+        [`clinicRoles.${clinicId}`]: role,
+        staffId: staffRef.id,
+        // The field firestore.rules reads. Per-clinic, so approving someone into a second clinic
+        // cannot disturb the access they hold at the first.
+        ...clinicPermissionsPatch(clinicId, role, seededPermissions),
+      });
     } else {
       await userRef.set(
-        { uid: targetUid, name, email, clinicRoles: { [clinicId]: role }, staffId: staffRef.id },
+        {
+          uid: targetUid,
+          name,
+          email,
+          clinicRoles: { [clinicId]: role },
+          staffId: staffRef.id,
+          clinicPermissions: clinicPermissionsSeed(clinicId, role, seededPermissions),
+        },
         { merge: true }
       );
     }

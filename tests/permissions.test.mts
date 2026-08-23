@@ -22,6 +22,12 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { PERMISSIONS_CATALOG, getAllPermissionIds } from "../src/config/permissionsCatalog";
+import {
+  COLLECTION_WRITE_PERMISSIONS,
+  ROLE_BASELINE,
+  expandPermissions,
+  holdsPermission,
+} from "../src/lib/permissions";
 
 const REPO = new URL("..", import.meta.url).pathname;
 
@@ -160,7 +166,115 @@ for (const name of MUST_BE_EXCLUDED) {
   );
 }
 
+
+// --- 4. A field the rules READ must be a field the code WRITES ----------------------------------
+
+// This is the check that was missing. firestore.rules looked up
+// `users/{uid}.clinicPermissions[clinicId]`, the app wrote a flat `users/{uid}.permissions` array,
+// and nothing anywhere wrote `clinicPermissions`. A missing map reads as null, `holdsPermission`
+// treats null as "not backfilled yet, let them through", and so every permission check in the
+// rules passed for everyone, always. It looked exactly like enforcement in review.
+//
+// Both spellings the rules use to read the caller's user document are matched: the direct chain,
+// and the `let userData = get(...).data;` binding.
+
+const USER_DOC_DIRECT = /documents\/users\/\$\(request\.auth\.uid\)\)\.data\s*((?:\.get\('[a-zA-Z]+',[^)]*\)\s*)+)/g;
+const USER_DOC_BOUND = /\buserData\.get\('([a-zA-Z]+)'/g;
+
+const readFromUserDoc = new Set<string>();
+for (const match of rules.matchAll(USER_DOC_DIRECT)) {
+  for (const field of match[1].matchAll(/\.get\('([a-zA-Z]+)'/g)) readFromUserDoc.add(field[1]);
+}
+for (const match of rules.matchAll(USER_DOC_BOUND)) readFromUserDoc.add(match[1]);
+
+assert.ok(
+  readFromUserDoc.has("clinicRoles") && readFromUserDoc.has("clinicPermissions"),
+  "the user-document field scan found neither clinicRoles nor clinicPermissions — the pattern has drifted"
+);
+
+// Only the Admin SDK may write these: they decide what their holder is allowed to do, so a client
+// that could set them would grant itself anything. Server routes and server-side libs only.
+const SERVER_WRITE_DIRS = [join(REPO, "src/app/api"), join(REPO, "src/lib/server")];
+const serverText = SERVER_WRITE_DIRS.flatMap((dir) => sourceFiles(dir))
+  .map((file) => readFileSync(file, "utf8"))
+  .join("\n");
+
+const neverWritten = [...readFromUserDoc].filter((field) => !serverText.includes(field));
+assert.deepEqual(
+  neverWritten,
+  [],
+  `firestore.rules reads these user-document fields, but no server route or server lib ever writes ` +
+    `them — so the rules that consult them decide nothing: ${neverWritten.join(", ")}`
+);
+
+// --- 5. The collection→permission maps are duplicated; they must agree ---------------------------
+
+// The maps live in firestore.rules (permCreate/permUpdate/permDelete) and in src/lib/permissions.ts
+// (COLLECTION_WRITE_PERMISSIONS). Two copies of a security decision drift silently, and only one of
+// them is the one actually enforced.
+
+function rulesMap(fn: "permCreate" | "permUpdate" | "permDelete"): Record<string, string> {
+  const body = rules.slice(rules.indexOf(`function ${fn}(sub)`));
+  const block = body.slice(0, body.indexOf("}.get(sub, null)"));
+  return Object.fromEntries([...block.matchAll(/'([a-z_]+)':\s*'([a-z.]+)'/g)].map((m) => [m[1], m[2]]));
+}
+
+for (const verb of ["create", "update", "delete"] as const) {
+  const fromRules = rulesMap(`perm${verb[0].toUpperCase()}${verb.slice(1)}` as "permCreate");
+  assert.deepEqual(
+    fromRules,
+    COLLECTION_WRITE_PERMISSIONS[verb],
+    `the ${verb} map in firestore.rules disagrees with COLLECTION_WRITE_PERMISSIONS.${verb}`
+  );
+}
+
+// Every permission those maps name must be one an admin can actually grant.
+for (const verb of ["create", "update", "delete"] as const) {
+  for (const [collection, permission] of Object.entries(COLLECTION_WRITE_PERMISSIONS[verb])) {
+    assert.ok(
+      catalogue.has(permission),
+      `${collection} ${verb} is guarded by "${permission}", which is not in PERMISSIONS_CATALOG`
+    );
+  }
+}
+
+// --- 6. Role baselines ---------------------------------------------------------------------------
+
+for (const [role, ids] of Object.entries(ROLE_BASELINE)) {
+  assert.ok(ids.length > 0, `role "${role}" has an empty baseline`);
+  for (const id of ids) {
+    assert.ok(catalogue.has(id), `role "${role}" baseline names "${id}", which is not a real permission`);
+  }
+  // Deletes are irreversible; an admin hands them out per person rather than by role.
+  const deletes = ids.filter((id) => id.endsWith(".delete"));
+  assert.ok(
+    deletes.every((id) => id === "appointments.delete"),
+    `role "${role}" is granted ${deletes.join(", ")} by default — only cancelling a booking is baseline`
+  );
+}
+
+// Admin holds no stored list at all: isClinicAdmin short-circuits ahead of the lookup in both the
+// rules and apiStaffAuth, and a materialised list would go stale the next time the catalogue moved.
+assert.equal(ROLE_BASELINE.Admin, undefined);
+assert.deepEqual(expandPermissions("Admin", ["patients.delete"]), []);
+
+// The expansion never drops what someone was explicitly granted...
+assert.ok(expandPermissions("Receptionist", ["patients.delete"]).includes("patients.delete"));
+// ...and always includes the role's floor, which is what stops enforcement locking staff out of
+// work the browser's role-based guards let them do today.
+assert.ok(expandPermissions("Dentist", []).includes("clinical.edit"));
+assert.ok(expandPermissions("Dentist", ["clinical.edit"]).filter((p) => p === "clinical.edit").length === 1);
+// An unknown role gets only what was explicitly handed to it — never a guess.
+assert.deepEqual(expandPermissions("Bookkeeper", ["access.finance"]), ["access.finance"]);
+assert.deepEqual(expandPermissions(null, null), []);
+
+assert.equal(holdsPermission("Admin", [], "patients.delete"), true, "Admin passes every check");
+assert.equal(holdsPermission("Receptionist", [], null), true, "a null permission is open to members");
+assert.equal(holdsPermission("Receptionist", ["patients.add"], "patients.delete"), false);
+assert.equal(holdsPermission("Receptionist", null, "patients.add"), false, "no list means nothing granted");
+
 console.log(
   `✓ permissions: ${ids.length} catalogue ids, ${enforced.size} enforced in code, ` +
-    `${excluded.size} collections held out of the blanket write grant`
+    `${excluded.size} collections held out of the blanket write grant, ` +
+    `${readFromUserDoc.size} user-doc fields read by the rules and written by the server`
 );

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
 import { FieldValue } from "firebase-admin/firestore";
+import { clinicPermissionsPatch, clinicPermissionsSeed } from "@/lib/server/clinicPermissions";
 
 export async function POST(request: Request) {
   try {
@@ -36,11 +37,11 @@ export async function POST(request: Request) {
       const userRef = db.collection("users").doc(userRecord.uid);
       const userSnap = await userRef.get();
       
-      const permissions = [
-        "dashboard.view",
-        "appointments.view",
-        "patients.view",
-      ];
+      // Only the role's floor is seeded here; expandPermissions() supplies it from the role, and
+      // an admin ticks anything extra afterwards. This used to list "appointments.view" and
+      // "patients.view", which are not permission ids — the catalogue spells them
+      // access.appointments and access.patients — so two thirds of the seed matched nothing.
+      const permissions = ["dashboard.view"];
 
       // Add staff record to clinic
       const staffRef = await db.collection(`clinics/${clinicId}/staff`).add({
@@ -66,12 +67,18 @@ export async function POST(request: Request) {
           },
           isDentist: isDentist || false,
           permissions,
+          // The field firestore.rules reads. `permissions` above is what the browser's guards
+          // consult; the rules look up clinicPermissions[clinicId], and until now nothing wrote it.
+          clinicPermissions: clinicPermissionsSeed(clinicId, role || "Assistant", permissions),
           createdAt: FieldValue.serverTimestamp(),
         });
       } else {
-        // Update existing root user document
+        // An existing account invited to a second clinic. Their flat `permissions` array is not
+        // touched — it belongs to whichever clinic set it, and overwriting it here would rewrite
+        // their access at the first one. clinicPermissions is per-clinic, so it can be set safely.
         await userRef.update({
           [`clinicRoles.${clinicId}`]: role || "Assistant",
+          ...clinicPermissionsPatch(clinicId, role || "Assistant", permissions),
         });
       }
     }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
 import { FieldValue } from "firebase-admin/firestore";
+import { clinicPermissionsPatch } from "@/lib/server/clinicPermissions";
 
 export async function POST(request: Request) {
   const body = await request.json();
@@ -64,8 +65,13 @@ export async function POST(request: Request) {
           createdAt: FieldValue.serverTimestamp(),
         });
 
-        // Link the user back to this newly generated staff profile
-        batch.update(db.collection("users").doc(u.id), { staffId: newStaffRef.id });
+        // Link the user back to this newly generated staff profile, and make sure they carry the
+        // permission map firestore.rules reads. This route exists to make broken users work again;
+        // leaving that field absent would "repair" someone into being denied every write.
+        batch.update(db.collection("users").doc(u.id), {
+          staffId: newStaffRef.id,
+          ...clinicPermissionsPatch(clinicId, role, u.permissions),
+        });
         fixesApplied++;
       }
     }
