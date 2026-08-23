@@ -28,9 +28,154 @@ service cloud.firestore {
 
     function isClinicActive(clinicId) {
       let clinic = get(/databases/$(database)/documents/clinics/$(clinicId)).data;
-      // Also allow creation / free trial when expiresAt is not strictly enforced yet, 
-      // but generally ensure it's active.
-      return clinic.get('status', 'Active') == 'Active';
+      let expires = clinic.get('expiresAt', null);
+      // An expired trial is not an active clinic. This only checked `status` before, so a free
+      // trial ran forever: nothing ever flipped status, and expiresAt was the field that was
+      // supposed to end it. Guarded with a type check rather than compared blind — a document
+      // holding expiresAt as a string would otherwise throw here and deny every write in the
+      // clinic, which is a far worse failure than a trial that overstays.
+      return clinic.get('status', 'Active') == 'Active'
+        && (!(expires is timestamp) || expires > request.time);
+    }
+
+    // ---------------------------------------------------------------------
+    // --- GRANULAR PERMISSIONS ---
+    //
+    // The per-clinic permission list, written server-side into the same user document these
+    // rules already read for roles. Before this, the permission checkboxes on the Users screen
+    // were decoration: `Protect` and `PermissionGuard` hid buttons in the browser, while the
+    // blanket clinic-member grant below let any member write any collection. Someone with
+    // "Delete patients" switched off could still delete patients from the console, from a
+    // copied fetch call, or by asking the AI assistant to do it.
+    //
+    // The stored list is already expanded — role baseline plus whatever the admin ticked — so
+    // there is no role policy in this file to drift out of step. See src/lib/permissions.ts;
+    // the collection→permission maps below are the one part that IS duplicated there.
+    // ---------------------------------------------------------------------
+
+    function clinicPermissions(clinicId) {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+               .get('clinicPermissions', {}).get(clinicId, null);
+    }
+
+    /**
+     * A null permission means the collection is open to any member (shared working data).
+     * A null LIST means this account predates per-clinic permissions and has not been
+     * backfilled yet — those fall through to allowed, so switching enforcement on cannot lock
+     * out existing staff mid-shift. /api/admin/backfill-permissions retires that fallback.
+     */
+    function holdsPermission(clinicId, permission) {
+      return permission == null
+        || isClinicAdmin(clinicId)
+        || clinicPermissions(clinicId) == null
+        || clinicPermissions(clinicId).hasAny([permission]);
+    }
+
+    // Kept as maps rather than ternary chains so this reads as the table it is, and so a
+    // collection that is missing is plainly missing. Mirrors COLLECTION_WRITE_PERMISSIONS.
+    function permCreate(sub) {
+      return {
+        'patients': 'patients.add',
+        'patient_media': 'patients.edit',
+        'appointments': 'appointments.add',
+        'ledger': 'finance.add',
+        'inventory': 'inventory.add',
+        'inventory_transactions': 'inventory.edit',
+        'clinical_notes': 'clinical.edit',
+        'treatment_plans': 'clinical.edit',
+        'prescriptions': 'clinical.edit',
+        'diagnosis_chats': 'clinical.edit',
+        'ortho_cases': 'clinical.edit',
+        'ortho_sessions': 'clinical.edit',
+        'services': 'access.settings',
+        'categories': 'access.settings',
+        'drugs': 'access.settings',
+        'marketing_campaigns': 'access.marketing',
+        'marketing_cases': 'access.marketing',
+        'marketing_consents': 'access.marketing',
+        'marketing_content': 'access.marketing',
+        'marketing_settings': 'access.marketing'
+      }.get(sub, null);
+    }
+
+    function permUpdate(sub) {
+      return {
+        'patients': 'patients.edit',
+        'patient_media': 'patients.edit',
+        'appointments': 'appointments.edit',
+        'ledger': 'finance.edit',
+        'inventory': 'inventory.edit',
+        'inventory_transactions': 'inventory.edit',
+        'clinical_notes': 'clinical.edit',
+        'treatment_plans': 'clinical.edit',
+        'prescriptions': 'clinical.edit',
+        'diagnosis_chats': 'clinical.edit',
+        'ortho_cases': 'clinical.edit',
+        'ortho_sessions': 'clinical.edit',
+        'services': 'access.settings',
+        'categories': 'access.settings',
+        'drugs': 'access.settings',
+        'marketing_campaigns': 'access.marketing',
+        'marketing_cases': 'access.marketing',
+        'marketing_consents': 'access.marketing',
+        'marketing_content': 'access.marketing',
+        'marketing_settings': 'access.marketing'
+      }.get(sub, null);
+    }
+
+    function permDelete(sub) {
+      return {
+        'patients': 'patients.delete',
+        'patient_media': 'patients.edit',
+        'appointments': 'appointments.delete',
+        'ledger': 'finance.delete',
+        'inventory': 'inventory.delete',
+        'inventory_transactions': 'inventory.delete',
+        'clinical_notes': 'clinical.delete',
+        'treatment_plans': 'clinical.delete',
+        'prescriptions': 'clinical.delete',
+        'diagnosis_chats': 'clinical.delete',
+        'ortho_cases': 'clinical.delete',
+        'ortho_sessions': 'clinical.delete',
+        'services': 'access.settings',
+        'categories': 'access.settings',
+        'drugs': 'access.settings',
+        'marketing_campaigns': 'access.marketing',
+        'marketing_cases': 'access.marketing',
+        'marketing_consents': 'access.marketing',
+        'marketing_content': 'access.marketing',
+        'marketing_settings': 'access.marketing'
+      }.get(sub, null);
+    }
+
+    /**
+     * The baseline "is this person allowed to write in this clinic at all" test.
+     *
+     * system_logs, staff, settings and the server-only subcollections are carved out here because
+     * Firestore rules OR together: a narrower `allow write` in a more specific match block below
+     * can only ever ADD permissions, never take away what the blanket grant already handed out.
+     * Without these exclusions, the "Admin only" restrictions on staff/settings and the
+     * "superadmin only" restriction on system_logs would all be silently overridden by "any clinic
+     * member can write". staff/settings had exactly this bug live in production — the override
+     * blocks looked like they restricted access and never actually did anything.
+     */
+    function memberMayWrite(clinicId, sub) {
+      return hasClinicRole(clinicId) && isClinicActive(clinicId)
+        && sub != 'system_logs' && sub != 'staff' && sub != 'settings'
+        && sub != 'ai_deletion_log' && sub != 'ai_pending_actions'
+        && sub != 'message_drafts' && sub != 'sms_outbox'
+        && sub != 'sms_devices' && sub != 'leads'
+        && sub != 'ai_usage' && sub != 'ai_usage_log'
+        && sub != 'whatsapp_outbox'
+        && sub != 'ledger' && sub != 'ledger_audit'
+        && sub != 'clinical_notes' && sub != 'services';
+    }
+
+    // Two accounts that work at the same clinic. Used to scope who may read whose profile.
+    function sharesAClinicWithCaller() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+               .get('clinicRoles', {}).keys()
+               .hasAny(resource.data.get('clinicRoles', {}).keys());
     }
 
     // =====================================================================
@@ -38,28 +183,61 @@ service cloud.firestore {
     // =====================================================================
 
     match /users/{userId} {
-      allow read: if isAuth(); // Users need to read other users to display names, or at least their own
+      /**
+       * A user document holds an email, a real name, and the ID of every clinic that person
+       * works at. `if isAuth()` published all of it to anyone holding an account — and anyone
+       * can create an account, in about thirty seconds, from the sign-up form. That was a
+       * readable directory of every clinic and every member of staff on the platform, and it
+       * also handed out the exact uid list the admin API routes take as input.
+       *
+       * Three legitimate readers remain: yourself, a colleague at a clinic you both work at
+       * (the app shows staff names all over the place), and a superadmin. The `||` short-
+       * circuits, so reading your own profile never pays for the extra lookup.
+       */
+      allow read: if isAuth() && (
+        request.auth.uid == userId
+        || sharesAClinicWithCaller()
+        || isSuperAdmin()
+      );
 
       // First-login self-provisioning (see AuthContext). Never allowed to self-grant
       // isSuperAdmin or pre-seed clinicRoles at creation time.
       allow create: if isAuth() && request.auth.uid == userId
         && request.resource.data.get('isSuperAdmin', false) == false
-        && request.resource.data.get('clinicRoles', {}) == {};
+        && request.resource.data.get('clinicRoles', {}) == {}
+        && request.resource.data.get('clinicPermissions', {}) == {};
 
-      // Users may edit their own profile fields, but never isSuperAdmin or clinicRoles.
-      // Roles are granted server-side via Admin SDK (staff invite / self-signup routes).
-      // Superadmins may update any user doc (e.g. toggling isSuperAdmin on someone else).
+      // Users may edit their own profile fields, but never isSuperAdmin, clinicRoles or
+      // clinicPermissions. All three are granted server-side via the Admin SDK (staff invite /
+      // self-signup / role change routes). clinicPermissions has to be on this list or the whole
+      // permission system is self-service: the rules below read that field to decide what someone
+      // may write, so a member who could edit it would simply grant themselves the delete rights
+      // their admin withheld — and, worse, could clear it entirely and land back on the
+      // no-record-yet fallback that allows everything.
       allow update: if isSuperAdmin()
         || (isAuth() && request.auth.uid == userId
-            && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isSuperAdmin', 'clinicRoles']));
+            && !request.resource.data.diff(resource.data).affectedKeys()
+                 .hasAny(['isSuperAdmin', 'clinicRoles', 'clinicPermissions']));
 
       allow delete: if isSuperAdmin();
     }
 
     match /join_requests/{requestId} {
-      allow read: if isAuth();
-      // Can only file a join request as yourself, not on behalf of another userId.
-      allow create: if isAuth() && request.resource.data.userId == request.auth.uid;
+      // Each request carries a name and an email. `if isAuth()` made every request anyone had
+      // ever filed, for any clinic, readable by every account on the platform. Only the person
+      // who sent it and an admin of the clinic it was sent to have any reason to see it.
+      allow read: if isSuperAdmin()
+        || (isAuth() && resource.data.userId == request.auth.uid)
+        || (isAuth() && isClinicAdmin(resource.data.clinicId));
+
+      // Filed through /api/join-requests/create on the Admin SDK, not from the browser.
+      // A client write cannot check that the Clinic ID is real — rules deny reading a clinic
+      // you hold no role in, which is the very situation this request exists to resolve — so a
+      // typo used to be accepted silently and waited on forever. The server also derives the
+      // stored name and email from the caller's Auth record instead of the request body, and
+      // keys the document on (user, clinic) so pressing the button twice cannot spam the
+      // admin's review screen.
+      allow create: if false;
       // Only Clinic Admins of the requested clinic (or Super Admins) can approve/reject,
       // and approving may only ever change the `status` field.
       allow update: if isSuperAdmin()
@@ -94,16 +272,22 @@ service cloud.firestore {
       // only can edit/delete" restriction on system_logs below would all be silently overridden by
       // "any clinic member can write" up here. staff/settings had this exact bug live in production
       // — the override blocks looked like they restricted access but never actually did anything.
+      //
+      // Split into create/update/delete rather than one `write`, because that is the grain the
+      // permission checkboxes are written at: "add patients" and "delete patients" are separate
+      // decisions, and a single `write` rule cannot tell the two apart. Reads are deliberately
+      // NOT gated on permissions — inside one clinic, the staff are the people trusted with that
+      // clinic's records, and the boundary that matters (one clinic never seeing another's) is
+      // enforced above. Gating reads would also break the app in a hundred quiet places, since
+      // the appointments screen reads patients, the ledger reads patients, and so on.
       match /{subcollection}/{document=**} {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
-        allow write: if isSuperAdmin()
-          || (hasClinicRole(clinicId) && isClinicActive(clinicId)
-              && subcollection != 'system_logs' && subcollection != 'staff' && subcollection != 'settings'
-              && subcollection != 'ai_deletion_log' && subcollection != 'ai_pending_actions'
-              && subcollection != 'message_drafts' && subcollection != 'sms_outbox'
-              && subcollection != 'sms_devices' && subcollection != 'leads'
-              && subcollection != 'ledger' && subcollection != 'ledger_audit'
-              && subcollection != 'clinical_notes' && subcollection != 'services');
+        allow create: if isSuperAdmin()
+          || (memberMayWrite(clinicId, subcollection) && holdsPermission(clinicId, permCreate(subcollection)));
+        allow update: if isSuperAdmin()
+          || (memberMayWrite(clinicId, subcollection) && holdsPermission(clinicId, permUpdate(subcollection)));
+        allow delete: if isSuperAdmin()
+          || (memberMayWrite(clinicId, subcollection) && holdsPermission(clinicId, permDelete(subcollection)));
       }
 
       // --- SPECIFIC SUBCOLLECTION OVERRIDES ---
@@ -111,11 +295,63 @@ service cloud.firestore {
       match /staff/{staffId} {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
         allow write: if isSuperAdmin() || (isClinicAdmin(clinicId) && isClinicActive(clinicId));
+
+        /**
+         * Your own row, your own details.
+         *
+         * Everything about a staff record is an Admin decision except the part that describes the
+         * person: their photo, how they want to be called, their own phone number. Admin-only on
+         * the whole document meant nobody below Admin could set a profile picture — the Profile
+         * screen simply failed. `hasOnly` is what keeps this safe: `role`, `permissions`,
+         * `commissionPercentage`, `isDentist` and `uid` are all absent from the list, so this can
+         * never become a way to promote yourself or award yourself a commission.
+         */
+        allow update: if isAuth() && hasClinicRole(clinicId) && isClinicActive(clinicId)
+          && resource.data.get('uid', '') == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['name', 'nickname', 'phone', 'bio', 'photoURL', 'updatedAt']);
+
+        /**
+         * Claiming a staff row that was created before the person had a login.
+         *
+         * The attendance screen links the two the first time someone checks in, by writing their
+         * uid onto the row that carries their email. Only an unclaimed row (no uid yet) whose
+         * email matches the signed-in account, and `uid` is the only field the write may touch —
+         * so this cannot be used to take over a colleague's record.
+         */
+        allow update: if isAuth() && hasClinicRole(clinicId) && isClinicActive(clinicId)
+          && resource.data.get('uid', '') == ''
+          && resource.data.get('email', '') == request.auth.token.email
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid'])
+          && request.resource.data.uid == request.auth.uid;
       }
 
       match /settings/{docId} {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
         allow write: if isSuperAdmin() || (isClinicAdmin(clinicId) && isClinicActive(clinicId));
+      }
+
+      /**
+       * The file-ID counter — `PT-1000`, `PT-1001`, and so on.
+       *
+       * It lives under `settings` for historical reasons, but it is not a setting: every patient
+       * created bumps it, inside the transaction that mints their file number. `settings` is
+       * Admin-only, so that transaction was denied for everybody else — which is why a
+       * receptionist with "Add patients" switched on still got "Error adding patient". The
+       * patient row was never even attempted; the write that failed was this counter. The same
+       * transaction runs when reception books a first appointment for a new patient, and when a
+       * lead is converted, so all three were blocked by one rule.
+       *
+       * Rules OR together, so this widens access for this ONE document while every other
+       * settings document stays Admin-only. Gated on `patients.add`, the same permission as
+       * creating the patient it numbers — nobody gains the ability to bump it who could not
+       * already create the record that consumes it.
+       */
+      match /settings/counters {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow write: if isSuperAdmin()
+          || (hasClinicRole(clinicId) && isClinicActive(clinicId)
+              && holdsPermission(clinicId, 'patients.add'));
       }
 
       // Audit trail: append-only. Any clinic member can read the log and add an entry (that's
@@ -207,6 +443,22 @@ service cloud.firestore {
       // here — and must not, since editing a staged action's target between being shown the
       // prompt and approving it would make the confirmation meaningless.
       match /ai_pending_actions/{actionId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow write: if false;
+      }
+
+      // The AI credit meter and its per-event usage log. Every charge is written by an API
+      // route on the Admin SDK; no client ever needs write access — and must not have it,
+      // because a member who can edit the counter can quietly refill their clinic's own
+      // credits, and a member who can edit the log can erase what the refill was spent on.
+      // Note both are excluded from the blanket member-write grant above; rules OR together,
+      // so without that exclusion these denies would do nothing at all.
+      match /ai_usage/{monthKey} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow write: if false;
+      }
+
+      match /ai_usage_log/{entryId} {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
         allow write: if false;
       }

@@ -122,10 +122,25 @@ const MUST_BE_EXCLUDED = [
   "ledger_audit",
   "clinical_notes",
   "services",
+  // Its own block says `allow create, delete: if false`, and that line did nothing at all
+  // until this exclusion existed: the blanket grant reached it, so any clinic member could
+  // create a WhatsApp message — to any number, in the clinic's name. The browser only ever
+  // marks a queued message sent, which the narrow update rule still permits.
+  "whatsapp_outbox",
+  // The AI credit meter and its spend log. A member who can write these can refill their own
+  // clinic's credits and erase the record of what was spent.
+  "ai_usage",
+  "ai_usage_log",
 ];
 
 const rules = readFileSync(join(REPO, "firestore.rules"), "utf8");
-const excluded = new Set([...rules.matchAll(/subcollection != '([a-z_]+)'/g)].map((m) => m[1]));
+// The chain has lived under two parameter names: inline as `subcollection` in the
+// wildcard block, and as `sub` since it moved into the memberMayWrite() helper. Match
+// both — a regex pinned to the old name would quietly find nothing and pass forever,
+// which is the exact failure this check exists to prevent.
+const excluded = new Set(
+  [...rules.matchAll(/\b(?:sub|subcollection) != '([a-z_]+)'/g)].map((m) => m[1])
+);
 
 assert.ok(excluded.size > 0, "could not find the blanket-write exclusion chain in firestore.rules");
 
