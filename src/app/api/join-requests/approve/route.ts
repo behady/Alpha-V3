@@ -3,6 +3,7 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
 import { FieldValue } from "firebase-admin/firestore";
 import { clinicPermissionsPatch, clinicPermissionsSeed } from "@/lib/server/clinicPermissions";
+import { expandPermissions } from "@/lib/permissions";
 
 const ALLOWED_ROLES = new Set(["Admin", "Dentist", "Assistant", "Receptionist"]);
 
@@ -57,11 +58,12 @@ export async function POST(request: Request) {
     const name = String(reqData.name || reqData.userName || "New Team Member");
     const email = String(reqData.email || reqData.userEmail || "").toLowerCase();
 
-    // "appointments.view" and "patients.view" are not permission ids — the catalogue spells those
-    // access.appointments and access.patients — so the seed granted one real permission and two
-    // strings that match nothing. Harmless while nothing enforced the list; not harmless now.
-    // expandPermissions() supplies the role's floor, which is what this was reaching for.
-    const seededPermissions = ["dashboard.view"];
+    // The role's floor, materialized into every copy — staff card, flat field, enforced map — so
+    // the checkbox screen shows the person's true ticks from day one and whatever an admin unticks
+    // later is stored verbatim. (An earlier seed granted "appointments.view" and "patients.view",
+    // which are not permission ids — the catalogue spells them access.appointments and
+    // access.patients — so two thirds of it matched nothing.)
+    const seededPermissions = expandPermissions(role, ["dashboard.view"]);
 
     const staffRef = await db.collection(`clinics/${clinicId}/staff`).add({
       name,

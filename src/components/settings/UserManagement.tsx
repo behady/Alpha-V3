@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Users, Shield, Trash2, AlertCircle, Plus, KeyRound, X, Save, Lock, Loader2, Search, ChevronDown, ChevronRight, Info, Stethoscope, Headset, HeartHandshake } from "lucide-react";
 import { formatStaffRoleLabel, isDentistStaff } from "@/lib/staffRoles";
 import { auth, db } from "@/lib/firebase";
-import { doc, deleteDoc } from "firebase/firestore";
+import { doc, deleteDoc, getDoc } from "firebase/firestore";
 import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { logActivity } from "@/lib/logger";
@@ -271,6 +271,33 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
     }
   };
 
+  /**
+   * Opens Manage Access showing the ENFORCED list, not the staff card's copy.
+   *
+   * The card list is seeded equal to the enforced map and kept equal on every save, but accounts
+   * from before that discipline can differ — the backfill wrote the map (role floor + old ticks)
+   * without rewriting the cards. Editing the stale copy would silently discard the difference on
+   * first save. One read of the user document closes the gap; if the read fails, the card copy is
+   * still a sane starting point.
+   */
+  const openAccessModal = async (u: UserRow) => {
+    setAccessModalUser(u);
+    try {
+      const snap = await getDoc(doc(db, "users", u.id));
+      const data = snap.data() || {};
+      const map = clinicId ? (data.clinicPermissions || {})[clinicId] : undefined;
+      const flat = data.permissions;
+      const effective = Array.isArray(map) ? map : Array.isArray(flat) ? flat : null;
+      if (effective) {
+        setAccessModalUser((prev) =>
+          prev && prev.id === u.id ? { ...prev, permissions: effective } : prev
+        );
+      }
+    } catch {
+      // The staff-card copy already on screen stands.
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in" dir={isRTL ? "rtl" : "ltr"}>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
@@ -443,7 +470,7 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
                   ) : (
                     <button
                       type="button"
-                      onClick={() => setAccessModalUser(u)}
+                      onClick={() => void openAccessModal(u)}
                       disabled={updatingUserId === u.id}
                       className="w-full bg-slate-900 hover:bg-slate-800 text-white py-3.5 rounded-xl font-bold text-sm shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
                     >

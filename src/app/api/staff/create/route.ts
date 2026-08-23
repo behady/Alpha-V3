@@ -3,6 +3,7 @@ import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
 import { FieldValue } from "firebase-admin/firestore";
 import { clinicPermissionsPatch, clinicPermissionsSeed } from "@/lib/server/clinicPermissions";
+import { expandPermissions } from "@/lib/permissions";
 
 export async function POST(request: Request) {
   try {
@@ -41,11 +42,13 @@ export async function POST(request: Request) {
       const userRef = db.collection("users").doc(userRecord.uid);
       const userSnap = await userRef.get();
       
-      // Only the role's floor is seeded here; expandPermissions() supplies it from the role, and
-      // an admin ticks anything extra afterwards. This used to list "appointments.view" and
-      // "patients.view", which are not permission ids — the catalogue spells them
-      // access.appointments and access.patients — so two thirds of the seed matched nothing.
-      const permissions = ["dashboard.view"];
+      // The role's floor, materialized: the same list lands on the staff card, the flat legacy
+      // field, and the enforced per-clinic map, so the checkbox screen shows a new person's true
+      // ticks from their first day. The baseline is starting ticks, not an un-untickable floor —
+      // whatever an admin unticks later is stored verbatim by update-user. (An earlier seed listed
+      // "appointments.view" and "patients.view", which are not permission ids; and before that,
+      // the copies simply disagreed.)
+      const permissions = expandPermissions(role || "Assistant", ["dashboard.view"]);
 
       // Add staff record to clinic
       const staffRef = await db.collection(`clinics/${clinicId}/staff`).add({

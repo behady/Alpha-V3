@@ -55,12 +55,19 @@ export async function requireStaffUser(request: Request, clinicId?: string) {
     if (!role || role === "Patient") {
       return { ok: false as const, response: NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 }) };
     }
-    // Granular permissions live on the user document as a flat string[] (managed by User
-    // Management via /api/admin/update-user). They were only ever read in the browser, where they
-    // hid buttons; routes that enforce them need them here. Absent means "none granted", not
-    // "everything" — a user with no permissions array is a user who has been given nothing.
-    const permissions = Array.isArray(data.permissions)
-      ? (data.permissions as unknown[]).filter((p): p is string => typeof p === "string")
+    // The per-clinic map first — clinicPermissions[clinicId] is what firestore.rules enforces and
+    // what User Management writes, so reading anything else here would let the API and the rules
+    // give different answers about the same person. The flat array is the fallback for accounts
+    // at clinics that have not been migrated (this route can be called for any clinic), and for
+    // clinic-agnostic calls where there is no map to consult. Absent means "none granted", not
+    // "everything" — a user with no list is a user who has been given nothing.
+    const clinicMap =
+      clinicId && data.clinicPermissions && typeof data.clinicPermissions === "object"
+        ? (data.clinicPermissions as Record<string, unknown>)[clinicId]
+        : undefined;
+    const source = Array.isArray(clinicMap) ? clinicMap : data.permissions;
+    const permissions = Array.isArray(source)
+      ? (source as unknown[]).filter((p): p is string => typeof p === "string")
       : [];
     const name =
       (typeof data.name === "string" && data.name.trim()) ||

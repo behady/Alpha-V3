@@ -27,6 +27,7 @@ import {
   ROLE_BASELINE,
   expandPermissions,
   holdsPermission,
+  sanitizePermissionList,
 } from "../src/lib/permissions";
 
 const REPO = new URL("..", import.meta.url).pathname;
@@ -278,6 +279,22 @@ assert.deepEqual(
 );
 // ...but "settings" (the sidebar link key) is a real catalogue id and survives.
 assert.ok(expandPermissions("Bookkeeper", ["settings"]).includes("settings"));
+
+// The save-time counterpart: an admin's ticks are stored verbatim — validated, de-duplicated,
+// sorted, and with NOTHING added. This is what makes unticking a baseline permission stick.
+// expandPermissions would fold the Dentist floor back under the save, so a cleared box would
+// clear on screen while the grant survived in the enforced map — the checkbox lying in the
+// opposite direction from the bug this layer exists to fix.
+assert.deepEqual(
+  sanitizePermissionList(["patients.edit", "finance.view", "patients.edit", 7, "patients.add"]),
+  ["patients.add", "patients.edit"],
+  "verbatim: validated and deduplicated, never expanded"
+);
+assert.deepEqual(sanitizePermissionList(null), []);
+assert.ok(
+  !sanitizePermissionList(["patients.add"]).includes("clinical.edit"),
+  "sanitize must never smuggle a baseline in"
+);
 
 assert.equal(holdsPermission("Admin", [], "patients.delete"), true, "Admin passes every check");
 assert.equal(holdsPermission("Receptionist", [], null), true, "a null permission is open to members");

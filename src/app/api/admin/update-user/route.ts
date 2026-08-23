@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
-import { clinicPermissionsPatch } from "@/lib/server/clinicPermissions";
+import { expandPermissions, sanitizePermissionList } from "@/lib/permissions";
 
 const ALLOWED_KEYS = new Set(["role", "isDentist", "permissions", "staffId"]);
 
@@ -132,16 +132,30 @@ export async function POST(request: Request) {
       userPatch[`clinicRoles.${clinicId}`] = patch.role;
     }
 
-    // The field firestore.rules reads. `permissions` above is the flat list the browser's guards
-    // consult; the rules have always looked up clinicPermissions[clinicId] instead, and nothing
-    // wrote it — so every rule that consulted it passed for everyone. Written here whenever either
-    // the ticked boxes or the role changes, because the stored value is the two combined.
-    if (clinicId && (patch.permissions !== undefined || patch.role !== undefined)) {
-      const effectiveRole =
-        (typeof patch.role === "string" && patch.role) ||
-        ((userData.clinicRoles as Record<string, string> | undefined)?.[clinicId] ?? null);
-      const granted = patch.permissions !== undefined ? patch.permissions : userData.permissions;
-      Object.assign(userPatch, clinicPermissionsPatch(clinicId, effectiveRole, granted));
+    // clinicPermissions[clinicId] is the list every check actually consults — the Firestore rules
+    // and the API routes both read it. The flat `permissions` and the staff document's copy are
+    // kept written to the same value so no screen ever shows a different answer than the one being
+    // enforced; three copies that could disagree is how the checkboxes spent years as decoration.
+    //
+    // Ticked boxes are stored VERBATIM (validated against the catalogue, nothing added). The first
+    // version folded the role's baseline back in on every save, which meant a baseline permission
+    // could never be unticked: the box cleared on screen and the grant survived in the map. The
+    // baseline belongs at seeding time, where it is the starting ticks — not under an admin's
+    // explicit decision. A role change without a permission edit still re-expands from the new
+    // role, because switching someone to Dentist SHOULD deal them the Dentist floor.
+    if (patch.permissions !== undefined) {
+      const verbatim = sanitizePermissionList(patch.permissions);
+      patch.permissions = verbatim;
+      userPatch.permissions = verbatim;
+      userPatch[`clinicPermissions.${clinicId}`] = verbatim;
+    } else if (patch.role !== undefined) {
+      const currentEffective =
+        (userData.clinicPermissions as Record<string, string[]> | undefined)?.[clinicId] ??
+        userData.permissions;
+      const expanded = expandPermissions(String(patch.role), currentEffective);
+      patch.permissions = expanded;
+      userPatch.permissions = expanded;
+      userPatch[`clinicPermissions.${clinicId}`] = expanded;
     }
 
     await userRef.update(userPatch);

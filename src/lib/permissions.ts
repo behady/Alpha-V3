@@ -115,6 +115,26 @@ export function expandPermissions(role: string | null | undefined, granted: unkn
 }
 
 /**
+ * An admin's ticked boxes, taken at their word: filtered to real catalogue ids, de-duplicated,
+ * stable-sorted — and nothing added.
+ *
+ * This is the save-time counterpart to expandPermissions, and the difference between them is the
+ * point. expandPermissions folds the role's baseline in, which is right when nobody has decided
+ * anything yet — seeding a new account, backfilling one that predates the permission system. It is
+ * wrong for an admin's explicit edit: re-adding the baseline under a save meant a baseline
+ * permission could never be unticked — the box cleared on screen and the grant survived in the
+ * enforced map, which is the checkbox lying in the other direction from the bug this whole layer
+ * exists to fix. Once a person edits the list, the list is the decision.
+ */
+export function sanitizePermissionList(granted: unknown): string[] {
+  const catalogue = new Set(getAllPermissionIds());
+  const explicit = Array.isArray(granted)
+    ? granted.filter((p): p is string => typeof p === "string" && catalogue.has(p))
+    : [];
+  return [...new Set(explicit)].sort();
+}
+
+/**
  * Does this person hold a permission, given their role and stored list?
  *
  * The single implementation behind every check that is not a Firestore rule. Mirrors
