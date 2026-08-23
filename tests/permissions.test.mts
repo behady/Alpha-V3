@@ -268,6 +268,17 @@ assert.ok(expandPermissions("Dentist", ["clinical.edit"]).filter((p) => p === "c
 assert.deepEqual(expandPermissions("Bookkeeper", ["access.finance"]), ["access.finance"]);
 assert.deepEqual(expandPermissions(null, null), []);
 
+// Grants from the retired catalogue — "finance.view", "settings.edit" and friends — match no check
+// anywhere and must not be copied forward forever. Real accounts in production carry them; the
+// backfill preview is where they surfaced. Dropping them changes nothing enforceable.
+assert.deepEqual(
+  expandPermissions("Bookkeeper", ["finance.view", "settings.edit", "access.finance", ""]),
+  ["access.finance"],
+  "retired ids must be filtered out of the stored list"
+);
+// ...but "settings" (the sidebar link key) is a real catalogue id and survives.
+assert.ok(expandPermissions("Bookkeeper", ["settings"]).includes("settings"));
+
 assert.equal(holdsPermission("Admin", [], "patients.delete"), true, "Admin passes every check");
 assert.equal(holdsPermission("Receptionist", [], null), true, "a null permission is open to members");
 assert.equal(holdsPermission("Receptionist", ["patients.add"], "patients.delete"), false);

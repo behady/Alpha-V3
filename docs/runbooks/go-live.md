@@ -132,6 +132,17 @@ simply written from now on, and the rules still ignore it until step 3.
 **Preview changes**. It lists every member of staff and exactly what they will be given. Read it,
 then press **Apply**. Nothing is written until you press Apply.
 
+**Ghost accounts come first.** The preview also lists, in red, every account that holds a role at
+the clinic but matches no staff record — staff deleted by older code that never took the role key
+back, test signups, duplicate documents. The first run against real data found four members of
+staff and twenty-four of these. They are invisible on every screen, yet each can sign in and read
+the whole clinic today, because read access follows the role alone. **Revoke access for all**
+takes this clinic's key back from them (role and permission map for this clinic only — their other
+clinics are untouched), re-verifying each against live data server-side, and never the caller's
+own account. Apply never backfills a ghost, so the order between revoke and apply cannot arm one —
+but revoke them anyway: the reads are already too much. If someone real appears in the red list,
+their staff record is missing — run the team repair, then preview again.
+
 The route behind it is `POST /api/admin/backfill-permissions`, scoped to the clinic you administer:
 it only ever writes the single `clinicPermissions.<thisClinic>` key, through a dotted path that
 merges rather than replacing, so an Admin of one clinic can neither read nor rewrite what someone

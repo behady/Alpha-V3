@@ -22,10 +22,14 @@ export async function POST(request: Request) {
       await db.collection(`clinics/${clinicId}/staff`).doc(staffId).delete();
     }
 
-    // 2. Remove clinicRole from root user doc
+    // 2. Remove clinicRole from root user doc — and the permission map that goes with it.
+    // clinicPermissions is what firestore.rules reads; leaving it behind is harmless for access
+    // (no role means no read and no blanket write) but it would resurrect the old grants intact
+    // if the person were ever re-invited, which is not what re-inviting means.
     const userRef = db.collection("users").doc(userId);
     await userRef.update({
-      [`clinicRoles.${clinicId}`]: FieldValue.delete()
+      [`clinicRoles.${clinicId}`]: FieldValue.delete(),
+      [`clinicPermissions.${clinicId}`]: FieldValue.delete(),
     });
 
     // We intentionally do NOT delete the global Auth user (adminAuth().deleteUser(uid))

@@ -42,11 +42,13 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
   const [resetTarget, setResetTarget] = useState<{ uid: string; name: string } | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [isResetting, setIsResetting] = useState(false);
+  type BackfillRow = { uid: string; name: string; email: string; role: string; willStore: string[] };
   const [backfill, setBackfill] = useState<{
     busy: boolean;
-    plan: { uid: string; name: string; role: string; willStore: string[] }[] | null;
+    plan: BackfillRow[] | null;
+    ghosts: BackfillRow[];
     done: number | null;
-  }>({ busy: false, plan: null, done: null });
+  }>({ busy: false, plan: null, ghosts: [], done: null });
 
   const totalAssignable = getAllPermissionIds().length;
 
@@ -84,6 +86,16 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
     backfillNext: isAr
       ? "الخطوة الأخيرة: انشر قواعد Firestore الآن."
       : "Last step: publish the Firestore rules now.",
+    backfillNothing: isAr ? "لا شيء ممنوح" : "nothing granted",
+    ghostTitle: isAr ? "حسابات قديمة ما زالت تحمل مفتاح العيادة" : "Old accounts still holding a key to this clinic",
+    ghostHelp: isAr
+      ? "هذه الحسابات تحمل دوراً في العيادة لكنها غير مرتبطة بأي موظف — غالباً موظفون محذوفون قديماً أو حسابات تجربة. يمكنها تسجيل الدخول وقراءة كل شيء الآن. اسحب الوصول منها قبل المتابعة. لن تُمنح صلاحيات كتابة أبداً من هنا."
+      : "These hold a role at the clinic but match no staff record — usually staff deleted by older code, or test accounts. They can sign in and READ everything right now. Revoke them before continuing. Apply never grants them anything.",
+    ghostRevoke: isAr ? "سحب الوصول من الكل" : "Revoke access for all",
+    ghostRevoked: isAr ? "تم سحب الوصول" : "Access revoked",
+    ghostReal: isAr
+      ? "لو أحدهم موظف حقيقي، شغّل إصلاح الفريق أولاً ثم أعد المعاينة."
+      : "If one of these is a real member of staff, run the team repair first, then preview again.",
     errorMsg: isAr ? "فشل التحديث" : "Update failed",
     resetBtnTitle: isAr ? "تغيير كلمة المرور" : "Direct Password Override",
     searchPlaceholder: isAr ? "بحث في الصلاحيات..." : "Search permissions...",
@@ -305,9 +317,37 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
       setBackfill({
         busy: false,
         plan: apply ? null : data.plan || [],
+        ghosts: data.ghosts || [],
         done: apply ? (data.written ?? 0) : null,
       });
       if (apply) showToast(`${txt.backfillDone}: ${data.written ?? 0}`, "success");
+    } catch (err) {
+      setBackfill((s) => ({ ...s, busy: false }));
+      showToast(err instanceof Error ? err.message : txt.errorMsg, "error");
+    }
+  };
+
+  /**
+   * Takes this clinic's key back from the listed ghost accounts. The server re-verifies each one
+   * against live data — still holds a role here, still matches no staff record, is not the caller —
+   * so a stale list cannot revoke a real member of staff. Re-previews afterwards so the panel
+   * shows the world as it now is.
+   */
+  const revokeGhosts = async () => {
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser || !clinicId || backfill.ghosts.length === 0) return;
+    setBackfill((s) => ({ ...s, busy: true }));
+    try {
+      const token = await firebaseUser.getIdToken();
+      const res = await fetch("/api/admin/backfill-permissions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ clinicId, revoke: backfill.ghosts.map((g) => g.uid) }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) throw new Error(data?.error || txt.errorMsg);
+      showToast(`${txt.ghostRevoked}: ${data.revoked ?? 0}`, "success");
+      await runBackfill(false);
     } catch (err) {
       setBackfill((s) => ({ ...s, busy: false }));
       showToast(err instanceof Error ? err.message : txt.errorMsg, "error");
@@ -348,6 +388,41 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
           <h4 className="text-sm font-black text-amber-900">{txt.backfillTitle}</h4>
           <p className="text-xs font-semibold text-amber-800/80 mt-1 leading-relaxed">{txt.backfillHelp}</p>
 
+          {/* The accounts that made this section necessary: they hold a role at the clinic, so
+              they can sign in and read everything, but they match no staff record — deleted staff
+              whose key was never taken back, test signups, duplicates. Apply never touches them;
+              the only offered action is taking the key back. */}
+          {backfill.ghosts.length > 0 && (
+            <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4">
+              <h5 className="text-xs font-black text-red-900">
+                {txt.ghostTitle} ({backfill.ghosts.length})
+              </h5>
+              <p className="text-[11px] font-semibold text-red-800/80 mt-1 leading-relaxed">{txt.ghostHelp}</p>
+              <div className="mt-3 max-h-48 overflow-y-auto rounded-lg border border-red-200 bg-white">
+                <table className="w-full text-xs">
+                  <tbody>
+                    {backfill.ghosts.map((row) => (
+                      <tr key={row.uid} className="border-b border-slate-100 last:border-0">
+                        <td className="px-3 py-2 font-bold text-slate-800 whitespace-nowrap">{row.name}</td>
+                        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{row.email}</td>
+                        <td className="px-3 py-2 text-slate-400 whitespace-nowrap">{row.role || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <button
+                type="button"
+                disabled={backfill.busy}
+                onClick={() => void revokeGhosts()}
+                className="mt-3 px-5 py-2.5 rounded-xl font-bold text-xs bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 transition-all"
+              >
+                {txt.ghostRevoke} ({backfill.ghosts.length})
+              </button>
+              <p className="text-[11px] font-semibold text-red-800/60 mt-2">{txt.ghostReal}</p>
+            </div>
+          )}
+
           {backfill.plan && backfill.plan.length > 0 && (
             <div className="mt-4 max-h-64 overflow-y-auto rounded-xl border border-amber-200 bg-white">
               <table className="w-full text-xs">
@@ -357,9 +432,15 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
                       <td className="px-3 py-2 font-bold text-slate-800 whitespace-nowrap">{row.name}</td>
                       <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{row.role}</td>
                       <td className="px-3 py-2 text-slate-600">
-                        {row.willStore.length === 0
+                        {/* An empty list is two opposite things depending on the role: an Admin
+                            consults no list at all, while an unknown role with nothing granted is
+                            exactly that — nothing. The first cut showed "bypasses every check" for
+                            both, which read as maximum access on accounts that have none. */}
+                        {row.role === "Admin"
                           ? (isAr ? "مدير — يتجاوز كل الصلاحيات" : "Admin — bypasses every check")
-                          : row.willStore.join(", ")}
+                          : row.willStore.length === 0
+                            ? `(${txt.backfillNothing})`
+                            : row.willStore.join(", ")}
                       </td>
                     </tr>
                   ))}

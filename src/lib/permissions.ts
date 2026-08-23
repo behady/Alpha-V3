@@ -27,6 +27,8 @@
  * `expandPermissions` never removes what someone was explicitly granted.
  */
 
+import { getAllPermissionIds } from "@/config/permissionsCatalog";
+
 /** The four roles the app assigns. Anything else is treated as having no baseline. */
 export const ROLES = ["Admin", "Dentist", "Assistant", "Receptionist"] as const;
 export type Role = (typeof ROLES)[number];
@@ -96,8 +98,14 @@ export const ROLE_BASELINE: Record<string, string[]> = {
  * and materialising one would leave a stale copy behind the first time the catalogue changed.
  */
 export function expandPermissions(role: string | null | undefined, granted: unknown): string[] {
+  // Only ids the catalogue actually offers. Old accounts carry grants from a retired catalogue —
+  // "finance.view", "settings.edit", "appointments.view" — which match no check anywhere and would
+  // otherwise be copied forward forever, making every permission list longer and less readable
+  // than the access it describes. Dropping them changes nothing enforceable: an id no rule and no
+  // guard ever compares against grants exactly as much absent as present.
+  const catalogue = new Set(getAllPermissionIds());
   const explicit = Array.isArray(granted)
-    ? granted.filter((p): p is string => typeof p === "string" && p.trim() !== "")
+    ? granted.filter((p): p is string => typeof p === "string" && catalogue.has(p))
     : [];
 
   if (role === "Admin") return [];
