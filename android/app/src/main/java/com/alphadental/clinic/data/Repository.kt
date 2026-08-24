@@ -146,6 +146,31 @@ object Repository {
     }
 
     /**
+     * Every appointment between two dates, inclusive, in diary order.
+     *
+     * A one-shot read rather than a listener: this feeds the printed day sheet,
+     * and a document that changed while it was being drawn would be a worse
+     * answer than one that is honestly a snapshot. Dates are zero-padded
+     * "yyyy-MM-dd", so a string range really is a date range — the same
+     * assumption loadLedgerRange rests on.
+     */
+    suspend fun loadAppointmentsBetween(
+        clinicId: String,
+        fromKey: String,
+        toKey: String,
+    ): List<Appointment> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val snap = appointments(clinicId)
+            .whereGreaterThanOrEqualTo("date", fromKey)
+            .whereLessThanOrEqualTo("date", toKey)
+            .get()
+            .await()
+
+        snap.documents
+            .map { it.toAppointment(pendingWrite = false) }
+            .sortedWith(compareBy({ it.date }, { it.minutes() }, { it.patientName }))
+    }
+
+    /**
      * Live appointments for one calendar day.
      *
      * MetadataChanges.INCLUDE is what lets the screen be honest. Without it the

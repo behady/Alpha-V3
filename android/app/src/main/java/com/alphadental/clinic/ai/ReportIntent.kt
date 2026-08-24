@@ -5,17 +5,31 @@ import java.util.Calendar
 import java.util.Locale
 
 /**
- * Understands "make me a finance PDF for last month" without spending an AI credit.
+ * Understands "make me a finance PDF for last month" and "pdf of this week's
+ * appointments" without spending an AI credit.
  *
- * Report generation is the one assistant job the phone can do entirely by
- * itself: the data is in Firestore, the PDF is drawn locally, and the request is
- * recognisable from a handful of words in either language. Everything this
- * parser does not recognise falls through to the server assistant unchanged, so
- * a miss costs nothing but the credit the question would have cost anyway.
+ * These are the two documents the phone can draw entirely by itself: the data is
+ * in Firestore and the PDF is rendered locally. Everything else falls through to
+ * the server assistant unchanged, so a miss costs nothing but the credit the
+ * question would have cost anyway.
+ *
+ * The parser must say what the report is ABOUT, not merely that a report was
+ * mentioned. An earlier version treated the bare word "pdf" — and later, any
+ * mention of a period — as proof that clinic money was wanted, so "can you make
+ * a pdf with this week appointments?" came back as a week of takings. There is
+ * no end to the list of things a PDF might be of, so the rule is inverted: a
+ * prompt is claimed only when it names one of the two subjects this file knows
+ * how to draw.
  */
 object ReportIntent {
 
-    /** One resolved request: the period to report on, inclusive. */
+    /** Which of the two documents the phone was asked for. */
+    enum class Kind { FINANCE, SCHEDULE }
+
+    /** One resolved request: what to draw, and the period to draw it for. */
+    data class Request(val kind: Kind, val period: Period)
+
+    /** A period to report on, inclusive at both ends. */
     data class Period(
         val from: String,
         val to: String,
@@ -25,53 +39,67 @@ object ReportIntent {
 
     private val FMT = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
-    private val REPORT_WORDS = listOf("pdf", "report", "تقرير", "تقارير")
+    /**
+     * Words that ask for a document rather than an answer. "Print tomorrow's
+     * schedule" wants the same thing "pdf of tomorrow's appointments" wants, and
+     * a printed sheet is the whole point of the feature for most of the clinic.
+     */
+    private val REPORT_WORDS = listOf(
+        "pdf", "report", "print", "printout",
+        "تقرير", "تقارير", "اطبع", "أطبع", "طباعة",
+    )
+
     private val FINANCE_WORDS = listOf(
         "finance", "financial", "money", "income", "revenue", "expense", "profit", "takings", "cash",
         "مالي", "مالية", "المالي", "الحسابات", "حسابات", "دخل", "الدخل", "مصروف", "مصاريف",
         "ايراد", "إيراد", "ارباح", "أرباح", "ربح", "تحصيل", "فلوس",
     )
 
-    /**
-     * Words that name a DIFFERENT document from the clinic's finance report.
-     *
-     * The only PDF this path can draw is money over a period, so a prompt about a
-     * prescription, a treatment plan or a patient's file has to fall through to
-     * the assistant untouched. Answering "make a PDF of Sara's prescription" with
-     * a month of clinic takings is worse than not answering it at all — and it
-     * used to, because "pdf" on its own was treated as proof that a finance
-     * report was wanted.
-     */
-    private val NOT_FINANCE_WORDS = listOf(
-        "prescription", "rx", "treatment plan", "x-ray", "xray", "radiograph",
-        "patient", "chart", "referral",
-        "روشتة", "روشته", "وصفة", "خطة", "خطه", "علاج", "اشعة", "أشعة",
-        "ملف", "سجل", "مريض", "مريضة", "تحويل",
+    private val SCHEDULE_WORDS = listOf(
+        "appointment", "appointments", "schedule", "booking", "bookings",
+        "agenda", "diary", "clinic day", "day sheet",
+        "مواعيد", "المواعيد", "موعد", "جدول", "الجدول", "حجز", "حجوزات", "اجندة", "أجندة",
     )
 
     /**
-     * Null when the prompt is not a finance-report request.
+     * Documents this file cannot draw, however the sentence is phrased.
      *
-     * A report word alone proves nothing — it has to be joined by money words or
-     * by a period ("last month"), and it must not name some other document. Every
-     * miss falls through to the server assistant unchanged, so being strict here
-     * costs at most the credit the question would have cost anyway; being loose
-     * cost the person the answer they actually asked for.
+     * A prescription for last month's patient would otherwise satisfy the period
+     * test and come back as a schedule. Naming one of these ends the matter: the
+     * assistant, which can explain where that document lives, gets the prompt.
      */
-    fun parse(prompt: String, now: Calendar = Calendar.getInstance()): Period? {
-        val lower = prompt.lowercase()
-        val wantsReport = REPORT_WORDS.any { it in lower }
-        if (!wantsReport) return null
+    private val NOT_OURS = listOf(
+        "prescription", "rx", "treatment plan", "x-ray", "xray", "radiograph", "referral",
+        "روشتة", "روشته", "وصفة", "خطة العلاج", "أشعة", "اشعة", "تحويل",
+    )
 
-        // Whatever else this is, it is not the clinic's money.
-        if (NOT_FINANCE_WORDS.any { it in lower }) return null
+    /**
+     * Null when the prompt is not one of the two reports the phone draws.
+     *
+     * Being strict here is deliberate: a false positive does not merely waste a
+     * credit, it hands back the wrong document and keeps doing so however the
+     * question is reworded.
+     */
+    fun parse(prompt: String, now: Calendar = Calendar.getInstance()): Request? {
+        val lower = prompt.lowercase()
+
+        if (REPORT_WORDS.none { it in lower }) return null
+        if (NOT_OURS.any { it in lower }) return null
 
         val period = findPeriod(lower, now)
-        val financey = FINANCE_WORDS.any { it in lower }
 
-        if (!financey && period == null) return null
+        // The schedule is checked first: "pdf of this week's appointments and what
+        // we took" is a day sheet with a money aside, not a ledger.
+        if (SCHEDULE_WORDS.any { it in lower }) {
+            return Request(Kind.SCHEDULE, period ?: today(now))
+        }
+        if (FINANCE_WORDS.any { it in lower }) {
+            return Request(Kind.FINANCE, period ?: thisMonth(now))
+        }
 
-        return period ?: thisMonth(now)
+        // A period on its own says when, never what. "Make a pdf for last month"
+        // is a question for the assistant, not a guess for this parser to make.
+        return null
     }
 
     private fun findPeriod(lower: String, now: Calendar): Period? {
@@ -82,8 +110,20 @@ object ReportIntent {
             cal.add(Calendar.DAY_OF_YEAR, -1)
             return Period(key(cal), key(cal), "yesterday", "أمس")
         }
+        if (listOf("tomorrow", "بكرة", "بكره", "غدا", "غداً").any { it in lower }) {
+            val cal = now.clone() as Calendar
+            cal.add(Calendar.DAY_OF_YEAR, 1)
+            return Period(key(cal), key(cal), "tomorrow", "بكرة")
+        }
         if (listOf("today", "اليوم", "النهارده", "النهاردة").any { it in lower }) {
             return Period(key(now), key(now), "today", "اليوم")
+        }
+        if (listOf("next week", "الاسبوع الجاي", "الأسبوع القادم", "الاسبوع القادم").any { it in lower }) {
+            val start = now.clone() as Calendar
+            start.add(Calendar.DAY_OF_YEAR, 1)
+            val end = now.clone() as Calendar
+            end.add(Calendar.DAY_OF_YEAR, 7)
+            return Period(key(start), key(end), "the next 7 days", "الأيام السبعة القادمة")
         }
         if (listOf("week", "اسبوع", "أسبوع", "الاسبوع", "الأسبوع").any { it in lower }) {
             val cal = now.clone() as Calendar
@@ -103,6 +143,10 @@ object ReportIntent {
         }
         return null
     }
+
+    /** The default for a schedule: the day in front of them. */
+    private fun today(now: Calendar): Period =
+        Period(FMT.format(now.time), FMT.format(now.time), "today", "اليوم")
 
     /** The default when someone just says "finance report": this month so far. */
     private fun thisMonth(now: Calendar): Period {
