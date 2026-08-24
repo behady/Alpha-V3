@@ -61,7 +61,7 @@ jobs:
         run: npm run --silent test:optout
       - name: Attendance geofence
         run: npm run --silent test:attendance
-      - name: Lint baseline (80 pre-existing errors, none added)
+      - name: Lint baseline (pre-existing errors only, none added)
         run: node scripts/check-lint-baseline.mjs
       # functions/ has no tests and no build step, so nothing else here would notice a syntax
       # error in it — and `firebase deploy --only functions` is run by hand, from a laptop,

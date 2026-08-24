@@ -1,5 +1,7 @@
 # Cloud Functions: one live bug, seven pieces of dead code
 
+> **Resolved 2026-08-24.** Both parts fixed — see the Resolution section at the end.
+
 Investigated 2026-08-24. **This file corrects an earlier version of itself** — the first pass
 reasoned from the repository alone and concluded that eight notification features were deployed and
 silently failing. The Firebase console showed otherwise: 13 functions are deployed, and the seven
@@ -78,3 +80,46 @@ threshold), and a quiet day produces none.
 - 20 exports in `index.js`, 13 functions deployed. Nothing in the repo records which is which, and
   the names differ enough that the mismatch is invisible without opening the console. A comment at
   the top of `index.js` naming the undeployed ones would have prevented the wrong conclusion above.
+
+
+---
+
+## Resolution (2026-08-24)
+
+**The seven dead exports and their private helpers are deleted.** `functions/index.js` went from
+715 lines to ~360, and its export list now matches the 13 functions actually deployed. An audit
+established which helpers were reachable only from the doomed exports before anything was cut; the
+`wapilotClient` require in particular *looks* deletable — two of its three names appear only inside
+the doomed handlers — but all three are still needed by the nightly report, and removing it would
+have broken the one function that was deployed. `whatsappMessageDefaults.js` stays as a file
+(`leadWelcome.js` and `marketingAutomations.js` both need it); only `index.js`'s require of it went.
+
+**The nightly report now reports on real clinics.** The audit found a second cause beneath the one
+recorded above: the job used `admin.firestore()`, which binds the conventional `"(default)"`
+database, while this project's database is literally named `"default"`. So it was querying paths
+that do not exist *in a database that does not exist* — two independent silent failures stacked on
+each other, which is why nothing ever errored.
+
+What changed, beyond the paths:
+
+- `getFirestore(admin.app(), "default")`, matching every module written after that discovery.
+- Iterates clinics the way `marketingAutomations.js` does, treating a missing `status` as Active.
+- Reads `clinics/{id}/ledger` and `clinics/{id}/appointments` filtered on the **`date` string**,
+  not a `createdAt` timestamp range — `date` is what the rest of the system treats as
+  authoritative, so a payment entered next morning for yesterday lands in the right report. This
+  also makes the nightly figure agree with the 21:00 evening digest, which queries the same way.
+- Owner number from `clinics/{id}/settings/whatsapp`, the path the Settings screen actually writes.
+- Storage path is `clinics/{id}/daily-reports/{date}/…`. The old path had no tenant in it, so two
+  clinics on one day wrote the same object and the second overwrote the first — handing one
+  practice's owner a link to another practice's patients.
+- Signed URL expiry cut from 7 days to 48 hours. The URL needs no authentication and the PDF names
+  every patient seen that day, so its lifetime *is* its access control.
+- One clinic failing no longer aborts the run for everyone after it.
+- **A clinic with no activity gets no message.** Reporting zeros reads as a measurement; a closed
+  Friday would look identical to a broken job, which is precisely how the old version hid.
+- The PDF carries the clinic's name, and tables that are capped now say "showing 80 of 95" instead
+  of silently disagreeing with the summary count above them.
+
+Still not done, and deliberately out of scope: nothing deletes old report PDFs (now N per day
+rather than one), the WhatsApp credentials are still process-wide rather than per clinic, and there
+is no `storage.rules` file, so the signed URL remains the only control on the object.

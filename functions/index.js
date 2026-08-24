@@ -1,4 +1,3 @@
-const { onDocumentCreated, onDocumentUpdated, onDocumentDeleted } = require("firebase-functions/v2/firestore");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { onRequest } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
@@ -10,11 +9,21 @@ if (!admin.apps.length) {
   admin.initializeApp();
 }
 
-const { mergeWhatsappTemplate, resolveWhatsappTemplate } = require("./whatsappMessageDefaults");
 const { sendWapilotWhatsApp, getWapilotConfig, normalizeToInternationalDigits } = require("./wapilotClient");
 
 /** IANA timezone for end-of-day reports (11:50 PM local cron). Override with CLINIC_TIMEZONE env. */
+const { getFirestore } = require("firebase-admin/firestore");
+
 const CLINIC_TIMEZONE = process.env.CLINIC_TIMEZONE || "Africa/Cairo";
+
+/**
+ * This project's Firestore database is literally named "default", not the conventional
+ * "(default)". `admin.firestore()` binds the latter — a database that does not exist here — and
+ * every query against it succeeds while matching nothing. That is precisely how this report ran
+ * nightly for months finding no data and reporting no error. Every module written after that was
+ * discovered uses this binding; the scheduled report never got the fix.
+ */
+const db = () => getFirestore(admin.app(), "default");
 
 const PDFMAKE_FONTS = {
   Roboto: {
@@ -26,34 +35,6 @@ const PDFMAKE_FONTS = {
 };
 pdfMake.setFonts(PDFMAKE_FONTS);
 pdfMake.setUrlAccessPolicy(() => false);
-
-/**
- * Writes an in-app notification-bell entry for staff.
- * @param {Object} eventContext - Contains { type }
- */
-async function sendAlert(title, body, eventContext, actionUrl = "") {
-  try {
-    await admin.firestore().collection("notifications").add({
-      title, body, eventType: eventContext.type, actionUrl,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(), read: false
-    });
-  } catch (error) {
-    console.error("Alert Error:", error);
-  }
-}
-
-// FORMATTER
-const formatApptMessage = (appt) => {
-  let msg = `👤 <b>Patient:</b> ${appt.patientName || 'Unknown'}\n`;
-  const phone = appt.phone || appt.patientPhone;
-  if (phone) msg += `📱 <b>Phone:</b> ${phone}\n`;
-  const service = appt.treatment || appt.service || appt.notes;
-  if (service) msg += `🦷 <b>Service:</b> ${service}\n`;
-  if (appt.doctor) msg += `👨‍⚕️ <b>Doctor:</b> ${appt.doctor}\n`;
-  msg += `📅 <b>Date:</b> ${appt.date}\n⏰ <b>Time:</b> ${appt.time}`;
-  if (appt.addedBy || appt.modifiedBy) msg += `\n\n✍️ <b>By:</b> ${appt.addedBy || appt.modifiedBy}`;
-  return msg;
-};
 
 // ==========================================
 // WAPILOT — see `wapilotClient.js` (same env contract as Next.js `src/lib/whatsapp.ts`)
@@ -107,22 +88,50 @@ function isLedgerDeleted(d) {
   return d.status === "deleted" || d.status === "cancelled";
 }
 
-function getReportDayBounds(now = new Date()) {
-  const zoned = DateTime.fromJSDate(now, { zone: CLINIC_TIMEZONE });
-  const dateLabel = zoned.toFormat("yyyy-MM-dd");
-  const start = DateTime.fromISO(dateLabel, { zone: CLINIC_TIMEZONE }).startOf("day");
-  const end = start.endOf("day");
-  return {
-    dateLabel,
-    startTs: admin.firestore.Timestamp.fromDate(start.toJSDate()),
-    endTs: admin.firestore.Timestamp.fromDate(end.toJSDate()),
-  };
+/**
+ * The clinics this job should report on.
+ *
+ * Same shape as marketingClinics() in marketingAutomations.js: read the whole collection and
+ * filter in memory, treating a missing `status` as Active so a clinic created before the field
+ * existed is not silently skipped. Carries the clinic document along, so the name is available
+ * without a second read.
+ */
+async function reportableClinics() {
+  const snap = await db().collection("clinics").get();
+  return snap.docs
+    .map((doc) => ({ id: doc.id, data: doc.data() || {} }))
+    .filter(({ data }) => !data.status || data.status === "Active");
+}
+
+/** The clinic's own name for the report header, falling back the way the other jobs do. */
+async function clinicNameFor(clinicId, clinicData) {
+  try {
+    const snap = await db().doc(`clinics/${clinicId}/settings/clinicProfile`).get();
+    const profile = snap.exists ? snap.data() || {} : {};
+    const fromProfile = typeof profile.clinicName === "string" ? profile.clinicName.trim() : "";
+    if (fromProfile) return fromProfile;
+  } catch (e) {
+    console.warn(`dailyClinicReport: clinicProfile unreadable for ${clinicId}`, e);
+  }
+  const fromClinic = typeof clinicData.name === "string" ? clinicData.name.trim() : "";
+  return fromClinic || "Clinic";
 }
 
 function renderPdfTableRows(rows, cols) {
   const header = cols.map((c) => ({ text: c.label, style: "tableHeader" }));
   const body = [header, ...rows.map((r) => cols.map((c) => String(r[c.key] ?? "")))];
   return body;
+}
+
+/**
+ * A caption that admits when the table below it is not the whole story.
+ *
+ * The tables are capped, but the Summary counts come from the untruncated arrays — so a busy day
+ * printed "Procedures logged: 95" above a table of 80 with nothing to explain the gap. One tenant
+ * rarely reached the cap; several will.
+ */
+function tableCaption(label, shown, total) {
+  return total > shown ? `${label} — showing ${shown} of ${total}` : label;
 }
 
 async function buildDailyClinicPdfBuffer(report) {
@@ -132,6 +141,9 @@ async function buildDailyClinicPdfBuffer(report) {
     pageMargins: [40, 50, 40, 50],
     content: [
       { text: "Daily Clinic Report", style: "title" },
+      // Which clinic. With one tenant this was obvious; with several, an unlabelled PDF forwarded
+      // or downloaded is indistinguishable from anyone else's.
+      { text: report.clinicName || "Clinic", style: "h2", margin: [0, 2, 0, 0] },
       { text: `Generated: ${report.generatedAt} (${CLINIC_TIMEZONE})`, style: "muted" },
       { text: `Report date: ${report.dateLabel}`, style: "muted", margin: [0, 0, 0, 16] },
       {
@@ -141,7 +153,7 @@ async function buildDailyClinicPdfBuffer(report) {
         ],
         margin: [0, 0, 0, 20],
       },
-      { text: "Completed appointments (same day)", style: "h2", margin: [0, 8, 0, 6] },
+      { text: tableCaption("Completed appointments (same day)", Math.min(60, report.completedAppts.length), report.completedAppts.length), style: "h2", margin: [0, 8, 0, 6] },
       {
         table: {
           widths: ["*", 70, "*", 70],
@@ -155,7 +167,7 @@ async function buildDailyClinicPdfBuffer(report) {
         layout: "lightHorizontalLines",
         margin: [0, 0, 0, 16],
       },
-      { text: "Cancelled appointments (same day)", style: "h2", margin: [0, 8, 0, 6] },
+      { text: tableCaption("Cancelled appointments (same day)", Math.min(60, report.cancelledAppts.length), report.cancelledAppts.length), style: "h2", margin: [0, 8, 0, 6] },
       {
         table: {
           widths: ["*", 70, "*", 70],
@@ -169,7 +181,7 @@ async function buildDailyClinicPdfBuffer(report) {
         layout: "lightHorizontalLines",
         margin: [0, 0, 0, 16],
       },
-      { text: "Procedures logged (ledger)", style: "h2", margin: [0, 8, 0, 6] },
+      { text: tableCaption("Procedures logged (ledger)", Math.min(80, report.procedures.length), report.procedures.length), style: "h2", margin: [0, 8, 0, 6] },
       {
         table: {
           widths: ["*", "*", 60],
@@ -197,14 +209,31 @@ async function buildDailyClinicPdfBuffer(report) {
   return pdfDoc.getBuffer();
 }
 
-async function runDailyClinicReportJob() {
-  const { dateLabel, startTs, endTs } = getReportDayBounds();
-  const generatedAt = DateTime.now().setZone(CLINIC_TIMEZONE).toFormat("yyyy-MM-dd HH:mm");
+/**
+ * One clinic's day, reported to that clinic's owner.
+ *
+ * This job was written when the system served a single practice, and never migrated. It read the
+ * ROOT `ledger`, `appointments` and `settings/whatsapp` — paths this database has never held,
+ * since everything lives under `clinics/{clinicId}/` — through `admin.firestore()`, which binds a
+ * database that does not exist here. Both mistakes fail the same silent way: the queries succeed
+ * and match nothing. So it ran every night at 23:50, found an empty clinic, rendered a PDF of
+ * zeros, and then returned early because the owner's number was read from the same empty root.
+ * Nobody was ever sent anything, and nothing ever errored.
+ *
+ * Now it walks the clinics and reports each one to its own owner. The shape follows eveningDigest
+ * in pushPhase1.js deliberately — same clinic enumeration, same `date` field, same cash-basis rule
+ * — so the nightly report and the 21:00 push cannot disagree about what the day earned.
+ */
+async function runDailyClinicReportForClinic(clinic, dateLabel, generatedAt) {
+  const clinicId = clinic.id;
 
-  const [ledgerSnap, apptSnap, settingsSnap] = await Promise.all([
-    admin.firestore().collection("ledger").where("createdAt", ">=", startTs).where("createdAt", "<=", endTs).get(),
-    admin.firestore().collection("appointments").where("date", "==", dateLabel).get(),
-    admin.firestore().collection("settings").doc("whatsapp").get(),
+  // Queried on the `date` string, not a createdAt range. `date` is the field the whole system
+  // treats as authoritative — a payment entered next morning for yesterday belongs to yesterday,
+  // and a createdAt window would file it under the wrong day or lose it between two reports.
+  const [ledgerSnap, apptSnap, waSnap] = await Promise.all([
+    db().collection(`clinics/${clinicId}/ledger`).where("date", "==", dateLabel).get(),
+    db().collection(`clinics/${clinicId}/appointments`).where("date", "==", dateLabel).get(),
+    db().doc(`clinics/${clinicId}/settings/whatsapp`).get(),
   ]);
 
   let income = 0;
@@ -245,7 +274,18 @@ async function runDailyClinicReportJob() {
   const completedAppts = apptRows.filter((r) => r.status === "Completed");
   const cancelledAppts = apptRows.filter((r) => r.status === "Cancelled");
 
+  // A clinic that saw nobody gets no message. Reporting zeros is worse than saying nothing: it
+  // reads as a measurement, and a closed Friday would look identical to a broken job — which is
+  // exactly how the old version hid for so long.
+  const hadActivity =
+    income !== 0 || expenses !== 0 || procedures.length > 0 || apptRows.length > 0;
+  if (!hadActivity) {
+    return { clinicId, skipped: "no activity" };
+  }
+
+  const clinicName = await clinicNameFor(clinicId, clinic.data);
   const report = {
+    clinicName,
     dateLabel,
     generatedAt,
     totals: { income, expenses, net: income - expenses },
@@ -260,29 +300,37 @@ async function runDailyClinicReportJob() {
   };
 
   const pdfBuffer = await buildDailyClinicPdfBuffer(report);
-  const bucket = admin.storage().bucket();
   const safeDay = dateLabel.replace(/[^0-9-]/g, "");
-  const filePath = `daily-reports/${safeDay}/Daily-Clinic-Report.pdf`;
-  const file = bucket.file(filePath);
+  // Clinic-prefixed. The old path was `daily-reports/{date}/Daily-Clinic-Report.pdf` with nothing
+  // identifying the tenant, so two clinics on one day wrote the same object and the second
+  // overwrote the first — handing one practice's owner a link to another practice's patients.
+  const filePath = `clinics/${clinicId}/daily-reports/${safeDay}/Daily-Clinic-Report.pdf`;
+  const file = admin.storage().bucket().file(filePath);
   await file.save(pdfBuffer, {
     contentType: "application/pdf",
-    metadata: { cacheControl: "private, max-age=0", contentDisposition: `attachment; filename="Daily-Clinic-Report-${safeDay}.pdf"` },
+    metadata: {
+      cacheControl: "private, max-age=0",
+      contentDisposition: `attachment; filename="Daily-Clinic-Report-${safeDay}.pdf"`,
+    },
   });
 
+  // 48 hours, not a week. The URL needs no authentication and the PDF carries every patient seen
+  // that day by name, so its lifetime is the whole of its access control — and a report is read
+  // the morning after or not at all.
   const [signedUrl] = await file.getSignedUrl({
     action: "read",
-    expires: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    expires: Date.now() + 48 * 60 * 60 * 1000,
   });
 
-  const waSettings = settingsSnap.exists ? settingsSnap.data() : {};
+  const waSettings = waSnap.exists ? waSnap.data() || {} : {};
   const ownerRaw = typeof waSettings.ownerNumber === "string" ? waSettings.ownerNumber.trim() : "";
   if (!ownerRaw) {
-    console.warn("dailyClinicReport: settings/whatsapp.ownerNumber missing; PDF uploaded only.");
-    return { report, signedUrl, ownerNotified: false };
+    console.warn(`dailyClinicReport: no ownerNumber for ${clinicId}; PDF stored, nobody notified.`);
+    return { clinicId, report, filePath, ownerNotified: false };
   }
 
   const summary = [
-    "📊 *Daily Clinic Report*",
+    `📊 *Daily Clinic Report* — ${clinicName}`,
     "",
     `📅 *Date:* ${dateLabel}`,
     "",
@@ -298,344 +346,45 @@ async function runDailyClinicReportJob() {
     signedUrl,
   ].join("\n");
 
-  try {
-    const docCaption = `Daily Clinic Report — ${dateLabel}`;
-    const docSent = await trySendWapilotDocument(ownerRaw, signedUrl, `Daily-Clinic-Report-${safeDay}.pdf`, docCaption);
-    if (!docSent) {
-      await sendWapilotWhatsApp(ownerRaw, summary);
-    }
-  } catch (e) {
-    console.error("dailyClinicReport: Wapilot notify failed", e);
-    throw e;
-  }
+  const docCaption = `Daily Clinic Report — ${clinicName} — ${dateLabel}`;
+  const docSent = await trySendWapilotDocument(
+    ownerRaw,
+    signedUrl,
+    `Daily-Clinic-Report-${safeDay}.pdf`,
+    docCaption
+  );
+  if (!docSent) await sendWapilotWhatsApp(ownerRaw, summary);
 
-  return { report, signedUrl, ownerNotified: true };
+  return { clinicId, report, filePath, ownerNotified: true };
 }
 
-/**
- * @param {string} patientId
- * @param {string} type - Template event: new | edit | cancel
- * @param {string} message - Outbound text (processed template)
- * @param {string} status - success | failed
- */
-async function logWhatsAppMessage(patientId, type, message, status) {
-  await admin.firestore().collection("whatsapp_logs").add({
-    patientId: patientId || null,
-    type,
-    message,
-    status,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
-}
+async function runDailyClinicReportJob() {
+  const dateLabel = DateTime.now().setZone(CLINIC_TIMEZONE).toFormat("yyyy-MM-dd");
+  const generatedAt = DateTime.now().setZone(CLINIC_TIMEZONE).toFormat("yyyy-MM-dd HH:mm");
+  const clinics = await reportableClinics();
 
-function pickPatientPhone(patient) {
-  if (!patient || typeof patient !== "object") return "";
-  const keys = ["phone", "phoneNumber", "phoneE164", "patientPhone", "mobile", "whatsapp", "whatsApp", "contactNumber", "telephone", "primaryPhone"];
-  for (const k of keys) {
-    const v = patient[k];
-    if (typeof v === "string" && v.trim()) return v.trim();
-  }
-  return "";
-}
-
-/** Same field names as patient; used when automation runs from appointment triggers but phone lives only on the appointment doc (legacy / imports). */
-function pickPhoneFromAppointment(appt) {
-  if (!appt || typeof appt !== "object") return "";
-  const keys = ["phone", "phoneNumber", "phoneE164", "patientPhone", "mobile", "whatsapp", "whatsApp", "contactNumber", "telephone", "primaryPhone"];
-  for (const k of keys) {
-    const v = appt[k];
-    if (typeof v === "string" && v.trim()) return v.trim();
-  }
-  return "";
-}
-
-/**
- * Resolve patient record from appointment payload.
- * Primary key: patientId. Fallback: exact patientName match (same behavior as manual reminder endpoint).
- * @param {Record<string, unknown>} apptData
- * @returns {Promise<{ patientId: string, patient: Record<string, unknown> }|null>}
- */
-async function resolvePatientFromAppointment(apptData) {
-  const db = admin.firestore();
-  const patientId = typeof apptData.patientId === "string" ? apptData.patientId.trim() : "";
-  if (patientId) {
-    const snap = await db.collection("patients").doc(patientId).get();
-    if (snap.exists) return { patientId, patient: snap.data() || {} };
-  }
-
-  const patientName = typeof apptData.patientName === "string" ? apptData.patientName.trim() : "";
-  if (!patientName) return null;
-
-  const byName = await db.collection("patients").where("name", "==", patientName).limit(1).get();
-  if (byName.empty) return null;
-  return { patientId: byName.docs[0].id, patient: byName.docs[0].data() || {} };
-}
-
-async function getClinicDisplayName() {
-  const db = admin.firestore();
-  const prof = await db.collection("settings").doc("clinicProfile").get();
-  if (prof.exists) {
-    const p = prof.data();
-    if (p && typeof p.clinicName === "string" && p.clinicName.trim()) return p.clinicName.trim();
-  }
-  const snap = await db.collection("settings").doc("clinic_info").get();
-  if (!snap.exists) return "Alpha Dental";
-  const c = snap.data();
-  if (c && typeof c.clinicName === "string" && c.clinicName.trim()) return c.clinicName.trim();
-  if (c && typeof c.name === "string" && c.name.trim()) return c.name.trim();
-  return "Alpha Dental";
-}
-
-async function computePatientBalanceLedger(patientId) {
-  const snap = await admin.firestore().collection("ledger").where("patientId", "==", patientId).get();
-  let billed = 0;
-  let paid = 0;
-  snap.forEach((doc) => {
-    const d = doc.data();
-    if (d.status === "deleted" || d.status === "cancelled") return;
-    if (d.type === "procedure") billed += Number(d.cost) || 0;
-    if (d.type === "payment") paid += Number(d.paid) || 0;
-  });
-  return billed - paid;
-}
-
-/**
- * Patient WhatsApp: uses `settings/whatsapp` templates (see `whatsappMessageDefaults.js` fallbacks) or custom Firestore text.
- * @param {Record<string, unknown>} apptData
- * @param {'new'|'edit'|'cancel'} logType
- */
-async function handlePatientWhatsAppFormatted(apptData, logType) {
-  try {
-    const settingsSnap = await admin.firestore().collection("settings").doc("whatsapp").get();
-    const settings = settingsSnap.exists ? settingsSnap.data() : {};
-
-    if (settings.isPatientAutomationEnabled !== true) {
-      console.warn(
-        "[patient WA] Skipped (appointment): enable 'Patient automation' in Settings → WhatsApp (settings/whatsapp.isPatientAutomationEnabled)."
-      );
-      return;
-    }
-
-    const template = resolveWhatsappTemplate(settings, logType);
-    if (!template) {
-      console.warn(`[patient WA] Skipped: template type "${logType}" is disabled in settings.`);
-      return;
-    }
-
-    const resolved = await resolvePatientFromAppointment(apptData);
-    if (!resolved) {
-      console.warn("[patient WA] Skipped: could not resolve patient by patientId or patientName.");
-      return;
-    }
-    const { patientId, patient } = resolved;
-    if (patient.whatsappOptOut === true) return;
-
-    let phone = pickPatientPhone(patient) || pickPhoneFromAppointment(apptData);
-    if (!phone) {
-      console.warn(
-        `[patient WA] Skipped (${logType}): no phone on patients/${patientId} (and none on appointment). Add a phone on the patient profile — both automation and /api/automation/reminders read from there.`
-      );
-      return;
-    }
-
-    const ownerForTestWarning =
-      typeof settings.ownerNumber === "string" ? settings.ownerNumber.trim() : "";
-    if (
-      ownerForTestWarning &&
-      normalizeToInternationalDigits(phone) === normalizeToInternationalDigits(ownerForTestWarning)
-    ) {
-      console.warn(
-        "[patient WA] Recipient digits match settings/whatsapp.ownerNumber. That is allowed. If this is also the phone logged into WhatsApp/Wapilot for this instance, some setups will not show API messages on that device—use a different test number to confirm automation."
-      );
-    }
-
-    const clinicName = await getClinicDisplayName();
-    const patientName = apptData.patientName || patient.name || "Unknown";
-    const doctor = apptData.doctor || "—";
-    const date = apptData.date || "—";
-    const time = apptData.time || "—";
-
-    const processed = mergeWhatsappTemplate(template, {
-      patient_name: patientName,
-      clinic_name: clinicName,
-      doctor,
-      date,
-      time,
-    });
-
+  const outcomes = [];
+  for (const clinic of clinics) {
     try {
-      await sendWapilotWhatsApp(phone, processed);
-      console.info(`[patient WA] sent ok type=${logType} patientId=${patientId}`);
-      await logWhatsAppMessage(patientId, logType, processed, "success");
-    } catch (err) {
-      console.error("Wapilot patient message failed:", err);
-      await logWhatsAppMessage(patientId, logType, processed, "failed");
+      outcomes.push(await runDailyClinicReportForClinic(clinic, dateLabel, generatedAt));
+    } catch (e) {
+      // One clinic's failure must not cost every other clinic its report. The previous version
+      // rethrew, which with a single tenant meant "the job failed" and now would mean "everyone
+      // after the first broken clinic gets nothing".
+      console.error(`dailyClinicReportToOwner failed for ${clinic.id}:`, e);
+      outcomes.push({ clinicId: clinic.id, error: String(e && e.message ? e.message : e) });
     }
-  } catch (error) {
-    console.error("handlePatientWhatsAppFormatted:", error);
   }
+
+  const sent = outcomes.filter((o) => o.ownerNotified).length;
+  const skipped = outcomes.filter((o) => o.skipped).length;
+  const failed = outcomes.filter((o) => o.error).length;
+  console.log(
+    `dailyClinicReportToOwner: ${clinics.length} clinic(s) — ${sent} sent, ${skipped} idle, ${failed} failed`
+  );
+  return outcomes;
 }
 
-/**
- * One-off patient receipt when a payment is posted to the ledger.
- * @param {Record<string, unknown>} ledgerData
- */
-async function handlePatientWhatsAppPayment(ledgerData) {
-  try {
-    const settingsSnap = await admin.firestore().collection("settings").doc("whatsapp").get();
-    const settings = settingsSnap.exists ? settingsSnap.data() : {};
-
-    if (settings.isPatientAutomationEnabled !== true) {
-      console.warn("[patient WA] Skipped (payment): patient automation not enabled in settings/whatsapp.");
-      return;
-    }
-
-    const template = resolveWhatsappTemplate(settings, "invoice");
-    if (!template) {
-      console.warn("[patient WA] Skipped (payment): invoice template disabled or missing.");
-      return;
-    }
-
-    const patientId = typeof ledgerData.patientId === "string" ? ledgerData.patientId : "";
-    if (!patientId) return;
-
-    const patientSnap = await admin.firestore().collection("patients").doc(patientId).get();
-    if (!patientSnap.exists) return;
-
-    const patient = patientSnap.data();
-    if (patient.whatsappOptOut === true) return;
-
-    const phone = pickPatientPhone(patient);
-    if (!phone) {
-      console.warn(`[patient WA] Skipped (payment): no phone on patients/${patientId}.`);
-      return;
-    }
-
-    const clinicName = await getClinicDisplayName();
-    const balance = await computePatientBalanceLedger(patientId);
-    const amount = Number(ledgerData.paid) || 0;
-    const patientName = typeof ledgerData.patientName === "string" && ledgerData.patientName.trim()
-      ? ledgerData.patientName
-      : (patient.name || "Unknown");
-    const description = String(ledgerData.description || "—");
-    const method = String(ledgerData.method || "—");
-
-    const processed = mergeWhatsappTemplate(template, {
-      patient_name: patientName,
-      amount: amount.toLocaleString("en-US"),
-      method,
-      description,
-      balance: balance.toLocaleString("en-US"),
-      clinic_name: clinicName,
-    });
-
-    try {
-      await sendWapilotWhatsApp(phone, processed);
-      await logWhatsAppMessage(patientId, "invoice", processed, "success");
-    } catch (err) {
-      console.error("Wapilot payment WhatsApp failed:", err);
-      await logWhatsAppMessage(patientId, "invoice", processed, "failed");
-    }
-  } catch (e) {
-    console.error("handlePatientWhatsAppPayment:", e);
-  }
-}
-
-// ----------------------------------------------------------------------
-// EVENT TRIGGERS (Supplying Context)
-// ----------------------------------------------------------------------
-
-exports.notifyDoctorOnNewAppointment = onDocumentCreated({ document: "appointments/{appointmentId}", database: "default" }, async (event) => {
-  const newAppt = event.data.data();
-  await sendAlert("New Booking | حجز جديد 📅", formatApptMessage(newAppt), {
-    type: "newAppointment",
-  }, `/patients/${newAppt.patientId}`);
-  await handlePatientWhatsAppFormatted(newAppt, "new");
-  return null;
-});
-
-exports.notifyDoctorOnUpdateAppointment = onDocumentUpdated({ document: "appointments/{appointmentId}", database: "default" }, async (event) => {
-  const before = event.data.before.data();
-  const after = event.data.after.data();
-
-  if (after.status === "Cancelled" && before.status !== "Cancelled") {
-    await sendAlert("Cancelled | إلغاء موعد ❌", formatApptMessage(after), { type: "cancellation" }, `/patients/${after.patientId}`);
-    await handlePatientWhatsAppFormatted(after, "cancel");
-  } else if (after.status === "Delayed" && before.status !== "Delayed") {
-    await sendAlert("Delayed | تأخير ⚠️", formatApptMessage(after), { type: "reschedule" }, `/patients/${after.patientId}`);
-    await handlePatientWhatsAppFormatted(after, "edit");
-  } else if (after.status !== "Cancelled" && (before.date !== after.date || before.time !== after.time)) {
-    await sendAlert("Rescheduled | إعادة جدولة 🔄", formatApptMessage(after), { type: "reschedule" }, `/patients/${after.patientId}`);
-    await handlePatientWhatsAppFormatted(after, "edit");
-  }
-  return null;
-});
-
-exports.notifyDoctorOnDeleteAppointment = onDocumentDeleted({ document: "appointments/{appointmentId}", database: "default" }, async (event) => {
-  const deletedAppt = event.data.data();
-  await sendAlert("Deleted | حذف موعد 🗑️", formatApptMessage(deletedAppt), { type: "appointmentDeleted" }, `/appointments`);
-  await handlePatientWhatsAppFormatted(deletedAppt, "cancel");
-  return null;
-});
-
-exports.notifyOnLowInventory = onDocumentUpdated({ document: "inventory/{itemId}", database: "default" }, async (event) => {
-  const before = event.data.before.data();
-  const after = event.data.after.data();
-  const threshold = Number(after.lowAlert) || 5;
-  if (Number(after.stock) <= threshold && Number(before.stock) > threshold) {
-    await sendAlert(
-      "Low Stock | نواقص المخزون ⚠️",
-      `📦 <b>Item:</b> ${after.name}\n📉 <b>Dropped to:</b> ${after.stock} ${after.unit}\n💡 <b>Threshold:</b> ${threshold}`,
-      { type: "lowInventory" },
-      `/inventory`
-    );
-  }
-  return null;
-});
-
-exports.notifyOnNewPayment = onDocumentCreated({ document: "ledger/{ledgerId}", database: "default" }, async (event) => {
-  const data = event.data.data();
-  if (data.type === 'payment' || data.type === 'expense') {
-    let msg = ``;
-    if(data.type === 'payment') msg += `👤 <b>Patient:</b> ${data.patientName || 'Unknown'}\n`;
-    if(data.type === 'expense') msg += `🔻 <b>Expense Logged</b>\n`;
-    
-    msg += `💰 <b>Amount:</b> ${data.paid || data.amount} EGP\n`;
-    if (data.method) msg += `💳 <b>Method:</b> ${data.method}\n`;
-    if (data.description) msg += `📝 <b>Note:</b> ${data.description}\n`;
-    if (data.addedBy) msg += `\n\n✍️ <b>By:</b> ${data.addedBy}`;
-
-    await sendAlert(data.type === 'payment' ? "Payment Received | تم الدفع 💵" : "Expense Logged | مصروف جديد 🔻", msg, {
-       type: "finance",
-    }, `/patients/${data.patientId}`);
-
-    if (data.type === "payment" && data.patientId) {
-      await handlePatientWhatsAppPayment(data);
-    }
-  }
-  return null;
-});
-
-exports.notifyOnClockIn = onDocumentCreated({ document: "attendance/{recordId}", database: "default" }, async (event) => {
-   const data = event.data.data();
-   if (data.type === 'clock_in' || data.type === 'clock_out') {
-      const title = data.type === 'clock_in' ? "Clock In | تسجيل حضور 🟢" : "Clock Out | تسجيل انصراف 🔴";
-      const msg = `👤 <b>Staff:</b> ${data.staffName}\n⌚ <b>Time:</b> ${data.time}\n📍 <b>Status:</b> ${data.status || 'On Time'}`;
-      
-      await sendAlert(title, msg, { type: "hr" }, '/reports');
-   }
-   return null;
-});
-// Add this to the very bottom of functions/index.js
-exports.notifyOnLabOrder = onDocumentCreated({ document: "lab_orders/{orderId}", database: "default" }, async (event) => {
-  const data = event.data.data();
-  const msg = `🦷 <b>New Lab Case Required</b>\n\n👤 <b>Patient:</b> ${data.patientName || 'Unknown'}\n👨‍⚕️ <b>Doctor:</b> ${data.doctorName || 'Unknown'}\n⚙️ <b>Procedure:</b> ${data.serviceName}\n💰 <b>Estimated Lab Fee:</b> ${data.labFee} EGP`;
-
-  await sendAlert("Lab Case Required 🔬", msg, { type: "lab" }, `/patients/${data.patientId}`);
-  return null;
-});
-
-/** Daily PDF clinic report → Firebase Storage signed URL → owner WhatsApp (settings/whatsapp.ownerNumber). */
 exports.dailyClinicReportToOwner = onSchedule(
   {
     schedule: "50 23 * * *",
@@ -674,7 +423,6 @@ exports.leadsDueToday = pushPhase1.leadsDueToday;
 exports.eveningDigest = pushPhase1.eveningDigest;
 
 const { handleMetaWebhook, retryPendingLeadEvents } = require("./metaLeads");
-const { getFirestore } = require("firebase-admin/firestore");
 
 /** Both Meta functions bind the named "default" database explicitly. */
 const metaDb = () => getFirestore(admin.app(), "default");

@@ -12,7 +12,10 @@
 
 import { spawnSync } from "node:child_process";
 
-const BASELINE = 80;
+// 80 → 78 on 2026-08-24, when the seven undeployed Cloud Functions exports and their private
+// helpers were deleted. Ratcheted rather than left slack: a baseline that stays above the real
+// count quietly re-admits two errors nobody asked for.
+const BASELINE = 78;
 
 const result = spawnSync("npx", ["eslint", ".", "--format", "json"], {
   encoding: "utf8",
