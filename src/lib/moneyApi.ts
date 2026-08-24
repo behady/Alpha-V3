@@ -15,6 +15,7 @@
  */
 
 import { auth } from "@/lib/firebase";
+import { CLINIC_INACTIVE_CODE } from "@/lib/clinicStatus";
 
 export class MoneyApiError extends Error {
   status: number;
@@ -33,6 +34,16 @@ export class MoneyApiError extends Error {
 /** True when the server refused because money has already been collected. */
 export function isHasPaymentsError(error: unknown): error is MoneyApiError {
   return error instanceof MoneyApiError && error.reason === "HAS_PAYMENTS";
+}
+
+/**
+ * True when the server refused because the clinic's subscription has lapsed, rather than because
+ * this person lacks a permission. Both are 403s and, until this existed, both reached the user as
+ * the same shrug. They need different words: one is "ask your admin", the other is "we need to
+ * renew", and a receptionist who is told the wrong one will go and bother the wrong person.
+ */
+export function isClinicInactiveError(error: unknown): error is MoneyApiError {
+  return error instanceof MoneyApiError && error.reason === CLINIC_INACTIVE_CODE;
 }
 
 async function authHeaders(): Promise<Record<string, string>> {

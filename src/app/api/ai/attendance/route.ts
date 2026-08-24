@@ -25,7 +25,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const requestedClinicId = url.searchParams.get("clinicId")?.trim() || undefined;
 
-  const authz = await requireStaffUser(request, requestedClinicId);
+  const authz = await requireStaffUser(request, requestedClinicId, { allowInactive: true });
   if (!authz.ok) return authz.response;
 
   try {

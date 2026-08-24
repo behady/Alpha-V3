@@ -33,7 +33,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "clinicId is required." }, { status: 400 });
     }
 
-    const authz = await requireStaffUser(req, clinicId);
+    const authz = await requireStaffUser(req, clinicId, { allowInactive: true });
     if (!authz.ok) return authz.response;
 
     const today = ymdInTimeZone(clinicTimeZone());

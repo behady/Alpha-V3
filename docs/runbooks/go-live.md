@@ -215,3 +215,72 @@ them — so the rules that consult them decide nothing: clinicPermissions
 It also asserts the collection→permission maps in `firestore.rules` match
 `COLLECTION_WRITE_PERMISSIONS` in `src/lib/permissions.ts`, since that decision is written down
 twice and only one copy is enforced.
+
+---
+
+# Third rollout — the expiry gate the money migration removed
+
+Nothing to publish and nothing to run. Deploy the app and it is in force.
+
+## What was wrong
+
+`firestore.rules` has checked whether a clinic is still entitled to write since before any of this
+work: `isClinicActive()` reads `status` and `expiresAt`, and `memberMayWrite` consults it on every
+member write. That check was correct and is still there.
+
+It governs writes the **browser** makes directly. The Admin SDK bypasses Firestore rules entirely —
+that is what it is for. So when payments, procedures and appointment deletes moved server-side to
+make the permission checkboxes real, they moved out from behind the expiry gate in the same commit.
+Nobody deleted the lock. The traffic started using a door that had never had one.
+
+The count at the time of the fix: 59 API routes, 37 writing through the Admin SDK, **4** that asked
+whether the clinic was active. `finance/ledger` was not one of the four. An expired clinic could go
+on taking payments indefinitely, and the only reason it had not happened yet is that no clinic had
+reached its expiry date.
+
+Two of those four were local copies that tested `status` alone. Both would have let a clinic whose
+`expiresAt` had passed delete freely — which is the exact gap that made the rules stop trusting
+`status` on its own. Both have been removed in favour of the shared decision.
+
+## How it works now
+
+`src/lib/clinicStatus.ts` holds the decision once. `requireStaffUser` applies it, so all 37 routes
+inherit it rather than each remembering. `ClinicContext` and the read-only banner read the same
+module, so the banner and the server cannot disagree.
+
+**It is opt-out, not opt-in.** A route is gated by existing; a read waives it with
+`allowInactive: true`. That direction is the whole point — an opt-in gate is one the next route
+will not have, which is precisely how this bug happened. The eleven current exemptions are pinned
+in `tests/permissions.test.mts`, so adding a twelfth requires editing that list and saying why.
+
+**Reads keep working.** Deliberately, and matching the rules, where `isClinicActive` is consulted
+from `memberMayWrite` and from no read grant. A clinic that stops paying keeps full read access to
+its own records. The alternative is holding a dentist's patient history hostage over an invoice,
+which is both wrong and, for medical records, probably not ours to do.
+
+**Superadmins are exempt**, because reactivating a lapsed clinic is done from the superadmin panel
+and a gate that locked them out would lock the clinic out permanently.
+
+**A clinic document that cannot be read counts as active.** By then the caller's role at that
+clinic is already established, so a missing document means the read failed — and denying every
+write in response would turn a degraded read into a total outage for a paying clinic, silently, at
+the worst possible moment.
+
+**A non-timestamp `expiresAt` does not expire the clinic.** This mirrors the rules'
+`!(expires is timestamp) || expires > request.time` guard. The server could parse an ISO string and
+deliberately does not: being stricter than the rules means the same write is allowed from the
+browser and refused by the route, which is the split-brain the shared module exists to prevent.
+
+## Checking it
+
+Set a clinic's `expiresAt` to a past date in the Firebase console (or its `status` to `Suspended`),
+then in that clinic:
+
+- Every screen still loads, and every record still reads. The red banner names which of the two it
+  is rather than saying "suspended or expired".
+- Taking a payment fails with *"This clinic's subscription has ended. Records stay readable, but
+  new entries are paused until it is renewed."* — not a raw permission error.
+- Recently Deleted still lists what is in the bin; Restore refuses. Seeing what you lost must not
+  depend on the subscription. Putting it back is a write.
+
+Put the field back afterwards.

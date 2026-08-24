@@ -75,7 +75,7 @@ export async function GET(request: Request) {
   const path = url.searchParams.get("path")?.trim() || "";
   if (!clinicId || !path) return bad("c and path are required", 400);
 
-  const authz = await requireStaffUser(request, clinicId);
+  const authz = await requireStaffUser(request, clinicId, { allowInactive: true });
   if (!authz.ok) return authz.response;
 
   if (!path.startsWith(`clinics/${clinicId}/marketing-cases/`) || path.includes("..")) {

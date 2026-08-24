@@ -27,7 +27,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ ok: false, error: "clinicId is required" }, { status: 400 });
     }
 
-    const auth = await requireStaffUser(request, clinicId);
+    const auth = await requireStaffUser(request, clinicId, { allowInactive: true });
     if (!auth.ok) return auth.response;
 
     const visible = Object.entries(BIN_COLLECTIONS)

@@ -28,6 +28,8 @@
     "test:delete": "npx tsx tests/deletePolicy.test.mjs",
     "_comment_test_recyclebin": "The recycle bin's boundaries. A server route bypasses firestore.rules entirely, so every limit the rules enforce is re-enforced here or it is gone: path escapes, audit trails, the Admin short-circuit, and a restore that never overwrites.",
     "test:recyclebin": "npx tsx tests/recycleBin.test.mjs",
+    "_comment_test_clinicstatus": "Does the server agree with firestore.rules about whether a clinic may still be written to? The rules gate browser writes; the Admin SDK routes bypass rules entirely, so the same decision has to exist in code or an expired clinic keeps taking payments through a route that never asked.",
+    "test:clinicstatus": "npx tsx tests/clinicStatus.test.mjs",
     "_comment_test_repair": "The historical payment repair's classifier. The assertions that matter most are the ones that refuse to touch a row whose commission was corrected by hand.",
     "test:repair": "npx tsx tests/repairClassifier.test.mjs",
     "_comment_test_discount": "Price lists and discounts. The two rules that matter: the lab fee is never discounted, and commission is calculated on the net.",

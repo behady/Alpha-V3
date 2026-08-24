@@ -77,17 +77,10 @@ export async function POST(request: Request) {
     const auth = await requireStaffUser(request, clinicId);
     if (!auth.ok) return auth.response;
 
-    // requireStaffUser proves membership; it does not check whether the clinic is still active.
-    // memberMayWrite in the rules does, so without this an expired or suspended clinic could
-    // delete through the route what the rules would refuse.
-    const clinicSnap = await adminDb().collection("clinics").doc(clinicId).get();
-    const clinic = clinicSnap.data();
-    if (!clinicSnap.exists || !clinic) {
-      return NextResponse.json({ ok: false, error: "Clinic not found" }, { status: 404 });
-    }
-    if ((clinic.status ?? "Active") !== "Active") {
-      return NextResponse.json({ ok: false, error: "This clinic is not active." }, { status: 403 });
-    }
+    // The active-clinic check used to live here, as a local copy. It read `status` only, so a
+    // clinic whose expiresAt had passed but whose status nobody had flipped still deleted freely
+    // — which is the exact gap that made isClinicActive in the rules stop trusting status alone.
+    // requireStaffUser now owns the decision for every route, using the same rule the rules use.
 
     // Validate EVERY item before touching anything. One bad item fails the whole request — a
     // partial delete driven by a malformed batch is the worst of both outcomes.

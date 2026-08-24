@@ -8,6 +8,7 @@ import { Clinic } from "@/types/saas";
 import { useRouter, usePathname } from "next/navigation";
 import { setGlobalClinicId } from "@/lib/db-utils";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { clinicActivity } from "@/lib/clinicStatus";
 
 interface ClinicContextType {
   clinicId: string | null;
@@ -15,6 +16,8 @@ interface ClinicContextType {
   role: 'Admin' | 'Dentist' | 'Assistant' | 'Receptionist' | null;
   isAdmin: boolean;
   isReadOnly: boolean;
+  /** Why, when isReadOnly — 'expired' or 'suspended'. Null when the clinic is active. */
+  readOnlyReason: 'expired' | 'suspended' | null;
   setClinicId: (id: string) => void;
 }
 
@@ -141,10 +144,18 @@ export function ClinicProvider({ children }: { children: React.ReactNode }) {
   const role = user?.isSuperAdmin ? 'Admin' : ((user && clinicId && user.clinicRoles) ? user.clinicRoles[clinicId] : null);
   const isAdmin = user?.isSuperAdmin ? true : role === 'Admin';
 
-  const isReadOnly = clinic ? (clinic.status !== 'Active' || (clinic.expiresAt && (clinic.expiresAt.toDate ? clinic.expiresAt.toDate() : new Date(clinic.expiresAt)) < new Date())) : false;
+  // The same decision the API routes and firestore.rules make, from the same module, so the banner
+  // cannot say one thing while a write says another. The hand-rolled version this replaces parsed
+  // `expiresAt` with `new Date(...)`, which accepts strings that the rules cannot read as
+  // timestamps — so a clinic with a stringly-typed expiry showed the red read-only banner while
+  // every write it attempted went through, which reads as the app being broken rather than as the
+  // subscription being over.
+  const activity = clinicActivity(clinic as unknown as Record<string, unknown> | null);
+  const isReadOnly = !activity.active;
+  const readOnlyReason = activity.active ? null : activity.reason;
 
   return (
-    <ClinicContext.Provider value={{ clinicId, clinic, role, isAdmin, isReadOnly, setClinicId }}>
+    <ClinicContext.Provider value={{ clinicId, clinic, role, isAdmin, isReadOnly, readOnlyReason, setClinicId }}>
       {/* We don't block render entirely here so that onboarding/login can still render, 
           but you might want to show a spinner if loading && user exists */}
       {loading && user && pathname !== '/onboarding' && pathname !== '/superadmin' && (user.isSuperAdmin || userClinicsLength(user) > 0) ? (

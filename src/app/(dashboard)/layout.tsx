@@ -33,7 +33,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const { t, toggleLanguage, language, isRTL } = useLanguage();
   const { user, loading: authLoading } = useAuth();
-  const { clinic, isAdmin, isReadOnly } = useClinic();
+  const { clinic, isAdmin, isReadOnly, readOnlyReason } = useClinic();
   const { appointmentsVisibility } = useUI();
   
   const [isOpen, setIsOpen] = useState(false);
@@ -285,9 +285,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
              <div className="bg-red-50 border-b border-red-200 px-4 py-3 flex items-center justify-center gap-3 z-50 shadow-sm relative">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-red-600"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                 <p className="text-red-800 font-bold text-sm md:text-base">
-                   {language === 'ar' 
-                      ? 'اشتراكك منتهي أو معلق. يرجى الاتصال بنا لاستعادة الصلاحيات. النظام حالياً في وضع القراءة فقط.' 
-                      : 'Your subscription is suspended or expired. Please contact us to restore full access. You are currently in read-only mode.'}
+                   {/* Which of the two it is, rather than both at once. "Suspended or expired"
+                       made the reader work out their own situation, and the two have different
+                       next steps — renewing versus asking why you were suspended. */}
+                   {readOnlyReason === 'suspended'
+                      ? (language === 'ar'
+                          ? 'تم تعليق هذه العيادة. السجلات ما زالت متاحة للقراءة، لكن الإضافات الجديدة متوقفة. يرجى الاتصال بنا.'
+                          : 'This clinic is suspended. Records are still readable, but new entries are paused. Please contact us.')
+                      : (language === 'ar'
+                          ? 'انتهى اشتراك هذه العيادة. السجلات ما زالت متاحة للقراءة، لكن الإضافات الجديدة متوقفة حتى التجديد.'
+                          : "This clinic's subscription has ended. Records are still readable, but new entries are paused until it is renewed.")}
                 </p>
              </div>
            )}

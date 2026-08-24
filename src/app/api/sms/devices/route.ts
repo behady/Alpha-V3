@@ -21,7 +21,7 @@ export async function GET(request: Request) {
   // (empty) device list, which read as "pairing is broken" when nothing was. Membership is
   // checked against the clinic actually asked for.
   const requested = new URL(request.url).searchParams.get("clinicId")?.trim() || "";
-  const admin = await requireAdminUser(request, requested || undefined);
+  const admin = await requireAdminUser(request, requested || undefined, { allowInactive: true });
   if (!admin.ok) return admin.response;
 
   try {

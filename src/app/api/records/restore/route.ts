@@ -47,10 +47,8 @@ export async function POST(request: Request) {
     const auth = await requireStaffUser(request, clinicId);
     if (!auth.ok) return auth.response;
 
-    const clinicSnap = await adminDb().collection("clinics").doc(clinicId).get();
-    if (!clinicSnap.exists || (clinicSnap.data()?.status ?? "Active") !== "Active") {
-      return NextResponse.json({ ok: false, error: "This clinic is not active." }, { status: 403 });
-    }
+    // Active-clinic check: owned by requireStaffUser above, for every route at once. The local
+    // copy that used to sit here tested `status` alone and let a date-expired clinic through.
 
     const entryRef = binEntry(entryId);
     const entrySnap = await entryRef.get();

@@ -125,7 +125,7 @@ export async function GET(request: Request) {
   if (!appointmentId) return bad("Which appointment?");
 
   const requestedClinicId = params.get("clinicId");
-  const authz = await requireStaffPermission(request, requestedClinicId || undefined, "appointments.delete");
+  const authz = await requireStaffPermission(request, requestedClinicId || undefined, "appointments.delete", { allowInactive: true });
   if (!authz.ok) return authz.response;
 
   let clinicId: string;

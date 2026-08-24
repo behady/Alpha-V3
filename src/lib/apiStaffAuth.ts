@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import { CLINIC_INACTIVE_CODE, clinicActivity } from "@/lib/clinicStatus";
 
 /**
  * Resolves the effective role for a user.
@@ -37,7 +38,25 @@ function resolveRole(data: Record<string, unknown>, clinicId?: string): string |
   return legacyRole;
 }
 
-export async function requireStaffUser(request: Request, clinicId?: string) {
+export type StaffAuthOptions = {
+  /**
+   * Let this call through even when the clinic's subscription has lapsed.
+   *
+   * Pass it for reads. A clinic that stops paying keeps full read access to its own records —
+   * that is what firestore.rules does (`isClinicActive` is consulted from `memberMayWrite`, not
+   * from any read grant), and the server has to match it or the two doors into the same database
+   * give different answers.
+   *
+   * The default is the other way round on purpose. A gate you have to remember to add is a gate
+   * that will be missing from the route somebody writes next year — which is precisely how the
+   * expiry check went absent from every money route: nobody removed it, the writes just moved to
+   * a path that had never had it. Defaulting to deny means a new route is gated by existing, and
+   * `allowInactive: true` is a decision somebody typed and can be grepped for.
+   */
+  allowInactive?: boolean;
+};
+
+export async function requireStaffUser(request: Request, clinicId?: string, options?: StaffAuthOptions) {
   const authHeader = request.headers.get("authorization") || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
   if (!token) {
@@ -54,6 +73,44 @@ export async function requireStaffUser(request: Request, clinicId?: string) {
     const role = resolveRole(data as Record<string, unknown>, clinicId);
     if (!role || role === "Patient") {
       return { ok: false as const, response: NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 }) };
+    }
+
+    // Stored as a boolean, but tolerate the string form firestore.rules also accepts.
+    const isSuperAdmin = data.isSuperAdmin === true || data.isSuperAdmin === "true";
+
+    // Is the clinic still entitled to be written to?
+    //
+    // firestore.rules has always asked this, and still does, for every write the browser makes
+    // directly. It cannot ask it for a write made here: the Admin SDK bypasses rules by design.
+    // So when payments, procedures and appointment deletes moved server-side to make the
+    // permission checkboxes real, they moved out from behind the expiry gate at the same time,
+    // and an expired clinic could go on taking money through a route that never asked.
+    //
+    // Asked once, here, rather than in each route, for the same reason the permission check lives
+    // here: 37 routes reach Firestore through the Admin SDK, and a rule that has to be repeated
+    // 37 times is a rule that is already wrong somewhere.
+    //
+    // Costs one document read per authed call that names a clinic. That is the price of the two
+    // doors agreeing, and it is only paid once per request rather than once per write.
+    //
+    // Superadmins are exempt: reactivating a lapsed clinic is done from the superadmin panel, so
+    // a gate that locked them out would lock the clinic out permanently.
+    if (clinicId && !options?.allowInactive && !isSuperAdmin) {
+      const clinicSnap = await adminDb().collection("clinics").doc(clinicId).get();
+      const activity = clinicActivity(clinicSnap.data() ?? null);
+      if (!activity.active) {
+        return {
+          ok: false as const,
+          response: NextResponse.json(
+            // `reason` carries the machine code across this codebase (see MoneyApiError), so the
+            // code goes there and the expired/suspended distinction gets its own field. Matching
+            // the existing convention matters more than the field being better named: a client
+            // that has to special-case one route's error shape will eventually not.
+            { ok: false, error: activity.message, reason: CLINIC_INACTIVE_CODE, clinicStatus: activity.reason },
+            { status: 403 }
+          ),
+        };
+      }
     }
     // The per-clinic map first — clinicPermissions[clinicId] is what firestore.rules enforces and
     // what User Management writes, so reading anything else here would let the API and the rules
@@ -74,7 +131,7 @@ export async function requireStaffUser(request: Request, clinicId?: string) {
       (typeof data.displayName === "string" && data.displayName.trim()) ||
       (typeof data.email === "string" && data.email.trim()) ||
       "Staff";
-    return { ok: true as const, uid: decoded.uid, role, permissions, name };
+    return { ok: true as const, uid: decoded.uid, role, permissions, name, isSuperAdmin };
   } catch (error) {
     console.error("requireStaffUser verifyIdToken failed", error);
     return { ok: false as const, response: NextResponse.json({ ok: false, error: "Invalid token" }, { status: 401 }) };
@@ -115,9 +172,10 @@ export async function requireAuthedUser(request: Request) {
 export async function requireStaffPermission(
   request: Request,
   clinicId: string | undefined,
-  permission: string
+  permission: string,
+  options?: StaffAuthOptions
 ) {
-  const staff = await requireStaffUser(request, clinicId);
+  const staff = await requireStaffUser(request, clinicId, options);
   if (!staff.ok) return staff;
   if (staff.role === "Admin") return staff;
   if (staff.permissions.includes(permission)) return staff;
@@ -130,8 +188,8 @@ export async function requireStaffPermission(
   };
 }
 
-export async function requireAdminUser(request: Request, clinicId?: string) {
-  const staff = await requireStaffUser(request, clinicId);
+export async function requireAdminUser(request: Request, clinicId?: string, options?: StaffAuthOptions) {
+  const staff = await requireStaffUser(request, clinicId, options);
   if (!staff.ok) return staff;
   if (staff.role !== "Admin") {
     return {

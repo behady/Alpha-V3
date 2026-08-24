@@ -367,8 +367,104 @@ for (const [name, rule] of Object.entries(BIN_COLLECTIONS)) {
   }
 }
 
+// --- the expiry gate ------------------------------------------------------------------------------
+//
+// firestore.rules has checked whether a clinic is still active since long before the money writes
+// moved server-side. It checks it for writes the BROWSER makes. The Admin SDK bypasses rules
+// entirely, so the moment payments and procedures moved into routes, they left that gate behind —
+// not because anyone deleted it, but because the traffic changed doors. An expired clinic went on
+// taking money through a route that never asked.
+//
+// These assertions exist so that cannot happen again quietly.
+
+const authSource = readFileSync(join(REPO, "src/lib/apiStaffAuth.ts"), "utf8");
+
+// The gate lives in the shared helper, not in each route: 37 routes reach Firestore through the
+// Admin SDK, and a rule repeated 37 times is a rule already wrong in one of them.
+assert.ok(
+  authSource.includes("clinicActivity("),
+  "apiStaffAuth no longer consults clinicActivity — every Admin-SDK route just lost its expiry check"
+);
+assert.ok(
+  authSource.includes("options?.allowInactive"),
+  "apiStaffAuth no longer honours allowInactive — read routes will refuse a lapsed clinic its own records"
+);
+
+// It must be opt-OUT. A gate you have to remember to add is a gate the next route will not have.
+assert.ok(
+  /if \(clinicId && !options\?\.allowInactive/.test(authSource),
+  "the clinic check must default to on and be waived explicitly, not the reverse"
+);
+
+// Every route that opts out, pinned. Adding a route to this list should take an edit here, so that
+// exempting a WRITE from the expiry gate is a decision somebody made on purpose and can defend —
+// the failure mode being a single `allowInactive: true` pasted onto a payment route because it was
+// next to a read.
+const ALLOWED_INACTIVE = [
+  "ai/attendance/route.ts",        // GET: today's attendance, read
+  "ai/daily-briefing/route.ts",    // GET: the day's own schedule, read
+  "ai/reactivation/route.ts",      // POST by name, but computes over clinic data and writes nothing
+  "ai/recalls/route.ts",           // GET: who is due, read
+  "ai/revenue-recovery/route.ts",  // POST by name, writes nothing
+  "appointments/delete/route.ts",  // GET: the delete PREVIEW. The POST that deletes is gated.
+  "appointments/free-slots/route.ts", // POST by name, a query
+  "marketing/cases/route.ts",      // GET: the case library, read
+  "message-drafts/route.ts",       // GET: drafts, read
+  "records/bin/route.ts",          // GET: what is in the bin. Seeing what you lost must never
+                                   // depend on the subscription; restoring it does.
+  "sms/devices/route.ts",          // GET: paired devices, read
+];
+
+const apiDir = join(REPO, "src/app/api");
+function walkRoutes(dir: string): string[] {
+  const out: string[] = [];
+  for (const name of readdirSync(dir)) {
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) out.push(...walkRoutes(full));
+    else if (name === "route.ts") out.push(full);
+  }
+  return out;
+}
+const optedOut = walkRoutes(apiDir)
+  .filter((file) => readFileSync(file, "utf8").includes("allowInactive"))
+  .map((file) => file.slice(apiDir.length + 1))
+  .sort();
+
+assert.deepEqual(
+  optedOut,
+  [...ALLOWED_INACTIVE].sort(),
+  "a route's expiry exemption changed. If this is a read, add it to ALLOWED_INACTIVE with the reason. If it writes, it must not be exempt."
+);
+
+// The three routes the whole migration was about must never be exempt, whatever else changes.
+for (const money of ["finance/ledger", "clinical/procedures"]) {
+  const text = readFileSync(join(apiDir, money, "route.ts"), "utf8");
+  assert.ok(
+    !text.includes("allowInactive"),
+    `${money} must stay behind the expiry gate — an expired clinic taking payments is the bug this fixed`
+  );
+}
+// appointments/delete is exempt only on its GET preview; the POST that actually deletes is not.
+const deleteRoute = readFileSync(join(apiDir, "appointments/delete/route.ts"), "utf8");
+assert.equal(
+  (deleteRoute.match(/allowInactive/g) || []).length,
+  1,
+  "appointments/delete may exempt only its GET preview, never the POST that deletes"
+);
+
+// Nobody should be hand-rolling this decision again. The two local copies that existed read
+// `status` alone and let a date-expired clinic delete freely, which is why they were removed.
+for (const file of walkRoutes(apiDir)) {
+  const text = readFileSync(file, "utf8");
+  assert.ok(
+    !/\.status\s*\?\?\s*["']Active["']/.test(text),
+    `${file.slice(apiDir.length + 1)} tests clinic status by hand — use the shared gate, which also checks expiresAt`
+  );
+}
+
 console.log(
   `✓ permissions: ${ids.length} catalogue ids, ${enforced.size} enforced in code, ` +
     `${excluded.size} collections held out of the blanket write grant, ` +
-    `${readFromUserDoc.size} user-doc fields read by the rules and written by the server`
+    `${readFromUserDoc.size} user-doc fields read by the rules and written by the server, ` +
+    `${optedOut.length} routes exempt from the expiry gate`
 );
