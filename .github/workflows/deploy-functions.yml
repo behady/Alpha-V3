@@ -39,9 +39,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # functions/package.json pins node 24 in engines; the deploy must match or firebase-tools
-          # refuses, and a mismatch here is a confusing failure rather than an obvious one.
-          node-version: 24
+          # Matches functions/package.json engines. Cloud Functions supports 20 and 22 only —
+          # the file asked for 24 for three weeks, which made `firebase deploy --only functions`
+          # fail on the spot for anyone who tried it, by any route.
+          node-version: 22
           cache: npm
           cache-dependency-path: functions/package-lock.json
 
