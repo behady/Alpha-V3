@@ -33,20 +33,43 @@ object ReportIntent {
     )
 
     /**
-     * Null when the prompt is not a report request. "pdf" alone is enough;
-     * "report" needs finance words or a period with it, so "report on this
-     * patient" still goes to the assistant that can actually answer it.
+     * Words that name a DIFFERENT document from the clinic's finance report.
+     *
+     * The only PDF this path can draw is money over a period, so a prompt about a
+     * prescription, a treatment plan or a patient's file has to fall through to
+     * the assistant untouched. Answering "make a PDF of Sara's prescription" with
+     * a month of clinic takings is worse than not answering it at all — and it
+     * used to, because "pdf" on its own was treated as proof that a finance
+     * report was wanted.
+     */
+    private val NOT_FINANCE_WORDS = listOf(
+        "prescription", "rx", "treatment plan", "x-ray", "xray", "radiograph",
+        "patient", "chart", "referral",
+        "روشتة", "روشته", "وصفة", "خطة", "خطه", "علاج", "اشعة", "أشعة",
+        "ملف", "سجل", "مريض", "مريضة", "تحويل",
+    )
+
+    /**
+     * Null when the prompt is not a finance-report request.
+     *
+     * A report word alone proves nothing — it has to be joined by money words or
+     * by a period ("last month"), and it must not name some other document. Every
+     * miss falls through to the server assistant unchanged, so being strict here
+     * costs at most the credit the question would have cost anyway; being loose
+     * cost the person the answer they actually asked for.
      */
     fun parse(prompt: String, now: Calendar = Calendar.getInstance()): Period? {
         val lower = prompt.lowercase()
         val wantsReport = REPORT_WORDS.any { it in lower }
         if (!wantsReport) return null
 
+        // Whatever else this is, it is not the clinic's money.
+        if (NOT_FINANCE_WORDS.any { it in lower }) return null
+
         val period = findPeriod(lower, now)
         val financey = FINANCE_WORDS.any { it in lower }
-        val explicitPdf = "pdf" in lower
 
-        if (!explicitPdf && !financey && period == null) return null
+        if (!financey && period == null) return null
 
         return period ?: thisMonth(now)
     }
