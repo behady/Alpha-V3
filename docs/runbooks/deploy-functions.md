@@ -113,7 +113,23 @@ one, or you will watch the same error twice.
 
 **Firebase console → Functions.** The list should match the exports in `functions/index.js` and its
 siblings. After the 2026-08-24 cleanup that is 13 functions; the seven `notify*` names should be
-gone.
+gone. They were never deployed in the first place — the 2026-08-24 deploy ran with `--force`, which
+would have deleted them, and removed nothing.
+
+**Cloud Scheduler → Jobs**, at
+`https://console.cloud.google.com/cloudscheduler?project=alpha-v2-ffc98`. There should be **nine**
+jobs, one per `onSchedule` export, named `firebase-schedule-<functionName>-us-central1`.
+
+Check this specifically after any deploy that previously failed at the schedule step, because the
+next deploy will not necessarily retry it. `firebase deploy` skips functions whose source is
+unchanged — `Skipped (No changes detected)` — and that comparison looks at the deployed *function*,
+not at whether its Cloud Scheduler job exists. So a run that fails only on schedules leaves the
+functions looking current; the run after it skips them, reports `Deploy complete!`, and the timers
+are still missing. A green log is not evidence the schedules exist. The list of nine jobs is.
+
+If they are missing, force a real redeploy by changing a byte inside `functions/` — the skip is
+keyed on a hash of that directory, so any edit there (a comment, a version bump in
+`functions/package.json`) makes all thirteen deploy again and re-upserts every schedule.
 
 Then wait for a scheduled job to fire and look at its logs:
 
