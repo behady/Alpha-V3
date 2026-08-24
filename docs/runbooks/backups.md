@@ -6,7 +6,16 @@ in the Google Cloud console, and both are storage-priced: for a database this si
 month. (The project must be on the Blaze pay-as-you-go plan, which it already is if Cloud
 Functions run.)
 
-Note for every step: this project's database is literally named `default` — not the usual
+Two things to get right before clicking anything:
+
+**Which project.** It is `alpha-v2-ffc98` — despite the name. The v2 label is a leftover: this
+project was kept and v3 built inside it, with old per-clinic v2 projects migrated in as tenants
+(see `src/components/superadmin/MigrateTab.tsx`). `scripts/connect-meta-page.mjs` points its live
+Meta webhook at `alpha-v2-ffc98.cloudfunctions.net`, which is the giveaway. Confirm against
+`NEXT_PUBLIC_FIREBASE_PROJECT_ID` in Vercel — that variable is what the live app actually talks
+to, and is the only authoritative answer.
+
+**Which database.** This project's database is literally named `default` — not the usual
 `(default)`. Pick the one named exactly `default` wherever a database has to be chosen.
 
 ## The two switches (about 5 minutes)
