@@ -63,6 +63,16 @@ jobs:
         run: npm run --silent test:attendance
       - name: Lint baseline (80 pre-existing errors, none added)
         run: node scripts/check-lint-baseline.mjs
+      # functions/ has no tests and no build step, so nothing else here would notice a syntax
+      # error in it — and `firebase deploy --only functions` is run by hand, from a laptop,
+      # against production. A parse check is the cheapest possible floor: it cannot catch a wrong
+      # Firestore path, but it stops an unparseable file from ever reaching a deploy.
+      - name: Cloud Functions parse check
+        run: |
+          for f in functions/*.js; do
+            node --check "$f" || exit 1
+          done
+          echo "all functions/*.js parse"
 
   rules:
     name: Firestore rules in the emulator
