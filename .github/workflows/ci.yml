@@ -1,0 +1,105 @@
+# Every push gets the same inspection the go-live got by hand: the unit suites, the Firestore
+# rules against a real emulator, the typecheck, a production build, and the lint baseline.
+#
+# The rules suite is the one that matters most here. Firestore rules OR together, so a collection
+# quietly dropped from the blanket-write exclusion chain becomes writable by every clinic member
+# while its own "deny" block keeps decorating the file — a mistake that is invisible in review and
+# was live in production twice. tests/permissions.test.mts and tests/firestore.rules.test.mjs both
+# exist to catch exactly that class of change, and they only protect anything if they run on every
+# push, not just in the session that wrote them.
+#
+# tests/migration.test.mts and tests/backupImport.test.mts are NOT run: they need Auth and Storage
+# emulators that firebase.json does not configure, and they fail identically on a clean checkout.
+# Wire those emulators up and they can join the rules job.
+
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Unit suites, typecheck, lint baseline
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit -p tsconfig.json
+      - name: Permissions catalogue + rules drift checks
+        run: npm run --silent test:permissions
+      - name: Ledger arithmetic
+        run: npm run --silent test:ledger
+      - name: Delete policy
+        run: npm run --silent test:delete
+      - name: Payment repair classifier
+        run: npm run --silent test:repair
+      - name: Discount math
+        run: npm run --silent test:discount
+      - name: Appointment conflicts
+        run: npm run --silent test:conflicts
+      - name: Revenue recovery
+        run: npm run --silent test:recovery
+      - name: Payment dues
+        run: npm run --silent test:dues
+      - name: SMS cost
+        run: npm run --silent test:sms
+      - name: SMS schedule
+        run: npm run --silent test:sms-schedule
+      - name: Patient messaging opt-outs
+        run: npm run --silent test:optout
+      - name: Attendance geofence
+        run: npm run --silent test:attendance
+      - name: Lint baseline (80 pre-existing errors, none added)
+        run: node scripts/check-lint-baseline.mjs
+
+  rules:
+    name: Firestore rules in the emulator
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci
+      - name: Rules suite (109 assertions)
+        run: npm run --silent test:rules
+
+  build:
+    name: Production build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: next build
+        run: npm run build
+        env:
+          # Placeholders: NEXT_PUBLIC_* values are inlined at build time, so the build needs
+          # SOMETHING here — but CI only proves the code compiles. The real values live in
+          # Vercel, which does the deployed build.
+          NEXT_PUBLIC_FIREBASE_API_KEY: ci-placeholder
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ci-placeholder
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ci-placeholder
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ci-placeholder
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ci-placeholder
+          NEXT_PUBLIC_FIREBASE_APP_ID: ci-placeholder
