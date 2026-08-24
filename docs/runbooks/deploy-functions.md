@@ -25,6 +25,8 @@ GitHub needs a key that lets it deploy on your behalf. This is all browser work.
   - **Artifact Registry Writer** — functions are built into container images, which are stored here
   - **Firebase Admin SDK Administrator Service Agent**
   - **Firebase Extensions Viewer** — see below; not obvious, and the deploy fails without it
+  - **Cloud Scheduler Admin** — the scheduled functions' timers live in Cloud Scheduler, a
+    separate service; without this the code deploys and only the nine `onSchedule` exports fail
 
 > **Why an Extensions role for a functions deploy.** Part-way through, `firebase deploy --only
 > functions` lists the project's extension instances — it needs to know which deployed functions
@@ -78,7 +80,9 @@ Add `--force` only when the deploy is meant to delete functions; without it the 
 
 ## When a deploy fails
 
-Two failures worth recognising, both hit on the first real run of this workflow:
+Three failures worth recognising, all three hit on the first real runs of this workflow. Each
+was a wall behind a wall: fixing one revealed the next, because the deploy only reaches a step
+once the step before it passes.
 
 **`Detected node engine 24 in package.json, which is not a supported version.`**
 Cloud Functions supports Node 20 and 22 only. Whatever `functions/package.json` says under
@@ -86,6 +90,17 @@ Cloud Functions supports Node 20 and 22 only. Whatever `functions/package.json` 
 
 **`Request to firebaseextensions.googleapis.com/... had HTTP Error: 403`**
 The deploying service account is missing **Firebase Extensions Viewer**. See the role list above.
+
+**`Failed to upsert schedule function <name> in region us-central1`, repeated for every scheduled
+function.**
+The deploying service account is missing **Cloud Scheduler Admin** (specifically
+`cloudscheduler.jobs.update`). This one is easy to misread as a code failure, because it comes
+*after* a successful build: the log shows every function uploaded and even prints the HTTP
+function's URL, then fails at the end. Nothing is wrong with the code. A function defined with
+`onSchedule` is two things — a container Cloud Functions runs, and a Cloud Scheduler job that
+pokes it on a cron. The first half succeeded; the second half had no permission. Document triggers
+and HTTP functions in the same deploy go through fine, which is why only the nine scheduled names
+are listed.
 
 A general rule for this workflow: read the LAST error line, not the warnings above it. A firebase
 deploy prints a lot of deprecation noise that is not the failure — the `Error:` line is.
