@@ -72,6 +72,42 @@ weekly retained 14 weeks** — 21 snapshots instead of 30, covering three and a 
 of one, at about two-thirds the cost. Daily-for-30 is the simpler thing to reason about, which is
 why it is the recommendation.
 
+## "Would restoring drag every clinic back in time?"
+
+No. This is the question worth being sure about before selling to a second clinic, and the answer
+rests on one fact: **a restore never overwrites the live database.** Both recovery paths produce a
+*separate copy* alongside it.
+
+    live database  ──────────────────────────────────────►  keeps running, all clinics, untouched
+                          │
+                          └── restore / clone ──►  a NEW database, frozen at the chosen moment
+
+Nobody is logged out. No other clinic notices anything. The restored copy is just a second
+database sitting in the project that you can read from.
+
+Recovery then means **copying back only the damaged clinic's documents** from that copy into the
+live database. Everything in this system lives under `clinics/{clinicId}/…` — that layout, chosen
+for tenancy isolation, is exactly what makes per-clinic recovery possible: one clinic's subtree
+can be lifted out and written back without touching a single document belonging to anyone else.
+
+The same is true of the PITR path, without even making a copy: a *stale read* asks the live
+database "what did these documents look like at 14:32 yesterday?", and the answer is written back
+to just those documents. Reads at a past timestamp are non-destructive by construction — the rest
+of the database, and every other clinic, carries on at the present moment throughout.
+
+So the honest shape of a bad day:
+
+| | Blast radius |
+|---|---|
+| Taking the backup / clone | none — nothing in the live database changes |
+| Reading the damaged clinic's old data | none — reads only |
+| Writing the repaired documents back | exactly the documents named, in one clinic |
+
+**What does not exist yet is the copy-back tool.** The mechanism is sound and the data layout
+supports it; nobody has written and tested the script that walks one clinic's subtree from a
+restored copy into the live database. Until that exists, the copy-back is hand-guided work. Worth
+building before the second paying clinic, not before the first.
+
 ## If disaster ever comes
 
 Do not attempt a restore alone under stress — open a Claude session on this repo and say what
@@ -83,8 +119,10 @@ For the record, the shape of each path:
 
 - **PITR repair** (damage less than 7 days old, scoped): read the affected documents at a
   timestamp before the damage and write them back. Finest instrument, shortest reach.
-- **Backup restore** (older or total): Disaster recovery tab → Backups → Restore → into a new
-  database → verify → copy data back into `default`.
+- **Backup restore** (older than 7 days, or total loss): Disaster recovery tab → Backups →
+  Restore → into a NEW database → verify the copy looks right → copy the affected clinic's
+  subtree back into `default`. The new database can be deleted once the repair is confirmed;
+  keep it until then.
 
 ## The habit
 
