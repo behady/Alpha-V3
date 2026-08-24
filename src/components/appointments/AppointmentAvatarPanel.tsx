@@ -862,6 +862,53 @@ export default function AppointmentAvatarPanel({
     ? getAppointmentStageLabel(selectedAppointment.status || "Scheduled", language)
     : "";
 
+  /**
+   * Once there is something to read, the conversation is the panel and Alpha steps aside.
+   *
+   * At 112px plus her status chips she held ~182px of a column that only had ~260px left for the
+   * thread itself — so the twentieth message was still budgeting for a portrait. Shrunk into a
+   * single row she keeps every state animation, which matters because that motion is the only
+   * signal that a turn is in flight.
+   */
+  const conversationActive = messages.length > 0 || !!pendingAction || isLoading;
+
+  const creditsPill = (
+    <span
+      title={isAr ? "الرصيد المتبقي" : "Remaining AI credits"}
+      className={`text-[11px] font-black px-1.5 py-1 rounded-full flex items-center gap-0.5 border shrink-0 me-1 ${
+        remainingCredits < creditLimit * 0.1
+          ? "bg-rose-50 text-rose-600 border-rose-200"
+          : "bg-slate-50 text-slate-500 border-slate-200"
+      }`}
+    >
+      <Zap size={10} /> {remainingCredits}
+    </span>
+  );
+
+  const statusChips = selectedAppointment ? (
+    <>
+      <span className="text-[11px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 shrink-0">
+        {stageLabel}
+      </span>
+      {selectedAppointment.treatment && (
+        <span className="text-[11px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full bg-teal-50 text-teal-700 border border-teal-100 shrink-0">
+          {selectedAppointment.treatment}
+        </span>
+      )}
+      <span
+        className={`text-[11px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border shrink-0 ${
+          balance.remaining > 0
+            ? "bg-rose-50 text-rose-600 border-rose-100"
+            : "bg-emerald-50 text-emerald-700 border-emerald-100"
+        }`}
+      >
+        {balance.remaining > 0
+          ? `${isAr ? "متبقي" : "Owes"} ${balance.remaining.toLocaleString()} ${isAr ? "ج.م" : "EGP"}`
+          : isAr ? "لا مستحقات" : "Settled"}
+      </span>
+    </>
+  ) : null;
+
   return (
     <div className="w-full h-full shrink-0 flex flex-col gap-4 z-20">
       <div className={shellClass}>
@@ -873,14 +920,14 @@ export default function AppointmentAvatarPanel({
               onClick={() => selectedAppointment.patientId && router.push(`/patients/${selectedAppointment.patientId}`)}
               title={isAr ? "عرض الملف الشخصي" : "View profile"}
             >
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-teal-700 bg-teal-50 text-sm shadow-sm border border-teal-100 group-hover:bg-teal-100 group-hover:scale-105 transition-all shrink-0">
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center font-black text-teal-700 bg-teal-50 text-base shadow-sm border border-teal-100 group-hover:bg-teal-100 group-hover:scale-105 transition-all shrink-0">
                 {(selectedAppointment.patientName || "").substring(0, 1).toUpperCase()}
               </div>
               <div className="min-w-0">
-                <h2 className="font-extrabold text-slate-800 text-base leading-tight truncate group-hover:text-teal-700 transition-colors">
+                <h2 title={selectedAppointment.patientName} className="font-extrabold text-slate-800 text-lg leading-tight truncate group-hover:text-teal-700 transition-colors">
                   {selectedAppointment.patientName}
                 </h2>
-                <p className="text-xs font-medium text-slate-500 mt-0.5 truncate">
+                <p className="text-sm font-medium text-slate-500 mt-0.5 truncate">
                   {isAr ? selectedAppointment.time?.replace("AM", "ص").replace("PM", "م") : selectedAppointment.time}
                   {" • "}
                   {selectedAppointment.date}
@@ -889,20 +936,23 @@ export default function AppointmentAvatarPanel({
             </div>
           ) : (
             <div className="flex items-center gap-3 min-w-0">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-teal-700 bg-teal-50 shadow-sm border border-teal-100 shrink-0">
-                <Sparkles size={18} />
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center text-teal-700 bg-teal-50 shadow-sm border border-teal-100 shrink-0">
+                <Sparkles size={20} />
               </div>
               <div className="min-w-0">
-                <h2 className="font-extrabold text-slate-800 text-base leading-tight truncate">
+                <h2 className="font-extrabold text-slate-800 text-lg leading-tight truncate">
                   {receptionistName}
                 </h2>
-                <p className="text-xs font-medium text-slate-500 mt-0.5 truncate">
+                <p className="text-sm font-medium text-slate-500 mt-0.5 truncate">
                   {isAr ? "لا يوجد موعد مفتوح" : "No appointment open"}
                 </p>
               </div>
             </div>
           )}
           <div className="flex items-center shrink-0">
+            {/* Credits used to sit above the composer, costing a whole row at the busiest point in
+                the panel. It is status, so it lives with the other status here. */}
+            {creditsPill}
             {handsFreeButton}
             {voiceReplyButton}
             {flipButton}
@@ -919,7 +969,7 @@ export default function AppointmentAvatarPanel({
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
               <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
             </span>
-            <p className="text-[11px] font-bold text-rose-700 leading-tight">
+            <p className="text-xs font-bold text-rose-700 leading-tight">
               {awaitingCommand
                 ? (isAr ? `${receptionistName} تسمعك — تفضل.` : `${receptionistName} is listening — go ahead.`)
                 : (isAr
@@ -930,44 +980,39 @@ export default function AppointmentAvatarPanel({
         )}
 
         {/* Avatar + at-a-glance facts. Computed locally from records already loaded — no credit. */}
-        <div className="shrink-0 flex flex-col items-center pt-5 pb-4 px-5 border-b border-slate-200/60">
-          <AvatarFace state={avatarState} size={112} />
-          {selectedAppointment ? (
-            <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
-              <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">
-                {stageLabel}
-              </span>
-              {selectedAppointment.treatment && (
-                <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full bg-teal-50 text-teal-700 border border-teal-100">
-                  {selectedAppointment.treatment}
-                </span>
-              )}
-              <span
-                className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full border ${
-                  balance.remaining > 0
-                    ? "bg-rose-50 text-rose-600 border-rose-100"
-                    : "bg-emerald-50 text-emerald-700 border-emerald-100"
-                }`}
-              >
-                {balance.remaining > 0
-                  ? `${isAr ? "متبقي" : "Owes"} ${balance.remaining.toLocaleString()} ${isAr ? "ج.م" : "EGP"}`
-                  : isAr ? "لا مستحقات" : "Settled"}
-              </span>
-            </div>
-          ) : (
-            <p className="mt-3 text-[11px] font-bold text-slate-400 text-center max-w-[240px]">
-              {isAr
-                ? "اسألني عن أي موعد — سأبحث عنه وأفتحه لك."
-                : "Ask me about any appointment — I'll find it and open it for you."}
-            </p>
-          )}
-        </div>
+        {conversationActive ? (
+          /* Talking: one row, ~62px. She keeps every state animation at 40px. */
+          <div className="shrink-0 flex items-center gap-3 px-5 py-3 border-b border-slate-200/60">
+            <AvatarFace state={avatarState} size={40} />
+            {statusChips ? (
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar min-w-0">
+                {statusChips}
+              </div>
+            ) : (
+              <span className="text-sm font-bold text-slate-400 truncate">{receptionistName}</span>
+            )}
+          </div>
+        ) : (
+          /* Nothing said yet: she is the greeting, at full size. */
+          <div className="shrink-0 flex flex-col items-center pt-5 pb-4 px-5 border-b border-slate-200/60">
+            <AvatarFace state={avatarState} size={112} />
+            {statusChips ? (
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">{statusChips}</div>
+            ) : (
+              <p className="mt-3 text-xs font-bold text-slate-400 text-center max-w-[260px]">
+                {isAr
+                  ? "اسألني عن أي موعد — سأبحث عنه وأفتحه لك."
+                  : "Ask me about any appointment — I'll find it and open it for you."}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Conversation */}
         <div className="flex-1 overflow-y-auto custom-scrollbar px-5 py-4 space-y-3">
           {messages.length === 0 && (
             <div className="rounded-2xl rounded-tl-sm bg-white border border-slate-200/60 px-4 py-3 shadow-sm">
-              <p className="text-[13px] leading-relaxed text-slate-700">
+              <p className="text-sm leading-relaxed text-slate-700">
                 {selectedAppointment
                   ? (isAr
                       ? `أهلاً ${user?.name || ""}، أنا ${receptionistName}. أمامي موعد ${selectedAppointment.patientName}. اسألني عن حسابه أو زياراته السابقة أو الأوقات المتاحة.`
@@ -976,7 +1021,7 @@ export default function AppointmentAvatarPanel({
                       ? `أهلاً ${user?.name || ""}، أنا ${receptionistName}. لا يوجد موعد مفتوح. اطلب مني البحث عن مريض بالاسم، أو عرض مواعيد اليوم — وسأفتح الموعد الذي تقصده.`
                       : `Hi ${user?.name || "there"} — I'm ${receptionistName}. Nothing is open right now. Ask me to look up a patient by name, or show you today's bookings, and I'll open the one you mean.`)}
               </p>
-              <p className="text-[11px] font-bold text-slate-400 mt-2">
+              <p className="text-xs font-bold text-slate-400 mt-2">
                 {selectedAppointment
                   ? (isAr
                       ? "يمكنني أيضاً تأكيد الحضور، تغيير الموعد، تسجيل دفعة أو إرسال رسالة — وسأعرض عليك التأكيد أولاً دائماً."
@@ -991,7 +1036,7 @@ export default function AppointmentAvatarPanel({
           {messages.map((msg) => (
             <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
               <div
-                className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-[13px] leading-relaxed shadow-sm whitespace-pre-wrap ${
+                className={`max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm whitespace-pre-wrap ${
                   msg.role === "user"
                     ? "bg-[#1A2130] text-white rounded-tr-sm"
                     : "bg-white text-slate-700 border border-slate-200/60 rounded-tl-sm"
@@ -1022,40 +1067,26 @@ export default function AppointmentAvatarPanel({
         </div>
 
         {/* Suggestions */}
-        <div className="shrink-0 px-4 pb-2 flex flex-wrap gap-1.5">
+        <div className="shrink-0 px-4 pb-2 pt-1 flex gap-2 overflow-x-auto no-scrollbar">
           {chips.map((chip) => (
             <button
               key={chip.label}
               disabled={isLoading}
               onClick={() => sendMessage(chip.prompt)}
-              className="text-[11px] font-bold text-slate-600 bg-white border border-slate-200 hover:border-teal-300 hover:text-teal-700 hover:bg-teal-50/50 disabled:opacity-50 px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all shadow-sm"
+              className="text-xs font-bold text-slate-600 bg-white border border-slate-200 hover:border-teal-300 hover:text-teal-700 hover:bg-teal-50/50 disabled:opacity-50 px-3 py-2 rounded-full flex items-center gap-1.5 transition-all shadow-sm shrink-0 whitespace-nowrap"
             >
-              <chip.icon size={12} /> {chip.label}
+              <chip.icon size={14} className="shrink-0" /> {chip.label}
             </button>
           ))}
         </div>
 
         {/* Composer */}
         <div className="shrink-0 px-4 pb-4 pt-2 border-t border-slate-100">
-          <div className="flex items-center justify-between mb-2 px-1">
-            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1">
-              <Sparkles size={10} className="text-teal-500" /> {receptionistName}
-            </span>
-            <span
-              className={`text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 border ${
-                remainingCredits < creditLimit * 0.1
-                  ? "bg-rose-50 text-rose-600 border-rose-200"
-                  : "bg-slate-50 text-slate-500 border-slate-200"
-              }`}
-            >
-              <Zap size={9} /> {remainingCredits}
-            </span>
-          </div>
           {/* The device-voice picker that used to sit here is gone: the voice now comes from the
               server, so it is identical on every clinic PC and no longer something to configure
               per machine. The browser's own voice remains only as a silent fallback. */}
           {voiceReplyEnabled && (
-            <p className="mb-2 px-1 text-[10px] font-bold text-slate-400 leading-relaxed">
+            <p className="mb-2 px-1 text-xs font-bold text-slate-400 leading-relaxed">
               {isFetchingVoice
                 ? (isAr ? "جاري تجهيز الصوت..." : "Preparing the voice…")
                 : (isAr ? "الصوت من النظام — نفس الصوت على كل الأجهزة." : "Voice comes from the system — identical on every device.")}
@@ -1076,7 +1107,7 @@ export default function AppointmentAvatarPanel({
                   isListening ? "text-rose-600 bg-rose-50" : "text-slate-400 hover:text-teal-700 hover:bg-teal-50"
                 }`}
               >
-                {isListening ? <MicOff size={15} /> : <Mic size={15} />}
+                {isListening ? <MicOff size={17} /> : <Mic size={17} />}
               </button>
             )}
             <input
@@ -1090,14 +1121,14 @@ export default function AppointmentAvatarPanel({
               }
               disabled={isLoading}
               dir={isAr ? "rtl" : "ltr"}
-              className={`w-full bg-transparent border-none text-[13px] font-medium py-3 pe-12 focus:outline-none text-slate-700 placeholder:text-slate-400 ${speechInputSupported ? "ps-11" : "ps-4"}`}
+              className={`w-full bg-transparent border-none text-sm font-medium py-3.5 pe-12 focus:outline-none text-slate-700 placeholder:text-slate-400 ${speechInputSupported ? "ps-11" : "ps-4"}`}
             />
             <button
               type="submit"
               disabled={!input.trim() || isLoading}
               className="absolute end-2 text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-40 p-2 rounded-lg transition-all"
             >
-              {isLoading ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} className={isAr ? "rotate-180" : ""} />}
+              {isLoading ? <Loader2 size={17} className="animate-spin" /> : <Send size={17} className={isAr ? "rotate-180" : ""} />}
             </button>
           </form>
         </div>
