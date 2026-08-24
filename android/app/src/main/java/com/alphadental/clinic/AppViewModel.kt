@@ -1022,16 +1022,24 @@ class AppViewModel : ViewModel() {
     }
 
     /**
-     * "Make me a finance PDF for last month", handled without the server.
+     * "Make me a finance PDF for last month" and "pdf of this week's
+     * appointments", handled without the server.
      *
      * Returns true when the prompt was a report request and has been dealt with —
-     * including the polite refusal for roles that may not see clinic money.
+     * including the polite refusal for roles that may not see clinic money. The
+     * schedule carries no such gate: everyone on the staff already sees the day.
      */
     private fun tryLocalReport(prompt: String): Boolean {
         val session = _state.value.session ?: return false
         val context = aiContext ?: return false
-        val period = com.alphadental.clinic.ai.ReportIntent.parse(prompt) ?: return false
+        val request = com.alphadental.clinic.ai.ReportIntent.parse(prompt) ?: return false
+        val period = request.period
         val arabic = _state.value.arabic
+        val label = if (arabic) period.labelAr else period.labelEn
+
+        if (request.kind == com.alphadental.clinic.ai.ReportIntent.Kind.SCHEDULE) {
+            return buildScheduleReport(session.clinicId, context, period, label, arabic)
+        }
 
         if (!(session.isAdmin || session.isReception)) {
             val reply = if (arabic) {
@@ -1061,12 +1069,11 @@ class AppViewModel : ViewModel() {
                         clinicName = "Alpha Dental",
                         arabic = arabic,
                     )
-                    Triple(rows, file, period)
+                    rows to file
                 }
-            }.onSuccess { (rows, file, resolved) ->
+            }.onSuccess { (rows, file) ->
                 val income = rows.filterNot { it.isExpense }.sumOf { it.cash }.toInt()
                 val expenses = rows.filter { it.isExpense }.sumOf { it.cash }.toInt()
-                val label = if (arabic) resolved.labelAr else resolved.labelEn
                 val reply = if (arabic) {
                     "جاهز — التقرير المالي عن $label: المدخول $income ج.م والمصروفات $expenses ج.م. اضغط لفتح الملف."
                 } else {
@@ -1101,24 +1108,92 @@ class AppViewModel : ViewModel() {
     }
 
     /**
+     * The printed day sheet: every appointment in the period, grouped by day.
+     *
+     * No role gate. Every member of staff already sees the day on the Day tab, so
+     * refusing to print what they can read on screen would be theatre — and the
+     * dentist who wants tomorrow on paper is the likeliest person to ask.
+     */
+    private fun buildScheduleReport(
+        clinicId: String,
+        context: android.content.Context,
+        period: com.alphadental.clinic.ai.ReportIntent.Period,
+        label: String,
+        arabic: Boolean,
+    ): Boolean {
+        val turn = beginAiTurn()
+        aiJob = viewModelScope.launch {
+            try {
+                runCatching {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        val rows = Repository.loadAppointmentsBetween(clinicId, period.from, period.to)
+                        val file = com.alphadental.clinic.data.ReportPdf.writeScheduleReport(
+                            context = context,
+                            appointments = rows,
+                            fromKey = period.from,
+                            toKey = period.to,
+                            clinicName = "Alpha Dental",
+                            arabic = arabic,
+                        )
+                        rows to file
+                    }
+                }.onSuccess { (rows, file) ->
+                    val reply = when {
+                        rows.isEmpty() && arabic -> "لا توجد مواعيد في $label."
+                        rows.isEmpty() -> "There are no appointments booked for $label."
+                        arabic -> "جاهز — جدول $label: ${rows.size} موعد. اضغط لفتح الملف."
+                        else -> "Done — the schedule for $label: ${rows.size} appointment" +
+                            "${if (rows.size == 1) "" else "s"}. Tap to open the PDF."
+                    }
+                    appendAiMessage(
+                        ChatMessage(
+                            fromUser = false,
+                            text = reply,
+                            at = System.currentTimeMillis(),
+                            // An empty period still gets a straight answer, but no
+                            // file — a PDF of nothing is not worth opening.
+                            pdfPath = file.absolutePath.takeIf { rows.isNotEmpty() },
+                        )
+                    )
+                    _state.value = _state.value.copy(aiSpeak = reply)
+                }.onFailure { error ->
+                    if (error is kotlinx.coroutines.CancellationException) return@onFailure
+                    val reply = if (arabic) {
+                        "لم أستطع إنشاء الجدول: ${error.message ?: "خطأ غير معروف"}"
+                    } else {
+                        "I couldn't build the schedule: ${error.message ?: "unknown error"}"
+                    }
+                    appendAiMessage(ChatMessage(fromUser = false, text = reply, at = System.currentTimeMillis()))
+                    _state.value = _state.value.copy(aiSpeak = reply)
+                }
+            } finally {
+                endAiTurn(turn)
+            }
+        }
+        return true
+    }
+
+    /**
      * "Make me a PDF of Sara's prescription" — a fair request, and one the app can
      * do, just not from this chat.
      *
-     * The phone draws exactly two documents: the finance report, from here, and
-     * the prescription, from the patient's file. Saying so costs nothing and
-     * points at the button that works. Sending it to the server instead spends a
-     * credit to be told something vague, and answering it with a month of clinic
-     * takings — which is what used to happen — is worse than either.
+     * The phone draws three documents: the finance report and the day sheet from
+     * here, and the prescription from the patient's file. Saying which is which
+     * costs nothing and points at the button that works. Sending it to the server
+     * instead spends a credit to be told something vague, and answering it with a
+     * month of clinic takings — which is what used to happen — is worse than either.
      */
     private fun tryPdfExplainer(prompt: String): Boolean {
         val lower = prompt.lowercase()
         if (listOf("pdf", "طباعة", "اطبع", "print").none { it in lower }) return false
         val arabic = _state.value.arabic
         val reply = if (arabic) {
-            "التقرير المالي هو الملف الوحيد الذي أستطيع إنشاءه من هنا. " +
+            "أستطيع إنشاء ملفين من هنا: التقرير المالي وجدول المواعيد — " +
+                "مثلاً \"تقرير مالي عن الشهر ده\" أو \"pdf بمواعيد الأسبوع\". " +
                 "الروشتة تُطبع من ملف المريض: افتح المريض ثم الروشتات."
         } else {
-            "The only PDF I can build here is the clinic's finance report. " +
+            "I can build two PDFs from here: the finance report and the appointment schedule — " +
+                "say \"finance report for last month\" or \"pdf of this week's appointments\". " +
                 "A prescription prints from the patient's file — open the patient, then Prescriptions."
         }
         appendAiMessage(ChatMessage(fromUser = false, text = reply, at = System.currentTimeMillis()))

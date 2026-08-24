@@ -12,6 +12,7 @@ import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { getClinicDoc } from "@/lib/db-utils";
 import { auth } from "@/lib/firebase";
 import { handleManualWhatsApp } from "@/lib/whatsappManual";
+import AssistantMarkdown from "@/components/ai/AssistantMarkdown";
 import { onSnapshot } from "firebase/firestore";interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -309,12 +310,13 @@ export default function AiChatWidget() {
                   {msg.role === "user" ? <span className="text-xs font-bold">{user?.name?.[0] || "U"}</span> : <Bot size={16} />}
                 </div>
                 <div className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"} max-w-[80%]`}>
-                  <div className={`px-4 py-2.5 rounded-2xl text-[13px] leading-relaxed shadow-sm whitespace-pre-wrap ${
+                  <div className={`px-4 py-2.5 rounded-2xl text-[13px] leading-relaxed shadow-sm ${
                     msg.role === "user" 
-                      ? "bg-slate-800 text-white rounded-tr-sm" 
+                      ? "bg-slate-800 text-white rounded-tr-sm whitespace-pre-wrap" 
                       : "bg-white text-slate-700 border border-slate-200/60 rounded-tl-sm"
                   }`}>
-                    {msg.content}
+                    {/* Same split as the appointment panel: typed text literal, model reply parsed. */}
+                    {msg.role === "user" ? msg.content : <AssistantMarkdown content={msg.content} isRTL={isRTL} />}
                   </div>
                 </div>
               </div>

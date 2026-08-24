@@ -190,6 +190,153 @@ object ReportPdf {
         return file
     }
 
+    /**
+     * The appointment diary as a printable day sheet.
+     *
+     * The other half of what the assistant can draw. Grouped by day with a
+     * heading per date, because the thing this is printed for — pinning by the
+     * chair, handing to a receptionist, sending to a doctor who wants tomorrow
+     * on paper — is read a day at a time. Cancellations stay on the sheet and
+     * say so: a slot that was freed is information, and silently dropping it
+     * makes the printed day disagree with the screen.
+     */
+    fun writeScheduleReport(
+        context: Context,
+        appointments: List<Appointment>,
+        fromKey: String,
+        toKey: String,
+        clinicName: String,
+        arabic: Boolean,
+    ): File {
+        val doc = PdfDocument()
+        var page = doc.startPage(PdfDocument.PageInfo.Builder(PAGE_W, PAGE_H, doc.pages.size + 1).create())
+        var canvas = page.canvas
+        var y = MARGIN
+
+        fun newPage() {
+            doc.finishPage(page)
+            page = doc.startPage(PdfDocument.PageInfo.Builder(PAGE_W, PAGE_H, doc.pages.size + 1).create())
+            canvas = page.canvas
+            y = MARGIN
+        }
+
+        fun ensure(space: Float) {
+            if (y + space > PAGE_H - MARGIN) newPage()
+        }
+
+        val title = paint(17f, INK, bold = true)
+        val sub = paint(10f, SLATE)
+        val heading = paint(12f, INK, bold = true)
+        val cell = paint(9.5f, INK)
+        val cellDim = paint(9.5f, SLATE)
+        val line = Paint().apply { color = FAINT; strokeWidth = 1f }
+
+        canvas.drawText(if (arabic) "جدول المواعيد" else "Appointment schedule", MARGIN, y + 16, title)
+        canvas.drawText(
+            "$clinicName  ·  ${prettyRange(fromKey, toKey, arabic)}  ·  " +
+                (if (arabic) "أُنشئ " else "generated ") +
+                SimpleDateFormat("d MMM yyyy HH:mm", Locale.US).format(Date()),
+            MARGIN, y + 32, sub,
+        )
+        y += 48
+        canvas.drawLine(MARGIN, y, PAGE_W - MARGIN, y, line)
+        y += 14
+
+        if (appointments.isEmpty()) {
+            canvas.drawText(
+                if (arabic) "لا توجد مواعيد في هذه الفترة." else "No appointments in this period.",
+                MARGIN, y + 14, cellDim,
+            )
+        }
+
+        // A count per day is what makes the sheet worth printing rather than
+        // scrolling: "Tue — 6 booked" answers the question before the rows do.
+        appointments.groupBy { it.date }.toSortedMap().forEach { (date, rows) ->
+            ensure(58f)
+            y += 10
+            canvas.drawText(prettyDay(date, arabic), MARGIN, y + 12, heading)
+            val count = if (arabic) "${rows.size} موعد" else "${rows.size} booked"
+            val countPaint = paint(9.5f, SLATE)
+            canvas.drawText(count, PAGE_W - MARGIN - countPaint.measureText(count), y + 12, countPaint)
+            y += 20
+            canvas.drawLine(MARGIN, y, PAGE_W - MARGIN, y, line)
+            y += 4
+
+            rows.forEach { appointment ->
+                ensure(20f)
+                canvas.drawText(appointment.time.ifBlank { "—" }, MARGIN, y + 12, cellDim)
+
+                val who = appointment.patientName.ifBlank { if (arabic) "بدون اسم" else "No name" }
+                canvas.drawText(ellipsize(who, cell, 150f), MARGIN + 64, y + 12, cell)
+
+                val detail = listOfNotNull(
+                    appointment.doctor.takeIf { it.isNotBlank() }?.let { withDoctorTitle(it) },
+                    appointment.treatment.takeIf { it.isNotBlank() },
+                ).joinToString(" · ")
+                canvas.drawText(ellipsize(detail, cellDim, CONTENT_W - 300), MARGIN + 220, y + 12, cellDim)
+
+                val status = statusText(appointment.status, arabic)
+                val statusPaint = paint(9f, statusColour(appointment.status), bold = true)
+                canvas.drawText(status, PAGE_W - MARGIN - statusPaint.measureText(status), y + 12, statusPaint)
+
+                y += 17
+                canvas.drawLine(MARGIN, y, PAGE_W - MARGIN, y, line)
+            }
+            y += 6
+        }
+
+        doc.finishPage(page)
+
+        val dir = File(context.cacheDir, "reports").apply { mkdirs() }
+        val file = File(dir, "schedule-$fromKey-to-$toKey.pdf")
+        file.outputStream().use { doc.writeTo(it) }
+        doc.close()
+        return file
+    }
+
+    /** "Tue, 25 Aug" — the heading a printed day sheet is scanned by. */
+    private fun prettyDay(dateKey: String, arabic: Boolean): String {
+        val locale = if (arabic) Locale("ar", "EG") else Locale.US
+        val parsed = runCatching { SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(dateKey) }.getOrNull()
+            ?: return dateKey
+        return SimpleDateFormat("EEEE, d MMM", locale).format(parsed)
+    }
+
+    /**
+     * Status on paper. Printed sheets are often photocopied in black and white,
+     * so the word carries the meaning and the colour only reinforces it.
+     */
+    private fun statusText(status: String?, arabic: Boolean): String =
+        when (normalizeStatusKey(status)) {
+            "Scheduled" -> if (arabic) "غير مؤكد" else "Unconfirmed"
+            "Confirmed" -> if (arabic) "مؤكد" else "Confirmed"
+            "Checked In" -> if (arabic) "حضر" else "Checked in"
+            "In Chair" -> if (arabic) "بالكرسي" else "In chair"
+            "Checking Out" -> if (arabic) "خروج" else "Checking out"
+            "Completed" -> if (arabic) "تم" else "Done"
+            "Cancelled" -> if (arabic) "ملغي" else "Cancelled"
+            "No Show" -> if (arabic) "لم يحضر" else "No show"
+            "Late" -> if (arabic) "متأخر" else "Late"
+            "Delayed" -> if (arabic) "مؤجل" else "Delayed"
+            else -> status.orEmpty()
+        }
+
+    private fun statusColour(status: String?): Int = when (normalizeStatusKey(status)) {
+        "Cancelled", "No Show" -> RED
+        "Completed", "Checked In", "In Chair", "Checking Out" -> GREEN
+        "Scheduled", "Late", "Delayed" -> AMBER
+        else -> SLATE
+    }
+
+    /** Same legacy aliases the screens use, so a printed row matches the app. */
+    private fun normalizeStatusKey(status: String?): String = when (status) {
+        null, "" -> "Scheduled"
+        "Arrived" -> "Checked In"
+        "Seated", "In Progress" -> "In Chair"
+        "Pending" -> "Scheduled"
+        else -> status
+    }
+
     private fun paint(size: Float, color: Int, bold: Boolean = false) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         this.color = color
         textSize = size

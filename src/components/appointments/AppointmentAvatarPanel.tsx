@@ -19,7 +19,8 @@ import { getAppointmentStageLabel } from "@/lib/appointmentStages";
 import { toSpeechText, pickVoice, trimForSpeech } from "@/lib/speechText";
 import { RECEPTIONIST_NAME, findWakeCommand, isUsableCommand } from "@/lib/receptionist";
 import AvatarFace, { type AvatarState } from "./AvatarFace";
-import PendingActionCard, { type PendingAction } from "./PendingActionCard";/**
+import PendingActionCard, { type PendingAction } from "./PendingActionCard";
+import AssistantMarkdown from "@/components/ai/AssistantMarkdown";/**
  * The AI receptionist — the alternative to AppointmentSidePanel.
  *
  * Props mirror the editor panel exactly (plus onSwitchToEditor/onAppointmentReplaced) so the two
@@ -1036,13 +1037,15 @@ export default function AppointmentAvatarPanel({
           {messages.map((msg) => (
             <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
               <div
-                className={`max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm whitespace-pre-wrap ${
+                className={`max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm ${
                   msg.role === "user"
-                    ? "bg-[#1A2130] text-white rounded-tr-sm"
+                    ? "bg-[#1A2130] text-white rounded-tr-sm whitespace-pre-wrap"
                     : "bg-white text-slate-700 border border-slate-200/60 rounded-tl-sm"
                 }`}
               >
-                {msg.content}
+                {/* Only what the user typed stays literal. The model's reply is Markdown, and
+                    whitespace-pre-wrap must not survive on that branch — see AssistantMarkdown. */}
+                {msg.role === "user" ? msg.content : <AssistantMarkdown content={msg.content} isRTL={isAr} />}
               </div>
             </div>
           ))}
