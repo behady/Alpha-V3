@@ -1,0 +1,84 @@
+# Deploying the Cloud Functions, without a terminal.
+#
+# Vercel builds and deploys the Next.js app on every push to main, but it knows nothing about
+# Cloud Functions — those are a separate deploy to Firebase. Until now that meant somebody running
+# `firebase deploy --only functions` by hand from a laptop, which is why functions/ drifted out of
+# step with the rest of the system and stayed broken for months without anybody noticing.
+#
+# This runs the same command on GitHub's machine instead. Two ways to fire it:
+#   - the "Run workflow" button on the Actions tab (use this for the first deploy)
+#   - automatically, on a push to main that actually changes something under functions/
+#
+# It never runs on unrelated commits, so ordinary app work does not redeploy the backend.
+
+name: Deploy Cloud Functions
+
+on:
+  workflow_dispatch:
+    inputs:
+      allow_deletions:
+        description: "Allow removing functions that no longer exist in the code"
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - "functions/**"
+      - ".github/workflows/deploy-functions.yml"
+
+concurrency:
+  group: deploy-functions
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: firebase deploy --only functions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # functions/package.json pins node 24 in engines; the deploy must match or firebase-tools
+          # refuses, and a mismatch here is a confusing failure rather than an obvious one.
+          node-version: 24
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      - name: Install function dependencies
+        working-directory: functions
+        run: npm ci
+
+      - name: Parse check before deploying
+        run: |
+          for f in functions/*.js; do node --check "$f" || exit 1; done
+          echo "all functions/*.js parse"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Deploy
+        env:
+          # The auth step above writes a credentials file and exports this for the CLI to find.
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ env.GOOGLE_APPLICATION_CREDENTIALS }}
+          FIREBASE_PROJECT: ${{ secrets.FIREBASE_PROJECT_ID }}
+        run: |
+          # --force skips the interactive "delete these functions?" prompt, which cannot be
+          # answered on a runner. It only ever removes functions absent from the code — that is
+          # the point of it here, since seven undeployed-but-declared exports were removed — but it
+          # is gated behind the manual switch so a routine push can never quietly delete a
+          # function somebody still relies on.
+          FORCE=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.allow_deletions }}" = "true" ]; then
+            FORCE="--force"
+            echo "Deletions ALLOWED for this run."
+          else
+            echo "Deletions not allowed; functions missing from the code will be left alone."
+          fi
+          npx firebase-tools@13 deploy \
+            --only functions \
+            --project "$FIREBASE_PROJECT" \
+            --non-interactive \
+            $FORCE
