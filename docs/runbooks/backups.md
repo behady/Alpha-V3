@@ -133,6 +133,24 @@ For the record, the shape of each path:
   subtree back into `default`. The new database can be deleted once the repair is confirmed;
   keep it until then.
 
+## Status
+
+**2026-08-24: both switches are on** for `alpha-v2-ffc98`, database `default`.
+
+- Point-in-time recovery: enabled, 7-day retention, earliest version time 2026-08-24 14:14 UTC+3.
+- Scheduled backups: daily, 30-day retention.
+
+Two things that look wrong at first and are not:
+
+- **The Backups list reads "No rows to display" on day one.** The first snapshot is taken on the
+  schedule's next run, within 24 hours — the schedule existing is not the same as a backup
+  existing. The real confirmation is a row appearing the following day, and that check is the
+  point of the habit below.
+- **The PITR window starts short and grows.** "Earliest version time" is the moment PITR was
+  switched on, so for the first week the reachable past is shorter than 7 days: on day 3 you can
+  rewind 3 days, not 7. From day 8 it is a rolling 7-day window. Nothing before 2026-08-24 14:14
+  is recoverable by PITR, ever.
+
 ## The habit
 
 Once a quarter, open the Disaster recovery tab and confirm backups are listed with recent dates.
