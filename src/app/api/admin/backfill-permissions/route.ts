@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
@@ -229,7 +230,7 @@ export async function POST(request: Request) {
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Backfill failed";
-    console.error("admin/backfill-permissions", error);
+    reportServerError("admin/backfill-permissions", error);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

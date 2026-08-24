@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { sendClinicPush } from "@/lib/push";
 import { adminDb } from "@/lib/firebaseAdmin";
@@ -213,7 +214,7 @@ export async function POST(request: Request) {
     if (e instanceof PublicBookingError) {
       return NextResponse.json({ ok: false, error: e.message }, { status: e.status });
     }
-    console.error("Public Book API Error:", e);
+    reportServerError("Public Book API Error:", e);
     return NextResponse.json({ ok: false, error: "حصلت مشكلة. جرب تاني." }, { status: 500 });
   }
 }

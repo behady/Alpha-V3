@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
@@ -73,7 +74,7 @@ export async function POST(request: Request) {
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to reset password";
-    console.error("Reset Password Error:", error);
+    reportServerError("Reset Password Error:", error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

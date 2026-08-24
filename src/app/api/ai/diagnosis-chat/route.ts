@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { FieldValue } from "firebase-admin/firestore";
@@ -98,7 +99,7 @@ export async function POST(req: Request) {
         );
       };
     } catch (err) {
-      console.error("Diagnosis chat quota check failed:", err);
+      reportServerError("Diagnosis chat quota check failed:", err);
       return NextResponse.json(
         { ok: false, error: "Could not verify your AI plan or usage. Please try again." },
         { status: 503 }
@@ -222,7 +223,7 @@ ${patientContextBlock(ctx)}`;
     return NextResponse.json({ ok: true, reply });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Diagnosis chat failed";
-    console.error("[DiagnosisChat] failed", e);
+    reportServerError("[DiagnosisChat] failed", e);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { adminDb } from "@/lib/firebaseAdmin";
@@ -246,7 +247,7 @@ export async function POST(request: Request) {
     }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Migration step failed";
-    console.error("Migration error:", error);
+    reportServerError("Migration error:", error);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { FieldValue } from "firebase-admin/firestore";
@@ -83,7 +84,7 @@ export async function POST(req: Request) {
         );
       };
     } catch (err) {
-      console.error("Plan translation quota check failed:", err);
+      reportServerError("Plan translation quota check failed:", err);
       return NextResponse.json(
         { ok: false, error: "Could not verify your AI plan or usage. Please try again." },
         { status: 503 }
@@ -226,7 +227,7 @@ ${JSON.stringify(source)}`;
     return NextResponse.json({ ok: true, translation: safe, cached: false });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Translation failed";
-    console.error("[TranslatePlan] failed", e);
+    reportServerError("[TranslatePlan] failed", e);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
@@ -242,7 +243,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, segment, recipients, count: recipients.length });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Campaign request failed";
-    console.error("[MarketingCampaigns] failed", e);
+    reportServerError("[MarketingCampaigns] failed", e);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

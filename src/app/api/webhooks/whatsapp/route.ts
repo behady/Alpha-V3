@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
@@ -46,7 +47,7 @@ export async function POST(request: NextRequest) {
 
     return new Response("EVENT_RECEIVED", { status: 200 });
   } catch (error) {
-    console.error("[WhatsApp Webhook] Error parsing POST payload:", error);
+    reportServerError("[WhatsApp Webhook] Error parsing POST payload:", error);
     return new Response("Invalid payload", { status: 400 });
   }
 }

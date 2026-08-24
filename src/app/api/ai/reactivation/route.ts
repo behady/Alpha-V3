@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
@@ -108,7 +109,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, report, thresholdSource, drafted });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Scan failed";
-    console.error("[Reactivation] scan failed", e);
+    reportServerError("[Reactivation] scan failed", e);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

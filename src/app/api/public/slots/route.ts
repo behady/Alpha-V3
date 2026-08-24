@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import {
   computeAvailableSlots,
@@ -56,7 +57,7 @@ export async function GET(request: Request) {
     if (e instanceof PublicBookingError) {
       return NextResponse.json({ ok: false, error: e.message }, { status: e.status });
     }
-    console.error("public/slots error:", e);
+    reportServerError("public/slots error:", e);
     return NextResponse.json({ ok: false, error: "Could not load availability" }, { status: 500 });
   }
 }

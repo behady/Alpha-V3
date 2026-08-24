@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 /**
  * Deleting an appointment, and deciding what happens to the treatments recorded against it.
  *
@@ -172,7 +173,7 @@ export async function GET(request: Request) {
       paymentCount: payments.length,
     });
   } catch (e) {
-    console.error("appointments/delete preview failed", { appointmentId }, e);
+    reportServerError("appointments/delete preview failed", e, { appointmentId });
     return bad("Could not check what this appointment holds.", 500);
   }
 }
@@ -282,7 +283,7 @@ export async function POST(request: Request) {
       deletedLedgerRows: servicesAction === "delete" ? ledgerRows.length : 0,
     });
   } catch (e) {
-    console.error("appointments/delete failed", { appointmentId }, e);
+    reportServerError("appointments/delete failed", e, { appointmentId });
     return bad("Something went wrong deleting that. Nothing was changed.", 500);
   }
 }

@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 /**
  * Recording, changing and removing a treatment — as one indivisible operation.
  *
@@ -734,7 +735,7 @@ export async function POST(request: Request) {
           { status: 409 }
         );
       default:
-        console.error("clinical/procedures failed", { action }, e);
+        reportServerError("clinical/procedures failed", e, { action });
         return bad("Something went wrong saving that. Nothing was changed.", 500);
     }
   }

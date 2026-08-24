@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
@@ -36,7 +37,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: true, unresolved, risk });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Scan failed";
-    console.error("[Attendance] scan failed", e);
+    reportServerError("[Attendance] scan failed", e);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

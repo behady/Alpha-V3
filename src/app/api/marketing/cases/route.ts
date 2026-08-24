@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb, adminBucket } from "@/lib/firebaseAdmin";
@@ -88,7 +89,7 @@ export async function GET(request: Request) {
       headers: { "Content-Type": type, "Cache-Control": "private, max-age=3600" },
     });
   } catch (e) {
-    console.error("[MarketingCases] photo read failed", e);
+    reportServerError("[MarketingCases] photo read failed", e);
     return bad("Photo not found", 404);
   }
 }
@@ -222,7 +223,7 @@ export async function POST(request: Request) {
     return bad("Unknown action", 400);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Case request failed";
-    console.error("[MarketingCases] failed", e);
+    reportServerError("[MarketingCases] failed", e);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

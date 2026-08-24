@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { resolveUserClinicId } from "@/lib/adminClinicDb";
@@ -33,7 +34,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: true, recalls, inventory });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Scan failed";
-    console.error("[Recalls] scan failed", e);
+    reportServerError("[Recalls] scan failed", e);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

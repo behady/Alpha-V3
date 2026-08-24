@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { FieldValue } from "firebase-admin/firestore";
@@ -122,7 +123,7 @@ export async function POST(req: Request) {
         );
       };
     } catch (err) {
-      console.error("Treatment plan AI quota check failed:", err);
+      reportServerError("Treatment plan AI quota check failed:", err);
       return NextResponse.json(
         { ok: false, error: "Could not verify your AI plan or usage. Please try again." },
         { status: 503 }
@@ -418,7 +419,7 @@ ${priceListText}`;
     return NextResponse.json({ ok: true, options, questions, currency, calendarNotes: Array.from(calendarNotes) });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Treatment plan suggestion failed";
-    console.error("[TreatmentPlanAI] failed", e);
+    reportServerError("[TreatmentPlanAI] failed", e);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

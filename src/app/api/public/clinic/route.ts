@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { loadPublicClinicProfile, PublicBookingError } from "@/lib/publicBooking";
 
@@ -40,7 +41,7 @@ export async function GET(request: Request) {
     if (e instanceof PublicBookingError) {
       return NextResponse.json({ ok: false, error: e.message }, { status: e.status });
     }
-    console.error("public/clinic error:", e);
+    reportServerError("public/clinic error:", e);
     return NextResponse.json({ ok: false, error: "Could not load clinic" }, { status: 500 });
   }
 }

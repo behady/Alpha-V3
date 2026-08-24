@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
@@ -65,7 +66,7 @@ export async function POST(req: Request) {
     return NextResponse.json(clinicalData);
 
   } catch (error: any) {
-    console.error("Auto-Diagnose API Error:", error);
+    reportServerError("Auto-Diagnose API Error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

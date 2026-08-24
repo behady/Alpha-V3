@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
@@ -171,7 +172,7 @@ export async function POST(request: Request) {
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Could not generate speech.";
-    console.error("TTS route failed:", error);
+    reportServerError("TTS route failed:", error);
     // The panel falls back to the device voice on any failure, so this is a soft error: the
     // assistant still answers, it just answers in the browser's own voice.
     return NextResponse.json({ error: message }, { status: 502 });

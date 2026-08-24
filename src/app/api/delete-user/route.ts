@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
@@ -38,7 +39,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, message: "User removed from clinic" });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to remove user";
-    console.error("Delete Error:", error);
+    reportServerError("Delete Error:", error);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

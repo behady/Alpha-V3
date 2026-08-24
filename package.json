@@ -36,6 +36,7 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@imgly/background-removal": "^1.7.0",
+    "@sentry/nextjs": "^10.70.0",
     "@types/qrcode": "^1.5.6",
     "arabic-persian-reshaper": "^1.0.1",
     "arabic-reshaper": "^1.1.0",

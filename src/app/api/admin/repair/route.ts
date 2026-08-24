@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
@@ -91,7 +92,7 @@ export async function POST(request: Request) {
       fixed: fixesApplied,
     });
   } catch (error) {
-    console.error("Repair Bot API Error:", error);
+    reportServerError("Repair Bot API Error:", error);
     const message = error instanceof Error ? error.message : "Repair failed";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }

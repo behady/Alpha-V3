@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
@@ -178,7 +179,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("admin/update-user", error);
+    reportServerError("admin/update-user", error);
     const message = error instanceof Error ? error.message : "Update failed";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }

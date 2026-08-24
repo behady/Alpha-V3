@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { FieldPath, FieldValue } from "firebase-admin/firestore";
@@ -125,7 +126,7 @@ export async function POST(request: Request) {
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Repair failed";
-    console.error("repair-clinic-owners:", e);
+    reportServerError("repair-clinic-owners:", e);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

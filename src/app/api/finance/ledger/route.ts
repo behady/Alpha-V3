@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 /**
  * Every write to a clinic's ledger.
  *
@@ -633,7 +634,7 @@ export async function POST(request: Request) {
       case "UNKNOWN_ROW_TYPE":
         return bad("That row cannot be edited here.");
       default:
-        console.error("finance/ledger failed", { action }, e);
+        reportServerError("finance/ledger failed", e, { action });
         return bad("Something went wrong saving that. Nothing was changed.", 500);
     }
   }

@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 // src/app/api/gemini/route.ts
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
@@ -324,7 +325,7 @@ export async function POST(req: Request) {
       } catch (err) {
         // Fail closed: this block enforces both the plan gate and the spend cap, so swallowing an
         // error here would hand out unmetered AI to anyone whose clinic doc happened to fail a read.
-        console.error("AI usage quota check failed:", err);
+        reportServerError("AI usage quota check failed:", err);
         return NextResponse.json(
           { error: "Could not verify your AI plan or usage. Please try again." },
           { status: 503 }
@@ -345,7 +346,7 @@ export async function POST(req: Request) {
           userPreferences = facts.map((f: string, i: number) => `${i + 1}. ${f}`).join("\n");
         }
       } catch (e) {
-        console.error("Failed to load clinic AI preferences.", e);
+        reportServerError("Failed to load clinic AI preferences.", e);
       }
     }
     if (!userPreferences) userPreferences = "(No custom rules saved yet.)";
@@ -401,7 +402,7 @@ export async function POST(req: Request) {
               `\n--- END APPOINTMENT ---`;
           }
         } catch (e) {
-          console.error("Failed to load appointment context for reception assistant.", e);
+          reportServerError("Failed to load appointment context for reception assistant.", e);
         }
       }
       if (!appointmentContext) {
@@ -1331,7 +1332,7 @@ export async function POST(req: Request) {
              toolResult = { success: true, count: matches.length, data: matches.slice(0, 5) };
           }
         } catch (e: any) {
-          console.error(`Tool execution failed for ${call.name}:`, e);
+          reportServerError(`Tool execution failed for ${call.name}`, e);
           toolResult = { success: false, error: e.message };
         }
 
@@ -1359,7 +1360,7 @@ export async function POST(req: Request) {
   } catch (error: any) {
     // The stack matters more than the message here — most failures in this route come from the
     // Gemini SDK or the Admin SDK, and their messages alone rarely say which call threw.
-    console.error("API Error (/api/gemini):", error?.stack || error);
+    reportServerError("API Error (/api/gemini)", error);
     return NextResponse.json({ error: error?.message || "Unknown server error" }, { status: 500 });
   }
 }

@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAuthedUser } from "@/lib/apiStaffAuth";
@@ -83,7 +84,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, clinicId });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to create clinic";
-    console.error("Create Clinic Error:", error);
+    reportServerError("Create Clinic Error:", error);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

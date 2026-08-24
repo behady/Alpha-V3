@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { suggestSlots } from "@/lib/automation/slotSuggestions";
@@ -66,7 +67,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, days, notes: Array.from(notes) });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not load free slots";
-    console.error("[FreeSlots] failed", e);
+    reportServerError("[FreeSlots] failed", e);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

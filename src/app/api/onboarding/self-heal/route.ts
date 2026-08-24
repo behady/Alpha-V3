@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAuthedUser } from "@/lib/apiStaffAuth";
@@ -69,7 +70,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, healed, clinicId: primary });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Self-heal failed";
-    console.error("Onboarding self-heal error:", error);
+    reportServerError("Onboarding self-heal error:", error);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

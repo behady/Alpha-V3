@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { FieldValue } from "firebase-admin/firestore";
@@ -393,7 +394,7 @@ export async function POST(request: Request) {
       }
     } catch (err) {
       // Examples sweeten the prompt; their absence must never block a generation.
-      console.error("[MarketingContent] example fetch failed", err);
+      reportServerError("[MarketingContent] example fetch failed", err);
     }
 
     const facts =
@@ -531,7 +532,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, items, playbook, creditsCharged: cost });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Marketing generation failed";
-    console.error("[MarketingContent] failed", e);
+    reportServerError("[MarketingContent] failed", e);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

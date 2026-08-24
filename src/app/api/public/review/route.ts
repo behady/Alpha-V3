@@ -1,3 +1,4 @@
+import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicDoc } from "@/lib/adminClinicDb";
@@ -43,7 +44,7 @@ export async function GET(request: Request) {
       alreadyRated: data.status === "rated",
     });
   } catch (e) {
-    console.error("[PublicReview] GET failed", e);
+    reportServerError("[PublicReview] GET failed", e);
     return bad("Something went wrong.", 500);
   }
 }
@@ -119,7 +120,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true, happy: false });
   } catch (e) {
-    console.error("[PublicReview] POST failed", e);
+    reportServerError("[PublicReview] POST failed", e);
     return bad("Something went wrong.", 500);
   }
 }
