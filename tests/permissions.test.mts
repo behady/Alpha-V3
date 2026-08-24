@@ -22,6 +22,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { PERMISSIONS_CATALOG, getAllPermissionIds } from "../src/config/permissionsCatalog";
+import { BIN_COLLECTIONS } from "../src/lib/recycleBin";
 import {
   COLLECTION_WRITE_PERMISSIONS,
   ROLE_BASELINE,
@@ -138,6 +139,20 @@ const MUST_BE_EXCLUDED = [
   // clinic's credits and erase the record of what was spent.
   "ai_usage",
   "ai_usage_log",
+  // Everything the recycle bin owns. Their own blocks say `allow delete: if false` so deletion
+  // goes through /api/records/delete and the record is photographed on the way out. That deny only
+  // holds while these names are also held out of the blanket grant — otherwise the bin becomes
+  // advisory, and the failure is invisible: the record is gone, Recently Deleted is empty, and the
+  // feature looks broken rather than bypassed.
+  "patients",
+  "patient_media",
+  "prescriptions",
+  "treatment_plans",
+  "diagnosis_chats",
+  "inventory",
+  "drugs",
+  "marketing_content",
+  "attendance",
 ];
 
 const rules = readFileSync(join(REPO, "firestore.rules"), "utf8");
@@ -300,6 +315,57 @@ assert.equal(holdsPermission("Admin", [], "patients.delete"), true, "Admin passe
 assert.equal(holdsPermission("Receptionist", [], null), true, "a null permission is open to members");
 assert.equal(holdsPermission("Receptionist", ["patients.add"], "patients.delete"), false);
 assert.equal(holdsPermission("Receptionist", null, "patients.add"), false, "no list means nothing granted");
+
+
+// --- 7. The recycle bin's allow-list must agree with the rules ------------------------------------
+
+// The delete route runs on the Admin SDK and bypasses firestore.rules entirely, so its allow-list
+// is the only thing standing between a caller and any collection they care to name. Two ways that
+// can rot: a collection the rules close ends up binnable, or a binnable collection quietly regains
+// a client-side delete and starts bypassing the bin.
+
+const binNames = Object.keys(BIN_COLLECTIONS);
+
+for (const name of binNames) {
+  assert.ok(
+    rules.includes(`match /${name}/{`),
+    `"${name}" is binnable but has no match block in firestore.rules`
+  );
+  assert.ok(
+    excluded.has(name),
+    `"${name}" is binnable but is not held out of the blanket member-write grant — ` +
+      `the client can still delete it directly and bypass the bin entirely`
+  );
+}
+
+// Nothing the rules deliberately close may be reachable through the bin. These are the audit
+// trails, the credit meter and the outbound message queues; a permission-map lookup returns null
+// for every one of them, and `holdsPermission` reads null as "open to any member".
+const SERVER_ONLY = [
+  "system_logs", "staff", "settings", "ai_deletion_log", "ai_pending_actions",
+  "message_drafts", "sms_outbox", "sms_devices", "whatsapp_outbox", "ai_usage", "ai_usage_log",
+  "ledger", "ledger_audit", "clinical_notes",
+];
+const wronglyBinnable = SERVER_ONLY.filter((name) => binNames.includes(name));
+assert.deepEqual(
+  wronglyBinnable,
+  [],
+  `these are server-only in firestore.rules but the recycle bin would accept them: ${wronglyBinnable.join(", ")}`
+);
+
+// Every gate must be real: a rule with no permission and no admin flag is reachable by any member.
+for (const [name, rule] of Object.entries(BIN_COLLECTIONS)) {
+  assert.ok(
+    rule.permission !== null || rule.adminOnly,
+    `bin rule for "${name}" has neither a permission nor an admin gate`
+  );
+  if (rule.permission) {
+    assert.ok(
+      catalogue.has(rule.permission),
+      `bin rule for "${name}" names "${rule.permission}", which is not a grantable permission`
+    );
+  }
+}
 
 console.log(
   `✓ permissions: ${ids.length} catalogue ids, ${enforced.size} enforced in code, ` +

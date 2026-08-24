@@ -131,11 +131,29 @@ export default function SuperAdminDashboard() {
     }
   };
 
+  /**
+   * Deliberately NOT routed through the recycle bin, and the copy is honest about what it does.
+   *
+   * This removes the clinic's own document. Everything under it — every patient, ledger row, note
+   * and image — survives untouched in the subtree, so "completely delete" and "cannot be undone"
+   * were both wrong: nothing is completely deleted, and re-creating the document reattaches the
+   * lot. The bin cannot help either, because `clinics` is a root collection: a snapshot filed
+   * under the clinic being deleted would be unreachable, and one filed at the root would restore a
+   * document that instantly re-grants access to everyone still holding a role for it.
+   *
+   * The real fix is a soft delete (set status away from Active — isClinicActive and the read-only
+   * banner already key off it) followed by an explicit purge that walks the subtree. Until that
+   * exists, this stays as it is and says what it actually does.
+   */
   const handleDeleteClinic = async (clinicId: string, name: string) => {
-    if (await confirm(`Are you sure you want to completely delete "${name}"? This action cannot be undone.`)) {
+    if (
+      await confirm(
+        `Delete the clinic record for "${name}"? Its patients, ledger and notes are NOT deleted — they remain in the database and reappear if the record is recreated.`
+      )
+    ) {
       try {
         await deleteDoc(getClinicDoc("clinics", clinicId));
-        showToast("Clinic deleted successfully", "success");
+        showToast("Clinic record deleted (clinic data retained)", "success");
       } catch (err) {
         showToast("Error deleting clinic", "error");
       }

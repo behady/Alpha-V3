@@ -1,5 +1,6 @@
 "use client";
 
+import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ClipboardList, Plus, Sparkles, Printer, Download, MessageCircle, Edit2, Trash2, X,
@@ -790,13 +791,13 @@ export default function PatientTreatmentPlanTab({
     );
     if (!ok) return;
     try {
-      await deleteDoc(getClinicDoc("treatment_plans", plan.id));
+      await deleteRecord(clinicId || "", "treatment_plans", plan.id);
       await logActivity(
         { uid: user?.uid, name: user?.name, role: user?.role },
         "Treatment Plan Deleted",
         `Deleted treatment plan "${plan.title}" for ${patient?.name || patientId}`
       );
-      showToast(ar ? "تم الحذف" : "Plan deleted", "success");
+      showToast(ar ? "تم النقل إلى المحذوفات" : "Moved to Recently Deleted", "success");
     } catch (e) {
       console.error(e);
       showToast(ar ? "فشل الحذف" : "Failed to delete", "error");
@@ -1108,11 +1109,21 @@ export default function PatientTreatmentPlanTab({
     );
     if (!ok) return;
     try {
-      await deleteDoc(getClinicDoc("diagnosis_chats", session.id));
+      await deleteRecord(clinicId || "", "diagnosis_chats", session.id);
       if (diagChatId === session.id) openDiagSession(null);
+      // This delete wrote no activity-log line at all, so a removed differential diagnosis left
+      // no trace of who removed it.
+      await logActivity(
+        { uid: user?.uid, name: user?.name, role: user?.role },
+        "Diagnosis Chat Deleted",
+        `Moved discussion "${session.title}" to Recently Deleted for ${patient?.name || patientId}`
+      );
+      showToast(ar ? "تم النقل إلى المحذوفات" : "Moved to Recently Deleted", "success");
     } catch (e) {
-      console.error(e);
-      showToast(ar ? "فشل الحذف" : "Failed to delete", "error");
+      showToast(
+        e instanceof RecycleBinError ? e.message : ar ? "فشل الحذف" : "Failed to delete",
+        "error"
+      );
     }
   };
 

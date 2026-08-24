@@ -1,5 +1,7 @@
 "use client";
 
+import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
+import { useClinic } from "@/context/ClinicContext";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -23,7 +25,6 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext";
-import { useClinic } from "@/context/ClinicContext";
 import PermissionGuard from "@/components/PermissionGuard";
 import { UpgradeRequired } from "@/components/UpgradeRequired";
 import { hasFeature, getMarketingCreditLimit } from "@/lib/subscriptions";
@@ -387,8 +388,12 @@ export default function MarketingPage() {
       tone: "danger",
     });
     if (!okGo) return;
-    await deleteDoc(getClinicDoc("marketing_content", item.id));
-    showToast(isAr ? "تم الحذف" : "Deleted", "success");
+    try {
+      await deleteRecord(clinicId || "", "marketing_content", item.id);
+      showToast(isAr ? "تم النقل إلى المحذوفات" : "Moved to Recently Deleted", "success");
+    } catch (err) {
+      showToast(err instanceof RecycleBinError ? err.message : isAr ? "تعذر الحذف" : "Could not delete", "error");
+    }
   };
 
   /* ------- health score (starter) ------- */

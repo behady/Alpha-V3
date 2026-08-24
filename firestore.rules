@@ -188,7 +188,17 @@ service cloud.firestore {
         && sub != 'ai_usage' && sub != 'ai_usage_log'
         && sub != 'whatsapp_outbox'
         && sub != 'ledger' && sub != 'ledger_audit'
-        && sub != 'clinical_notes' && sub != 'services';
+        && sub != 'clinical_notes' && sub != 'services'
+        // Everything the recycle bin covers. A client delete on these would destroy the record
+        // with no snapshot, and the bin would then be advisory rather than true — the worst
+        // outcome being a dentist who deletes from a stale browser tab, finds Recently Deleted
+        // empty, and concludes the feature is broken. Creates and updates stay with the client;
+        // only the delete moves. See src/lib/recycleBin.ts.
+        && sub != 'patients' && sub != 'patient_media'
+        && sub != 'prescriptions' && sub != 'treatment_plans'
+        && sub != 'diagnosis_chats' && sub != 'inventory'
+        && sub != 'drugs' && sub != 'marketing_content'
+        && sub != 'attendance';
     }
 
     // Two accounts that work at the same clinic. Used to scope who may read whose profile.
@@ -388,7 +398,92 @@ service cloud.firestore {
       match /leads/{leadId} {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
         allow create, update: if isSuperAdmin() || (hasClinicRole(clinicId) && isClinicActive(clinicId));
-        allow delete: if isSuperAdmin() || (isClinicAdmin(clinicId) && isClinicActive(clinicId));
+        // Deleting goes through /api/records/delete, which still requires an Admin and snapshots
+        // the lead first — a lost lead with an awkward reason is the record most worth keeping.
+        allow delete: if false;
+      }
+
+
+      // --- COLLECTIONS THE RECYCLE BIN OWNS -------------------------------------------------
+      //
+      // Each of these keeps exactly the access it had, with one change: the client may no longer
+      // DELETE. Deletion goes through /api/records/delete, which photographs the record into the
+      // root `deleted_records` collection first, so a mistake is recoverable from Settings →
+      // Recently Deleted instead of being final.
+      //
+      // Creates and updates still name their permission, because those are unchanged decisions.
+      // The names above are held out of the blanket member-write grant; without that these blocks
+      // would be ORed with it and change nothing at all.
+      //
+      // `services` and `leads` were already Admin-only and keep their own blocks further down;
+      // they are binned too, but their rules did not need to move.
+
+      match /patients/{patientId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow create: if isSuperAdmin()
+          || (hasClinicRole(clinicId) && isClinicActive(clinicId) && holdsPermission(clinicId, 'patients.add'));
+        allow update: if isSuperAdmin()
+          || (hasClinicRole(clinicId) && isClinicActive(clinicId) && holdsPermission(clinicId, 'patients.edit'));
+        allow delete: if false;
+      }
+
+      match /patient_media/{mediaId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow create, update: if isSuperAdmin()
+          || (hasClinicRole(clinicId) && isClinicActive(clinicId) && holdsPermission(clinicId, 'patients.edit'));
+        allow delete: if false;
+      }
+
+      match /prescriptions/{prescriptionId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow create, update: if isSuperAdmin()
+          || (hasClinicRole(clinicId) && isClinicActive(clinicId) && holdsPermission(clinicId, 'clinical.edit'));
+        allow delete: if false;
+      }
+
+      match /treatment_plans/{planId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow create, update: if isSuperAdmin()
+          || (hasClinicRole(clinicId) && isClinicActive(clinicId) && holdsPermission(clinicId, 'clinical.edit'));
+        allow delete: if false;
+      }
+
+      match /diagnosis_chats/{chatId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow create, update: if isSuperAdmin()
+          || (hasClinicRole(clinicId) && isClinicActive(clinicId) && holdsPermission(clinicId, 'clinical.edit'));
+        allow delete: if false;
+      }
+
+      match /inventory/{itemId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow create: if isSuperAdmin()
+          || (hasClinicRole(clinicId) && isClinicActive(clinicId) && holdsPermission(clinicId, 'inventory.add'));
+        allow update: if isSuperAdmin()
+          || (hasClinicRole(clinicId) && isClinicActive(clinicId) && holdsPermission(clinicId, 'inventory.edit'));
+        allow delete: if false;
+      }
+
+      match /drugs/{drugId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow create, update: if isSuperAdmin()
+          || (hasClinicRole(clinicId) && isClinicActive(clinicId) && holdsPermission(clinicId, 'access.settings'));
+        allow delete: if false;
+      }
+
+      match /marketing_content/{contentId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow create, update: if isSuperAdmin()
+          || (hasClinicRole(clinicId) && isClinicActive(clinicId) && holdsPermission(clinicId, 'access.marketing'));
+        allow delete: if false;
+      }
+
+      // Attendance rows are written by the staff member clocking in, so creates and updates stay
+      // open to any active member; only removing a log — which moves payroll — is restricted.
+      match /attendance/{logId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow create, update: if isSuperAdmin() || (hasClinicRole(clinicId) && isClinicActive(clinicId));
+        allow delete: if false;
       }
 
       // Money. Every write goes through /api/finance/ledger or /api/clinical/procedures on the
@@ -440,7 +535,9 @@ service cloud.firestore {
       // admin-only area; this makes the data agree with the screen.
       match /services/{serviceId} {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
-        allow write: if isSuperAdmin() || (isClinicAdmin(clinicId) && isClinicActive(clinicId));
+        allow create, update: if isSuperAdmin() || (isClinicAdmin(clinicId) && isClinicActive(clinicId));
+        // Still Admin-only, now through /api/records/delete so a removed price is recoverable.
+        allow delete: if false;
       }
 
       match /system_logs/{logId} {
@@ -553,6 +650,39 @@ service cloud.firestore {
       }
     }
     
+
+    // --- THE RECYCLE BIN ---
+    //
+    // Root collections, not `clinics/{clinicId}/deleted_records`, and the reason is the blanket
+    // grant above: every clinic subcollection is readable by every clinic member, and rules OR
+    // together, so a narrower block underneath cannot take that back. A bin under the clinic would
+    // therefore be readable by the whole clinic by construction — and its entries are complete
+    // patient records: allergies, medical history, the odontogram, image URLs. The narrower rule
+    // would have looked like protection and provided none.
+    //
+    // Denied to every client outright. /api/records/bin serves the list, filtered to what the
+    // caller is allowed to see; /api/records/restore and /api/records/purge are the only writers.
+    // A member-writable bin entry would also be an arbitrary-write capability into any collection,
+    // because restore executes whatever the entry names using the Admin SDK.
+    match /deleted_records/{entryId} {
+      allow read, write: if false;
+    }
+
+    match /deleted_records/{entryId}/{document=**} {
+      allow read, write: if false;
+    }
+
+    // The permanent record that a deletion happened, carrying no snapshot. Retention removes
+    // copies of data; it must never remove the fact.
+    match /deleted_records_history/{entryId} {
+      allow read, write: if false;
+    }
+
+    // Storage object paths whose last naming document was purged, kept so the files stay findable.
+    match /storage_orphans/{entryId} {
+      allow read, write: if false;
+    }
+
     // --- PER-CLINIC SECRETS ---
     // WhatsApp access tokens and any future third-party credentials live here, NOT under
     // clinics/{clinicId}/. That subtree is covered by `match /{subcollection}/{document=**}`

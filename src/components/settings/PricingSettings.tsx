@@ -1,5 +1,7 @@
 "use client";
 
+import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
+import { useClinic } from "@/context/ClinicContext";
 import { useState, useEffect, useMemo } from "react";
 import { Search, Plus, Edit2, Trash2, X, Save, Clock, FlaskConical, AlertTriangle } from "lucide-react";
 import { onSnapshot, query, orderBy, deleteDoc, updateDoc, addDoc } from "firebase/firestore";
@@ -44,6 +46,7 @@ interface ServiceRow {
  * icon by itself) and stay overridable.
  */
 export default function PricingSettings({ currency }: { currency: string }) {
+  const { clinicId } = useClinic();
   const { language, isRTL } = useLanguage();
   const { showToast, confirm } = useUI();
 
@@ -224,8 +227,12 @@ export default function PricingSettings({ currency }: { currency: string }) {
 
   const deleteService = async (id: string, name: string) => {
     if (await confirm(ar ? `حذف "${name}" من قائمة الأسعار؟` : `Remove "${name}" from the price list?`)) {
-      await deleteDoc(getClinicDoc("services", id));
-      showToast(ar ? "تم حذف العلاج" : "Treatment removed", "info");
+      try {
+        await deleteRecord(clinicId || "", "services", id);
+        showToast(ar ? "تم نقل العلاج إلى المحذوفات" : "Treatment moved to Recently Deleted", "info");
+      } catch (err) {
+        showToast(err instanceof RecycleBinError ? err.message : ar ? "تعذر الحذف" : "Could not delete", "error");
+      }
     }
   };
 

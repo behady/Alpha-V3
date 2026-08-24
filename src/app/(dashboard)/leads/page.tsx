@@ -1,5 +1,7 @@
 "use client";
 
+import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
+import { useClinic } from "@/context/ClinicContext";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
@@ -12,7 +14,6 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext";
-import { useClinic } from "@/context/ClinicContext";
 import PermissionGuard from "@/components/PermissionGuard";
 import { logActivity } from "@/lib/logger";
 import { LOCATIONS_DOC, parseClinicBranches, type ClinicBranch } from "@/lib/clinicLocations";
@@ -35,7 +36,7 @@ export default function LeadsPage() {
   const { language } = useLanguage();
   const isAr = language === "ar";
   const { user } = useAuth();
-  const { isAdmin } = useClinic();
+  const { clinicId, isAdmin } = useClinic();
   const { showToast, confirm, prompt } = useUI();
   const router = useRouter();
 
@@ -314,10 +315,10 @@ export default function LeadsPage() {
   const handleDelete = async (lead: Lead) => {
     if (!(await confirm(isAr ? "حذف هذا العميل المحتمل؟" : "Delete this lead?"))) return;
     try {
-      await deleteDoc(getClinicDoc("leads", lead.id));
-      showToast(isAr ? "تم الحذف" : "Deleted", "success");
-    } catch (e) {
-      showToast(isAr ? "حصل خطأ" : "Error", "error");
+      await deleteRecord(clinicId || "", "leads", lead.id);
+      showToast(isAr ? "تم النقل إلى المحذوفات" : "Moved to Recently Deleted", "success");
+    } catch (err) {
+      showToast(err instanceof RecycleBinError ? err.message : isAr ? "حصل خطأ" : "Error", "error");
     }
   };
 

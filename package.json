@@ -26,6 +26,8 @@
     "test:ledger": "npx tsx tests/ledgerWrite.test.mjs",
     "_comment_test_delete": "The one delete rule, shared by every screen: a charge with payments recorded against it cannot be deleted until they are.",
     "test:delete": "npx tsx tests/deletePolicy.test.mjs",
+    "_comment_test_recyclebin": "The recycle bin's boundaries. A server route bypasses firestore.rules entirely, so every limit the rules enforce is re-enforced here or it is gone: path escapes, audit trails, the Admin short-circuit, and a restore that never overwrites.",
+    "test:recyclebin": "npx tsx tests/recycleBin.test.mjs",
     "_comment_test_repair": "The historical payment repair's classifier. The assertions that matter most are the ones that refuse to touch a row whose commission was corrected by hand.",
     "test:repair": "npx tsx tests/repairClassifier.test.mjs",
     "_comment_test_discount": "Price lists and discounts. The two rules that matter: the lab fee is never discounted, and commission is calculated on the net.",

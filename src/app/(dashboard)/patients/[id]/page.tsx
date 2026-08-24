@@ -1,5 +1,6 @@
 "use client";
 
+import { deleteRecord, isOrphanWarning, RecycleBinError } from "@/lib/recycleBinApi";
 import { useState, useEffect, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { 
@@ -165,7 +166,7 @@ export default function PatientProfile() {
   const { showToast, confirm } = useUI();
   const { t, language, isRTL } = useLanguage();
   const { user, loading: authLoading } = useAuth();
-  const { isAdmin } = useClinic();
+  const { isAdmin, clinicId } = useClinic();
   
   const params = useParams();
   const router = useRouter();
@@ -598,20 +599,44 @@ export default function PatientProfile() {
     try {
       setIsDeleting(true);
       const patientName = patient?.name || id;
-      await deleteDoc(getClinicDoc("patients", id));
-      await logActivity(
-        { uid: user?.uid, name: user?.name, role: user?.role },
-        "Patient Deleted",
-        `Deleted patient profile: ${patientName} (${id})`,
-        "system_logs",
-        { severity: "CRITICAL", module: "patients" }
+      // Deleting a patient does not cascade — their charges, images and notes stay behind. The
+      // route counts them and refuses the first time so the choice is made with the number in
+      // view, rather than discovered later as records belonging to nobody.
+      try {
+        await deleteRecord(clinicId || "", "patients", id);
+      } catch (err) {
+        if (isOrphanWarning(err)) {
+          const summary = Object.entries(err.counts || {})
+            .map(([collection, n]) => `${n} ${collection.replace(/_/g, " ")}`)
+            .join(", ");
+          const goAhead = await confirm(
+            language === "ar"
+              ? `سيبقى لهذا المريض: ${summary}. هل تريد المتابعة؟`
+              : `This patient still has ${summary}. These will be left behind. Delete anyway?`,
+            { confirmLabel: language === "ar" ? "حذف" : "Delete", tone: "danger" }
+          );
+          if (!goAhead) {
+            setIsDeleting(false);
+            return;
+          }
+          await deleteRecord(clinicId || "", "patients", id, { acknowledgeOrphans: true });
+        } else {
+          throw err;
+        }
+      }
+      showToast(
+        language === "ar" ? "تم نقل المريض إلى المحذوفات" : "Patient moved to Recently Deleted.",
+        "success"
       );
-      showToast(t('deleteSuccess') || "Patient deleted successfully.", "success");
       router.push("/patients");
     } catch (err) {
-      console.error(err);
       setIsDeleting(false);
-      showToast(t('deleteError') || "Failed to delete patient.", "error");
+      showToast(
+        err instanceof RecycleBinError
+          ? err.message
+          : t('deleteError') || "Failed to delete patient.",
+        "error"
+      );
     }
   };
 
@@ -824,15 +849,6 @@ export default function PatientProfile() {
     } finally {
       setIsUploadingMedia(false);
       e.target.value = '';
-    }
-  };
-
-  const handleDeleteMedia = async (mediaId: string) => {
-    try {
-      await deleteDoc(getClinicDoc("patient_media", mediaId));
-      showToast(language === "ar" ? "تم حذف الصورة" : "Media deleted", "success");
-    } catch (err) {
-      showToast(language === "ar" ? "تعذر الحذف" : "Failed to delete", "error");
     }
   };
 
@@ -1794,10 +1810,18 @@ export default function PatientProfile() {
                             <button
                               onClick={async () => {
                                 try {
-                                  await deleteDoc(getClinicDoc("prescriptions", row.id));
-                                  showToast(language === "ar" ? "تم حذف الوصفة" : "Prescription deleted", "success");
+                                  await deleteRecord(clinicId || "", "prescriptions", row.id);
+                                  showToast(
+                                    language === "ar" ? "تم النقل إلى المحذوفات" : "Moved to Recently Deleted",
+                                    "success"
+                                  );
                                 } catch (e) {
-                                  showToast(language === "ar" ? "تعذر الحذف" : "Failed to delete", "error");
+                                  showToast(
+                                    e instanceof RecycleBinError
+                                      ? e.message
+                                      : language === "ar" ? "تعذر الحذف" : "Failed to delete",
+                                    "error"
+                                  );
                                 }
                               }}
                               className="text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-colors"

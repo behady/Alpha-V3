@@ -141,6 +141,29 @@ async function main() {
       clinicRoles: { clinicA: "Assistant", clinicB: "Admin" },
     });
 
+    // The recycle bin lives at the ROOT. If it were a clinic subcollection the blanket read grant
+    // would expose every deleted patient record to every clinic member — which is the whole reason
+    // it is not one.
+    await setDoc(doc(db, "deleted_records/entry1"), {
+      clinicId: "clinicA",
+      collection: "patients",
+      documentId: "patA1",
+      label: "Mona",
+      status: "deleted",
+    });
+    await setDoc(doc(db, "deleted_records/entry1/payload/data"), {
+      snapshot: { name: "Mona", allergies: "Penicillin", medicalHistory: "Hypertension" },
+    });
+    await setDoc(doc(db, "deleted_records_history/h1"), { clinicId: "clinicA", collection: "patients" });
+    await setDoc(doc(db, "storage_orphans/o1"), { clinicId: "clinicA", storagePaths: ["x.jpg"] });
+    await setDoc(doc(db, "clinics/clinicA/patient_media/medA1"), {
+      patientId: "patA1",
+      fileName: "xray.jpg",
+      url: "https://example.test/o/x.jpg",
+    });
+    await setDoc(doc(db, "clinics/clinicA/prescriptions/rxA1"), { patientId: "patA1", drugName: "Amoxicillin" });
+    await setDoc(doc(db, "clinics/clinicA/inventory/invA1"), { name: "Gloves", quantity: 10 });
+
     await setDoc(doc(db, "clinics/clinicA/patients/patA1"), {
       name: "Mona",
       phone: "+201000000001",
@@ -622,10 +645,13 @@ async function main() {
     deleteDoc(doc(assistant1, "clinics/clinicA/leads/leadA1")),
     "deny"
   );
+  // Deleting a lead is still Admin-only, but it now goes through /api/records/delete so the lead
+  // is photographed on the way out — a lost lead with an awkward reason is the record most worth
+  // keeping, and the marketing report is only as honest as its history.
   await check(
-    "the clinic's Admin can delete a lead",
+    "not even the clinic's Admin deletes a lead directly any more",
     deleteDoc(doc(admin1, "clinics/clinicA/leads/leadA1")),
-    "allow"
+    "deny"
   );
   await check(
     "another clinic's Admin cannot read this clinic's leads",
@@ -738,10 +764,14 @@ async function main() {
     setDoc(doc(admin1, "clinics/clinicA/patients/adminPat1"), { name: "Owner added" }),
     "allow"
   );
+  // Written when the permission layer was switched on, and true then. The recycle bin changed it
+  // on purpose: no client deletes a patient any more, Admin included, so that the record is always
+  // recoverable. The Admin's privilege still applies — at the route, which lets them delete what
+  // an unticked box would refuse.
   await check(
-    "an Admin can delete a patient nobody else may touch",
+    "an Admin no longer deletes a patient directly — the bin owns that now",
     deleteDoc(doc(admin1, "clinics/clinicA/patients/adminPat1")),
-    "allow"
+    "deny"
   );
 
   // Permissions are per clinic, which is the whole reason the map is keyed by clinic id. A flat
@@ -749,6 +779,85 @@ async function main() {
   await check(
     "permissions do not leak between clinics — Admin at B is not Admin at A",
     deleteDoc(doc(multi1, "clinics/clinicA/patients/patA1")),
+    "deny"
+  );
+
+  // The recycle bin only means anything if the client cannot delete around it. These assertions
+  // are the difference between a bin that is true and a bin that is advisory.
+  console.log("deletion goes through the recycle bin, not around it");
+
+  await check(
+    "a member cannot delete a patient directly",
+    deleteDoc(doc(assistant1, "clinics/clinicA/patients/patA1")),
+    "deny"
+  );
+  await check(
+    "not even a clinic Admin can delete a patient directly",
+    deleteDoc(doc(admin1, "clinics/clinicA/patients/patA1")),
+    "deny"
+  );
+  await check(
+    "a member cannot delete a prescription directly",
+    deleteDoc(doc(assistant1, "clinics/clinicA/prescriptions/rxA1")),
+    "deny"
+  );
+  await check(
+    "a member cannot delete a media record directly",
+    deleteDoc(doc(assistant1, "clinics/clinicA/patient_media/medA1")),
+    "deny"
+  );
+  await check(
+    "a member cannot delete an inventory item directly",
+    deleteDoc(doc(assistant1, "clinics/clinicA/inventory/invA1")),
+    "deny"
+  );
+
+  // Everything else about those collections is unchanged — only the delete moved.
+  await check(
+    "a member with patients.edit can still edit a patient",
+    updateDoc(doc(assistant1, "clinics/clinicA/patients/patA1"), { notes: "seen today" }),
+    "allow"
+  );
+  await check(
+    "a member can still add a patient",
+    setDoc(doc(limited1, "clinics/clinicA/patients/newPat2"), { name: "Sara" }),
+    "allow"
+  );
+  await check(
+    "a member can still read a patient",
+    getDoc(doc(assistant1, "clinics/clinicA/patients/patA1")),
+    "allow"
+  );
+
+  console.log("the bin itself is closed to every client");
+
+  await check("a member cannot read the bin", getDoc(doc(assistant1, "deleted_records/entry1")), "deny");
+  await check("an Admin cannot read the bin", getDoc(doc(admin1, "deleted_records/entry1")), "deny");
+  await check(
+    "nobody can read a deleted patient's medical history from the bin payload",
+    getDoc(doc(admin1, "deleted_records/entry1/payload/data")),
+    "deny"
+  );
+  await check(
+    "a member cannot forge a bin entry",
+    setDoc(doc(assistant1, "deleted_records/forged1"), { clinicId: "clinicA", collection: "patients" }),
+    "deny"
+  );
+  await check(
+    "an Admin cannot erase a bin entry to hide a deletion",
+    deleteDoc(doc(admin1, "deleted_records/entry1")),
+    "deny"
+  );
+  await check(
+    "the deletion history cannot be rewritten",
+    setDoc(doc(admin1, "deleted_records_history/h1"), { collection: "nothing" }),
+    "deny"
+  );
+  await check("the history cannot be read by a client", getDoc(doc(admin1, "deleted_records_history/h1")), "deny");
+  await check("orphaned file paths are server-only", getDoc(doc(admin1, "storage_orphans/o1")), "deny");
+  await check(
+    "another clinic's Admin cannot read this clinic's bin",
+    getDoc(doc(adminB, "deleted_records/entry1")),
     "deny"
   );
 

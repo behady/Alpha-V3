@@ -1,5 +1,7 @@
 "use client";
 
+import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
+import { useClinic } from "@/context/ClinicContext";
 import { useState, useEffect } from "react";
 import { Pill, Plus, Trash2, X, Save } from "lucide-react";
 import { db } from "@/lib/firebase";
@@ -9,6 +11,7 @@ import { useUI } from "@/context/UIContext";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 
 export default function PrescriptionSettings() {
+  const { clinicId } = useClinic();
   const { language, isRTL } = useLanguage();
   const { showToast, confirm } = useUI();
   const [drugList, setDrugList] = useState<any[]>([]);
@@ -41,7 +44,13 @@ export default function PrescriptionSettings() {
   };
   
   const deleteDrug = async (id: string, name: string) => { 
-    if(await confirm("Delete this drug shortcut?")) { await deleteDoc(getClinicDoc("drugs", id)); } 
+    if (!(await confirm("Delete this drug shortcut?"))) return;
+    try {
+      await deleteRecord(clinicId || "", "drugs", id);
+      showToast("Moved to Recently Deleted", "success");
+    } catch (err) {
+      showToast(err instanceof RecycleBinError ? err.message : "Could not delete", "error");
+    }
   };
 
   return (

@@ -1,5 +1,7 @@
 "use client";
 
+import { deleteRecords, RecycleBinError } from "@/lib/recycleBinApi";
+import { useClinic } from "@/context/ClinicContext";
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   Camera,
@@ -67,6 +69,7 @@ export default function PatientMediaGallery({
   isRTL = false,
   user,
 }: PatientMediaGalleryProps) {
+  const { clinicId } = useClinic();
   const { showToast } = useUI();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -313,15 +316,17 @@ export default function PatientMediaGallery({
   // Delete Single Media
   const handleDeleteSingle = async (mediaId: string) => {
     try {
-      await deleteDoc(getClinicDoc("patient_media", mediaId));
-      showToast(language === "ar" ? "تم حذف الصورة" : "Media deleted", "success");
+      await deleteRecords(clinicId || "", [{ collection: "patient_media", documentId: mediaId }]);
+      showToast(language === "ar" ? "تم النقل إلى المحذوفات" : "Moved to Recently Deleted", "success");
       setMediaToDelete(null);
       if (lightboxIndex !== null && filteredMedia[lightboxIndex]?.id === mediaId) {
         setLightboxIndex(null);
       }
     } catch (err) {
-      console.error("Failed to delete media:", err);
-      showToast(language === "ar" ? "تعذر الحذف" : "Failed to delete", "error");
+      showToast(
+        err instanceof RecycleBinError ? err.message : language === "ar" ? "تعذر الحذف" : "Failed to delete",
+        "error"
+      );
     }
   };
 
@@ -329,20 +334,39 @@ export default function PatientMediaGallery({
   const handleBatchDelete = async () => {
     if (selectedIds.length === 0) return;
     try {
-      await Promise.all(
-        selectedIds.map((mediaId) => deleteDoc(getClinicDoc("patient_media", mediaId)))
+      // ONE request, not a loop. This was `Promise.all` over N independent deletes: a failure
+      // partway left some images gone and some not, with nothing recording which — and the toast
+      // reported the whole batch as failed either way. The route takes the set, gives it a single
+      // action id, and reports each item's outcome.
+      const outcome = await deleteRecords(
+        clinicId || "",
+        selectedIds.map((mediaId) => ({ collection: "patient_media", documentId: mediaId }))
       );
-      showToast(
-        language === "ar"
-          ? `تم حذف ${selectedIds.length} عناصر`
-          : `Deleted ${selectedIds.length} items`,
-        "success"
-      );
+      const failed = outcome.results.filter((r) => r.status !== "deleted");
+      if (failed.length > 0) {
+        showToast(
+          language === "ar"
+            ? `تم نقل ${outcome.deleted}، وتعذّر ${failed.length}`
+            : `Moved ${outcome.deleted}, could not move ${failed.length}`,
+          "error"
+        );
+      } else {
+        showToast(
+          language === "ar"
+            ? `تم نقل ${outcome.deleted} عناصر إلى المحذوفات`
+            : `Moved ${outcome.deleted} items to Recently Deleted`,
+          "success"
+        );
+      }
       setSelectedIds([]);
       setShowBatchDeleteModal(false);
     } catch (err) {
-      console.error("Failed batch delete:", err);
-      showToast(language === "ar" ? "فشل الحذف الجماعي" : "Failed batch delete", "error");
+      showToast(
+        err instanceof RecycleBinError
+          ? err.message
+          : language === "ar" ? "فشل الحذف الجماعي" : "Failed batch delete",
+        "error"
+      );
     }
   };
 

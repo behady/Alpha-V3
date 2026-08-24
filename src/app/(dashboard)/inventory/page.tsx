@@ -1,5 +1,7 @@
 "use client";
 
+import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
+import { useClinic } from "@/context/ClinicContext";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronUp, Edit2, Filter, Layers, Loader2, Package, Plus, RotateCcw, Save, Search, Trash2, TrendingDown, TrendingUp, Download, BookOpen, Send } from "lucide-react";
 // Inventory used root-level `inventory` / `inventory_transactions` / `categories` collections,
@@ -10,7 +12,6 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { Timestamp, addDoc, deleteDoc, getDocs, orderBy, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
-import { useClinic } from "@/context/ClinicContext";
 import PermissionGuard from "@/components/PermissionGuard";
 import Protect from "@/components/Protect";
 import { useUI } from "@/context/UIContext";
@@ -87,7 +88,7 @@ export default function InventoryPage() {
   const { language, isRTL } = useLanguage();
   const { user } = useAuth();
   const { showToast, confirm } = useUI();
-  const { clinic, isAdmin } = useClinic();
+  const { clinicId, clinic, isAdmin } = useClinic();
 
   const canAddInventory = isAdmin || user?.permissions?.includes("inventory.add");
   const canEditInventory = isAdmin || user?.permissions?.includes("inventory.edit");
@@ -385,7 +386,15 @@ export default function InventoryPage() {
   const handleDelete = async (item: Material) => {
     const ok = await confirm(language === "ar" ? "هل تريد حذف هذا الصنف نهائيًا؟" : "Delete this item permanently?");
     if (!ok) return;
-    await deleteDoc(getClinicDoc("inventory", item.id));
+    try {
+      await deleteRecord(clinicId || "", "inventory", item.id);
+      showToast(language === "ar" ? "تم النقل إلى المحذوفات" : "Moved to Recently Deleted", "success");
+    } catch (err) {
+      showToast(
+        err instanceof RecycleBinError ? err.message : language === "ar" ? "تعذر الحذف" : "Could not delete",
+        "error"
+      );
+    }
     await fetchData();
   };
 

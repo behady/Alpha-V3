@@ -1,5 +1,6 @@
 "use client";
 
+import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
 import { useState, useEffect, useMemo } from "react";
 import { Clock, CalendarDays, Loader2, Users } from "lucide-react";
 import { db } from "@/lib/firebase";
@@ -108,7 +109,7 @@ function ledgerPaymentCommissionStaffId(
 
 export default function AttendancePage() {
   const { user } = useAuth();
-  const { isAdmin } = useClinic();
+  const { isAdmin, clinicId } = useClinic();
   const { showToast, confirm } = useUI();
   const { language } = useLanguage();
 
@@ -756,7 +757,12 @@ export default function AttendancePage() {
 
   const handleDeleteLog = async (logId: string) => {
       if (await confirm("Delete this time log? It will affect payroll.")) {
-          await deleteDoc(getClinicDoc("attendance", logId));
+          try {
+            await deleteRecord(clinicId || "", "attendance", logId);
+          } catch (err) {
+            showToast(err instanceof RecycleBinError ? err.message : "Could not delete the log.", "error");
+            return;
+          }
           await logActivity(
             { uid: user?.uid, name: user?.name, role: user?.role },
             "Attendance Log Deleted",
@@ -764,7 +770,7 @@ export default function AttendancePage() {
             "system_logs",
             { severity: "HIGH", module: "attendance" }
           );
-          showToast("Log deleted.", "info");
+          showToast("Moved to Recently Deleted.", "info");
       }
   };
 

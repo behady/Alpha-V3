@@ -382,7 +382,7 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
             }}
             className="w-full bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white font-bold py-3 rounded-xl text-sm transition-colors border border-rose-200 hover:border-rose-600"
           >
-            Permanently Delete Clinic
+            Delete Clinic Record
           </button>
         </section>
 

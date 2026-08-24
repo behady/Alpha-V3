@@ -4,8 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { 
   Building, Building2, MapPin, Clock, Pill, Stethoscope, Users, Bell, Palette, ChevronDown, 
-  X, User, Mail, Lock, Badge, Save, MessageCircle, Monitor, CalendarDays, MessagesSquare, Sparkles
-} from "lucide-react";
+  X, User, Mail, Lock, Badge, Save, MessageCircle, Monitor, CalendarDays, MessagesSquare, Sparkles, Trash2 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext";
@@ -37,6 +36,7 @@ import LocationsSettings from "@/components/settings/LocationsSettings";
 import AiCreditsSettings from "@/components/settings/AiCreditsSettings";
 import { logActivity } from "@/lib/logger";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import RecentlyDeleted from "@/components/settings/RecentlyDeleted";
 export default function SettingsPage() {
   const { language, isRTL } = useLanguage();
   const { user, loading: authLoading } = useAuth(); 
@@ -72,6 +72,7 @@ export default function SettingsPage() {
     { id: "services", label: language === 'ar' ? "الأسعار" : "Prices", icon: Stethoscope },
     { id: "users", label: language === 'ar' ? "المستخدمين" : "Users", icon: Users, adminOnly: true },
     { id: "join_requests", label: language === 'ar' ? "طلبات الانضمام" : "Join Requests", icon: Users, adminOnly: true },
+    { id: "recently_deleted", label: language === 'ar' ? "المحذوفات" : "Recently Deleted", icon: Trash2 },
     { id: "logs", label: language === 'ar' ? "سجل النشاط" : "Activity Logs", icon: Clock, adminOnly: true },
     { id: "ai_credits", label: language === 'ar' ? "رصيد الذكاء الاصطناعي" : "AI Credits", icon: Sparkles, adminOnly: true },
     { id: "notifications", label: language === 'ar' ? "التنبيهات" : "Alerts", icon: Bell, adminOnly: true },
@@ -390,6 +391,7 @@ export default function SettingsPage() {
                </>
             )}
             {activeTab === 'join_requests' && isAdmin && <JoinRequests />}
+            {activeTab === 'recently_deleted' && <RecentlyDeleted />}
             {activeTab === 'logs' && isAdmin && <ActivityLogs />}
             {activeTab === 'ai_credits' && isAdmin && <AiCreditsSettings />}
             {activeTab === 'notifications' && isAdmin && (
