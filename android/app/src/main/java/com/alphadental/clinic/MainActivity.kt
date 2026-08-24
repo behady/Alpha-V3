@@ -459,6 +459,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     onAsk = viewModel::askAi,
                     onSpoken = viewModel::aiSpoken,
                     onSettle = viewModel::settlePending,
+                    onCancel = viewModel::cancelAi,
                     onClose = viewModel::closeAssistant,
                 )
             }

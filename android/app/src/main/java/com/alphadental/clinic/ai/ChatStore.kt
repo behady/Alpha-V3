@@ -140,8 +140,16 @@ class AnswerCache(context: Context, clinicId: String) {
  * refused action costs one repeat; a wrongly approved one costs whatever it did.
  *
  * "No" wins over "yes" when both appear ("no, don't"), for the same reason.
+ *
+ * A word that names a job is not an answer to a question. "اعمل" is the ordinary
+ * Egyptian imperative for "make", so "اعمل PDF" — make a PDF — used to be read as
+ * approval and would quietly execute whatever was staged, most alarmingly a
+ * cancellation. Anything carrying a task word is treated as a fresh request.
  */
 fun interpretYesNo(text: String): Boolean? {
+    val lower = text.lowercase()
+    if (TASK_WORDS.any { it in lower }) return null
+
     val words = text.lowercase()
         // Apostrophes join, they do not separate: splitting "don't" into two tokens pushed a
         // four-word refusal over the length guard and turned it into a shrug.
@@ -166,3 +174,13 @@ fun interpretYesNo(text: String): Boolean? {
     if (yes.any { it in tokens || (it.contains(" ") && words.contains(it)) }) return true
     return null
 }
+
+/**
+ * Words that name a thing to do rather than an answer to a question. Their
+ * presence means the person has moved on and is asking for something new, so the
+ * staged action is abandoned instead of being approved by accident.
+ */
+private val TASK_WORDS = listOf(
+    "pdf", "report", "print", "prescription", "appointment", "invoice", "receipt",
+    "تقرير", "روشتة", "روشته", "وصفة", "موعد", "فاتورة", "طباعة", "اطبع",
+)

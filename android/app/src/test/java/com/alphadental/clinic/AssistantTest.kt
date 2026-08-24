@@ -30,6 +30,17 @@ class AssistantTest {
     }
 
     @Test
+    fun `asking for something is not approving something else`() {
+        // "اعمل" is the everyday imperative "make", so "اعمل PDF" — make a PDF —
+        // used to read as a yes and would execute whatever was staged, up to and
+        // including a cancellation the person never agreed to.
+        assertEquals(null, interpretYesNo("اعمل PDF"))
+        assertEquals(null, interpretYesNo("اعمل تقرير"))
+        assertEquals(null, interpretYesNo("ok make a pdf"))
+        assertEquals(null, interpretYesNo("yes print it"))
+    }
+
+    @Test
     fun `no beats yes when both are said`() {
         // "no, don't do it" contains "do it". Approving that would be catastrophic.
         assertEquals(false, interpretYesNo("no don't do it"))

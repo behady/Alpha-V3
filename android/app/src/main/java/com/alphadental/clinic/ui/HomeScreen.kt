@@ -1,10 +1,13 @@
 package com.alphadental.clinic.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,8 +21,8 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Mic
@@ -34,6 +37,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
@@ -42,9 +46,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.alphadental.clinic.data.Appointment
@@ -63,6 +72,9 @@ import kotlinx.coroutines.delay
  * and the waiting room, the owner gets the money and the shape of the day.
  * Each dashboard carries its own shortcuts so the everyday tools are one tap
  * from here instead of a hunt through the More tab.
+ *
+ * All three open on the same dark slab and then go quiet: see [DashboardHeader]
+ * for why the screen spends all of its contrast in one place.
  */
 @Composable
 fun HomeScreen(
@@ -98,58 +110,43 @@ fun HomeScreen(
     val active = appointments.filterNot { normalizeStatus(it.status) in FINISHED }
     val nowMinutes = Calendar.getInstance().let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
 
+    // The owner's dashboard is the one that carries clinic money, so it is the one
+    // whose slab shows the day's takings. The other two get a shorter slab.
+    val ownerView = !session.isDentist && !session.isReception
+    val seen = appointments.count { normalizeStatus(it.status) in SEEN }
+    val noShow = appointments.count { normalizeStatus(it.status) == "No Show" }
+
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(16.dp),
+        // No side gutter on the list itself: the header slab has to reach both
+        // screen edges, so every other row asks for the gutter with row()/Gutter().
+        contentPadding = PaddingValues(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                // Solid ink rather than a soft tint: on the tinted ground the pale
-                // circle all but vanished, and the header lost its anchor.
-                Box(
-                    modifier = Modifier
-                        .size(46.dp)
-                        .clip(CircleShape)
-                        .background(Alpha.Ink),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        session.name.trim().firstOrNull()?.uppercase() ?: "•",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
+            DashboardHeader(
+                name = session.name,
+                arabic = arabic,
+                onShift = onShift,
+                shiftSince = shiftSince,
+                clocking = clocking,
+                onPunch = onPunch,
+            ) {
+                if (ownerView) {
+                    Spacer(Modifier.height(20.dp))
+                    SlabTakings(
+                        takingsToday = takingsToday,
+                        seen = seen,
+                        total = appointments.size,
+                        noShow = noShow,
+                        arabic = arabic,
                     )
                 }
-                Spacer(Modifier.width(12.dp))
-                // The greeting is context, the person is the headline — so the small
-                // line goes on top and the name sits alone underneath, in the serif
-                // that marks out the screen's few important words and figures.
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        text = "${timeGreeting(arabic)} · ${todayLabel(arabic)}",
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Alpha.Slate500,
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = shortName(session.name),
-                        fontSize = 23.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontFamily = FontFamily.Serif,
-                        color = Alpha.Slate900,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
-                ClockChip(onShift, shiftSince, clocking, arabic, onPunch)
             }
         }
 
         if (clockError != null) {
-            item {
+            row {
                 Surface(
                     onClick = onDismissClockError,
                     shape = Alpha.CardShape,
@@ -168,7 +165,7 @@ fun HomeScreen(
         }
 
         if (offline) {
-            item { OfflineBanner(pending, arabic) }
+            row { OfflineBanner(pending, arabic) }
         }
 
         when {
@@ -183,26 +180,28 @@ fun HomeScreen(
             )
 
             else -> ownerHome(
-                appointments, active, arabic, takingsToday, whatsappWaiting,
+                active, arabic, whatsappWaiting,
                 onOpenAppointment, onOpenReports, onOpenMoney, onOpenInventory, onOpenAssistant, onOpenLeads,
             )
         }
 
-        item {
-            Spacer(Modifier.height(2.dp))
+        row {
             Surface(
                 onClick = onSeeDay,
                 shape = Alpha.PillShape,
-                color = Alpha.GreenSoft,
+                color = Alpha.Card,
+                border = BorderStroke(1.dp, Alpha.Slate200),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
                     if (arabic) "عرض اليوم كاملاً ←" else "See the whole day →",
                     fontWeight = FontWeight.Bold,
-                    color = Alpha.Green,
+                    color = Alpha.Slate800,
                     fontSize = 14.sp,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    modifier = Modifier.padding(vertical = 13.dp),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 14.dp),
                 )
             }
         }
@@ -211,6 +210,226 @@ fun HomeScreen(
 
 /** Statuses that mean the visit is over, one way or another. */
 private val FINISHED = setOf("Completed", "Cancelled", "No Show")
+
+/** Statuses that mean the patient has been dealt with — the day's progress. */
+private val SEEN = setOf("Completed", "Checking Out")
+
+/** How far the dashboard's rows sit from the screen edge. The slab ignores it. */
+private val GUTTER = 16.dp
+
+// ---------------------------------------------------------------------------
+// The slab
+// ---------------------------------------------------------------------------
+
+/**
+ * The dark band the dashboard opens on.
+ *
+ * Everything that frames the shift — who you are, what day it is, whether you are
+ * clocked in, and for the owner what the day has taken — sits on one unbroken
+ * dark surface, and the whole screen below it stays plain. Spending the contrast
+ * budget in a single place is what keeps the list underneath readable: by the
+ * time the eye arrives at the appointment cards the only colour left anywhere is
+ * the status colours, so yellow genuinely does mean "ring this patient" rather
+ * than competing with five other bright things for attention.
+ */
+@Composable
+private fun DashboardHeader(
+    name: String,
+    arabic: Boolean,
+    onShift: Boolean,
+    shiftSince: Long,
+    clocking: Boolean,
+    onPunch: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(rememberSlabShape())
+            .background(slabColor)
+    ) {
+        // The generous bottom padding is not decoration: it keeps the text clear
+        // of the curve cut out of the slab's bottom edge.
+        Column(Modifier.padding(start = GUTTER, end = GUTTER, top = 14.dp, bottom = 44.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SlabAvatar(name)
+                Spacer(Modifier.width(12.dp))
+                // The greeting is context, the person is the headline — so the small
+                // line goes on top and the name sits alone underneath, in the serif
+                // that marks out the screen's few important words and figures.
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = "${timeGreeting(arabic)} · ${todayLabel(arabic)}",
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = onSlabDim,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = shortName(name),
+                        fontSize = 23.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontFamily = FontFamily.Serif,
+                        color = onSlab,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                ClockChip(onShift, shiftSince, clocking, arabic, onPunch)
+            }
+            content()
+        }
+    }
+}
+
+/**
+ * The slab's soft bottom edge.
+ *
+ * A straight line under a coloured band reads as a banner dropped onto the page;
+ * the sweep makes the dark ground feel like part of the screen instead of a
+ * sticker on it. Shallow on purpose — deep enough to register as a decision, not
+ * so deep that the curve becomes the thing anyone remembers about the app.
+ */
+@Composable
+private fun rememberSlabShape(): Shape {
+    val density = LocalDensity.current
+    return remember(density) {
+        val deep = with(density) { 34.dp.toPx() }
+        val shallow = with(density) { 12.dp.toPx() }
+        GenericShape { size, direction ->
+            val w = size.width
+            val h = size.height
+            // Mirrored in Arabic so the sweep runs the same way the reading does.
+            val rtl = direction == LayoutDirection.Rtl
+            val rightDip = if (rtl) shallow else deep
+            val leftDip = if (rtl) deep else shallow
+            moveTo(0f, 0f)
+            lineTo(w, 0f)
+            lineTo(w, h - rightDip)
+            cubicTo(w * 0.70f, h - 2f, w * 0.30f, h, 0f, h - leftDip)
+            close()
+        }
+    }
+}
+
+/** A quiet ring rather than a filled disc — a solid blob up here fought the name. */
+@Composable
+private fun SlabAvatar(name: String) {
+    Box(
+        modifier = Modifier
+            .size(46.dp)
+            .clip(CircleShape)
+            .background(onSlab.copy(alpha = .12f))
+            .border(1.dp, onSlab.copy(alpha = .22f), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = name.trim().firstOrNull()?.uppercase() ?: "•",
+            fontSize = 19.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Serif,
+            color = onSlab,
+        )
+    }
+}
+
+/**
+ * The owner's day, on the slab: what came through the door, then how far through
+ * the bookings the clinic is.
+ *
+ * Deliberately what was collected, not what was charged — billed-but-unpaid would
+ * flatter the figure badly, and this is the one number an owner acts on.
+ */
+@Composable
+private fun SlabTakings(
+    takingsToday: Double?,
+    seen: Int,
+    total: Int,
+    noShow: Int,
+    arabic: Boolean,
+) {
+    Row(verticalAlignment = Alignment.Bottom) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = takingsToday?.let { "${it.toInt()} EGP" } ?: "—",
+                fontSize = 34.sp,
+                fontWeight = FontWeight.ExtraBold,
+                fontFamily = FontFamily.Serif,
+                color = slabAccent,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = if (arabic) "تحصيل اليوم" else "Collected today",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = onSlabDim,
+            )
+        }
+        Text(
+            text = if (arabic) "$seen من $total" else "$seen of $total seen",
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = onSlabDim,
+        )
+    }
+    Spacer(Modifier.height(12.dp))
+    SlabProgress(fraction = if (total == 0) 0f else seen.toFloat() / total)
+    if (noShow > 0) {
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = if (arabic) "$noShow لم يحضروا" else "$noShow no-show${if (noShow == 1) "" else "s"}",
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Alpha.Pink,
+        )
+    }
+}
+
+/** A thin rounded progress bar, sized and coloured for the dark slab. */
+@Composable
+private fun SlabProgress(fraction: Float) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(6.dp)
+            .clip(Alpha.PillShape)
+            .background(onSlab.copy(alpha = .16f))
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                .height(6.dp)
+                .clip(Alpha.PillShape)
+                .background(slabAccent)
+        )
+    }
+}
+
+/**
+ * The slab's four colours.
+ *
+ * In light mode the slab is the theme's deep ink and everything on it is white;
+ * in dark mode there is no darker shade left to go to, so the slab lifts one step
+ * out of the ground instead and the text flips with it. Either way a screen
+ * written against these names gets the right answer.
+ */
+private val slabColor: Color
+    @Composable @ReadOnlyComposable get() = if (Alpha.dark) Alpha.Slate100 else Alpha.Ink
+
+private val onSlab: Color
+    @Composable @ReadOnlyComposable get() = if (Alpha.dark) Alpha.Slate900 else Color.White
+
+private val onSlabDim: Color
+    @Composable @ReadOnlyComposable get() = if (Alpha.dark) Alpha.Slate500 else Color.White.copy(alpha = .68f)
+
+/** The one accent the slab is allowed: the takings figure and the on-shift dot. */
+private val slabAccent: Color
+    @Composable @ReadOnlyComposable get() = if (Alpha.dark) Alpha.Green else Alpha.Mint
 
 // ---------------------------------------------------------------------------
 // Dentist: who is in my chair, who is next, and the clinical tools.
@@ -239,15 +458,15 @@ private fun LazyListScope.dentistHome(
         ?: list.firstOrNull { it.minutes() >= nowMinutes }
 
     if (inChair != null) {
-        item { HeroAppointment(inChair, arabic, if (arabic) "في الكرسي الآن" else "IN THE CHAIR NOW") { onOpen(inChair) } }
+        row { HeroAppointment(inChair, arabic, if (arabic) "في الكرسي الآن" else "IN THE CHAIR NOW") { onOpen(inChair) } }
     }
 
     if (next != null && next.id != inChair?.id) {
-        item { SectionHeading(if (arabic) "التالي" else "UP NEXT") }
-        item { AppointmentCard(next, arabic) { onOpen(next) } }
+        row { SectionHeading(if (arabic) "التالي" else "UP NEXT") }
+        row { AppointmentCard(next, arabic) { onOpen(next) } }
     }
 
-    item {
+    row {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             StatTile(
                 value = list.size.toString(),
@@ -264,17 +483,16 @@ private fun LazyListScope.dentistHome(
     }
 
     quickActions(
-        arabic,
         listOf(
-            QuickAction(Icons.Filled.People, if (arabic) "المرضى" else "Patients", ToolSky, onClick = onOpenPatients),
-            QuickAction(Icons.Filled.Timeline, if (arabic) "التقويم" else "Ortho", ToolViolet, onClick = onOpenOrtho),
-            QuickAction(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", ToolRose, onClick = onOpenAssistant),
-            QuickAction(Icons.Filled.Inventory2, if (arabic) "المخزون" else "Stock", ToolAmber, onClick = onOpenInventory),
+            QuickAction(Icons.Filled.People, if (arabic) "المرضى" else "Patients", onClick = onOpenPatients),
+            QuickAction(Icons.Filled.Timeline, if (arabic) "التقويم" else "Ortho", onClick = onOpenOrtho),
+            QuickAction(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", onClick = onOpenAssistant),
+            QuickAction(Icons.Filled.Inventory2, if (arabic) "المخزون" else "Stock", onClick = onOpenInventory),
         ),
     )
 
     if (list.isEmpty()) {
-        item { EmptyState(if (arabic) "لا توجد مواعيد اليوم." else "Nothing booked today.") }
+        row { EmptyState(if (arabic) "لا توجد مواعيد اليوم." else "Nothing booked today.") }
     }
 }
 
@@ -295,20 +513,19 @@ private fun LazyListScope.receptionHome(
     onOpenLeads: (() -> Unit)?,
 ) {
     quickActions(
-        arabic,
         listOfNotNull(
-            onOpenLeads?.let { QuickAction(Icons.Filled.PersonSearch, if (arabic) "عملاء" else "Leads", ToolViolet, onClick = it) },
-            onOpenMoney?.let { QuickAction(Icons.Filled.Payments, if (arabic) "الحسابات" else "Money", ToolGreen, onClick = it) },
-            QuickAction(Icons.Filled.People, if (arabic) "المرضى" else "Patients", ToolSky, onClick = onOpenPatients),
+            onOpenLeads?.let { QuickAction(Icons.Filled.PersonSearch, if (arabic) "عملاء" else "Leads", onClick = it) },
+            onOpenMoney?.let { QuickAction(Icons.Filled.Payments, if (arabic) "الحسابات" else "Money", onClick = it) },
+            QuickAction(Icons.Filled.People, if (arabic) "المرضى" else "Patients", onClick = onOpenPatients),
             QuickAction(
-                Icons.Filled.Send, if (arabic) "واتساب" else "WhatsApp", ToolTeal,
+                Icons.Filled.Send, if (arabic) "واتساب" else "WhatsApp",
                 badge = whatsappWaiting, onClick = onOpenWhatsappQueue,
             ),
-            QuickAction(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", ToolRose, onClick = onOpenAssistant),
+            QuickAction(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", onClick = onOpenAssistant),
         ),
     )
 
-    item {
+    row {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
             StatTile(all.size.toString(), if (arabic) "اليوم" else "Booked today", modifier = Modifier.weight(1f))
             val waiting = active.count { normalizeStatus(it.status) == "Checked In" }
@@ -330,28 +547,31 @@ private fun LazyListScope.receptionHome(
 
     val waiting = active.filter { normalizeStatus(it.status) == "Checked In" }
     if (waiting.isNotEmpty()) {
-        item { SectionHeading(if (arabic) "في غرفة الانتظار" else "IN THE WAITING ROOM") }
-        items(waiting, key = { "w-${it.id}" }) { AppointmentCard(it, arabic) { onOpen(it) } }
+        row { SectionHeading(if (arabic) "في غرفة الانتظار" else "IN THE WAITING ROOM") }
+        items(waiting, key = { "w-${it.id}" }) { appointment ->
+            Gutter { AppointmentCard(appointment, arabic) { onOpen(appointment) } }
+        }
     }
 
-    item { SectionHeading(if (arabic) "القادم" else "COMING UP") }
+    row { SectionHeading(if (arabic) "القادم" else "COMING UP") }
     val upcoming = active.filterNot { normalizeStatus(it.status) == "Checked In" }.take(6)
     if (upcoming.isEmpty()) {
-        item { EmptyState(if (arabic) "لا شيء متبقٍ اليوم." else "Nothing left today.") }
+        row { EmptyState(if (arabic) "لا شيء متبقٍ اليوم." else "Nothing left today.") }
     } else {
-        items(upcoming, key = { "u-${it.id}" }) { AppointmentCard(it, arabic) { onOpen(it) } }
+        items(upcoming, key = { "u-${it.id}" }) { appointment ->
+            Gutter { AppointmentCard(appointment, arabic) { onOpen(appointment) } }
+        }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Owner: the money, the shape of the day, and the management tools.
+// Owner: the management tools and what is still to come. The money and the
+// day's progress moved up onto the slab.
 // ---------------------------------------------------------------------------
 
 private fun LazyListScope.ownerHome(
-    all: List<Appointment>,
     active: List<Appointment>,
     arabic: Boolean,
-    takingsToday: Double?,
     whatsappWaiting: Int,
     onOpen: (Appointment) -> Unit,
     onOpenReports: (() -> Unit)?,
@@ -360,76 +580,23 @@ private fun LazyListScope.ownerHome(
     onOpenAssistant: () -> Unit,
     onOpenLeads: (() -> Unit)?,
 ) {
-    val seen = all.count { normalizeStatus(it.status) in setOf("Completed", "Checking Out") }
-    val noShow = all.count { normalizeStatus(it.status) == "No Show" }
-
-    // The owner's day on one card: the money in, then how far through the
-    // bookings the clinic is. The figure is deliberately what came through the
-    // door, not what was charged — billed-but-unpaid would flatter it badly.
-    // One white card instead of the old tinted-money-card-plus-progress-card
-    // pair: the tinted card sat on the tinted ground and the pair ate half the
-    // screen between them.
-    item {
-        AlphaCard(modifier = Modifier.fillMaxWidth(), shape = Alpha.CardShape) {
-            Column(Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            text = takingsToday?.let { "${it.toInt()} EGP" } ?: "—",
-                            fontSize = 27.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontFamily = FontFamily.Serif,
-                            color = Alpha.Green,
-                        )
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            text = if (arabic) "تحصيل اليوم" else "Collected today",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Alpha.Slate600,
-                        )
-                    }
-                    Text(
-                        text = when {
-                            arabic -> "$seen من ${all.size}"
-                            else -> "$seen of ${all.size} seen"
-                        },
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Alpha.Slate500,
-                    )
-                }
-                Spacer(Modifier.height(10.dp))
-                ProgressTrack(fraction = if (all.isEmpty()) 0f else seen.toFloat() / all.size)
-                if (noShow > 0) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = if (arabic) "$noShow لم يحضروا" else "$noShow no-show${if (noShow == 1) "" else "s"}",
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Alpha.Pink,
-                    )
-                }
-            }
-        }
-    }
-
     quickActions(
-        arabic,
         listOfNotNull(
-            onOpenLeads?.let { QuickAction(Icons.Filled.PersonSearch, if (arabic) "عملاء" else "Leads", ToolViolet, onClick = it) },
-            onOpenReports?.let { QuickAction(Icons.Filled.BarChart, if (arabic) "التقارير" else "Reports", ToolSky, onClick = it) },
-            onOpenMoney?.let { QuickAction(Icons.Filled.Payments, if (arabic) "الحسابات" else "Money", ToolGreen, onClick = it) },
-            QuickAction(Icons.Filled.Inventory2, if (arabic) "المخزون" else "Stock", ToolAmber, onClick = onOpenInventory),
-            QuickAction(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", ToolRose, onClick = onOpenAssistant),
+            onOpenLeads?.let { QuickAction(Icons.Filled.PersonSearch, if (arabic) "عملاء" else "Leads", onClick = it) },
+            onOpenReports?.let { QuickAction(Icons.Filled.BarChart, if (arabic) "التقارير" else "Reports", onClick = it) },
+            onOpenMoney?.let { QuickAction(Icons.Filled.Payments, if (arabic) "الحسابات" else "Money", onClick = it) },
+            QuickAction(Icons.Filled.Inventory2, if (arabic) "المخزون" else "Stock", onClick = onOpenInventory),
+            QuickAction(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", onClick = onOpenAssistant),
         ),
     )
 
-    item { SectionHeading(if (arabic) "ما زال قادماً" else "STILL TO COME") }
+    row { SectionHeading(if (arabic) "ما زال قادماً" else "STILL TO COME") }
     if (active.isEmpty()) {
-        item { EmptyState(if (arabic) "انتهى اليوم." else "The day is done.") }
+        row { EmptyState(if (arabic) "انتهى اليوم." else "The day is done.") }
     } else {
-        items(active.take(5), key = { "o-${it.id}" }) { AppointmentCard(it, arabic) { onOpen(it) } }
+        items(active.take(5), key = { "o-${it.id}" }) { appointment ->
+            Gutter { AppointmentCard(appointment, arabic) { onOpen(appointment) } }
+        }
     }
 }
 
@@ -437,37 +604,44 @@ private fun LazyListScope.ownerHome(
 // Shared pieces
 // ---------------------------------------------------------------------------
 
+/** One dashboard row, held in the list's side gutter. */
+@Composable
+private fun Gutter(content: @Composable () -> Unit) {
+    Box(Modifier.padding(horizontal = GUTTER)) { content() }
+}
+
+/** A whole list row in the gutter — the common case. */
+private fun LazyListScope.row(content: @Composable () -> Unit) {
+    item { Gutter(content) }
+}
+
 private data class QuickAction(
-    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val icon: ImageVector,
     val label: String,
-    val color: Color,
     val badge: Int = 0,
     val onClick: () -> Unit,
 )
 
 /**
- * The tools each keep one hue — Leads is always violet, Stock always amber —
- * so the row is read by colour long before the labels are. This is the only
- * place the dashboard spends colour beyond the brand green and the statuses;
- * everything around it stays quiet so the belt can be loud.
+ * The shortcuts, deliberately colourless.
+ *
+ * They spent a version as six different hues, which made the busiest row on the
+ * screen the one carrying the least information — a shortcut being violet says
+ * nothing a person needs to know. Outlined pills instead: the icon says which
+ * tool it is, and the dashboard's whole colour budget is left to the appointment
+ * statuses further down, where a colour marks something somebody has to act on.
+ *
+ * The row scrolls sideways rather than wrapping, so a sixth tool costs no height.
  */
-private val ToolViolet = Color(0xFF8B5CF6)
-private val ToolSky = Color(0xFF0EA5E9)
-private val ToolGreen = Color(0xFF0D9E6F)
-private val ToolAmber = Color(0xFFF59E0B)
-private val ToolTeal = Color(0xFF14B8A6)
-private val ToolRose = Color(0xFFEC4899)
-
-// A slim scrollable belt of chips rather than a grid of white tiles: it needs no
-// heading, saves most of a row of screen, and stops every shortcut wearing the
-// same uniform.
-private fun LazyListScope.quickActions(arabic: Boolean, actions: List<QuickAction>) {
+private fun LazyListScope.quickActions(actions: List<QuickAction>) {
     item {
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
+                .horizontalScroll(rememberScrollState())
+                // Inside the scroll, so the last chip can still clear the edge.
+                .padding(horizontal = GUTTER),
         ) {
             actions.forEach { QuickChip(it) }
         }
@@ -479,19 +653,20 @@ private fun QuickChip(action: QuickAction) {
     Surface(
         onClick = action.onClick,
         shape = Alpha.PillShape,
-        color = action.color.copy(alpha = if (Alpha.dark) .20f else .11f),
+        color = Alpha.Card,
+        border = BorderStroke(1.dp, Alpha.Slate200),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
         ) {
-            Icon(action.icon, contentDescription = null, tint = action.color, modifier = Modifier.size(17.dp))
+            Icon(action.icon, contentDescription = null, tint = Alpha.Slate700, modifier = Modifier.size(17.dp))
             Spacer(Modifier.width(7.dp))
             Text(
                 text = action.label,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Bold,
-                color = Alpha.Slate800,
+                color = Alpha.Slate900,
                 maxLines = 1,
             )
             if (action.badge > 0) {
@@ -586,12 +761,12 @@ private fun HeroAppointment(
 }
 
 /**
- * Clock in/out as a pill in the header: the dot says the state, the text says
- * how long, and one tap punches. The full card still lives on the More tab.
+ * Clock in/out as a pill on the slab: the dot says the state, the text says how
+ * long, and one tap punches. The full card still lives on the More tab.
  *
- * Off shift the chip is the day's first action, so it dresses as a filled
- * button — the old grey pill read as disabled. On shift it relaxes into a soft
- * tint that reads as state, not another thing to press.
+ * Off shift it inverts the slab and reads as the day's first button. On shift it
+ * drops back to a translucent state chip — clocking out matters less than
+ * clocking in, and a second bright thing up here would fight the takings.
  */
 @Composable
 private fun ClockChip(
@@ -609,11 +784,13 @@ private fun ClockChip(
         }
     }
 
+    val ink = slabColor
+    val paper = onSlab
     Surface(
         onClick = onPunch,
         enabled = !clocking,
         shape = Alpha.PillShape,
-        color = if (onShift) Alpha.GreenSoft else Alpha.Ink,
+        color = if (onShift) paper.copy(alpha = .14f) else paper,
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -621,7 +798,7 @@ private fun ClockChip(
         ) {
             if (clocking) {
                 CircularProgressIndicator(
-                    color = if (onShift) Alpha.Slate400 else Color.White,
+                    color = if (onShift) paper else ink,
                     strokeWidth = 2.dp,
                     modifier = Modifier.size(12.dp),
                 )
@@ -630,7 +807,7 @@ private fun ClockChip(
                     Modifier
                         .size(8.dp)
                         .clip(CircleShape)
-                        .background(if (onShift) Alpha.Green else Color.White.copy(alpha = .9f))
+                        .background(if (onShift) slabAccent else ink)
                 )
             }
             Spacer(Modifier.width(7.dp))
@@ -646,29 +823,9 @@ private fun ClockChip(
                 },
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                color = if (onShift) Alpha.Green else Color.White,
+                color = if (onShift) paper else ink,
             )
         }
-    }
-}
-
-/** A thin rounded progress bar, no library, no animation surprises. */
-@Composable
-private fun ProgressTrack(fraction: Float) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(8.dp)
-            .clip(Alpha.PillShape)
-            .background(Alpha.Slate100)
-    ) {
-        Box(
-            Modifier
-                .fillMaxWidth(fraction.coerceIn(0f, 1f))
-                .height(8.dp)
-                .clip(Alpha.PillShape)
-                .background(Alpha.Green)
-        )
     }
 }
 
@@ -704,4 +861,3 @@ private fun todayLabel(arabic: Boolean): String {
     val locale = if (arabic) java.util.Locale("ar", "EG") else java.util.Locale.US
     return java.text.SimpleDateFormat("EEE, d MMM", locale).format(java.util.Date())
 }
-

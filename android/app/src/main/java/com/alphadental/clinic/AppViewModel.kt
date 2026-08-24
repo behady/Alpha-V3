@@ -854,6 +854,33 @@ class AppViewModel : ViewModel() {
     private var aiContext: android.content.Context? = null
 
     /**
+     * The turn in flight, and which turn it is.
+     *
+     * `aiThinking` greys out the composer and makes askAi drop anything typed, so
+     * a single path that sets it and forgets to clear it leaves the assistant
+     * permanently deaf — the "it gets stuck" everybody reports and nobody can
+     * reproduce. Every turn now goes through [beginAiTurn] and clears in a
+     * `finally`, whatever happens in between.
+     *
+     * The id exists because the appointment continuation starts a NEW turn while
+     * the one that spawned it is still unwinding; without it the old turn's
+     * `finally` would switch off the new turn's spinner on its way out.
+     */
+    private var aiJob: Job? = null
+    private var aiTurnId = 0L
+
+    private fun beginAiTurn(): Long {
+        aiTurnId += 1
+        _state.value = _state.value.copy(aiThinking = true)
+        return aiTurnId
+    }
+
+    /** Only the newest turn owns the flag; a late finisher must not clear it. */
+    private fun endAiTurn(id: Long) {
+        if (id == aiTurnId) _state.value = _state.value.copy(aiThinking = false)
+    }
+
+    /**
      * Tell the server where to wake this phone, if it is a sender.
      *
      * Runs on launch and on sign-in so instant sending works immediately rather than after the
@@ -879,8 +906,22 @@ class AppViewModel : ViewModel() {
         )
     }
 
+    /**
+     * Backing out is also the way out of a turn that has gone wrong: a question
+     * nobody is waiting for any more must not keep the spinner up, and must never
+     * leave the assistant refusing the next one because it still thinks it is busy.
+     */
     fun closeAssistant() {
-        _state.value = _state.value.copy(aiOpen = false)
+        aiJob?.cancel()
+        aiJob = null
+        _state.value = _state.value.copy(aiOpen = false, aiThinking = false)
+    }
+
+    /** The Stop beside the spinner: abandon this turn, keep the conversation. */
+    fun cancelAi() {
+        aiJob?.cancel()
+        aiJob = null
+        _state.value = _state.value.copy(aiThinking = false)
     }
 
     /**
@@ -899,7 +940,9 @@ class AppViewModel : ViewModel() {
         fun done(reply: String, close: Boolean = true) {
             appendAiMessage(ChatMessage(fromUser = false, text = reply, at = System.currentTimeMillis()))
             _state.value = _state.value.copy(aiSpeak = reply)
-            if (close) closeAssistant()
+            // Hidden rather than closed: this turn is finishing normally, and
+            // closeAssistant() would cancel the very coroutine saying so.
+            if (close) _state.value = _state.value.copy(aiOpen = false)
         }
 
         fun refused() {
@@ -941,33 +984,36 @@ class AppViewModel : ViewModel() {
                 openWhatsappQueue(); done(if (arabic) "تم فتح رسائل واتساب." else "Opening the WhatsApp queue.")
             }
             is com.alphadental.clinic.ai.NavIntent.Target.PatientFile -> {
-                _state.value = _state.value.copy(aiThinking = true)
-                viewModelScope.launch {
-                    val matches = runCatching {
-                        Repository.searchPatients(session.clinicId, target.name).patients
-                    }.getOrDefault(emptyList())
-                    _state.value = _state.value.copy(aiThinking = false)
-                    when {
-                        matches.isEmpty() -> done(
-                            if (arabic) "لا يوجد مريض باسم \"${target.name}\"."
-                            else "No patient called \"${target.name}\" in the register.",
-                            close = false,
-                        )
-                        matches.size == 1 -> {
-                            done(
-                                if (arabic) "تم فتح ملف ${matches.first().name}."
-                                else "Opening ${matches.first().name}'s file.",
+                val turn = beginAiTurn()
+                aiJob = viewModelScope.launch {
+                    try {
+                        val matches = runCatching {
+                            Repository.searchPatients(session.clinicId, target.name).patients
+                        }.getOrDefault(emptyList())
+                        when {
+                            matches.isEmpty() -> done(
+                                if (arabic) "لا يوجد مريض باسم \"${target.name}\"."
+                                else "No patient called \"${target.name}\" in the register.",
+                                close = false,
                             )
-                            openPatient(matches.first().id)
+                            matches.size == 1 -> {
+                                done(
+                                    if (arabic) "تم فتح ملف ${matches.first().name}."
+                                    else "Opening ${matches.first().name}'s file.",
+                                )
+                                openPatient(matches.first().id)
+                            }
+                            else -> done(
+                                (if (arabic) "يوجد أكثر من مريض بهذا الاسم — أيهم تقصد؟\n"
+                                else "More than one patient matches — which one?\n") +
+                                    matches.take(4).joinToString("\n") { patient ->
+                                        "• ${patient.name}${if (patient.phone.isNotBlank()) " (${patient.phone})" else ""}"
+                                    },
+                                close = false,
+                            )
                         }
-                        else -> done(
-                            (if (arabic) "يوجد أكثر من مريض بهذا الاسم — أيهم تقصد؟\n"
-                            else "More than one patient matches — which one?\n") +
-                                matches.take(4).joinToString("\n") { patient ->
-                                    "• ${patient.name}${if (patient.phone.isNotBlank()) " (${patient.phone})" else ""}"
-                                },
-                            close = false,
-                        )
+                    } finally {
+                        endAiTurn(turn)
                     }
                 }
             }
@@ -998,19 +1044,25 @@ class AppViewModel : ViewModel() {
             return true
         }
 
-        _state.value = _state.value.copy(aiThinking = true)
-        viewModelScope.launch {
+        val turn = beginAiTurn()
+        aiJob = viewModelScope.launch {
+            try {
             runCatching {
-                val rows = Repository.loadFinance(session.clinicId, period.from, period.to)
-                val file = com.alphadental.clinic.data.ReportPdf.writeFinanceReport(
-                    context = context,
-                    rows = rows,
-                    fromKey = period.from,
-                    toKey = period.to,
-                    clinicName = "Alpha Dental",
-                    arabic = arabic,
-                )
-                Triple(rows, file, period)
+                // Off the UI thread: the Firestore read, every drawText, the
+                // ellipsize measuring loop and the file write all used to happen
+                // on it, so a busy ledger froze the whole app mid-report.
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val rows = Repository.loadFinance(session.clinicId, period.from, period.to)
+                    val file = com.alphadental.clinic.data.ReportPdf.writeFinanceReport(
+                        context = context,
+                        rows = rows,
+                        fromKey = period.from,
+                        toKey = period.to,
+                        clinicName = "Alpha Dental",
+                        arabic = arabic,
+                    )
+                    Triple(rows, file, period)
+                }
             }.onSuccess { (rows, file, resolved) ->
                 val income = rows.filterNot { it.isExpense }.sumOf { it.cash }.toInt()
                 val expenses = rows.filter { it.isExpense }.sumOf { it.cash }.toInt()
@@ -1028,17 +1080,49 @@ class AppViewModel : ViewModel() {
                         pdfPath = file.absolutePath,
                     )
                 )
-                _state.value = _state.value.copy(aiThinking = false, aiSpeak = reply)
+                _state.value = _state.value.copy(aiSpeak = reply)
             }.onFailure { error ->
+                // Backing out of the assistant cancels the turn; that is not a
+                // failure worth reporting to someone who has already left.
+                if (error is kotlinx.coroutines.CancellationException) return@onFailure
                 val reply = if (arabic) {
                     "لم أستطع إنشاء التقرير: ${error.message ?: "خطأ غير معروف"}"
                 } else {
                     "I couldn't build the report: ${error.message ?: "unknown error"}"
                 }
                 appendAiMessage(ChatMessage(fromUser = false, text = reply, at = System.currentTimeMillis()))
-                _state.value = _state.value.copy(aiThinking = false, aiSpeak = reply)
+                _state.value = _state.value.copy(aiSpeak = reply)
+            }
+            } finally {
+                endAiTurn(turn)
             }
         }
+        return true
+    }
+
+    /**
+     * "Make me a PDF of Sara's prescription" — a fair request, and one the app can
+     * do, just not from this chat.
+     *
+     * The phone draws exactly two documents: the finance report, from here, and
+     * the prescription, from the patient's file. Saying so costs nothing and
+     * points at the button that works. Sending it to the server instead spends a
+     * credit to be told something vague, and answering it with a month of clinic
+     * takings — which is what used to happen — is worse than either.
+     */
+    private fun tryPdfExplainer(prompt: String): Boolean {
+        val lower = prompt.lowercase()
+        if (listOf("pdf", "طباعة", "اطبع", "print").none { it in lower }) return false
+        val arabic = _state.value.arabic
+        val reply = if (arabic) {
+            "التقرير المالي هو الملف الوحيد الذي أستطيع إنشاءه من هنا. " +
+                "الروشتة تُطبع من ملف المريض: افتح المريض ثم الروشتات."
+        } else {
+            "The only PDF I can build here is the clinic's finance report. " +
+                "A prescription prints from the patient's file — open the patient, then Prescriptions."
+        }
+        appendAiMessage(ChatMessage(fromUser = false, text = reply, at = System.currentTimeMillis()))
+        _state.value = _state.value.copy(aiSpeak = reply)
         return true
     }
 
@@ -1058,6 +1142,12 @@ class AppViewModel : ViewModel() {
         val prompt = text.trim()
         if (prompt.isEmpty() || _state.value.aiThinking) return
 
+        // Appended before anything else can claim the prompt: a yes or no settling a
+        // staged action used to be swallowed silently, so someone whose "اعمل PDF" was
+        // read as approval saw neither their own words nor an answer — the screen simply
+        // did nothing, which is exactly what "it gets stuck" looks like from the outside.
+        appendAiMessage(ChatMessage(fromUser = true, text = prompt, at = System.currentTimeMillis()))
+
         // A staged action turns the next short yes or no into its answer — that is what makes
         // approving by voice possible. Anything that is not clearly either is treated as a new
         // question and the stage is abandoned, because acting on an ambiguous mumble is how an
@@ -1071,15 +1161,17 @@ class AppViewModel : ViewModel() {
             }
         }
 
-        appendAiMessage(ChatMessage(fromUser = true, text = prompt, at = System.currentTimeMillis()))
+        // Navigation first: it is the strict parser — it wants an opening verb AND a
+        // screen name — so it gets first refusal over the report parser, which guesses.
+        // Instant, free, and it works with no signal.
+        if (tryLocalNavigation(prompt)) return
 
-        // Report requests are answered by the phone itself: the data is already
+        // Finance reports are answered by the phone itself: the data is already
         // in Firestore and the PDF is drawn locally, so no AI credit is spent.
         if (tryLocalReport(prompt)) return
 
-        // So is navigation: the screens have names, and matching a name needs
-        // no model. Instant, free, and it works with no signal.
-        if (tryLocalNavigation(prompt)) return
+        // Any other PDF is a fair thing to ask for and worth a straight answer.
+        if (tryPdfExplainer(prompt)) return
 
         // The cache is only for context-free questions. With an appointment on
         // screen the same words mean something else entirely, and an acting
@@ -1108,31 +1200,39 @@ class AppViewModel : ViewModel() {
      */
     private fun askAiTurn(prompt: String, continued: Boolean) {
         val session = _state.value.session ?: return
-        _state.value = _state.value.copy(aiThinking = true)
-        viewModelScope.launch {
+        val turnId = beginAiTurn()
+        aiJob = viewModelScope.launch {
+            try {
+            // A turn with no ceiling is indistinguishable from a hang. The socket's
+            // own timeout is per-read, so a server trickling bytes can outlive it;
+            // this one is on the clock, not on the wire.
             var attempt = runCatching {
-                AiClient.ask(
-                    clinicId = session.clinicId,
-                    userName = session.name,
-                    prompt = prompt,
-                    // History from before this prompt was appended.
-                    history = _state.value.aiMessages.dropLast(1),
-                    voiceMode = true,
-                    appointmentId = _state.value.aiAppointmentId,
-                )
+                kotlinx.coroutines.withTimeout(TURN_TIMEOUT_MS) {
+                    AiClient.ask(
+                        clinicId = session.clinicId,
+                        userName = session.name,
+                        prompt = prompt,
+                        // History from before this prompt was appended.
+                        history = _state.value.aiMessages.dropLast(1),
+                        voiceMode = true,
+                        appointmentId = _state.value.aiAppointmentId,
+                    )
+                }
             }
             // One silent retry, and only for transport failures: an AiError means
             // the server answered (and charged), so replaying it buys nothing.
             if (attempt.exceptionOrNull() is java.io.IOException) {
                 attempt = runCatching {
-                    AiClient.ask(
-                        clinicId = session.clinicId,
-                        userName = session.name,
-                        prompt = prompt,
-                        history = _state.value.aiMessages.dropLast(1),
-                        voiceMode = true,
-                        appointmentId = _state.value.aiAppointmentId,
-                    )
+                    kotlinx.coroutines.withTimeout(TURN_TIMEOUT_MS) {
+                        AiClient.ask(
+                            clinicId = session.clinicId,
+                            userName = session.name,
+                            prompt = prompt,
+                            history = _state.value.aiMessages.dropLast(1),
+                            voiceMode = true,
+                            appointmentId = _state.value.aiAppointmentId,
+                        )
+                    }
                 }
             }
             attempt
@@ -1160,7 +1260,6 @@ class AppViewModel : ViewModel() {
                         )
                     )
                     _state.value = _state.value.copy(
-                        aiThinking = false,
                         aiPending = turn.pending,
                         aiSpeak = turn.reply,
                     )
@@ -1172,12 +1271,34 @@ class AppViewModel : ViewModel() {
                     }
                 }
                 .onFailure { error ->
-                    val message = error.message ?: "The assistant could not be reached."
+                    val arabic = _state.value.arabic
+                    val message = when {
+                        // Ran out of patience rather than failed — say so, and say it
+                        // in a way that tells the person the retry is worth trying.
+                        error is kotlinx.coroutines.TimeoutCancellationException ->
+                            if (arabic) "المساعد استغرق وقتاً أطول من اللازم. حاول مرة أخرى."
+                            else "The assistant took too long to answer. Try again."
+                        // Someone backed out or pressed Stop; they are not waiting.
+                        error is kotlinx.coroutines.CancellationException -> return@onFailure
+                        else -> error.message ?: "The assistant could not be reached."
+                    }
                     appendAiMessage(ChatMessage(fromUser = false, text = message, at = System.currentTimeMillis()))
-                    _state.value = _state.value.copy(aiThinking = false, aiSpeak = message)
+                    _state.value = _state.value.copy(aiSpeak = message)
                 }
+            } finally {
+                endAiTurn(turnId)
+            }
         }
     }
+
+    /**
+     * How long a single server turn may take before the assistant gives up.
+     *
+     * Generous — the model can genuinely think for a while — but finite, because
+     * a spinner with no end is the same thing as a broken app to the person
+     * holding the phone.
+     */
+    private val TURN_TIMEOUT_MS = 90_000L
 
     /** Remember which appointment the chat is acting on, with a label the chip can show. */
     private fun setAiAppointment(clinicId: String, appointmentId: String) {
@@ -1206,14 +1327,28 @@ class AppViewModel : ViewModel() {
         val session = _state.value.session ?: return
         val pending = _state.value.aiPending ?: return
 
-        _state.value = _state.value.copy(aiThinking = true, aiPending = null)
-        viewModelScope.launch {
-            val outcome = runCatching {
-                AiClient.confirm(session.clinicId, session.name, pending.id, approve)
-            }.getOrElse { it.message ?: "The action could not be completed." }
+        val turn = beginAiTurn()
+        _state.value = _state.value.copy(aiPending = null)
+        aiJob = viewModelScope.launch {
+            try {
+                val outcome = runCatching {
+                    kotlinx.coroutines.withTimeout(TURN_TIMEOUT_MS) {
+                        AiClient.confirm(session.clinicId, session.name, pending.id, approve)
+                    }
+                }.getOrElse { error ->
+                    if (error is kotlinx.coroutines.CancellationException &&
+                        error !is kotlinx.coroutines.TimeoutCancellationException
+                    ) {
+                        return@launch
+                    }
+                    error.message ?: "The action could not be completed."
+                }
 
-            appendAiMessage(ChatMessage(fromUser = false, text = outcome, at = System.currentTimeMillis()))
-            _state.value = _state.value.copy(aiThinking = false, aiSpeak = outcome)
+                appendAiMessage(ChatMessage(fromUser = false, text = outcome, at = System.currentTimeMillis()))
+                _state.value = _state.value.copy(aiSpeak = outcome)
+            } finally {
+                endAiTurn(turn)
+            }
         }
     }
 

@@ -157,8 +157,10 @@ object AiClient {
             doOutput = true
             connectTimeout = 15_000
             // The model plus its data tools can legitimately take a while on a complex turn;
-            // cutting this short turns slow answers into paid-for errors.
-            readTimeout = 180_000
+            // cutting this short turns slow answers into paid-for errors. Kept in step with
+            // the ViewModel's own 90s ceiling on a turn, so the socket and the spinner agree
+            // about when to give up rather than the socket outliving the person's patience.
+            readTimeout = 90_000
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("Authorization", "Bearer $token")
         }

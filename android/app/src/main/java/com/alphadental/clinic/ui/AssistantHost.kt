@@ -47,6 +47,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -98,6 +99,8 @@ fun AssistantScreen(
     onAsk: (String) -> Unit,
     onSpoken: () -> Unit,
     onSettle: (Boolean) -> Unit,
+    /** Abandons the turn in flight without leaving the conversation. */
+    onCancel: () -> Unit,
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -314,6 +317,17 @@ fun AssistantScreen(
                                 fontWeight = FontWeight.Bold,
                                 color = Alpha.Slate400,
                             )
+                            Spacer(Modifier.size(4.dp))
+                            // The way out of a turn that is taking too long. Without it
+                            // the only escape from a slow answer was to close the app.
+                            TextButton(onClick = onCancel) {
+                                Text(
+                                    if (arabic) "إيقاف" else "Stop",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Alpha.Slate600,
+                                )
+                            }
                         }
                     }
                 }
@@ -343,11 +357,22 @@ fun AssistantScreen(
                     maxLines = 3,
                 )
                 if (typed.isNotBlank()) {
-                    IconButton(onClick = {
-                        onAsk(typed.trim())
-                        typed = ""
-                    }) {
-                        Icon(Icons.Filled.Send, contentDescription = "Send", tint = Alpha.Green)
+                    IconButton(
+                        onClick = {
+                            onAsk(typed.trim())
+                            typed = ""
+                        },
+                        // A question asked while a turn is in flight is dropped on the
+                        // floor, and the box emptying made it look like it had been
+                        // sent — the surest way to make a busy assistant feel dead.
+                        // The approval card already greys itself out the same way.
+                        enabled = !thinking,
+                    ) {
+                        Icon(
+                            Icons.Filled.Send,
+                            contentDescription = "Send",
+                            tint = if (thinking) Alpha.Slate400 else Alpha.Green,
+                        )
                     }
                 }
                 Spacer(Modifier.size(4.dp))

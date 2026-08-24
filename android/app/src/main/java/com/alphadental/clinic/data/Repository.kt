@@ -779,15 +779,25 @@ object Repository {
         val isManual: Boolean get() = (type == "income" || type == "expense") && !hasClinicalNote
     }
 
-    /** Everything the Finance screen shows for a period, newest first. */
-    suspend fun loadFinance(clinicId: String, fromKey: String, toKey: String): List<FinanceRow> {
+    /**
+     * Everything the Finance screen shows for a period, newest first.
+     *
+     * Mapped off the main thread: a busy month is thousands of documents, and the
+     * mapping below used to run wherever the caller happened to be — which for the
+     * assistant's report was the UI thread, freezing the app mid-answer.
+     */
+    suspend fun loadFinance(
+        clinicId: String,
+        fromKey: String,
+        toKey: String,
+    ): List<FinanceRow> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val snap = ledger(clinicId)
             .whereGreaterThanOrEqualTo("date", fromKey)
             .whereLessThanOrEqualTo("date", toKey)
             .get()
             .await()
 
-        return snap.documents.mapNotNull { doc ->
+        snap.documents.mapNotNull { doc ->
             val type = doc.getString("type").orEmpty()
             if (type == "procedure") return@mapNotNull null
             val cash = if (type == "expense") {
