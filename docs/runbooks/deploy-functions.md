@@ -24,6 +24,14 @@ GitHub needs a key that lets it deploy on your behalf. This is all browser work.
   - **Service Account User** — run the deploy as the functions' own identity
   - **Artifact Registry Writer** — functions are built into container images, which are stored here
   - **Firebase Admin SDK Administrator Service Agent**
+  - **Firebase Extensions Viewer** — see below; not obvious, and the deploy fails without it
+
+> **Why an Extensions role for a functions deploy.** Part-way through, `firebase deploy --only
+> functions` lists the project's extension instances — it needs to know which deployed functions
+> belong to an extension so it does not treat them as yours and offer to delete them. Without
+> permission that call returns `403, The caller does not have permission` and the deploy stops,
+> after the code has already been loaded and analysed, which makes it look like a code problem
+> rather than a permissions one. It happens whether or not the project uses any extensions.
 - Open the finished account → **Keys** → **Add key → Create new key → JSON**. A file downloads.
 
 **2. Give the key to GitHub**
@@ -67,6 +75,24 @@ firebase deploy --only functions --project alpha-v2-ffc98
 Add `--force` only when the deploy is meant to delete functions; without it the CLI asks first.
 
 ---
+
+## When a deploy fails
+
+Two failures worth recognising, both hit on the first real run of this workflow:
+
+**`Detected node engine 24 in package.json, which is not a supported version.`**
+Cloud Functions supports Node 20 and 22 only. Whatever `functions/package.json` says under
+`engines` must be one of those. This is a hard stop before anything is built.
+
+**`Request to firebaseextensions.googleapis.com/... had HTTP Error: 403`**
+The deploying service account is missing **Firebase Extensions Viewer**. See the role list above.
+
+A general rule for this workflow: read the LAST error line, not the warnings above it. A firebase
+deploy prints a lot of deprecation noise that is not the failure — the `Error:` line is.
+
+Note also that GitHub's **Re-run jobs** button replays the *original* commit, not the current one.
+After pushing a fix, start a **new** run from **Run workflow** rather than re-running the failed
+one, or you will watch the same error twice.
 
 ## Checking it worked
 
