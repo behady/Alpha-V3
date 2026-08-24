@@ -1,0 +1,93 @@
+rules_version = '2';
+
+// Cloud Storage rules.
+//
+// This file did not exist until 2026-08-24. Whatever governed the bucket lived only in the Firebase
+// console, unversioned, reviewed by nobody — which is exactly the state firestore.rules was in when
+// it was found to have drifted ahead of the repository with no way to tell what had changed or why.
+//
+// Two things make these rules shorter than they look.
+//
+// 1. The app never reads Storage by path. It uploads, calls getDownloadURL(), and stores that URL
+//    in Firestore; every <img> renders from the stored URL. A download URL carries its own token
+//    and does not consult these rules at all, so denying path reads costs the app nothing and
+//    takes away the ability to browse the bucket. `getDownloadURL` DOES consult them, which is why
+//    members can read inside their own clinic — that call happens moments after the upload.
+//
+// 2. Nothing lists. There is no listAll() anywhere in the codebase, and `list` is not granted
+//    below, so no client can enumerate a folder even where it can read a known object.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    // The same source of truth firestore.rules uses: the role map on the user's own document.
+    // Storage rules can read Firestore, and this is worth the read — the alternative is custom
+    // claims, which would then need to be kept in step with the map by hand.
+    function hasClinicRole(clinicId) {
+      return isAuth()
+        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid))
+             .data.get('clinicRoles', {}).keys().hasAny([clinicId]);
+    }
+
+    // 20 MB. Large enough for a full-resolution intraoral photograph, small enough that a mistake
+    // or a malicious upload cannot quietly fill the bucket.
+    function sizeOk() {
+      return request.resource.size < 20 * 1024 * 1024;
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    // --- everything a clinic owns -----------------------------------------------------------
+    //
+    // One rule covers patient avatars, patient media, tooth photographs, the logo and the booking
+    // hero, because src/lib/storagePaths.ts now puts all of them under the clinic. That is the
+    // whole point of the path change: the rule can name the clinic, so it can check membership.
+    match /clinics/{clinicId}/{allPaths=**} {
+      allow read: if hasClinicRole(clinicId);
+      allow write: if hasClinicRole(clinicId) && sizeOk();
+    }
+
+    // --- a person's own profile picture -----------------------------------------------------
+    //
+    // Not under a clinic, on purpose: one person can work at several and the picture is theirs.
+    // The uid prefix is what makes it enforceable — you may write only a file named for you.
+    match /staff_profiles/{fileName} {
+      allow read: if isAuth();
+      allow write: if isAuth()
+        && fileName.split('_')[0] == request.auth.uid
+        && sizeOk() && isImage();
+    }
+
+    // --- the legacy prefixes ----------------------------------------------------------------
+    //
+    // Files uploaded before the paths carried a clinic. They are frozen, not deleted: the URLs
+    // already stored in Firestore keep working, because a download URL's token bypasses rules.
+    // What is refused here is path access — reading a known object through the SDK, and above all
+    // listing, which on `clinical_notes/` would have handed any signed-in user every clinic's
+    // intraoral photographs.
+    //
+    // A rule cannot do better than this for these prefixes. `clinical_notes/tooth_11_1724.jpg`
+    // does not say which clinic it belongs to, and there is no way to find out from the path, so
+    // the only choices are deny-all and allow-any-signed-in-user. Deny-all is correct, and it is
+    // only survivable because nothing in the app reads these by path.
+    //
+    // Server-side cleanup is unaffected — the Admin SDK ignores rules entirely, which is how the
+    // recycle bin deletes the objects behind a deleted record.
+    match /patients/{allPaths=**}       { allow read, write: if false; }
+    match /clinical_notes/{allPaths=**} { allow read, write: if false; }
+    match /clinicProfile/{allPaths=**}  { allow read, write: if false; }
+
+    // Anything not named above. Storage has no implicit deny worth relying on across rule
+    // versions, so it is stated.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

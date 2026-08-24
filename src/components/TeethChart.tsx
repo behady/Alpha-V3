@@ -1,4 +1,6 @@
 "use client";
+import { useClinic } from "@/context/ClinicContext";
+import { toothImagePath } from "@/lib/storagePaths";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLanguage } from "@/context/LanguageContext";
@@ -81,6 +83,7 @@ export default function TeethChart({
   onPerioToothClick,
 }: TeethChartProps) {
   const { language, isRTL } = useLanguage();
+  const { clinicId } = useClinic();
   const [activeTooth, setActiveTooth] = useState<number | null>(null);
   const [hoverTooth, setHoverTooth] = useState<number | null>(null);
 
@@ -235,8 +238,7 @@ export default function TeethChart({
         reader.onerror = reject;
       });
 
-      const filename = `clinical_notes/tooth_${activeTooth}_${Date.now()}.jpg`;
-      const storageRef = ref(storage, filename);
+      const storageRef = ref(storage, toothImagePath(clinicId, activeTooth));
       const uploadTask = uploadBytesResumable(storageRef, compressedBlob);
 
       uploadTask.on(

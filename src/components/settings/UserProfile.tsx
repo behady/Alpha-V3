@@ -1,4 +1,5 @@
 "use client";
+import { staffProfilePath } from "@/lib/storagePaths";
 
 import { useState, useEffect, useRef } from "react";
 import { 
@@ -95,7 +96,7 @@ export default function UserProfile() {
 
     setUploadingImage(true);
     try {
-      const storageRef = ref(storage, `staff_profiles/${auth.currentUser.uid}_${Date.now()}`);
+      const storageRef = ref(storage, staffProfilePath(auth.currentUser.uid));
       const uploadTask = uploadBytesResumable(storageRef, file);
 
       uploadTask.on('state_changed', 

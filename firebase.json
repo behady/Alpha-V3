@@ -1,5 +1,5 @@
 {
-  "_comment_firestore": "This project's Firestore database is literally named 'default', not the conventional '(default)' — both SDKs bind to it explicitly via getFirestore(app, 'default'). The object form of this key targets '(default)', which does not exist here, so the CLI tried to CREATE it and failed on a billing check instead of deploying rules. The array form below names the database, which is what makes 'firebase deploy --only firestore:rules' actually reach it.",
+  "_comment_firestore": "This project's Firestore database is literally named 'default', not the conventional '(default)' \u2014 both SDKs bind to it explicitly via getFirestore(app, 'default'). The object form of this key targets '(default)', which does not exist here, so the CLI tried to CREATE it and failed on a billing check instead of deploying rules. The array form below names the database, which is what makes 'firebase deploy --only firestore:rules' actually reach it.",
   "firestore": [
     {
       "database": "default",
@@ -7,6 +7,9 @@
       "indexes": "firestore.indexes.json"
     }
   ],
+  "storage": {
+    "rules": "storage.rules"
+  },
   "functions": [
     {
       "source": "functions",

@@ -1,4 +1,5 @@
 "use client";
+import { patientAvatarPath, patientMediaPath } from "@/lib/storagePaths";
 
 import { deleteRecord, isOrphanWarning, RecycleBinError } from "@/lib/recycleBinApi";
 import { useState, useEffect, useMemo } from "react";
@@ -790,7 +791,7 @@ export default function PatientProfile() {
     setIsUploadingImage(true);
     try {
       const ext = file.name.split('.').pop() || 'jpg';
-      const storageRef = ref(storage, `patients/${id}/avatar_${Date.now()}.${ext}`);
+      const storageRef = ref(storage, patientAvatarPath(clinicId, id, ext));
       
       await uploadBytes(storageRef, file);
       const downloadURL = await getDownloadURL(storageRef);
@@ -819,7 +820,7 @@ export default function PatientProfile() {
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const ext = file.name.split('.').pop() || 'jpg';
-        const storageRef = ref(storage, `patients/${id}/media/${Date.now()}_${i}.${ext}`);
+        const storageRef = ref(storage, patientMediaPath(clinicId, id, ext));
         
         await uploadBytes(storageRef, file);
         const downloadURL = await getDownloadURL(storageRef);

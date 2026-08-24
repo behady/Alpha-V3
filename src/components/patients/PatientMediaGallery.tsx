@@ -1,4 +1,5 @@
 "use client";
+import { patientMediaPath } from "@/lib/storagePaths";
 
 import { deleteRecords, RecycleBinError } from "@/lib/recycleBinApi";
 import { useClinic } from "@/context/ClinicContext";
@@ -208,7 +209,7 @@ export default function PatientMediaGallery({
       for (let i = 0; i < stagingFiles.length; i++) {
         const staged = stagingFiles[i];
         const ext = staged.file.name.split(".").pop() || "jpg";
-        const storageRef = ref(storage, `patients/${patientId}/media/${Date.now()}_${i}.${ext}`);
+        const storageRef = ref(storage, patientMediaPath(clinicId, patientId, ext));
 
         await uploadBytes(storageRef, staged.file);
         const downloadURL = await getDownloadURL(storageRef);

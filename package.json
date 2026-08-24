@@ -30,6 +30,8 @@
     "test:recyclebin": "npx tsx tests/recycleBin.test.mjs",
     "_comment_test_clinicstatus": "Does the server agree with firestore.rules about whether a clinic may still be written to? The rules gate browser writes; the Admin SDK routes bypass rules entirely, so the same decision has to exist in code or an expired clinic keeps taking payments through a route that never asked.",
     "test:clinicstatus": "npx tsx tests/clinicStatus.test.mjs",
+    "_comment_test_storage": "Where uploaded files land. Four of six upload sites had no clinic in the path, two of them flat folders every clinic shares — and a Storage rule cannot scope what the path does not name. Also asserts storage.rules exists and is deployed, since it did not exist at all until 2026-08-24.",
+    "test:storage": "npx tsx tests/storagePaths.test.mjs",
     "_comment_test_repair": "The historical payment repair's classifier. The assertions that matter most are the ones that refuse to touch a row whose commission was corrected by hand.",
     "test:repair": "npx tsx tests/repairClassifier.test.mjs",
     "_comment_test_discount": "Price lists and discounts. The two rules that matter: the lab fee is never discounted, and commission is calculated on the net.",

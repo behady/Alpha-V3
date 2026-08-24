@@ -1,4 +1,6 @@
 "use client";
+import { useClinic } from "@/context/ClinicContext";
+import { clinicLogoPath } from "@/lib/storagePaths";
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
@@ -34,6 +36,7 @@ export default function ClinicProfileSettingsPage() {
   const { language, isRTL } = useLanguage();
   const { user } = useAuth();
   const { showToast } = useUI();
+  const { clinicId } = useClinic();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -101,7 +104,7 @@ export default function ClinicProfileSettingsPage() {
     setUploadingLogo(true);
     try {
       const safe = logoFile.name.replace(/\s+/g, "_");
-      const path = `clinicProfile/logo_${Date.now()}_${safe}`;
+      const path = clinicLogoPath(clinicId, safe);
       const storageRef = ref(storage, path);
       await uploadBytes(storageRef, logoFile, { contentType: logoFile.type || "image/jpeg" });
       const url = await getDownloadURL(storageRef);

@@ -1,4 +1,5 @@
 "use client";
+import { patientMediaPath } from "@/lib/storagePaths";
 
 import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -1190,7 +1191,7 @@ export default function PatientTreatmentPlanTab({
         } else {
           const blob = await (await fetch(p.value)).blob();
           const ext = (blob.type.split("/")[1] || "jpg").replace(/[^a-z0-9]/gi, "") || "jpg";
-          const sref = storageRef(storage, `patients/${patientId}/media/diag_${Date.now()}_${i}.${ext}`);
+          const sref = storageRef(storage, patientMediaPath(clinicId, patientId, ext, "diag_"));
           await uploadBytes(sref, blob);
           imageUrls.push(await getDownloadURL(sref));
         }

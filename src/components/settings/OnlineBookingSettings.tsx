@@ -1,4 +1,5 @@
 "use client";
+import { bookingHeroPath } from "@/lib/storagePaths";
 
 import React, { useState, useEffect } from "react";
 import { Save, Globe, Copy, Check, Camera, Loader2 } from "lucide-react";
@@ -60,7 +61,7 @@ export default function OnlineBookingSettings() {
 
     setUploadingImage(true);
     try {
-      const storageRef = ref(storage, `clinics/${clinicId}/booking_hero_${Date.now()}`);
+      const storageRef = ref(storage, bookingHeroPath(clinicId));
       const uploadTask = uploadBytesResumable(storageRef, file);
 
       uploadTask.on('state_changed', 
