@@ -190,6 +190,11 @@ an account granted nothing.
 - Untick a box for someone in Settings → Users, then have them try that action. It should now fail
   in Firestore, not just be hidden.
 
+> **2026-08-24: verified in production.** Rules published after the backfill; an Assistant without
+> `appointments.delete` attempted an appointment delete and was refused with the permission named
+> in the error toast. First enforced permission denial in this system's history — the checkboxes
+> have been live decoration since they were built.
+
 ## Rollback
 
 Firebase console → Firestore Database → Rules → **History** → restore the previous ruleset. That
