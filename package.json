@@ -39,6 +39,8 @@
     "test:repair": "npx tsx tests/repairClassifier.test.mjs",
     "_comment_test_discount": "Price lists and discounts. The two rules that matter: the lab fee is never discounted, and commission is calculated on the net.",
     "test:discount": "npx tsx tests/discountMath.test.mjs",
+    "_comment_test_briefing": "The arithmetic behind the daily and weekly brief: double-counted revenue, lateness read on the clinic clock, absence claimed before a shift starts. No network, no emulator.",
+    "test:briefing": "npx tsx tests/briefing.test.mts",
     "test:migration": "npx tsx tests/migration.test.mts",
     "_comment_test_modeltext": "Markdown/bidi/injection cases for the model-text renderer used by the printed treatment plan. No network, no emulator.",
     "test:modeltext": "npx tsx tests/modelTextHtml.test.mts",
