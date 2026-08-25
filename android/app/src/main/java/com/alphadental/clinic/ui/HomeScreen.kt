@@ -21,7 +21,6 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Inventory2
@@ -37,7 +36,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
@@ -46,14 +44,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.alphadental.clinic.data.Appointment
@@ -106,6 +101,9 @@ fun HomeScreen(
     onOpenAssistant: () -> Unit,
     /** Null for roles that do not work the CRM inbox. */
     onOpenLeads: (() -> Unit)?,
+    /** Today at a glance, once it has arrived. Null while loading, or if it failed. */
+    briefing: com.alphadental.clinic.ai.BriefingClient.Briefing? = null,
+    onOpenBriefing: () -> Unit = {},
 ) {
     val active = appointments.filterNot { normalizeStatus(it.status) in FINISHED }
     val nowMinutes = Calendar.getInstance().let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
@@ -143,6 +141,13 @@ fun HomeScreen(
                     )
                 }
             }
+        }
+
+        // Today's briefing, but only when it has something to say. It arrives in
+        // the background a moment after the dashboard, so it must not be a hole
+        // in the layout while it is missing — one line, or nothing at all.
+        if (briefing != null && !briefing.isEmpty) {
+            row { BriefingLine(briefing, arabic, onOpenBriefing) }
         }
 
         if (clockError != null) {
@@ -242,76 +247,37 @@ private fun DashboardHeader(
     onPunch: () -> Unit,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .clip(rememberSlabShape())
-            .background(slabColor)
-    ) {
-        // The generous bottom padding is not decoration: it keeps the text clear
-        // of the curve cut out of the slab's bottom edge.
-        Column(Modifier.padding(start = GUTTER, end = GUTTER, top = 14.dp, bottom = 44.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                SlabAvatar(name)
-                Spacer(Modifier.width(12.dp))
-                // The greeting is context, the person is the headline — so the small
-                // line goes on top and the name sits alone underneath, in the serif
-                // that marks out the screen's few important words and figures.
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        text = "${timeGreeting(arabic)} · ${todayLabel(arabic)}",
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = onSlabDim,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = shortName(name),
-                        fontSize = 23.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontFamily = FontFamily.Serif,
-                        color = onSlab,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
-                ClockChip(onShift, shiftSince, clocking, arabic, onPunch)
+    SlabSurface {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SlabAvatar(name)
+            Spacer(Modifier.width(12.dp))
+            // The greeting is context, the person is the headline — so the small
+            // line goes on top and the name sits alone underneath, in the serif
+            // that marks out the screen's few important words and figures.
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = "${timeGreeting(arabic)} · ${todayLabel(arabic)}",
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = onSlabDim,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = shortName(name),
+                    fontSize = 23.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontFamily = FontFamily.Serif,
+                    color = onSlab,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-            content()
+            Spacer(Modifier.width(8.dp))
+            ClockChip(onShift, shiftSince, clocking, arabic, onPunch)
         }
-    }
-}
-
-/**
- * The slab's soft bottom edge.
- *
- * A straight line under a coloured band reads as a banner dropped onto the page;
- * the sweep makes the dark ground feel like part of the screen instead of a
- * sticker on it. Shallow on purpose — deep enough to register as a decision, not
- * so deep that the curve becomes the thing anyone remembers about the app.
- */
-@Composable
-private fun rememberSlabShape(): Shape {
-    val density = LocalDensity.current
-    return remember(density) {
-        val deep = with(density) { 34.dp.toPx() }
-        val shallow = with(density) { 12.dp.toPx() }
-        GenericShape { size, direction ->
-            val w = size.width
-            val h = size.height
-            // Mirrored in Arabic so the sweep runs the same way the reading does.
-            val rtl = direction == LayoutDirection.Rtl
-            val rightDip = if (rtl) shallow else deep
-            val leftDip = if (rtl) deep else shallow
-            moveTo(0f, 0f)
-            lineTo(w, 0f)
-            lineTo(w, h - rightDip)
-            cubicTo(w * 0.70f, h - 2f, w * 0.30f, h, 0f, h - leftDip)
-            close()
-        }
+        content()
     }
 }
 
@@ -409,27 +375,6 @@ private fun SlabProgress(fraction: Float) {
         )
     }
 }
-
-/**
- * The slab's four colours.
- *
- * In light mode the slab is the theme's deep ink and everything on it is white;
- * in dark mode there is no darker shade left to go to, so the slab lifts one step
- * out of the ground instead and the text flips with it. Either way a screen
- * written against these names gets the right answer.
- */
-private val slabColor: Color
-    @Composable @ReadOnlyComposable get() = if (Alpha.dark) Alpha.Slate100 else Alpha.Ink
-
-private val onSlab: Color
-    @Composable @ReadOnlyComposable get() = if (Alpha.dark) Alpha.Slate900 else Color.White
-
-private val onSlabDim: Color
-    @Composable @ReadOnlyComposable get() = if (Alpha.dark) Alpha.Slate500 else Color.White.copy(alpha = .68f)
-
-/** The one accent the slab is allowed: the takings figure and the on-shift dot. */
-private val slabAccent: Color
-    @Composable @ReadOnlyComposable get() = if (Alpha.dark) Alpha.Green else Alpha.Mint
 
 // ---------------------------------------------------------------------------
 // Dentist: who is in my chair, who is next, and the clinical tools.
@@ -603,6 +548,75 @@ private fun LazyListScope.ownerHome(
 // ---------------------------------------------------------------------------
 // Shared pieces
 // ---------------------------------------------------------------------------
+
+/**
+ * One line of the day's briefing, and a way into the rest of it.
+ *
+ * It leads with the ageing balances because that is the part of the briefing the
+ * dashboard cannot already tell you — money on the books nobody has chased. With
+ * nothing ageing it falls back to the unconfirmed count, which is still a thing
+ * to act on rather than a thing to admire, and says nothing at all when the day
+ * is genuinely clear.
+ */
+@Composable
+private fun BriefingLine(
+    briefing: com.alphadental.clinic.ai.BriefingClient.Briefing,
+    arabic: Boolean,
+    onClick: () -> Unit,
+) {
+    val stale = briefing.staleBalances.size
+    val headline = when {
+        stale > 0 && arabic ->
+            "${briefing.staleBalanceTotal.toInt()} ج.م على $stale مريض بلا حركة"
+        stale > 0 ->
+            "${briefing.staleBalanceTotal.toInt()} EGP owed by $stale patient" +
+                "${if (stale == 1) "" else "s"}, nothing recent"
+        briefing.stillScheduled > 0 && arabic ->
+            "${briefing.stillScheduled} موعد لم يُؤكَّد بعد"
+        briefing.stillScheduled > 0 ->
+            "${briefing.stillScheduled} appointment" +
+                "${if (briefing.stillScheduled == 1) "" else "s"} still unconfirmed"
+        arabic -> "ملخص اليوم"
+        else -> "Today at a glance"
+    }
+
+    Surface(
+        onClick = onClick,
+        shape = Alpha.CardShape,
+        color = Alpha.Card,
+        border = BorderStroke(1.dp, Alpha.Slate200),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(if (stale > 0) Alpha.Pink else Alpha.Green)
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = headline,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Alpha.Slate800,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = if (arabic) "عرض ←" else "See →",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = Alpha.Slate500,
+            )
+        }
+    }
+}
 
 /** One dashboard row, held in the list's side gutter. */
 @Composable

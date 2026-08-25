@@ -32,6 +32,8 @@ export type TreatmentPlanPdfPayload = {
   language: "en" | "ar";
 };
 
+import { modelTextToHtml, modelTextToInlineHtml } from "./modelTextHtml";
+
 function esc(s: string): string {
   return String(s)
     .replace(/&/g, "&amp;")
@@ -95,8 +97,13 @@ export function buildTreatmentPlanSrcDoc(p: TreatmentPlanPdfPayload): string {
       : "This is a proposed treatment plan. Prices are estimates and may change according to clinical findings; visit dates are suggestions to be confirmed with the clinic.",
   };
 
+  // Written by the model, so it arrives as Markdown. Escaping it and printing it literally put
+  // asterisks on the page the patient takes home. modelTextToHtml escapes first, then builds tags.
   const descriptionBlock = p.planDescription.trim()
-    ? `<p style="margin:0 0 20px 0;font-size:13px;font-weight:600;color:#475569;line-height:1.7;white-space:pre-wrap;">${esc(p.planDescription)}</p>`
+    ? `<div style="margin:0 0 20px 0;font-size:13px;font-weight:600;color:#475569;line-height:1.7;">${modelTextToHtml(
+        p.planDescription,
+        { ar, paragraphStyle: "margin:0 0 8px 0;" },
+      )}</div>`
     : "";
 
   const multiVisit = p.visits.length > 1;
@@ -114,12 +121,14 @@ export function buildTreatmentPlanSrcDoc(p: TreatmentPlanPdfPayload): string {
 
   const stepRow = (s: TreatmentPlanPdfStep, i: number) => {
     const noteLine = s.note?.trim()
-      ? `<div style="margin-top:3px;font-size:10.5px;font-weight:600;color:#64748b;line-height:1.5;">${esc(s.note)}</div>`
+      ? `<div style="margin-top:3px;font-size:10.5px;font-weight:600;color:#64748b;line-height:1.5;">${modelTextToInlineHtml(
+          s.note,
+        )}</div>`
       : "";
     const lineTotal = (Number(s.unitPrice) || 0) * (Number(s.quantity) || 1);
     return `<tr style="page-break-inside:avoid;">
       <td style="padding:9px 8px;border-bottom:1px solid #e2e8f0;font-size:12px;font-weight:800;color:#94a3b8;vertical-align:top;">${i + 1}</td>
-      <td style="padding:9px 8px;border-bottom:1px solid #e2e8f0;font-size:13px;font-weight:800;color:#0f172a;vertical-align:top;">${esc(s.serviceName)}${noteLine}</td>
+      <td style="padding:9px 8px;border-bottom:1px solid #e2e8f0;font-size:13px;font-weight:800;color:#0f172a;vertical-align:top;">${modelTextToInlineHtml(s.serviceName)}${noteLine}</td>
       <td style="padding:9px 8px;border-bottom:1px solid #e2e8f0;font-size:12px;font-weight:700;color:#334155;vertical-align:top;white-space:nowrap;">${esc(s.teeth || "—")}</td>
       <td style="padding:9px 8px;border-bottom:1px solid #e2e8f0;font-size:12px;font-weight:700;color:#334155;text-align:center;vertical-align:top;">${Number(s.quantity) || 1}</td>
       <td style="padding:9px 8px;border-bottom:1px solid #e2e8f0;font-size:12px;font-weight:700;color:#334155;text-align:${ar ? "left" : "right"};vertical-align:top;white-space:nowrap;">${money(s.unitPrice)}</td>
@@ -135,7 +144,7 @@ export function buildTreatmentPlanSrcDoc(p: TreatmentPlanPdfPayload): string {
         : L.notScheduled;
       const header = hasHeader
         ? `<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:10px;padding:9px 14px;margin:0 0 8px 0;page-break-inside:avoid;">
-            <span style="font-size:13px;font-weight:900;color:#0f172a;">${esc(visit.label)}</span>
+            <span style="font-size:13px;font-weight:900;color:#0f172a;">${modelTextToInlineHtml(visit.label)}</span>
             <span style="font-size:11px;font-weight:800;color:#475569;white-space:nowrap;">${contactIconImg(ICON_CALENDAR)}${L.suggestedDate}: ${esc(dateText)}</span>
           </div>`
         : "";
@@ -190,7 +199,7 @@ export function buildTreatmentPlanSrcDoc(p: TreatmentPlanPdfPayload): string {
     </div>
   </div>
 
-  <h3 style="margin:0 0 8px 0;font-size:18px;font-weight:900;color:#0f172a;">${esc(p.planTitle)}</h3>
+  <h3 style="margin:0 0 8px 0;font-size:18px;font-weight:900;color:#0f172a;">${modelTextToInlineHtml(p.planTitle)}</h3>
   ${descriptionBlock}
 
   ${visitsHtml}

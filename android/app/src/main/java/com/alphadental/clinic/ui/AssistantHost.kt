@@ -543,7 +543,12 @@ private fun ChatBubbleRow(
             }
 
             // The report the reply carries, if its file is still on this phone.
-            val pdf = message.pdfPath?.let(::File)?.takeIf { it.exists() }
+            // Remembered per path: this is a disk hit, and it used to run for every
+            // message in the transcript on every single recomposition — including
+            // while someone was typing into the box below.
+            val pdf = remember(message.pdfPath) {
+                message.pdfPath?.let(::File)?.takeIf { it.exists() }
+            }
             if (pdf != null) {
                 Spacer(Modifier.height(6.dp))
                 Surface(shape = Alpha.CardShape, color = Alpha.GreenSoft) {

@@ -36,6 +36,23 @@ object AiClient {
          * request dead-ends at "Opened ..." forever.
          */
         val selectAppointmentId: String? = null,
+        /**
+         * A screen the assistant wants opened, as the WEBSITE's path — the server
+         * speaks in web routes because that is the client it was written for.
+         * [NavIntent.fromWebPath] turns it into somewhere this app can actually go.
+         *
+         * Ignoring this is what made the assistant say "Navigating to /patients…"
+         * and then sit there: a confident sentence with nothing behind it.
+         */
+        val navigateTo: String? = null,
+        /**
+         * Set when the assistant asked the client to build and download a
+         * document. The phone has no download folder to drop a file into and no
+         * renderer for an arbitrary AI-composed document, so this is never
+         * honoured — it is carried only so the reply can say so plainly instead
+         * of announcing a file that never arrives.
+         */
+        val triggerPdfTitle: String? = null,
     )
 
     /**
@@ -103,7 +120,21 @@ object AiClient {
                         "markdown, no asterisks, no bullet points, no emoji. Stay strictly on " +
                         "this clinic's operations and general dentistry; if asked about " +
                         "anything else, say briefly that you can only help with clinic and " +
-                        "dental matters."
+                        "dental matters.\n" +
+                        // The other half of the fix for "the assistant said it did
+                        // something and nothing happened": as well as the app now
+                        // honouring navigate_to, the model is told plainly which
+                        // client it is talking to, so it stops reaching for a tool
+                        // this one cannot carry out and charging a credit to do it.
+                        "THIS CLIENT IS THE ANDROID PHONE APP. It has no file downloads and no " +
+                        "browser, so never call trigger_pdf_generation and never say a file is " +
+                        "being generated or downloaded. The phone builds only three documents, " +
+                        "and it builds them itself without asking you: the finance report, the " +
+                        "appointment schedule, and a prescription from the patient's file. If " +
+                        "someone asks for any other document, say plainly that it is available " +
+                        "on the website version. You MAY call navigate_to — the app opens its " +
+                        "own matching screen for /patients, /patients/{id}, /appointments, " +
+                        "/finance, /reports, /inventory, /leads and /ortho."
                 )
             }
         }
@@ -117,6 +148,8 @@ object AiClient {
             reply = json.optString("reply").ifBlank { "…" },
             pending = json.optJSONObject("pendingAction")?.toPendingAction(),
             selectAppointmentId = json.optString("selectAppointmentId").takeIf { it.isNotBlank() },
+            navigateTo = json.optString("navigateTo").takeIf { it.isNotBlank() },
+            triggerPdfTitle = json.optJSONObject("triggerPdf")?.optString("title")?.takeIf { it.isNotBlank() },
         )
     }
 

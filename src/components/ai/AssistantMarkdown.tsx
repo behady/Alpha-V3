@@ -115,8 +115,10 @@ export default function AssistantMarkdown({
               {children}
             </ul>
           ),
-          ol: ({ children }) => (
-            <ol className={`my-2 space-y-1 list-decimal ${isRTL ? "mr-4" : "ml-4"} marker:font-bold marker:opacity-60`}>
+          // `start` is forwarded deliberately: overriding <ol> without it silently renumbers a list
+          // that began anywhere but 1, which in a dental context quietly rewrites tooth numbers.
+          ol: ({ children, start }) => (
+            <ol start={start} className={`my-2 space-y-1 list-decimal ${isRTL ? "mr-4" : "ml-4"} marker:font-bold marker:opacity-60`}>
               {children}
             </ol>
           ),

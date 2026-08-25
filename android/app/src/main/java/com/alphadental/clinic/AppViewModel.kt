@@ -182,6 +182,20 @@ data class AppState(
     /** The appointment the assistant is acting on — its id and a human label for the chip. */
     val aiAppointmentId: String? = null,
     val aiAppointmentLabel: String = "",
+    /** The "what Alpha has learned" screen, and the rules it is showing. */
+    val aiMemoryOpen: Boolean = false,
+    val aiFacts: List<String> = emptyList(),
+    val loadingAiFacts: Boolean = false,
+    val aiFactsError: String? = null,
+    /**
+     * Today at a glance, fetched in the background once per sign-in. Null until it
+     * arrives, and it stays null if it never does — the dashboard is not degraded
+     * by its absence, so a failure here must not put an error card on it.
+     */
+    val briefing: com.alphadental.clinic.ai.BriefingClient.Briefing? = null,
+    val briefingOpen: Boolean = false,
+    val loadingBriefing: Boolean = false,
+    val briefingError: String? = null,
 )
 
 /** Null target means a new booking; a set one means that appointment is being moved. */
@@ -917,6 +931,103 @@ class AppViewModel : ViewModel() {
         _state.value = _state.value.copy(aiOpen = false, aiThinking = false)
     }
 
+    // --- today at a glance ---------------------------------------------------------------------
+
+    /**
+     * Fetches the day's briefing quietly in the background.
+     *
+     * Only for the roles that chase money, because the half of it the dashboard
+     * does not already show is the aged-balance list. Failures are swallowed on
+     * purpose: nobody asked for this, it is an addition to a screen that works
+     * perfectly well without it, and an error card on the dashboard would be a
+     * worse outcome than the card simply not appearing. Tapping through to the
+     * full screen surfaces the failure honestly, because there it was asked for.
+     */
+    fun refreshBriefing() {
+        val session = _state.value.session ?: return
+        if (!(session.isAdmin || session.isReception)) return
+        if (_state.value.loadingBriefing) return
+
+        _state.value = _state.value.copy(loadingBriefing = true, briefingError = null)
+        viewModelScope.launch {
+            runCatching { com.alphadental.clinic.ai.BriefingClient.load(session.clinicId) }
+                .onSuccess { briefing ->
+                    _state.value = _state.value.copy(briefing = briefing, loadingBriefing = false)
+                }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(
+                        loadingBriefing = false,
+                        briefingError = error.message ?: "The briefing could not be built.",
+                    )
+                }
+        }
+    }
+
+    fun openBriefing() {
+        _state.value = _state.value.copy(briefingOpen = true)
+        // Re-read on open: it was fetched at sign-in and the day has moved since.
+        refreshBriefing()
+    }
+
+    fun closeBriefing() {
+        _state.value = _state.value.copy(briefingOpen = false)
+    }
+
+    // --- what the assistant has learned ------------------------------------------------------
+
+    /**
+     * Opens the list of rules the assistant has taught itself.
+     *
+     * Read fresh every time rather than cached: the assistant can add to it in the
+     * middle of a conversation, and a screen whose whole purpose is "here is what
+     * it believes" must not show a stale copy of that.
+     */
+    fun openAiMemory() {
+        val session = _state.value.session ?: return
+        _state.value = _state.value.copy(aiMemoryOpen = true, loadingAiFacts = true, aiFactsError = null)
+        viewModelScope.launch {
+            runCatching { Repository.loadAiFacts(session.clinicId, session.uid) }
+                .onSuccess { facts ->
+                    _state.value = _state.value.copy(aiFacts = facts, loadingAiFacts = false)
+                }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(
+                        loadingAiFacts = false,
+                        aiFactsError = error.message ?: "Could not read what the assistant has learned.",
+                    )
+                }
+        }
+    }
+
+    fun closeAiMemory() {
+        _state.value = _state.value.copy(aiMemoryOpen = false, aiFactsError = null)
+    }
+
+    /** Removes one learned rule. The list the transaction returns is the new truth. */
+    fun forgetAiFact(fact: String) {
+        val session = _state.value.session ?: return
+        // Struck from the screen at once: the tap is the decision, and waiting on a
+        // round trip to show it makes people tap again.
+        _state.value = _state.value.copy(
+            aiFacts = _state.value.aiFacts.toMutableList().apply { remove(fact) },
+            aiFactsError = null,
+        )
+        viewModelScope.launch {
+            runCatching { Repository.forgetAiFact(session.clinicId, session.uid, fact) }
+                .onSuccess { remaining ->
+                    _state.value = _state.value.copy(aiFacts = remaining)
+                }
+                .onFailure { error ->
+                    // Put it back rather than leave the screen disagreeing with the
+                    // assistant about what it knows.
+                    _state.value = _state.value.copy(
+                        aiFacts = (_state.value.aiFacts + fact),
+                        aiFactsError = error.message ?: "That could not be removed.",
+                    )
+                }
+        }
+    }
+
     /** The Stop beside the spinner: abandon this turn, keep the conversation. */
     fun cancelAi() {
         aiJob?.cancel()
@@ -933,8 +1044,20 @@ class AppViewModel : ViewModel() {
      * in the chat; none says so plainly.
      */
     private fun tryLocalNavigation(prompt: String): Boolean {
-        val session = _state.value.session ?: return false
         val target = com.alphadental.clinic.ai.NavIntent.parse(prompt) ?: return false
+        return goTo(target)
+    }
+
+    /**
+     * Opens a screen the assistant asked for, whichever of the two asked.
+     *
+     * Shared by the local parser and by the server's own `navigate_to` tool, so a
+     * screen the phone refuses to open for a receptionist is refused identically
+     * however the request arrived — the role rules cannot drift apart if there is
+     * only one copy of them.
+     */
+    private fun goTo(target: com.alphadental.clinic.ai.NavIntent.Target): Boolean {
+        val session = _state.value.session ?: return false
         val arabic = _state.value.arabic
 
         fun done(reply: String, close: Boolean = true) {
@@ -982,6 +1105,11 @@ class AppViewModel : ViewModel() {
             }
             is com.alphadental.clinic.ai.NavIntent.Target.WhatsappQueue -> {
                 openWhatsappQueue(); done(if (arabic) "تم فتح رسائل واتساب." else "Opening the WhatsApp queue.")
+            }
+            // The server already resolved the patient, so there is nothing to look up.
+            is com.alphadental.clinic.ai.NavIntent.Target.PatientById -> {
+                done(if (arabic) "تم فتح ملف المريض." else "Opening the patient's file.")
+                openPatient(target.id)
             }
             is com.alphadental.clinic.ai.NavIntent.Target.PatientFile -> {
                 val turn = beginAiTurn()
@@ -1312,6 +1440,47 @@ class AppViewModel : ViewModel() {
             }
             attempt
                 .onSuccess { turn ->
+                    // The server speaks in website routes. Honour the ones this app
+                    // has a screen for, and be straight about the ones it does not —
+                    // "Navigating to /marketing…" followed by nothing is the failure
+                    // this whole branch exists to stop.
+                    turn.navigateTo?.let { path ->
+                        val target = com.alphadental.clinic.ai.NavIntent.fromWebPath(path)
+                        if (target != null) {
+                            appendAiMessage(
+                                ChatMessage(fromUser = false, text = turn.reply, at = System.currentTimeMillis())
+                            )
+                            goTo(target)
+                        } else {
+                            val reply = if (_state.value.arabic) {
+                                "هذه الشاشة موجودة على الموقع فقط، وليست في التطبيق."
+                            } else {
+                                "That screen is only on the website — it isn't in the phone app."
+                            }
+                            appendAiMessage(ChatMessage(fromUser = false, text = reply, at = System.currentTimeMillis()))
+                            _state.value = _state.value.copy(aiSpeak = reply)
+                        }
+                        return@onSuccess
+                    }
+
+                    // The phone has no download folder and no renderer for an
+                    // arbitrary composed document. Announcing one that never
+                    // arrives is worse than saying where it can be had.
+                    turn.triggerPdfTitle?.let { title ->
+                        val reply = if (_state.value.arabic) {
+                            "لا أستطيع إنشاء \"$title\" على الهاتف. " +
+                                "من هنا أستطيع التقرير المالي وجدول المواعيد، " +
+                                "والروشتة من ملف المريض. أي مستند آخر متاح على الموقع."
+                        } else {
+                            "I can't build \"$title\" on the phone. From here I can do the finance " +
+                                "report and the appointment schedule, and a prescription prints from " +
+                                "the patient's file. Any other document is on the website."
+                        }
+                        appendAiMessage(ChatMessage(fromUser = false, text = reply, at = System.currentTimeMillis()))
+                        _state.value = _state.value.copy(aiSpeak = reply)
+                        return@onSuccess
+                    }
+
                     val selected = turn.selectAppointmentId
                     if (selected != null) {
                         setAiAppointment(session.clinicId, selected)

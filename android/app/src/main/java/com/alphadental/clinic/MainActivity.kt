@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonSearch
@@ -103,6 +104,8 @@ import com.alphadental.clinic.ui.PaymentSheet
 import com.alphadental.clinic.ui.HoursSheet
 import com.alphadental.clinic.ui.OrthoScreen
 import com.alphadental.clinic.ui.PrescriptionSheet
+import com.alphadental.clinic.ui.AiMemoryScreen
+import com.alphadental.clinic.ui.BriefingScreen
 import com.alphadental.clinic.ui.AssistantScreen
 import com.alphadental.clinic.ui.ReportsScreen
 import com.alphadental.clinic.data.LocationFinder
@@ -263,6 +266,11 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
 
             // Navigation the notification asked for, honoured once a session
             // exists — a cold start parks the request here until sign-in settles.
+            // Fetched once per sign-in, in the background, for the roles that chase
+            // money. Nothing waits on it — the dashboard is complete without it and
+            // simply grows a line when it lands.
+            LaunchedEffect(session.uid) { viewModel.refreshBriefing() }
+
             LaunchedEffect(session.uid) {
                 com.alphadental.clinic.push.PushNav.requested.collect { screen ->
                     if (screen != null) {
@@ -328,6 +336,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                                 onOpenInventory = viewModel::openInventory,
                                 onOpenWhatsappQueue = viewModel::openWhatsappQueue,
                                 onOpenAssistant = { viewModel.openAssistant(context) },
+                                briefing = state.briefing,
+                                onOpenBriefing = viewModel::openBriefing,
                                 onOpenLeads = if (session.isAdmin || session.isReception) {
                                     { viewModel.openLeads() }
                                 } else null,
@@ -425,6 +435,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             onOpenHours = if (session.isAdmin) ({ viewModel.openHours() }) else null,
                             onToggleLanguage = viewModel::toggleLanguage,
                             onOpenAppearance = { appearanceOpen = true },
+                            onOpenAiMemory = viewModel::openAiMemory,
                             onSignOut = viewModel::signOut,
                         )
                     }
@@ -561,6 +572,35 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
             // The CRM inbox, full page. Admin and reception, matching the website.
             if (appearanceOpen) {
                 AppearanceScreen(arabic = state.arabic, onClose = { appearanceOpen = false })
+            }
+
+            // What the assistant has taught itself about this clinic, and a way to
+            // make it forget something that is no longer true.
+            // Today at a glance: the shape of the day, then the balances
+            // nobody has chased.
+            if (state.briefingOpen) {
+                BriefingScreen(
+                    briefing = state.briefing,
+                    loading = state.loadingBriefing,
+                    error = state.briefingError,
+                    arabic = state.arabic,
+                    onOpenPatient = { id ->
+                        viewModel.closeBriefing()
+                        viewModel.openPatient(id)
+                    },
+                    onClose = viewModel::closeBriefing,
+                )
+            }
+
+            if (state.aiMemoryOpen) {
+                AiMemoryScreen(
+                    facts = state.aiFacts,
+                    loading = state.loadingAiFacts,
+                    error = state.aiFactsError,
+                    arabic = state.arabic,
+                    onForget = viewModel::forgetAiFact,
+                    onClose = viewModel::closeAiMemory,
+                )
             }
 
             if (state.leadsOpen) {
@@ -868,6 +908,8 @@ private fun MoreScreen(
     onOpenHours: (() -> Unit)?,
     onToggleLanguage: () -> Unit,
     onOpenAppearance: () -> Unit,
+    /** The list of rules the assistant has taught itself about this clinic. */
+    onOpenAiMemory: () -> Unit,
     onSignOut: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -1005,6 +1047,13 @@ private fun MoreScreen(
             label = if (arabic) "المظهر" else "Appearance",
             caption = if (arabic) "الألوان والوضع الليلي" else "Colours and night mode",
             onClick = onOpenAppearance,
+        )
+
+        MoreRow(
+            icon = Icons.Filled.Psychology,
+            label = if (arabic) "ما تعلّمه المساعد" else "What Alpha has learned",
+            caption = if (arabic) "راجع القواعد التي حفظها" else "Review the rules it has saved",
+            onClick = onOpenAiMemory,
         )
 
         MoreRow(
