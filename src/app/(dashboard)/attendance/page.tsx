@@ -855,7 +855,14 @@ export default function AttendancePage() {
           );
           setSettingsModal((prev: any) => ({ ...prev, isOpen: false }));
           showToast("Shift & Pay settings saved!", "success");
-      } catch (err) { showToast("Failed to save.", "error"); }
+      } catch (err: any) {
+          // "Failed to save." with no reason sent the owner hunting through Firebase rules when the
+          // actual cause could be three different things. The code names which: permission-denied
+          // is a rules refusal (wrong role, or the clinic is expired/suspended — the rules freeze
+          // writes for an inactive clinic on purpose); not-found means the staff row is gone.
+          console.error("Shift & Pay save failed", err);
+          showToast(`Failed to save: ${err?.code || err?.message || "unknown error"}`, "error");
+      }
   };
 
   const handleUnlinkDevice = async () => {
