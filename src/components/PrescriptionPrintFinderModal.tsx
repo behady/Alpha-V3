@@ -13,7 +13,7 @@ import {
   prescriptionCreatedMs,
   prescriptionPreviewText,
 } from "@/lib/prescriptionRecord";
-import { buildPrescriptionSrcDoc, prescriptionSrcDocToPdfBlob } from "@/lib/prescriptionPdfHtml";
+import { prescriptionPayloadToPdfBlob } from "@/lib/prescriptionPdfHtml";
 import { useUI } from "@/context/UIContext";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 
@@ -144,7 +144,7 @@ export default function PrescriptionPrintFinderModal({
       const clinicInfo = clinicSnap.exists() ? clinicSnap.data() : {};
 
       const payload = buildPrescriptionPayloadFromRecord(record, patient, clinicInfo);
-      const blob = await prescriptionSrcDocToPdfBlob(buildPrescriptionSrcDoc(payload));
+      const blob = await prescriptionPayloadToPdfBlob(payload);
       openPrescriptionPdf(blob, `Prescription-${record.id.slice(0, 8)}.pdf`);
       showToast(txt.opening, "success");
     } catch (e) {

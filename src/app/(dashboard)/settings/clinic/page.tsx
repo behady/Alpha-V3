@@ -29,6 +29,7 @@ import {
   getClinicProfile,
   sanitizeClinicProfile,
 } from "@/lib/clinicProfile";
+import { clearClinicLogoCache } from "@/lib/clinicLogo";
 import type { ClinicProfile } from "@/types/clinicProfile";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 
@@ -162,6 +163,10 @@ export default function ClinicProfileSettingsPage() {
         "Clinic profile updated",
         "settings/clinicProfile"
       );
+
+      // The logo is cached per clinic for the session so receipts/prescriptions don't refetch it
+      // on every print — drop it here so a replaced logo shows up without a page reload.
+      clearClinicLogoCache();
 
       setForm((prev) => sanitizeClinicProfile({ ...prev, logoUrl }));
       setLogoFile(null);

@@ -12,6 +12,7 @@ import {
   toothTypeFromFDI,
   toothTypeFromPrimaryFDI,
 } from "@/components/teeth/ToothSVG";
+import { clinicLogoImgHtml, getClinicLogo } from "@/lib/clinicLogo";
 
 function isUpperFDI(fdi: number): boolean {
   const q = Math.floor(fdi / 10);
@@ -161,6 +162,15 @@ export async function generateDiagnosisReport(input: DiagnosisReportInput): Prom
 
   const odontogramHtml = buildOdontogramHtml(teethData, isPrimary, language);
 
+  // Only the inlined form (the default) — this report is rasterised by html2canvas, where a
+  // remote Storage URL costs a 15s image timeout and still ends up omitted.
+  const logo = await getClinicLogo();
+  const logoImg = clinicLogoImgHtml(logo, { maxHeight: 40, maxWidth: 96 });
+  // Sat on a white tile: the header bar is near-black, and dark logos vanish against it.
+  const logoTile = logoImg
+    ? `<div style="background:#ffffff;border-radius:8px;padding:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;${isAr ? "margin-left" : "margin-right"}:14px;">${logoImg}</div>`
+    : "";
+
   const presentCats = DIAGNOSIS_CATEGORIES.filter(c => c.id !== "healthy").filter(cat =>
     Object.values(teethData).some(d =>
       getStatusesFromTooth(d).some(s => findOption(s)?.cat === cat.id && s !== "healthy")
@@ -246,9 +256,12 @@ export async function generateDiagnosisReport(input: DiagnosisReportInput): Prom
   const html = `
     <div id="diagnosis-container" style="box-sizing:border-box;max-width:190mm;margin:0 auto;color:#0f172a;padding:10mm 15mm;font-family:system-ui,-apple-system,sans-serif;font-size:12px;line-height:1.5;">
       <div style="background:#0f172a;color:white;padding:16px;border-radius:12px;margin-bottom:24px;display:flex;justify-content:space-between;align-items:center;">
-        <div>
-          <h1 style="margin:0;font-size:18px;text-transform:uppercase;letter-spacing:1px;">${esc(clinicName || "ALPHA DENTAL")}</h1>
-          <p style="margin:4px 0 0;font-size:12px;opacity:0.9;">${isAr ? "تقرير التشخيص السني" : "Dental Diagnosis Report"}</p>
+        <div style="display:flex;align-items:center;">
+          ${logoTile}
+          <div>
+            <h1 style="margin:0;font-size:18px;text-transform:uppercase;letter-spacing:1px;">${esc(clinicName || "ALPHA DENTAL")}</h1>
+            <p style="margin:4px 0 0;font-size:12px;opacity:0.9;">${isAr ? "تقرير التشخيص السني" : "Dental Diagnosis Report"}</p>
+          </div>
         </div>
         <div style="text-align:${isAr ? "left" : "right"};font-size:11px;color:#cbd5e1;">
           <div style="margin-bottom:4px;">${new Date().toLocaleDateString("en-GB")}</div>

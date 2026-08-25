@@ -40,7 +40,7 @@ import { isDentistStaff } from "@/lib/staffRoles";
 import { parseClinicSchedule, clinicDayBoundsMinutes, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import type { OwnerAlertKey } from "@/types/whatsapp";
 import { sendPatientAppointmentWhatsApp } from "@/lib/sendPatientAppointmentWhatsAppClient";
-import { buildPrescriptionSrcDoc, prescriptionSrcDocToPdfBlob } from "@/lib/prescriptionPdfHtml";
+import { prescriptionPayloadToPdfBlob } from "@/lib/prescriptionPdfHtml";
 import {
   buildPrescriptionPayloadFromRecord,
   normalizeRxItemsFromRecord,
@@ -808,7 +808,7 @@ export default function MobileDashboard() {
       const clinicInfo = clinicSnap.exists() ? clinicSnap.data() : {};
 
       const payload = buildPrescriptionPayloadFromRecord(latest, patient, clinicInfo);
-      const blob = await prescriptionSrcDocToPdfBlob(buildPrescriptionSrcDoc(payload));
+      const blob = await prescriptionPayloadToPdfBlob(payload);
       openPrescriptionPdf(blob, `Prescription-${patientId.slice(0, 8)}.pdf`);
       showToast(language === "ar" ? "جاري فتح الوصفة للطباعة" : "Opening prescription to print", "success");
     } catch (err) {

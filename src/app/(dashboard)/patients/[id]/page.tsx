@@ -30,7 +30,7 @@ import PatientTimelineTab from "@/components/patients/PatientTimelineTab";
 import PatientNotesTab from "@/components/patients/PatientNotesTab";
 import PatientMediaGallery from "@/components/patients/PatientMediaGallery";
 import PatientTreatmentPlanTab from "@/components/patients/PatientTreatmentPlanTab";
-import { buildPrescriptionSrcDoc, prescriptionSrcDocToPdfBlob, type RxItem } from "@/lib/prescriptionPdfHtml";
+import { prescriptionPayloadToPdfBlob, type RxItem } from "@/lib/prescriptionPdfHtml";
 import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
 import {
   DEFAULT_COUNTRY_CODE,
@@ -691,8 +691,7 @@ export default function PatientProfile() {
     setDownloadingPrescriptionPdf(true);
     try {
       const payload = buildPrescriptionPayloadFromRecord(record);
-      const srcDoc = buildPrescriptionSrcDoc(payload);
-      const blob = await prescriptionSrcDocToPdfBlob(srcDoc);
+      const blob = await prescriptionPayloadToPdfBlob(payload);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -727,8 +726,7 @@ export default function PatientProfile() {
     setSendingPrescriptionPdf(true);
     try {
       const payload = buildPrescriptionPayloadFromRecord(record);
-      const srcDoc = buildPrescriptionSrcDoc(payload);
-      const blob = await prescriptionSrcDocToPdfBlob(srcDoc);
+      const blob = await prescriptionPayloadToPdfBlob(payload);
       const dataUrl: string = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ""));

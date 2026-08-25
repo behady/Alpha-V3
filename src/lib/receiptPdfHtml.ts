@@ -1,4 +1,5 @@
 import { parseLedgerProcedureDescription } from "@/lib/ledgerProcedureParse";
+import { clinicLogoImgHtml, getClinicLogo, type ClinicLogoAsset } from "@/lib/clinicLogo";
 
 function esc(s: string): string {
   return String(s)
@@ -46,6 +47,8 @@ export type DentalReceiptPdfPayload = {
   totalDiscount: number;
   totalPaid: number;
   balance: number;
+  /** Optional clinic branding; `downloadDentalReceiptPdf` resolves it when left unset. */
+  logo?: ClinicLogoAsset;
 };
 
 function fmtTeethLabel(teeth: string): string {
@@ -196,17 +199,30 @@ export function buildDentalReceiptSrcDoc(p: DentalReceiptPdfPayload): string {
     .filter(Boolean)
     .join(" <span style='color:#d1d5db;margin:0 6px;'>•</span> ");
 
+  // `allow:"any"` — this document is printed by the browser's own engine, never rasterised
+  // through html2canvas, so a remote Storage URL renders fine and CORS never enters into it.
+  // margin-left is the RTL-correct gap between the logo and the clinic name.
+  const logoImg = clinicLogoImgHtml(p.logo, {
+    maxHeight: 52,
+    maxWidth: 130,
+    allow: "any",
+    extraStyle: "margin-left:14px;",
+  });
+
   const inner = `
 <div id="dental-receipt-container" style="box-sizing:border-box;max-width:190mm;margin:0 auto;color:#111827;padding:10mm 15mm;">
-  
+
   <div style="display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:16px;margin-bottom:20px;border-bottom:2px solid #e5e7eb;">
-    <div style="flex:1;">
-      <div style="font-size:24px;font-weight:900;color:#111827;margin-bottom:8px;">${esc(p.clinicName)}</div>
-      <div style="display:flex;flex-wrap:wrap;align-items:center;">
-        ${clinicContactLines}
+    <div style="flex:1;display:flex;align-items:flex-start;">
+      ${logoImg}
+      <div style="min-width:0;">
+        <div style="font-size:24px;font-weight:900;color:#111827;margin-bottom:8px;">${esc(p.clinicName)}</div>
+        <div style="display:flex;flex-wrap:wrap;align-items:center;">
+          ${clinicContactLines}
+        </div>
       </div>
     </div>
-    
+
     <div style="text-align:left;padding-right:16px;">
       <div style="font-size:18px;font-weight:800;color:#374151;margin-bottom:6px;">إيصال مالي</div>
       
@@ -320,31 +336,93 @@ export async function receiptElementToPdfBlob(element: HTMLElement): Promise<Blo
   return html2pdf().set(opt).from(element).outputPdf("blob") as Promise<Blob>;
 }
 
-/** Uses the browser's Native Print Engine */
-export function downloadDentalReceiptPdf(payload: DentalReceiptPdfPayload, filename?: string): void {
-  const srcDoc = buildDentalReceiptSrcDoc(payload);
-  
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function waitFor(signal: (done: () => void) => void, timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      resolve();
+    };
+    const timer = window.setTimeout(done, timeoutMs);
+    signal(done);
+  });
+}
+
+/**
+ * The print dialog snapshots the page as it stands, so anything still loading is simply missing
+ * from the printout. The clinic logo is the one image here, and it is the whole point of the
+ * header — so wait for it (or give up after a moment) rather than printing a blank corner.
+ */
+function waitForImages(doc: Document, timeoutMs = 5000): Promise<void> {
+  const pending = Array.from(doc.images).filter((img) => !img.complete);
+  if (pending.length === 0) return Promise.resolve();
+  return waitFor((done) => {
+    let left = pending.length;
+    const tick = () => {
+      left -= 1;
+      if (left <= 0) done();
+    };
+    for (const img of pending) {
+      img.addEventListener("load", tick, { once: true });
+      img.addEventListener("error", tick, { once: true });
+    }
+  }, timeoutMs);
+}
+
+/**
+ * Uses the browser's Native Print Engine.
+ * Async because it resolves the clinic logo first; callers should await (or `void`) it.
+ */
+export async function downloadDentalReceiptPdf(
+  payload: DentalReceiptPdfPayload,
+  filename?: string
+): Promise<void> {
+  const logo = payload.logo ?? (await getClinicLogo());
+  const srcDoc = buildDentalReceiptSrcDoc({ ...payload, logo });
+
   const iframe = document.createElement("iframe");
   iframe.style.cssText = "position:absolute;width:0;height:0;border:none;visibility:hidden;";
   document.body.appendChild(iframe);
-  
-  const doc = iframe.contentWindow?.document;
-  if (!doc) return;
-  
+
+  const win = iframe.contentWindow;
+  const doc = win?.document;
+  if (!win || !doc) {
+    iframe.remove();
+    return;
+  }
+
   doc.open();
   doc.write(srcDoc);
   doc.close();
-  
-  iframe.contentWindow?.addEventListener("load", () => {
-    setTimeout(() => {
-      iframe.contentWindow?.focus();
-      iframe.contentWindow?.print();
-      
-      setTimeout(() => {
-        document.body.removeChild(iframe);
-      }, 2000);
-    }, 500); 
-  });
+
+  // readyState guard: document.write can complete before the listener is attached, and a missed
+  // load event used to mean the print dialog never opened at all.
+  if (doc.readyState !== "complete") {
+    await waitFor((done) => win.addEventListener("load", done, { once: true }), 8000);
+  }
+  await waitForImages(doc);
+  // Existing settle time for the Tajawal webfont — Arabic shaping is wrong without it.
+  await delay(500);
+
+  // print() blocks until the user dismisses the dialog. Fire it off the await chain so callers
+  // get control back as the dialog opens — they show an "opening receipt to print" toast, which
+  // would otherwise only appear once the user had already finished printing.
+  window.setTimeout(() => {
+    try {
+      win.focus();
+      win.print();
+    } catch (err) {
+      console.error("Receipt print failed", err);
+    } finally {
+      window.setTimeout(() => iframe.remove(), 2000);
+    }
+  }, 0);
 }
 
 export function buildDentalReceiptPayloadFromLedger(options: {

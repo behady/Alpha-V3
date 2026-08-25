@@ -163,6 +163,6 @@ export async function printPatientReceipt(
     },
   });
 
-  downloadDentalReceiptPdf(payload, `Receipt-${patientId.slice(0, 8)}.pdf`);
+  await downloadDentalReceiptPdf(payload, `Receipt-${patientId.slice(0, 8)}.pdf`);
   return { ok: true };
 }

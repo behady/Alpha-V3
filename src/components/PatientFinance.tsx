@@ -457,9 +457,10 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
     });
   };
 
-  const handlePrintReceipt = () => {
+  // Async since the receipt embeds the clinic's uploaded logo, which has to be fetched first.
+  const handlePrintReceipt = async () => {
     const payload = buildReceiptLedgerPayload();
-    downloadDentalReceiptPdf(payload, `Receipt-${patientId}.pdf`);
+    await downloadDentalReceiptPdf(payload, `Receipt-${patientId}.pdf`);
   };
   const handleSendLedgerWhatsApp = async (item: LedgerItem) => {
     const u = auth.currentUser;
@@ -588,7 +589,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:flex gap-2 w-full lg:w-auto min-w-0">
             <button
               type="button"
-              onClick={handlePrintReceipt}
+              onClick={() => void handlePrintReceipt()}
               className="min-w-0 justify-center text-xs font-bold text-slate-700 hover:text-slate-900 flex items-center gap-2 px-3 py-2.5 hover:bg-slate-100 rounded-xl transition-colors border border-slate-200 bg-white leading-tight whitespace-normal text-center"
             >
               <Printer size={16} className="shrink-0"/>

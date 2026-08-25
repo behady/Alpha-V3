@@ -10,7 +10,7 @@ import { db, auth } from "@/lib/firebase";
 import { doc, getDoc, collection, getDocs, onSnapshot, query, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
 import { useUI } from "@/context/UIContext";
 import { useAuth } from "@/context/AuthContext";
-import { buildPrescriptionSrcDoc, prescriptionSrcDocToPdfBlob } from "@/lib/prescriptionPdfHtml";
+import { prescriptionPayloadToPdfBlob } from "@/lib/prescriptionPdfHtml";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 
@@ -187,7 +187,7 @@ export default function PrescriptionStudio() {
 
       const ageStr = calculateAge(patient.dateOfBirth || patient.age);
       const ageSex = `${ageStr || "?"} Y / ${patient.gender?.charAt(0) || "U"}`;
-      const srcDoc = buildPrescriptionSrcDoc({
+      const blob: Blob = await prescriptionPayloadToPdfBlob({
         clinicName: clinicInfo?.name || "Dental Clinic",
         rxHeader: clinicInfo?.rxHeader || `Dr. ${selectedDoctor}`,
         dateLabel: new Date().toLocaleDateString("en-GB"),
@@ -199,8 +199,6 @@ export default function PrescriptionStudio() {
         phone: clinicInfo?.phone || "Clinic Phone",
         rxItems,
       });
-
-      const blob: Blob = await prescriptionSrcDocToPdfBlob(srcDoc);
 
       const dataUrl: string = await new Promise((resolve, reject) => {
         const reader = new FileReader();
