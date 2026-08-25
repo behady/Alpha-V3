@@ -22,8 +22,24 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('clinicRoles', {}).keys().hasAny([clinicId]);
     }
 
+    /**
+     * Full access to one clinic: its Owner or one of its Admins.
+     *
+     * The same answer for both, deliberately. Owner is a protected IDENTITY, not a larger set of
+     * buttons — only the owner may change the owner's role, switches or password, and only they
+     * may hand the clinic on. Every one of those is a write to the `users` collection, which this
+     * file already forbids the browser to make, so they are enforced in the API routes that hold
+     * the Admin SDK. Splitting the two apart here would mean Owner and Admin disagreeing about
+     * what a clinic member may write, which is not what the role is for.
+     */
     function isClinicAdmin(clinicId) {
-      return hasClinicRole(clinicId) && getClinicRole(clinicId) == 'Admin';
+      return hasClinicRole(clinicId)
+        && (getClinicRole(clinicId) == 'Admin' || getClinicRole(clinicId) == 'Owner');
+    }
+
+    /** The one person the clinic belongs to. */
+    function isClinicOwner(clinicId) {
+      return hasClinicRole(clinicId) && getClinicRole(clinicId) == 'Owner';
     }
 
     function isClinicActive(clinicId) {

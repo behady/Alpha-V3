@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
 import { FieldValue } from "firebase-admin/firestore";
+import { isOwnerRole } from "@/lib/permissions";
 
 export async function POST(request: Request) {
   try {
@@ -17,6 +18,25 @@ export async function POST(request: Request) {
     }
 
     const db = adminDb();
+
+    /**
+     * The owner is not removable, by anybody — including themselves.
+     *
+     * Removing them strips the role while `clinic.ownerId` goes on naming them, which leaves a
+     * clinic owned by an account that no longer works there and a protection nobody can undo.
+     * The way out is Transfer ownership: hand the clinic on first, then leave like anyone else.
+     */
+    const targetSnap = await db.collection("users").doc(userId).get();
+    const targetRole = (targetSnap.data()?.clinicRoles || {})[clinicId];
+    if (isOwnerRole(targetRole)) {
+      return NextResponse.json(
+        {
+          error:
+            "The clinic owner can't be removed. Use Transfer ownership to hand the clinic over first.",
+        },
+        { status: 403 }
+      );
+    }
 
     // 1. Remove from clinic staff collection
     if (staffId) {

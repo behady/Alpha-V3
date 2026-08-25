@@ -245,7 +245,7 @@ exports.reviewRequestsNightly = onSchedule(
               title: `⭐ ${created} review request${created === 1 ? "" : "s"} ready`,
               body: "Today's happy patients are one tap from a Google review — open Marketing → Campaigns to send.",
             },
-            { roles: ["Admin", "Receptionist"], channel: "alpha_clinic", data: { screen: "marketing" } }
+            { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_clinic", data: { screen: "marketing" } }
           );
         }
       } catch (e) {
@@ -312,7 +312,7 @@ exports.birthdayCampaigns = onSchedule(
               title: `🎂 ${created} birthday wish${created === 1 ? "" : "es"} ready`,
               body: "Open Marketing → Campaigns to review and send them.",
             },
-            { roles: ["Admin", "Receptionist"], channel: "alpha_clinic", data: { screen: "marketing" } }
+            { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_clinic", data: { screen: "marketing" } }
           );
         }
       } catch (e) {
@@ -364,7 +364,7 @@ exports.leadSpeedAlerts = onSchedule(
               ? `Still unanswered: ${names}${waiting.length > 3 ? "…" : ""}. The first minutes win the lead.`
               : "Open the Leads inbox — someone is waiting for a reply.",
           },
-          { roles: ["Admin", "Receptionist"], channel: "alpha_leads", data: { screen: "leads" } }
+          { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_leads", data: { screen: "leads" } }
         );
 
         await Promise.all(
@@ -402,7 +402,7 @@ exports.occasionRadarPush = onSchedule(
             title: `📣 ${name.en} is 10 days away`,
             body: `«${name.ar}» بعد ١٠ أيام — افتح صفحة التسويق وجهّز المحتوى والعروض من الآن.`,
           },
-          { roles: ["Admin"], channel: "alpha_clinic", data: { screen: "marketing" } }
+          { roles: ["Owner", "Admin"], channel: "alpha_clinic", data: { screen: "marketing" } }
         );
       } catch (e) {
         console.error(`occasionRadarPush failed for ${clinic.id}:`, e);

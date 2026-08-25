@@ -33,6 +33,7 @@ import {
 import { APPOINTMENT_STAGES } from "@/lib/appointmentStages";
 import { runClinicReport } from "@/lib/automation/clinicReports";
 import { suggestSlots } from "@/lib/automation/slotSuggestions";
+import { isFullAccessRole } from "@/lib/permissions";
 
 /**
  * Collections the AI is permitted to touch.
@@ -906,7 +907,7 @@ export async function POST(req: Request) {
              // Deleting clinical and financial records is an Admin decision. Every staff role
              // shares one chat surface, so without this a receptionist had exactly the delete
              // reach an Admin has — and the Admin SDK means Firestore rules never see it.
-             if (authz.role !== "Admin") {
+             if (!isFullAccessRole(authz.role)) {
                 toolResult = {
                    success: false,
                    error: "Only a Clinic Admin can delete records through the assistant.",

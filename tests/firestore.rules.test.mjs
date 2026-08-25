@@ -74,6 +74,12 @@ async function main() {
     await setDoc(doc(db, "users/admin1"), {
       clinicRoles: { clinicA: "Admin" },
     });
+    // The clinic's owner — the uid clinicA.ownerId already names. isClinicAdmin() has to answer
+    // for them as well as for Admin, or introducing the role locks the person who pays for the
+    // clinic out of the settings it exists to protect.
+    await setDoc(doc(db, "users/owner1"), {
+      clinicRoles: { clinicA: "Owner" },
+    });
     await setDoc(doc(db, "users/assistant1"), {
       clinicRoles: { clinicA: "Assistant" },
       // The Assistant baseline from src/lib/permissions.ts. Every account that works in a clinic
@@ -239,6 +245,7 @@ async function main() {
   });
 
   const admin1 = testEnv.authenticatedContext("admin1").firestore();
+  const owner1 = testEnv.authenticatedContext("owner1").firestore();
   const assistant1 = testEnv.authenticatedContext("assistant1").firestore();
   const super1 = testEnv.authenticatedContext("super1").firestore();
   const rando1 = testEnv.authenticatedContext("rando1").firestore();
@@ -386,6 +393,16 @@ async function main() {
   await check(
     "clinic Admin can edit a staff record",
     updateDoc(doc(admin1, "clinics/clinicA/staff/staffDoc1"), { commissionPercentage: 45 }),
+    "allow"
+  );
+  await check(
+    "clinic Owner can edit a staff record",
+    updateDoc(doc(owner1, "clinics/clinicA/staff/staffDoc1"), { commissionPercentage: 46 }),
+    "allow"
+  );
+  await check(
+    "clinic Owner passes a permission-gated write with no stored list",
+    setDoc(doc(owner1, "clinics/clinicA/patients/pOwner1"), { name: "Owner's patient" }),
     "allow"
   );
   await check(

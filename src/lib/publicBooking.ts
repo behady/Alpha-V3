@@ -21,6 +21,7 @@ import { clinicDayBoundsMinutes, parseClinicSchedule, type ClinicScheduleConfig 
 import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
 import { apptBlocksDoctor } from "@/lib/appointmentConflicts";
 import { minutesToTimeKey, normalizeDateKey, parseApptTimeToMinutes } from "@/lib/appointmentTime";
+import { isFullAccessRole } from "@/lib/permissions";
 
 /** Statuses that do NOT hold a slot. A cancelled 3pm must not block 3pm forever. */
 const RELEASED_STATUSES = new Set(["Cancelled", "No Show"]);
@@ -86,7 +87,7 @@ export async function loadPublicClinicProfile(clinicId: string): Promise<PublicC
     const staffSnap = await ref.collection("staff").get();
     for (const doc of staffSnap.docs) {
       const s = doc.data();
-      if (!(s?.role === "Dentist" || (s?.role === "Admin" && s?.isDentist === true))) continue;
+      if (!(s?.role === "Dentist" || (isFullAccessRole(s?.role) && s?.isDentist === true))) continue;
       const name = String(s?.name || "").trim();
       if (!name) continue;
       doctors.push(name);

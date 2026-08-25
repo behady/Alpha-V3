@@ -5,11 +5,29 @@ import { requireAdminUser } from "@/lib/apiStaffAuth";
 import { FieldValue } from "firebase-admin/firestore";
 import { clinicPermissionsPatch, clinicPermissionsSeed } from "@/lib/server/clinicPermissions";
 import { expandPermissions } from "@/lib/permissions";
+import { isOwnerRole } from "@/lib/permissions";
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { email, password, name, role, createDbRecords, clinicId, isDentist } = body;
+
+    /**
+     * A clinic has one owner, and inviting a second is not how it gets one.
+     *
+     * The role arrives in the request body, so without this an admin could mint an account whose
+     * `clinicRoles` says Owner while `clinic.ownerId` names somebody else — two people the app
+     * would both treat as untouchable, and no way to tell which one the clinic belongs to.
+     */
+    if (isOwnerRole(role)) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "A clinic has one owner. Add them as an Admin, then use Transfer ownership.",
+        },
+        { status: 400 }
+      );
+    }
 
     // The clinic is required: without one, this degraded to "any Admin anywhere may create Auth
     // accounts", and every invite is for a specific clinic anyway.

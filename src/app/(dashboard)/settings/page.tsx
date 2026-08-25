@@ -37,6 +37,7 @@ import AiCreditsSettings from "@/components/settings/AiCreditsSettings";
 import { logActivity } from "@/lib/logger";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import RecentlyDeleted from "@/components/settings/RecentlyDeleted";
+import { isFullAccessRole } from "@/lib/permissions";
 export default function SettingsPage() {
   const { language, isRTL } = useLanguage();
   const { user, loading: authLoading } = useAuth(); 
@@ -193,7 +194,7 @@ export default function SettingsPage() {
       if (editingUser) {
           // Editing user logic
       } else {
-          const isDentist = userForm.role === "Admin" ? userForm.isDentist : false;
+          const isDentist = isFullAccessRole(userForm.role) ? userForm.isDentist : false;
           const token = await auth.currentUser?.getIdToken();
           
           const response = await fetch('/api/staff/create', { 
@@ -443,8 +444,8 @@ export default function SettingsPage() {
                   </div>
                 )}
 
-                <div className="space-y-1.5"><label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.userRole}</label><div className="relative"><Badge size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`}/><select value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value, isDentist: e.target.value === 'Admin' ? userForm.isDentist : false})} className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all appearance-none cursor-pointer ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}><option value="Dentist">{txt.roleDentist}</option><option value="Assistant">{txt.roleAssistant}</option><option value="Receptionist">{txt.roleReceptionist}</option><option value="Admin">{txt.roleAdmin}</option></select></div></div>
-                {userForm.role === "Admin" && (
+                <div className="space-y-1.5"><label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.userRole}</label><div className="relative"><Badge size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`}/><select value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value, isDentist: isFullAccessRole(e.target.value) ? userForm.isDentist : false})} className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all appearance-none cursor-pointer ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}><option value="Dentist">{txt.roleDentist}</option><option value="Assistant">{txt.roleAssistant}</option><option value="Receptionist">{txt.roleReceptionist}</option><option value="Admin">{txt.roleAdmin}</option></select></div></div>
+                {isFullAccessRole(userForm.role) && (
                   <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <input
                       type="checkbox"

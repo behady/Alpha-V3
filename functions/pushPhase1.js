@@ -130,7 +130,7 @@ exports.onSlotFreed = onDocumentUpdated(
           title: `${slot || "A slot"} just freed`,
           body: `${patient} ${what}${after.doctor ? ` · Dr. ${after.doctor}` : ""} — the waitlist or a due lead could take it.`,
         },
-        { roles: ["Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
+        { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
       );
     } catch (e) {
       console.error("onSlotFreed failed:", e);
@@ -176,7 +176,7 @@ exports.onLowStock = onDocumentUpdated(
           title: `${name} is running low`,
           body: `${now}${unit} left · reorder point is ${min}${unit}.`,
         },
-        { roles: ["Admin", "Receptionist"], channel: "alpha_clinic", data: { screen: "inventory" } }
+        { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_clinic", data: { screen: "inventory" } }
       );
     } catch (e) {
       console.error("onLowStock failed:", e);
@@ -212,7 +212,7 @@ exports.morningBrief = onSchedule(
             title: "Today at the clinic",
             body: `${appts.length} booked${firstTime ? ` · first at ${firstTime}` : ""}`,
           },
-          { roles: ["Admin", "Receptionist"], channel: "alpha_reminders", data: { screen: "day" } }
+          { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_reminders", data: { screen: "day" } }
         );
 
         // Each dentist: their own list, matched the way the app matches it —
@@ -278,7 +278,7 @@ exports.leadsDueToday = onSchedule(
             title: `${due.length} lead follow-up${due.length === 1 ? "" : "s"} due`,
             body: named ? `Waiting on a call: ${named}${due.length > 3 ? "…" : ""}` : "Open the Leads inbox to work through them.",
           },
-          { roles: ["Admin", "Receptionist"], channel: "alpha_leads", data: { screen: "leads" } }
+          { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_leads", data: { screen: "leads" } }
         );
       } catch (e) {
         console.error(`leadsDueToday failed for ${clinicId}:`, e);
@@ -327,7 +327,7 @@ exports.eveningDigest = onSchedule(
           db(),
           clinicId,
           { title: "Today, closed out", body: parts.join(" · ") },
-          { roles: ["Admin"], channel: "alpha_money", data: { screen: "money" } }
+          { roles: ["Owner", "Admin"], channel: "alpha_money", data: { screen: "money" } }
         );
       } catch (e) {
         console.error(`eveningDigest failed for ${clinicId}:`, e);

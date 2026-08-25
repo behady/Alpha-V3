@@ -206,7 +206,7 @@ export async function POST(request: Request) {
         body: `${patientName} — ${dateKey} ${time} · New online booking`,
       },
       // The desk's news, not the chair's: a dentist mid-procedure does not need it.
-      { roles: ["Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
+      { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
     );
 
     return NextResponse.json({ ok: true, success: true, message: "Appointment requested successfully." });

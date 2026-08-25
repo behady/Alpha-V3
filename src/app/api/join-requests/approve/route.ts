@@ -5,8 +5,11 @@ import { requireAdminUser } from "@/lib/apiStaffAuth";
 import { FieldValue } from "firebase-admin/firestore";
 import { clinicPermissionsPatch, clinicPermissionsSeed } from "@/lib/server/clinicPermissions";
 import { expandPermissions } from "@/lib/permissions";
+import { ASSIGNABLE_ROLES } from "@/lib/permissions";
 
-const ALLOWED_ROLES = new Set(["Admin", "Dentist", "Assistant", "Receptionist"]);
+// Owner is deliberately absent: a clinic has one, it is bound to `clinic.ownerId`, and it
+// changes hands through /api/admin/transfer-ownership rather than by approving a request.
+const ALLOWED_ROLES = new Set(ASSIGNABLE_ROLES as readonly string[]);
 
 /**
  * Approves a join request: adds the person to the clinic's staff and grants them a role.

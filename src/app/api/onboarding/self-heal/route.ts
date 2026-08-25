@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAuthedUser } from "@/lib/apiStaffAuth";
 import { FieldPath, FieldValue } from "firebase-admin/firestore";
+import { OWNER_ROLE } from "@/lib/permissions";
 
 /**
  * Gives a clinic owner back the Admin role on a clinic they already own.
@@ -49,7 +50,7 @@ export async function POST(request: Request) {
 
     if (healed.length > 0) {
       const patch: Record<string, unknown> = {
-        clinicRoles: Object.fromEntries(healed.map((id) => [id, "Admin"])),
+        clinicRoles: Object.fromEntries(healed.map((id) => [id, OWNER_ROLE])),
       };
       if (!userData.defaultClinicId) patch.defaultClinicId = healed[0];
       // Merge is a deep merge for maps, so roles in other clinics survive.
