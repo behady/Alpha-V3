@@ -15,19 +15,23 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { onSnapshot, setDoc } from "firebase/firestore";
-import { Check, Loader2, Plus, Star, Tag, Trash2, X, Percent } from "lucide-react";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { onSnapshot, setDoc, writeBatch, doc, getDocs } from "firebase/firestore";
+import { Check, Loader2, Plus, Star, Tag, Trash2, X, Percent, Copy, SlidersHorizontal } from "lucide-react";
+import { db } from "@/lib/firebase";
+import { getClinicCollection, getClinicDoc, getGlobalClinicId } from "@/lib/db-utils";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { logActivity } from "@/lib/logger";
 import { useAuth } from "@/context/AuthContext";
+import PriceListWorkspace from "@/components/settings/PriceListWorkspace";
 import {
   DEFAULT_DISCOUNT_REASONS,
   DISCOUNTS_DOC,
   PRICE_LISTS_DOC,
+  STANDARD_LIST_ID,
   parseDiscountSettings,
   parsePriceLists,
+  toStoredLists,
   type DiscountSettings,
   type PriceList,
 } from "@/lib/priceLists";
@@ -43,7 +47,7 @@ function slugify(name: string): string {
 }
 
 export default function PriceListSettings({ currency }: { currency: string }) {
-  const { language } = useLanguage();
+  const { language, isRTL } = useLanguage();
   const { showToast, confirm } = useUI();
   const { user } = useAuth();
   const ar = language === "ar";
@@ -51,9 +55,18 @@ export default function PriceListSettings({ currency }: { currency: string }) {
   const [lists, setLists] = useState<PriceList[]>(() => parsePriceLists(null));
   const [settings, setSettings] = useState<DiscountSettings>(() => parseDiscountSettings(null));
   const [usedListIds, setUsedListIds] = useState<Set<string>>(new Set());
+  /** listId → how many treatments carry a price of their own on it. */
+  const [pricedCounts, setPricedCounts] = useState<Record<string, number>>({});
+  const [serviceCount, setServiceCount] = useState(0);
   const [saving, setSaving] = useState(false);
   const [newListName, setNewListName] = useState("");
   const [newReason, setNewReason] = useState("");
+  /** Which list is open for pricing. null = the lists overview. */
+  const [openListId, setOpenListId] = useState<string | null>(null);
+  const [isNewOpen, setIsNewOpen] = useState(false);
+  /** "" = start fresh; otherwise the id of the list whose prices are copied. */
+  const [copyFrom, setCopyFrom] = useState("");
+  const [newBlanket, setNewBlanket] = useState("0");
 
   useEffect(() => {
     const unsubLists = onSnapshot(getClinicDoc("settings", PRICE_LISTS_DOC), (snap) => {
@@ -67,13 +80,19 @@ export default function PriceListSettings({ currency }: { currency: string }) {
     // nobody can look up.
     const unsubServices = onSnapshot(getClinicCollection("services"), (snap) => {
       const used = new Set<string>();
+      const counts: Record<string, number> = {};
       for (const doc of snap.docs) {
         const prices = doc.data()?.prices;
         if (prices && typeof prices === "object") {
-          for (const key of Object.keys(prices)) used.add(key);
+          for (const key of Object.keys(prices)) {
+            used.add(key);
+            counts[key] = (counts[key] || 0) + 1;
+          }
         }
       }
       setUsedListIds(used);
+      setPricedCounts(counts);
+      setServiceCount(snap.size);
     });
     return () => {
       unsubLists();
@@ -123,6 +142,21 @@ export default function PriceListSettings({ currency }: { currency: string }) {
     noCap: ar ? "بدون حد" : "No ceiling",
     saved: ar ? "اتحفظ" : "Saved",
     failed: ar ? "فشل الحفظ" : "Could not save",
+    editPrices: ar ? "الأسعار" : "Prices",
+    newListTitle: ar ? "قائمة أسعار جديدة" : "New price list",
+    startFrom: ar ? "تبدأ منين؟" : "Start from",
+    fresh: ar ? "من الأول" : "Start fresh",
+    freshHint: ar
+      ? "كل العلاجات هتتحاسب بالسعر الأساسي لحد ما تغيّرها."
+      : "Every treatment charges the standard price until you change it.",
+    copyOf: (name: string) => (ar ? `نسخة من "${name}"` : `Copy of "${name}"`),
+    copyHint: ar
+      ? "بينسخ كل أسعار القائمة دي، وبعدين تعدّل اللي عايزه."
+      : "Copies that list's prices across, then you edit what differs.",
+    create: ar ? "إنشاء" : "Create list",
+    listNamePlaceholder: ar ? "مثلاً: تأمين مصر" : "e.g. Misr Insurance",
+    priced: (n: number) => (ar ? `${n} علاج مسعّر` : `${n} priced`),
+    pricedNone: ar ? "بالسعر الأساسي" : "all at standard price",
   };
 
   const activeCount = useMemo(() => lists.filter((l) => l.active).length, [lists]);
@@ -130,7 +164,10 @@ export default function PriceListSettings({ currency }: { currency: string }) {
   const persistLists = async (next: PriceList[], action: string) => {
     setSaving(true);
     try {
-      await setDoc(getClinicDoc("settings", PRICE_LISTS_DOC), { lists: next }, { merge: true });
+      // `toStoredLists` and not the raw array: a list with no Arabic name carries `nameAr:
+      // undefined`, which Firestore refuses outright, and the refusal surfaced here as nothing
+      // but "Could not save". See the note in parsePriceLists.
+      await setDoc(getClinicDoc("settings", PRICE_LISTS_DOC), { lists: toStoredLists(next) }, { merge: true });
       await logActivity(
         { uid: user?.uid, name: user?.name, role: user?.role },
         "Price Lists Updated",
@@ -157,6 +194,43 @@ export default function PriceListSettings({ currency }: { currency: string }) {
     }
   };
 
+  /**
+   * Copy every per-service price from one list onto another.
+   *
+   * A new list almost never starts from nothing — it starts as "the standard list, but cheaper",
+   * or as last year's insurer rates with a few lines moved. Copying is what makes that the work of
+   * one dialog instead of one dialog per treatment.
+   *
+   * Copying FROM the standard list reads `price`, because `price` IS the standard list's price;
+   * copying from any other reads its entry in `prices` and falls back to `price` where it has
+   * none, so the copy reflects what that list actually charges rather than only its overrides.
+   */
+  const copyPricesTo = async (targetId: string, sourceId: string) => {
+    const snap = await getDocs(getClinicCollection("services"));
+    const clinicId = getGlobalClinicId();
+
+    const updates: Array<{ id: string; value: number }> = [];
+    for (const d of snap.docs) {
+      const data = d.data() as { price?: number; prices?: Record<string, number> };
+      const base = Number(data.price) || 0;
+      const value = Number(sourceId === STANDARD_LIST_ID ? base : (data.prices?.[sourceId] ?? base)) || 0;
+      // An override identical to the standard price is worth nothing: an absent entry already
+      // charges exactly that, and every stored row is one more number to keep in step later.
+      // Copying FROM the standard list therefore writes nothing at all, which is correct — the
+      // new list already charges the standard price everywhere.
+      if (value !== base) updates.push({ id: d.id, value });
+    }
+
+    for (let i = 0; i < updates.length; i += 400) {
+      const batch = writeBatch(db);
+      for (const u of updates.slice(i, i + 400)) {
+        batch.update(doc(db, `clinics/${clinicId}/services`, u.id), { [`prices.${targetId}`]: u.value });
+      }
+      await batch.commit();
+    }
+    return updates.length;
+  };
+
   const addList = async () => {
     const name = newListName.trim();
     if (!name) return;
@@ -165,11 +239,41 @@ export default function PriceListSettings({ currency }: { currency: string }) {
       showToast(ar ? "فيه قائمة بنفس الاسم" : "A list with that name already exists", "error");
       return;
     }
-    setNewListName("");
-    await persistLists(
-      [...lists, { id, name, generalDiscountPercent: 0, active: true, isDefault: false }],
-      `Added price list "${name}"`
-    );
+    const blanket = Math.min(100, Math.max(0, Number(newBlanket) || 0));
+    const source = copyFrom ? lists.find((l) => l.id === copyFrom) : null;
+
+    setSaving(true);
+    try {
+      // The list row is written first. If the price copy fails half way, the clinic is left with a
+      // real list carrying some of its prices, which they can finish by hand — rather than a pile
+      // of orphaned prices on a list that does not exist.
+      await setDoc(
+        getClinicDoc("settings", PRICE_LISTS_DOC),
+        { lists: toStoredLists([...lists, { id, name, generalDiscountPercent: blanket, active: true, isDefault: false }]) },
+        { merge: true }
+      );
+      let copied = 0;
+      if (source) copied = await copyPricesTo(id, source.id);
+      await logActivity(
+        { uid: user?.uid, name: user?.name, role: user?.role },
+        "Price Lists Updated",
+        source
+          ? `Added price list "${name}" by copying ${copied} price${copied === 1 ? "" : "s"} from "${source.name}"`
+          : `Added price list "${name}"`
+      );
+      showToast(txt.saved, "success");
+      setNewListName("");
+      setCopyFrom("");
+      setNewBlanket("0");
+      setIsNewOpen(false);
+      // Straight into pricing it — that is the next thing anyone wants, and the reason the old
+      // flow felt unfinished was that creating a list left you looking at the list of lists.
+      setOpenListId(id);
+    } catch {
+      showToast(txt.failed, "error");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const setBlanket = async (list: PriceList, percent: number) => {
@@ -244,6 +348,13 @@ export default function PriceListSettings({ currency }: { currency: string }) {
     );
   };
 
+  // Pricing a list takes the whole screen. It is a table of every treatment the clinic offers, and
+  // squeezing that into a panel under the lists is what made it unusable in the first place.
+  const openList = openListId ? lists.find((l) => l.id === openListId) : null;
+  if (openList) {
+    return <PriceListWorkspace list={openList} currency={currency} onBack={() => setOpenListId(null)} />;
+  }
+
   return (
     <div className="space-y-6" dir={ar ? "rtl" : "ltr"}>
       {/* --- lists --- */}
@@ -281,7 +392,15 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                     </span>
                   )}
                 </p>
-                <p className="mt-0.5 text-[11px] font-medium text-slate-400">{currency}</p>
+                <p className="mt-0.5 text-[11px] font-medium text-slate-400">
+                  {currency}
+                  {" · "}
+                  {list.id === STANDARD_LIST_ID
+                    ? txt.priced(serviceCount)
+                    : pricedCounts[list.id]
+                      ? txt.priced(pricedCounts[list.id])
+                      : txt.pricedNone}
+                </p>
               </div>
 
               <label className="flex items-center gap-2">
@@ -301,6 +420,16 @@ export default function PriceListSettings({ currency }: { currency: string }) {
               </label>
 
               <div className="flex items-center gap-1">
+                {/* The way in. Pricing a list used to be reachable only from inside each
+                    treatment's own edit dialog, which is why nobody could find it. */}
+                <button
+                  type="button"
+                  onClick={() => setOpenListId(list.id)}
+                  disabled={saving}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-[11px] font-bold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                >
+                  <SlidersHorizontal size={12} /> {txt.editPrices}
+                </button>
                 {!list.isDefault && list.active && (
                   <button
                     type="button"
@@ -334,24 +463,14 @@ export default function PriceListSettings({ currency }: { currency: string }) {
           ))}
         </ul>
 
-        <div className="mt-3 flex gap-2">
-          <input
-            value={newListName}
-            onChange={(e) => setNewListName(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addList()}
-            placeholder={txt.listName}
-            disabled={saving}
-            className="flex-1 rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-primary-500 focus:bg-white disabled:opacity-60"
-          />
-          <button
-            type="button"
-            onClick={addList}
-            disabled={saving || !newListName.trim()}
-            className="flex items-center gap-1.5 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-primary-700 disabled:opacity-50"
-          >
-            <Plus size={15} /> {txt.addList}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setIsNewOpen(true)}
+          disabled={saving}
+          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-300 bg-slate-50/50 px-4 py-3 text-sm font-bold text-slate-600 transition hover:border-primary-400 hover:bg-white hover:text-primary-700 disabled:opacity-50"
+        >
+          <Plus size={15} /> {txt.addList}
+        </button>
       </section>
 
       {/* --- reasons + ceiling --- */}
@@ -443,6 +562,103 @@ export default function PriceListSettings({ currency }: { currency: string }) {
           </div>
         </div>
       </section>
+
+      {/* --- new list --- */}
+      {isNewOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-[2rem] border border-slate-100 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 pb-4 pt-5">
+              <h3 className="text-lg font-black tracking-tight text-slate-900">{txt.newListTitle}</h3>
+              <button
+                type="button"
+                onClick={() => setIsNewOpen(false)}
+                className="rounded-full bg-slate-50 p-2 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500"
+              >
+                <X size={17} />
+              </button>
+            </div>
+
+            <div className="custom-scrollbar space-y-5 overflow-y-auto px-6 py-5">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{txt.listName}</label>
+                <input
+                  autoFocus
+                  value={newListName}
+                  onChange={(e) => setNewListName(e.target.value)}
+                  placeholder={txt.listNamePlaceholder}
+                  disabled={saving}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all focus:border-primary-500 focus:bg-white disabled:opacity-60"
+                />
+              </div>
+
+              {/* Fresh, or a copy. A clinic's second list is almost always "the standard one, but
+                  cheaper" — offering that as the starting point is the difference between one
+                  dialog and one per treatment. */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{txt.startFrom}</label>
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setCopyFrom("")}
+                    className={`w-full rounded-xl border px-4 py-3 text-start transition-all ${
+                      copyFrom === "" ? "border-primary-500 bg-primary-50" : "border-slate-200 bg-slate-50 hover:border-slate-300"
+                    }`}
+                  >
+                    <span className="flex items-center gap-2 text-sm font-bold text-slate-800">
+                      <Plus size={14} /> {txt.fresh}
+                    </span>
+                    <span className="mt-0.5 block text-[11px] font-medium text-slate-500">{txt.freshHint}</span>
+                  </button>
+
+                  {lists.map((l) => (
+                    <button
+                      type="button"
+                      key={l.id}
+                      onClick={() => setCopyFrom(l.id)}
+                      className={`w-full rounded-xl border px-4 py-3 text-start transition-all ${
+                        copyFrom === l.id ? "border-primary-500 bg-primary-50" : "border-slate-200 bg-slate-50 hover:border-slate-300"
+                      }`}
+                    >
+                      <span className="flex items-center gap-2 text-sm font-bold text-slate-800">
+                        <Copy size={14} /> {txt.copyOf(ar && l.nameAr ? l.nameAr : l.name)}
+                      </span>
+                      <span className="mt-0.5 block text-[11px] font-medium text-slate-500">{txt.copyHint}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{txt.blanket}</label>
+                <span className="relative block">
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={newBlanket}
+                    onChange={(e) => setNewBlanket(e.target.value)}
+                    disabled={saving}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-4 pr-9 text-sm font-bold tabular-nums text-slate-900 outline-none transition-all focus:border-primary-500 focus:bg-white disabled:opacity-60"
+                  />
+                  <Percent size={13} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? "left-3.5" : "right-3.5"}`} />
+                </span>
+                <p className="text-[11px] font-medium text-slate-400">{txt.subtitle}</p>
+              </div>
+            </div>
+
+            <div className="border-t border-slate-100 px-6 py-4">
+              <button
+                type="button"
+                onClick={addList}
+                disabled={saving || !newListName.trim()}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3.5 text-sm font-bold text-white shadow-md transition-all active:scale-95 disabled:opacity-40"
+              >
+                {saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} {txt.create}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

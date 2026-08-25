@@ -82,7 +82,14 @@ export function parsePriceLists(data: Record<string, unknown> | null | undefined
     .map((entry) => ({
       id: String(entry?.id || "").trim(),
       name: String(entry?.name || "").trim(),
-      nameAr: typeof entry?.nameAr === "string" ? entry.nameAr : undefined,
+      // Spread rather than assigned, so a list with no Arabic name has NO `nameAr` key at all.
+      // Assigning `undefined` here was enough to brick the whole screen: what this function
+      // returns is handed straight back to setDoc() when anything is saved, and Firestore
+      // rejects an undefined value outright ("Unsupported field value: undefined") before the
+      // write ever leaves the browser. The first list a clinic created saved fine — the seeded
+      // Standard list carries an Arabic name — and every action after it failed, because by
+      // then the re-read list did not. See `toStoredList` for the other half of the guard.
+      ...(typeof entry?.nameAr === "string" && entry.nameAr.trim() ? { nameAr: entry.nameAr } : {}),
       generalDiscountPercent: clampPercent(entry?.generalDiscountPercent),
       active: entry?.active !== false,
       isDefault: entry?.isDefault === true,
@@ -105,6 +112,31 @@ export function parsePriceLists(data: Record<string, unknown> | null | undefined
     }
     return { ...l, isDefault: false };
   });
+}
+
+/**
+ * The one way a list is turned back into a document field.
+ *
+ * Every optional field is spread in only when it holds a real value, so the object handed to
+ * Firestore can never carry `undefined` — a value it refuses, throwing before the write is even
+ * attempted. `parsePriceLists` is careful about this too, but a single missed spread anywhere in
+ * a `.map()` over lists is enough to make every save on the pricing screen fail with nothing but
+ * "Could not save" to go on, so the guarantee is made here, at the only place that writes.
+ */
+export function toStoredList(list: PriceList): Record<string, unknown> {
+  return {
+    id: list.id,
+    name: list.name,
+    ...(typeof list.nameAr === "string" && list.nameAr.trim() ? { nameAr: list.nameAr } : {}),
+    generalDiscountPercent: clampPercent(list.generalDiscountPercent),
+    active: list.active !== false,
+    isDefault: list.isDefault === true,
+  };
+}
+
+/** The whole `lists` field, ready to hand to setDoc. */
+export function toStoredLists(lists: PriceList[]): Record<string, unknown>[] {
+  return lists.map(toStoredList);
 }
 
 export function parseDiscountSettings(data: Record<string, unknown> | null | undefined): DiscountSettings {

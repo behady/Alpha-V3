@@ -23,7 +23,7 @@ import { useEffect, useMemo } from "react";
 import { Tag, Percent, Info } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { applyDiscount, effectiveDiscountPercent, type DiscountMode } from "@/lib/discountMath";
-import type { PriceList } from "@/lib/priceLists";
+import { resolveActiveListId, type PriceList } from "@/lib/priceLists";
 
 export type DiscountState = {
   priceListId: string;
@@ -62,6 +62,24 @@ export default function DiscountEditor({
 
   const activeLists = useMemo(() => priceLists.filter((l) => l.active), [priceLists]);
   const selectedList = activeLists.find((l) => l.id === value.priceListId) || null;
+
+  /**
+   * Make the selected list real before anything reads it.
+   *
+   * `priceListId` starts as "", and a <select> whose value matches no option renders its FIRST
+   * option — so the control said "Standard" while the state held nothing at all. Two things broke
+   * quietly on the back of that: the blanket-discount prefill below is keyed on `selectedList`, so
+   * a list running at 20% off filled in nothing unless you re-picked it by hand; and the note
+   * saved without naming its list, leaving the server to guess a default that need not match what
+   * the screen was showing. Resolving it here means what is displayed, what is stored and what the
+   * price is read from are the same list.
+   */
+  useEffect(() => {
+    if (activeLists.length === 0) return;
+    if (activeLists.some((l) => l.id === value.priceListId)) return;
+    onChange({ ...value, priceListId: resolveActiveListId(activeLists, value.priceListId, null) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLists, value.priceListId]);
 
   /**
    * Prefill the list's blanket discount when the list changes.
@@ -105,25 +123,34 @@ export default function DiscountEditor({
 
   return (
     <div className="space-y-3">
-      {activeLists.length > 1 && (
+      {/* Always shown, even with one list. Which prices a treatment was charged at is part of
+          the record, and a clinic with a single list still benefits from seeing it named rather
+          than having to remember that "no list shown" meant the standard one. */}
+      {activeLists.length > 0 && (
         <div>
           <label className="mb-1 block text-[11px] font-black uppercase tracking-widest text-slate-400">
             <Tag size={11} className="mr-1 inline" />
             {txt.priceList}
           </label>
-          <select
-            value={value.priceListId}
-            disabled={disabled}
-            onChange={(e) => set({ priceListId: e.target.value })}
-            className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-slate-700 outline-none transition focus:border-primary-500 focus:bg-white disabled:opacity-60"
-          >
-            {activeLists.map((list) => (
-              <option key={list.id} value={list.id}>
-                {ar && list.nameAr ? list.nameAr : list.name}
-                {list.generalDiscountPercent > 0 ? ` — ${list.generalDiscountPercent}%` : ""}
-              </option>
-            ))}
-          </select>
+          {activeLists.length > 1 ? (
+            <select
+              value={selectedList?.id ?? ""}
+              disabled={disabled}
+              onChange={(e) => set({ priceListId: e.target.value })}
+              className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-slate-700 outline-none transition focus:border-primary-500 focus:bg-white disabled:opacity-60"
+            >
+              {activeLists.map((list) => (
+                <option key={list.id} value={list.id}>
+                  {ar && list.nameAr ? list.nameAr : list.name}
+                  {list.generalDiscountPercent > 0 ? ` — ${list.generalDiscountPercent}%` : ""}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <p className="rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-slate-600">
+              {ar && activeLists[0].nameAr ? activeLists[0].nameAr : activeLists[0].name}
+            </p>
+          )}
           {selectedList && selectedList.generalDiscountPercent > 0 && (
             <p className="mt-1 text-[11px] font-semibold text-primary-600">
               {txt.blanket(selectedList.generalDiscountPercent)}

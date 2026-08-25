@@ -3,6 +3,9 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import ServiceCombobox from "./shared/ServiceCombobox";
+import { usePricingPolicy } from "@/lib/usePricingPolicy";
+import { resolveActiveListId } from "@/lib/priceLists";
+import { resolveListPrice } from "@/lib/discountMath";
 import {
   X,
   Calendar,
@@ -220,7 +223,24 @@ export default function BookingModal({
   const [procCost, setProcCost] = useState<number | "">("");
   const [addProcToLedger, setAddProcToLedger] = useState(true);
   const [addingProcedure, setAddingProcedure] = useState(false);
-  const [sessionProcedures, setSessionProcedures] = useState<{ id: string; serviceId: string | null; name: string; cost: number; addToLedger: boolean }[]>([]);
+  const [sessionProcedures, setSessionProcedures] = useState<{ id: string; serviceId: string | null; name: string; cost: number; addToLedger: boolean; priceListId?: string | null }[]>([]);
+
+  /**
+   * Which price list the desk is booking against.
+   *
+   * Booking read `service.price` and nothing else, so a clinic could set up an insurer list in
+   * Settings and still have reception quote the walk-in rate — the lists existed but only the
+   * chair ever saw them. Reception is where a patient's rate is usually known ("she's on the
+   * family list"), so the choice belongs here too.
+   */
+  const { priceLists } = usePricingPolicy();
+  const activePriceLists = useMemo(() => priceLists.filter((l) => l.active), [priceLists]);
+  const [procListId, setProcListId] = useState("");
+  const effectiveListId = useMemo(
+    () => resolveActiveListId(activePriceLists, procListId, null),
+    [activePriceLists, procListId]
+  );
+  const selectedPriceList = activePriceLists.find((l) => l.id === effectiveListId) || null;
 
   // Local State: Financial & Payment
   const [chargeForVisit, setChargeForVisit] = useState(true);
@@ -870,6 +890,47 @@ export default function BookingModal({
       {showAddProcedure && (
         <div className="bg-emerald-50/50 rounded-xl p-3 border border-emerald-100 mt-2 animate-in slide-in-from-top-2 duration-200">
           <div className="flex flex-col gap-3">
+            {/* Price list. Shown above the service, because which list you are on decides what
+                the service costs — answering it afterwards would mean repricing what was picked. */}
+            <div>
+              <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block mb-1">
+                {language === 'ar' ? 'قائمة الأسعار' : 'Price list'}
+              </label>
+              {activePriceLists.length > 1 ? (
+                <select
+                  value={effectiveListId}
+                  onChange={(e) => {
+                    const nextId = e.target.value;
+                    setProcListId(nextId);
+                    // Reprice whatever is already picked, so the cost box can never be left
+                    // showing the rate from the list you just moved off.
+                    const svc = servicesList.find(s => String(s.id) === String(procServiceId));
+                    if (svc) setProcCost(resolveListPrice(svc, nextId));
+                  }}
+                  className="w-full px-3 py-2 text-sm font-bold text-slate-700 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-400 bg-white"
+                >
+                  {activePriceLists.map((list) => (
+                    <option key={list.id} value={list.id}>
+                      {language === 'ar' && list.nameAr ? list.nameAr : list.name}
+                      {list.generalDiscountPercent > 0 ? ` — ${list.generalDiscountPercent}%` : ""}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="w-full px-3 py-2 text-sm font-bold text-slate-600 border border-slate-200 rounded-lg bg-white">
+                  {selectedPriceList
+                    ? (language === 'ar' && selectedPriceList.nameAr ? selectedPriceList.nameAr : selectedPriceList.name)
+                    : (language === 'ar' ? 'الأساسي' : 'Standard')}
+                </p>
+              )}
+              {selectedPriceList && selectedPriceList.generalDiscountPercent > 0 && (
+                <p className="mt-1 text-[10px] font-bold text-emerald-700">
+                  {language === 'ar'
+                    ? `القائمة دي عليها خصم ${selectedPriceList.generalDiscountPercent}% بيتحط عند التسجيل`
+                    : `This list runs at ${selectedPriceList.generalDiscountPercent}% off, applied when the treatment is recorded`}
+                </p>
+              )}
+            </div>
             {/* Service selector */}
             <div>
               <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block mb-1">
@@ -880,7 +941,9 @@ export default function BookingModal({
                 value={procServiceId}
                 onChange={(val, svc) => {
                   setProcServiceId(val);
-                  if (svc?.price) setProcCost(Number(svc.price));
+                  // The list's price, not the standard one. `resolveListPrice` falls back to
+                  // `price` where the list has no entry, so this is right for every list.
+                  if (svc) setProcCost(resolveListPrice(svc, effectiveListId));
                 }}
                 valueKey="id"
                 placeholder={language === 'ar' ? 'اختر الخدمة...' : 'Select service...'}
@@ -937,6 +1000,9 @@ export default function BookingModal({
                     name: svc.name,
                     cost: numCost,
                     addToLedger: addProcToLedger,
+                    // Recorded so the note and the ledger row can say which rate was quoted,
+                    // rather than leaving a number nobody can trace back to a list.
+                    priceListId: effectiveListId,
                   };
                   
                   showToast(
