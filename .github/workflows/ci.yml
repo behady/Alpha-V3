@@ -67,6 +67,8 @@ jobs:
         run: npm run --silent test:clinicstatus
       - name: Storage paths and rules
         run: npm run --silent test:storage
+      - name: Per-clinic restore policy
+        run: npm run --silent test:restore
       - name: Lint baseline (pre-existing errors only, none added)
         run: node scripts/check-lint-baseline.mjs
       # functions/ has no tests and no build step, so nothing else here would notice a syntax

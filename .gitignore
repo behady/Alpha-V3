@@ -60,3 +60,10 @@ clean_secret.ps1
 !functions/*.js
 !scripts/*.mjs
 
+# Reports and progress files written by the operator scripts during an incident. These name
+# document paths and, for the repair scripts, clinic data — one `git add -A` while recovering
+# would commit them. Neither pattern was covered before.
+restore-*-differs-*.csv
+restore-*-failures-*.csv
+restore-*.state.json
+clinic-permissions-backfill-*.csv

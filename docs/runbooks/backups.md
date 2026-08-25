@@ -112,10 +112,17 @@ So the honest shape of a bad day:
 | Reading the damaged clinic's old data | none — reads only |
 | Writing the repaired documents back | exactly the documents named, in one clinic |
 
-**What does not exist yet is the copy-back tool.** The mechanism is sound and the data layout
-supports it; nobody has written and tested the script that walks one clinic's subtree from a
-restored copy into the live database. Until that exists, the copy-back is hand-guided work. Worth
-building before the second paying clinic, not before the first.
+**The copy-back tool is `scripts/restore-clinic.mjs`.** See "The copy-back tool" below.
+
+One correction to the sentence above, because the whole per-clinic story leans on it: *everything*
+does not live under `clinics/{clinicId}/`. Clinic **records** do. Five root collections hold
+clinic-linked data and sit outside the subtree deliberately, so the blanket clinic-member grant
+cannot reach them — `clinic_secrets` (the WhatsApp gateway token), `meta_pages` and
+`meta_integrations` (the Facebook page mapping and its access token), `meta_lead_events` (the lead
+replay queue), and `join_requests`. A restored clinic therefore comes back with its records and
+**without its integrations**. That is the right call — every one of those holds a credential, and
+re-writing a credential from an old snapshot can resurrect one that has since been rotated — but
+it is not what anyone would assume, so the script prints it on every run.
 
 ## If disaster ever comes
 
@@ -155,3 +162,129 @@ Two things that look wrong at first and are not:
 
 Once a quarter, open the Disaster recovery tab and confirm backups are listed with recent dates.
 A backup nobody has ever seen exist is a hope, not a backup.
+
+---
+
+## The copy-back tool
+
+```bash
+# 1. See what would happen. Writes nothing.
+node scripts/restore-clinic.mjs --clinic <clinicId> --from <snapshot-db>
+
+# 2. Do it.
+node scripts/restore-clinic.mjs --clinic <clinicId> --from <snapshot-db> \
+  --apply --confirm <clinicId> --state restore-<clinicId>.json
+```
+
+`--from` is the name you gave the database when you restored the backup into it. `--to` defaults
+to `default`, which is this project's live database.
+
+### It puts things back. It does not put things right.
+
+The default is **additive**: a document missing from the live database is written; a document
+already there is left alone, *even when it differs from the snapshot*.
+
+That asymmetry is the most important thing about this tool. A restore happens after damage nobody
+has fully mapped — that is why you are restoring rather than repairing. There is no snapshot of
+the present, so a document the clinic legitimately changed since the backup exists in exactly one
+place. Overwriting it would destroy that change silently, and you would find out months later.
+Leaving it has a worst case of "a damaged document survived", which is listed in a CSV at the end
+and can be dealt with by hand.
+
+If the disaster mangled data rather than deleting it, overwriting is a two-step. The dry run writes
+`restore-<clinic>-differs-<stamp>.csv`, one row per document that exists in both and differs, with
+the collection, the document id, when each side last changed, and which top-level fields differ —
+field *names*, never values, because that file lands in your working directory. Delete the rows you
+do not want replaced and feed it back with `--overwrite-list <file>`. The script prints the exact
+command.
+
+An approval is a decision about a specific version: if a document changed again between the dry run
+and the overwrite, it is left alone and listed as *moved on*.
+
+`--overwrite-all` exists for a collection that is wholly corrupt. It asks a second time, in words,
+and requires typing `OVERWRITE`.
+
+### It never resurrects a deliberate deletion
+
+"Missing from the live database" is what this tool treats as "destroyed by the incident". It
+equally means somebody deleted it and meant to.
+
+The sharp case: a patient asks to be erased on Monday, the record is purged, the images go.
+The incident is Wednesday; the snapshot is from Sunday. A naive restore finds that patient's
+record, notes, ledger rows, prescriptions, plans and media all "missing" and puts every one back —
+while `deleted_records_history`, which nothing ever deletes, goes on recording that they were
+purged. The clinic would end up holding identifiable records it had certified as erased, with no
+bin entry and no signal, and the run would exit 0.
+
+So before writing anything, the script reads `deleted_records_history` for this clinic and skips
+everything named there. It reports the count.
+
+### The clinic document is its own decision
+
+`clinics/{clinicId}` is never overwritten, at any flag. If it is *missing*, restoring it needs
+`--create-clinic-doc` and typing `CREATE`, because it is not really a data restore:
+
+- Re-creating it **reattaches the whole clinic**. Deleting that one document is how a clinic is
+  detached while its records stay intact, so putting it back re-grants access to everyone still
+  holding a role for it.
+- It carries `ownerId`, and the self-heal endpoint grants Admin to whoever matches that field.
+  Rewinding it after an ownership change hands the previous owner a route back to Admin.
+- It carries `status`, `expiresAt` and the billing fields. A clinic suspended **for abuse** would
+  come back Active.
+
+The script prints those fields before asking.
+
+### What it refuses, always
+
+**`users`.** That document *is* the access-control system — `clinicRoles` and `clinicPermissions`
+are read by every rule in `firestore.rules`. Revocation is implemented as deleting two keys, so
+restoring a pre-2026-08-23 snapshot would hand all twenty-four revoked ghost accounts their keys
+back, and nothing on any screen would show it. Worse, those maps are keyed by *every* clinic a
+person works at, so writing one user document back while repairing clinic A would clobber their
+access at clinic B.
+
+**The root collections**, listed above. Credentials are not restored from old snapshots.
+
+**The recycle bin.** Things deliberately deleted stay deleted.
+
+### What it holds back unless you name it
+
+Some collections *do* something when restored rather than merely recording something. `sms_outbox`
+is the sharp one: the queue worker claims anything still `queued`, and `isDue()` has no upper
+bound on age, so a restored week-old queue re-sends every reminder that was in flight that day — at
+cost, to patients whose appointments have already happened.
+
+`staff` is held for a different reason, and it is the least obvious thing here. Restoring a deleted
+staff row re-links the ghost account it belonged to: the revoker matches a user document to a staff
+record by staffId, uid **or lowercased email**, and refuses to revoke anyone who matches one. So
+restoring `staff` does not merely fail to help — it disarms the tool built to remove those
+accounts, for exactly the accounts it was built for. And because this tool only puts back what is
+missing, the rows it would restore are precisely the ones somebody deleted: the people who were
+offboarded.
+
+The dry run lists these with the reason and the flag to release each one:
+`--include sms_outbox`. One at a time, named out loud. Releasing one and overwriting it is refused
+outright — overwriting a queue does not put an old message back, it un-sends a recent one and the
+worker sends it again.
+
+Two individual documents are refused even though `settings` restores: `settings/wapilot`, the
+legacy WhatsApp credential that was deliberately moved out to `clinic_secrets` because `settings`
+is readable by every clinic member; and `settings/counters`, the transactional generator behind
+patient file numbers — rewind it and the next patients registered are stamped with numbers already
+printed on existing records.
+
+### If it stops halfway
+
+Pass `--state <file>` and it saves progress after every page. Re-run the identical command and it
+picks up where it stopped. Running it twice is safe by construction: the second pass finds
+everything it wrote already present and identical, and does nothing.
+
+The state file is tied to the clinic and both database names. It refuses to resume a file written
+for a different restore.
+
+### What it does not cover
+
+Printed on every run, and worth repeating here: **Cloud Storage is not in a Firestore backup.**
+Patient photographs and X-rays are files. A restored patient record can point at an image that no
+longer exists. Logins are not restored either — if the disaster removed staff access, this script
+does not bring it back, and that repair is separate and deliberate.
