@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { 
   Sparkles, X, Send, Loader2, Bot, Trash2, CheckCircle2, UserPlus, Zap, AlertTriangle
 } from "lucide-react";
@@ -12,6 +13,7 @@ import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { getClinicDoc } from "@/lib/db-utils";
 import { auth } from "@/lib/firebase";
 import { handleManualWhatsApp } from "@/lib/whatsappManual";
+import { printAssistantDocument } from "@/lib/assistantDocumentPdf";
 import AssistantMarkdown from "@/components/ai/AssistantMarkdown";
 import { onSnapshot } from "firebase/firestore";interface ChatMessage {
   id: string;
@@ -39,6 +41,7 @@ export default function AiChatWidget() {
   const { language, isRTL } = useLanguage();
   const { receptionPanelActive } = useUI();
   const isAr = language === "ar";
+  const router = useRouter();
 
   /**
    * Which corner this widget lives in.
@@ -173,6 +176,12 @@ export default function AiChatWidget() {
           prompt: textToSend,
           clinicId,
           userName: user?.name,
+          // Tells the route which surface is asking, so it only offers the model tools this
+          // client can actually carry out. Without it the floating widget is offered
+          // 'open_appointment', whose whole job is to fill an appointment panel this widget
+          // does not have — the model calls it, the server answers "Opened Khaled's 4 PM",
+          // and nothing appears.
+          client: "web-widget",
           history: messages.map(m => ({ role: m.role, parts: [{ text: m.content }] }))
         })
       });
@@ -200,6 +209,32 @@ export default function AiChatWidget() {
       // The server stages deletions rather than performing them; nothing is removed until this
       // prompt is answered.
       if (data.pendingAction) setPendingAction(data.pendingAction as PendingAction);
+
+      /**
+       * Everything below is the assistant asking THIS client to do something.
+       *
+       * The route can end a turn with `navigateTo` or `triggerPdf` instead of a plain answer, and
+       * this widget used to read only `reply` and `pendingAction` — so "Opening Ahmed's file…"
+       * printed in the bubble and the screen never changed. The user was told an action happened
+       * that no code anywhere was going to perform. Every key the server can return has to be
+       * honoured here, or honestly refused; silently dropping one is the worst of the three.
+       */
+      if (typeof data.navigateTo === "string" && data.navigateTo) {
+        // Closed on purpose: the panel is a large overlay, and leaving it up means "open the
+        // patient's file" ends with the file hidden behind the thing that opened it. The
+        // conversation is kept in state, so reopening resumes it.
+        setIsOpen(false);
+        router.push(data.navigateTo);
+      }
+
+      if (data.triggerPdf?.title && data.triggerPdf?.content) {
+        printAssistantDocument({
+          title: String(data.triggerPdf.title),
+          content: String(data.triggerPdf.content),
+          ar: isAr,
+          clinicName: clinic?.name,
+        });
+      }
     } catch (err: any) {
       const errorMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),

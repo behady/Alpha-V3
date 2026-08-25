@@ -15,6 +15,7 @@ import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { logAiAction } from "@/lib/serverLogger";
 import { logAiCreditUsage } from "@/lib/aiCreditLog";
+import { resolveNavigablePath, NAVIGABLE_PATHS_HINT } from "@/lib/aiNavigation";
 
 /**
  * One question can take several model round-trips: the assistant calls a tool, reads the result,
@@ -254,6 +255,20 @@ export async function POST(req: Request) {
     // execution stay in one place; a narrower persona, tool set and read allowlist.
     const isReception = body?.mode === "reception";
     const readableCollections = isReception ? RECEPTION_READABLE_COLLECTIONS : AI_READABLE_COLLECTIONS;
+
+    /**
+     * Which client is asking, and therefore which of this route's answers it can actually act on.
+     *
+     * Not cosmetic. A turn can end with `navigateTo`, `triggerPdf` or `selectAppointmentId`
+     * instead of a plain reply, and each one is an instruction to the caller. Offer the model a
+     * tool whose result the caller drops on the floor and the user is told an action happened
+     * that nothing was ever going to perform — the failure this field exists to prevent.
+     * Unknown/absent means the Android app, which parses and honours (or honestly refuses) every
+     * key; it sends no `client` and must keep the full set.
+     */
+    const client = typeof body?.client === "string" ? body.client : "";
+    /** The floating chat bubble has no appointment panel to put an appointment into. */
+    const clientHasAppointmentPanel = client !== "web-widget";
 
     // A clinicId is mandatory. Every tool below is scoped by it, and the previous `if (clinicId)`
     // guard meant a request that simply omitted it skipped the plan check and the credit meter
@@ -529,12 +544,21 @@ export async function POST(req: Request) {
       },
       {
         name: "navigate_to",
-        description: "Navigates the user's frontend application to a specific URL path (e.g. '/patients'). If the user asks to open a specific patient's finance or clinical page, navigate to '/patients/[id]?tab=finance' or '/patients/[id]?tab=clinical'.",
+        description:
+          "Opens a screen of the app for the user. Use this whenever they ask to open, show or go to something — a patient's file, the schedule, the finance page. " +
+          "To open a patient you need their real document id: call find_patient FIRST and use the id it returns. Never send a placeholder like '/patients/[id]' — substitute the actual id. " +
+          "Only the paths listed below exist; anything else opens a blank page, so if what they want is not one of them, say so instead of inventing a path.",
         parameters: {
           type: SchemaType.OBJECT,
           properties: {
-            path: { type: SchemaType.STRING, description: "The relative path to navigate to, e.g. '/patients', '/finance', or '/patients/[id]?tab=finance'." },
-            reason: { type: SchemaType.STRING, description: "Brief explanation shown to the user." }
+            path: {
+              type: SchemaType.STRING,
+              description: `One of: ${NAVIGABLE_PATHS_HINT}. ('/' is the dashboard.)`,
+            },
+            reason: {
+              type: SchemaType.STRING,
+              description: "One short line telling the user what is being opened, e.g. \"Opening Khaled's file.\"",
+            }
           },
           required: ["path"]
         }
@@ -769,9 +793,11 @@ export async function POST(req: Request) {
 
     // Reception gets a strict subset. Filtering the declarations rather than hiding them in the
     // prompt matters: a tool the model cannot see is one it cannot call, whatever it is asked.
-    const activeTools = isReception
-      ? functionDeclarations.filter((f) => RECEPTION_TOOL_NAMES.has(f.name))
-      : functionDeclarations;
+    const activeTools = (
+      isReception
+        ? functionDeclarations.filter((f) => RECEPTION_TOOL_NAMES.has(f.name))
+        : functionDeclarations
+    ).filter((f) => f.name !== "open_appointment" || clientHasAppointmentPanel);
 
     const model = genAI.getGenerativeModel({
       model: "gemini-flash-latest",
@@ -1261,12 +1287,28 @@ export async function POST(req: Request) {
              
              toolResult = { success: true, duplicateCount: duplicates.length, duplicates };
           } else if (call.name === "navigate_to") {
-             const path = (call.args as any).path;
-             let reason = (call.args as any).reason;
-             if (!reason || !reason.trim()) reason = `Navigating to ${path}...`;
-             // Intercept execution and return the navigation command directly to frontend
-             await chargeCredits?.();
-             return NextResponse.json({ reply: reason, navigateTo: path });
+             const requested = (call.args as any).path;
+             const path = resolveNavigablePath(requested);
+             if (!path) {
+                // Handed back as a tool error rather than returned to the client, so the model
+                // gets another turn to pick a real screen. Returning it would print "Opening the
+                // billing page…" over a 404, which reads to the user as the assistant having
+                // done nothing at all.
+                toolResult = {
+                   success: false,
+                   error:
+                     `'${String(requested ?? "")}' is not a screen in this app, so nothing was opened. ` +
+                     `Valid paths: ${NAVIGABLE_PATHS_HINT}. ` +
+                     `Either call navigate_to again with one of these, or tell the user plainly that ` +
+                     `screen does not exist. Do NOT say anything was opened.`,
+                };
+             } else {
+                let reason = (call.args as any).reason;
+                if (!reason || !reason.trim()) reason = `Navigating to ${path}...`;
+                // Intercept execution and return the navigation command directly to frontend
+                await chargeCredits?.();
+                return NextResponse.json({ reply: reason, navigateTo: path });
+             }
           } else if (call.name === "trigger_pdf_generation") {
              const title = (call.args as any).title;
              const content = (call.args as any).content;
