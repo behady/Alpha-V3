@@ -38,9 +38,11 @@ import { logActivity } from "@/lib/logger";
 import { MoneyApiError, deleteAppointment } from "@/lib/moneyApi";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { parseClinicSchedule, clinicDayBoundsMinutes, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
+import { useActiveBranch } from "@/lib/useActiveBranch";
+import BranchSelector from "@/components/shared/BranchSelector";
 import type { OwnerAlertKey } from "@/types/whatsapp";
 import { sendPatientAppointmentWhatsApp } from "@/lib/sendPatientAppointmentWhatsAppClient";
-import { buildPrescriptionSrcDoc, prescriptionSrcDocToPdfBlob } from "@/lib/prescriptionPdfHtml";
+import { prescriptionPayloadToPdfBlob } from "@/lib/prescriptionPdfHtml";
 import {
   buildPrescriptionPayloadFromRecord,
   normalizeRxItemsFromRecord,
@@ -147,6 +149,15 @@ export default function MobileDashboard() {
   const router = useRouter();
 
   const [allAppointments, setAllAppointments] = useState<any[]>([]);
+  // The same working branch the desktop dashboard uses — one answer to "where am I today?",
+  // remembered per clinic, so a phone and a desktop signed in as the same person agree.
+  const {
+    branches,
+    activeBranchId,
+    setActiveBranchId,
+    scopeBranchId,
+    matches: branchMatches,
+  } = useActiveBranch();
   const [loading, setLoading] = useState(true);
 
   const [patientsList, setPatientsList] = useState<any[]>([]);
@@ -443,9 +454,10 @@ export default function MobileDashboard() {
   const appointments = useMemo(() => {
     const viewKey = normalizeDateKey(scheduleViewDate) || scheduleViewDate;
     return allAppointments
+      .filter((a) => branchMatches(a.branchId))
       .filter((a) => normalizeDateKey(a.date) === viewKey)
       .sort((a, b) => normalizeTimeKey(a.time).localeCompare(normalizeTimeKey(b.time)));
-  }, [allAppointments, scheduleViewDate]);
+  }, [allAppointments, scheduleViewDate, branchMatches]);
 
   // 2. Live lists (patients, doctors, services) so dashboard actions sync without refresh.
   useEffect(() => {
@@ -808,7 +820,7 @@ export default function MobileDashboard() {
       const clinicInfo = clinicSnap.exists() ? clinicSnap.data() : {};
 
       const payload = buildPrescriptionPayloadFromRecord(latest, patient, clinicInfo);
-      const blob = await prescriptionSrcDocToPdfBlob(buildPrescriptionSrcDoc(payload));
+      const blob = await prescriptionPayloadToPdfBlob(payload);
       openPrescriptionPdf(blob, `Prescription-${patientId.slice(0, 8)}.pdf`);
       showToast(language === "ar" ? "جاري فتح الوصفة للطباعة" : "Opening prescription to print", "success");
     } catch (err) {
@@ -1112,8 +1124,14 @@ export default function MobileDashboard() {
 
               {/* Mobile Compact Date switcher (Visible on Mobile) */}
               <div className="flex lg:hidden items-center justify-between w-full">
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-black text-slate-800">
+                <div className="flex items-center gap-2 min-w-0">
+                  <BranchSelector
+                    branches={branches}
+                    value={activeBranchId}
+                    onChange={setActiveBranchId}
+                    compact
+                  />
+                  <span className="text-sm font-black text-slate-800 truncate">
                     {isScheduleToday ? (language === 'ar' ? 'اليوم، ' : 'Today, ') : ''}
                     {new Date(`${scheduleViewDate}T12:00:00`).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { day: 'numeric', month: 'short' })}
                   </span>
@@ -1179,6 +1197,11 @@ export default function MobileDashboard() {
 
               {/* Desktop Right Side Buttons */}
               <div className="hidden lg:flex shrink-0 items-center gap-2 self-center">
+                <BranchSelector
+                  branches={branches}
+                  value={activeBranchId}
+                  onChange={setActiveBranchId}
+                />
                 <button
                   type="button"
                   onClick={() => setPrescriptionFinderOpen(true)}
@@ -1492,6 +1515,7 @@ export default function MobileDashboard() {
                 preSelectedTime={preSelectedTime}
                 preSelectedDoctor={preSelectedDoctor}
                 preSelectedPatient={preSelectedPatient}
+                preSelectedBranchId={scopeBranchId}
                 servicesList={servicesList}
               />
             ) : (
@@ -1520,11 +1544,12 @@ export default function MobileDashboard() {
           preSelectedTime={preSelectedTime}
           preSelectedDoctor={preSelectedDoctor}
           preSelectedPatient={preSelectedPatient}
+          preSelectedBranchId={scopeBranchId}
           servicesList={servicesList}
         />
       )}
 
-      <NewPatientModal isOpen={activeModal === 'patient'} onClose={() => setActiveModal(null)} onSuccess={() => { }} />
+      <NewPatientModal isOpen={activeModal === 'patient'} onClose={() => setActiveModal(null)} onSuccess={() => { }} preSelectedBranchId={scopeBranchId} />
       <QuickPaymentModal isOpen={activeModal === 'payment'} onClose={() => setActiveModal(null)} onSave={() => { }} patients={patientsList} preSelectedPatient={paymentPatient} />
       <PrescriptionPrintFinderModal
         isOpen={prescriptionFinderOpen}

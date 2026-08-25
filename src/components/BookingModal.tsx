@@ -3,6 +3,9 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import ServiceCombobox from "./shared/ServiceCombobox";
+import { usePricingPolicy } from "@/lib/usePricingPolicy";
+import { listsForBranch, resolveActiveListId } from "@/lib/priceLists";
+import { resolveListPrice } from "@/lib/discountMath";
 import {
   X,
   Calendar,
@@ -134,6 +137,12 @@ interface Props {
   onDelete?: (appointmentId: string) => void | Promise<void>;
   inlineDesktop?: boolean;
   servicesList?: any[];
+  /**
+   * The branch the caller is working at. Used only as the starting value for a NEW appointment —
+   * editing an existing one keeps whatever branch it was booked at, because moving a booking
+   * between branches has to be a deliberate act, not a side effect of who opened the screen.
+   */
+  preSelectedBranchId?: string;
 }
 
 function dateIsClinicClosed(dateStr: string, offDays: string[]): boolean {
@@ -159,6 +168,7 @@ export default function BookingModal({
   preSelectedPatient = null,
   inlineDesktop = false,
   servicesList = [],
+  preSelectedBranchId = "",
 }: Props) {
   const { language } = useLanguage();
   const { showToast, confirm } = useUI();
@@ -220,7 +230,43 @@ export default function BookingModal({
   const [procCost, setProcCost] = useState<number | "">("");
   const [addProcToLedger, setAddProcToLedger] = useState(true);
   const [addingProcedure, setAddingProcedure] = useState(false);
-  const [sessionProcedures, setSessionProcedures] = useState<{ id: string; serviceId: string | null; name: string; cost: number; addToLedger: boolean }[]>([]);
+  const [sessionProcedures, setSessionProcedures] = useState<{ id: string; serviceId: string | null; name: string; cost: number; addToLedger: boolean; priceListId?: string | null }[]>([]);
+
+  /**
+   * Which price list the desk is booking against.
+   *
+   * Booking read `service.price` and nothing else, so a clinic could set up an insurer list in
+   * Settings and still have reception quote the walk-in rate — the lists existed but only the
+   * chair ever saw them. Reception is where a patient's rate is usually known ("she's on the
+   * family list"), so the choice belongs here too.
+   */
+  const { priceLists } = usePricingPolicy();
+  const [procListId, setProcListId] = useState("");
+  // Only the lists this branch actually charges: its own, plus every clinic-wide one. Booking at
+  // the seaside desk must not be able to quote the downtown insurer's rates.
+  const activePriceLists = useMemo(
+    () => listsForBranch(priceLists, branchId).filter((l) => l.active),
+    [priceLists, branchId]
+  );
+  const effectiveListId = useMemo(
+    () => resolveActiveListId(priceLists, procListId, null, branchId),
+    [priceLists, procListId, branchId]
+  );
+
+  /**
+   * Reprice the picked service whenever the list actually in force changes.
+   *
+   * Changing the BRANCH can change the list without anyone touching the list dropdown — a branch
+   * has its own default, and a list the previous branch offered may not be offered here. Without
+   * this the cost box keeps the old branch's number, which is the kind of wrong that gets invoiced.
+   */
+  useEffect(() => {
+    if (!procServiceId) return;
+    const svc = servicesList.find((x) => String(x.id) === String(procServiceId));
+    if (svc) setProcCost(resolveListPrice(svc, effectiveListId));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveListId]);
+  const selectedPriceList = activePriceLists.find((l) => l.id === effectiveListId) || null;
 
   // Local State: Financial & Payment
   const [chargeForVisit, setChargeForVisit] = useState(true);
@@ -476,8 +522,15 @@ export default function BookingModal({
 
   // A clinic with exactly one branch shouldn't have to pick it on every booking.
   useEffect(() => {
-    if (isOpen && !branchId && branches.length === 1) setBranchId(branches[0].id);
-  }, [isOpen, branchId, branches]);
+    if (!isOpen || branchId) return;
+    // The branch you are standing in, then the only one there is. Both are guesses the user can
+    // override; neither applies in edit mode, where branchId is already set from the appointment.
+    if (preSelectedBranchId && branches.some((b) => b.id === preSelectedBranchId)) {
+      setBranchId(preSelectedBranchId);
+    } else if (branches.length === 1) {
+      setBranchId(branches[0].id);
+    }
+  }, [isOpen, branchId, branches, preSelectedBranchId]);
 
   const selectedBranch = branches.find((b) => b.id === branchId) || null;
   const selectedRoom = selectedBranch?.rooms.find((r) => r.id === roomId) || null;
@@ -870,6 +923,47 @@ export default function BookingModal({
       {showAddProcedure && (
         <div className="bg-emerald-50/50 rounded-xl p-3 border border-emerald-100 mt-2 animate-in slide-in-from-top-2 duration-200">
           <div className="flex flex-col gap-3">
+            {/* Price list. Shown above the service, because which list you are on decides what
+                the service costs — answering it afterwards would mean repricing what was picked. */}
+            <div>
+              <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block mb-1">
+                {language === 'ar' ? 'قائمة الأسعار' : 'Price list'}
+              </label>
+              {activePriceLists.length > 1 ? (
+                <select
+                  value={effectiveListId}
+                  onChange={(e) => {
+                    const nextId = e.target.value;
+                    setProcListId(nextId);
+                    // Reprice whatever is already picked, so the cost box can never be left
+                    // showing the rate from the list you just moved off.
+                    const svc = servicesList.find(s => String(s.id) === String(procServiceId));
+                    if (svc) setProcCost(resolveListPrice(svc, nextId));
+                  }}
+                  className="w-full px-3 py-2 text-sm font-bold text-slate-700 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-400 bg-white"
+                >
+                  {activePriceLists.map((list) => (
+                    <option key={list.id} value={list.id}>
+                      {language === 'ar' && list.nameAr ? list.nameAr : list.name}
+                      {list.generalDiscountPercent > 0 ? ` — ${list.generalDiscountPercent}%` : ""}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="w-full px-3 py-2 text-sm font-bold text-slate-600 border border-slate-200 rounded-lg bg-white">
+                  {selectedPriceList
+                    ? (language === 'ar' && selectedPriceList.nameAr ? selectedPriceList.nameAr : selectedPriceList.name)
+                    : (language === 'ar' ? 'الأساسي' : 'Standard')}
+                </p>
+              )}
+              {selectedPriceList && selectedPriceList.generalDiscountPercent > 0 && (
+                <p className="mt-1 text-[10px] font-bold text-emerald-700">
+                  {language === 'ar'
+                    ? `القائمة دي عليها خصم ${selectedPriceList.generalDiscountPercent}% بيتحط عند التسجيل`
+                    : `This list runs at ${selectedPriceList.generalDiscountPercent}% off, applied when the treatment is recorded`}
+                </p>
+              )}
+            </div>
             {/* Service selector */}
             <div>
               <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block mb-1">
@@ -880,7 +974,9 @@ export default function BookingModal({
                 value={procServiceId}
                 onChange={(val, svc) => {
                   setProcServiceId(val);
-                  if (svc?.price) setProcCost(Number(svc.price));
+                  // The list's price, not the standard one. `resolveListPrice` falls back to
+                  // `price` where the list has no entry, so this is right for every list.
+                  if (svc) setProcCost(resolveListPrice(svc, effectiveListId));
                 }}
                 valueKey="id"
                 placeholder={language === 'ar' ? 'اختر الخدمة...' : 'Select service...'}
@@ -937,6 +1033,9 @@ export default function BookingModal({
                     name: svc.name,
                     cost: numCost,
                     addToLedger: addProcToLedger,
+                    // Recorded so the note and the ledger row can say which rate was quoted,
+                    // rather than leaving a number nobody can trace back to a list.
+                    priceListId: effectiveListId,
                   };
                   
                   showToast(

@@ -40,6 +40,9 @@ export interface Note {
 export interface RelatedAppointment {
   id: string;
   clinicalNoteId?: string;
+  /** The branch the visit was booked at. Decides which price lists the note may charge. */
+  branchId?: string | null;
+  branchName?: string | null;
   date?: string;
   time?: string;
   doctor?: string;

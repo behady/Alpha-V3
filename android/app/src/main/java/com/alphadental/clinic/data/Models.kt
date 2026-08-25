@@ -16,7 +16,14 @@ data class Session(
     val clinicId: String,
     val role: String,
 ) {
-    val isAdmin: Boolean get() = role == "Admin"
+    /**
+     * Owner and Admin are the same answer everywhere on the phone. Owner is a protected identity
+     * on the website — only the owner can change the owner, or hand the clinic on — and every one
+     * of those actions lives in Settings, which the phone does not have. Left out of this check,
+     * the person who owns the clinic would open the app with the reach of an assistant.
+     */
+    val isAdmin: Boolean get() = role == "Admin" || role == "Owner"
+    val isOwner: Boolean get() = role == "Owner"
     val isDentist: Boolean get() = role == "Dentist"
     val isReception: Boolean get() = role == "Receptionist" || role == "Assistant"
 }

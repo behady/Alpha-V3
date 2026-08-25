@@ -15,6 +15,8 @@ import {
   UserCircle2,
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
+import { useClinic } from "@/context/ClinicContext";
+import { getClinicLogo } from "@/lib/clinicLogo";
 import ClinicSwitcher from "@/components/dashboard/ClinicSwitcher";
 
 export interface SidebarNavItem {
@@ -62,6 +64,21 @@ export default function DesktopSidebar({
   // Read after mount, never during render: the server has no localStorage, and seeding state from
   // it directly makes the first client render disagree with the HTML it is hydrating.
   const [expanded, setExpanded] = useState(false);
+  const { clinicId } = useClinic();
+  const [logoUrl, setLogoUrl] = useState("");
+
+  // The clinic's uploaded logo replaces the generic sparkle mark. Keyed on the clinic so a
+  // super-admin switching tenants never keeps the previous clinic's branding on screen.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const url = clinicId ? (await getClinicLogo()).url : "";
+      if (!cancelled) setLogoUrl(url);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [clinicId]);
   useEffect(() => {
     try {
       setExpanded(localStorage.getItem(STORAGE_KEY) === "true");
@@ -256,8 +273,13 @@ export default function DesktopSidebar({
     >
       {/* LOGO */}
       <div className={`flex shrink-0 items-center justify-center mb-4 ${SHORT}:mb-1 ${expanded ? "w-full gap-2 px-4" : ""}`}>
-        <div className={`flex items-center justify-center bg-transparent text-slate-800 w-12 h-12 ${SHORT}:w-9 ${SHORT}:h-9`}>
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={iconSize}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+        <div className={`flex items-center justify-center overflow-hidden bg-transparent text-slate-800 w-12 h-12 ${SHORT}:w-9 ${SHORT}:h-9`}>
+          {logoUrl ? (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img src={logoUrl} alt="" className="max-h-full max-w-full object-contain" />
+          ) : (
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={iconSize}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+          )}
         </div>
         {expanded && <span className="text-base font-black tracking-tight text-slate-800 truncate">Alpha</span>}
       </div>

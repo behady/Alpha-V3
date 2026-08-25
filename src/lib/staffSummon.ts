@@ -14,6 +14,7 @@ import { db } from "@/lib/firebase";
 import type { ReceptionistOption, StaffSummon, StaffSummonStatus } from "@/types/staffSummon";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { isFullAccessRole } from "@/lib/permissions";
 
 type SummonRequester = {
   uid: string;
@@ -27,7 +28,7 @@ const COLLECTION = "staff_summons";
 
 export function canRequestReceptionSummon(user: SummonRequester | null): boolean {
   if (!user) return false;
-  if (user.role === "Admin" || user.role === "Dentist") return true;
+  if (isFullAccessRole(user.role) || user.role === "Dentist") return true;
   return isDentistStaff(user);
 }
 

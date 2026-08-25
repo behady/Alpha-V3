@@ -1,3 +1,5 @@
+import { clinicLogoImgHtml, getClinicLogo, type ClinicLogoAsset } from "@/lib/clinicLogo";
+
 export type RxItem = { id: string; name: string; dose: string; note: string };
 
 function esc(s: string): string {
@@ -37,6 +39,11 @@ export type PrescriptionPdfPayload = {
   address: string;
   phone: string;
   rxItems: RxItem[];
+  /**
+   * Optional clinic branding. Leave it unset and use `prescriptionPayloadToPdfBlob`, which
+   * resolves it for you; only the data: URI form is ever drawn here (see `ClinicLogoAsset`).
+   */
+  logo?: ClinicLogoAsset;
 };
 
 /** Full HTML document: no external CSS, no Tailwind — only inline styles (html2canvas-safe). */
@@ -69,13 +76,23 @@ export function buildPrescriptionSrcDoc(p: PrescriptionPdfPayload): string {
     })
     .join("");
 
+  // Margin rather than flex `gap`: html2canvas 1.4.1 does not honour gap on flex containers.
+  const logoImg = clinicLogoImgHtml(p.logo, {
+    maxHeight: 44,
+    maxWidth: 110,
+    extraStyle: "margin-right:14px;",
+  });
+
   const bodyInner = `
 <div id="prescription-pdf-source" style="box-sizing:border-box;width:148mm;min-height:210mm;margin:0 auto;padding:32px;background:#ffffff;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:#0f172a;display:flex;flex-direction:column;">
   <div style="border-bottom:2px solid #0f172a;padding-bottom:24px;margin-bottom:24px;">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-      <div style="width:66%;">
-        <h2 style="margin:0 0 8px 0;font-size:24px;font-weight:900;text-transform:uppercase;letter-spacing:-0.02em;color:#0f172a;">${esc(p.clinicName)}</h2>
-        <p style="margin:0;font-size:12px;font-weight:700;color:#475569;white-space:pre-wrap;line-height:1.5;">${esc(p.rxHeader)}</p>
+      <div style="width:66%;display:flex;align-items:flex-start;">
+        ${logoImg}
+        <div style="min-width:0;">
+          <h2 style="margin:0 0 8px 0;font-size:24px;font-weight:900;text-transform:uppercase;letter-spacing:-0.02em;color:#0f172a;">${esc(p.clinicName)}</h2>
+          <p style="margin:0;font-size:12px;font-weight:700;color:#475569;white-space:pre-wrap;line-height:1.5;">${esc(p.rxHeader)}</p>
+        </div>
       </div>
       <div style="width:33%;text-align:right;">
         <p style="margin:0 0 4px 0;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Date</p>
@@ -182,4 +199,14 @@ export async function prescriptionSrcDocToPdfBlob(srcDoc: string): Promise<Blob>
   } finally {
     iframe.remove();
   }
+}
+
+/**
+ * Build + render in one step, with the clinic logo resolved automatically.
+ * This is the entry point every caller should use — going through
+ * `buildPrescriptionSrcDoc` directly produces an unbranded prescription.
+ */
+export async function prescriptionPayloadToPdfBlob(p: PrescriptionPdfPayload): Promise<Blob> {
+  const logo = p.logo ?? (await getClinicLogo());
+  return prescriptionSrcDocToPdfBlob(buildPrescriptionSrcDoc({ ...p, logo }));
 }

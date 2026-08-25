@@ -11,6 +11,8 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { logActivity } from "@/lib/logger";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { LOCATIONS_DOC, parseClinicBranches, type ClinicBranch } from "@/lib/clinicLocations";
+import { onSnapshot } from "firebase/firestore";
 import {
   DEFAULT_COUNTRY_CODE,
   COUNTRY_CODE_OPTIONS,
@@ -21,9 +23,11 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  /** The branch the desk is working at, used as the starting value. */
+  preSelectedBranchId?: string;
 }
 
-export default function NewPatientModal({ isOpen, onClose, onSuccess }: Props) {
+export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelectedBranchId = "" }: Props) {
   const router = useRouter();
   const { showToast } = useUI();
   const { t, language } = useLanguage();
@@ -35,6 +39,30 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess }: Props) {
   const [address, setAddress] = useState("");
   const [dob, setDob] = useState("");
   const [gender, setGender] = useState("Male");
+  /**
+   * The branch this patient belongs to.
+   *
+   * Recorded so a two-site clinic can tell whose patient this is, and so the price list, the
+   * schedule and the reports agree about it later. It is a home branch, not a restriction —
+   * nothing stops the patient being seen at the other site.
+   */
+  const [branches, setBranches] = useState<ClinicBranch[]>([]);
+  const [branchId, setBranchId] = useState("");
+
+  useEffect(() => {
+    const unsub = onSnapshot(getClinicDoc("settings", LOCATIONS_DOC), (snap) => {
+      setBranches(parseClinicBranches(snap.exists() ? snap.data() : null));
+    });
+    return () => unsub();
+  }, []);
+
+  // Seeded from where the desk is working, or the only branch there is. Re-seeded each time the
+  // modal opens so switching branches between two patients is picked up.
+  useEffect(() => {
+    if (!isOpen) return;
+    if (preSelectedBranchId && branches.some((b) => b.id === preSelectedBranchId)) setBranchId(preSelectedBranchId);
+    else if (branches.length === 1) setBranchId(branches[0].id);
+  }, [isOpen, preSelectedBranchId, branches]);
   const [referral, setReferral] = useState("");
   const [allergies, setAllergies] = useState("");
   const [medicalHistory, setMedicalHistory] = useState("");
@@ -147,6 +175,9 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess }: Props) {
         dateOfBirth: dob,
         gender,
         referral,
+        // Absent rather than empty when there is no branch: Firestore stores "" happily, but a
+        // blank branch id reads downstream as a branch that matches nothing.
+        ...(branchId ? { branchId, branchName: branches.find((b) => b.id === branchId)?.name || "" } : {}),
         allergies: allergies.trim(),
         // Blank means "not asked yet", which is the truth for a patient nobody has screened.
         // This used to be hardcoded to "None (Healthy)" — an assertion of absence no clinician
@@ -169,7 +200,7 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess }: Props) {
       
       // Reset State
       setName(""); setCountryCode(DEFAULT_COUNTRY_CODE); setPhone(""); setAddress(""); setDob(""); 
-      setGender("Male"); setReferral(""); setAllergies(""); setMedicalHistory("");
+      setGender("Male"); setReferral(""); setAllergies(""); setMedicalHistory(""); setBranchId("");
       setDuplicateWarning(null); setAllowDuplicatePhone(false);
       
     } catch (error: any) {
@@ -293,6 +324,26 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess }: Props) {
                  </div>
               </div>
            </div>
+
+           {/* Only asked of a clinic that actually has branches. */}
+           {branches.length > 1 && (
+             <div className="relative">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">
+                   {language === 'ar' ? 'الفرع' : 'Branch'}
+                </label>
+                <select
+                   value={branchId}
+                   onChange={e => setBranchId(e.target.value)}
+                   className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-gray-900 outline-none focus:border-primary-500 bg-white appearance-none cursor-pointer transition-colors"
+                >
+                   <option value="">{language === 'ar' ? 'بدون فرع محدد' : 'No branch'}</option>
+                   {branches.map((b) => (
+                     <option key={b.id} value={b.id}>{b.name}</option>
+                   ))}
+                </select>
+                <ChevronDown size={14} className="absolute end-4 top-9 text-gray-400 pointer-events-none"/>
+             </div>
+           )}
 
            <div className="relative">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">{t("referralSource")}</label>

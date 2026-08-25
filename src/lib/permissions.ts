@@ -29,9 +29,44 @@
 
 import { getAllPermissionIds } from "@/config/permissionsCatalog";
 
-/** The four roles the app assigns. Anything else is treated as having no baseline. */
-export const ROLES = ["Admin", "Dentist", "Assistant", "Receptionist"] as const;
+/**
+ * The roles the app assigns. Anything else is treated as having no baseline.
+ *
+ * Ordered most- to least-privileged, because that is the order the Users screen lists them in.
+ */
+export const ROLES = ["Owner", "Admin", "Dentist", "Receptionist", "Assistant"] as const;
 export type Role = (typeof ROLES)[number];
+
+/**
+ * The clinic belongs to exactly one person, and this is how the app finally says so.
+ *
+ * `clinics/{id}.ownerId` has always named them, and nothing has ever read it for access: on the
+ * Users screen the person paying for the clinic looked exactly like the locum Admin they invited
+ * for a fortnight, and either could demote, delete or re-password the other. Owner does not add
+ * powers — it and Admin pass every check identically — it adds *protection*: only the owner may
+ * change the owner, and the role moves only through /api/admin/transfer-ownership, which carries
+ * `ownerId` with it so the two facts can never disagree.
+ */
+export const OWNER_ROLE = "Owner" satisfies Role;
+
+/** Passes every permission check without consulting a list. Owner and Admin, identically. */
+export function isFullAccessRole(role: string | null | undefined): boolean {
+  return role === "Owner" || role === "Admin";
+}
+
+/** Whether this role is the clinic's owner. */
+export function isOwnerRole(role: string | null | undefined): boolean {
+  return role === OWNER_ROLE;
+}
+
+/**
+ * Roles an admin may pick from the dropdown.
+ *
+ * Owner is absent by design: handing over a clinic is a transfer, not an edit, and it takes the
+ * outgoing owner's own action. Routes that accept a role reject it outright rather than relying
+ * on the browser to leave it out.
+ */
+export const ASSIGNABLE_ROLES = ROLES.filter((r) => r !== OWNER_ROLE);
 
 /**
  * The floor for each role.
@@ -59,6 +94,12 @@ export const ROLE_BASELINE: Record<string, string[]> = {
     "appointments.edit",
     "clinical.edit",
     "inventory.edit", // they consume materials during a visit
+    // Saving a billed procedure writes the clinical note AND its ledger row — see the
+    // "add to ledger" field in ServiceEditorDrawer, and `create-entry: finance.add` in the
+    // ledger route. Without this a dentist completing a treatment gets the note saved and a
+    // permission error for the charge. `access.finance` stays off: posting the charge a
+    // treatment produces is not the same as reading the clinic's takings.
+    "finance.add",
   ],
   Assistant: [
     "dashboard.view",
@@ -108,10 +149,53 @@ export function expandPermissions(role: string | null | undefined, granted: unkn
     ? granted.filter((p): p is string => typeof p === "string" && catalogue.has(p))
     : [];
 
-  if (role === "Admin") return [];
+  // Owner and Admin short-circuit every check, so a materialised list for them would be a
+  // second source of truth that goes stale the first time the catalogue changes.
+  if (isFullAccessRole(role)) return [];
 
   const baseline = ROLE_BASELINE[String(role || "")] || [];
   return [...new Set([...baseline, ...explicit])].sort();
+}
+
+/**
+ * The switches a role arrives with, as the Permissions screen shows them.
+ *
+ * `expandPermissions` answers "what should be stored", and for a full-access role that is
+ * deliberately nothing. This answers the different question the UI asks — "what does this role
+ * start with" — so the preset bar can name a number, the reset button has something to write,
+ * and Owner/Admin can be drawn with every box on rather than an empty list that reads as no
+ * access at all.
+ */
+export function rolePreset(role: string | null | undefined): string[] {
+  if (isFullAccessRole(role)) return [...getAllPermissionIds()].sort();
+  return [...new Set(ROLE_BASELINE[String(role || "")] || [])].sort();
+}
+
+/**
+ * How far someone's switches have drifted from their role's preset.
+ *
+ * Shown as "Receptionist preset · 2 added · 1 removed", so an admin can tell a standard
+ * receptionist from one that has been tuned by hand without reading thirteen toggles. A person
+ * with no stored list at all is a legacy account the backfill has not reached; reporting that as
+ * "matches the preset" would be a quiet lie, since the rules currently let them write anything.
+ */
+export function presetDiff(
+  role: string | null | undefined,
+  stored?: unknown
+): { added: string[]; removed: string[]; matchesPreset: boolean; hasRecord: boolean } {
+  if (!Array.isArray(stored)) {
+    return { added: [], removed: [], matchesPreset: false, hasRecord: false };
+  }
+  const preset = new Set(rolePreset(role));
+  const held = new Set(sanitizePermissionList(stored));
+  const added = [...held].filter((p) => !preset.has(p)).sort();
+  const removed = [...preset].filter((p) => !held.has(p)).sort();
+  return {
+    added,
+    removed,
+    matchesPreset: added.length === 0 && removed.length === 0,
+    hasRecord: true,
+  };
 }
 
 /**
@@ -147,7 +231,7 @@ export function holdsPermission(
   permission: string | null
 ): boolean {
   if (permission == null) return true;
-  if (role === "Admin") return true;
+  if (isFullAccessRole(role)) return true;
   return Array.isArray(permissions) && permissions.includes(permission);
 }
 

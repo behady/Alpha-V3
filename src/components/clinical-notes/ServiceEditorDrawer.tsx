@@ -32,6 +32,8 @@ interface Props {
   patientName: string;
   /** The patient's own price list, used when this note has none of its own. */
   patientDefaultPriceListId?: string | null;
+  /** The branch this treatment happens at, so only that branch's price lists are offered. */
+  branchId?: string | null;
   appointmentId: string | null;
   initialNote: Note | null;
   servicesList: Service[];
@@ -51,7 +53,7 @@ interface Props {
 }
 
 export default function ServiceEditorDrawer({
-  isOpen, onClose, patientId, patientName, patientDefaultPriceListId, appointmentId, initialNote, servicesList, doctors, onSaved, inline = false,
+  isOpen, onClose, patientId, patientName, patientDefaultPriceListId, branchId = null, appointmentId, initialNote, servicesList, doctors, onSaved, inline = false,
   hideTeethSelector = false, selectedTeethOverride, onSelectedTeethChange, compact = false
 }: Props) {
   const { showToast, clinicalEditorMode } = useUI();
@@ -513,6 +515,7 @@ export default function ServiceEditorDrawer({
     <DiscountEditor
       listTotal={previewTotal}
       priceLists={priceLists}
+      branchId={branchId}
       reasons={discountSettings.reasons}
       maxPercent={maxDiscountPercent}
       value={discount}

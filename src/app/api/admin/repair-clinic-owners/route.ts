@@ -2,6 +2,7 @@ import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { FieldPath, FieldValue } from "firebase-admin/firestore";
+import { OWNER_ROLE } from "@/lib/permissions";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -93,7 +94,7 @@ export async function POST(request: Request) {
       if (alreadyGranted && !hasStray) continue;
 
       const actions: string[] = [];
-      if (!alreadyGranted) actions.push("granted Admin");
+      if (!alreadyGranted) actions.push("granted Owner");
       if (hasStray) actions.push("removed malformed field");
 
       repairs.push({ clinicId, clinicName, ownerId, action: actions.join(" + ") });
@@ -102,7 +103,7 @@ export async function POST(request: Request) {
         const patch: Record<string, unknown> = {};
         if (!alreadyGranted) {
           // Nested object, not a dotted key — the whole point of this repair.
-          patch.clinicRoles = { [clinicId]: "Admin" };
+          patch.clinicRoles = { [clinicId]: OWNER_ROLE };
           if (!userData.defaultClinicId) patch.defaultClinicId = clinicId;
         }
         await userRef.set(patch, { merge: true });

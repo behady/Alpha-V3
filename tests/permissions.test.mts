@@ -20,18 +20,29 @@
 
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { PERMISSIONS_CATALOG, getAllPermissionIds } from "../src/config/permissionsCatalog";
 import { BIN_COLLECTIONS } from "../src/lib/recycleBin";
 import {
+  ASSIGNABLE_ROLES,
   COLLECTION_WRITE_PERMISSIONS,
+  OWNER_ROLE,
+  ROLES,
   ROLE_BASELINE,
   expandPermissions,
   holdsPermission,
+  isFullAccessRole,
+  isOwnerRole,
+  presetDiff,
+  rolePreset,
   sanitizePermissionList,
 } from "../src/lib/permissions";
 
-const REPO = new URL("..", import.meta.url).pathname;
+// fileURLToPath, not .pathname: on Windows the latter yields "/C:/Users/..." and every join()
+// below then builds "C:\C:\Users\...", so the suite died on its first readdir before
+// checking anything.
+const REPO = fileURLToPath(new URL("..", import.meta.url));
 
 // --- 1. Catalogue hygiene ---------------------------------------------------------------------
 
@@ -93,7 +104,7 @@ for (const file of sourceFiles(join(REPO, "src"))) {
   const text = readFileSync(file, "utf8");
   for (const pattern of ENFORCEMENT_PATTERNS) {
     for (const match of text.matchAll(pattern)) {
-      if (!enforced.has(match[1])) enforced.set(match[1], file.replace(REPO, ""));
+      if (!enforced.has(match[1])) enforced.set(match[1], file.replace(REPO, "").split(sep).join("/"));
     }
   }
 }
@@ -317,6 +328,89 @@ assert.equal(holdsPermission("Receptionist", ["patients.add"], "patients.delete"
 assert.equal(holdsPermission("Receptionist", null, "patients.add"), false, "no list means nothing granted");
 
 
+// --- 6b. Owner ------------------------------------------------------------------------------------
+//
+// Owner adds no powers — it and Admin answer every check identically — so nothing here asserts it
+// can do more. What it adds is protection, and the assertions that matter are that it can never be
+// handed out by an ordinary edit and that it never falls out of a full-access check.
+
+assert.ok(ROLES.includes(OWNER_ROLE), "Owner must be a role the system recognises");
+assert.ok(
+  !(ASSIGNABLE_ROLES as readonly string[]).includes(OWNER_ROLE),
+  "Owner must never appear in the role dropdown — it moves through transfer-ownership only"
+);
+assert.equal(ASSIGNABLE_ROLES.length, ROLES.length - 1, "every role except Owner is assignable");
+
+assert.ok(isFullAccessRole("Owner") && isFullAccessRole("Admin"));
+assert.ok(!isFullAccessRole("Dentist") && !isFullAccessRole(null));
+assert.ok(isOwnerRole("Owner") && !isOwnerRole("Admin"));
+
+// Owner stores no list, for exactly the reason Admin does not: the role short-circuits ahead of
+// the lookup, and a materialised list would go stale the next time the catalogue moved.
+assert.equal(ROLE_BASELINE.Owner, undefined);
+assert.deepEqual(expandPermissions("Owner", ["patients.delete"]), []);
+assert.equal(holdsPermission("Owner", [], "patients.delete"), true, "Owner passes every check");
+assert.equal(holdsPermission("Owner", null, "clinical.delete"), true);
+
+// The routes that accept a role must all refuse this one. Checked in the source rather than by
+// calling them, in the same spirit as the drift checks above: a guard someone deletes in a
+// refactor is exactly the kind of removal no unit test would otherwise notice.
+for (const [file, needle] of [
+  ["src/app/api/admin/update-user/route.ts", "isOwnerRole"],
+  ["src/app/api/staff/create/route.ts", "isOwnerRole"],
+  ["src/app/api/join-requests/approve/route.ts", "ASSIGNABLE_ROLES"],
+  ["src/app/api/delete-user/route.ts", "isOwnerRole"],
+  ["src/app/api/staff/reset-password/route.ts", "isOwnerRole"],
+] as const) {
+  assert.ok(
+    readFileSync(join(REPO, file), "utf8").includes(needle),
+    `${file} no longer guards the Owner role (expected a reference to ${needle})`
+  );
+}
+
+// The rules must answer for Owner too. Miss this and the person who owns the clinic is locked out
+// of Settings by the very role that exists to protect them.
+assert.ok(
+  /function isClinicAdmin\(clinicId\)[^}]*'Owner'/.test(rules),
+  "isClinicAdmin() in firestore.rules must match Owner as well as Admin"
+);
+
+// --- 6c. Role presets -----------------------------------------------------------------------------
+//
+// The switches were always the admin's to set — sanitizePermissionList stores an edit verbatim.
+// What the preset helpers add is the ability to SEE the starting point and get back to it.
+
+assert.deepEqual(rolePreset("Dentist"), [...ROLE_BASELINE.Dentist].sort());
+assert.deepEqual(rolePreset("Owner"), ids.slice().sort(), "a full-access role shows every switch on");
+assert.deepEqual(rolePreset("Owner"), rolePreset("Admin"));
+assert.deepEqual(rolePreset("Bookkeeper"), [], "an unknown role starts with nothing");
+
+// Saving a billed procedure writes the clinical note AND its ledger row, so a dentist without
+// finance.add gets the note saved and a permission error for the charge.
+assert.ok(
+  rolePreset("Dentist").includes("finance.add"),
+  "a dentist must be able to post the charge a treatment produces"
+);
+// ...but not the finance PAGE. Posting a treatment's charge is not reading the clinic's takings.
+assert.ok(!rolePreset("Dentist").includes("access.finance"));
+
+{
+  const fresh = rolePreset("Receptionist");
+  assert.deepEqual(presetDiff("Receptionist", fresh).matchesPreset, true);
+
+  const tuned = fresh.filter((p) => p !== "finance.add").concat("patients.delete");
+  const diff = presetDiff("Receptionist", tuned);
+  assert.deepEqual(diff.added, ["patients.delete"]);
+  assert.deepEqual(diff.removed, ["finance.add"]);
+  assert.equal(diff.matchesPreset, false);
+
+  // A legacy account with no stored list is not "matching" anything — the rules currently let it
+  // write whatever it likes, and saying otherwise on screen would be the checkbox lying again.
+  const none = presetDiff("Receptionist", undefined);
+  assert.equal(none.hasRecord, false);
+  assert.equal(none.matchesPreset, false);
+}
+
 // --- 7. The recycle bin's allow-list must agree with the rules ------------------------------------
 
 // The delete route runs on the Admin SDK and bypasses firestore.rules entirely, so its allow-list
@@ -427,7 +521,9 @@ function walkRoutes(dir: string): string[] {
 }
 const optedOut = walkRoutes(apiDir)
   .filter((file) => readFileSync(file, "utf8").includes("allowInactive"))
-  .map((file) => file.slice(apiDir.length + 1))
+  // Separators normalised: join() emits backslashes on Windows, and every expectation in this
+  // file is written with forward slashes, so without this the comparison fails on paths alone.
+  .map((file) => file.slice(apiDir.length + 1).split(sep).join("/"))
   .sort();
 
 assert.deepEqual(
@@ -458,7 +554,7 @@ for (const file of walkRoutes(apiDir)) {
   const text = readFileSync(file, "utf8");
   assert.ok(
     !/\.status\s*\?\?\s*["']Active["']/.test(text),
-    `${file.slice(apiDir.length + 1)} tests clinic status by hand — use the shared gate, which also checks expiresAt`
+    `${file.slice(apiDir.length + 1).split(sep).join("/")} tests clinic status by hand — use the shared gate, which also checks expiresAt`
   );
 }
 

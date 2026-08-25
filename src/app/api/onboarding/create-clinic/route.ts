@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAuthedUser } from "@/lib/apiStaffAuth";
 import { FieldValue } from "firebase-admin/firestore";
+import { OWNER_ROLE } from "@/lib/permissions";
 
 /**
  * Creates a Free Trial clinic and grants the caller Admin on it, atomically, server-side.
@@ -37,7 +38,7 @@ export async function POST(request: Request) {
       const orphan = owned.docs.find((d) => typeof existingRoles[d.id] !== "string" || !existingRoles[d.id]);
       if (orphan) {
         await userRef.set(
-          { clinicRoles: { [orphan.id]: "Admin" }, defaultClinicId: orphan.id },
+          { clinicRoles: { [orphan.id]: OWNER_ROLE }, defaultClinicId: orphan.id },
           { merge: true }
         );
         return NextResponse.json({ ok: true, clinicId: orphan.id, repaired: true });
@@ -74,7 +75,7 @@ export async function POST(request: Request) {
       tx.set(
         userRef,
         {
-          clinicRoles: { [clinicId]: "Admin" },
+          clinicRoles: { [clinicId]: OWNER_ROLE },
           defaultClinicId: clinicId,
         },
         { merge: true }

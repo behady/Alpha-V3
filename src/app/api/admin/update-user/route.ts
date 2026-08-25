@@ -4,6 +4,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
 import { expandPermissions, sanitizePermissionList } from "@/lib/permissions";
+import { isOwnerRole } from "@/lib/permissions";
 
 const ALLOWED_KEYS = new Set(["role", "isDentist", "permissions", "staffId"]);
 
@@ -22,6 +23,14 @@ function sanitizePatch(raw: unknown): Record<string, unknown> {
       continue;
     }
     if (key === "role" && typeof value === "string" && value.trim()) {
+      /**
+       * Owner is a real role and never an assignable one. It is bound to `clinic.ownerId`, and
+       * writing it here would either put a second owner in a clinic defined to have one, or make
+       * the person holding the role and the person named on the clinic two different people —
+       * exactly the confusion the role was added to end. Dropped rather than rejected, to match
+       * how this function already treats every other value it will not store.
+       */
+      if (isOwnerRole(value.trim())) continue;
       out.role = value.trim();
       continue;
     }
@@ -121,6 +130,22 @@ export async function POST(request: Request) {
     if (!targetWorksHere) {
       return NextResponse.json(
         { ok: false, error: "That account is not a member of this clinic." },
+        { status: 403 }
+      );
+    }
+
+    /**
+     * The owner's record is the owner's to edit.
+     *
+     * Without this, an Admin invited for a fortnight can demote the person who pays for the
+     * clinic, or quietly strip their switches — and `clinic.ownerId` would go on naming someone
+     * who no longer runs the place. The owner's own way out is Transfer ownership, which moves
+     * the role and the clinic document together in one transaction.
+     */
+    const targetUid = (typeof userData.uid === "string" && userData.uid) || userDocId;
+    if (isOwnerRole(String(targetRoles[clinicId] || "")) && auth.uid !== targetUid) {
+      return NextResponse.json(
+        { ok: false, error: "Only the clinic owner can change their own access." },
         { status: 403 }
       );
     }

@@ -37,6 +37,7 @@ import AiCreditsSettings from "@/components/settings/AiCreditsSettings";
 import { logActivity } from "@/lib/logger";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import RecentlyDeleted from "@/components/settings/RecentlyDeleted";
+import { isFullAccessRole } from "@/lib/permissions";
 export default function SettingsPage() {
   const { language, isRTL } = useLanguage();
   const { user, loading: authLoading } = useAuth(); 
@@ -60,6 +61,19 @@ export default function SettingsPage() {
   const txt = {
     title: language === 'ar' ? "إعدادات النظام" : "System Settings",
     subtitle: language === 'ar' ? "تكوين معلمات العيادة الخاصة بك." : "Configure your clinic parameters.",
+    // Invite / edit team member modal
+    userModalAddTitle: language === 'ar' ? "إضافة عضو للفريق" : "Invite Team Member",
+    userModalEditTitle: language === 'ar' ? "تعديل الملف الشخصي" : "Edit Profile",
+    userFullName: language === 'ar' ? "الاسم الكامل" : "Full Name",
+    userEmail: language === 'ar' ? "البريد الإلكتروني" : "Email Address",
+    userPassword: language === 'ar' ? "كلمة السر الأولية" : "Initial Password",
+    userPasswordHint: language === 'ar' ? "6 حروف على الأقل" : "Minimum 6 characters",
+    userRole: language === 'ar' ? "دور النظام" : "System Role",
+    roleDentist: language === 'ar' ? "طبيب" : "Dentist",
+    roleAssistant: language === 'ar' ? "مساعد" : "Assistant",
+    roleReceptionist: language === 'ar' ? "استقبال" : "Receptionist",
+    roleAdmin: language === 'ar' ? "مدير" : "Admin",
+    userSubmit: language === 'ar' ? "إنشاء حساب الدخول" : "Create System Login",
   };
 
   const tabs = [
@@ -180,7 +194,7 @@ export default function SettingsPage() {
       if (editingUser) {
           // Editing user logic
       } else {
-          const isDentist = userForm.role === "Admin" ? userForm.isDentist : false;
+          const isDentist = isFullAccessRole(userForm.role) ? userForm.isDentist : false;
           const token = await auth.currentUser?.getIdToken();
           
           const response = await fetch('/api/staff/create', { 
@@ -413,25 +427,25 @@ export default function SettingsPage() {
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
           <div className="bg-white rounded-[2rem] p-8 w-full max-w-md shadow-2xl animate-in zoom-in-95 border border-slate-100">
               <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-bold text-slate-900 tracking-tight">{editingUser ? 'Edit Profile' : 'Invite Team Member'}</h2>
+                <h2 className="text-xl font-bold text-slate-900 tracking-tight">{editingUser ? txt.userModalEditTitle : txt.userModalAddTitle}</h2>
                 <button onClick={() => setIsUserModalOpen(false)} className="text-slate-400 hover:text-red-500 bg-slate-50 hover:bg-red-50 p-2 rounded-full transition-colors"><X size={20}/></button>
               </div>
               <form onSubmit={handleSaveUser} className="space-y-5">
-                <div className="space-y-1.5"><label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>Full Name</label><div className="relative"><User size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`}/><input required value={userForm.name} onChange={e => setUserForm({...userForm, name: e.target.value})} className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}/></div></div>
-                <div className="space-y-1.5"><label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>Email Address</label><div className="relative"><Mail size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`}/><input required type="email" value={userForm.email} onChange={e => setUserForm({...userForm, email: e.target.value})} className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}/></div></div>
+                <div className="space-y-1.5"><label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.userFullName}</label><div className="relative"><User size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`}/><input required value={userForm.name} onChange={e => setUserForm({...userForm, name: e.target.value})} className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}/></div></div>
+                <div className="space-y-1.5"><label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.userEmail}</label><div className="relative"><Mail size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`}/><input required type="email" value={userForm.email} onChange={e => setUserForm({...userForm, email: e.target.value})} className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}/></div></div>
                 
                 {!editingUser && (
                   <div className="space-y-1.5">
-                    <label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>Initial Password</label>
+                    <label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.userPassword}</label>
                     <div className="relative">
                       <Lock size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`}/>
-                      <input required type="password" value={userForm.password} onChange={e => setUserForm({...userForm, password: e.target.value})} placeholder="Minimum 6 characters" className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}/>
+                      <input required type="password" value={userForm.password} onChange={e => setUserForm({...userForm, password: e.target.value})} placeholder={txt.userPasswordHint} className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}/>
                     </div>
                   </div>
                 )}
 
-                <div className="space-y-1.5"><label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>System Role</label><div className="relative"><Badge size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`}/><select value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value, isDentist: e.target.value === 'Admin' ? userForm.isDentist : false})} className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all appearance-none cursor-pointer ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}><option value="Dentist">Dentist</option><option value="Assistant">Assistant</option><option value="Receptionist">Receptionist</option><option value="Admin">Admin</option></select></div></div>
-                {userForm.role === "Admin" && (
+                <div className="space-y-1.5"><label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.userRole}</label><div className="relative"><Badge size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`}/><select value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value, isDentist: isFullAccessRole(e.target.value) ? userForm.isDentist : false})} className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all appearance-none cursor-pointer ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}><option value="Dentist">{txt.roleDentist}</option><option value="Assistant">{txt.roleAssistant}</option><option value="Receptionist">{txt.roleReceptionist}</option><option value="Admin">{txt.roleAdmin}</option></select></div></div>
+                {isFullAccessRole(userForm.role) && (
                   <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <input
                       type="checkbox"
@@ -446,7 +460,7 @@ export default function SettingsPage() {
                     </span>
                   </label>
                 )}
-                <button type="submit" disabled={loading} className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold text-sm shadow-md mt-6 active:scale-95 transition-all flex items-center justify-center gap-2"><Save size={18}/> Create System Login</button>
+                <button type="submit" disabled={loading} className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold text-sm shadow-md mt-6 active:scale-95 transition-all flex items-center justify-center gap-2"><Save size={18}/> {txt.userSubmit}</button>
               </form>
           </div>
         </div>

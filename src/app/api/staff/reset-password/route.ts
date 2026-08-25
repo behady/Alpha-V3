@@ -2,6 +2,7 @@ import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
+import { isOwnerRole } from "@/lib/permissions";
 
 /**
  * An admin sets a new password for a member of their own clinic — the recovery path for "I forgot
@@ -48,6 +49,26 @@ export async function POST(request: Request) {
 
     const userSnap = await db.collection("users").doc(uid).get();
     const hasRoleHere = Boolean((userSnap.data()?.clinicRoles || {})[clinicId]);
+
+    /**
+     * Never the owner's password, from here.
+     *
+     * This route exists so an admin can unlock the receptionist standing in front of them. Point
+     * it at the owner and it stops being that: an Admin who sets the owner's password can sign in
+     * as the one account nobody else can demote, and the clinic changes hands without anyone
+     * agreeing to it. The owner uses the emailed reset link, which only whoever holds that inbox
+     * can complete.
+     */
+    if (isOwnerRole((userSnap.data()?.clinicRoles || {})[clinicId]) && authCheck.uid !== uid) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "The clinic owner's password can't be set from here. They can use the \"Forgot password\" link on the sign-in screen.",
+        },
+        { status: 403 }
+      );
+    }
 
     let worksHere = hasRoleHere;
     if (!worksHere) {

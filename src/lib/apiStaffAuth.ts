@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { CLINIC_INACTIVE_CODE, clinicActivity } from "@/lib/clinicStatus";
+import { isFullAccessRole, isOwnerRole } from "@/lib/permissions";
 
 /**
  * Resolves the effective role for a user.
@@ -32,6 +33,7 @@ function resolveRole(data: Record<string, unknown>, clinicId?: string): string |
 
   // Check if admin in any clinic
   const allRoles = Object.values(clinicRoles);
+  if (allRoles.includes("Owner")) return "Owner";
   if (allRoles.includes("Admin")) return "Admin";
 
   // Fall back to legacy
@@ -177,7 +179,7 @@ export async function requireStaffPermission(
 ) {
   const staff = await requireStaffUser(request, clinicId, options);
   if (!staff.ok) return staff;
-  if (staff.role === "Admin") return staff;
+  if (isFullAccessRole(staff.role)) return staff;
   if (staff.permissions.includes(permission)) return staff;
   return {
     ok: false as const,
@@ -188,13 +190,35 @@ export async function requireStaffPermission(
   };
 }
 
+/** Admin OR Owner. They can do the same things; only who may act on THEM differs. */
 export async function requireAdminUser(request: Request, clinicId?: string, options?: StaffAuthOptions) {
   const staff = await requireStaffUser(request, clinicId, options);
   if (!staff.ok) return staff;
-  if (staff.role !== "Admin") {
+  if (!isFullAccessRole(staff.role)) {
     return {
       ok: false as const,
       response: NextResponse.json({ ok: false, error: "Admin access required" }, { status: 403 }),
+    };
+  }
+  return staff;
+}
+
+/**
+ * The clinic's owner, and nobody else — not even another Admin of the same clinic.
+ *
+ * One action needs this: handing the clinic to someone else. Everything an owner does day to day
+ * goes through requireAdminUser, because an Admin can do all of it too.
+ */
+export async function requireClinicOwner(request: Request, clinicId: string, options?: StaffAuthOptions) {
+  const staff = await requireStaffUser(request, clinicId, options);
+  if (!staff.ok) return staff;
+  if (!isOwnerRole(staff.role)) {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        { ok: false, error: "Only the clinic owner can do this." },
+        { status: 403 }
+      ),
     };
   }
   return staff;

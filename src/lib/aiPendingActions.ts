@@ -5,6 +5,7 @@ import { logAiAction } from "@/lib/serverLogger";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
 import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
+import { isFullAccessRole } from "@/lib/permissions";
 
 /**
  * Two-step confirmation for destructive assistant actions.
@@ -343,7 +344,7 @@ export async function resolvePendingAiAction(args: {
   // Deleting clinical or financial history stays an Admin decision. The check lives here as well
   // as in the route, because a stored action must not become a way around the gate if the user's
   // role changed between staging and approval.
-  if (kind === "delete" && userRole !== "Admin") {
+  if (kind === "delete" && !isFullAccessRole(userRole)) {
     return { ok: false, error: "Only a Clinic Admin can confirm a deletion." };
   }
 

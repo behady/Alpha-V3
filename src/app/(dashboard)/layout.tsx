@@ -15,6 +15,7 @@ import { auth } from "@/lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
+import { getClinicLogo } from "@/lib/clinicLogo";
 import { canAccessNavItem, canShowSettingsNavLink } from "@/lib/navAccess";
 import { hasFeature } from "@/lib/subscriptions";
 import NotificationBell from "@/components/NotificationBell";
@@ -33,12 +34,25 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const { t, toggleLanguage, language, isRTL } = useLanguage();
   const { user, loading: authLoading } = useAuth();
-  const { clinic, isAdmin, isReadOnly, readOnlyReason } = useClinic();
+  const { clinicId, clinic, isAdmin, isReadOnly, readOnlyReason } = useClinic();
   const { appointmentsVisibility } = useUI();
   
   const [isOpen, setIsOpen] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [searchVal, setSearchVal] = useState("");
+  const [logoUrl, setLogoUrl] = useState("");
+
+  // Same mark as the desktop rail, fetched here for the mobile menu header.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const url = clinicId ? (await getClinicLogo()).url : "";
+      if (!cancelled) setLogoUrl(url);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [clinicId]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -223,9 +237,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {isOpen && (
            <div className="lg:hidden fixed inset-0 z-[100] bg-white flex flex-col animate-in fade-in slide-in-from-bottom-8 duration-300">
               <div className="flex items-center justify-between p-5 border-b border-slate-100">
-                 <div className="w-10 h-10 bg-[#0a0a0a] text-white rounded-xl flex items-center justify-center rounded-tr-3xl shadow-sm">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
-                 </div>
+                 {logoUrl ? (
+                    /* White tile, not the black one: a dark logo on a black square is invisible. */
+                    <div className="w-10 h-10 bg-white border border-slate-200 rounded-xl flex items-center justify-center overflow-hidden shadow-sm p-1">
+                       {/* eslint-disable-next-line @next/next/no-img-element */}
+                       <img src={logoUrl} alt={clinic?.name || ""} className="max-h-full max-w-full object-contain" />
+                    </div>
+                 ) : (
+                    <div className="w-10 h-10 bg-[#0a0a0a] text-white rounded-xl flex items-center justify-center rounded-tr-3xl shadow-sm">
+                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+                    </div>
+                 )}
                  <button onClick={() => setIsOpen(false)} className="p-2 bg-slate-100 text-slate-800 rounded-full hover:bg-slate-200"><X size={20}/></button>
               </div>
               

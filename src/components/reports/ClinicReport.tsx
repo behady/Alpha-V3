@@ -8,6 +8,7 @@ import {
 import { Download, Building2, FileSpreadsheet, FileBarChart } from "lucide-react";
 import { exportToExcel, CHART_COLORS, parseMoney } from "./reportExcelUtils";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
+import { ledgerCashValue } from "@/lib/reportHelpers";
 import { useUI } from "@/context/UIContext";
 import { attributeService, buildProcedureIndex, type AttributableRow } from "@/lib/serviceAttribution";
 
@@ -60,7 +61,7 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
     // 2. Cash Income — attributed through the procedure each payment settles.
     payments?.forEach((pay) => {
       if (pay.type === "expense") return;
-      bucket(pay).income += parseMoney(pay.val ?? pay.amount ?? pay.paid);
+      bucket(pay).income += ledgerCashValue(pay);
     });
 
     return Object.values(map)
@@ -98,7 +99,7 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
     payments?.forEach((pay) => {
       if (pay.type === "expense") return;
       const pid = String(pay.patientId || "");
-      const inc = parseMoney(pay.val ?? pay.amount ?? pay.paid);
+      const inc = ledgerCashValue(pay);
       if (newIds.has(pid)) newInc += inc;
       else if (returningIds.has(pid)) retInc += inc;
     });

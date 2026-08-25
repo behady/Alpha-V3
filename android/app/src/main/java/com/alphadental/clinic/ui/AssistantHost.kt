@@ -92,7 +92,7 @@ fun AssistantScreen(
     /** What the conversation is acting on, e.g. "Dina Samir · 9:00 AM"; null when nothing is. */
     actingOn: String?,
     onClearActingOn: () -> Unit,
-    /** "Admin", "Dentist", "Receptionist"… — picks which example questions to offer. */
+    /** "Owner", "Admin", "Dentist", "Receptionist"… — picks which example questions to offer. */
     role: String,
     /** Opens the appointment a reply identified, in the normal appointment sheet. */
     onOpenAppointment: (String) -> Unit,
@@ -410,7 +410,7 @@ fun AssistantScreen(
 @Composable
 private fun EmptyChat(arabic: Boolean, role: String, onAsk: (String) -> Unit) {
     val suggestions = when (role) {
-        "Admin" -> if (arabic) listOf(
+        "Admin", "Owner" -> if (arabic) listOf(
             "كم حصّلنا هذا الأسبوع؟",
             "تقرير مالي PDF عن هذا الشهر",
             "مين محجوز اليوم؟",

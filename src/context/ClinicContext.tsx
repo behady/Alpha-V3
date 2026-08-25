@@ -9,12 +9,19 @@ import { useRouter, usePathname } from "next/navigation";
 import { setGlobalClinicId } from "@/lib/db-utils";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { clinicActivity } from "@/lib/clinicStatus";
+import { isFullAccessRole, isOwnerRole, type Role } from "@/lib/permissions";
 
 interface ClinicContextType {
   clinicId: string | null;
   clinic: Clinic | null;
-  role: 'Admin' | 'Dentist' | 'Assistant' | 'Receptionist' | null;
+  role: Role | null;
+  /**
+   * Full access: Owner or Admin. The name stays because every screen already reads it, and the
+   * answer is the same for both — Owner is a protected identity, not extra buttons.
+   */
   isAdmin: boolean;
+  /** The one person the clinic belongs to. Only they can hand it over. */
+  isOwner: boolean;
   isReadOnly: boolean;
   /** Why, when isReadOnly — 'expired' or 'suspended'. Null when the clinic is active. */
   readOnlyReason: 'expired' | 'suspended' | null;
@@ -142,7 +149,10 @@ export function ClinicProvider({ children }: { children: React.ReactNode }) {
   };
 
   const role = user?.isSuperAdmin ? 'Admin' : ((user && clinicId && user.clinicRoles) ? user.clinicRoles[clinicId] : null);
-  const isAdmin = user?.isSuperAdmin ? true : role === 'Admin';
+  const isAdmin = user?.isSuperAdmin ? true : isFullAccessRole(role);
+  // Never true for a superadmin looking into a clinic: they administer it, they do not own it,
+  // and handing it to somebody else is not theirs to do from the inside.
+  const isOwner = !user?.isSuperAdmin && isOwnerRole(role);
 
   // The same decision the API routes and firestore.rules make, from the same module, so the banner
   // cannot say one thing while a write says another. The hand-rolled version this replaces parsed
@@ -155,7 +165,7 @@ export function ClinicProvider({ children }: { children: React.ReactNode }) {
   const readOnlyReason = activity.active ? null : activity.reason;
 
   return (
-    <ClinicContext.Provider value={{ clinicId, clinic, role, isAdmin, isReadOnly, readOnlyReason, setClinicId }}>
+    <ClinicContext.Provider value={{ clinicId, clinic, role, isAdmin, isOwner, isReadOnly, readOnlyReason, setClinicId }}>
       {/* We don't block render entirely here so that onboarding/login can still render, 
           but you might want to show a spinner if loading && user exists */}
       {loading && user && pathname !== '/onboarding' && pathname !== '/superadmin' && (user.isSuperAdmin || userClinicsLength(user) > 0) ? (

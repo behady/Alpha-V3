@@ -306,7 +306,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
                 categoryFilter === c.key ? "bg-slate-900 text-white shadow-sm" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
               }`}
             >
-              <DentalIcon id={c.icon} size={15} />
+              <DentalIcon id={c.icon} size={15} mono={categoryFilter === c.key} />
               {ar ? c.ar : c.en}
             </button>
           ))}
@@ -487,7 +487,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
                           : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                       }`}
                     >
-                      <DentalIcon id={c.icon} size={14} />
+                      <DentalIcon id={c.icon} size={14} mono={form.category === c.key} />
                       {ar ? c.ar : c.en}
                     </button>
                   ))}
@@ -518,7 +518,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
                           : "bg-white text-slate-500 border border-slate-200/70 hover:border-primary-300 hover:text-primary-600"
                       }`}
                     >
-                      <DentalIcon id={icon.id} size={22} />
+                      <DentalIcon id={icon.id} size={22} mono={form.icon === icon.id} />
                     </button>
                   ))}
                 </div>

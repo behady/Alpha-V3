@@ -7,6 +7,7 @@ import {
 } from "recharts";
 import { Download, UserCheck, FileBarChart, FileSpreadsheet } from "lucide-react";
 import { exportToExcel, CHART_COLORS, parseMoney } from "./reportExcelUtils";
+import { ledgerCashValue } from "@/lib/reportHelpers";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
 import { useUI } from "@/context/UIContext";
 import Protect from "@/components/Protect";
@@ -69,7 +70,7 @@ export default function DentistReport({ procedures, payments, rangeLabel, isAr }
 
       if (!map[doc].procedures[svc]) map[doc].procedures[svc] = { count: 0, income: 0 };
 
-      const inc = parseMoney(pay.val ?? pay.amount ?? pay.paid);
+      const inc = ledgerCashValue(pay);
       map[doc].procedures[svc].income += inc;
       map[doc].income += inc;
       map[doc].commission += parseMoney(pay.doctorCommissionAmount);
@@ -87,7 +88,7 @@ export default function DentistReport({ procedures, payments, rangeLabel, isAr }
         netToClinic: d.income - d.commission - d.labFee,
       }))
       .sort((a, b) => b.totalIncome - a.totalIncome);
-  }, [procedures]);
+  }, [procedures, payments]);
 
   const activeDentist = stats.find((s) => s.name === selectedDentist) || stats[0];
   const dentistNames = stats.map((s) => s.name);

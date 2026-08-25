@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { 
     Calendar, Plus, ChevronRight, ChevronLeft, Wallet, User, Clock, Check,
     Loader2, Edit, Printer, UserX, MessageCircle, Pill, Receipt,
-    X, Save, Trash2, FileText, ChevronDown, Bell, UserPlus, AlertCircle
+    X, Save, Trash2, FileText, ChevronDown, Bell, UserPlus, AlertCircle, Building2
 } from "lucide-react";
 import { db, auth } from "@/lib/firebase";
 import { 
@@ -41,9 +41,11 @@ import { logActivity } from "@/lib/logger";
 import { MoneyApiError, deleteAppointment } from "@/lib/moneyApi";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { parseClinicSchedule, clinicDayBoundsMinutes, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
+import { useActiveBranch, ALL_BRANCHES } from "@/lib/useActiveBranch";
+import BranchSelector from "@/components/shared/BranchSelector";
 import type { OwnerAlertKey } from "@/types/whatsapp";
 import { sendPatientAppointmentWhatsApp } from "@/lib/sendPatientAppointmentWhatsAppClient";
-import { buildPrescriptionSrcDoc, prescriptionSrcDocToPdfBlob } from "@/lib/prescriptionPdfHtml";
+import { prescriptionPayloadToPdfBlob } from "@/lib/prescriptionPdfHtml";
 import {
   buildPrescriptionPayloadFromRecord,
   normalizeRxItemsFromRecord,
@@ -139,6 +141,15 @@ export default function DesktopDashboard() {
   const [selectedAppointment, setSelectedAppointment] = useState<DashboardAppointment | null>(null);
   const [appointmentToEdit, setAppointmentToEdit] = useState<BookingEditSnapshot | null>(null);
   const [scheduleViewDate, setScheduleViewDate] = useState(getLocalDateKey);
+  // Where this desk is working today. Shared with booking below, so an appointment created from
+  // the dashboard is stamped with the branch whose schedule you were looking at.
+  const {
+    branches,
+    activeBranchId,
+    setActiveBranchId,
+    scopeBranchId,
+    matches: branchMatches,
+  } = useActiveBranch();
   const scheduleDateInputRef = useRef<HTMLInputElement>(null);
   const lastTapRef = useRef<{ time: number; id: string } | null>(null);
   const [printingRxPatientId, setPrintingRxPatientId] = useState<string | null>(null);
@@ -414,15 +425,19 @@ export default function DesktopDashboard() {
   }, [scheduleViewDate, viewMode]);
 
   const appointments = useMemo(() => {
+    // Branch first: a receptionist at one desk should not be reading the names of people booked
+    // across town. `branchMatches` passes everything through when the clinic has no branches, and
+    // always passes rows booked before branches existed, which carry no branchId to judge.
+    const inBranch = allAppointments.filter((a) => branchMatches(a.branchId));
     if (viewMode === 'day') {
       const viewKey = normalizeDateKey(scheduleViewDate) || scheduleViewDate;
-      return allAppointments
+      return inBranch
         .filter((a) => normalizeDateKey(a.date) === viewKey)
         .sort((a, b) => normalizeTimeKey(a.time).localeCompare(normalizeTimeKey(b.time)));
     } else {
-      return allAppointments.sort((a, b) => normalizeTimeKey(a.time).localeCompare(normalizeTimeKey(b.time)));
+      return inBranch.sort((a, b) => normalizeTimeKey(a.time).localeCompare(normalizeTimeKey(b.time)));
     }
-  }, [allAppointments, scheduleViewDate, viewMode]);
+  }, [allAppointments, scheduleViewDate, viewMode, branchMatches]);
 
   // 2. Live lists (patients, doctors, services) so dashboard actions sync without refresh.
   useEffect(() => {
@@ -790,7 +805,7 @@ export default function DesktopDashboard() {
       const clinicInfo = clinicSnap.exists() ? clinicSnap.data() : {};
 
       const payload = buildPrescriptionPayloadFromRecord(latest, patient, clinicInfo);
-      const blob = await prescriptionSrcDocToPdfBlob(buildPrescriptionSrcDoc(payload));
+      const blob = await prescriptionPayloadToPdfBlob(payload);
       openPrescriptionPdf(blob, `Prescription-${patientId.slice(0, 8)}.pdf`);
       showToast(language === "ar" ? "جاري فتح الوصفة للطباعة" : "Opening prescription to print", "success");
     } catch (err) {
@@ -1187,6 +1202,12 @@ export default function DesktopDashboard() {
                       </button>
                     </div>
                     <div className="flex shrink-0 items-center gap-2 self-center">
+                      {/* Which branch's day this is. Renders nothing for a single-site clinic. */}
+                      <BranchSelector
+                        branches={branches}
+                        value={activeBranchId}
+                        onChange={setActiveBranchId}
+                      />
                       <button
                         type="button"
                         onClick={() => setPrescriptionFinderOpen(true)}
@@ -1408,6 +1429,14 @@ export default function DesktopDashboard() {
                                                                             <h4 className={`font-medium truncate drop-shadow-sm ${nameFontSize}`}>
                                                                                 {apt.patientName}
                                                                             </h4>
+                                                                            {/* Only while looking at every branch at once — inside a single
+                                                                                branch the chip would repeat the same word on every card. */}
+                                                                            {activeBranchId === ALL_BRANCHES && apt.branchName && (
+                                                                                <span className="shrink-0 inline-flex items-center gap-1 rounded bg-white/60 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">
+                                                                                    <Building2 size={9} />
+                                                                                    {apt.branchName}
+                                                                                </span>
+                                                                            )}
                                                                             {(apt.status === "Checked In" || apt.waitingMood) && (
                                                                                 <span onClick={(e) => e.stopPropagation()} className="shrink-0 scale-75 lg:scale-100 origin-left">
                                                                                     <WaitingMoodPicker
@@ -1553,6 +1582,7 @@ export default function DesktopDashboard() {
                             preSelectedTime={preSelectedTime}
                             preSelectedDoctor={preSelectedDoctor}
                             preSelectedPatient={preSelectedPatient}
+                            preSelectedBranchId={scopeBranchId}
                         />
                     ) : (
                         <div className="flex-1 flex flex-col items-center justify-center text-white/60 lg:text-indigo-900/40 p-6 text-center">
@@ -1581,10 +1611,16 @@ export default function DesktopDashboard() {
           preSelectedTime={preSelectedTime}
           preSelectedDoctor={preSelectedDoctor}
           preSelectedPatient={preSelectedPatient}
+          preSelectedBranchId={scopeBranchId}
         />
       )}
 
-      <NewPatientModal isOpen={activeModal === 'patient'} onClose={() => setActiveModal(null)} onSuccess={() => {}} />
+      <NewPatientModal
+        isOpen={activeModal === 'patient'}
+        onClose={() => setActiveModal(null)}
+        onSuccess={() => {}}
+        preSelectedBranchId={scopeBranchId}
+      />
       <QuickPaymentModal isOpen={activeModal === 'payment'} onClose={() => setActiveModal(null)} onSave={() => {}} patients={patientsList} preSelectedPatient={paymentPatient} />
       <PrescriptionPrintFinderModal
         isOpen={prescriptionFinderOpen}

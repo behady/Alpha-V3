@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { DentalIconArt, hasColorArt } from "./dentalIconArt";
 
 /**
  * The dental icon library.
@@ -234,18 +235,32 @@ export function suggestCategory(name: string): string {
   return best?.key ?? "other";
 }
 
-/** One icon from the library, stroked in the current text colour. */
+/**
+ * One icon from the library.
+ *
+ * Colour by default — see `dentalIconArt.tsx` for why, and for the note about Android, which still
+ * renders the stroke paths below and is NOT updated by editing the colour art.
+ *
+ * Pass `mono` where the icon sits on a dark or coloured ground and has to take the surrounding
+ * text colour: a selected chip, a filter pill, a button. A full-colour drawing on a slate-900
+ * chip reads as a smudge, and inheriting `currentColor` is the whole point of those places.
+ */
 export function DentalIcon({
   id,
   size = 22,
   className = "",
   strokeWidth = 1.7,
+  mono = false,
 }: {
   id?: string | null;
   size?: number;
   className?: string;
   strokeWidth?: number;
+  mono?: boolean;
 }) {
+  if (!mono && hasColorArt(id)) {
+    return <DentalIconArt id={id} size={size} className={className} />;
+  }
   const def = DENTAL_ICONS.find((i) => i.id === id) || DENTAL_ICONS[0];
   return (
     <svg
