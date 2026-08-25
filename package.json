@@ -16,6 +16,7 @@
     "test:permissions": "npx tsx tests/permissions.test.mts",
     "test:recovery": "npx tsx tests/revenueRecovery.test.mjs",
     "test:dues": "npx tsx tests/paymentRecovery.test.mjs",
+    "test:ledgercash": "npx tsx tests/ledgerCashValue.test.mjs",
     "test:sms": "npx tsx tests/smsCost.test.mjs",
     "test:sms-schedule": "npx tsx tests/smsSchedule.test.mjs",
     "test:optout": "npx tsx tests/patientMessaging.test.mjs",

@@ -7,6 +7,7 @@ import {
 import { Download, FileBarChart, Stethoscope, FileSpreadsheet } from "lucide-react";
 import { exportToExcel, CHART_COLORS, parseMoney } from "./reportExcelUtils";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
+import { ledgerCashValue } from "@/lib/reportHelpers";
 import { useUI } from "@/context/UIContext";
 import { attributeService, buildProcedureIndex, type AttributableRow } from "@/lib/serviceAttribution";
 
@@ -54,7 +55,7 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
     payments?.forEach((pay) => {
       if (pay.type === "expense") return;
       const row = bucket(pay);
-      row.income += parseMoney(pay.val ?? pay.amount ?? pay.paid);
+      row.income += ledgerCashValue(pay);
       row.commission += parseMoney(pay.doctorCommissionAmount);
     });
 

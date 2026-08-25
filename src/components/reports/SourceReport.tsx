@@ -5,6 +5,7 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { Network, ChevronDown, ChevronRight, FileBarChart, FileSpreadsheet, Download } from "lucide-react";
 import { exportToExcel, CHART_COLORS, parseMoney } from "./reportExcelUtils";
 import { htmlToPdfBlob, buildReportHtmlBase } from "./reportPdfHtmlUtils";
+import { ledgerCashValue } from "@/lib/reportHelpers";
 import { useUI } from "@/context/UIContext";
 import { attributeService, buildProcedureIndex } from "@/lib/serviceAttribution";
 
@@ -90,7 +91,7 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
 
       if (!map[source].services[svc.key]) map[source].services[svc.key] = { name: svc.name, count: 0, income: 0 };
 
-      const inc = parseMoney(pay.val ?? pay.amount ?? pay.paid);
+      const inc = ledgerCashValue(pay);
 
       map[source].services[svc.key].income += inc;
       map[source].income += inc;
