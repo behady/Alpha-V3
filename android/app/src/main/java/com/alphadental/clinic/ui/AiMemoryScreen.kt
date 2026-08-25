@@ -79,6 +79,7 @@ fun AiMemoryScreen(
                         fontSize = 19.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = Alpha.Slate900,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
                     )
                     Text(
                         if (arabic) "قواعد يستخدمها في كل إجابة" else "Rules it applies to every answer",

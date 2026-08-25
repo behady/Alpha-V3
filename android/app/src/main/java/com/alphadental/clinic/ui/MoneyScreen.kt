@@ -141,20 +141,73 @@ fun MoneyScreen(
     }
 
     Column(Modifier.fillMaxSize()) {
+        // The slab carries the one figure the screen exists to report, and the
+        // period it belongs to. The four equal tiles it replaced said nothing
+        // about which of them mattered.
+        SlabSurface {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (arabic) "الحسابات" else "Finance",
+                    fontSize = 23.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
+                    color = onSlab,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = { onShift(-1) }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Filled.ChevronLeft, contentDescription = "Back", tint = onSlabDim)
+                }
+                IconButton(onClick = { onShift(1) }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Filled.ChevronRight, contentDescription = "Forward", tint = onSlabDim)
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+            Text(
+                text = "${finalNet.toInt()} EGP",
+                fontSize = 34.sp,
+                fontWeight = FontWeight.ExtraBold,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
+                color = if (finalNet >= 0) slabAccent else Alpha.Pink,
+                maxLines = 1,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = (if (arabic) "صافي الربح · " else "Net profit · ") + periodLabel(view, anchor, arabic) +
+                    if (labFees > 0) (if (arabic) " (بعد المعمل)" else " (after lab)") else "",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = onSlabDim,
+                maxLines = 1,
+            )
+
+            if (!isCurrentPeriod) {
+                Spacer(Modifier.height(10.dp))
+                Surface(
+                    onClick = onToday,
+                    shape = Alpha.PillShape,
+                    color = onSlab.copy(alpha = .14f),
+                ) {
+                    Text(
+                        if (arabic) "العودة إلى اليوم" else "Back to today",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.5.sp,
+                        color = onSlab,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                    )
+                }
+            }
+        }
+
         Surface(color = Alpha.Ground, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(horizontal = 16.dp)) {
 
-                // Title, period toggle, and the add button.
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 10.dp)) {
-                    Text(
-                        if (arabic) "الحسابات" else "Finance",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Alpha.Slate900,
-                        modifier = Modifier.weight(1f),
-                    )
+                Spacer(Modifier.height(12.dp))
+
+                // The period switch and the add button, under the figure they change.
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     PeriodToggle(view, arabic, onSetView)
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.weight(1f))
                     Surface(onClick = onAdd, shape = CircleShape, color = Alpha.Ink) {
                         Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) {
                             Icon(
@@ -167,43 +220,9 @@ fun MoneyScreen(
                     }
                 }
 
-                // Period stepper.
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                    IconButton(onClick = { onShift(-1) }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Filled.ChevronLeft, contentDescription = "Back", tint = Alpha.Slate500)
-                    }
-                    Text(
-                        periodLabel(view, anchor, arabic),
-                        fontSize = 13.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Alpha.Slate700,
-                        modifier = Modifier.weight(1f),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    )
-                    IconButton(onClick = { onShift(1) }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Filled.ChevronRight, contentDescription = "Forward", tint = Alpha.Slate500)
-                    }
-                }
-                if (!isCurrentPeriod) {
-                    Surface(
-                        onClick = onToday,
-                        shape = Alpha.PillShape,
-                        color = Alpha.GreenSoft,
-                        modifier = Modifier.align(Alignment.CenterHorizontally),
-                    ) {
-                        Text(
-                            if (arabic) "العودة إلى اليوم" else "Back to today",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.5.sp,
-                            color = Alpha.Green,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                        )
-                    }
-                }
-
                 Spacer(Modifier.height(10.dp))
 
-                // The website's KPI row.
+                // What the net figure is made of.
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     StatTile(
                         value = "+${cashIn.toInt()}",
@@ -217,20 +236,10 @@ fun MoneyScreen(
                         tint = if (expenses > 0) Alpha.Danger else Alpha.Slate900,
                         modifier = Modifier.weight(1f),
                     )
-                }
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     StatTile(
                         value = "-${commissions.toInt()}",
-                        caption = if (arabic) "عمولات الأطباء" else "Commissions",
+                        caption = if (arabic) "عمولات" else "Commissions",
                         tint = if (commissions > 0) Alpha.WarnText else Alpha.Slate900,
-                        modifier = Modifier.weight(1f),
-                    )
-                    StatTile(
-                        value = "${finalNet.toInt()}",
-                        caption = (if (arabic) "صافي الربح" else "Net profit") +
-                            if (labFees > 0) (if (arabic) " (بعد المعمل)" else " (after lab)") else "",
-                        tint = if (finalNet >= 0) Alpha.Slate900 else Alpha.Danger,
                         modifier = Modifier.weight(1f),
                     )
                 }

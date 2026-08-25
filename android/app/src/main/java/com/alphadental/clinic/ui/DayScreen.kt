@@ -61,62 +61,62 @@ fun DayScreen(
 ) {
     Column(Modifier.fillMaxWidth()) {
 
-        // The date header and a five-day strip: the selected day sits in the middle,
-        // a tap jumps straight to a neighbour, and the chevrons walk further out.
-        Surface(color = Alpha.Ground, modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+        // The slab carries whose day it is; the five-day strip stays on the light
+        // ground below, where a row of tappable chips reads as controls rather
+        // than as decoration on a dark band.
+        SlabSurface {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
                     Text(
                         text = prettyDate(date, arabic),
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Alpha.Slate900,
-                        modifier = Modifier.weight(1f),
+                        fontSize = 23.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
+                        color = onSlab,
+                        maxLines = 1,
                     )
+                    Spacer(Modifier.height(2.dp))
                     Text(
                         text = countLabel(appointments.size, arabic),
-                        fontSize = 12.sp,
+                        fontSize = 12.5.sp,
                         fontWeight = FontWeight.Medium,
-                        color = Alpha.Slate500,
+                        color = onSlabDim,
                     )
                 }
-                Spacer(Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { onShiftDay(-1) }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Filled.ChevronLeft, contentDescription = "Previous day", tint = Alpha.Slate500)
-                    }
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
-                    ) {
-                        (-2..2).forEach { offset ->
-                            DayChip(date, offset, arabic, onShiftDay, Modifier.weight(1f))
-                        }
-                    }
-                    IconButton(onClick = { onShiftDay(1) }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Filled.ChevronRight, contentDescription = "Next day", tint = Alpha.Slate500)
-                    }
+                IconButton(onClick = { onShiftDay(-1) }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Filled.ChevronLeft, contentDescription = "Previous day", tint = onSlabDim)
+                }
+                IconButton(onClick = { onShiftDay(1) }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Filled.ChevronRight, contentDescription = "Next day", tint = onSlabDim)
+                }
+            }
+
+            if (!isToday) {
+                Spacer(Modifier.height(12.dp))
+                Surface(
+                    onClick = onToday,
+                    shape = Alpha.PillShape,
+                    color = onSlab.copy(alpha = .14f),
+                ) {
+                    Text(
+                        if (arabic) "العودة إلى اليوم" else "Back to today",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.5.sp,
+                        color = onSlab,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                    )
                 }
             }
         }
 
-        if (!isToday) {
-            // A small green pill, centred, so the way home is always one obvious tap.
-            Surface(
-                onClick = onToday,
-                shape = Alpha.PillShape,
-                color = Alpha.GreenSoft,
-                modifier = Modifier
-                    .align(Alignment.CenterHorizontally)
-                    .padding(top = 2.dp, bottom = 4.dp),
+        Surface(color = Alpha.Ground, modifier = Modifier.fillMaxWidth()) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
             ) {
-                Text(
-                    if (arabic) "العودة إلى اليوم" else "Back to today",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                    color = Alpha.Green,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
-                )
+                (-2..2).forEach { offset ->
+                    DayChip(date, offset, arabic, onShiftDay, Modifier.weight(1f))
+                }
             }
         }
 

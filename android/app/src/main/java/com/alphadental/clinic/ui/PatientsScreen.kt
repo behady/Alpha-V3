@@ -81,6 +81,7 @@ fun PatientsScreen(
                     if (arabic) "المرضى" else "Patients",
                     fontSize = 22.sp,
                     fontWeight = FontWeight.ExtraBold,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
                     color = Alpha.Slate900,
                 )
                 Spacer(Modifier.height(10.dp))
