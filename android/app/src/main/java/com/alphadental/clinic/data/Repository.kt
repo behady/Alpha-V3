@@ -170,6 +170,56 @@ object Repository {
             .sortedWith(compareBy({ it.date }, { it.minutes() }, { it.patientName }))
     }
 
+    // ---------------------------------------------------------------- what the assistant learned
+
+    /**
+     * The rules the assistant has taught itself about this clinic.
+     *
+     * Its `learn_fact` tool writes here whenever someone corrects it or states a
+     * clinic policy, and every later answer is shaped by what it finds. Nothing
+     * in either app ever showed the list, so a fact recorded wrongly — a doctor's
+     * day off that changed, a price that moved — kept steering answers with no
+     * way to find it, let alone remove it.
+     *
+     * Same document the server reads at `ai_preferences/{uid}`, so what is shown
+     * here is exactly what the assistant is being told.
+     */
+    private fun aiPreferences(clinicId: String, uid: String) =
+        Firebase.db().collection("clinics").document(clinicId)
+            .collection("ai_preferences").document(uid)
+
+    suspend fun loadAiFacts(clinicId: String, uid: String): List<String> =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val snap = aiPreferences(clinicId, uid).get().await()
+            (snap.get("facts") as? List<*>)
+                ?.mapNotNull { it as? String }
+                ?.filter { it.isNotBlank() }
+                .orEmpty()
+        }
+
+    /**
+     * Forgets one fact, by its exact text.
+     *
+     * The whole list is rewritten rather than the one entry removed, because the
+     * field is a plain array with no ids — and it is re-read inside the
+     * transaction so a fact learned while somebody was looking at the screen is
+     * not silently dropped by a stale copy.
+     */
+    suspend fun forgetAiFact(clinicId: String, uid: String, fact: String): List<String> =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val ref = aiPreferences(clinicId, uid)
+            Firebase.db().runTransaction { transaction ->
+                val snap = transaction.get(ref)
+                val current = (snap.get("facts") as? List<*>)?.mapNotNull { it as? String }.orEmpty()
+                val next = current.toMutableList()
+                // Only the first match: two identical facts are two rows on screen,
+                // and one tap should remove one row.
+                next.remove(fact)
+                transaction.update(ref, "facts", next)
+                next
+            }.await()
+        }
+
     /**
      * Live appointments for one calendar day.
      *

@@ -26,6 +26,48 @@ object NavIntent {
         object WhatsappQueue : Target()
         /** "Open Sara's file" — the name still has to be found in the register. */
         data class PatientFile(val name: String) : Target()
+        /** The server named a patient by id, so no register lookup is needed. */
+        data class PatientById(val id: String) : Target()
+    }
+
+    /**
+     * Turns the website path the server sends into a screen this app has.
+     *
+     * `navigate_to` is one of the assistant's core tools, and it answers in web
+     * routes — `/patients`, `/patients/abc123?tab=finance` — because the website
+     * is the client it was written against. The phone used to parse the reply
+     * text and throw the path away, so "Navigating to /patients…" appeared in the
+     * chat and nothing moved.
+     *
+     * Null for a path this app has no screen for, which is the honest answer for
+     * `/marketing` or `/settings/billing` — better to say so than to open
+     * something else and call it done.
+     */
+    fun fromWebPath(path: String?): Target? {
+        val clean = path.orEmpty()
+            .substringBefore('?')
+            .substringBefore('#')
+            .trim()
+            .trim('/')
+            .lowercase()
+        if (clean.isEmpty()) return null
+
+        val segments = clean.split('/')
+        // "/patients/abc123" opens that file directly; "/patients" opens the list.
+        if (segments[0] == "patients" && segments.size > 1 && segments[1].isNotBlank()) {
+            return Target.PatientById(segments[1])
+        }
+        return when (segments[0]) {
+            "patients" -> Target.Patients
+            "appointments", "calendar", "schedule", "day", "dashboard" -> Target.Day
+            "finance", "money", "billing" -> Target.Money
+            "reports" -> Target.Reports
+            "inventory", "stock" -> Target.Inventory
+            "leads", "crm" -> Target.Leads
+            "ortho" -> Target.Ortho
+            "messages", "whatsapp" -> Target.WhatsappQueue
+            else -> null
+        }
     }
 
     private val OPEN_VERBS = listOf(

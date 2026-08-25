@@ -10,7 +10,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 /**
- * A prescription as a printable A5 sheet.
+ * A prescription as a printable A5 sheet, however many sheets that takes.
  *
  * Mirrors the website's printed script rather than inventing a second design —
  * clinic letterhead, the patient block, the Rx symbol, a numbered list of
@@ -18,8 +18,12 @@ import java.util.Locale
  * prescription is a document a pharmacy reads and a patient keeps, so the two
  * surfaces must produce the same paper.
  *
- * Drawn with Android's own PdfDocument, which shapes Arabic through the system
- * text engine — the same route the finance report takes.
+ * It used to produce exactly one page and simply stop drawing when it ran out of
+ * room, which silently dropped every medicine past roughly the seventh — with
+ * nothing on the sheet to say anything was missing. A pharmacist cannot detect
+ * that. The renderer now spills onto as many pages as the script needs, every
+ * page carries the patient's name and "Page 1 of 2", and any page that is not
+ * the last says so in words.
  */
 object PrescriptionPdf {
 
@@ -27,6 +31,13 @@ object PrescriptionPdf {
     private const val PAGE_W = 420
     private const val PAGE_H = 595
     private const val MARGIN = 34f
+
+    /**
+     * The lowest a medicine may reach. Room for the signature block and the
+     * footer is reserved on every page, not only the last, because which page
+     * turns out to be the last is not known until the medicines have run out.
+     */
+    private const val CONTENT_BOTTOM = PAGE_H - MARGIN - 60f
 
     private val INK = Color.rgb(15, 23, 42)
     private val SLATE = Color.rgb(100, 116, 139)
@@ -45,12 +56,89 @@ object PrescriptionPdf {
         prescription: Prescription,
         arabic: Boolean,
     ): File {
+        // Drawn twice: the first pass only counts pages, so the second can print
+        // "Page 1 of 2" rather than leaving a pharmacist to wonder whether a
+        // second sheet exists. Both passes run the same code over the same data,
+        // so the count cannot drift from the document — which a separately
+        // written estimate eventually would.
+        val counting = PdfDocument()
+        val total = runCatching {
+            render(counting, clinic, patientName, patientPhone, prescription, arabic, totalPages = 0)
+        }.getOrDefault(1)
+        runCatching { counting.close() }
+
         val doc = PdfDocument()
-        val page = doc.startPage(PdfDocument.PageInfo.Builder(PAGE_W, PAGE_H, 1).create())
-        val canvas = page.canvas
+        render(doc, clinic, patientName, patientPhone, prescription, arabic, totalPages = total)
+
+        val dir = File(context.cacheDir, "reports").apply { mkdirs() }
+        val file = File(dir, "prescription-${prescription.id.ifBlank { "draft" }}.pdf")
+        file.outputStream().use { doc.writeTo(it) }
+        doc.close()
+        return file
+    }
+
+    /**
+     * Draws the whole script into [doc] and returns how many pages it took.
+     *
+     * [totalPages] is what the page footers should claim; the counting pass
+     * passes 0, when the answer is not known yet and nothing is kept anyway.
+     */
+    private fun render(
+        doc: PdfDocument,
+        clinic: ClinicInfo,
+        patientName: String,
+        patientPhone: String,
+        prescription: Prescription,
+        arabic: Boolean,
+        totalPages: Int,
+    ): Int {
+        var pageNumber = 1
+        var page = doc.startPage(PdfDocument.PageInfo.Builder(PAGE_W, PAGE_H, pageNumber).create())
+        var canvas = page.canvas
         var y = MARGIN
 
         val line = Paint().apply { color = FAINT; strokeWidth = 1f }
+
+        /** Leaves the current page, having said on it that the script continues. */
+        fun newPage() {
+            drawPageFoot(canvas, pageNumber, totalPages, arabic, continues = true)
+            doc.finishPage(page)
+            pageNumber += 1
+            page = doc.startPage(PdfDocument.PageInfo.Builder(PAGE_W, PAGE_H, pageNumber).create())
+            canvas = page.canvas
+            y = MARGIN
+            // A loose second sheet has to be matchable to its script and its
+            // patient without the first sheet in hand.
+            canvas.drawText(
+                if (arabic) "تكملة الروشتة" else "Prescription, continued",
+                MARGIN, y + 11, paint(9f, SLATE, bold = true),
+            )
+            val header = listOfNotNull(
+                patientName.takeIf { it.isNotBlank() },
+                prettyDate(prescription.date, arabic).takeIf { it.isNotBlank() },
+            ).joinToString("  ·  ")
+            if (header.isNotBlank()) {
+                val headerPaint = paint(9f, SLATE)
+                canvas.drawText(header, PAGE_W - MARGIN - headerPaint.measureText(header), y + 11, headerPaint)
+            }
+            y += 20
+            canvas.drawLine(MARGIN, y, PAGE_W - MARGIN, y, line)
+            y += 10
+        }
+
+        /** Starts a new page when [space] would not fit above the reserved footer. */
+        fun ensure(space: Float) {
+            if (y + space > CONTENT_BOTTOM) newPage()
+        }
+
+        /** Draws already-split lines, taking a new page between any two of them. */
+        fun drawLines(lines: List<String>, x: Float, linePaint: Paint) {
+            lines.forEach { text ->
+                ensure(linePaint.textSize + 3)
+                canvas.drawText(text, x, y + linePaint.textSize, linePaint)
+                y += linePaint.textSize + 3
+            }
+        }
 
         // 1. Letterhead.
         canvas.drawText(
@@ -95,13 +183,16 @@ object PrescriptionPdf {
         y += 60
 
         if (prescription.diagnosis.isNotBlank()) {
+            ensure(30f)
             canvas.drawText(if (arabic) "التشخيص" else "DIAGNOSIS", MARGIN, y, paint(7.5f, SLATE, bold = true))
             y += 14
-            y = wrap(canvas, prescription.diagnosis, MARGIN, y, PAGE_W - 2 * MARGIN, paint(10f, INK))
+            val body = paint(10f, INK)
+            drawLines(splitLines(prescription.diagnosis, PAGE_W - 2 * MARGIN, body), MARGIN, body)
             y += 10
         }
 
         // 3. The Rx symbol and the medicines.
+        ensure(44f)
         canvas.drawText("℞", MARGIN, y + 18, paint(24f, GREEN, bold = true))
         y += 30
         canvas.drawLine(MARGIN, y, PAGE_W - MARGIN, y, line)
@@ -115,8 +206,10 @@ object PrescriptionPdf {
             y += 24
         } else {
             prescription.drugs.forEachIndexed { index, drug ->
-                // Stop before running off the sheet rather than drawing into the margin.
-                if (y > PAGE_H - 120) return@forEachIndexed
+                // Keep the number, the name and the first line of instructions
+                // together: a medicine split across the fold is a misread waiting
+                // to happen.
+                ensure(46f)
                 canvas.drawText("${index + 1}.", MARGIN, y + 15, paint(11f, GREEN, bold = true))
                 canvas.drawText(drug.name, MARGIN + 20, y + 15, paint(11.5f, INK, bold = true))
                 y += 20
@@ -125,7 +218,9 @@ object PrescriptionPdf {
                     drug.note.takeIf { it.isNotBlank() },
                 ).joinToString("  ·  ")
                 if (detail.isNotBlank()) {
-                    y = wrap(canvas, detail, MARGIN + 20, y + 2, PAGE_W - MARGIN - (MARGIN + 20), paint(9.5f, SLATE))
+                    val body = paint(9.5f, SLATE)
+                    y += 2
+                    drawLines(splitLines(detail, PAGE_W - MARGIN - (MARGIN + 20), body), MARGIN + 20, body)
                     y += 4
                 }
                 canvas.drawLine(MARGIN, y, PAGE_W - MARGIN, y, line)
@@ -133,7 +228,7 @@ object PrescriptionPdf {
             }
         }
 
-        // 4. Signature and footer, pinned to the bottom of the sheet.
+        // 4. Signature and footer, pinned to the bottom of the final sheet.
         val signY = PAGE_H - MARGIN - 46f
         canvas.drawLine(PAGE_W - MARGIN - 130, signY, PAGE_W - MARGIN, signY, line)
         val signLabel = if (arabic) "التوقيع" else "Signature"
@@ -152,14 +247,39 @@ object PrescriptionPdf {
         if (footer.isNotBlank()) {
             canvas.drawText(footer, MARGIN, PAGE_H - MARGIN, paint(8f, SLATE))
         }
+        drawPageFoot(canvas, pageNumber, totalPages, arabic, continues = false)
 
         doc.finishPage(page)
+        return pageNumber
+    }
 
-        val dir = File(context.cacheDir, "reports").apply { mkdirs() }
-        val file = File(dir, "prescription-${prescription.id.ifBlank { "draft" }}.pdf")
-        file.outputStream().use { doc.writeTo(it) }
-        doc.close()
-        return file
+    /**
+     * "Page 1 of 2", and on any page that is not the last, the fact that it is
+     * not. Set on the right so it never collides with the clinic address.
+     */
+    private fun drawPageFoot(
+        canvas: Canvas,
+        pageNumber: Int,
+        totalPages: Int,
+        arabic: Boolean,
+        continues: Boolean,
+    ) {
+        // A one-page script says nothing: page numbers on a single sheet are
+        // noise, and one sheet is overwhelmingly the common case.
+        if (totalPages <= 1 && !continues) return
+
+        val of = if (totalPages > 0) {
+            if (arabic) "صفحة $pageNumber من $totalPages" else "Page $pageNumber of $totalPages"
+        } else {
+            if (arabic) "صفحة $pageNumber" else "Page $pageNumber"
+        }
+        val text = if (continues) {
+            if (arabic) "$of — يتبع" else "$of — continued overleaf"
+        } else {
+            of
+        }
+        val footPaint = paint(8f, SLATE, bold = continues)
+        canvas.drawText(text, PAGE_W - MARGIN - footPaint.measureText(text), PAGE_H - MARGIN, footPaint)
     }
 
     private fun paint(size: Float, color: Int, bold: Boolean = false) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -168,24 +288,34 @@ object PrescriptionPdf {
         isFakeBoldText = bold
     }
 
-    /** Draws text broken across lines, returning the y it finished at. */
-    private fun wrap(canvas: Canvas, text: String, x: Float, startY: Float, maxWidth: Float, paint: Paint): Float {
-        var y = startY
+    /**
+     * Breaks text into lines that fit [maxWidth], without drawing any of it.
+     *
+     * Split from the drawing so the caller can take a new page between two
+     * lines. While measuring and drawing were one pass, a long instruction near
+     * the foot of the sheet ran into the signature or off the paper entirely.
+     */
+    private fun splitLines(text: String, maxWidth: Float, paint: Paint): List<String> {
+        val lines = mutableListOf<String>()
         var remaining = text.trim()
         while (remaining.isNotEmpty()) {
             val fitted = paint.breakText(remaining, true, maxWidth, null)
-            if (fitted <= 0) break
+            if (fitted <= 0) {
+                // Nothing fits — a single unbreakable glyph wider than the column.
+                // Emit it anyway rather than looping forever or losing the text.
+                lines += remaining
+                break
+            }
             // Break on a space where there is one, so words are not sliced in half.
             var cut = fitted
             if (fitted < remaining.length) {
                 val space = remaining.lastIndexOf(' ', fitted)
                 if (space > 0) cut = space
             }
-            canvas.drawText(remaining.substring(0, cut), x, y + paint.textSize, paint)
-            y += paint.textSize + 3
+            lines += remaining.substring(0, cut)
             remaining = remaining.substring(cut).trim()
         }
-        return y
+        return lines
     }
 
     private fun prettyDate(dateKey: String, arabic: Boolean): String {

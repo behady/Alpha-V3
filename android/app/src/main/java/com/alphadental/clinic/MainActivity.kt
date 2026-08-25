@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonSearch
@@ -103,6 +104,7 @@ import com.alphadental.clinic.ui.PaymentSheet
 import com.alphadental.clinic.ui.HoursSheet
 import com.alphadental.clinic.ui.OrthoScreen
 import com.alphadental.clinic.ui.PrescriptionSheet
+import com.alphadental.clinic.ui.AiMemoryScreen
 import com.alphadental.clinic.ui.AssistantScreen
 import com.alphadental.clinic.ui.ReportsScreen
 import com.alphadental.clinic.data.LocationFinder
@@ -425,6 +427,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             onOpenHours = if (session.isAdmin) ({ viewModel.openHours() }) else null,
                             onToggleLanguage = viewModel::toggleLanguage,
                             onOpenAppearance = { appearanceOpen = true },
+                            onOpenAiMemory = viewModel::openAiMemory,
                             onSignOut = viewModel::signOut,
                         )
                     }
@@ -561,6 +564,19 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
             // The CRM inbox, full page. Admin and reception, matching the website.
             if (appearanceOpen) {
                 AppearanceScreen(arabic = state.arabic, onClose = { appearanceOpen = false })
+            }
+
+            // What the assistant has taught itself about this clinic, and a way to
+            // make it forget something that is no longer true.
+            if (state.aiMemoryOpen) {
+                AiMemoryScreen(
+                    facts = state.aiFacts,
+                    loading = state.loadingAiFacts,
+                    error = state.aiFactsError,
+                    arabic = state.arabic,
+                    onForget = viewModel::forgetAiFact,
+                    onClose = viewModel::closeAiMemory,
+                )
             }
 
             if (state.leadsOpen) {
@@ -868,6 +884,8 @@ private fun MoreScreen(
     onOpenHours: (() -> Unit)?,
     onToggleLanguage: () -> Unit,
     onOpenAppearance: () -> Unit,
+    /** The list of rules the assistant has taught itself about this clinic. */
+    onOpenAiMemory: () -> Unit,
     onSignOut: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -1005,6 +1023,13 @@ private fun MoreScreen(
             label = if (arabic) "المظهر" else "Appearance",
             caption = if (arabic) "الألوان والوضع الليلي" else "Colours and night mode",
             onClick = onOpenAppearance,
+        )
+
+        MoreRow(
+            icon = Icons.Filled.Psychology,
+            label = if (arabic) "ما تعلّمه المساعد" else "What Alpha has learned",
+            caption = if (arabic) "راجع القواعد التي حفظها" else "Review the rules it has saved",
+            onClick = onOpenAiMemory,
         )
 
         MoreRow(
