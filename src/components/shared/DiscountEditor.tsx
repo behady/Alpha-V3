@@ -23,7 +23,7 @@ import { useEffect, useMemo } from "react";
 import { Tag, Percent, Info } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { applyDiscount, effectiveDiscountPercent, type DiscountMode } from "@/lib/discountMath";
-import { resolveActiveListId, type PriceList } from "@/lib/priceLists";
+import { listsForBranch, resolveActiveListId, type PriceList } from "@/lib/priceLists";
 
 export type DiscountState = {
   priceListId: string;
@@ -37,6 +37,11 @@ type Props = {
   /** Line total at list price, before any discount. */
   listTotal: number;
   priceLists: PriceList[];
+  /**
+   * The branch this treatment is being recorded at. Narrows the offered lists to the ones that
+   * branch charges; omitted (or a clinic with no branches) offers everything, as before.
+   */
+  branchId?: string | null;
   reasons: string[];
   /** null = no ceiling (an Admin). */
   maxPercent: number | null;
@@ -49,6 +54,7 @@ type Props = {
 export default function DiscountEditor({
   listTotal,
   priceLists,
+  branchId = null,
   reasons,
   maxPercent,
   value,
@@ -60,7 +66,10 @@ export default function DiscountEditor({
   const ar = language === "ar";
   const money = currency || (ar ? "ج.م" : "EGP");
 
-  const activeLists = useMemo(() => priceLists.filter((l) => l.active), [priceLists]);
+  const activeLists = useMemo(
+    () => listsForBranch(priceLists, branchId).filter((l) => l.active),
+    [priceLists, branchId]
+  );
   const selectedList = activeLists.find((l) => l.id === value.priceListId) || null;
 
   /**
@@ -77,7 +86,7 @@ export default function DiscountEditor({
   useEffect(() => {
     if (activeLists.length === 0) return;
     if (activeLists.some((l) => l.id === value.priceListId)) return;
-    onChange({ ...value, priceListId: resolveActiveListId(activeLists, value.priceListId, null) });
+    onChange({ ...value, priceListId: resolveActiveListId(activeLists, value.priceListId, null, branchId) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeLists, value.priceListId]);
 

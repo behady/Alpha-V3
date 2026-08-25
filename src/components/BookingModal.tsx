@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import ServiceCombobox from "./shared/ServiceCombobox";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
-import { resolveActiveListId } from "@/lib/priceLists";
+import { listsForBranch, resolveActiveListId } from "@/lib/priceLists";
 import { resolveListPrice } from "@/lib/discountMath";
 import {
   X,
@@ -137,6 +137,12 @@ interface Props {
   onDelete?: (appointmentId: string) => void | Promise<void>;
   inlineDesktop?: boolean;
   servicesList?: any[];
+  /**
+   * The branch the caller is working at. Used only as the starting value for a NEW appointment —
+   * editing an existing one keeps whatever branch it was booked at, because moving a booking
+   * between branches has to be a deliberate act, not a side effect of who opened the screen.
+   */
+  preSelectedBranchId?: string;
 }
 
 function dateIsClinicClosed(dateStr: string, offDays: string[]): boolean {
@@ -162,6 +168,7 @@ export default function BookingModal({
   preSelectedPatient = null,
   inlineDesktop = false,
   servicesList = [],
+  preSelectedBranchId = "",
 }: Props) {
   const { language } = useLanguage();
   const { showToast, confirm } = useUI();
@@ -234,12 +241,31 @@ export default function BookingModal({
    * family list"), so the choice belongs here too.
    */
   const { priceLists } = usePricingPolicy();
-  const activePriceLists = useMemo(() => priceLists.filter((l) => l.active), [priceLists]);
   const [procListId, setProcListId] = useState("");
-  const effectiveListId = useMemo(
-    () => resolveActiveListId(activePriceLists, procListId, null),
-    [activePriceLists, procListId]
+  // Only the lists this branch actually charges: its own, plus every clinic-wide one. Booking at
+  // the seaside desk must not be able to quote the downtown insurer's rates.
+  const activePriceLists = useMemo(
+    () => listsForBranch(priceLists, branchId).filter((l) => l.active),
+    [priceLists, branchId]
   );
+  const effectiveListId = useMemo(
+    () => resolveActiveListId(priceLists, procListId, null, branchId),
+    [priceLists, procListId, branchId]
+  );
+
+  /**
+   * Reprice the picked service whenever the list actually in force changes.
+   *
+   * Changing the BRANCH can change the list without anyone touching the list dropdown — a branch
+   * has its own default, and a list the previous branch offered may not be offered here. Without
+   * this the cost box keeps the old branch's number, which is the kind of wrong that gets invoiced.
+   */
+  useEffect(() => {
+    if (!procServiceId) return;
+    const svc = servicesList.find((x) => String(x.id) === String(procServiceId));
+    if (svc) setProcCost(resolveListPrice(svc, effectiveListId));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveListId]);
   const selectedPriceList = activePriceLists.find((l) => l.id === effectiveListId) || null;
 
   // Local State: Financial & Payment
@@ -496,8 +522,15 @@ export default function BookingModal({
 
   // A clinic with exactly one branch shouldn't have to pick it on every booking.
   useEffect(() => {
-    if (isOpen && !branchId && branches.length === 1) setBranchId(branches[0].id);
-  }, [isOpen, branchId, branches]);
+    if (!isOpen || branchId) return;
+    // The branch you are standing in, then the only one there is. Both are guesses the user can
+    // override; neither applies in edit mode, where branchId is already set from the appointment.
+    if (preSelectedBranchId && branches.some((b) => b.id === preSelectedBranchId)) {
+      setBranchId(preSelectedBranchId);
+    } else if (branches.length === 1) {
+      setBranchId(branches[0].id);
+    }
+  }, [isOpen, branchId, branches, preSelectedBranchId]);
 
   const selectedBranch = branches.find((b) => b.id === branchId) || null;
   const selectedRoom = selectedBranch?.rooms.find((r) => r.id === roomId) || null;

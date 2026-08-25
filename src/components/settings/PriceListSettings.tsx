@@ -16,7 +16,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { onSnapshot, setDoc, writeBatch, doc, getDocs } from "firebase/firestore";
-import { Check, Loader2, Plus, Star, Tag, Trash2, X, Percent, Copy, SlidersHorizontal } from "lucide-react";
+import { Check, Loader2, Plus, Star, Tag, Trash2, X, Percent, Copy, SlidersHorizontal, Building2, Layers } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc, getGlobalClinicId } from "@/lib/db-utils";
 import { useLanguage } from "@/context/LanguageContext";
@@ -24,6 +24,7 @@ import { useUI } from "@/context/UIContext";
 import { logActivity } from "@/lib/logger";
 import { useAuth } from "@/context/AuthContext";
 import PriceListWorkspace from "@/components/settings/PriceListWorkspace";
+import { LOCATIONS_DOC, parseClinicBranches, type ClinicBranch } from "@/lib/clinicLocations";
 import {
   DEFAULT_DISCOUNT_REASONS,
   DISCOUNTS_DOC,
@@ -67,6 +68,9 @@ export default function PriceListSettings({ currency }: { currency: string }) {
   /** "" = start fresh; otherwise the id of the list whose prices are copied. */
   const [copyFrom, setCopyFrom] = useState("");
   const [newBlanket, setNewBlanket] = useState("0");
+  /** "" = clinic-wide, offered at every branch. Otherwise the branch the new list belongs to. */
+  const [newBranchId, setNewBranchId] = useState("");
+  const [branches, setBranches] = useState<ClinicBranch[]>([]);
 
   useEffect(() => {
     const unsubLists = onSnapshot(getClinicDoc("settings", PRICE_LISTS_DOC), (snap) => {
@@ -78,6 +82,9 @@ export default function PriceListSettings({ currency }: { currency: string }) {
     // Which lists actually carry a price. A list nothing is priced on can be deleted outright;
     // one that does must only ever be deactivated, or recorded treatments would point at a list
     // nobody can look up.
+    const unsubBranches = onSnapshot(getClinicDoc("settings", LOCATIONS_DOC), (snap) => {
+      setBranches(parseClinicBranches(snap.exists() ? snap.data() : null));
+    });
     const unsubServices = onSnapshot(getClinicCollection("services"), (snap) => {
       const used = new Set<string>();
       const counts: Record<string, number> = {};
@@ -98,6 +105,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
       unsubLists();
       unsubDiscounts();
       unsubServices();
+      unsubBranches();
     };
   }, []);
 
@@ -157,9 +165,39 @@ export default function PriceListSettings({ currency }: { currency: string }) {
     listNamePlaceholder: ar ? "مثلاً: تأمين مصر" : "e.g. Misr Insurance",
     priced: (n: number) => (ar ? `${n} علاج مسعّر` : `${n} priced`),
     pricedNone: ar ? "بالسعر الأساسي" : "all at standard price",
+    clinicWide: ar ? "كل الفروع" : "All branches",
+    branchInherits: ar
+      ? "الفرع ده بيحاسب بأسعار العيادة العامة. اعمل له قائمة لو أسعاره مختلفة."
+      : "This branch charges the clinic-wide prices. Give it a list of its own if it charges differently.",
+    orphaned: ar ? "فروع محذوفة" : "Lists on a deleted branch",
+    branchLabel: ar ? "الفرع" : "Branch",
+    branchAll: ar ? "كل الفروع" : "All branches (clinic-wide)",
+    branchHint: ar
+      ? "القائمة دي هتظهر بس في الفرع ده. سيبها على كل الفروع لو الأسعار واحدة."
+      : "The list is only offered at that branch. Leave it clinic-wide if every branch charges it.",
   };
 
-  const activeCount = useMemo(() => lists.filter((l) => l.active).length, [lists]);
+  const clinicWideActiveCount = useMemo(
+    () => lists.filter((l) => l.active && !l.branchId).length,
+    [lists]
+  );
+  const branchName = (id?: string | null) =>
+    branches.find((b) => b.id === id)?.name || (ar ? "فرع محذوف" : "Deleted branch");
+
+  /**
+   * The lists grouped the way the screen reads them: everything clinic-wide first, then one
+   * section per branch. A branch with no lists of its own still gets a section, because "this
+   * branch charges the clinic's prices" is an answer worth seeing rather than an empty space.
+   */
+  const grouped = useMemo(() => {
+    const clinicWide = lists.filter((l) => !l.branchId);
+    const byBranch = branches.map((b) => ({ branch: b, items: lists.filter((l) => l.branchId === b.id) }));
+    // Lists pointing at a branch that has since been deleted would otherwise vanish from the
+    // screen while still being charged. Surface them so they can be moved or removed.
+    const knownIds = new Set(branches.map((b) => b.id));
+    const orphaned = lists.filter((l) => l.branchId && !knownIds.has(l.branchId));
+    return { clinicWide, byBranch, orphaned };
+  }, [lists, branches]);
 
   const persistLists = async (next: PriceList[], action: string) => {
     setSaving(true);
@@ -249,7 +287,23 @@ export default function PriceListSettings({ currency }: { currency: string }) {
       // of orphaned prices on a list that does not exist.
       await setDoc(
         getClinicDoc("settings", PRICE_LISTS_DOC),
-        { lists: toStoredLists([...lists, { id, name, generalDiscountPercent: blanket, active: true, isDefault: false }]) },
+        {
+          lists: toStoredLists([
+            ...lists,
+            {
+              id,
+              name,
+              generalDiscountPercent: blanket,
+              active: true,
+              // A branch's FIRST list becomes that branch's default, because a branch that has
+              // one list and no default would keep quietly charging clinic-wide prices and the
+              // list would look broken. Clinic-wide lists never auto-promote: the clinic already
+              // has a default, and stealing it is not what "add a list" means.
+              isDefault: !!newBranchId && !lists.some((l) => l.branchId === newBranchId && l.active),
+              ...(newBranchId ? { branchId: newBranchId } : {}),
+            },
+          ]),
+        },
         { merge: true }
       );
       let copied = 0;
@@ -258,13 +312,14 @@ export default function PriceListSettings({ currency }: { currency: string }) {
         { uid: user?.uid, name: user?.name, role: user?.role },
         "Price Lists Updated",
         source
-          ? `Added price list "${name}" by copying ${copied} price${copied === 1 ? "" : "s"} from "${source.name}"`
-          : `Added price list "${name}"`
+          ? `Added price list "${name}"${newBranchId ? ` for ${branchName(newBranchId)}` : ""} by copying ${copied} price${copied === 1 ? "" : "s"} from "${source.name}"`
+          : `Added price list "${name}"${newBranchId ? ` for ${branchName(newBranchId)}` : ""}`
       );
       showToast(txt.saved, "success");
       setNewListName("");
       setCopyFrom("");
       setNewBlanket("0");
+      setNewBranchId("");
       setIsNewOpen(false);
       // Straight into pricing it — that is the next thing anyone wants, and the reason the old
       // flow felt unfinished was that creating a list left you looking at the list of lists.
@@ -291,9 +346,15 @@ export default function PriceListSettings({ currency }: { currency: string }) {
   };
 
   const makeDefault = async (list: PriceList) => {
+    // Only within its own scope. Making the downtown insurance list the default there must not
+    // clear the default at the seaside branch, or at the clinic — each scope answers "which price
+    // when nobody chose one?" for itself.
+    const scope = list.branchId ?? "";
     await persistLists(
-      lists.map((l) => ({ ...l, isDefault: l.id === list.id })),
-      `Made "${list.name}" the default price list`
+      lists.map((l) => ((l.branchId ?? "") === scope ? { ...l, isDefault: l.id === list.id } : l)),
+      list.branchId
+        ? `Made "${list.name}" the default price list for ${branchName(list.branchId)}`
+        : `Made "${list.name}" the clinic-wide default price list`
     );
   };
 
@@ -302,7 +363,10 @@ export default function PriceListSettings({ currency }: { currency: string }) {
       showToast(txt.cannotDeactivateDefault, "error");
       return;
     }
-    if (list.active && activeCount <= 1) {
+    // The last active list in a scope may only go if the scope still has somewhere to fall back
+    // to. A branch can lose its last list — it inherits the clinic-wide one. The clinic cannot.
+    const isClinicWide = !list.branchId;
+    if (list.active && isClinicWide && clinicWideActiveCount <= 1) {
       showToast(txt.cannotDeactivateDefault, "error");
       return;
     }
@@ -348,6 +412,104 @@ export default function PriceListSettings({ currency }: { currency: string }) {
     );
   };
 
+  /** One row. Shared by the clinic-wide section and every branch section. */
+  const renderList = (list: PriceList) => (
+        <li
+          key={list.id}
+          className={`flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 ${
+            list.active ? "border-slate-200 bg-slate-50/60" : "border-slate-200 bg-slate-100/60 opacity-70"
+          }`}
+        >
+          <div className="min-w-0 flex-1">
+            <p className="flex items-center gap-2 truncate text-sm font-black text-slate-800">
+              {ar && list.nameAr ? list.nameAr : list.name}
+              {list.isDefault && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-primary-100 px-2 py-0.5 text-[10px] font-black text-primary-700">
+                  <Star size={9} /> {txt.isDefault}
+                </span>
+              )}
+              {!list.active && (
+                <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-black text-slate-600">
+                  {txt.inactive}
+                </span>
+              )}
+            </p>
+            <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-slate-400">
+              {branches.length > 1 && (
+                <span className="inline-flex items-center gap-1 rounded bg-slate-200/70 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">
+                  {list.branchId ? <Building2 size={9} /> : <Layers size={9} />}
+                  {list.branchId ? branchName(list.branchId) : txt.clinicWide}
+                </span>
+              )}
+              {currency}
+              {" · "}
+              {list.id === STANDARD_LIST_ID
+                ? txt.priced(serviceCount)
+                : pricedCounts[list.id]
+                  ? txt.priced(pricedCounts[list.id])
+                  : txt.pricedNone}
+            </p>
+          </div>
+
+          <label className="flex items-center gap-2">
+            <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">{txt.blanket}</span>
+            <span className="relative">
+              <input
+                type="number"
+                min={0}
+                max={100}
+                defaultValue={list.generalDiscountPercent}
+                disabled={saving}
+                onBlur={(e) => setBlanket(list, Number(e.target.value))}
+                className="w-20 rounded-xl border border-slate-200 bg-white py-1.5 pl-2 pr-6 text-sm font-bold tabular-nums text-slate-700 outline-none focus:border-primary-500 disabled:opacity-60"
+              />
+              <Percent size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400" />
+            </span>
+          </label>
+
+          <div className="flex items-center gap-1">
+            {/* The way in. Pricing a list used to be reachable only from inside each
+                treatment's own edit dialog, which is why nobody could find it. */}
+            <button
+              type="button"
+              onClick={() => setOpenListId(list.id)}
+              disabled={saving}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-[11px] font-bold text-white transition hover:bg-slate-800 disabled:opacity-50"
+            >
+              <SlidersHorizontal size={12} /> {txt.editPrices}
+            </button>
+            {!list.isDefault && list.active && (
+              <button
+                type="button"
+                onClick={() => makeDefault(list)}
+                disabled={saving}
+                className="rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-slate-500 transition hover:bg-white hover:text-primary-700 disabled:opacity-50"
+              >
+                {txt.makeDefault}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => toggleActive(list)}
+              disabled={saving}
+              className="rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-slate-500 transition hover:bg-white hover:text-slate-800 disabled:opacity-50"
+            >
+              {list.active ? txt.deactivate : txt.activate}
+            </button>
+            <button
+              type="button"
+              onClick={() => removeList(list)}
+              disabled={saving || usedListIds.has(list.id) || list.isDefault}
+              title={usedListIds.has(list.id) ? txt.inUse : undefined}
+              aria-label={txt.remove}
+              className="rounded-lg p-1.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-30"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        </li>
+  );
+
   // Pricing a list takes the whole screen. It is a table of every treatment the clinic offers, and
   // squeezing that into a panel under the lists is what made it unusable in the first place.
   const openList = openListId ? lists.find((l) => l.id === openListId) : null;
@@ -370,98 +532,44 @@ export default function PriceListSettings({ currency }: { currency: string }) {
           {saving && <Loader2 size={16} className="animate-spin text-slate-400" />}
         </header>
 
-        <ul className="space-y-2">
-          {lists.map((list) => (
-            <li
-              key={list.id}
-              className={`flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 ${
-                list.active ? "border-slate-200 bg-slate-50/60" : "border-slate-200 bg-slate-100/60 opacity-70"
-              }`}
-            >
-              <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-2 truncate text-sm font-black text-slate-800">
-                  {ar && list.nameAr ? list.nameAr : list.name}
-                  {list.isDefault && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-primary-100 px-2 py-0.5 text-[10px] font-black text-primary-700">
-                      <Star size={9} /> {txt.isDefault}
-                    </span>
-                  )}
-                  {!list.active && (
-                    <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-black text-slate-600">
-                      {txt.inactive}
-                    </span>
-                  )}
-                </p>
-                <p className="mt-0.5 text-[11px] font-medium text-slate-400">
-                  {currency}
-                  {" · "}
-                  {list.id === STANDARD_LIST_ID
-                    ? txt.priced(serviceCount)
-                    : pricedCounts[list.id]
-                      ? txt.priced(pricedCounts[list.id])
-                      : txt.pricedNone}
-                </p>
-              </div>
+        {/* Clinic-wide first: the lists every branch may charge. */}
+        {grouped.clinicWide.length > 0 && (
+          <section>
+            {branches.length > 1 && (
+              <h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-slate-400">
+                <Layers size={12} /> {txt.clinicWide}
+              </h4>
+            )}
+            <ul className="space-y-2">{grouped.clinicWide.map(renderList)}</ul>
+          </section>
+        )}
 
-              <label className="flex items-center gap-2">
-                <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">{txt.blanket}</span>
-                <span className="relative">
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    defaultValue={list.generalDiscountPercent}
-                    disabled={saving}
-                    onBlur={(e) => setBlanket(list, Number(e.target.value))}
-                    className="w-20 rounded-xl border border-slate-200 bg-white py-1.5 pl-2 pr-6 text-sm font-bold tabular-nums text-slate-700 outline-none focus:border-primary-500 disabled:opacity-60"
-                  />
-                  <Percent size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400" />
-                </span>
-              </label>
-
-              <div className="flex items-center gap-1">
-                {/* The way in. Pricing a list used to be reachable only from inside each
-                    treatment's own edit dialog, which is why nobody could find it. */}
-                <button
-                  type="button"
-                  onClick={() => setOpenListId(list.id)}
-                  disabled={saving}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-[11px] font-bold text-white transition hover:bg-slate-800 disabled:opacity-50"
-                >
-                  <SlidersHorizontal size={12} /> {txt.editPrices}
-                </button>
-                {!list.isDefault && list.active && (
-                  <button
-                    type="button"
-                    onClick={() => makeDefault(list)}
-                    disabled={saving}
-                    className="rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-slate-500 transition hover:bg-white hover:text-primary-700 disabled:opacity-50"
-                  >
-                    {txt.makeDefault}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => toggleActive(list)}
-                  disabled={saving}
-                  className="rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-slate-500 transition hover:bg-white hover:text-slate-800 disabled:opacity-50"
-                >
-                  {list.active ? txt.deactivate : txt.activate}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => removeList(list)}
-                  disabled={saving || usedListIds.has(list.id) || list.isDefault}
-                  title={usedListIds.has(list.id) ? txt.inUse : undefined}
-                  aria-label={txt.remove}
-                  className="rounded-lg p-1.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-30"
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            </li>
+        {/* Then one section per branch. A branch with no lists of its own is shown saying so,
+            rather than left out — "this branch charges the clinic's prices" is the answer. */}
+        {branches.length > 1 &&
+          grouped.byBranch.map(({ branch, items }) => (
+            <section key={branch.id} className="mt-5">
+              <h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-slate-400">
+                <Building2 size={12} className="text-primary-600" /> {branch.name}
+              </h4>
+              {items.length > 0 ? (
+                <ul className="space-y-2">{items.map(renderList)}</ul>
+              ) : (
+                <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-3 text-[11px] font-bold text-slate-400">
+                  {txt.branchInherits}
+                </p>
+              )}
+            </section>
           ))}
-        </ul>
+
+        {grouped.orphaned.length > 0 && (
+          <section className="mt-5">
+            <h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-amber-600">
+              <Building2 size={12} /> {txt.orphaned}
+            </h4>
+            <ul className="space-y-2">{grouped.orphaned.map(renderList)}</ul>
+          </section>
+        )}
 
         <button
           type="button"
@@ -594,6 +702,24 @@ export default function PriceListSettings({ currency }: { currency: string }) {
               {/* Fresh, or a copy. A clinic's second list is almost always "the standard one, but
                   cheaper" — offering that as the starting point is the difference between one
                   dialog and one per treatment. */}
+              {branches.length > 1 && (
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{txt.branchLabel}</label>
+                  <select
+                    value={newBranchId}
+                    onChange={(e) => setNewBranchId(e.target.value)}
+                    disabled={saving}
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all focus:border-primary-500 focus:bg-white disabled:opacity-60"
+                  >
+                    <option value="">{txt.branchAll}</option>
+                    {branches.map((b) => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] font-medium text-slate-400">{txt.branchHint}</p>
+                </div>
+              )}
+
               <div className="space-y-1.5">
                 <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{txt.startFrom}</label>
                 <div className="space-y-2">

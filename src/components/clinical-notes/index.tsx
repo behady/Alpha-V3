@@ -304,6 +304,7 @@ export default function ClinicalNotesContainer({
           patientId={patientId}
           patientName={patientName}
           appointmentId={drawerContextApptId}
+          branchId={appointments.find((a) => a.id === drawerContextApptId)?.branchId || null}
           initialNote={editingNote}
           servicesList={servicesList}
           doctors={doctors}
