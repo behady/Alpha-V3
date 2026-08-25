@@ -187,6 +187,15 @@ data class AppState(
     val aiFacts: List<String> = emptyList(),
     val loadingAiFacts: Boolean = false,
     val aiFactsError: String? = null,
+    /**
+     * Today at a glance, fetched in the background once per sign-in. Null until it
+     * arrives, and it stays null if it never does — the dashboard is not degraded
+     * by its absence, so a failure here must not put an error card on it.
+     */
+    val briefing: com.alphadental.clinic.ai.BriefingClient.Briefing? = null,
+    val briefingOpen: Boolean = false,
+    val loadingBriefing: Boolean = false,
+    val briefingError: String? = null,
 )
 
 /** Null target means a new booking; a set one means that appointment is being moved. */
@@ -920,6 +929,48 @@ class AppViewModel : ViewModel() {
         aiJob?.cancel()
         aiJob = null
         _state.value = _state.value.copy(aiOpen = false, aiThinking = false)
+    }
+
+    // --- today at a glance ---------------------------------------------------------------------
+
+    /**
+     * Fetches the day's briefing quietly in the background.
+     *
+     * Only for the roles that chase money, because the half of it the dashboard
+     * does not already show is the aged-balance list. Failures are swallowed on
+     * purpose: nobody asked for this, it is an addition to a screen that works
+     * perfectly well without it, and an error card on the dashboard would be a
+     * worse outcome than the card simply not appearing. Tapping through to the
+     * full screen surfaces the failure honestly, because there it was asked for.
+     */
+    fun refreshBriefing() {
+        val session = _state.value.session ?: return
+        if (!(session.isAdmin || session.isReception)) return
+        if (_state.value.loadingBriefing) return
+
+        _state.value = _state.value.copy(loadingBriefing = true, briefingError = null)
+        viewModelScope.launch {
+            runCatching { com.alphadental.clinic.ai.BriefingClient.load(session.clinicId) }
+                .onSuccess { briefing ->
+                    _state.value = _state.value.copy(briefing = briefing, loadingBriefing = false)
+                }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(
+                        loadingBriefing = false,
+                        briefingError = error.message ?: "The briefing could not be built.",
+                    )
+                }
+        }
+    }
+
+    fun openBriefing() {
+        _state.value = _state.value.copy(briefingOpen = true)
+        // Re-read on open: it was fetched at sign-in and the day has moved since.
+        refreshBriefing()
+    }
+
+    fun closeBriefing() {
+        _state.value = _state.value.copy(briefingOpen = false)
     }
 
     // --- what the assistant has learned ------------------------------------------------------

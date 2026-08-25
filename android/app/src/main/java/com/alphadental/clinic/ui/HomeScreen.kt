@@ -106,6 +106,9 @@ fun HomeScreen(
     onOpenAssistant: () -> Unit,
     /** Null for roles that do not work the CRM inbox. */
     onOpenLeads: (() -> Unit)?,
+    /** Today at a glance, once it has arrived. Null while loading, or if it failed. */
+    briefing: com.alphadental.clinic.ai.BriefingClient.Briefing? = null,
+    onOpenBriefing: () -> Unit = {},
 ) {
     val active = appointments.filterNot { normalizeStatus(it.status) in FINISHED }
     val nowMinutes = Calendar.getInstance().let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
@@ -143,6 +146,13 @@ fun HomeScreen(
                     )
                 }
             }
+        }
+
+        // Today's briefing, but only when it has something to say. It arrives in
+        // the background a moment after the dashboard, so it must not be a hole
+        // in the layout while it is missing — one line, or nothing at all.
+        if (briefing != null && !briefing.isEmpty) {
+            row { BriefingLine(briefing, arabic, onOpenBriefing) }
         }
 
         if (clockError != null) {
@@ -603,6 +613,75 @@ private fun LazyListScope.ownerHome(
 // ---------------------------------------------------------------------------
 // Shared pieces
 // ---------------------------------------------------------------------------
+
+/**
+ * One line of the day's briefing, and a way into the rest of it.
+ *
+ * It leads with the ageing balances because that is the part of the briefing the
+ * dashboard cannot already tell you — money on the books nobody has chased. With
+ * nothing ageing it falls back to the unconfirmed count, which is still a thing
+ * to act on rather than a thing to admire, and says nothing at all when the day
+ * is genuinely clear.
+ */
+@Composable
+private fun BriefingLine(
+    briefing: com.alphadental.clinic.ai.BriefingClient.Briefing,
+    arabic: Boolean,
+    onClick: () -> Unit,
+) {
+    val stale = briefing.staleBalances.size
+    val headline = when {
+        stale > 0 && arabic ->
+            "${briefing.staleBalanceTotal.toInt()} ج.م على $stale مريض بلا حركة"
+        stale > 0 ->
+            "${briefing.staleBalanceTotal.toInt()} EGP owed by $stale patient" +
+                "${if (stale == 1) "" else "s"}, nothing recent"
+        briefing.stillScheduled > 0 && arabic ->
+            "${briefing.stillScheduled} موعد لم يُؤكَّد بعد"
+        briefing.stillScheduled > 0 ->
+            "${briefing.stillScheduled} appointment" +
+                "${if (briefing.stillScheduled == 1) "" else "s"} still unconfirmed"
+        arabic -> "ملخص اليوم"
+        else -> "Today at a glance"
+    }
+
+    Surface(
+        onClick = onClick,
+        shape = Alpha.CardShape,
+        color = Alpha.Card,
+        border = BorderStroke(1.dp, Alpha.Slate200),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(if (stale > 0) Alpha.Pink else Alpha.Green)
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = headline,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Alpha.Slate800,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = if (arabic) "عرض ←" else "See →",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = Alpha.Slate500,
+            )
+        }
+    }
+}
 
 /** One dashboard row, held in the list's side gutter. */
 @Composable

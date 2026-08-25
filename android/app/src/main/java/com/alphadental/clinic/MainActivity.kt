@@ -105,6 +105,7 @@ import com.alphadental.clinic.ui.HoursSheet
 import com.alphadental.clinic.ui.OrthoScreen
 import com.alphadental.clinic.ui.PrescriptionSheet
 import com.alphadental.clinic.ui.AiMemoryScreen
+import com.alphadental.clinic.ui.BriefingScreen
 import com.alphadental.clinic.ui.AssistantScreen
 import com.alphadental.clinic.ui.ReportsScreen
 import com.alphadental.clinic.data.LocationFinder
@@ -265,6 +266,11 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
 
             // Navigation the notification asked for, honoured once a session
             // exists — a cold start parks the request here until sign-in settles.
+            // Fetched once per sign-in, in the background, for the roles that chase
+            // money. Nothing waits on it — the dashboard is complete without it and
+            // simply grows a line when it lands.
+            LaunchedEffect(session.uid) { viewModel.refreshBriefing() }
+
             LaunchedEffect(session.uid) {
                 com.alphadental.clinic.push.PushNav.requested.collect { screen ->
                     if (screen != null) {
@@ -330,6 +336,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                                 onOpenInventory = viewModel::openInventory,
                                 onOpenWhatsappQueue = viewModel::openWhatsappQueue,
                                 onOpenAssistant = { viewModel.openAssistant(context) },
+                                briefing = state.briefing,
+                                onOpenBriefing = viewModel::openBriefing,
                                 onOpenLeads = if (session.isAdmin || session.isReception) {
                                     { viewModel.openLeads() }
                                 } else null,
@@ -568,6 +576,22 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
 
             // What the assistant has taught itself about this clinic, and a way to
             // make it forget something that is no longer true.
+            // Today at a glance: the shape of the day, then the balances
+            // nobody has chased.
+            if (state.briefingOpen) {
+                BriefingScreen(
+                    briefing = state.briefing,
+                    loading = state.loadingBriefing,
+                    error = state.briefingError,
+                    arabic = state.arabic,
+                    onOpenPatient = { id ->
+                        viewModel.closeBriefing()
+                        viewModel.openPatient(id)
+                    },
+                    onClose = viewModel::closeBriefing,
+                )
+            }
+
             if (state.aiMemoryOpen) {
                 AiMemoryScreen(
                     facts = state.aiFacts,
