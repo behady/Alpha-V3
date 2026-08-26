@@ -497,6 +497,55 @@ export const TUTORIALS: Tutorial[] = [
     ],
   },
   {
+    id: "update-prices",
+    title: { en: "Update the price list", ar: "تحديث قائمة الأسعار" },
+    description: {
+      en: "Add or change a treatment's price in Settings → Prices — the catalog every charge and the assistant's answers draw from.",
+      ar: "إضافة أو تعديل سعر علاج من الإعدادات → الأسعار — الكتالوج اللي كل الحسابات وإجابات المساعد بتعتمد عليه.",
+    },
+    steps: [
+      {
+        route: "/settings",
+        anchor: "settings-tab-prices",
+        text: {
+          en: "In Settings, click Prices — the whole price list lives here. On a phone, open the sections menu at the top first.",
+          ar: "في الإعدادات، اضغط الأسعار — قائمة الأسعار كلها هنا. على الموبايل افتح قايمة الأقسام اللي فوق الأول.",
+        },
+      },
+      {
+        anchor: "price-add-service",
+        text: {
+          en: "Click Add Treatment to put a new service on the list. (To change an existing price, press the pencil on its row instead — this lesson adds a new one.)",
+          ar: "اضغط إضافة علاج عشان تضيف خدمة جديدة للقايمة. (لتعديل سعر موجود، اضغط القلم اللي على السطر بتاعه — الدرس ده بيضيف خدمة جديدة.)",
+        },
+      },
+      {
+        anchor: "price-service-name",
+        advanceOn: "next",
+        text: {
+          en: "Type the treatment's name here and its price below. Picking the right category helps the reports count it properly.",
+          ar: "اكتب اسم العلاج هنا وسعره تحته. اختيار التصنيف الصح بيخلي التقارير تعدّه صح.",
+        },
+      },
+      {
+        anchor: "price-service-save",
+        text: {
+          en: "Press Save — from now on, choosing this treatment in a clinical note fills its price automatically.",
+          ar: "اضغط حفظ — من دلوقتي، لما تختار العلاج ده في ملاحظة إكلينيكية سعره هيتكتب لوحده.",
+        },
+      },
+      {
+        anchor: "price-new-list",
+        advanceOn: "next",
+        optional: true,
+        text: {
+          en: "One more thing: the New list button up here creates a second price list (for another branch, or insurance rates) with its own prices per treatment.",
+          ar: "حاجة كمان: زرار قائمة جديدة اللي فوق بيعمل قائمة أسعار تانية (لفرع تاني، أو أسعار تأمين) بأسعارها الخاصة لكل علاج.",
+        },
+      },
+    ],
+  },
+  {
     id: "explore-reports",
     title: { en: "Read the reports", ar: "قراءة التقارير" },
     description: {

@@ -281,7 +281,7 @@ export default function SettingsPage() {
                                   <button
                                       key={tab.id}
                                       onClick={() => { setActiveTab(tab.id); setIsTopMenuOpen(false); }}
-                                      data-tour={tab.id === 'clinical' ? 'settings-tab-schedule' : undefined}
+                                      data-tour={tab.id === 'clinical' ? 'settings-tab-schedule' : tab.id === 'services' ? 'settings-tab-prices' : undefined}
                                       className={`w-full flex items-center gap-3 px-5 py-3 text-sm font-bold transition-colors ${isActive ? 'bg-[#E8F7F0] text-[#27ae60]' : 'text-slate-600 hover:bg-slate-50'}`}
                                   >
                                       <tab.icon size={18} className={isActive ? 'text-[#27ae60]' : 'text-slate-400'}/> {tab.label}
@@ -341,7 +341,7 @@ export default function SettingsPage() {
                     return (
                       <button
                         key={tab.id}
-                        data-tour={tab.id === 'clinical' ? 'settings-tab-schedule' : undefined}
+                        data-tour={tab.id === 'clinical' ? 'settings-tab-schedule' : tab.id === 'services' ? 'settings-tab-prices' : undefined}
                         onClick={() => setActiveTab(tab.id)}
                         className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-bold rounded-2xl transition-all ${isActive ? 'bg-white text-[#27ae60] shadow-sm border border-slate-200/60' : 'text-slate-600 hover:bg-white/60 hover:text-slate-900 border border-transparent'}`}
                       >
