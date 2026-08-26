@@ -1156,7 +1156,7 @@ export default function BookingModal({
           </button>
           <button
             type="button"
-            onClick={handleSubmit}
+            onClick={handleSubmit} data-tour="booking-confirm"
             disabled={isChecking || blockingReasons.length > 0}
             className="flex-[2] flex items-center justify-center gap-2 rounded-xl bg-primary-600 py-3.5 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-primary-200 transition hover:bg-primary-700 disabled:opacity-50"
           >

@@ -1228,7 +1228,7 @@ export default function AppointmentsPage() {
                         <Protect permission="appointments.add">
                           <button 
                              onClick={() => handleOpenBooking()}
-                             className="bg-[#FACC15] hover:bg-[#EAB308] text-slate-900 font-black px-5 py-2.5 rounded-xl shadow-sm shadow-yellow-200 flex items-center gap-2 transition-all active:scale-95"
+                             data-tour="appointment-add" className="bg-[#FACC15] hover:bg-[#EAB308] text-slate-900 font-black px-5 py-2.5 rounded-xl shadow-sm shadow-yellow-200 flex items-center gap-2 transition-all active:scale-95"
                           >
                              <Plus size={18} strokeWidth={3}/> {language === 'ar' ? 'إضافة موعد' : 'Add Appointment'}
                           </button>
@@ -1572,7 +1572,7 @@ export default function AppointmentsPage() {
       {/* Mobile FAB */}
       <button 
         onClick={() => handleOpenBooking()}
-        className="lg:hidden fixed bottom-6 end-6 z-50 bg-[#FACC15] text-slate-900 p-4 rounded-full shadow-xl hover:bg-[#EAB308] transition active:scale-95"
+        data-tour="appointment-add" className="lg:hidden fixed bottom-6 end-6 z-50 bg-[#FACC15] text-slate-900 p-4 rounded-full shadow-xl hover:bg-[#EAB308] transition active:scale-95"
       >
         <Plus size={24} />
       </button>

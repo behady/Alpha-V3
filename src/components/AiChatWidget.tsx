@@ -2,20 +2,24 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { 
-  Sparkles, X, Send, Loader2, Bot, Trash2, CheckCircle2, UserPlus, Zap, AlertTriangle
-} from "lucide-react";
+import { X, Send, Loader2, Trash2, Zap, AlertTriangle, GraduationCap, Sparkles } from "lucide-react";
 import { useClinic } from "@/context/ClinicContext";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
+import { useTutorial } from "@/context/TutorialContext";
 import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { getClinicDoc } from "@/lib/db-utils";
 import { auth } from "@/lib/firebase";
 import { handleManualWhatsApp } from "@/lib/whatsappManual";
 import { printAssistantDocument } from "@/lib/assistantDocumentPdf";
+import { TUTORIALS } from "@/lib/tutorials";
+import { RECEPTIONIST_NAME } from "@/lib/receptionist";
+import AvatarFace from "@/components/appointments/AvatarFace";
 import AssistantMarkdown from "@/components/ai/AssistantMarkdown";
-import { onSnapshot } from "firebase/firestore";interface ChatMessage {
+import { onSnapshot } from "firebase/firestore";
+
+interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
@@ -35,13 +39,26 @@ interface PendingAction {
   summary: Record<string, unknown>;
 }
 
+/**
+ * "Cancel the tutorial", as typed at the chat in either language.
+ *
+ * Matched locally, before any request: cancelling a lesson must be instant and free, not a model
+ * round-trip that spends a credit deciding what "خلاص" means. Word-boundary-ish on purpose — the
+ * words appear alone or in short phrases ("cancel it", "وقف الشرح"), and a longer sentence that
+ * merely contains one ("how do I cancel an appointment?") only matches while a tutorial is
+ * actually running, where reading it as "stop the lesson" is the safer of the two readings.
+ */
+const CANCEL_TUTORIAL_RE = /(cancel|stop|end|quit|إلغاء|الغاء|الغيه|إلغيه|وقف|أوقف|اوقف|خلاص|كفاية)/i;
+
 export default function AiChatWidget() {
   const { clinic, clinicId } = useClinic();
   const { user } = useAuth();
   const { language, isRTL } = useLanguage();
   const { receptionPanelActive } = useUI();
+  const { activeTutorial, startTutorial, cancelTutorial } = useTutorial();
   const isAr = language === "ar";
   const router = useRouter();
+  const alphaName = isAr ? RECEPTIONIST_NAME.ar : RECEPTIONIST_NAME.en;
 
   /**
    * Which corner this widget lives in.
@@ -84,6 +101,7 @@ export default function AiChatWidget() {
   }, [clinicId, monthKey, canUseAi]);
 
   const remainingCredits = Math.max(0, totalLimit - creditsUsed);
+  const lowCredits = remainingCredits < totalLimit * 0.1;
 
   // Auto-scroll chat to bottom
   useEffect(() => {
@@ -93,6 +111,13 @@ export default function AiChatWidget() {
   }, [messages, isOpen, isLoading]);
 
   if (!canUseAi) return null;
+
+  /**
+   * A lesson owns the screen. The launcher orb sits exactly where the tutorial's instruction card
+   * needs to be on a phone, and a chat panel over a walkthrough would cover the thing the ring is
+   * pointing at. Cancelling is the overlay's job (its button, or Escape) while this is hidden.
+   */
+  if (activeTutorial) return null;
 
   const handleResolveAction = async (decision: "approve" | "reject") => {
     if (!pendingAction || resolvingAction) return;
@@ -142,6 +167,21 @@ export default function AiChatWidget() {
     } finally {
       setResolvingAction(false);
     }
+  };
+
+  /** Starts a lesson from the menu — no model, no credit, the ring appears immediately. */
+  const handleStartLesson = (id: string) => {
+    const tutorial = TUTORIALS.find((t) => t.id === id);
+    if (!startTutorial(id) || !tutorial) return;
+    setMessages((prev) => [...prev, {
+      id: Date.now().toString(),
+      role: "assistant",
+      content: isAr
+        ? `يلا بينا — درس "${tutorial.title.ar}". امشي ورا الدايرة النابضة، ولو حبيت توقف اضغط إلغاء أو Esc.`
+        : `Let's go — "${tutorial.title.en}". Follow the pulsing ring; press Cancel or Esc any time to stop.`,
+      timestamp: new Date(),
+    }]);
+    setIsOpen(false);
   };
 
   const handleSendMessage = async (e?: React.FormEvent, customText?: string) => {
@@ -194,7 +234,7 @@ export default function AiChatWidget() {
          }
          throw new Error("Failed to process with Gemini AI");
       }
-      
+
       const data = await response.json();
 
       const assistantMsg: ChatMessage = {
@@ -213,11 +253,11 @@ export default function AiChatWidget() {
       /**
        * Everything below is the assistant asking THIS client to do something.
        *
-       * The route can end a turn with `navigateTo` or `triggerPdf` instead of a plain answer, and
-       * this widget used to read only `reply` and `pendingAction` — so "Opening Ahmed's file…"
-       * printed in the bubble and the screen never changed. The user was told an action happened
-       * that no code anywhere was going to perform. Every key the server can return has to be
-       * honoured here, or honestly refused; silently dropping one is the worst of the three.
+       * The route can end a turn with `navigateTo`, `triggerPdf` or `startTutorial` instead of a
+       * plain answer, and this widget used to read only `reply` and `pendingAction` — so "Opening
+       * Ahmed's file…" printed in the bubble and the screen never changed. Every key the server
+       * can return has to be honoured here, or honestly refused; silently dropping one is the
+       * worst of the three.
        */
       if (typeof data.navigateTo === "string" && data.navigateTo) {
         // Closed on purpose: the panel is a large overlay, and leaving it up means "open the
@@ -235,6 +275,11 @@ export default function AiChatWidget() {
           clinicName: clinic?.name,
         });
       }
+
+      // The model chose a lesson. Close the panel so the ring owns the screen.
+      if (typeof data.startTutorial?.id === "string") {
+        if (startTutorial(data.startTutorial.id)) setIsOpen(false);
+      }
     } catch (err: any) {
       const errorMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
@@ -248,121 +293,177 @@ export default function AiChatWidget() {
     }
   };
 
+  /**
+   * Intercepts a typed "cancel" while a lesson runs — locally, instantly, and without a credit.
+   * (Unreachable while the widget is hidden during a tutorial, but kept for the moment the panel
+   * returns before state settles, and it documents the contract: cancelling is never billable.)
+   */
+  const submitMessage = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (activeTutorial && CANCEL_TUTORIAL_RE.test(inputMessage)) {
+      cancelTutorial();
+      setInputMessage("");
+      setMessages((prev) => [...prev, {
+        id: Date.now().toString(),
+        role: "assistant",
+        content: isAr ? "تم إيقاف الدرس." : "Tutorial cancelled.",
+        timestamp: new Date(),
+      }]);
+      return;
+    }
+    void handleSendMessage(e);
+  };
+
+  const suggestionPrompts: { label: string; prompt: string }[] = isAr
+    ? [
+        { label: "مواعيد النهارده", prompt: "ايه مواعيد النهارده؟" },
+        { label: "دخل الشهر", prompt: "اعمللي ملخص مالي للشهر ده" },
+        { label: "افتح ملف مريض", prompt: "افتح ملف المريض " },
+      ]
+    : [
+        { label: "Today's appointments", prompt: "What are today's appointments?" },
+        { label: "This month's revenue", prompt: "Give me a financial summary for this month" },
+        { label: "Open a patient's file", prompt: "Open the file of patient " },
+      ];
+
   return (
     <>
-      {/* Floating Trigger Button */}
+      {/* Floating launcher — the same orb as the reception assistant, at coat-pocket size. */}
       <div className={`fixed bottom-5 ${launcherCornerClass} z-50 transition-all duration-300`}>
         <button
           onClick={() => setIsOpen((prev) => !prev)}
-          className="group relative flex items-center gap-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-extrabold px-4 py-3.5 rounded-full shadow-2xl transition-all duration-300 hover:scale-105 active:scale-95 border border-indigo-500/40"
+          title={alphaName}
+          className="relative w-14 h-14 rounded-full bg-white/80 backdrop-blur-3xl border border-white/60 shadow-[0_8px_30px_rgba(0,0,0,0.12)] flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95"
         >
-          <div className="relative">
-            <Sparkles size={20} className="text-violet-200 animate-pulse" />
-          </div>
-          <span className="text-xs tracking-tight hidden sm:inline">
-            {isAr ? "مساعد جيميناي الذكي" : "Gemini Assistant"}
-          </span>
-          <span className={`text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 ${
-            remainingCredits < (totalLimit * 0.1)
-              ? "bg-rose-500/90 text-white border border-rose-400"
-              : "bg-indigo-900/50 text-indigo-100 border border-indigo-400/30"
-          }`}>
-            <Zap size={10} className={remainingCredits < (totalLimit * 0.1) ? "animate-pulse" : ""} />
-            {remainingCredits}
-          </span>
+          <AvatarFace state={isLoading ? "thinking" : "idle"} size={44} />
+          {lowCredits && (
+            <span className="absolute -top-0.5 -end-0.5 w-3.5 h-3.5 rounded-full bg-rose-500 border-2 border-white animate-pulse" />
+          )}
         </button>
       </div>
 
-      {/* Slide-out Gemini Assistant Drawer Panel */}
+      {/* The assistant panel — same glass shell as the reception panel beside the schedule. */}
       {isOpen && (
         <div
-          className={`fixed bottom-20 ${cornerClass} z-50 w-[calc(100vw-2rem)] sm:w-[420px] h-[560px] max-h-[80vh] bg-white rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-in zoom-in-95 duration-200`}
+          className={`fixed bottom-24 ${cornerClass} z-50 w-[calc(100vw-2rem)] sm:w-[400px] h-[560px] max-h-[75vh] bg-white/80 backdrop-blur-3xl border border-white/60 shadow-[0_8px_40px_rgba(0,0,0,0.12)] rounded-[2rem] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200`}
           dir={isRTL ? "rtl" : "ltr"}
         >
           {/* Header */}
-          <div className="bg-slate-900 text-white p-4 flex items-center justify-between shrink-0 border-b border-slate-800">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-indigo-500/20 border border-indigo-400/30 text-indigo-400 flex items-center justify-center shrink-0">
-                <Bot size={20} />
-              </div>
-              <div>
-                <h3 className="font-bold text-sm text-white flex items-center gap-2">
-                  {isAr ? "ألفا الذكي - مدعوم من جيميناي" : "Alpha AI - Powered by Gemini"}
-                </h3>
-                <p className="text-[10px] text-indigo-400 font-semibold flex items-center gap-1">
-                  <CheckCircle2 size={10} /> {isAr ? "تحليل متقدم للبيانات" : "Advanced Data Analysis"}
-                </p>
-              </div>
+          <div className="shrink-0 flex items-center gap-3 px-5 py-3.5 border-b border-slate-200/60">
+            <div className="shrink-0">
+              <AvatarFace state={isLoading ? "thinking" : "idle"} size={36} />
             </div>
-            <button
-              onClick={() => setIsOpen(false)}
-              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-colors"
+            <div className="min-w-0 flex-1">
+              <h3 className="font-black text-sm text-slate-800 tracking-tight truncate">{alphaName}</h3>
+              <p className="text-[10px] font-bold text-teal-600">
+                {isAr ? "مساعدة العيادة" : "Clinic assistant"}
+              </p>
+            </div>
+            <span
+              title={isAr ? "رصيد الذكاء الاصطناعي المتبقي هذا الشهر" : "AI credits left this month"}
+              className={`text-[10px] font-black px-2 py-1 rounded-full flex items-center gap-1 tabular-nums shrink-0 ${
+                lowCredits ? "bg-rose-50 text-rose-600 border border-rose-200" : "bg-teal-50 text-teal-700 border border-teal-100"
+              }`}
             >
-              <X size={18} />
-            </button>
-          </div>
-
-          {/* Quick Actions Strip */}
-          <div className="bg-slate-50 px-3 py-2 border-b border-slate-200/80 flex items-center justify-between shrink-0">
-            <span className="text-[11px] font-bold text-slate-600">
-              {isAr ? "الرصيد المتبقي: " : "Credits Remaining: "} 
-              <strong className={remainingCredits < (totalLimit * 0.1) ? "text-rose-600" : "text-indigo-600"}>
-                {remainingCredits} / {totalLimit}
-              </strong>
+              <Zap size={10} />
+              {remainingCredits}
             </span>
             <button
               onClick={() => { setMessages([]); setPendingAction(null); }}
-              title={isAr ? "مسح المحادثة" : "Clear Chat"}
-              className="text-slate-400 hover:text-rose-500 transition-colors p-1 rounded"
+              title={isAr ? "مسح المحادثة" : "Clear chat"}
+              className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-full transition-colors shrink-0"
             >
-              <Trash2 size={14} />
+              <Trash2 size={15} />
+            </button>
+            <button
+              onClick={() => setIsOpen(false)}
+              className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors shrink-0"
+            >
+              <X size={16} />
             </button>
           </div>
 
           {/* Messages Area */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-3.5 bg-slate-50/40 custom-scrollbar">
+          <div className="flex-1 overflow-y-auto custom-scrollbar px-5 py-4 space-y-3">
             {messages.length === 0 && (
-              <div className="text-center py-6 px-3 text-slate-500 space-y-3">
-                <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
-                  <UserPlus size={24} />
+              <div className="py-4 px-1 space-y-4">
+                <div className="text-center space-y-2">
+                  <div className="flex justify-center">
+                    <AvatarFace state="idle" size={72} />
+                  </div>
+                  <h4 className="font-black text-slate-800 text-sm tracking-tight">
+                    {isAr ? `أنا ${alphaName} — تحت أمرك.` : `I'm ${alphaName} — at your service.`}
+                  </h4>
+                  <p className="text-[11px] font-medium text-slate-500 leading-relaxed">
+                    {isAr
+                      ? "اسألني عن المرضى والمواعيد والفلوس، أو خليني أعلّمك النظام خطوة بخطوة."
+                      : "Ask me about patients, appointments and money — or let me teach you the system, step by step."}
+                  </p>
                 </div>
-                <h4 className="font-bold text-slate-800 text-xs">
-                  {isAr ? "مرحباً بك! أنا مساعدك الذكي." : "Welcome! I am your AI assistant."}
-                </h4>
-                <p className="text-[10px] text-slate-500">
-                  {isAr 
-                    ? "يمكنني مساعدتك في تحليل البيانات والتشخيص وجدولة المواعيد بناءً على أوامرك." 
-                    : "I can help you analyze data, diagnose issues, and schedule appointments based on your requests."}
-                </p>
+
+                {/* Try-asking chips: each one is a real prompt, sent as typed. */}
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 flex items-center gap-1">
+                    <Sparkles size={10} /> {isAr ? "جرّب تسأل" : "Try asking"}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {suggestionPrompts.map((s) => (
+                      <button
+                        key={s.label}
+                        onClick={() => {
+                          // The open-a-patient prompt needs a name typed after it, so it fills
+                          // the composer instead of firing incomplete.
+                          if (s.prompt.endsWith(" ")) setInputMessage(s.prompt);
+                          else void handleSendMessage(undefined, s.prompt);
+                        }}
+                        className="text-[11px] font-bold text-slate-600 bg-white border border-slate-200 hover:border-teal-300 hover:text-teal-700 hover:bg-teal-50/50 px-3 py-1.5 rounded-full transition-colors"
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Lessons: start instantly, cost nothing, and point at the real screen. */}
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5 flex items-center gap-1">
+                    <GraduationCap size={11} /> {isAr ? "علّمني" : "Teach me"}
+                  </p>
+                  <div className="flex flex-col gap-1.5">
+                    {TUTORIALS.map((t) => (
+                      <button
+                        key={t.id}
+                        onClick={() => handleStartLesson(t.id)}
+                        className="text-start text-[11px] font-bold text-slate-600 bg-white border border-slate-200 hover:border-teal-300 hover:text-teal-700 hover:bg-teal-50/50 px-3 py-2 rounded-xl transition-colors flex items-center gap-2"
+                      >
+                        <span className="w-5 h-5 rounded-full bg-teal-50 text-teal-600 flex items-center justify-center shrink-0">
+                          <GraduationCap size={11} />
+                        </span>
+                        {isAr ? t.title.ar : t.title.en}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
 
             {messages.map((msg) => (
-              <div key={msg.id} className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : ""}`}>
-                <div className={`shrink-0 w-8 h-8 rounded-full flex items-center justify-center shadow-sm ${
-                  msg.role === "user" ? "bg-slate-800 text-white" : "bg-indigo-100 text-indigo-600 border border-indigo-200"
+              <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-[13px] leading-relaxed shadow-sm ${
+                  msg.role === "user"
+                    ? "bg-[#1A2130] text-white rounded-tr-sm whitespace-pre-wrap"
+                    : "bg-white text-slate-700 border border-slate-200/60 rounded-tl-sm"
                 }`}>
-                  {msg.role === "user" ? <span className="text-xs font-bold">{user?.name?.[0] || "U"}</span> : <Bot size={16} />}
-                </div>
-                <div className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"} max-w-[80%]`}>
-                  <div className={`px-4 py-2.5 rounded-2xl text-[13px] leading-relaxed shadow-sm ${
-                    msg.role === "user" 
-                      ? "bg-slate-800 text-white rounded-tr-sm whitespace-pre-wrap" 
-                      : "bg-white text-slate-700 border border-slate-200/60 rounded-tl-sm"
-                  }`}>
-                    {/* Same split as the appointment panel: typed text literal, model reply parsed. */}
-                    {msg.role === "user" ? msg.content : <AssistantMarkdown content={msg.content} isRTL={isRTL} />}
-                  </div>
+                  {/* Same split as the appointment panel: typed text literal, model reply parsed. */}
+                  {msg.role === "user" ? msg.content : <AssistantMarkdown content={msg.content} isRTL={isRTL} />}
                 </div>
               </div>
             ))}
             {pendingAction && (
-              <div className="flex gap-3">
-                <div className="shrink-0 w-8 h-8 rounded-full bg-rose-100 text-rose-600 border border-rose-200 flex items-center justify-center shadow-sm">
-                  <AlertTriangle size={16} />
-                </div>
-                <div className="max-w-[85%] bg-white border border-rose-200 rounded-2xl rounded-tl-sm shadow-sm overflow-hidden">
-                  <div className="px-4 py-2.5 bg-rose-50 border-b border-rose-100">
+              <div className="flex justify-start">
+                <div className="max-w-[90%] bg-white border border-rose-200 rounded-2xl rounded-tl-sm shadow-sm overflow-hidden">
+                  <div className="px-4 py-2.5 bg-rose-50 border-b border-rose-100 flex items-center gap-2">
+                    <AlertTriangle size={13} className="text-rose-600 shrink-0" />
                     <p className="text-[11px] font-black uppercase tracking-widest text-rose-600">
                       {isAr ? "تأكيد الحذف" : "Confirm deletion"}
                     </p>
@@ -411,12 +512,9 @@ export default function AiChatWidget() {
               </div>
             )}
             {isLoading && (
-              <div className="flex gap-3">
-                <div className="shrink-0 w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 border border-indigo-200 flex items-center justify-center shadow-sm">
-                  <Bot size={16} />
-                </div>
+              <div className="flex justify-start">
                 <div className="bg-white border border-slate-200/60 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
-                  <Loader2 className="animate-spin text-indigo-400" size={16} />
+                  <Loader2 className="animate-spin text-teal-500" size={16} />
                 </div>
               </div>
             )}
@@ -424,22 +522,21 @@ export default function AiChatWidget() {
           </div>
 
           {/* Input Area */}
-          <div className="p-3 bg-white border-t border-slate-100 shrink-0">
-            <form onSubmit={handleSendMessage} className="relative flex items-center bg-slate-50 border border-slate-200 rounded-xl focus-within:border-indigo-400 focus-within:ring-2 focus-within:ring-indigo-100 transition-all shadow-inner">
+          <div className="shrink-0 px-4 pb-4 pt-2 border-t border-slate-100">
+            <form onSubmit={submitMessage} className="relative flex items-center bg-slate-50 border border-slate-200 rounded-xl focus-within:border-teal-400 focus-within:ring-4 focus-within:ring-teal-500/10 transition-all">
               <input
                 type="text"
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
-                placeholder={isAr ? "اكتب سؤالك لجيميناي..." : "Ask Gemini anything..."}
-                className="w-full bg-transparent border-none text-sm px-4 py-3.5 focus:outline-none text-slate-700 placeholder:text-slate-400"
+                placeholder={isAr ? `اسأل ${alphaName}...` : `Ask ${alphaName}...`}
+                className="w-full bg-transparent border-none text-sm ps-4 pe-12 py-3.5 focus:outline-none text-slate-700 placeholder:text-slate-400"
                 dir={isRTL ? "rtl" : "ltr"}
                 disabled={isLoading}
               />
               <button
                 type="submit"
                 disabled={!inputMessage.trim() || isLoading}
-                className="absolute shrink-0 text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:hover:bg-indigo-600 p-2 rounded-lg transition-all mx-2"
-                style={{ [isRTL ? "left" : "right"]: 0 }}
+                className="absolute end-2 shrink-0 text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:hover:bg-teal-600 p-2 rounded-lg transition-all"
               >
                 {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} className={isRTL ? "rotate-180" : ""} />}
               </button>

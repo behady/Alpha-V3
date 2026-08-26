@@ -161,7 +161,7 @@ export default function PatientsPage() {
                      </div>
                      <input 
                         type="text" 
-                        placeholder={t.searchPlaceholder} 
+                        placeholder={t.searchPlaceholder} data-tour="patients-search" 
                         value={searchTerm} 
                         onChange={(e) => setSearchTerm(e.target.value)} 
                         className="block w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200/60 focus:border-primary-400 focus:ring-2 focus:ring-[#60d297]/10 rounded-xl text-sm font-semibold text-slate-900 placeholder-slate-400 transition-all outline-none" 
@@ -169,7 +169,7 @@ export default function PatientsPage() {
                   </div>
 
                   <Protect permission="patients.add">
-                    <button onClick={() => setIsModalOpen(true)} className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl font-bold text-xs uppercase shadow-md shadow-slate-200 flex items-center justify-center gap-1.5 active:scale-95 transition-all shrink-0 h-[42px]">
+                    <button onClick={() => setIsModalOpen(true)} data-tour="patients-add" className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl font-bold text-xs uppercase shadow-md shadow-slate-200 flex items-center justify-center gap-1.5 active:scale-95 transition-all shrink-0 h-[42px]">
                        <Plus size={16}/> <span className="hidden sm:inline tracking-wider">{t.addBtn}</span>
                     </button>
                   </Protect>
@@ -210,7 +210,7 @@ export default function PatientsPage() {
                 {patients.map((p, index) => (
                   <Link 
                      key={p.id} 
-                     href={`/patients/${p.id}`} 
+                     href={`/patients/${p.id}`} data-tour="patient-row" 
                      className="group relative flex items-center bg-white p-3 sm:p-4 rounded-[1.25rem] border border-slate-200/60 shadow-sm hover:shadow-md hover:border-[#A7E2C3] hover:-translate-y-0.5 transition-all duration-300 outline-none w-full"
                      style={{ animationDelay: `${(index % PAGE_SIZE) * 30}ms`, animationFillMode: 'both' }}
                   >

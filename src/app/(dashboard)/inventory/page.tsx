@@ -645,7 +645,7 @@ export default function InventoryPage() {
                      resetForm();
                      document.getElementById('inventory-form')?.scrollIntoView({ behavior: 'smooth' });
                    }}
-                   className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs uppercase shadow-md shadow-emerald-600/20 active:scale-[0.98] transition-all"
+                   data-tour="inventory-add" className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs uppercase shadow-md shadow-emerald-600/20 active:scale-[0.98] transition-all"
                  >
                    <Plus size={18} />
                    <span className="hidden sm:inline">{language === "ar" ? "إضافة صنف" : "Add Item"}</span>
@@ -825,7 +825,7 @@ export default function InventoryPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">{language === "ar" ? "اسم الصنف" : "Item name"}</label>
-                  <input value={formName} onChange={(e) => setFormName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-[#60d297]" />
+                  <input data-tour="inventory-item-name" value={formName} onChange={(e) => setFormName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-[#60d297]" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">{language === "ar" ? "التصنيف" : "Category"}</label>
@@ -864,7 +864,7 @@ export default function InventoryPage() {
               </div>
               
               <div className="flex gap-3 pt-4">
-                <button onClick={() => void saveMaterial()} disabled={saving} className="flex-1 inline-flex justify-center items-center gap-2 bg-slate-900 text-white px-4 py-3 rounded-xl font-bold text-xs uppercase shadow-md hover:bg-slate-800 disabled:opacity-60 transition-all">
+                <button data-tour="inventory-save" onClick={() => void saveMaterial()} disabled={saving} className="flex-1 inline-flex justify-center items-center gap-2 bg-slate-900 text-white px-4 py-3 rounded-xl font-bold text-xs uppercase shadow-md hover:bg-slate-800 disabled:opacity-60 transition-all">
                   {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
                   {language === "ar" ? "حفظ" : "Save"}
                 </button>

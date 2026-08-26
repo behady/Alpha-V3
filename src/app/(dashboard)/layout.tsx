@@ -24,6 +24,8 @@ import { useUI } from "@/context/UIContext";
 import ClinicSwitcher from "@/components/dashboard/ClinicSwitcher";
 import DesktopSidebar from "@/components/dashboard/DesktopSidebar";
 import AiChatWidget from "@/components/AiChatWidget";
+import { TutorialProvider } from "@/context/TutorialContext";
+import TutorialOverlay from "@/components/TutorialOverlay";
 
 const plusJakartaSans = Plus_Jakarta_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
 const cairo = Cairo({ subsets: ["arabic"] });
@@ -207,6 +209,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   ];
 
   return (
+    <TutorialProvider>
     <div className={`min-h-[100dvh] lg:h-[100dvh] lg:overflow-hidden bg-[#E8F0ED] text-slate-700 flex ${isRTL ? cairo.className : plusJakartaSans.className} relative z-0`} dir={isRTL ? 'rtl' : 'ltr'}>
       {/* Decorative Minimal Background - Stronger Green/White Gradient */}
       <div className="hidden lg:block absolute inset-0 w-full h-full overflow-hidden pointer-events-none -z-10 bg-gradient-to-br from-[#F4F7F6] via-[#E8F0ED] to-[#AEE2CD]">
@@ -262,7 +265,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
                     return (
                        <Link 
-                         key={item.href} 
+                         key={item.href} data-tour={`nav-${String(item.href).replace(/^\//, "")}`} 
                          href={item.href}
                          onClick={() => setIsOpen(false)}
                          className={`flex items-center gap-4 px-5 py-3.5 rounded-2xl font-bold transition-all ${isActive ? 'bg-[#0a0a0a] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
@@ -339,7 +342,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {mobileNavItems.map((item) => {
              if (item.key === 'menu') {
                  return (
-                    <button key="menu" onClick={() => setIsOpen(true)} className="flex items-center justify-center transition-all active:scale-95 group outline-none">
+                    <button key="menu" data-tour="nav-menu" onClick={() => setIsOpen(true)} className="flex items-center justify-center transition-all active:scale-95 group outline-none">
                        <div className="p-2.5 rounded-full text-white/50 group-hover:bg-white/10 group-hover:text-white transition-all">
                           <Menu size={24} strokeWidth={2.5} />
                        </div>
@@ -348,7 +351,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
              }
              const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
              return (
-                <Link key={item.key} href={item.href} className="flex items-center justify-center transition-all active:scale-95 group outline-none">
+                <Link key={item.key} href={item.href} data-tour={`nav-${item.key}`} className="flex items-center justify-center transition-all active:scale-95 group outline-none">
                    <div className={`p-2.5 rounded-full transition-all duration-300 flex items-center justify-center ${isActive ? 'bg-white text-black scale-110 shadow-sm' : 'text-white/50 group-hover:bg-white/10 group-hover:text-white'}`}>
                       <item.icon size={24} strokeWidth={isActive ? 2.5 : 2} />
                    </div>
@@ -359,6 +362,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* AI CHAT WIDGET & BUBBLE */}
       <AiChatWidget />
+
+      {/* Guided-tutorial ring + instruction card; renders nothing unless a lesson is running. */}
+      <TutorialOverlay />
     </div>
+    </TutorialProvider>
   );
 }

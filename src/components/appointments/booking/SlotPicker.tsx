@@ -101,7 +101,7 @@ export default function SlotPicker({
           </label>
           <select
             value={doctor}
-            onChange={(e) => setDoctor(e.target.value)}
+            onChange={(e) => setDoctor(e.target.value)} data-tour="booking-doctor"
             className="w-full rounded-xl border-2 border-slate-100 bg-white px-3 py-2.5 text-xs font-bold text-slate-900 outline-none focus:border-primary-500"
           >
             {doctors.length === 0 && <option>{txt.noDoctors}</option>}

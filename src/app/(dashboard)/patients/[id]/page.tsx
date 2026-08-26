@@ -1137,6 +1137,7 @@ export default function PatientProfile() {
                 return (
                   <button
                     key={tb.id}
+                    data-tour={`patient-tab-${tb.id}`}
                     onClick={() => setActiveTab(tb.id)}
                     className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold transition-all whitespace-nowrap ${
                       active ? 'bg-white text-slate-900 shadow-sm border border-white' : 'text-slate-500 hover:bg-white/50 border border-transparent'

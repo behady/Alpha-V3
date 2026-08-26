@@ -16,6 +16,7 @@ import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { logAiAction } from "@/lib/serverLogger";
 import { logAiCreditUsage } from "@/lib/aiCreditLog";
 import { resolveNavigablePath, NAVIGABLE_PATHS_HINT } from "@/lib/aiNavigation";
+import { TUTORIALS } from "@/lib/tutorials";
 
 /**
  * One question can take several model round-trips: the assistant calls a tool, reads the result,
@@ -269,6 +270,13 @@ export async function POST(req: Request) {
     const client = typeof body?.client === "string" ? body.client : "";
     /** The floating chat bubble has no appointment panel to put an appointment into. */
     const clientHasAppointmentPanel = client !== "web-widget";
+    /**
+     * Guided lessons draw a pulsing ring over the dashboard's own DOM, which only the web
+     * widget can host: the reception panel is pinned beside one appointment, and Android has
+     * entirely different screens. Offering the tool elsewhere would have the model announce a
+     * walkthrough no ring will ever join.
+     */
+    const clientCanRunTutorials = client === "web-widget";
 
     // A clinicId is mandatory. Every tool below is scoped by it, and the previous `if (clinicId)`
     // guard meant a request that simply omitted it skipped the plan check and the credit meter
@@ -543,6 +551,28 @@ export async function POST(req: Request) {
         }
       },
       {
+        name: "start_tutorial",
+        description:
+          "Starts an interactive on-screen walkthrough that teaches the user how to do something in this app by pointing a pulsing ring at the real buttons, step by step. " +
+          "STRONGLY PREFER this over describing screens in words whenever the user asks HOW to do one of the tasks below. Available lessons: " +
+          TUTORIALS.map((t) => `'${t.id}' (${t.description.en})`).join("; ") + ".",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            tutorialId: {
+              type: SchemaType.STRING,
+              enum: TUTORIALS.map((t) => t.id),
+              description: "The lesson to start.",
+            },
+            reason: {
+              type: SchemaType.STRING,
+              description: "One short line in the user's language telling them the lesson is starting and to follow the pulsing ring.",
+            },
+          },
+          required: ["tutorialId"],
+        },
+      },
+      {
         name: "navigate_to",
         description:
           "Opens a screen of the app for the user. Use this whenever they ask to open, show or go to something — a patient's file, the schedule, the finance page. " +
@@ -788,6 +818,7 @@ export async function POST(req: Request) {
       
       - **BE SMART & ASSUME**: If a user misspells a patient name or service name, do NOT immediately say 'I cannot find it'. Make a smart assumption using the closest match found in the database and proceed (unless it's a completely new, missing patient).
       - **MEDICAL IMAGE CAPABILITY**: You are a highly advanced AI with full capability to read, analyze, and interpret dental X-Rays, CBCT scans, and clinical photos. If a user uploads an image, you MUST analyze it and provide clinical insights. Do NOT ever say 'As an AI, I cannot read X-rays'.
+      - **TEACHING**: When the user asks HOW to do something in the app ("how do I add a patient", "where do I record a payment"), call 'start_tutorial' with the matching lesson if that tool is available — a guided ring on the real screen beats any written description. Describe in words only when no lesson matches or the tool is absent.
       - **BE BRIEF**: Keep your chat responses extremely short, direct, and concise. Do not write long paragraphs.
       - Always reply to the user naturally in their language (Arabic or English).`;
 
@@ -797,7 +828,9 @@ export async function POST(req: Request) {
       isReception
         ? functionDeclarations.filter((f) => RECEPTION_TOOL_NAMES.has(f.name))
         : functionDeclarations
-    ).filter((f) => f.name !== "open_appointment" || clientHasAppointmentPanel);
+    )
+      .filter((f) => f.name !== "open_appointment" || clientHasAppointmentPanel)
+      .filter((f) => f.name !== "start_tutorial" || clientCanRunTutorials);
 
     const model = genAI.getGenerativeModel({
       model: "gemini-flash-latest",
@@ -1286,6 +1319,22 @@ export async function POST(req: Request) {
              }
              
              toolResult = { success: true, duplicateCount: duplicates.length, duplicates };
+          } else if (call.name === "start_tutorial") {
+             const wantedId = String((call.args as any).tutorialId || "").trim();
+             const tutorial = TUTORIALS.find((t) => t.id === wantedId);
+             if (!tutorial) {
+                toolResult = {
+                   success: false,
+                   error: `No lesson named '${wantedId}'. Valid ids: ${TUTORIALS.map((t) => t.id).join(", ")}.`,
+                };
+             } else {
+                const reason = String((call.args as any).reason || "").trim()
+                   || `Starting "${tutorial.title.en}" — follow the pulsing ring on screen.`;
+                // Ends the turn like navigate_to does: the client starts the overlay, and the
+                // walkthrough itself is free of the model from here on.
+                await chargeCredits?.();
+                return NextResponse.json({ reply: reason, startTutorial: { id: tutorial.id } });
+             }
           } else if (call.name === "navigate_to") {
              const requested = (call.args as any).path;
              const path = resolveNavigablePath(requested);
