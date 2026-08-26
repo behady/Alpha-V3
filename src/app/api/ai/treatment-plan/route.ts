@@ -7,7 +7,7 @@ import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { fetchPatientAiContext, patientContextBlock } from "@/lib/aiPatientContext";
-import { logAiCreditUsage } from "@/lib/aiCreditLog";
+import { logAiCreditUsage, createUsageMeter } from "@/lib/aiCreditLog";
 import { suggestSlots, type SlotSuggestion } from "@/lib/automation/slotSuggestions";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 
@@ -271,7 +271,9 @@ ${priceListText}`;
       } as any,
     });
 
+    const meter = createUsageMeter(modelName);
     const result = await model.generateContent(prompt);
+    meter.add(result.response);
     const rawText = result.response.text();
 
     let parsed: { options?: SuggestedOptionRaw[]; questions?: unknown[] };
@@ -414,6 +416,7 @@ ${priceListText}`;
       patientId,
       patientName: String((ctx.patient as any).name || ""),
       detail: [refinement ? "refinement round" : "", superMode ? "super mode" : ""].filter(Boolean).join(" · "),
+      usage: meter.snapshot(),
     });
 
     return NextResponse.json({ ok: true, options, questions, currency, calendarNotes: Array.from(calendarNotes) });

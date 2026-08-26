@@ -46,6 +46,8 @@
     "test:migration": "npx tsx tests/migration.test.mts",
     "_comment_test_modeltext": "Markdown/bidi/injection cases for the model-text renderer used by the printed treatment plan. No network, no emulator.",
     "test:modeltext": "npx tsx tests/modelTextHtml.test.mts",
+    "_comment_test_tokens": "The AI token meter: one credit spans several API rounds, and the counts must survive a response that carries no usage block. No network, no emulator.",
+    "test:tokens": "npx tsx tests/aiTokenUsage.test.mts",
     "test:backup": "npx tsx tests/backupImport.test.mts",
     "_comment_test_ainav": "The allowlist behind the assistant's navigate_to tool. Guards the failure where it announces 'Opening the patient's file' and pushes a 404. No network, no emulator.",
     "test:ai-nav": "npx tsx tests/aiNavigation.test.mts"
