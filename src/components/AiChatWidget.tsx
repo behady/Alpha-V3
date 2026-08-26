@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { X, Send, Loader2, Trash2, Zap, AlertTriangle, GraduationCap, Sparkles, MessageCircle, LifeBuoy, Bug, Lightbulb, Camera } from "lucide-react";
+import { X, Send, Loader2, Trash2, Zap, AlertTriangle, GraduationCap, Sparkles, MessageCircle, LifeBuoy, Bug, Lightbulb, Camera, ImagePlus } from "lucide-react";
 import { useClinic } from "@/context/ClinicContext";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -25,6 +25,8 @@ interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+  /** Data-URL of an image the user attached to this message — rendered as a thumbnail. */
+  image?: string;
 }
 
 /**
@@ -89,15 +91,52 @@ export default function AiChatWidget() {
 
   const [isOpen, setIsOpen] = useState(false);
   const [inputMessage, setInputMessage] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [resolvingAction, setResolvingAction] = useState(false);
 
   const [assistantMode, setAssistantMode] = useState<AssistantMode>("normal");
-  const [ticketDraft, setTicketDraft] = useState<TicketDraft | null>(null);
   const [attachScreenshot, setAttachScreenshot] = useState(true);
   const [sendingTicket, setSendingTicket] = useState(false);
+
+  /**
+   * Three hats, three conversations.
+   *
+   * Each mode keeps its own thread and its own staged cards. Switching hats mid-thought must not
+   * bleed a support triage into the trainer's lesson chat, and a delete-confirmation staged in
+   * normal mode has to still be there when the user comes back to normal mode. Every async
+   * handler captures the mode it STARTED in, so a reply that arrives after the user switched
+   * hats lands in the thread that asked for it, not the one on screen.
+   */
+  const [threads, setThreads] = useState<Record<AssistantMode, ChatMessage[]>>({
+    normal: [], trainer: [], support: [],
+  });
+  const [pendingActions, setPendingActions] = useState<Record<AssistantMode, PendingAction | null>>({
+    normal: null, trainer: null, support: null,
+  });
+  const [ticketDrafts, setTicketDrafts] = useState<Record<AssistantMode, TicketDraft | null>>({
+    normal: null, trainer: null, support: null,
+  });
+  /** Which mode's request is in flight — the spinner shows only in that mode's thread. */
+  const [loadingMode, setLoadingMode] = useState<AssistantMode | null>(null);
+
+  const messages = threads[assistantMode];
+  const pendingAction = pendingActions[assistantMode];
+  const ticketDraft = ticketDrafts[assistantMode];
+  const isLoading = loadingMode !== null;
+
+  const pushMessage = (mode: AssistantMode, msg: ChatMessage) =>
+    setThreads((prev) => ({ ...prev, [mode]: [...prev[mode], msg] }));
+  const setPendingFor = (mode: AssistantMode, v: PendingAction | null) =>
+    setPendingActions((prev) => ({ ...prev, [mode]: v }));
+  const setDraftFor = (mode: AssistantMode, v: TicketDraft | null) =>
+    setTicketDrafts((prev) => ({ ...prev, [mode]: v }));
+
+  /**
+   * An image staged in the composer, as a data-URL — an X-ray, a photo, a screenshot. Sent with
+   * the next message; the server prices an image turn at 3 credits, which the preview chip says
+   * out loud. Composer-level, not per-mode: it belongs to the message being typed, not a thread.
+   */
+  const [pendingImage, setPendingImage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [creditsUsed, setCreditsUsed] = useState<number>(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -157,6 +196,9 @@ export default function AiChatWidget() {
 
   const handleResolveAction = async (decision: "approve" | "reject") => {
     if (!pendingAction || resolvingAction) return;
+    // Everything below lands in the thread whose card was tapped, even if the user switches
+    // hats while the request runs.
+    const mode = assistantMode;
     setResolvingAction(true);
 
     try {
@@ -177,7 +219,7 @@ export default function AiChatWidget() {
         handleManualWhatsApp({ phone: data.manual.phone, text: data.manual.text });
       }
 
-      setMessages((prev) => [...prev, {
+      pushMessage(mode, {
         id: (Date.now() + 1).toString(),
         role: "assistant",
         content:
@@ -189,20 +231,50 @@ export default function AiChatWidget() {
                   : "✅ Message ready — open WhatsApp from the prompt to send it.")
               : (isAr ? "✅ تم تنفيذ الطلب." : "✅ Done."),
         timestamp: new Date(),
-      }]);
-      setPendingAction(null);
+      });
+      setPendingFor(mode, null);
     } catch (err: any) {
-      setMessages((prev) => [...prev, {
+      pushMessage(mode, {
         id: (Date.now() + 1).toString(),
         role: "assistant",
         content: `⚠️ ${err.message || (isAr ? "حدث خطأ غير متوقع" : "An unexpected error occurred")}`,
         timestamp: new Date(),
-      }]);
+      });
       // Clear either way: a failed confirmation must not leave a button that looks actionable.
-      setPendingAction(null);
+      setPendingFor(mode, null);
     } finally {
       setResolvingAction(false);
     }
+  };
+
+  /**
+   * Stages a picked image, downscaled in the browser before it goes anywhere.
+   *
+   * A phone photo is 5–15 MB, and both the model API and the request body have limits an
+   * unscaled upload would trip; ~1600px JPEG keeps an X-ray or a screenshot perfectly readable
+   * at a fraction of the size. The input's value is cleared so picking the same file twice in a
+   * row still fires the change event.
+   */
+  const handlePickImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        setPendingImage(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.src = String(reader.result || "");
+    };
+    reader.readAsDataURL(file);
   };
 
   /**
@@ -229,6 +301,8 @@ export default function AiChatWidget() {
 
   const handleSendTicket = async () => {
     if (!ticketDraft || sendingTicket) return;
+    const mode = assistantMode;
+    const draft = ticketDraft;
     setSendingTicket(true);
     try {
       const idToken = await auth.currentUser?.getIdToken();
@@ -249,11 +323,11 @@ export default function AiChatWidget() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
           clinicId,
-          kind: ticketDraft.kind,
-          title: ticketDraft.title,
-          description: ticketDraft.description,
-          steps: ticketDraft.steps || "",
-          contactNumber: ticketDraft.contactNumber,
+          kind: draft.kind,
+          title: draft.title,
+          description: draft.description,
+          steps: draft.steps || "",
+          contactNumber: draft.contactNumber,
           screenshot,
           errors: getErrorBreadcrumbs(),
           route: window.location.pathname,
@@ -266,27 +340,27 @@ export default function AiChatWidget() {
 
       const sentLine = data.emailSent
         ? (isAr
-            ? `✅ اتبعت للدعم الفني — التذكرة رقم ${data.ticketId}. هيتواصلوا معاك على ${ticketDraft.contactNumber}.`
-            : `✅ Sent to the support team — ticket ${data.ticketId}. They'll reach you on ${ticketDraft.contactNumber}.`)
+            ? `✅ اتبعت للدعم الفني — التذكرة رقم ${data.ticketId}. هيتواصلوا معاك على ${draft.contactNumber}.`
+            : `✅ Sent to the support team — ticket ${data.ticketId}. They'll reach you on ${draft.contactNumber}.`)
         : (isAr
-            ? `✅ اتسجلت للدعم الفني — التذكرة رقم ${data.ticketId}. هيشوفوها في النظام وهيتواصلوا معاك على ${ticketDraft.contactNumber}.`
-            : `✅ Logged for the support team — ticket ${data.ticketId}. They'll see it in the system and reach you on ${ticketDraft.contactNumber}.`);
-      setMessages((prev) => [...prev, {
+            ? `✅ اتسجلت للدعم الفني — التذكرة رقم ${data.ticketId}. هيشوفوها في النظام وهيتواصلوا معاك على ${draft.contactNumber}.`
+            : `✅ Logged for the support team — ticket ${data.ticketId}. They'll see it in the system and reach you on ${draft.contactNumber}.`);
+      pushMessage(mode, {
         id: (Date.now() + 1).toString(),
         role: "assistant",
         content: sentLine,
         timestamp: new Date(),
-      }]);
-      setTicketDraft(null);
+      });
+      setDraftFor(mode, null);
     } catch (err: any) {
       // The draft stays on screen: unlike a destructive action, retrying a ticket is safe, and
       // losing a composed report to a network blip would mean dictating it all over again.
-      setMessages((prev) => [...prev, {
+      pushMessage(mode, {
         id: (Date.now() + 1).toString(),
         role: "assistant",
         content: `⚠️ ${err.message || (isAr ? "تعذر الإرسال — جرب تاني." : "Could not send — try again.")}`,
         timestamp: new Date(),
-      }]);
+      });
     } finally {
       setSendingTicket(false);
     }
@@ -294,34 +368,47 @@ export default function AiChatWidget() {
 
   /** Starts a lesson from the menu — no model, no credit, the ring appears immediately. */
   const handleStartLesson = (id: string) => {
+    const mode = assistantMode;
     const tutorial = TUTORIALS.find((t) => t.id === id);
     if (!startTutorial(id) || !tutorial) return;
-    setMessages((prev) => [...prev, {
+    pushMessage(mode, {
       id: Date.now().toString(),
       role: "assistant",
       content: isAr
         ? `يلا بينا — درس "${tutorial.title.ar}". امشي ورا الدايرة النابضة، ولو حبيت توقف اضغط إلغاء أو Esc.`
         : `Let's go — "${tutorial.title.en}". Follow the pulsing ring; press Cancel or Esc any time to stop.`,
       timestamp: new Date(),
-    }]);
+    });
     setIsOpen(false);
   };
 
   const handleSendMessage = async (e?: React.FormEvent, customText?: string) => {
     if (e) e.preventDefault();
     const textToSend = customText || inputMessage;
-    if (!textToSend.trim() || isLoading) return;
+    // An attached image alone is a legitimate message; the question is implied.
+    const image = customText ? null : pendingImage;
+    if ((!textToSend.trim() && !image) || isLoading) return;
+
+    // The mode this message belongs to — the reply lands here even if the user switches hats
+    // while it is in flight, and the history sent is this thread's, not whichever is on screen.
+    const mode = assistantMode;
+    const outgoingHistory = threads[mode].map(m => ({ role: m.role, parts: [{ text: m.content }] }));
 
     setInputMessage("");
-    setIsLoading(true);
+    setPendingImage(null);
+    setLoadingMode(mode);
+
+    const prompt = textToSend.trim()
+      || (isAr ? "اشرحلي الصورة دي." : "Analyze this image for me.");
 
     const userMsg: ChatMessage = {
       id: Date.now().toString(),
       role: "user",
-      content: textToSend,
+      content: prompt,
       timestamp: new Date(),
+      ...(image ? { image } : {}),
     };
-    setMessages((prev) => [...prev, userMsg]);
+    pushMessage(mode, userMsg);
 
     try {
       // The API verifies this token and derives the caller's identity from it, so userId is no
@@ -336,7 +423,8 @@ export default function AiChatWidget() {
           Authorization: `Bearer ${idToken}`,
         },
         body: JSON.stringify({
-          prompt: textToSend,
+          prompt,
+          ...(image ? { image } : {}),
           clinicId,
           userName: user?.name,
           // Tells the route which surface is asking, so it only offers the model tools this
@@ -347,8 +435,8 @@ export default function AiChatWidget() {
           client: "web-widget",
           // Which hat the assistant wears this turn — normal chat, patient trainer, or support
           // triage. Same brain and tools; the mode shifts emphasis server-side.
-          assistantMode,
-          history: messages.map(m => ({ role: m.role, parts: [{ text: m.content }] }))
+          assistantMode: mode,
+          history: outgoingHistory
         })
       });
 
@@ -370,11 +458,11 @@ export default function AiChatWidget() {
         timestamp: new Date(),
       };
 
-      setMessages((prev) => [...prev, assistantMsg]);
+      pushMessage(mode, assistantMsg);
 
       // The server stages deletions rather than performing them; nothing is removed until this
       // prompt is answered.
-      if (data.pendingAction) setPendingAction(data.pendingAction as PendingAction);
+      if (data.pendingAction) setPendingFor(mode, data.pendingAction as PendingAction);
 
       /**
        * Everything below is the assistant asking THIS client to do something.
@@ -409,7 +497,7 @@ export default function AiChatWidget() {
 
       // A composed support ticket. Rendered as a card; nothing leaves until the user hits Send.
       if (data.ticketDraft?.title && (data.ticketDraft.kind === "bug" || data.ticketDraft.kind === "feature")) {
-        setTicketDraft(data.ticketDraft as TicketDraft);
+        setDraftFor(mode, data.ticketDraft as TicketDraft);
         // A screenshot usually helps a bug and rarely helps a wish.
         setAttachScreenshot(data.ticketDraft.kind === "bug");
       }
@@ -420,9 +508,9 @@ export default function AiChatWidget() {
         content: `⚠️ ${err.message || (isAr ? "حدث خطأ غير متوقع" : "An unexpected error occurred")}`,
         timestamp: new Date(),
       };
-      setMessages((prev) => [...prev, errorMsg]);
+      pushMessage(mode, errorMsg);
     } finally {
-      setIsLoading(false);
+      setLoadingMode(null);
     }
   };
 
@@ -436,12 +524,12 @@ export default function AiChatWidget() {
     if (activeTutorial && CANCEL_TUTORIAL_RE.test(inputMessage)) {
       cancelTutorial();
       setInputMessage("");
-      setMessages((prev) => [...prev, {
+      pushMessage(assistantMode, {
         id: Date.now().toString(),
         role: "assistant",
         content: isAr ? "تم إيقاف الدرس." : "Tutorial cancelled.",
         timestamp: new Date(),
-      }]);
+      });
       return;
     }
     void handleSendMessage(e);
@@ -505,7 +593,12 @@ export default function AiChatWidget() {
               {remainingCredits}
             </span>
             <button
-              onClick={() => { setMessages([]); setPendingAction(null); setTicketDraft(null); }}
+              onClick={() => {
+                setThreads((prev) => ({ ...prev, [assistantMode]: [] }));
+                setPendingFor(assistantMode, null);
+                setDraftFor(assistantMode, null);
+                setPendingImage(null);
+              }}
               title={isAr ? "مسح المحادثة" : "Clear chat"}
               className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-full transition-colors shrink-0"
             >
@@ -640,6 +733,11 @@ export default function AiChatWidget() {
                     ? "bg-[#1A2130] text-white rounded-tr-sm whitespace-pre-wrap"
                     : "bg-white text-slate-700 border border-slate-200/60 rounded-tl-sm"
                 }`}>
+                  {/* An attached image renders above its caption, like any messenger. */}
+                  {msg.image && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={msg.image} alt="" className="rounded-lg mb-2 max-h-44 w-auto" />
+                  )}
                   {/* Same split as the appointment panel: typed text literal, model reply parsed. */}
                   {msg.role === "user" ? msg.content : <AssistantMarkdown content={msg.content} isRTL={isRTL} />}
                 </div>
@@ -745,7 +843,7 @@ export default function AiChatWidget() {
                         {sendingTicket ? (isAr ? "جارٍ الإرسال..." : "Sending...") : (isAr ? "إرسال للدعم" : "Send to support")}
                       </button>
                       <button
-                        onClick={() => setTicketDraft(null)}
+                        onClick={() => setDraftFor(assistantMode, null)}
                         disabled={sendingTicket}
                         className="flex-1 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-700 border border-slate-200 px-3 py-2 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.98]"
                       >
@@ -756,7 +854,7 @@ export default function AiChatWidget() {
                 </div>
               </div>
             )}
-            {isLoading && (
+            {loadingMode === assistantMode && (
               <div className="flex justify-start">
                 <div className="bg-white border border-slate-200/60 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
                   <Loader2 className="animate-spin text-teal-500" size={16} />
@@ -768,19 +866,55 @@ export default function AiChatWidget() {
 
           {/* Input Area */}
           <div className="shrink-0 px-4 pb-4 pt-2 border-t border-slate-100">
+            {/* A staged image, shown before it costs anything — an image turn draws 3 credits. */}
+            {pendingImage && (
+              <div className="flex items-center gap-2.5 mb-2 bg-white border border-slate-200 rounded-xl px-2.5 py-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={pendingImage} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0 border border-slate-100" />
+                <span className="text-[11px] font-bold text-slate-600 flex-1 min-w-0 truncate">
+                  {isAr ? "الصورة هتتبعت مع رسالتك الجاية" : "Image will be sent with your next message"}
+                </span>
+                <span className="text-[10px] font-black text-amber-600 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full shrink-0 flex items-center gap-1">
+                  <Zap size={9} /> 3
+                </span>
+                <button
+                  onClick={() => setPendingImage(null)}
+                  className="w-6 h-6 rounded-full text-slate-400 hover:text-rose-500 hover:bg-rose-50 flex items-center justify-center transition-colors shrink-0"
+                  aria-label={isAr ? "إزالة الصورة" : "Remove image"}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            )}
             <form onSubmit={submitMessage} className="relative flex items-center bg-slate-50 border border-slate-200 rounded-xl focus-within:border-teal-400 focus-within:ring-4 focus-within:ring-teal-500/10 transition-all">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handlePickImage}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading}
+                title={isAr ? "إرفاق صورة — أشعة، صورة، لقطة شاشة" : "Attach an image — X-ray, photo, screenshot"}
+                className={`absolute start-2 shrink-0 p-2 rounded-lg transition-colors ${pendingImage ? "text-teal-600 bg-teal-50" : "text-slate-400 hover:text-teal-600 hover:bg-teal-50"} disabled:opacity-50`}
+              >
+                <ImagePlus size={16} />
+              </button>
               <input
                 type="text"
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
                 placeholder={isAr ? `اسأل ${alphaName}...` : `Ask ${alphaName}...`}
-                className="w-full bg-transparent border-none text-sm ps-4 pe-12 py-3.5 focus:outline-none text-slate-700 placeholder:text-slate-400"
+                className="w-full bg-transparent border-none text-sm ps-12 pe-12 py-3.5 focus:outline-none text-slate-700 placeholder:text-slate-400"
                 dir={isRTL ? "rtl" : "ltr"}
                 disabled={isLoading}
               />
               <button
                 type="submit"
-                disabled={!inputMessage.trim() || isLoading}
+                disabled={(!inputMessage.trim() && !pendingImage) || isLoading}
                 className="absolute end-2 shrink-0 text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:hover:bg-teal-600 p-2 rounded-lg transition-all"
               >
                 {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} className={isRTL ? "rotate-180" : ""} />}
