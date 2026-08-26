@@ -182,7 +182,7 @@ export default function TimelineCard({
           </span>
           <Protect permission="clinical.edit">
             <button
-              onClick={onAddService}
+              data-tour="clinical-add-procedure" onClick={onAddService}
               className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white font-bold text-sm rounded-xl transition-colors shadow-sm"
             >
               <Plus size={16} />

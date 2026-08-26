@@ -270,7 +270,7 @@ fun StatTile(
         Column(Modifier.padding(horizontal = 14.dp, vertical = 16.dp)) {
             // Figures wear the serif everywhere on the dashboard — the numbers are
             // what the screen is for, so they get the one face with a voice.
-            Text(value, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, fontFamily = FontFamily.Serif, color = tint)
+            Text(value, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, fontFamily = AlphaType.Display, color = tint)
             Spacer(Modifier.height(3.dp))
             Text(
                 caption,

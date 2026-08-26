@@ -14,7 +14,9 @@ import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { logAiAction } from "@/lib/serverLogger";
-import { logAiCreditUsage } from "@/lib/aiCreditLog";
+import { logAiCreditUsage, createUsageMeter } from "@/lib/aiCreditLog";
+import { resolveNavigablePath, NAVIGABLE_PATHS_HINT } from "@/lib/aiNavigation";
+import { TUTORIALS, tutorialsFor } from "@/lib/tutorials";
 
 /**
  * One question can take several model round-trips: the assistant calls a tool, reads the result,
@@ -43,6 +45,16 @@ import { isFullAccessRole } from "@/lib/permissions";
  * any patient field could steer it at data it should never reach. Everything here is clinic-scoped
  * at access time, so this list can only ever address the caller's own tenant.
  */
+/**
+ * The model this route talks to, in one place so the usage log records the same name that was
+ * actually called.
+ *
+ * `-latest` is a moving alias: Google reassigns it to each new Flash release, which changes both
+ * behaviour and per-token price without anything being deployed here. Pin it to a dated version
+ * once the usage log has a month of real numbers to compare a switch against.
+ */
+const CHAT_MODEL = "gemini-flash-latest";
+
 const AI_READABLE_COLLECTIONS = new Set([
   "patients",
   "appointments",
@@ -108,6 +120,10 @@ const RECEPTION_TOOL_NAMES = new Set([
   "db_read",
   "find_patient",
   "suggest_appointment_slots",
+  // Read-only, like everything above it: checks the open appointment's patient for
+  // data-entry mistakes and returns the screens' own arithmetic. It takes no record id
+  // in reception mode — the panel's patient is the only one it will look at.
+  "audit_patient_records",
   "navigate_to",
   // Selecting is not acting: this only puts an existing appointment on screen. It is the one
   // reception tool that takes a record id from the model, which is safe precisely because it
@@ -187,7 +203,20 @@ REPORTING ("how many / how much"):
 - Never present a partial figure as if it were the complete picture, and never fill a gap with an estimate.
 
 CONTINUOUS LEARNING & MEMORY:
-- If the user explicitly corrects your behavior, tells you a new clinic rule (e.g., "Dr. Ahmed doesn't work Tuesdays"), or tells you to remember something, you MUST autonomously call the 'learn_fact' tool to save it permanently. Do not just say "I will remember that", you MUST actually use the tool.`;
+- If the user explicitly corrects your behavior, tells you a new clinic rule (e.g., "Dr. Ahmed doesn't work Tuesdays"), or tells you to remember something, you MUST autonomously call the 'learn_fact' tool to save it permanently. Do not just say "I will remember that", you MUST actually use the tool.
+
+HOW THE MONEY SCREENS CALCULATE (explain with these; never re-derive totals yourself):
+- Patient balance (patient file, Finance tab): totalCharges = sum of 'cost' over ledger rows with type="procedure"; totalPaid = sum of 'paid' over rows with type="payment"; balance = totalCharges - totalPaid. No other field or row type counts.
+- Per-procedure "remaining" links payments to their procedure via the payment's 'procedureId'. An unlinked payment lowers the overall balance but no procedure's remaining — the treatment then still LOOKS unpaid.
+- Clinic cash (Finance dashboard) counts differently: per row it takes the first non-zero money field ('paid' for payments/income, 'cost' for expenses) — and a 'paid' amount sitting on a procedure row DOES count as cash there while the patient screen ignores it. This mismatch is the most common reason the finance page and a patient's file seem to disagree.
+- When any number is questioned, call 'audit_patient_records' (one patient) or 'run_clinic_report' (clinic-wide). Never sum rows yourself.
+
+WHERE THINGS LIVE ON SCREEN (the app's real layout — when telling a user where to click, use ONLY these; NEVER invent a menu path):
+- Sidebar pages: Dashboard (/), Patients (/patients — directory, each patient's file has tabs: Clinical, Treatment Plan, Finance, Overview, Timeline, X-rays, Prescriptions, Notes), Appointments (/appointments — the calendar; booking, statuses, the reception assistant panel), Finance (/finance — clinic-wide cash in/out, manual income & expense entries; /finance/recovery for unpaid balances), Inventory (/inventory), Reports (/reports — five reports with PDF/Excel export), Leads (/leads), Marketing (/marketing), Messages (/messages), Ortho (/ortho), Attendance (/attendance), Help Center (/help), AI Insights pages (/ai/briefing, /ai/revenue, /ai/operations, /ai/attendance, /ai/reactivation).
+- Settings (/settings) is ONE page with tabs in its own side menu. The tabs and their English/Arabic labels:
+  Profile|الملف الشخصي · Attendance|الحضور · Schedule|الجدول (clinic hours, slot length, days off) · Branches & Rooms|الفروع والغرف · Recall|المتابعة · Prescriptions|الوصفات · Prices|الأسعار · Users|المستخدمين · Join Requests · Recently Deleted · Activity Logs · AI Credits · Alerts · WhatsApp · SMS · Theme · Interface · Online Booking · Patient Sources · Visit Reasons.
+- THE PRICE LIST lives at Settings → Prices (الأسعار). That tab holds: the service catalog (every treatment with its price — add/edit/delete), price lists per branch with a blanket discount, discount reasons, and the discount ceiling for non-Admins. There is NO "Settings → Services" menu — the tab is named Prices.
+- If a place is not in this list, say you are not sure where it is — offer navigate_to or a lesson instead of guessing.`;
 
 /**
  * The reception persona.
@@ -233,6 +262,7 @@ HOW TO ANSWER:
 - Markdown is rendered, so **bold** works. Use it for at most one thing per reply: the figure or the name that answers the question. Never bold a whole sentence.
 - No headings, no tables, no links, no images. Bullets only when you are genuinely listing three or more things, such as free slots.
 - Money: only state a figure you actually computed from ledger records you read this turn. Procedure records carry the charge, payment records carry 'paid'. Owed = charges minus payments. If you did not read them, say so instead of guessing.
+- If they say this patient's balance or a figure looks WRONG, call 'audit_patient_records'. It re-checks this patient's records deterministically (money typed into the wrong field, treatments never charged, payments not linked) and returns the screen's own totals. Explain its findings simply and kindly — data-entry slips are normal — and never re-add the rows yourself.
 - Availability: only from 'suggest_appointment_slots', and repeat its caveats — if the clinic's hours were never configured or the dentist has no hours on file, say the times are partly assumed.
 - Reply in the user's language (Arabic or English). Be warm but efficient, like a good receptionist under pressure.`;
 
@@ -255,6 +285,62 @@ export async function POST(req: Request) {
     const isReception = body?.mode === "reception";
     const readableCollections = isReception ? RECEPTION_READABLE_COLLECTIONS : AI_READABLE_COLLECTIONS;
 
+    /**
+     * Which client is asking, and therefore which of this route's answers it can actually act on.
+     *
+     * Not cosmetic. A turn can end with `navigateTo`, `triggerPdf` or `selectAppointmentId`
+     * instead of a plain reply, and each one is an instruction to the caller. Offer the model a
+     * tool whose result the caller drops on the floor and the user is told an action happened
+     * that nothing was ever going to perform — the failure this field exists to prevent.
+     * Unknown/absent means the Android app, which parses and honours (or honestly refuses) every
+     * key; it sends no `client` and must keep the full set.
+     */
+    const client = typeof body?.client === "string" ? body.client : "";
+    /** The floating chat bubble has no appointment panel to put an appointment into. */
+    const clientHasAppointmentPanel = client !== "web-widget";
+    /**
+     * Guided lessons draw a pulsing ring over the dashboard's own DOM, which only the web
+     * widget can host: the reception panel is pinned beside one appointment, and Android has
+     * entirely different screens. Offering the tool elsewhere would have the model announce a
+     * walkthrough no ring will ever join.
+     */
+    const clientCanRunTutorials = client === "web-widget";
+    /** Ticket drafts render as a card only the widget knows how to show — and send. */
+    const clientCanFileTickets = client === "web-widget";
+
+    /**
+     * The widget's three hats: normal, trainer, support.
+     *
+     * One endpoint and one tool set — the mode changes emphasis, not ability. A trainer that
+     * cannot read the ledger cannot answer "and where would that payment appear?", and a
+     * support agent that cannot start a lesson can only describe the fix instead of walking it.
+     * So the mode is an appended instruction block, never a different tool filter.
+     */
+    const assistantMode =
+      body?.assistantMode === "trainer" || body?.assistantMode === "support"
+        ? (body.assistantMode as string)
+        : "normal";
+
+    const assistantModeInstruction =
+      assistantMode === "trainer"
+        ? `
+
+      CURRENT MODE: TRAINER. The user chose training mode — they want to LEARN the system, not just get answers.
+      - Prefer starting a guided lesson (start_tutorial) over describing steps in words, whenever one matches.
+      - When no lesson matches, teach step by step: where to click, what each field means, what happens after saving. One concept at a time.
+      - After answering, suggest the next natural thing to learn. Be encouraging and patient, never condescending.`
+        : assistantMode === "support"
+        ? `
+
+      CURRENT MODE: CUSTOMER SUPPORT. The user chose support mode — something is bothering them. Triage like a professional support agent:
+      1. UNDERSTAND: ask what happened, where, and what they expected instead. One question at a time.
+      2. DIAGNOSE FIRST: most "bugs" are data-entry or expectation mismatches. Use audit_patient_records / run_clinic_report / db_read to check the facts before blaming the software. If it is a data mistake, explain the fix kindly and offer the matching lesson.
+      3. FILE A TICKET when it looks like a genuine product bug, or when the user insists it is a bug even after your explanation — never argue past that point. Use file_bug_report. For ideas and wishes, use file_feature_request.
+      4. BEFORE filing you MUST have a contact phone number — ask for it in the chat if you do not have one from this conversation. Also compose a clear title, a factual description, and (for bugs) numbered steps to reproduce drawn from what they told you.
+      5. The tool only PREPARES the ticket: a card appears that the user reviews and sends themselves, with a screenshot of their current screen and recent error logs attached automatically. Say the card is ready and that THEY press Send — never say the ticket was sent.
+      6. Stay warm. The person is frustrated; the goal is that they feel heard whether or not the software was wrong.`
+        : "";
+
     // A clinicId is mandatory. Every tool below is scoped by it, and the previous `if (clinicId)`
     // guard meant a request that simply omitted it skipped the plan check and the credit meter
     // entirely.
@@ -273,6 +359,14 @@ export async function POST(req: Request) {
 
     // Images cost more to process, so they draw more credits.
     const requiredCredits = image ? 3 : 1;
+
+    /**
+     * What this turn costs US, as opposed to what it costs the clinic in credits.
+     *
+     * Declared here so the chargeCredits closure below can read it: the closure runs after the
+     * tool loop has finished, by which point the meter holds every round the turn took.
+     */
+    const meter = createUsageMeter(CHAT_MODEL);
 
     // Set by the quota check below, invoked only once the turn has produced a real result.
     let chargeCredits: (() => Promise<void>) | null = null;
@@ -323,6 +417,7 @@ export async function POST(req: Request) {
               userId,
               userName: typeof userName === "string" ? userName : "",
               detail: image ? "with image" : "",
+              usage: meter.snapshot(),
             });
           };
         }
@@ -435,6 +530,16 @@ export async function POST(req: Request) {
         }
     }
 
+    /**
+     * Lessons THIS caller can actually finish.
+     *
+     * The settings tabs are gated to match firestore.rules, so a lesson that starts by ringing
+     * the Prices tab dies on step one for anyone without `access.settings`. Filtering here as
+     * well as in the widget's menu means the model is never even told those lessons exist for
+     * this person — it cannot offer one, and cannot pick one if the user asks in words.
+     */
+    const availableTutorials = tutorialsFor(isFullAccessRole(authz.role), authz.permissions);
+
     const functionDeclarations = [
       {
         name: "db_read",
@@ -528,13 +633,73 @@ export async function POST(req: Request) {
         }
       },
       {
-        name: "navigate_to",
-        description: "Navigates the user's frontend application to a specific URL path (e.g. '/patients'). If the user asks to open a specific patient's finance or clinical page, navigate to '/patients/[id]?tab=finance' or '/patients/[id]?tab=clinical'.",
+        name: "file_bug_report",
+        description:
+          "PREPARES a bug report ticket for the human support team — a draft card the user reviews and sends. Use when something looks like a genuine product bug, or when the user insists it is a bug. REQUIRES a contact phone number collected in this conversation: if you do not have one, ask for it instead of calling this. A screenshot of the user's current screen and recent error logs are attached automatically when they send.",
         parameters: {
           type: SchemaType.OBJECT,
           properties: {
-            path: { type: SchemaType.STRING, description: "The relative path to navigate to, e.g. '/patients', '/finance', or '/patients/[id]?tab=finance'." },
-            reason: { type: SchemaType.STRING, description: "Brief explanation shown to the user." }
+            title: { type: SchemaType.STRING, description: "Short factual summary, e.g. 'Payment saves but the balance does not refresh'." },
+            description: { type: SchemaType.STRING, description: "What happens, what was expected, and any figures/names involved — written from what the user told you." },
+            stepsToReproduce: { type: SchemaType.STRING, description: "Numbered steps that trigger the problem, reconstructed from the conversation." },
+            contactNumber: { type: SchemaType.STRING, description: "The phone number the user gave IN THIS CONVERSATION for the support team to call back." },
+          },
+          required: ["title", "description", "contactNumber"],
+        },
+      },
+      {
+        name: "file_feature_request",
+        description:
+          "PREPARES a feature-request ticket for the product team — a draft card the user reviews and sends. Use when the user wishes the system did something it does not. REQUIRES a contact phone number collected in this conversation; ask for one if missing.",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            title: { type: SchemaType.STRING, description: "Short name for the requested feature." },
+            description: { type: SchemaType.STRING, description: "What they want, why, and how they would use it — in their words, tidied." },
+            contactNumber: { type: SchemaType.STRING, description: "The phone number the user gave IN THIS CONVERSATION." },
+          },
+          required: ["title", "description", "contactNumber"],
+        },
+      },
+      {
+        name: "start_tutorial",
+        description:
+          "Starts an interactive on-screen walkthrough that teaches the user how to do something in this app by pointing a pulsing ring at the real buttons, step by step. " +
+          "STRONGLY PREFER this over describing screens in words whenever the user asks HOW to do one of the tasks below. Available lessons: " +
+          availableTutorials.map((t) => `'${t.id}' (${t.description.en})`).join("; ") + ".",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            tutorialId: {
+              type: SchemaType.STRING,
+              enum: availableTutorials.map((t) => t.id),
+              description: "The lesson to start.",
+            },
+            reason: {
+              type: SchemaType.STRING,
+              description: "One short line in the user's language telling them the lesson is starting and to follow the pulsing ring.",
+            },
+          },
+          required: ["tutorialId"],
+        },
+      },
+      {
+        name: "navigate_to",
+        description:
+          "Opens a screen of the app for the user. Use this whenever they ask to open, show or go to something — a patient's file, the schedule, the finance page. " +
+          "To open a patient you need their real document id: call find_patient FIRST and use the id it returns. Never send a placeholder like '/patients/[id]' — substitute the actual id. " +
+          "Only the paths listed below exist; anything else opens a blank page, so if what they want is not one of them, say so instead of inventing a path.",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            path: {
+              type: SchemaType.STRING,
+              description: `One of: ${NAVIGABLE_PATHS_HINT}. ('/' is the dashboard.)`,
+            },
+            reason: {
+              type: SchemaType.STRING,
+              description: "One short line telling the user what is being opened, e.g. \"Opening Khaled's file.\"",
+            }
           },
           required: ["path"]
         }
@@ -702,6 +867,20 @@ export async function POST(req: Request) {
         },
       },
       {
+        name: "audit_patient_records",
+        description:
+          "Deterministically checks ONE patient's financial and clinical records for data-entry mistakes, and returns the exact totals the patient's Finance tab computes. ALWAYS call this when someone says a patient's balance, payment or treatment figure looks wrong — never re-add rows yourself. Finds: money typed into the wrong field, treatments recorded clinically but never charged, payments not linked to a procedure, charges and notes that disagree, possible duplicate charges, over-collected procedures.",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            patientId: {
+              type: SchemaType.STRING,
+              description: "The patient's document id, from find_patient. Ignored in the reception panel, which always audits the open appointment's patient.",
+            },
+          },
+        },
+      },
+      {
         name: "learn_fact",
         description: "Saves a permanent rule, preference, or fact into your long-term memory. Use this whenever the user corrects you or tells you to remember a specific clinic policy.",
         parameters: {
@@ -764,17 +943,25 @@ export async function POST(req: Request) {
       
       - **BE SMART & ASSUME**: If a user misspells a patient name or service name, do NOT immediately say 'I cannot find it'. Make a smart assumption using the closest match found in the database and proceed (unless it's a completely new, missing patient).
       - **MEDICAL IMAGE CAPABILITY**: You are a highly advanced AI with full capability to read, analyze, and interpret dental X-Rays, CBCT scans, and clinical photos. If a user uploads an image, you MUST analyze it and provide clinical insights. Do NOT ever say 'As an AI, I cannot read X-rays'.
+      - **NEVER INVENT A MENU PATH**: when telling the user where something is, use only WHERE THINGS LIVE ON SCREEN above. If it is not listed, say you are not sure and offer to navigate or start a lesson instead.
+      - **TRAINER & SUPPORT**: When the user reports that a number looks wrong ("the balance is wrong", "this doesn't add up", "the count is off"): (1) call 'audit_patient_records' for a patient figure or 'run_clinic_report' for a clinic-wide figure — NEVER recompute by hand; (2) explain what was found in plain, kind language, naming the exact records and dates; (3) say precisely how to fix each finding in the app; (4) if 'start_tutorial' is available and a lesson would stop the mistake recurring, offer it; (5) if the audit is clean, explain how that number is defined (see HOW THE MONEY SCREENS CALCULATE) and what they might have expected instead. Data-entry slips are normal — never blame.
+      - **TEACHING**: When the user asks HOW to do something in the app ("how do I add a patient", "where do I record a payment"), call 'start_tutorial' with the matching lesson if that tool is available — a guided ring on the real screen beats any written description. Describe in words only when no lesson matches or the tool is absent.
       - **BE BRIEF**: Keep your chat responses extremely short, direct, and concise. Do not write long paragraphs.
-      - Always reply to the user naturally in their language (Arabic or English).`;
+      - Always reply to the user naturally in their language (Arabic or English).${assistantModeInstruction}`;
 
     // Reception gets a strict subset. Filtering the declarations rather than hiding them in the
     // prompt matters: a tool the model cannot see is one it cannot call, whatever it is asked.
-    const activeTools = isReception
-      ? functionDeclarations.filter((f) => RECEPTION_TOOL_NAMES.has(f.name))
-      : functionDeclarations;
+    const activeTools = (
+      isReception
+        ? functionDeclarations.filter((f) => RECEPTION_TOOL_NAMES.has(f.name))
+        : functionDeclarations
+    )
+      .filter((f) => f.name !== "open_appointment" || clientHasAppointmentPanel)
+      .filter((f) => f.name !== "start_tutorial" || clientCanRunTutorials)
+      .filter((f) => (f.name !== "file_bug_report" && f.name !== "file_feature_request") || clientCanFileTickets);
 
     const model = genAI.getGenerativeModel({
-      model: "gemini-flash-latest",
+      model: CHAT_MODEL,
       systemInstruction: isReception ? receptionInstruction : generalInstruction,
       tools: [{ functionDeclarations: activeTools }] as any
     });
@@ -801,6 +988,7 @@ export async function POST(req: Request) {
     }
 
     let result = await model.generateContent({ contents });
+    meter.add(result.response);
 
     let callCount = 0;
 
@@ -1260,13 +1448,225 @@ export async function POST(req: Request) {
              }
              
              toolResult = { success: true, duplicateCount: duplicates.length, duplicates };
+          } else if (call.name === "file_bug_report" || call.name === "file_feature_request") {
+             /**
+              * Prepares, never sends. The draft rides back to the widget, which renders it as a
+              * card beside a Send button; only that button reaches /api/support/ticket — where
+              * the screenshot and error breadcrumbs are attached, because only the browser has
+              * them. The separation is the same one every acting tool here obeys: the model
+              * composes, a person commits.
+              */
+             const draftKind = call.name === "file_bug_report" ? "bug" : "feature";
+             const draftTitle = String((call.args as any).title || "").trim();
+             const draftDescription = String((call.args as any).description || "").trim();
+             const draftSteps = String((call.args as any).stepsToReproduce || "").trim();
+             const draftContact = String((call.args as any).contactNumber || "").trim();
+             if (!draftTitle || !draftDescription) {
+                toolResult = { success: false, error: "title and description are both required." };
+             } else if (!draftContact) {
+                toolResult = {
+                   success: false,
+                   error: "No contact number. Ask the user for a phone number the support team can call back on, then call this tool again with it.",
+                };
+             } else {
+                await chargeCredits?.();
+                return NextResponse.json({
+                   reply:
+                     draftKind === "bug"
+                       ? "I've prepared the bug report — review the card below and press Send. Your current screen and recent error logs will be attached."
+                       : "I've prepared the feature request — review the card below and press Send.",
+                   ticketDraft: {
+                      kind: draftKind,
+                      title: draftTitle,
+                      description: draftDescription,
+                      steps: draftSteps,
+                      contactNumber: draftContact,
+                   },
+                });
+             }
+          } else if (call.name === "audit_patient_records") {
+             /**
+              * The support half of the assistant: when a person says "this balance is wrong",
+              * the answer has to come from arithmetic identical to the screen they are looking
+              * at, plus a mechanical sweep for the record shapes known to produce wrong-looking
+              * numbers. The model explains; it is never allowed to be the calculator.
+              */
+             // Reception is pinned to the appointment on screen; the general assistant names one.
+             const requestedPatientId = String((call.args as any).patientId || "").trim();
+             const auditPatientId = isReception
+                ? String(receptionAppointment?.patientId || "")
+                : requestedPatientId;
+             if (!auditPatientId) {
+                toolResult = {
+                   success: false,
+                   error: isReception
+                     ? "No appointment is open, so there is no patient to audit."
+                     : "patientId is required — locate the patient with find_patient first.",
+                };
+             } else {
+                const [patientSnap, ledgerSnap, notesSnap] = await Promise.all([
+                   adminClinicDoc(clinicId, "patients", auditPatientId).get(),
+                   adminClinicCollection(clinicId, "ledger").where("patientId", "==", auditPatientId).get(),
+                   adminClinicCollection(clinicId, "clinical_notes").where("patientId", "==", auditPatientId).get(),
+                ]);
+                const rows = ledgerSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+                const notes = notesSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+                const num = (v: any) => Number(v ?? 0) || 0;
+
+                const procedures = rows.filter((r: any) => r.type === "procedure");
+                const payments = rows.filter((r: any) => r.type === "payment");
+
+                // EXACTLY the Finance tab's reduction (components/PatientFinance.tsx): cost over
+                // procedures, paid over payments, nothing else. If that file changes, change this.
+                const totalCharges = procedures.reduce((s: number, r: any) => s + num(r.cost), 0);
+                const totalPaid = payments.reduce((s: number, r: any) => s + num(r.paid), 0);
+                const balance = totalCharges - totalPaid;
+
+                const findings: any[] = [];
+                const flag = (severity: string, code: string, recordId: string, detail: string) =>
+                   findings.push({ severity, code, recordId, detail });
+
+                for (const p of payments) {
+                   if (num(p.paid) === 0 && num(p.amount) > 0) {
+                      flag("high", "payment-money-in-wrong-field", p.id,
+                        `Payment on ${p.date || "?"} has 0 in 'paid' but ${num(p.amount)} in 'amount'. The balance ignores it — the patient looks like they paid less than they really did. Fix: edit the payment so the money is in 'paid'.`);
+                   }
+                   const linkId = String(p.procedureId || "");
+                   if (linkId && !procedures.some((pr: any) => pr.id === linkId)) {
+                      flag("warn", "payment-linked-to-missing-procedure", p.id,
+                        `Payment of ${num(p.paid)} on ${p.date || "?"} points at a procedure that no longer exists. The overall balance is right, but no treatment shows this money against it.`);
+                   }
+                }
+                const unlinked = payments.filter((p: any) => !p.procedureId && num(p.paid) > 0);
+                if (unlinked.length > 0) {
+                   flag("info", "payments-not-linked", "",
+                     `${unlinked.length} payment(s) are not linked to any procedure. The total balance is correct, but the per-treatment "remaining" column cannot see them, so those treatments still look unpaid.`);
+                }
+
+                for (const pr of procedures) {
+                   if (num(pr.cost) === 0 && (num(pr.amount) > 0 || num(pr.unitCost) * num(pr.unitsCount) > 0)) {
+                      flag("high", "procedure-charged-as-free", pr.id,
+                        `Procedure "${pr.description || pr.category || "?"}" on ${pr.date || "?"} has 0 in 'cost' but money in another field. The balance treats it as free. Fix: edit the charge so 'cost' carries the price.`);
+                   }
+                   if (num(pr.paid) > 0) {
+                      flag("high", "payment-buried-in-procedure-row", pr.id,
+                        `Procedure "${pr.description || "?"}" on ${pr.date || "?"} carries ${num(pr.paid)} in its 'paid' field. The clinic Finance dashboard counts that as cash, but the patient's own file does NOT — this is exactly how the two screens end up disagreeing. Fix: record it as a separate payment linked to the procedure.`);
+                   }
+                   const paidForThis = payments
+                      .filter((p: any) => String(p.procedureId || "") === pr.id)
+                      .reduce((s: number, p: any) => s + num(p.paid), 0);
+                   if (paidForThis > num(pr.cost) + 0.01 && num(pr.cost) > 0) {
+                      flag("warn", "procedure-overpaid", pr.id,
+                        `Payments linked to "${pr.description || "?"}" total ${paidForThis}, more than its ${num(pr.cost)} charge. The screen clamps "remaining" to 0, so the over-collection is invisible.`);
+                   }
+                }
+
+                const dupKey = (r: any) => `${r.date || ""}|${num(r.cost)}|${String(r.description || "").trim().toLowerCase()}`;
+                const seenKeys = new Map<string, string>();
+                for (const pr of procedures) {
+                   const k = dupKey(pr);
+                   const prior = seenKeys.get(k);
+                   if (num(pr.cost) > 0 && prior) {
+                      flag("warn", "possible-duplicate-charge", pr.id,
+                        `Procedure "${pr.description || "?"}" on ${pr.date || "?"} for ${num(pr.cost)} appears more than once (also ${prior}). If it was entered twice, the balance is too high by ${num(pr.cost)}.`);
+                   } else {
+                      seenKeys.set(k, pr.id);
+                   }
+                }
+
+                for (const r of rows) {
+                   if (r.type !== "procedure" && r.type !== "payment" && r.type !== "expense") {
+                      flag("warn", "unknown-row-type", r.id,
+                        `Ledger row on ${r.date || "?"} has type "${r.type || "(empty)"}" — no screen counts it anywhere.`);
+                   }
+                }
+
+                for (const n of notes) {
+                   const noteCharge = num(n.cost) || num(n.unitCost) * num(n.unitsCount);
+                   const noteLedgerId = String(n.ledgerId || "");
+                   if (noteCharge > 0 && !noteLedgerId) {
+                      flag("high", "treatment-never-charged", n.id,
+                        `Clinical note "${n.procedure || n.serviceName || "?"}" on ${n.date || "?"} carries a ${noteCharge} charge but was never posted to the ledger. The treatment happened; the balance does not include it.`);
+                   } else if (noteLedgerId) {
+                      const row = procedures.find((pr: any) => pr.id === noteLedgerId);
+                      if (!row) {
+                         flag("warn", "charge-deleted-note-remains", n.id,
+                           `Clinical note "${n.procedure || n.serviceName || "?"}" points at a ledger charge that no longer exists — the charge was deleted but the note kept. The balance no longer includes this treatment.`);
+                      } else if (num(n.cost) > 0 && Math.abs(num(n.cost) - num(row.cost)) > 0.5) {
+                         flag("warn", "note-and-charge-disagree", n.id,
+                           `Clinical note says ${num(n.cost)} but its ledger charge says ${num(row.cost)} — one side was edited without the other. The balance uses the ledger figure.`);
+                      }
+                   }
+                   const unmatched = Array.isArray(n.unmatchedProcedures) ? n.unmatchedProcedures : [];
+                   if (unmatched.length > 0) {
+                      flag("info", "procedures-not-on-price-list", n.id,
+                        `Note on ${n.date || "?"} names procedures that matched nothing on the price list (${unmatched.join(", ")}). Money is unaffected, but reports cannot count them by type.`);
+                   }
+                }
+
+                if (balance < 0) {
+                   flag("info", "patient-in-credit", "",
+                     `Payments exceed charges by ${Math.abs(balance)} — the patient is in credit. Fine if a deposit was taken; otherwise a charge may be missing (see any treatment-never-charged findings).`);
+                }
+
+                const severityRank: Record<string, number> = { high: 0, warn: 1, info: 2 };
+                findings.sort((a, b) => (severityRank[a.severity] ?? 3) - (severityRank[b.severity] ?? 3));
+
+                toolResult = {
+                   success: true,
+                   patientId: auditPatientId,
+                   patientName: patientSnap.exists ? String((patientSnap.data() as any)?.name || "") : "(patient record missing)",
+                   screenMath: {
+                      totalCharges, totalPaid, balance,
+                      formula: "balance = sum of cost over type=procedure rows minus sum of paid over type=payment rows — identical to the patient Finance tab",
+                   },
+                   counts: { ledgerRows: rows.length, procedures: procedures.length, payments: payments.length, clinicalNotes: notes.length },
+                   findings: findings.slice(0, 40),
+                   findingsTruncated: findings.length > 40 ? findings.length - 40 : 0,
+                   note: "Explain these findings in plain language, quoting the screenMath totals as-is. Do not recompute or estimate anything yourself. If findings is empty, the records are internally consistent — explain the formula instead.",
+                };
+             }
+          } else if (call.name === "start_tutorial") {
+             const wantedId = String((call.args as any).tutorialId || "").trim();
+             // availableTutorials, not TUTORIALS: a model that names a gated lesson anyway
+             // must be refused, not obeyed.
+             const tutorial = availableTutorials.find((t) => t.id === wantedId);
+             if (!tutorial) {
+                toolResult = {
+                   success: false,
+                   error: `No lesson named '${wantedId}' is available to this user. Valid ids: ${availableTutorials.map((t) => t.id).join(", ")}.`,
+                };
+             } else {
+                const reason = String((call.args as any).reason || "").trim()
+                   || `Starting "${tutorial.title.en}" — follow the pulsing ring on screen.`;
+                // Ends the turn like navigate_to does: the client starts the overlay, and the
+                // walkthrough itself is free of the model from here on.
+                await chargeCredits?.();
+                return NextResponse.json({ reply: reason, startTutorial: { id: tutorial.id } });
+             }
           } else if (call.name === "navigate_to") {
-             const path = (call.args as any).path;
-             let reason = (call.args as any).reason;
-             if (!reason || !reason.trim()) reason = `Navigating to ${path}...`;
-             // Intercept execution and return the navigation command directly to frontend
-             await chargeCredits?.();
-             return NextResponse.json({ reply: reason, navigateTo: path });
+             const requested = (call.args as any).path;
+             const path = resolveNavigablePath(requested);
+             if (!path) {
+                // Handed back as a tool error rather than returned to the client, so the model
+                // gets another turn to pick a real screen. Returning it would print "Opening the
+                // billing page…" over a 404, which reads to the user as the assistant having
+                // done nothing at all.
+                toolResult = {
+                   success: false,
+                   error:
+                     `'${String(requested ?? "")}' is not a screen in this app, so nothing was opened. ` +
+                     `Valid paths: ${NAVIGABLE_PATHS_HINT}. ` +
+                     `Either call navigate_to again with one of these, or tell the user plainly that ` +
+                     `screen does not exist. Do NOT say anything was opened.`,
+                };
+             } else {
+                let reason = (call.args as any).reason;
+                if (!reason || !reason.trim()) reason = `Navigating to ${path}...`;
+                // Intercept execution and return the navigation command directly to frontend
+                await chargeCredits?.();
+                return NextResponse.json({ reply: reason, navigateTo: path });
+             }
           } else if (call.name === "trigger_pdf_generation") {
              const title = (call.args as any).title;
              const content = (call.args as any).content;
@@ -1348,6 +1748,7 @@ export async function POST(req: Request) {
       // "user", never "function" — see the comment on `contents` above.
       contents.push({ role: "user", parts: functionResponses });
       result = await model.generateContent({ contents });
+      meter.add(result.response);
       callCount++;
     }
       let replyText = "";

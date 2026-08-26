@@ -581,7 +581,7 @@ export default function ServiceEditorDrawer({
         </div>
       ) : (
         <div className="flex items-center gap-2">
-          <div className="flex-1 min-w-0">
+          <div data-tour="clinical-procedure-name" className="flex-1 min-w-0">
             <ServiceCombobox
               services={servicesList} value={procedure}
               onChange={handleProcedureChange}
@@ -650,7 +650,7 @@ export default function ServiceEditorDrawer({
 
   const saveButton = (
     <button
-      type="submit"
+      type="submit" data-tour="clinical-save"
       form="service-form"
       disabled={isSaving}
       className={`w-full flex justify-center items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-2xl shadow-lg shadow-blue-500/30 transition-all disabled:opacity-70 ${compact ? "py-2.5 text-sm" : "py-4"}`}

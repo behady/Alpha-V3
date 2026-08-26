@@ -271,7 +271,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
             <p className="text-sm font-medium text-slate-500 mt-0.5">{txt.subtitle}</p>
           </div>
           <button
-            onClick={openAdd}
+            data-tour="price-add-service" onClick={openAdd}
             className="bg-slate-900 text-white px-6 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-slate-800 transition-all shadow-md shrink-0 active:scale-95"
           >
             <Plus size={18} /> {txt.addTreatment}
@@ -418,7 +418,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
                     required
                     value={form.name}
                     onChange={(e) => handleNameChange(e.target.value)}
-                    placeholder={ar ? "مثال: تاج زيركون" : "e.g. Zircon Crown"}
+                    placeholder={ar ? "مثال: تاج زيركون" : "e.g. Zircon Crown"} data-tour="price-service-name"
                     className="w-full py-3 px-4 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 text-sm outline-none focus:bg-white focus:border-primary-500 transition-all"
                   />
                 </div>
@@ -593,7 +593,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
               )}
 
               <button
-                type="submit"
+                type="submit" data-tour="price-service-save"
                 className="w-full bg-slate-900 text-white py-3.5 rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all flex items-center justify-center gap-2"
               >
                 <Save size={16} /> {editingService ? txt.update : txt.save}

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
-import { requireStaffUser } from "@/lib/apiStaffAuth";
+import { requireStaffUser, requireStaffPermission } from "@/lib/apiStaffAuth";
 import { adminBucket } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { sendWhatsAppPdfFromUrl } from "@/lib/whatsapp";
@@ -45,6 +45,18 @@ export async function POST(request: Request) {
     // patient looked up in the wrong tenant and be told "Patient not found" for a patient that
     // is plainly on screen. resolveUserClinicId still proves membership before honouring it.
     const clinicId = await resolveUserClinicId(authz.uid, body.clinicId);
+
+    /**
+     * Same clinical gate as the prescription sender, for the same reason: the PDF arrives
+     * already rendered and goes straight to the patient, so no rule this codebase has can see
+     * it. `clinical.edit` is what firestore.rules demands to write a treatment plan; sending one
+     * out under the clinic's name is not a lesser act than saving it.
+     *
+     * After resolveUserClinicId, never before — the permission list is per clinic, and asking
+     * without one reads the flat legacy array that is empty on migrated accounts.
+     */
+    const permitted = await requireStaffPermission(request, clinicId, "clinical.edit");
+    if (!permitted.ok) return permitted.response;
 
     let buffer: Buffer;
     try {

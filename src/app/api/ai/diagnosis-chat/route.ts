@@ -6,7 +6,7 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { fetchPatientAiContext, patientContextBlock } from "@/lib/aiPatientContext";
-import { logAiCreditUsage } from "@/lib/aiCreditLog";
+import { logAiCreditUsage, createUsageMeter } from "@/lib/aiCreditLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -200,7 +200,9 @@ ${patientContextBlock(ctx)}`;
       systemInstruction,
     });
 
+    const meter = createUsageMeter(modelName);
     const result = await model.generateContent({ contents });
+    meter.add(result.response);
     const reply = result.response.text().trim();
 
     if (!reply) {
@@ -218,6 +220,7 @@ ${patientContextBlock(ctx)}`;
       detail: [summarize ? "diagnosis summary" : hasImages ? "with photos" : "", superMode ? "super mode" : ""]
         .filter(Boolean)
         .join(" · "),
+      usage: meter.snapshot(),
     });
 
     return NextResponse.json({ ok: true, reply });

@@ -243,7 +243,7 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block"><User size={12} className="inline mb-0.5 me-1"/>{t("patientName")}</label>
-                 <input autoFocus required value={name} onChange={e => setName(e.target.value)} className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-gray-900 outline-none focus:border-primary-500 transition-colors" placeholder={t("patientNamePlaceholder")}/>
+                 <input autoFocus required data-tour="new-patient-name" value={name} onChange={e => setName(e.target.value)} className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-gray-900 outline-none focus:border-primary-500 transition-colors" placeholder={t("patientNamePlaceholder")}/>
               </div>
               
               <div className="relative">
@@ -384,7 +384,7 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
            <div className="pt-2">
                <button 
                  type="submit" 
-                 disabled={loading || (!!duplicateWarning && !allowDuplicatePhone)} 
+                 disabled={loading || (!!duplicateWarning && !allowDuplicatePhone)} data-tour="new-patient-save" 
                  className="w-full bg-primary-600 text-white py-4 rounded-xl font-black text-sm uppercase tracking-widest shadow-lg shadow-primary-200 hover:bg-primary-700 active:scale-[0.98] transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100"
                >
                  {loading ? <Loader2 size={18} className="animate-spin"/> : <Save size={18}/>} 

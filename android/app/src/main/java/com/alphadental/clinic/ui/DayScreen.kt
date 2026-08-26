@@ -71,7 +71,7 @@ fun DayScreen(
                         text = prettyDate(date, arabic),
                         fontSize = 23.sp,
                         fontWeight = FontWeight.ExtraBold,
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
+                        fontFamily = AlphaType.Display,
                         color = onSlab,
                         maxLines = 1,
                     )

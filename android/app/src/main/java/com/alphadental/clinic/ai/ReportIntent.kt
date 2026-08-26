@@ -5,11 +5,11 @@ import java.util.Calendar
 import java.util.Locale
 
 /**
- * Understands "make me a finance PDF for last month" and "pdf of this week's
- * appointments" without spending an AI credit.
+ * Understands "make me a finance PDF for last month", "pdf of this week's
+ * appointments" and "this month's payroll" without spending an AI credit.
  *
- * These are the two documents the phone can draw entirely by itself: the data is
- * in Firestore and the PDF is rendered locally. Everything else falls through to
+ * These are the three documents the phone can draw: two from Firestore directly,
+ * and the payroll from figures the server works out. Everything else falls through to
  * the server assistant unchanged, so a miss costs nothing but the credit the
  * question would have cost anyway.
  *
@@ -24,7 +24,7 @@ import java.util.Locale
 object ReportIntent {
 
     /** Which of the two documents the phone was asked for. */
-    enum class Kind { FINANCE, SCHEDULE }
+    enum class Kind { FINANCE, SCHEDULE, PAYROLL }
 
     /** One resolved request: what to draw, and the period to draw it for. */
     data class Request(val kind: Kind, val period: Period)
@@ -53,6 +53,18 @@ object ReportIntent {
         "finance", "financial", "money", "income", "revenue", "expense", "profit", "takings", "cash",
         "مالي", "مالية", "المالي", "الحسابات", "حسابات", "دخل", "الدخل", "مصروف", "مصاريف",
         "ايراد", "إيراد", "ارباح", "أرباح", "ربح", "تحصيل", "فلوس",
+    )
+
+    /**
+     * Wages, which are not the clinic's takings.
+     *
+     * Checked before the finance words because "payroll" and "salaries" sit next
+     * to money words in the same sentence often enough — "how much did payroll
+     * cost this month" is a payroll question, not a request for the ledger.
+     */
+    private val PAYROLL_WORDS = listOf(
+        "payroll", "payrolls", "salary", "salaries", "wage", "wages", "pay run", "payslip",
+        "رواتب", "الرواتب", "راتب", "مرتبات", "المرتبات", "مرتب", "أجور", "اجور",
     )
 
     private val SCHEDULE_WORDS = listOf(
@@ -88,8 +100,13 @@ object ReportIntent {
 
         val period = findPeriod(lower, now)
 
-        // The schedule is checked first: "pdf of this week's appointments and what
-        // we took" is a day sheet with a money aside, not a ledger.
+        // Payroll first: "what did payroll cost this month" carries a money word
+        // too, and answering it with the clinic's takings is the wrong document.
+        if (PAYROLL_WORDS.any { it in lower }) {
+            return Request(Kind.PAYROLL, period ?: thisMonth(now))
+        }
+        // Then the schedule: "pdf of this week's appointments and what we took"
+        // is a day sheet with a money aside, not a ledger.
         if (SCHEDULE_WORDS.any { it in lower }) {
             return Request(Kind.SCHEDULE, period ?: today(now))
         }

@@ -208,7 +208,7 @@ export default function DesktopSidebar({
     // the link, so anchoring them to the link would leave it positioned against a far-off ancestor
     // and never triggered by hover.
     return (
-      <div key={key} className="group relative w-full shrink-0">
+      <div key={key} data-tour={`nav-${String(key).replace(/^\//, "")}`} className="group relative w-full shrink-0">
         {body}
         {/* The tooltip is the only label when collapsed, and pure noise when expanded. */}
         {!expanded && (

@@ -35,7 +35,7 @@ import type { DormancyReport, DormantPatient } from "@/lib/automation/dormantPat
 };
 
 export default function ReactivationPage() {
-  const { clinic, clinicId } = useClinic();
+  const { clinic, clinicId, isAdmin } = useClinic();
   const { user } = useAuth();
   const { language, isRTL } = useLanguage();
   const { showToast } = useUI();
@@ -368,7 +368,7 @@ export default function ReactivationPage() {
                       {isAr ? "الحد المستخدم" : "Threshold used"}
                     </p>
                     <p className="text-xl font-black mt-1">{monthsLabel(report.thresholdDays)}</p>
-                    {thresholdSource === "default" && (
+                    {thresholdSource === "default" && isAdmin && (
                       // Says outright that this number is ours, not the clinic's, so the count
                       // above is never mistaken for a judgement the practice made.
                       <Link

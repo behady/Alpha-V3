@@ -9,6 +9,7 @@ import {
 import { onSnapshot, query, where, getDoc } from "firebase/firestore";
 import { auth } from "@/lib/firebase";
 import { handleManualWhatsApp } from "@/lib/whatsappManual";
+import { printAssistantDocument } from "@/lib/assistantDocumentPdf";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
@@ -675,6 +676,9 @@ export default function AppointmentAvatarPanel({
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
           mode: "reception",
+          // Which surface is asking. This panel can navigate, swap the appointment on screen and
+          // print, so it declares the full web capability set.
+          client: "web-reception",
           appointmentId: selectedAppointment?.id || "",
           clinicId,
           prompt: trimmed,
@@ -746,6 +750,20 @@ export default function AppointmentAvatarPanel({
       }
 
       if (data.navigateTo) router.push(data.navigateTo);
+
+      // The other thing the route can end a turn with. Reception's tool list does not currently
+      // include trigger_pdf_generation, so this should never fire — but the list is one edit away
+      // from including it, and an unhandled key here means the panel says a document is being
+      // prepared and none ever is. Honouring it costs one call; discovering it silently does
+      // nothing costs a support ticket.
+      if (data.triggerPdf?.title && data.triggerPdf?.content) {
+        printAssistantDocument({
+          title: String(data.triggerPdf.title),
+          content: String(data.triggerPdf.content),
+          ar: isAr,
+          clinicName: clinic?.name,
+        });
+      }
     } catch (err: any) {
       setMessages((prev) => [
         ...prev,

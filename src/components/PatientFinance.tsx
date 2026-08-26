@@ -604,7 +604,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
               {sendingReceipt ? <Loader2 size={16} className="animate-spin shrink-0" /> : <ScrollText size={16} className="shrink-0" />}
               <span className="min-w-0 break-words">{txt.sendReceiptWhatsapp}</span>
             </button>
-            <button onClick={() => { setIsAddingPayment(!isAddingPayment); setIsDropdownOpen(false); }} className="min-w-0 col-span-2 sm:col-span-1 justify-center bg-green-500 text-white px-3 py-2.5 rounded-xl font-black text-xs uppercase shadow-md shadow-green-100 hover:bg-green-600 transition-all flex items-center gap-2 leading-tight whitespace-normal text-center">
+            <button data-tour="finance-add-payment" onClick={() => { setIsAddingPayment(!isAddingPayment); setIsDropdownOpen(false); }} className="min-w-0 col-span-2 sm:col-span-1 justify-center bg-green-500 text-white px-3 py-2.5 rounded-xl font-black text-xs uppercase shadow-md shadow-green-100 hover:bg-green-600 transition-all flex items-center gap-2 leading-tight whitespace-normal text-center">
                 <Plus size={16} className="shrink-0"/> <span className="min-w-0 break-words">{txt.addPayment}</span>
             </button>
             </div>
@@ -678,10 +678,10 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                 </div>
                 <div>
                     <label className="text-[10px] font-black text-green-700 uppercase mb-1 block">{txt.amount}</label>
-                    <input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} placeholder="0.00" className="w-full p-3.5 rounded-xl border border-green-200 text-sm font-black focus:border-green-500 outline-none" />
+                    <input data-tour="finance-pay-amount" type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} placeholder="0.00" className="w-full p-3.5 rounded-xl border border-green-200 text-sm font-black focus:border-green-500 outline-none" />
                 </div>
                 <div>
-                    <button type="submit" className="w-full bg-green-600 text-white py-3.5 rounded-xl font-black text-xs uppercase shadow-lg hover:bg-green-700 flex items-center justify-center gap-2 transition-all active:scale-95">
+                    <button data-tour="finance-pay-confirm" type="submit" className="w-full bg-green-600 text-white py-3.5 rounded-xl font-black text-xs uppercase shadow-lg hover:bg-green-700 flex items-center justify-center gap-2 transition-all active:scale-95">
                        <Check size={16}/> {txt.confirm}
                     </button>
                 </div>

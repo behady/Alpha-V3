@@ -13,11 +13,35 @@ import { useAuth } from "@/context/AuthContext";
 import { prescriptionPayloadToPdfBlob } from "@/lib/prescriptionPdfHtml";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import PermissionGuard from "@/components/PermissionGuard";
 
 interface Drug { id: string; name: string; dose: string; }
 interface RxItem { id: string; name: string; dose: string; note: string; }
 
-export default function PrescriptionStudio() {
+/**
+ * Writing a prescription needs the same permission as saving one.
+ *
+ * This studio had no gate at all while the clinical history and the tooth chart beside it were
+ * both guarded. firestore.rules refuses to store a prescription without `clinical.edit`, so an
+ * unauthorised person hit an error only at Save — after filling the whole form. Everything
+ * before that point still worked: the page rendered on clinic letterhead, Print produced a
+ * finished prescription in a named doctor's name (printing touches no database and no rule can
+ * see it), and Send put it on the patient's WhatsApp.
+ *
+ * `clinical.edit` deliberately matches what the rules demand and what the two PDF-sending routes
+ * now demand, so all three doors answer the same question the same way. Guarding the export
+ * rather than the inner component means an unauthorised visitor never mounts it, and the patient
+ * read never fires.
+ */
+export default function PrescriptionStudioPage() {
+  return (
+    <PermissionGuard permission="clinical.edit">
+      <PrescriptionStudio />
+    </PermissionGuard>
+  );
+}
+
+function PrescriptionStudio() {
   const params = useParams();
   const router = useRouter();
   const id = (params?.id as string) || "";
@@ -252,7 +276,7 @@ export default function PrescriptionStudio() {
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto md:justify-end">
              <button
                 type="button"
-                onClick={() => void handleSave()}
+                onClick={() => void handleSave()} data-tour="rx-save"
                 disabled={isSaving || rxItems.length === 0}
                 className="flex-1 md:flex-none bg-[#27ae60] text-white hover:bg-[#4eb37f] px-5 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:opacity-50"
              >
@@ -329,7 +353,7 @@ export default function PrescriptionStudio() {
                         Drug Name {selectedDrugId ? "(Selected from DB)" : ""}
                      </label>
                      <input 
-                        value={customDrugName} 
+                        value={customDrugName} data-tour="rx-drug-name" 
                         onChange={e => {
                           setCustomDrugName(e.target.value);
                           if (selectedDrugId) setSelectedDrugId("");
@@ -350,7 +374,7 @@ export default function PrescriptionStudio() {
                   </div>
                </div>
 
-               <button onClick={addDrugToRx} disabled={!customDrugName.trim()} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black text-sm shadow-md mt-2 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:active:scale-100">
+               <button data-tour="rx-add-drug" onClick={addDrugToRx} disabled={!customDrugName.trim()} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black text-sm shadow-md mt-2 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:active:scale-100">
                   <Plus size={18}/> Add to Prescription
                </button>
             </div>

@@ -48,7 +48,7 @@ export default function PatientPicker({
       <div className="relative">
         <input
           type="text"
-          value={selectedPatient ? selectedPatient.name : searchTerm}
+          value={selectedPatient ? selectedPatient.name : searchTerm} data-tour="booking-patient"
           onChange={(e) => {
             setSearchTerm(e.target.value);
             setSelectedPatient(null);

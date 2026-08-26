@@ -172,7 +172,7 @@ fun LeadsScreen(
                         fontSize = 19.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = Alpha.Slate900,
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
+                        fontFamily = AlphaType.Display,
                     )
                     Text(
                         if (arabic) "من الإعلانات والاتصالات — اتصل بسرعة" else "From ads and calls — speed wins them",

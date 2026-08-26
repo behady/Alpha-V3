@@ -573,7 +573,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
 
         <button
           type="button"
-          onClick={() => setIsNewOpen(true)}
+          data-tour="price-new-list" onClick={() => setIsNewOpen(true)}
           disabled={saving}
           className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-300 bg-slate-50/50 px-4 py-3 text-sm font-bold text-slate-600 transition hover:border-primary-400 hover:bg-white hover:text-primary-700 disabled:opacity-50"
         >

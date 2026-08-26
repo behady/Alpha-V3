@@ -262,7 +262,7 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
             <h3 className="text-sm font-black text-slate-900">{isAr ? "تفاصيل الخدمات" : "Service Breakdown"}</h3>
             <div className="flex items-center gap-2">
             <button
-              onClick={handlePdfExport}
+              data-tour="reports-export-pdf" onClick={handlePdfExport}
               disabled={exporting}
               className="px-4 py-2 bg-slate-800 text-white text-sm font-bold rounded-xl hover:bg-slate-900 transition-colors flex items-center gap-2 disabled:opacity-50"
             >

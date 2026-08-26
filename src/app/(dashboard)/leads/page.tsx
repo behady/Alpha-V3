@@ -356,7 +356,7 @@ export default function LeadsPage() {
             </div>
           </div>
           <button
-            onClick={openAdd}
+            data-tour="leads-add" onClick={openAdd}
             className="bg-[#FACC15] hover:bg-[#EAB308] text-slate-900 font-black px-4 sm:px-5 py-2.5 rounded-xl shadow-sm flex items-center gap-2 transition-all active:scale-95"
           >
             <Plus size={18} strokeWidth={3} /> {isAr ? "إضافة" : "Add lead"}
@@ -580,7 +580,7 @@ export default function LeadsPage() {
                   {/* Stage + row actions */}
                   <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-slate-50 flex-wrap">
                     <select
-                      value={lead.stage}
+                      value={lead.stage} data-tour="leads-stage"
                       onChange={(e) => void setStage(lead, e.target.value as LeadStage)}
                       className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[11px] font-bold text-slate-600 outline-none focus:border-teal-500"
                     >
@@ -620,7 +620,7 @@ export default function LeadsPage() {
               <div className="p-5 space-y-3">
                 <input
                   autoFocus
-                  value={form.name}
+                  value={form.name} data-tour="leads-name"
                   onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                   placeholder={isAr ? "الاسم *" : "Name *"}
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none focus:border-teal-500"
@@ -703,7 +703,7 @@ export default function LeadsPage() {
                   {isAr ? "إلغاء" : "Cancel"}
                 </button>
                 <button
-                  onClick={() => void handleSave()}
+                  onClick={() => void handleSave()} data-tour="leads-save"
                   disabled={saving || !form.name.trim() || !form.phone.trim()}
                   className="flex-[2] py-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-black uppercase tracking-widest shadow-md transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >

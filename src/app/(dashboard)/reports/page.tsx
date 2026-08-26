@@ -176,7 +176,7 @@ export default function ReportsPage() {
               </div>
               <input
                 type="date"
-                value={startDate}
+                value={startDate} data-tour="reports-date-start"
                 onChange={(e) => setStartDate(e.target.value)}
                 className="px-3 py-2 rounded-xl border border-slate-200 text-sm font-bold bg-white outline-none focus:border-[#60d297] cursor-pointer"
               />
@@ -200,7 +200,7 @@ export default function ReportsPage() {
           </div>
 
           {/* Tab navigation */}
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+          <div data-tour="reports-tabs" className="grid grid-cols-2 lg:grid-cols-5 gap-3">
             {tabs.map((t) => {
               const Icon = t.icon;
               const active = tab === t.id;

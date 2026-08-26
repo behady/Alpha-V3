@@ -76,14 +76,29 @@ export default function SettingsPage() {
     userSubmit: language === 'ar' ? "إنشاء حساب الدخول" : "Create System Login",
   };
 
+  /**
+   * Can this person actually use a clinic-wide settings tab?
+   *
+   * Three tabs that configure the whole clinic — Schedule, Prices and Prescriptions —
+   * were shown to every member of staff. firestore.rules stopped the writes (settings is
+   * Admin-only; services, categories and drugs need access.settings, which no role holds
+   * by default), so nothing could actually be changed — but the tabs opened, the clinic's
+   * prices and discount ceiling were readable, and Save failed with a raw permission
+   * error after the work was done. Gating on the SAME permission the rules demand means
+   * the menu and the database finally agree, and an admin who deliberately grants
+   * access.settings to a manager still gets the tab they were granted.
+   */
+  const canConfigure = (permission?: string) =>
+    isAdmin || !permission || !!user?.permissions?.includes(permission);
+
   const tabs = [
     { id: "general", label: language === 'ar' ? "الملف الشخصي" : "Profile", icon: User },
     { id: "attendance", label: language === 'ar' ? "الحضور" : "Attendance", icon: MapPin, adminOnly: true },
-    { id: "clinical", label: language === 'ar' ? "الجدول" : "Schedule", icon: Clock },
+    { id: "clinical", label: language === 'ar' ? "الجدول" : "Schedule", icon: Clock, adminOnly: true },
     { id: "locations", label: language === 'ar' ? "الفروع والغرف" : "Branches & Rooms", icon: Building2, adminOnly: true },
     { id: "recall", label: language === 'ar' ? "المتابعة" : "Recall", icon: Clock, adminOnly: true },
-    { id: "prescriptions", label: language === 'ar' ? "الوصفات" : "Prescriptions", icon: Pill },
-    { id: "services", label: language === 'ar' ? "الأسعار" : "Prices", icon: Stethoscope },
+    { id: "prescriptions", label: language === 'ar' ? "الوصفات" : "Prescriptions", icon: Pill, requires: "access.settings" },
+    { id: "services", label: language === 'ar' ? "الأسعار" : "Prices", icon: Stethoscope, requires: "access.settings" },
     { id: "users", label: language === 'ar' ? "المستخدمين" : "Users", icon: Users, adminOnly: true },
     { id: "join_requests", label: language === 'ar' ? "طلبات الانضمام" : "Join Requests", icon: Users, adminOnly: true },
     { id: "recently_deleted", label: language === 'ar' ? "المحذوفات" : "Recently Deleted", icon: Trash2 },
@@ -100,6 +115,23 @@ export default function SettingsPage() {
     { id: "sources", label: language === 'ar' ? "مصادر المرضى" : "Patient Sources", icon: Users, adminOnly: true },
     { id: "visit_reasons", label: language === 'ar' ? "أسباب الزيارة" : "Visit Reasons", icon: Stethoscope, adminOnly: true },
   ];
+
+  /**
+   * Which tab is actually shown — not merely which one was asked for.
+   *
+   * `?tab=` above sets activeTab from the address bar so other screens can deep-link here, and
+   * it honoured whatever it was handed. Hiding a tab's button therefore hid nothing: typing
+   * ?tab=services, ?tab=users or ?tab=locations opened that panel for anyone who could reach
+   * Settings at all. The writes still failed at firestore.rules, but the clinic's prices, staff
+   * list, branches and messaging configuration were all readable that way.
+   *
+   * Resolved on every render rather than once on mount: isAdmin arrives asynchronously, so a
+   * check made when the deep link is read would reject the clinic's own admin.
+   */
+  const mayOpenTab = (tab: { adminOnly?: boolean; requires?: string }) =>
+    !(tab.adminOnly && !isAdmin) && canConfigure(tab.requires);
+
+  const effectiveTab = tabs.some((t) => t.id === activeTab && mayOpenTab(t)) ? activeTab : "general";
 
   // Shared Core Settings State
   const [clinicData, setClinicData] = useState({
@@ -237,8 +269,8 @@ export default function SettingsPage() {
     }
   };
 
-  const ActiveIcon = tabs.find(t => t.id === activeTab)?.icon || Building;
-  const ActiveLabel = tabs.find(t => t.id === activeTab)?.label || txt.title;
+  const ActiveIcon = tabs.find(t => t.id === effectiveTab)?.icon || Building;
+  const ActiveLabel = tabs.find(t => t.id === effectiveTab)?.label || txt.title;
 
   // FIX: Removed <PermissionGuard permission="access.settings">
   // New layout structure
@@ -275,12 +307,13 @@ export default function SettingsPage() {
                   <div className={`absolute top-[calc(100%+8px)] ${isRTL ? 'left-0' : 'right-0'} w-full bg-white border border-slate-200 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95`}>
                       <div className="max-h-[60vh] overflow-y-auto py-2 custom-scrollbar">
                           {tabs.map(tab => {
-                              if (tab.adminOnly && !isAdmin) return null;
-                              const isActive = activeTab === tab.id;
+                              if (!mayOpenTab(tab)) return null;
+                              const isActive = effectiveTab === tab.id;
                               return (
                                   <button
                                       key={tab.id}
                                       onClick={() => { setActiveTab(tab.id); setIsTopMenuOpen(false); }}
+                                      data-tour={tab.id === 'clinical' ? 'settings-tab-schedule' : tab.id === 'services' ? 'settings-tab-prices' : undefined}
                                       className={`w-full flex items-center gap-3 px-5 py-3 text-sm font-bold transition-colors ${isActive ? 'bg-[#E8F7F0] text-[#27ae60]' : 'text-slate-600 hover:bg-slate-50'}`}
                                   >
                                       <tab.icon size={18} className={isActive ? 'text-[#27ae60]' : 'text-slate-400'}/> {tab.label}
@@ -302,7 +335,7 @@ export default function SettingsPage() {
               </h3>
               <div className="flex flex-col gap-1">
                 {tabs.filter(t => ['general', 'appearance', 'interface'].includes(t.id)).map(tab => {
-                  const isActive = activeTab === tab.id;
+                  const isActive = effectiveTab === tab.id;
                   return (
                     <button
                       key={tab.id}
@@ -335,11 +368,12 @@ export default function SettingsPage() {
                   </Link>
 
                   {tabs.filter(t => ['users', 'join_requests', 'clinical', 'services', 'prescriptions', 'sources', 'visit_reasons', 'attendance', 'online_booking'].includes(t.id)).map(tab => {
-                    if (tab.adminOnly && !isAdmin) return null;
-                    const isActive = activeTab === tab.id;
+                    if (!mayOpenTab(tab)) return null;
+                    const isActive = effectiveTab === tab.id;
                     return (
                       <button
                         key={tab.id}
+                        data-tour={tab.id === 'clinical' ? 'settings-tab-schedule' : tab.id === 'services' ? 'settings-tab-prices' : undefined}
                         onClick={() => setActiveTab(tab.id)}
                         className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-bold rounded-2xl transition-all ${isActive ? 'bg-white text-[#27ae60] shadow-sm border border-slate-200/60' : 'text-slate-600 hover:bg-white/60 hover:text-slate-900 border border-transparent'}`}
                       >
@@ -359,7 +393,7 @@ export default function SettingsPage() {
                 </h3>
                 <div className="flex flex-col gap-1">
                   {tabs.filter(t => ['whatsapp', 'sms', 'notifications', 'logs'].includes(t.id)).map(tab => {
-                    const isActive = activeTab === tab.id;
+                    const isActive = effectiveTab === tab.id;
                     return (
                       <button
                         key={tab.id}
@@ -379,13 +413,13 @@ export default function SettingsPage() {
 
         {/* MAIN CONTENT AREA */}
         <div className="flex-1 min-w-0 bg-white rounded-[2.5rem] border border-slate-200/60 shadow-sm p-4 md:p-8 min-h-[600px]">
-            {activeTab === 'general' && <UserProfile />}
+            {effectiveTab === 'general' && <UserProfile />}
             
-            {activeTab === 'attendance' && <AttendanceSettings clinicData={clinicData} setClinicData={setClinicData} handleSaveClinic={handleSaveClinic} />}
-            {activeTab === 'clinical' && <ScheduleSettings schedule={schedule} setSchedule={setSchedule} handleSaveClinic={handleSaveClinic} />}
-            {activeTab === 'recall' && isAdmin && <RecallSettings />}
-            {activeTab === 'prescriptions' && <PrescriptionSettings />}
-            {activeTab === 'services' && (
+            {effectiveTab === 'attendance' && <AttendanceSettings clinicData={clinicData} setClinicData={setClinicData} handleSaveClinic={handleSaveClinic} />}
+            {effectiveTab === 'clinical' && isAdmin && <ScheduleSettings schedule={schedule} setSchedule={setSchedule} handleSaveClinic={handleSaveClinic} />}
+            {effectiveTab === 'recall' && isAdmin && <RecallSettings />}
+            {effectiveTab === 'prescriptions' && canConfigure('access.settings') && <PrescriptionSettings />}
+            {effectiveTab === 'services' && canConfigure('access.settings') && (
               <div className="space-y-6">
                 {/* Lists first: which list a service is priced on is the question you answer
                     before its price, and the blanket discount belongs beside that decision. */}
@@ -393,7 +427,7 @@ export default function SettingsPage() {
                 <PricingSettings currency={clinicData.currency} />
               </div>
             )}
-            {activeTab === 'users' && isAdmin && (
+            {effectiveTab === 'users' && isAdmin && (
                <>
                   <UserManagement 
                      usersList={usersList} 
@@ -404,21 +438,21 @@ export default function SettingsPage() {
                   />
                </>
             )}
-            {activeTab === 'join_requests' && isAdmin && <JoinRequests />}
-            {activeTab === 'recently_deleted' && <RecentlyDeleted />}
-            {activeTab === 'logs' && isAdmin && <ActivityLogs />}
-            {activeTab === 'ai_credits' && isAdmin && <AiCreditsSettings />}
-            {activeTab === 'notifications' && isAdmin && (
+            {effectiveTab === 'join_requests' && isAdmin && <JoinRequests />}
+            {effectiveTab === 'recently_deleted' && <RecentlyDeleted />}
+            {effectiveTab === 'logs' && isAdmin && <ActivityLogs />}
+            {effectiveTab === 'ai_credits' && isAdmin && <AiCreditsSettings />}
+            {effectiveTab === 'notifications' && isAdmin && (
               <NotificationSettings clinicData={clinicData} setClinicData={setClinicData} handleSaveClinic={handleSaveClinic} />
             )}
-            {activeTab === 'whatsapp' && <WhatsAppSettings />}
-            {activeTab === 'sms' && isAdmin && <SmsSettings />}
-            {activeTab === 'appearance' && <AppearanceSettings />}
-            {activeTab === 'interface' && <InterfaceSettings />}
-            {activeTab === 'online_booking' && <OnlineBookingSettings />}
-            {activeTab === 'locations' && isAdmin && <LocationsSettings />}
-            {activeTab === 'sources' && isAdmin && <PatientSourcesSettings />}
-            {activeTab === 'visit_reasons' && <VisitReasonsSettings />}
+            {effectiveTab === 'whatsapp' && <WhatsAppSettings />}
+            {effectiveTab === 'sms' && isAdmin && <SmsSettings />}
+            {effectiveTab === 'appearance' && <AppearanceSettings />}
+            {effectiveTab === 'interface' && <InterfaceSettings />}
+            {effectiveTab === 'online_booking' && <OnlineBookingSettings />}
+            {effectiveTab === 'locations' && isAdmin && <LocationsSettings />}
+            {effectiveTab === 'sources' && isAdmin && <PatientSourcesSettings />}
+            {effectiveTab === 'visit_reasons' && <VisitReasonsSettings />}
         </div>
       </div>
 
