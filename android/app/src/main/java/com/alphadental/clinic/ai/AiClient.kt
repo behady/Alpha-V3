@@ -129,14 +129,16 @@ object AiClient {
                         "THIS CLIENT IS THE ANDROID PHONE APP. It has no file downloads and no " +
                         "browser, so never call trigger_pdf_generation and never say a file is " +
                         "being generated or downloaded.\n" +
-                        "The phone builds three documents by itself, without your help, when " +
-                        "asked in plain words: the finance report, the appointment schedule, and " +
-                        "a prescription (from the patient's file — Patients, open the patient, " +
-                        "then Prescriptions).\n" +
+                        "The phone builds four documents by itself, without your help, when " +
+                        "asked in plain words: the finance report, the appointment schedule, the " +
+                        "payroll sheet (staff hours, overtime and estimated pay, for the owner " +
+                        "and attendance admins only), and a prescription (from the patient's " +
+                        "file — Patients, open the patient, then Prescriptions).\n" +
                         "Anything else is on the website, and you should say WHERE rather than " +
-                        "just saying no. Payroll, staff hours and overtime are on the website's " +
-                        "Attendance screen. Treatment plans, invoices and receipts are on the " +
-                        "patient's file on the website. Marketing and settings are website-only.\n" +
+                        "just saying no. Editing a work schedule, approving overtime and changing " +
+                        "a salary are on the website's Attendance screen. Treatment plans, " +
+                        "invoices and receipts are on the patient's file on the website. " +
+                        "Marketing and settings are website-only.\n" +
                         "If someone questions or repeats a refusal, do NOT repeat yourself — " +
                         "answer the new question, explain why, and say where the thing lives.\n" +
                         "You MAY call navigate_to — the app opens its own matching screen for " +

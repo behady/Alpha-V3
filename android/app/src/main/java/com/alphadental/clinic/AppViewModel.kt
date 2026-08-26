@@ -1168,6 +1168,9 @@ class AppViewModel : ViewModel() {
         if (request.kind == com.alphadental.clinic.ai.ReportIntent.Kind.SCHEDULE) {
             return buildScheduleReport(session.clinicId, context, period, label, arabic)
         }
+        if (request.kind == com.alphadental.clinic.ai.ReportIntent.Kind.PAYROLL) {
+            return buildPayrollReport(session.clinicId, context, period, label, arabic)
+        }
 
         if (!(session.isAdmin || session.isReception)) {
             val reply = if (arabic) {
@@ -1228,6 +1231,80 @@ class AppViewModel : ViewModel() {
                 appendAiMessage(ChatMessage(fromUser = false, text = reply, at = System.currentTimeMillis()))
                 _state.value = _state.value.copy(aiSpeak = reply)
             }
+            } finally {
+                endAiTurn(turn)
+            }
+        }
+        return true
+    }
+
+    /**
+     * The payroll sheet — hours, overtime and estimated pay for every member of staff.
+     *
+     * The figures come from the server, which runs the same calculation the
+     * Attendance screen and the weekly brief run. The phone does none of the
+     * arithmetic and deliberately cannot: two surfaces disagreeing about what
+     * somebody earned is an argument with an employee, not a rendering bug.
+     *
+     * No role gate here either — but for the opposite reason to the schedule.
+     * The route refuses anyone without the attendance-admin or settings
+     * permission and never computes a figure for them, so salaries do not travel
+     * to a phone that then has to be trusted to hide them. Repeating the check
+     * here would only be a second place for the two to fall out of step.
+     */
+    private fun buildPayrollReport(
+        clinicId: String,
+        context: android.content.Context,
+        period: com.alphadental.clinic.ai.ReportIntent.Period,
+        label: String,
+        arabic: Boolean,
+    ): Boolean {
+        val turn = beginAiTurn()
+        aiJob = viewModelScope.launch {
+            try {
+                runCatching {
+                    val payroll = com.alphadental.clinic.ai.PayrollClient
+                        .load(clinicId, period.from, period.to)
+                    val file = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        com.alphadental.clinic.data.PayrollPdf.write(
+                            context = context,
+                            payroll = payroll,
+                            clinicName = "Alpha Dental",
+                            arabic = arabic,
+                        )
+                    }
+                    payroll to file
+                }.onSuccess { (payroll, file) ->
+                    val people = payroll.staff.size
+                    val reply = when {
+                        people == 0 && arabic -> "لا توجد سجلات حضور في $label."
+                        people == 0 -> "There are no attendance records for $label."
+                        arabic ->
+                            "جاهز — رواتب $label: ${payroll.labourCost.toInt()} ج.م لـ $people موظف. " +
+                                "اضغط لفتح الملف."
+                        else ->
+                            "Done — payroll for $label: ${payroll.labourCost.toInt()} EGP across " +
+                                "$people staff member${if (people == 1) "" else "s"}. Tap to open the PDF."
+                    }
+                    appendAiMessage(
+                        ChatMessage(
+                            fromUser = false,
+                            text = reply,
+                            at = System.currentTimeMillis(),
+                            pdfPath = file.absolutePath.takeIf { people > 0 },
+                        )
+                    )
+                    _state.value = _state.value.copy(aiSpeak = reply)
+                }.onFailure { error ->
+                    if (error is kotlinx.coroutines.CancellationException) return@onFailure
+                    val reply = if (arabic) {
+                        "لم أستطع إنشاء كشف الرواتب: ${error.message ?: "خطأ غير معروف"}"
+                    } else {
+                        "I couldn't build the payroll: ${error.message ?: "unknown error"}"
+                    }
+                    appendAiMessage(ChatMessage(fromUser = false, text = reply, at = System.currentTimeMillis()))
+                    _state.value = _state.value.copy(aiSpeak = reply)
+                }
             } finally {
                 endAiTurn(turn)
             }
