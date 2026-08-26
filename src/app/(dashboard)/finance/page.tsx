@@ -842,7 +842,7 @@ export default function FinancePage() {
                     setEditingId(null);
                     setIsModalOpen(true);
                   }}
-                  className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs uppercase shadow-md shadow-emerald-600/20 active:scale-[0.98] transition-all"
+                  data-tour="finance-expense-btn" className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs uppercase shadow-md shadow-emerald-600/20 active:scale-[0.98] transition-all"
                 >
                   <Plus size={18} />
                   <span className="hidden sm:inline">{language === "ar" ? "إدخال يدوي" : "Manual entry"}</span>
@@ -1328,7 +1328,7 @@ export default function FinancePage() {
                  <form onSubmit={handleSave} className="p-5 space-y-4">
                     <div className="flex bg-slate-100 p-1 rounded-lg">
                        <button type="button" onClick={() => setFormType('income')} className={`flex-1 py-1.5 text-[11px] font-bold uppercase rounded-md ${formType === 'income' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'}`}>Income</button>
-                       <button type="button" onClick={() => setFormType('expense')} className={`flex-1 py-1.5 text-[11px] font-bold uppercase rounded-md ${formType === 'expense' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500'}`}>Expense</button>
+                       <button type="button" data-tour="finance-type-expense" onClick={() => setFormType('expense')} className={`flex-1 py-1.5 text-[11px] font-bold uppercase rounded-md ${formType === 'expense' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500'}`}>Expense</button>
                     </div>
                     <div className="space-y-1">
                        <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider pl-1">{t('date')}</label>
@@ -1336,7 +1336,7 @@ export default function FinancePage() {
                     </div>
                     <div className="space-y-1">
                        <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider pl-1">{t('description')}</label>
-                       <input required value={description} onChange={e => setDescription(e.target.value)} placeholder="e.g. Electricity Bill" className="w-full px-3 py-2 bg-slate-50 border border-slate-200/60 rounded-lg text-xs font-semibold text-slate-900 outline-none focus:border-[#60d297]"/>
+                       <input required value={description} onChange={e => setDescription(e.target.value)} placeholder="e.g. Electricity Bill" data-tour="finance-expense-desc" className="w-full px-3 py-2 bg-slate-50 border border-slate-200/60 rounded-lg text-xs font-semibold text-slate-900 outline-none focus:border-[#60d297]"/>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                        <div className="space-y-1">
@@ -1350,7 +1350,7 @@ export default function FinancePage() {
                           </select>
                        </div>
                     </div>
-                    <button type="submit" className="w-full py-3 bg-slate-900 text-white rounded-lg font-bold text-xs hover:bg-slate-800 active:scale-95 shadow-sm mt-2 flex justify-center items-center gap-1.5"><Save size={14}/> {t('save')}</button>
+                    <button data-tour="finance-expense-save" type="submit" className="w-full py-3 bg-slate-900 text-white rounded-lg font-bold text-xs hover:bg-slate-800 active:scale-95 shadow-sm mt-2 flex justify-center items-center gap-1.5"><Save size={14}/> {t('save')}</button>
                  </form>
               </div>
             </div>

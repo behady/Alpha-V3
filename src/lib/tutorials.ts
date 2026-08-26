@@ -253,6 +253,293 @@ export const TUTORIALS: Tutorial[] = [
       },
     ],
   },
+  {
+    id: "record-treatment",
+    title: { en: "Record a treatment", ar: "تسجيل علاج (إجراء)" },
+    description: {
+      en: "Log a procedure on a patient's clinical file — this also posts its charge to their balance.",
+      ar: "تسجيل إجراء في الملف الإكلينيكي للمريض — وده كمان بيسجّل تكلفته على حسابه.",
+    },
+    steps: [
+      {
+        anchor: "nav-patients",
+        skipIfRoute: "/patients",
+        optional: true,
+        text: {
+          en: "Treatments are recorded inside the patient's file. Click Patients first.",
+          ar: "العلاج بيتسجل جوّه ملف المريض. اضغط المرضى الأول.",
+        },
+      },
+      {
+        route: "/patients",
+        anchor: "patient-row",
+        text: {
+          en: "Open the patient's file — click their card.",
+          ar: "افتح ملف المريض — اضغط على الكارت بتاعه.",
+        },
+      },
+      {
+        anchor: "patient-tab-clinical",
+        optional: true,
+        text: {
+          en: "This is the Clinical tab — the patient's dental history. It's usually already open; click it if not.",
+          ar: "ده التبويب الإكلينيكي — تاريخ أسنان المريض. غالباً بيكون مفتوح؛ لو مش مفتوح اضغطه.",
+        },
+      },
+      {
+        anchor: "clinical-add-procedure",
+        text: {
+          en: "Click Add New Procedure. On a computer this brings you to the treatment form (you can tap teeth on the chart first); on a phone it opens the editor.",
+          ar: "اضغط إضافة إجراء جديد. على الكمبيوتر هيوصلك لاستمارة العلاج (وممكن تختار الأسنان من الرسمة الأول)؛ على الموبايل هيفتح المحرر.",
+        },
+      },
+      {
+        anchor: "clinical-procedure-name",
+        advanceOn: "next",
+        text: {
+          en: "Type or pick the treatment here. Choosing one from the price list fills the cost automatically — that's what keeps the balance right and the reports countable.",
+          ar: "اكتب أو اختار العلاج هنا. لو اخترته من قايمة الأسعار التكلفة بتتكتب لوحدها — وده اللي بيخلي الحساب مظبوط والتقارير تعرف تعدّ.",
+        },
+      },
+      {
+        anchor: "clinical-save",
+        text: {
+          en: "Press Log Procedure — the note and its charge are saved together, and the entry appears in the timeline.",
+          ar: "اضغط تسجيل الإجراء — الملاحظة وتكلفتها بيتسجلوا مع بعض، والإجراء بيظهر في السجل.",
+        },
+      },
+    ],
+  },
+  {
+    id: "write-prescription",
+    title: { en: "Write a prescription", ar: "كتابة روشتة" },
+    description: {
+      en: "Open the prescription studio from a patient's file, add medicines, save and print.",
+      ar: "فتح استوديو الروشتة من ملف المريض، إضافة الأدوية، الحفظ والطباعة.",
+    },
+    steps: [
+      {
+        anchor: "nav-patients",
+        skipIfRoute: "/patients",
+        optional: true,
+        text: {
+          en: "A prescription starts from the patient's file. Click Patients.",
+          ar: "الروشتة بتبدأ من ملف المريض. اضغط المرضى.",
+        },
+      },
+      {
+        route: "/patients",
+        anchor: "patient-row",
+        text: {
+          en: "Open the patient's file — click their card.",
+          ar: "افتح ملف المريض — اضغط على الكارت بتاعه.",
+        },
+      },
+      {
+        anchor: "rx-open",
+        text: {
+          en: "Click Write Rx in the Quick Actions bar — it opens the Prescription Studio.",
+          ar: "اضغط كتابة روشتة في شريط الإجراءات السريعة — هيفتح استوديو الروشتة.",
+        },
+      },
+      {
+        anchor: "rx-drug-name",
+        advanceOn: "next",
+        text: {
+          en: "Type the medicine's name here (and the dose next to it). Or pick a saved one from the dropdown above — it fills these fields for you.",
+          ar: "اكتب اسم الدوا هنا (والجرعة اللي جنبه). أو اختار دوا محفوظ من القايمة اللي فوق — بيملى الخانات لوحده.",
+        },
+      },
+      {
+        anchor: "rx-add-drug",
+        text: {
+          en: "Click Add to Prescription — the medicine lands on the printable preview. Repeat for each medicine.",
+          ar: "اضغط أضِف للروشتة — الدوا هيظهر في المعاينة اللي بتتطبع. كرر لكل دوا.",
+        },
+      },
+      {
+        anchor: "rx-save",
+        text: {
+          en: "Press Save to keep it in the patient's history. Printing alone does NOT save — save first, then print.",
+          ar: "اضغط حفظ عشان تتسجل في تاريخ المريض. الطباعة لوحدها مش بتحفظ — احفظ الأول وبعدين اطبع.",
+        },
+      },
+    ],
+  },
+  {
+    id: "add-expense",
+    title: { en: "Record a clinic expense", ar: "تسجيل مصروف للعيادة" },
+    description: {
+      en: "Log money the clinic spent (rent, supplies, a bill) so the finance page shows true profit.",
+      ar: "تسجيل فلوس صرفتها العيادة (إيجار، خامات، فاتورة) عشان صفحة المالية تطلع الربح الحقيقي.",
+    },
+    steps: [
+      {
+        route: "/finance",
+        anchor: "finance-expense-btn",
+        text: {
+          en: "This is the Finance page. Click the green Manual entry button (just a + on phones) to record money in or out.",
+          ar: "دي صفحة المالية. اضغط الزرار الأخضر إدخال يدوي (علامة + على الموبايل) عشان تسجل فلوس داخلة أو خارجة.",
+        },
+      },
+      {
+        anchor: "finance-type-expense",
+        text: {
+          en: "Make sure Expense is selected — this tab decides whether the money counts as spending or income.",
+          ar: "اتأكد إن مصروف هي المختارة — التبويب ده بيحدد الفلوس دي تتحسب صرف ولا دخل.",
+        },
+      },
+      {
+        anchor: "finance-expense-desc",
+        advanceOn: "next",
+        text: {
+          en: "Describe what the money was spent on, and type the amount next to it. The date is already today's.",
+          ar: "اكتب الفلوس اتصرفت على إيه، والمبلغ في الخانة اللي جنبه. التاريخ متسجل النهارده تلقائياً.",
+        },
+      },
+      {
+        anchor: "finance-expense-save",
+        text: {
+          en: "Press Save — the expense joins the ledger and the profit figures update.",
+          ar: "اضغط حفظ — المصروف هيتسجل في الدفتر وأرقام الربح هتتحدث.",
+        },
+      },
+    ],
+  },
+  {
+    id: "handle-lead",
+    title: { en: "Handle a new inquiry (lead)", ar: "التعامل مع استفسار جديد (عميل محتمل)" },
+    description: {
+      en: "Save a person who asked about the clinic as a lead, and track them until they become a patient.",
+      ar: "تسجيل حد سأل عن العيادة كعميل محتمل، ومتابعته لحد ما يبقى مريض.",
+    },
+    steps: [
+      {
+        route: "/leads",
+        anchor: "leads-add",
+        text: {
+          en: "This is the Leads page — everyone who asked but hasn't booked yet. Click Add lead to save a new inquiry.",
+          ar: "دي صفحة العملاء المحتملين — كل اللي سألوا ولسه محجزوش. اضغط إضافة عميل عشان تسجل استفسار جديد.",
+        },
+      },
+      {
+        anchor: "leads-name",
+        advanceOn: "next",
+        text: {
+          en: "Type their name and phone number — that's all a lead needs to start.",
+          ar: "اكتب الاسم ورقم التليفون — ده كل اللي العميل المحتمل محتاجه في الأول.",
+        },
+      },
+      {
+        anchor: "leads-save",
+        text: {
+          en: "Press Save — the lead appears as a card with a timer showing how long they've been waiting for a reply.",
+          ar: "اضغط حفظ — العميل هيظهر ككارت وعليه عدّاد بيقول مستني رد بقاله قد إيه.",
+        },
+      },
+      {
+        anchor: "leads-stage",
+        advanceOn: "next",
+        text: {
+          en: "This dropdown tracks the lead's stage — new, contacted, booked… When they decide to come, the teal person button on the card turns them into a real patient file in one tap.",
+          ar: "القايمة دي بتتابع مرحلة العميل — جديد، تم التواصل، حجز… ولما يقرر ييجي، زرار الشخص التركوازي على الكارت بيحوّله لملف مريض حقيقي بضغطة واحدة.",
+        },
+      },
+    ],
+  },
+  {
+    id: "set-working-hours",
+    title: { en: "Set the clinic's working hours", ar: "ضبط مواعيد عمل العيادة" },
+    description: {
+      en: "Tell the system when the clinic opens, closes and rests — the assistant's slot suggestions depend on this. Admins only.",
+      ar: "عرّف النظام العيادة بتفتح وتقفل امتى وأجازتها امتى — اقتراحات المواعيد بتعتمد على ده. للمدير فقط.",
+    },
+    steps: [
+      {
+        route: "/settings",
+        anchor: "settings-tab-schedule",
+        text: {
+          en: "In Settings, click Schedule (under Clinic Management). On a phone, open the sections menu at the top first — the ring will find it.",
+          ar: "في الإعدادات، اضغط الجدول (تحت إدارة العيادة). على الموبايل افتح قايمة الأقسام اللي فوق الأول — الدايرة هتلاقيه.",
+        },
+      },
+      {
+        anchor: "schedule-open-time",
+        advanceOn: "next",
+        text: {
+          en: "Set the opening time here, and the closing time next to it.",
+          ar: "ظبط معاد الفتح هنا، ومعاد القفل في الخانة اللي جنبه.",
+        },
+      },
+      {
+        anchor: "schedule-slot-duration",
+        advanceOn: "next",
+        text: {
+          en: "Pick the appointment slot length — this is the grid the calendar and the assistant's suggestions use.",
+          ar: "اختار مدة الموعد — دي الشبكة اللي التقويم واقتراحات المساعد بيمشوا عليها.",
+        },
+      },
+      {
+        anchor: "schedule-days-off",
+        advanceOn: "next",
+        text: {
+          en: "Tap the days the clinic is closed — they turn red. The assistant will never suggest times on these days.",
+          ar: "اضغط على أيام الأجازة — بتتلون أحمر. المساعد عمره ما هيقترح مواعيد في الأيام دي.",
+        },
+      },
+      {
+        anchor: "schedule-save",
+        text: {
+          en: "Press Save Schedule. Until this is saved, availability answers are partly guessed — the assistant even says so.",
+          ar: "اضغط حفظ الجدول. من غير الحفظ ده، إجابات المواعيد المتاحة بتبقى تخمين جزئي — والمساعد نفسه بيقول كده.",
+        },
+      },
+    ],
+  },
+  {
+    id: "explore-reports",
+    title: { en: "Read the reports", ar: "قراءة التقارير" },
+    description: {
+      en: "Open the Reports Center, pick a report type and a date range, and export a PDF.",
+      ar: "فتح مركز التقارير، اختيار نوع التقرير والفترة، وتصدير PDF.",
+    },
+    steps: [
+      {
+        anchor: "nav-reports",
+        skipIfRoute: "/reports",
+        optional: true,
+        text: {
+          en: "Click Reports to open the Reports Center.",
+          ar: "اضغط التقارير عشان تفتح مركز التقارير.",
+        },
+      },
+      {
+        route: "/reports",
+        anchor: "reports-tabs",
+        advanceOn: "next",
+        text: {
+          en: "Five reports live here — services, dentist performance, patient sources, leads, and the clinic overview. Service Analysis is already open below.",
+          ar: "هنا خمس تقارير — الخدمات، أداء الأطباء، مصادر المرضى، العملاء المحتملين، ونظرة عامة على العيادة. تحليل الخدمات مفتوح تحت أهو.",
+        },
+      },
+      {
+        anchor: "reports-date-start",
+        advanceOn: "next",
+        text: {
+          en: "Set the From and To dates here — the numbers reload by themselves the moment you change either.",
+          ar: "ظبط تاريخ البداية والنهاية هنا — الأرقام بتتحدث لوحدها أول ما تغيّر أي تاريخ.",
+        },
+      },
+      {
+        anchor: "reports-export-pdf",
+        optional: true,
+        text: {
+          en: "Click PDF to export the report you're looking at — each report has its own export buttons.",
+          ar: "اضغط PDF عشان تصدّر التقرير اللي قدامك — كل تقرير ليه أزرار تصدير خاصة بيه.",
+        },
+      },
+    ],
+  },
 ];
 
 /** Quick lookup used by the widget menu and the server's id validation. */

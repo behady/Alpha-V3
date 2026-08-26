@@ -105,8 +105,10 @@ export default function TutorialOverlay() {
     setRect(null);
     setLost(false);
     // "Open the Patients page" is pointless teaching when the user is already on it.
+    // finishOrAdvance, not advanceStep: a skipped LAST step must still end the lesson —
+    // a bare increment past the end would leave the tutorial active forever with no card.
     if (step.skipIfRoute && pathname === step.skipIfRoute) {
-      advanceStep();
+      finishOrAdvance();
       return;
     }
     if (step.route && pathname !== step.route) {
@@ -120,7 +122,7 @@ export default function TutorialOverlay() {
       lostTimer.current = setTimeout(() => {
         if (!advancing.current) {
           advancing.current = true;
-          advanceStep();
+          finishOrAdvance();
         }
       }, OPTIONAL_LOST_AFTER_MS);
     } else {
@@ -132,7 +134,7 @@ export default function TutorialOverlay() {
     // pathname is deliberately absent: it changing is the *result* of the push above, and
     // re-running this effect on arrival would restart the lost-timer for no reason.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTutorial, stepIndex, advanceStep]);
+  }, [activeTutorial, stepIndex, finishOrAdvance]);
 
   // Find and follow the target element.
   useEffect(() => {

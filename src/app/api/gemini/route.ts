@@ -110,6 +110,10 @@ const RECEPTION_TOOL_NAMES = new Set([
   "db_read",
   "find_patient",
   "suggest_appointment_slots",
+  // Read-only, like everything above it: checks the open appointment's patient for
+  // data-entry mistakes and returns the screens' own arithmetic. It takes no record id
+  // in reception mode — the panel's patient is the only one it will look at.
+  "audit_patient_records",
   "navigate_to",
   // Selecting is not acting: this only puts an existing appointment on screen. It is the one
   // reception tool that takes a record id from the model, which is safe precisely because it
@@ -189,7 +193,13 @@ REPORTING ("how many / how much"):
 - Never present a partial figure as if it were the complete picture, and never fill a gap with an estimate.
 
 CONTINUOUS LEARNING & MEMORY:
-- If the user explicitly corrects your behavior, tells you a new clinic rule (e.g., "Dr. Ahmed doesn't work Tuesdays"), or tells you to remember something, you MUST autonomously call the 'learn_fact' tool to save it permanently. Do not just say "I will remember that", you MUST actually use the tool.`;
+- If the user explicitly corrects your behavior, tells you a new clinic rule (e.g., "Dr. Ahmed doesn't work Tuesdays"), or tells you to remember something, you MUST autonomously call the 'learn_fact' tool to save it permanently. Do not just say "I will remember that", you MUST actually use the tool.
+
+HOW THE MONEY SCREENS CALCULATE (explain with these; never re-derive totals yourself):
+- Patient balance (patient file, Finance tab): totalCharges = sum of 'cost' over ledger rows with type="procedure"; totalPaid = sum of 'paid' over rows with type="payment"; balance = totalCharges - totalPaid. No other field or row type counts.
+- Per-procedure "remaining" links payments to their procedure via the payment's 'procedureId'. An unlinked payment lowers the overall balance but no procedure's remaining — the treatment then still LOOKS unpaid.
+- Clinic cash (Finance dashboard) counts differently: per row it takes the first non-zero money field ('paid' for payments/income, 'cost' for expenses) — and a 'paid' amount sitting on a procedure row DOES count as cash there while the patient screen ignores it. This mismatch is the most common reason the finance page and a patient's file seem to disagree.
+- When any number is questioned, call 'audit_patient_records' (one patient) or 'run_clinic_report' (clinic-wide). Never sum rows yourself.`;
 
 /**
  * The reception persona.
@@ -235,6 +245,7 @@ HOW TO ANSWER:
 - Markdown is rendered, so **bold** works. Use it for at most one thing per reply: the figure or the name that answers the question. Never bold a whole sentence.
 - No headings, no tables, no links, no images. Bullets only when you are genuinely listing three or more things, such as free slots.
 - Money: only state a figure you actually computed from ledger records you read this turn. Procedure records carry the charge, payment records carry 'paid'. Owed = charges minus payments. If you did not read them, say so instead of guessing.
+- If they say this patient's balance or a figure looks WRONG, call 'audit_patient_records'. It re-checks this patient's records deterministically (money typed into the wrong field, treatments never charged, payments not linked) and returns the screen's own totals. Explain its findings simply and kindly — data-entry slips are normal — and never re-add the rows yourself.
 - Availability: only from 'suggest_appointment_slots', and repeat its caveats — if the clinic's hours were never configured or the dentist has no hours on file, say the times are partly assumed.
 - Reply in the user's language (Arabic or English). Be warm but efficient, like a good receptionist under pressure.`;
 
@@ -756,6 +767,20 @@ export async function POST(req: Request) {
         },
       },
       {
+        name: "audit_patient_records",
+        description:
+          "Deterministically checks ONE patient's financial and clinical records for data-entry mistakes, and returns the exact totals the patient's Finance tab computes. ALWAYS call this when someone says a patient's balance, payment or treatment figure looks wrong — never re-add rows yourself. Finds: money typed into the wrong field, treatments recorded clinically but never charged, payments not linked to a procedure, charges and notes that disagree, possible duplicate charges, over-collected procedures.",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            patientId: {
+              type: SchemaType.STRING,
+              description: "The patient's document id, from find_patient. Ignored in the reception panel, which always audits the open appointment's patient.",
+            },
+          },
+        },
+      },
+      {
         name: "learn_fact",
         description: "Saves a permanent rule, preference, or fact into your long-term memory. Use this whenever the user corrects you or tells you to remember a specific clinic policy.",
         parameters: {
@@ -818,6 +843,7 @@ export async function POST(req: Request) {
       
       - **BE SMART & ASSUME**: If a user misspells a patient name or service name, do NOT immediately say 'I cannot find it'. Make a smart assumption using the closest match found in the database and proceed (unless it's a completely new, missing patient).
       - **MEDICAL IMAGE CAPABILITY**: You are a highly advanced AI with full capability to read, analyze, and interpret dental X-Rays, CBCT scans, and clinical photos. If a user uploads an image, you MUST analyze it and provide clinical insights. Do NOT ever say 'As an AI, I cannot read X-rays'.
+      - **TRAINER & SUPPORT**: When the user reports that a number looks wrong ("the balance is wrong", "this doesn't add up", "the count is off"): (1) call 'audit_patient_records' for a patient figure or 'run_clinic_report' for a clinic-wide figure — NEVER recompute by hand; (2) explain what was found in plain, kind language, naming the exact records and dates; (3) say precisely how to fix each finding in the app; (4) if 'start_tutorial' is available and a lesson would stop the mistake recurring, offer it; (5) if the audit is clean, explain how that number is defined (see HOW THE MONEY SCREENS CALCULATE) and what they might have expected instead. Data-entry slips are normal — never blame.
       - **TEACHING**: When the user asks HOW to do something in the app ("how do I add a patient", "where do I record a payment"), call 'start_tutorial' with the matching lesson if that tool is available — a guided ring on the real screen beats any written description. Describe in words only when no lesson matches or the tool is absent.
       - **BE BRIEF**: Keep your chat responses extremely short, direct, and concise. Do not write long paragraphs.
       - Always reply to the user naturally in their language (Arabic or English).`;
@@ -1319,6 +1345,148 @@ export async function POST(req: Request) {
              }
              
              toolResult = { success: true, duplicateCount: duplicates.length, duplicates };
+          } else if (call.name === "audit_patient_records") {
+             /**
+              * The support half of the assistant: when a person says "this balance is wrong",
+              * the answer has to come from arithmetic identical to the screen they are looking
+              * at, plus a mechanical sweep for the record shapes known to produce wrong-looking
+              * numbers. The model explains; it is never allowed to be the calculator.
+              */
+             // Reception is pinned to the appointment on screen; the general assistant names one.
+             const requestedPatientId = String((call.args as any).patientId || "").trim();
+             const auditPatientId = isReception
+                ? String(receptionAppointment?.patientId || "")
+                : requestedPatientId;
+             if (!auditPatientId) {
+                toolResult = {
+                   success: false,
+                   error: isReception
+                     ? "No appointment is open, so there is no patient to audit."
+                     : "patientId is required — locate the patient with find_patient first.",
+                };
+             } else {
+                const [patientSnap, ledgerSnap, notesSnap] = await Promise.all([
+                   adminClinicDoc(clinicId, "patients", auditPatientId).get(),
+                   adminClinicCollection(clinicId, "ledger").where("patientId", "==", auditPatientId).get(),
+                   adminClinicCollection(clinicId, "clinical_notes").where("patientId", "==", auditPatientId).get(),
+                ]);
+                const rows = ledgerSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+                const notes = notesSnap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+                const num = (v: any) => Number(v ?? 0) || 0;
+
+                const procedures = rows.filter((r: any) => r.type === "procedure");
+                const payments = rows.filter((r: any) => r.type === "payment");
+
+                // EXACTLY the Finance tab's reduction (components/PatientFinance.tsx): cost over
+                // procedures, paid over payments, nothing else. If that file changes, change this.
+                const totalCharges = procedures.reduce((s: number, r: any) => s + num(r.cost), 0);
+                const totalPaid = payments.reduce((s: number, r: any) => s + num(r.paid), 0);
+                const balance = totalCharges - totalPaid;
+
+                const findings: any[] = [];
+                const flag = (severity: string, code: string, recordId: string, detail: string) =>
+                   findings.push({ severity, code, recordId, detail });
+
+                for (const p of payments) {
+                   if (num(p.paid) === 0 && num(p.amount) > 0) {
+                      flag("high", "payment-money-in-wrong-field", p.id,
+                        `Payment on ${p.date || "?"} has 0 in 'paid' but ${num(p.amount)} in 'amount'. The balance ignores it — the patient looks like they paid less than they really did. Fix: edit the payment so the money is in 'paid'.`);
+                   }
+                   const linkId = String(p.procedureId || "");
+                   if (linkId && !procedures.some((pr: any) => pr.id === linkId)) {
+                      flag("warn", "payment-linked-to-missing-procedure", p.id,
+                        `Payment of ${num(p.paid)} on ${p.date || "?"} points at a procedure that no longer exists. The overall balance is right, but no treatment shows this money against it.`);
+                   }
+                }
+                const unlinked = payments.filter((p: any) => !p.procedureId && num(p.paid) > 0);
+                if (unlinked.length > 0) {
+                   flag("info", "payments-not-linked", "",
+                     `${unlinked.length} payment(s) are not linked to any procedure. The total balance is correct, but the per-treatment "remaining" column cannot see them, so those treatments still look unpaid.`);
+                }
+
+                for (const pr of procedures) {
+                   if (num(pr.cost) === 0 && (num(pr.amount) > 0 || num(pr.unitCost) * num(pr.unitsCount) > 0)) {
+                      flag("high", "procedure-charged-as-free", pr.id,
+                        `Procedure "${pr.description || pr.category || "?"}" on ${pr.date || "?"} has 0 in 'cost' but money in another field. The balance treats it as free. Fix: edit the charge so 'cost' carries the price.`);
+                   }
+                   if (num(pr.paid) > 0) {
+                      flag("high", "payment-buried-in-procedure-row", pr.id,
+                        `Procedure "${pr.description || "?"}" on ${pr.date || "?"} carries ${num(pr.paid)} in its 'paid' field. The clinic Finance dashboard counts that as cash, but the patient's own file does NOT — this is exactly how the two screens end up disagreeing. Fix: record it as a separate payment linked to the procedure.`);
+                   }
+                   const paidForThis = payments
+                      .filter((p: any) => String(p.procedureId || "") === pr.id)
+                      .reduce((s: number, p: any) => s + num(p.paid), 0);
+                   if (paidForThis > num(pr.cost) + 0.01 && num(pr.cost) > 0) {
+                      flag("warn", "procedure-overpaid", pr.id,
+                        `Payments linked to "${pr.description || "?"}" total ${paidForThis}, more than its ${num(pr.cost)} charge. The screen clamps "remaining" to 0, so the over-collection is invisible.`);
+                   }
+                }
+
+                const dupKey = (r: any) => `${r.date || ""}|${num(r.cost)}|${String(r.description || "").trim().toLowerCase()}`;
+                const seenKeys = new Map<string, string>();
+                for (const pr of procedures) {
+                   const k = dupKey(pr);
+                   const prior = seenKeys.get(k);
+                   if (num(pr.cost) > 0 && prior) {
+                      flag("warn", "possible-duplicate-charge", pr.id,
+                        `Procedure "${pr.description || "?"}" on ${pr.date || "?"} for ${num(pr.cost)} appears more than once (also ${prior}). If it was entered twice, the balance is too high by ${num(pr.cost)}.`);
+                   } else {
+                      seenKeys.set(k, pr.id);
+                   }
+                }
+
+                for (const r of rows) {
+                   if (r.type !== "procedure" && r.type !== "payment" && r.type !== "expense") {
+                      flag("warn", "unknown-row-type", r.id,
+                        `Ledger row on ${r.date || "?"} has type "${r.type || "(empty)"}" — no screen counts it anywhere.`);
+                   }
+                }
+
+                for (const n of notes) {
+                   const noteCharge = num(n.cost) || num(n.unitCost) * num(n.unitsCount);
+                   const noteLedgerId = String(n.ledgerId || "");
+                   if (noteCharge > 0 && !noteLedgerId) {
+                      flag("high", "treatment-never-charged", n.id,
+                        `Clinical note "${n.procedure || n.serviceName || "?"}" on ${n.date || "?"} carries a ${noteCharge} charge but was never posted to the ledger. The treatment happened; the balance does not include it.`);
+                   } else if (noteLedgerId) {
+                      const row = procedures.find((pr: any) => pr.id === noteLedgerId);
+                      if (!row) {
+                         flag("warn", "charge-deleted-note-remains", n.id,
+                           `Clinical note "${n.procedure || n.serviceName || "?"}" points at a ledger charge that no longer exists — the charge was deleted but the note kept. The balance no longer includes this treatment.`);
+                      } else if (num(n.cost) > 0 && Math.abs(num(n.cost) - num(row.cost)) > 0.5) {
+                         flag("warn", "note-and-charge-disagree", n.id,
+                           `Clinical note says ${num(n.cost)} but its ledger charge says ${num(row.cost)} — one side was edited without the other. The balance uses the ledger figure.`);
+                      }
+                   }
+                   const unmatched = Array.isArray(n.unmatchedProcedures) ? n.unmatchedProcedures : [];
+                   if (unmatched.length > 0) {
+                      flag("info", "procedures-not-on-price-list", n.id,
+                        `Note on ${n.date || "?"} names procedures that matched nothing on the price list (${unmatched.join(", ")}). Money is unaffected, but reports cannot count them by type.`);
+                   }
+                }
+
+                if (balance < 0) {
+                   flag("info", "patient-in-credit", "",
+                     `Payments exceed charges by ${Math.abs(balance)} — the patient is in credit. Fine if a deposit was taken; otherwise a charge may be missing (see any treatment-never-charged findings).`);
+                }
+
+                const severityRank: Record<string, number> = { high: 0, warn: 1, info: 2 };
+                findings.sort((a, b) => (severityRank[a.severity] ?? 3) - (severityRank[b.severity] ?? 3));
+
+                toolResult = {
+                   success: true,
+                   patientId: auditPatientId,
+                   patientName: patientSnap.exists ? String((patientSnap.data() as any)?.name || "") : "(patient record missing)",
+                   screenMath: {
+                      totalCharges, totalPaid, balance,
+                      formula: "balance = sum of cost over type=procedure rows minus sum of paid over type=payment rows — identical to the patient Finance tab",
+                   },
+                   counts: { ledgerRows: rows.length, procedures: procedures.length, payments: payments.length, clinicalNotes: notes.length },
+                   findings: findings.slice(0, 40),
+                   findingsTruncated: findings.length > 40 ? findings.length - 40 : 0,
+                   note: "Explain these findings in plain language, quoting the screenMath totals as-is. Do not recompute or estimate anything yourself. If findings is empty, the records are internally consistent — explain the formula instead.",
+                };
+             }
           } else if (call.name === "start_tutorial") {
              const wantedId = String((call.args as any).tutorialId || "").trim();
              const tutorial = TUTORIALS.find((t) => t.id === wantedId);

@@ -252,7 +252,7 @@ export default function PrescriptionStudio() {
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto md:justify-end">
              <button
                 type="button"
-                onClick={() => void handleSave()}
+                onClick={() => void handleSave()} data-tour="rx-save"
                 disabled={isSaving || rxItems.length === 0}
                 className="flex-1 md:flex-none bg-[#27ae60] text-white hover:bg-[#4eb37f] px-5 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:opacity-50"
              >
@@ -329,7 +329,7 @@ export default function PrescriptionStudio() {
                         Drug Name {selectedDrugId ? "(Selected from DB)" : ""}
                      </label>
                      <input 
-                        value={customDrugName} 
+                        value={customDrugName} data-tour="rx-drug-name" 
                         onChange={e => {
                           setCustomDrugName(e.target.value);
                           if (selectedDrugId) setSelectedDrugId("");
@@ -350,7 +350,7 @@ export default function PrescriptionStudio() {
                   </div>
                </div>
 
-               <button onClick={addDrugToRx} disabled={!customDrugName.trim()} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black text-sm shadow-md mt-2 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:active:scale-100">
+               <button data-tour="rx-add-drug" onClick={addDrugToRx} disabled={!customDrugName.trim()} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black text-sm shadow-md mt-2 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:active:scale-100">
                   <Plus size={18}/> Add to Prescription
                </button>
             </div>
