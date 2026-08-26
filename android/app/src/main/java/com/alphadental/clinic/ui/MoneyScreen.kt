@@ -150,7 +150,7 @@ fun MoneyScreen(
                     if (arabic) "الحسابات" else "Finance",
                     fontSize = 23.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
+                    fontFamily = AlphaType.Display,
                     color = onSlab,
                     modifier = Modifier.weight(1f),
                 )
@@ -167,7 +167,7 @@ fun MoneyScreen(
                 text = "${finalNet.toInt()} EGP",
                 fontSize = 34.sp,
                 fontWeight = FontWeight.ExtraBold,
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
+                fontFamily = AlphaType.Display,
                 color = if (finalNet >= 0) slabAccent else Alpha.Pink,
                 maxLines = 1,
             )

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Newsreader } from "next/font/google";
+import { Montserrat, Open_Sans } from "next/font/google";
 import "./globals.css";
 import { UIProvider } from "@/context/UIContext";
 import { LanguageProvider } from "@/context/LanguageContext";
@@ -7,19 +7,24 @@ import { ThemeProvider } from "@/context/ThemeContext";
 import { AuthProvider } from "@/context/AuthContext"; 
 import { ClinicProvider } from "@/context/ClinicContext";
 
-const inter = Inter({ subsets: ["latin"] });
+/** The brand kit's secondary face: everything that is read as prose. */
+const body = Open_Sans({
+  subsets: ["latin"],
+  variable: "--font-body",
+  display: "swap",
+});
 
 /**
- * The serif used for figures — money, counts, hours — not for prose.
+ * The brand kit's primary face, used for figures — money, counts, hours — and headings.
  *
- * Numbers set in the interface sans read as data in a form. The same numbers in a serif read as a
- * statement someone stands behind, which is the whole point of a briefing. Exposed as a CSS
- * variable and applied through the `.font-figure` utility rather than a font class, so it can be
- * reached from anywhere without importing it again.
+ * Numbers set in the body face read as data in a form. The same numbers in the display face,
+ * heavier and with tabular numerals, read as a stated figure someone stands behind. This was a
+ * serif until the brand kit arrived naming Montserrat and Open Sans; the distinction is now
+ * carried by weight and width rather than by a third typeface the brand does not have.
  */
-const figures = Newsreader({
+const figures = Montserrat({
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  weight: ["500", "600", "700"],
   variable: "--font-figures",
   display: "swap",
 });
@@ -37,7 +42,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       {/* FIX: Added suppressHydrationWarning to ignore Grammarly/Extension attributes */}
-      <body className={`${inter.className} ${figures.variable}`} suppressHydrationWarning={true}>
+      <body className={`${body.className} ${body.variable} ${figures.variable}`} suppressHydrationWarning={true}>
         <AuthProvider>
           <ClinicProvider>
             <ThemeProvider>

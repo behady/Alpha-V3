@@ -76,7 +76,7 @@ fun AppearanceScreen(arabic: Boolean, onClose: () -> Unit) {
                         fontSize = 19.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = Alpha.Slate900,
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
+                        fontFamily = AlphaType.Display,
                     )
                     Text(
                         if (arabic) "الألوان والوضع الليلي" else "Colours and night mode",
