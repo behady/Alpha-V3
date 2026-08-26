@@ -52,11 +52,22 @@ export default function InterfaceSettings() {
   const txt = {
     title: language === 'ar' ? "واجهة الاستخدام" : "Interface Settings",
     clinicalEditorLabel: language === 'ar' ? "محرر الإجراءات السريرية" : "Clinical Editor Mode",
-    // Desktop no longer uses either of these: the Clinical tab puts the teeth chart and the form
-    // straight on the page. Say so here rather than let the setting look broken on a laptop.
+    // The third option is the layout desktop has been using all along. It was not on this screen,
+    // and the Clinical tab ignored this setting entirely above 1024px — so choosing a mode on a
+    // laptop did nothing at all and looked like a bug in the feature rather than in the setting.
     clinicalEditorDesc: language === 'ar'
-      ? "على الموبايل والتابلت: اختر شكل محرر الإجراءات (نافذة منبثقة أو شريط جانبي). على الكمبيوتر المحرر بيظهر في الصفحة نفسها تحت مخطط الأسنان."
-      : "On phones and tablets: choose how the procedure editor opens (pop-up modal or side drawer). On desktop the editor sits directly on the page, under the teeth chart.",
+      ? "اختر شكل محرر الإجراءات. اختيارك بينطبق على كل الأجهزة. «داخل الصفحة» بيحتاج شاشة عريضة، وعلى الموبايل بيرجع تلقائياً لنافذة منبثقة."
+      : "Choose how the procedure editor opens. Your choice applies on every device. \"On the page\" needs a wide screen — on a phone it falls back to the pop-up.",
+    inline: language === 'ar' ? "داخل الصفحة" : "On the page",
+    inlineHint: language === 'ar'
+      ? "المخطط فوق والنموذج تحته، من غير نافذة. يحتاج شاشة عريضة."
+      : "Chart on top, form beneath it, no overlay. Needs a wide screen.",
+    modalHint: language === 'ar'
+      ? "نافذة فوق الصفحة، وبداخلها مخطط الأسنان."
+      : "A window over the page, with the teeth chart inside it.",
+    drawerHint: language === 'ar'
+      ? "لوح بينزلق من الجانب."
+      : "A panel that slides in from the side.",
     appointmentEditorLabel: language === 'ar' ? "محرر المواعيد" : "Appointment Booking Mode",
     appointmentEditorDesc: language === 'ar' ? "اختر كيف تريد عرض نموذج حجز وتعديل المواعيد." : "Choose how you want to display the appointment booking and editing form.",
     modal: language === 'ar' ? "نافذة منبثقة" : "Pop-up Modal",
@@ -86,7 +97,7 @@ export default function InterfaceSettings() {
           <p className="text-sm font-medium text-slate-500 mt-2">{txt.clinicalEditorDesc}</p>
         </div>
         
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
           <button
             onClick={() => setClinicalEditorMode('modal')}
             className={`p-8 rounded-3xl border-2 flex flex-col items-center justify-center gap-4 transition-all ${
@@ -101,6 +112,7 @@ export default function InterfaceSettings() {
             <span className={`text-lg font-black ${clinicalEditorMode === 'modal' ? 'text-primary-700' : 'text-slate-600'}`}>
               {txt.modal}
             </span>
+            <span className="text-xs font-bold text-slate-400 leading-relaxed text-center">{txt.modalHint}</span>
           </button>
 
           <button
@@ -117,6 +129,24 @@ export default function InterfaceSettings() {
             <span className={`text-lg font-black ${clinicalEditorMode === 'drawer' ? 'text-primary-700' : 'text-slate-600'}`}>
               {txt.drawer}
             </span>
+            <span className="text-xs font-bold text-slate-400 leading-relaxed text-center">{txt.drawerHint}</span>
+          </button>
+
+          <button
+            onClick={() => setClinicalEditorMode('inline')}
+            className={`p-8 rounded-3xl border-2 flex flex-col items-center justify-center gap-4 transition-all ${
+              clinicalEditorMode === 'inline'
+                ? 'border-primary-500 bg-primary-50 shadow-md scale-[1.02]'
+                : 'border-slate-100 bg-slate-50 hover:border-slate-300 hover:bg-white'
+            }`}
+          >
+            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center shadow-sm ${clinicalEditorMode === 'inline' ? 'bg-primary-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
+              <LayoutList size={32} />
+            </div>
+            <span className={`text-lg font-black ${clinicalEditorMode === 'inline' ? 'text-primary-700' : 'text-slate-600'}`}>
+              {txt.inline}
+            </span>
+            <span className="text-xs font-bold text-slate-400 leading-relaxed text-center">{txt.inlineHint}</span>
           </button>
         </div>
       </div>

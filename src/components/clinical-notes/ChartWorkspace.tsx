@@ -7,6 +7,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { getCategoryForStatus, normalizeToothData, type ToothData } from "@/lib/diagnosisCatalog";
 import ServiceEditorDrawer from "./ServiceEditorDrawer";
 import { Note, Service, Staff } from "./types";
+import { TREATMENT_STATES, resolveTreatments, type ToothTreatment, type TreatmentStateId } from "@/lib/toothTreatments";
 import { LOWER_LEFT_TEETH, LOWER_RIGHT_TEETH, UPPER_LEFT_TEETH, UPPER_RIGHT_TEETH } from "./utils";
 
 /**
@@ -19,6 +20,7 @@ export default function ChartWorkspace({
   patientId,
   patientName,
   teethData,
+  treatments,
   servicesList,
   doctors,
   editingNote,
@@ -33,6 +35,8 @@ export default function ChartWorkspace({
   patientId: string;
   patientName: string;
   teethData: Record<string, ToothData>;
+  /** What has been done to each tooth, derived from the notes. See lib/toothTreatments. */
+  treatments: Record<string, ToothTreatment[]>;
   servicesList: Service[];
   doctors: Staff[];
   editingNote: Note | null;
@@ -55,6 +59,37 @@ export default function ChartWorkspace({
     });
     return out;
   }, [teethData]);
+
+  /**
+   * Only the treatments this patient has actually had, with the teeth they are on.
+   *
+   * Same rule as the diagnosis key beneath it: a legend should describe what is on the screen. A
+   * fixed list of all eight states would explain seven marks that are nowhere in this mouth, and a
+   * key that is mostly irrelevant is a key nobody reads twice.
+   */
+  const presentTreatments = useMemo(() => {
+    const seen = new Map<TreatmentStateId, { color: string; label: string; teeth: string[] }>();
+    Object.entries(treatments || {}).forEach(([toothId, entries]) => {
+      // Both winners, not just the dominant one — otherwise a tooth that was root-filled and then
+      // crowned lists only the crown, and the endo is missing from the chart AND the key.
+      const { form, mark } = resolveTreatments(entries);
+      [form, mark].forEach((done) => {
+        if (!done) return;
+        const state = TREATMENT_STATES[done.state];
+        const entry = seen.get(done.state) || {
+          color: state.color,
+          label: isAr ? state.labelAr : state.labelEn,
+          teeth: [] as string[],
+        };
+        if (!entry.teeth.includes(toothId)) entry.teeth.push(toothId);
+        seen.set(done.state, entry);
+      });
+    });
+    return Array.from(seen.values()).map((e) => ({
+      ...e,
+      teeth: e.teeth.sort((a, b) => Number(a) - Number(b)),
+    }));
+  }, [treatments, isAr]);
 
   const selectedNumbers = useMemo(
     () => selectedTeeth.map((t) => parseInt(t, 10)).filter((n) => !Number.isNaN(n)),
@@ -126,6 +161,7 @@ export default function ChartWorkspace({
     cancelEdit: isAr ? "إلغاء التعديل" : "Cancel edit",
     newEntry: isAr ? "تسجيل إجراء جديد" : "Log a new procedure",
     onFile: isAr ? "التشخيصات المسجلة على المخطط" : "Diagnoses already charted",
+    workDone: isAr ? "العلاج اللي اتعمل" : "Work done here",
   };
 
   return (
@@ -173,6 +209,7 @@ export default function ChartWorkspace({
         ) : (
           <TeethChart
             data={chartData}
+            treatments={treatments}
             selectionMode
             compactMode
             wide
@@ -182,6 +219,26 @@ export default function ChartWorkspace({
           />
         )}
       </div>
+
+      {/* --- What this clinic has actually DONE, which the chart could never show before --- */}
+      {presentTreatments.length > 0 && (
+        <div className="px-5 md:px-6 pb-1 pt-3">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
+            {txt.workDone}
+          </p>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {presentTreatments.map((t) => (
+              <span key={t.label} className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-600">
+                <span className="w-2.5 h-2.5 rounded-sm shrink-0 border border-white shadow-sm" style={{ backgroundColor: t.color }} />
+                {t.label}
+                <span className="text-slate-400 font-semibold tabular-nums">
+                  {isAr ? "أسنان" : "teeth"} {t.teeth.join(", ")}
+                </span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* --- What is already diagnosed on this patient, and nothing else --- */}
       {presentCategories.length > 0 && (

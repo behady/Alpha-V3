@@ -19,8 +19,12 @@ export default function ToothSurfaces({
 }: ToothSurfacesProps) {
   
   const handleSurfaceClick = (e: React.MouseEvent, surface: ToothSurface) => {
+    // Swallow the click only when something is actually listening for it. Stopping propagation
+    // first meant this layer ate clicks nobody wanted it to have: no caller has ever passed
+    // `onSurfaceClick`, so every click landing here was cancelled on its way to the tooth.
+    if (!onSurfaceClick) return;
     e.stopPropagation();
-    if (onSurfaceClick) onSurfaceClick(surface);
+    onSurfaceClick(surface);
   };
 
   const getFill = (s: ToothSurface) => {
@@ -85,7 +89,11 @@ export default function ToothSurfaces({
 
   // Buccal view (side profile)
   return (
-    <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full z-20 overflow-visible opacity-80" style={{ mixBlendMode: 'multiply' }}>
+    <svg
+      viewBox="0 0 100 100"
+      className={`absolute inset-0 w-full h-full z-20 overflow-visible opacity-80 ${onSurfaceClick ? "" : "pointer-events-none"}`}
+      style={{ mixBlendMode: 'multiply' }}
+    >
        {/* Root Canal Path (simulated as O surface for now if they click it) */}
        {activeSurfaces.includes("O") && surfaceColors["O"] && (
          <path 
@@ -97,14 +105,25 @@ export default function ToothSurfaces({
            className="transition-all duration-300"
          />
        )}
-       {/* Full Buccal Overlay mask (if B is selected) */}
-       <path 
-          d={isUpper ? "M 20 50 C 20 80, 80 80, 80 50 Z" : "M 20 50 C 20 20, 80 20, 80 50 Z"} 
-          fill={getFill("B")} 
-          opacity={getOpacity("B")}
-          className="transition-colors duration-300 cursor-pointer hover:opacity-50"
-          onClick={(e) => handleSurfaceClick(e, "B")}
-        />
+       {/*
+         * The buccal overlay, drawn only when the buccal surface actually carries a diagnosis.
+         *
+         * It used to render on every tooth, always, with `fill="transparent"` — and `transparent`
+         * is a paint, not `none`, so the browser still hit-tests it. Together with the click being
+         * swallowed above, that put a dead patch across the widest part of every tooth: about
+         * 25 x 10 CSS px of the incisal third, where a click selected nothing and the cursor
+         * turned into a pointer to promise otherwise. Harmless while the chart was only a picture;
+         * not harmless now that the chart in the editor is how a tooth gets chosen.
+         */}
+       {activeSurfaces.includes("B") && surfaceColors["B"] && (
+         <path
+            d={isUpper ? "M 20 50 C 20 80, 80 80, 80 50 Z" : "M 20 50 C 20 20, 80 20, 80 50 Z"}
+            fill={getFill("B")}
+            opacity={getOpacity("B")}
+            className={`transition-colors duration-300 ${onSurfaceClick ? "cursor-pointer hover:opacity-50" : ""}`}
+            onClick={(e) => handleSurfaceClick(e, "B")}
+          />
+       )}
     </svg>
   );
 }

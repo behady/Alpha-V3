@@ -57,13 +57,43 @@ interface PromptOptions extends PromptDialogOptions {
   message: string;
 }
 
+/**
+ * Where the clinical procedure editor appears.
+ *
+ * `modal`  — a pop-up over the page.
+ * `drawer` — a sheet from the side.
+ * `inline` — the chart-first workspace: chart above the form, on the page, no overlay.
+ */
+export type ClinicalEditorMode = 'modal' | 'drawer' | 'inline';
+
+const CLINICAL_EDITOR_MODES: ClinicalEditorMode[] = ['modal', 'drawer', 'inline'];
+
+function isClinicalEditorMode(value: unknown): value is ClinicalEditorMode {
+  return typeof value === 'string' && (CLINICAL_EDITOR_MODES as string[]).includes(value);
+}
+
 interface UIContextType {
   showToast: (message: string, type?: ToastType) => void;
   confirm: (message: string, options?: ConfirmDialogOptions) => Promise<boolean>;
   /** Ask for one piece of text. Resolves to null when dismissed — never to an empty string. */
   prompt: (message: string, options?: PromptDialogOptions) => Promise<string | null>;
-  clinicalEditorMode: 'modal' | 'drawer';
-  setClinicalEditorMode: (mode: 'modal' | 'drawer') => void;
+  /**
+   * How the clinical procedure editor presents itself.
+   *
+   * `inline` is the desktop chart-first workspace — the chart above the form, on the page, no
+   * overlay. It is a third value rather than a desktop special case because it was ALREADY the
+   * behaviour and nobody could see or change it: the Clinical tab returned that layout for any
+   * window wider than 1024px and never consulted this setting at all. Someone who picked
+   * "Pop-up Modal" on a laptop watched nothing happen, twice, and reasonably concluded the app
+   * had lost the feature.
+   */
+  clinicalEditorMode: ClinicalEditorMode;
+  setClinicalEditorMode: (mode: ClinicalEditorMode) => void;
+  /**
+   * False until somebody actually chooses. The Clinical tab uses it to keep the layout every
+   * desktop user already has, while still letting an explicit choice win at any width.
+   */
+  clinicalEditorModeChosen: boolean;
   appointmentEditorMode: 'modal' | 'drawer';
   setAppointmentEditorMode: (mode: 'modal' | 'drawer') => void;
   /** Which panel fills the column beside the schedule when an appointment is selected. */
@@ -104,7 +134,8 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const promptResolver = useRef<((value: string | null) => void) | null>(null);
   const promptInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
 
-  const [clinicalEditorMode, setClinicalEditorModeState] = useState<'modal' | 'drawer'>('modal');
+  const [clinicalEditorMode, setClinicalEditorModeState] = useState<ClinicalEditorMode>('modal');
+  const [clinicalEditorModeChosen, setClinicalEditorModeChosen] = useState(false);
   const [appointmentEditorMode, setAppointmentEditorModeState] = useState<'modal' | 'drawer'>('modal');
   const [appointmentPanelMode, setAppointmentPanelModeState] = useState<'editor' | 'avatar'>('editor');
   const [receptionPanelActive, setReceptionPanelActive] = useState(false);
@@ -119,13 +150,17 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
     try {
       if (typeof window !== "undefined") {
         const savedMode = localStorage.getItem("alpha_clinical_editor_mode");
-        if (savedMode === "drawer" || savedMode === "modal") {
+        if (isClinicalEditorMode(savedMode)) {
           setClinicalEditorModeState(savedMode);
+          setClinicalEditorModeChosen(true);
         }
       }
-      
-      const savedClinicalMode = localStorage.getItem("clinicalEditorMode") as 'modal' | 'drawer';
-      if (savedClinicalMode) setClinicalEditorModeState(savedClinicalMode);
+
+      const savedClinicalMode = localStorage.getItem("clinicalEditorMode");
+      if (isClinicalEditorMode(savedClinicalMode)) {
+        setClinicalEditorModeState(savedClinicalMode);
+        setClinicalEditorModeChosen(true);
+      }
       
       const savedApptMode = localStorage.getItem("appointmentEditorMode") as 'modal' | 'drawer';
       if (savedApptMode) setAppointmentEditorModeState(savedApptMode);
@@ -154,8 +189,9 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const setClinicalEditorMode = useCallback((mode: 'modal' | 'drawer') => {
+  const setClinicalEditorMode = useCallback((mode: ClinicalEditorMode) => {
     setClinicalEditorModeState(mode);
+    setClinicalEditorModeChosen(true);
     try {
       localStorage.setItem("clinicalEditorMode", mode);
     } catch (e) {}
@@ -320,7 +356,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const promptCanSubmit = !promptState.required || promptValue.trim().length > 0;
 
   return (
-    <UIContext.Provider value={{ showToast, confirm, prompt, clinicalEditorMode, setClinicalEditorMode, appointmentEditorMode, setAppointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode, receptionPanelActive, setReceptionPanelActive, appointmentsVisibility, setAppointmentsVisibility, latePatientTrackerEnabled: latePatientTrackerEnabledState, setLatePatientTrackerEnabled, clinicalNoteSort, setClinicalNoteSort, clinicalNoteGrouping, setClinicalNoteGrouping, clinicalNoteDensity, setClinicalNoteDensity }}>
+    <UIContext.Provider value={{ showToast, confirm, prompt, clinicalEditorMode, setClinicalEditorMode, clinicalEditorModeChosen, appointmentEditorMode, setAppointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode, receptionPanelActive, setReceptionPanelActive, appointmentsVisibility, setAppointmentsVisibility, latePatientTrackerEnabled: latePatientTrackerEnabledState, setLatePatientTrackerEnabled, clinicalNoteSort, setClinicalNoteSort, clinicalNoteGrouping, setClinicalNoteGrouping, clinicalNoteDensity, setClinicalNoteDensity }}>
       {children}
 
       {/* --- TOAST CONTAINER (Smartphone Style) --- */}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
+import { memo, useCallback, useState, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
 import { createPortal } from "react-dom";
 import { X, Save, CheckCircle2, Loader2, Camera, Edit2 } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
@@ -12,7 +12,8 @@ import { useAuth } from "@/context/AuthContext";
 import { logActivity } from "@/lib/logger";
 import { MoneyApiError, createProcedure, updateProcedure } from "@/lib/moneyApi";
 import ServiceCombobox from "@/components/shared/ServiceCombobox";
-import TeethChart from "@/components/TeethChart";
+import TeethChart, { type ToothData } from "@/components/TeethChart";
+import { TREATMENT_STATES, pendingTreatments, resolveTreatments, type ToothTreatment } from "@/lib/toothTreatments";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { Note, Service, Staff } from "./types";
 import {
@@ -50,14 +51,136 @@ interface Props {
   onSelectedTeethChange?: (teeth: string[]) => void;
   /** Full-width grid instead of the drawer's tall single column. Desktop chart-first layout. */
   compact?: boolean;
+  /**
+   * The patient's charted diagnoses, and what has actually been done to each tooth.
+   *
+   * The chart in this popup was rendered with `data={{}}` — a blank, healthy mouth, every time,
+   * for every patient. Which meant the one moment a dentist is deciding WHICH tooth to treat was
+   * the one moment the chart told them nothing about it: no caries, no existing crown, no
+   * extraction, no root canal done last month. They had to close the popup, read the chart behind
+   * it, remember, and reopen.
+   */
+  teethData?: Record<string, ToothData>;
+  treatments?: Record<string, ToothTreatment[]>;
 }
+
+
+/**
+ * The chart panel in the editor popup: the patient's history and the tooth picker, one control.
+ *
+ * Declared at module scope, and that is load-bearing rather than tidiness. It used to be defined
+ * inside the editor's render body, which gives it a new function identity on every render — and a
+ * new identity is a new element type, so React unmounted and remounted the entire subtree: 32
+ * teeth, 32 `next/image` loads, 32 mark SVGs, on every single keystroke in the cost or note field.
+ * The chart's scroll-centering effect re-fired with them, so a dentist who had scrolled across to
+ * tooth 38 was yanked back to the midline one character at a time.
+ */
+const TeethChartSelector = memo(function TeethChartSelector({
+  selected,
+  onToggle,
+  onSetSelected,
+  teethData,
+  treatments,
+  isAr,
+}: {
+  selected: string[];
+  onToggle: (toothCode: string) => void;
+  onSetSelected: Dispatch<SetStateAction<string[]>>;
+  teethData: Record<string, ToothData>;
+  treatments: Record<string, ToothTreatment[]>;
+  isAr: boolean;
+}) {
+    // Convert string array to number array for TeethChart
+    const selectedNumbers = selected.map(s => parseInt(s, 10)).filter(n => !isNaN(n));
+
+    const handleSelectArch = (arch: "upper" | "lower") => {
+      const archTeeth = arch === "upper"
+        ? [...UPPER_RIGHT_TEETH, ...UPPER_LEFT_TEETH]
+        : [...LOWER_RIGHT_TEETH, ...LOWER_LEFT_TEETH];
+
+      const allSelected = archTeeth.every(t => selected.includes(t));
+
+      if (allSelected) {
+        onSetSelected(prev => prev.filter(t => !archTeeth.includes(t)));
+      } else {
+        onSetSelected(prev => Array.from(new Set([...prev, ...archTeeth])));
+      }
+    };
+
+    /**
+     * What is ALREADY on the teeth just picked.
+     *
+     * This is the line the popup exists for. A chart you can look at answers "what has been done
+     * to this mouth"; this answers the narrower question actually being asked at the moment of
+     * choosing — *am I about to treat a tooth that already carries a crown, or one we root-filled
+     * in March?* On a phone there is no hover and therefore no tooltip, so without this the
+     * history is visible and unreadable.
+     */
+    const onSelected = selected
+      .map((t) => {
+        const entries = treatments[t];
+        const { form, mark } = resolveTreatments(entries);
+        const pending = pendingTreatments(entries);
+        if (!form && !mark && pending.length === 0) return null;
+        const parts = [
+          ...[form, mark]
+            .filter((d): d is NonNullable<typeof d> => Boolean(d))
+            .map((d) => (isAr ? TREATMENT_STATES[d.state].labelAr : TREATMENT_STATES[d.state].labelEn)),
+          ...(pending.length ? [isAr ? "مخطط له" : "planned"] : []),
+        ];
+        return `${t}: ${parts.join(" · ")}`;
+      })
+      .filter(Boolean) as string[];
+
+    return (
+      <div className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl min-w-0">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <p className="text-[10px] font-bold text-slate-500">
+            {isAr ? "اختر الأسنان من المخطط" : "Select teeth from chart"}
+          </p>
+          {selected.length > 0 && (
+            <span className="text-[10px] font-black text-slate-600 tabular-nums">
+              {isAr ? "المختار" : "Selected"} {selected.length}
+            </span>
+          )}
+        </div>
+
+        {/*
+         * No `overflow-y-auto` and no fixed height. The box was `max-h-[300px]` with the scrollbar
+         * hidden, so on a short screen the chart was silently clipped and the lower arch simply was
+         * not there — with nothing on screen to suggest anything had been cut off.
+         */}
+        <div className="rounded-xl border border-slate-200 bg-white shadow-inner">
+          <TeethChart
+            data={teethData}
+            treatments={treatments}
+            selectionMode={true}
+            compactMode={true}
+            dense
+            selectedTeeth={selectedNumbers}
+            onToggleTooth={(id) => onToggle(id.toString())}
+            onSelectArch={handleSelectArch}
+          />
+        </div>
+
+        {onSelected.length > 0 && (
+          <p className="mt-2 text-[10px] font-bold text-slate-600 leading-relaxed">
+            <span className="text-slate-400">{isAr ? "على الأسنان دي:" : "Already on these:"}</span>{" "}
+            {onSelected.join("  ·  ")}
+          </p>
+        )}
+      </div>
+    );
+  });
 
 export default function ServiceEditorDrawer({
   isOpen, onClose, patientId, patientName, patientDefaultPriceListId, branchId = null, appointmentId, initialNote, servicesList, doctors, onSaved, inline = false,
-  hideTeethSelector = false, selectedTeethOverride, onSelectedTeethChange, compact = false
+  hideTeethSelector = false, selectedTeethOverride, onSelectedTeethChange, compact = false,
+  teethData = {}, treatments = {}
 }: Props) {
   const { showToast, clinicalEditorMode } = useUI();
   const { language } = useLanguage();
+  const isAr = language === "ar";
   const { user } = useAuth();
 
   // Form State
@@ -69,16 +192,51 @@ export default function ServiceEditorDrawer({
   // care which layout it is running in.
   const isTeethControlled = Array.isArray(selectedTeethOverride) && !!onSelectedTeethChange;
   const selectedTeeth = isTeethControlled ? (selectedTeethOverride as string[]) : internalSelectedTeeth;
-  const setSelectedTeeth: Dispatch<SetStateAction<string[]>> = (action) => {
-    if (isTeethControlled) {
+  /**
+   * Kept in a ref so the two callbacks below can have a STABLE identity.
+   *
+   * The chart panel is memoised, and memo compares props: a setter rebuilt on every render is a
+   * changed prop, which defeats it entirely and remounts all thirty-two teeth on every keystroke —
+   * the exact cost the memo exists to avoid. The values still have to be current, hence the ref.
+   */
+  const teethTargetRef = useRef({ isTeethControlled, selectedTeethOverride, onSelectedTeethChange });
+  teethTargetRef.current = { isTeethControlled, selectedTeethOverride, onSelectedTeethChange };
+
+  const setSelectedTeeth = useCallback<Dispatch<SetStateAction<string[]>>>((action) => {
+    const target = teethTargetRef.current;
+    if (target.isTeethControlled) {
       const next = typeof action === "function"
-        ? (action as (prev: string[]) => string[])(selectedTeethOverride as string[])
+        ? (action as (prev: string[]) => string[])(target.selectedTeethOverride as string[])
         : action;
-      onSelectedTeethChange!(next);
+      target.onSelectedTeethChange!(next);
       return;
     }
     setInternalSelectedTeeth(action);
-  };
+  }, []);
+
+  /**
+   * Every change the DENTIST makes on the chart, as opposed to the form being seeded from a note.
+   *
+   * It clears the legacy free-text `tooth` field, and that is not tidiness — it is the difference
+   * between the chart telling the truth and not. `tooth` is seeded from the saved note and posted
+   * on every save, and the server falls back to it whenever the selection arrives empty:
+   *
+   *     toothText = selectedTeeth.length > 0 ? selectedTeeth.join(",") : String(body.tooth || "")
+   *
+   * So opening a note on "11,12", clearing both teeth on the chart, and saving re-persisted
+   * "11,12" — and the chart went on painting two teeth the dentist had just explicitly deselected,
+   * with the screen showing none selected. A disagreement in the direction hardest to notice.
+   */
+  const setSelectedTeethFromChart = useCallback<Dispatch<SetStateAction<string[]>>>((action) => {
+    setTooth("");
+    setSelectedTeeth(action);
+  }, [setSelectedTeeth]);
+
+  const toggleSelectedTooth = useCallback((toothCode: string) => {
+    setSelectedTeethFromChart((prev) =>
+      prev.includes(toothCode) ? prev.filter((t) => t !== toothCode) : [...prev, toothCode]
+    );
+  }, [setSelectedTeethFromChart]);
   const [procedure, setProcedure] = useState("");
   const [multiProceduresText, setMultiProceduresText] = useState("");
   const [cost, setCost] = useState("");
@@ -269,50 +427,6 @@ export default function ServiceEditorDrawer({
     if (matchedSvc) {
       setCost(matchedSvc.price.toString());
     }
-  };
-
-  const toggleTooth = (value: string, setter: Dispatch<SetStateAction<string[]>>) => {
-    setter((prev) => (prev.includes(value) ? prev.filter((t) => t !== value) : [...prev, value]));
-  };
-
-  const TeethChartSelector = ({ selected, onToggle }: { selected: string[]; onToggle: (toothCode: string) => void }) => {
-    // Convert string array to number array for TeethChart
-    const selectedNumbers = selected.map(s => parseInt(s, 10)).filter(n => !isNaN(n));
-    
-    const handleSelectArch = (arch: "upper" | "lower") => {
-      const archTeeth = arch === "upper" 
-        ? [...UPPER_RIGHT_TEETH, ...UPPER_LEFT_TEETH] 
-        : [...LOWER_RIGHT_TEETH, ...LOWER_LEFT_TEETH];
-      
-      const allSelected = archTeeth.every(t => selected.includes(t));
-      
-      if (allSelected) {
-        // Deselect all in arch
-        setSelectedTeeth(prev => prev.filter(t => !archTeeth.includes(t)));
-      } else {
-        // Select all in arch
-        setSelectedTeeth(prev => {
-          const newSet = new Set([...prev, ...archTeeth]);
-          return Array.from(newSet);
-        });
-      }
-    };
-    
-    return (
-      <div className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl min-w-0">
-        <p className="text-[10px] font-bold text-slate-500 mb-4">{language === "ar" ? "اختر الأسنان من المخطط" : "Select teeth from chart"}</p>
-        <div className="max-h-[300px] overflow-y-auto no-scrollbar rounded-xl border border-slate-200 bg-white shadow-inner">
-          <TeethChart
-            data={{}}
-            selectionMode={true}
-            compactMode={true}
-            selectedTeeth={selectedNumbers}
-            onToggleTooth={(id) => onToggle(id.toString())}
-            onSelectArch={handleSelectArch}
-          />
-        </div>
-      </div>
-    );
   };
 
   /** A service's own billing rule, taken from the main procedure. */
@@ -580,8 +694,7 @@ export default function ServiceEditorDrawer({
             {/* Empty label so this lines up with the fields beside it. */}
             <span className={labelClass} aria-hidden="true">&nbsp;</span>
             {discountField}
-            {discountField}
-          {ledgerField}
+            {ledgerField}
           </div>
           <div>
             <span className={labelClass} aria-hidden="true">&nbsp;</span>
@@ -650,7 +763,32 @@ export default function ServiceEditorDrawer({
         </div>
       )}
 
-      <div className={`flex-1 overflow-y-auto custom-scrollbar ${!inline ? 'p-6' : 'p-4 max-h-[500px]'}`}>
+      {/*
+        * Chart pinned, form scrolling.
+        *
+        * The chart used to sit in the middle of the scrolling form, between the procedure box and
+        * the cost. So you scrolled down to fill in the price and the teeth you had just chosen
+        * left the screen — at the exact moment you would want to check them — and on a phone the
+        * Save button was two more scrolls below that. Lifting it out of the scroll area costs
+        * nothing and means the chart and the button are on screen together.
+        *
+        * Side by side once there is width for it, stacked when there is not.
+        */}
+      <div className={`flex-1 min-h-0 flex flex-col ${!hideTeethSelector ? "lg:flex-row" : ""}`}>
+        {!hideTeethSelector && (
+          <div className={`shrink-0 lg:w-[420px] lg:overflow-y-auto custom-scrollbar ${!inline ? "px-6 pt-6 lg:pb-6" : "px-4 pt-4"}`}>
+            <TeethChartSelector
+              selected={selectedTeeth}
+              onToggle={toggleSelectedTooth}
+              onSetSelected={setSelectedTeethFromChart}
+              teethData={teethData}
+              treatments={treatments}
+              isAr={isAr}
+            />
+          </div>
+        )}
+
+        <div className={`flex-1 min-h-0 overflow-y-auto custom-scrollbar ${!inline ? 'p-6' : 'p-4 max-h-[500px]'}`}>
         <form id="service-form" onSubmit={handleSave} className="space-y-6">
 
           <div className="grid grid-cols-2 gap-4">
@@ -665,10 +803,6 @@ export default function ServiceEditorDrawer({
             {extraProceduresField(3)}
           </div>
 
-          {!hideTeethSelector && (
-            <TeethChartSelector selected={selectedTeeth} onToggle={(t) => toggleTooth(t, setSelectedTeeth)} />
-          )}
-
           {costField}
 
           {billingStrip}
@@ -678,6 +812,7 @@ export default function ServiceEditorDrawer({
           {ledgerField}
 
         </form>
+        </div>
       </div>
 
       <div className={`p-6 border-t border-slate-100 bg-white shrink-0 ${!inline ? 'pb-24 lg:pb-6' : ''}`}>

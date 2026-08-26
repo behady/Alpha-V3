@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { auth, db } from "@/lib/firebase";
 import { collection, onSnapshot, query, where, getDocs, doc, updateDoc, serverTimestamp, deleteDoc, addDoc } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
+import { treatmentsByTooth } from "@/lib/toothTreatments";
+import { suggestCategory } from "@/lib/dentalIcons";
 import { useAuth } from "@/context/AuthContext";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { Note, RelatedAppointment, Staff, Service } from "./types";
@@ -27,7 +29,7 @@ export default function ClinicalNotesContainer({
   onWriteRx?: () => void;
 }) {
   const { language } = useLanguage();
-  const { showToast, confirm } = useUI();
+  const { showToast, confirm, clinicalEditorMode, clinicalEditorModeChosen } = useUI();
   const { user } = useAuth();
 
   const [notes, setNotes] = useState<Note[]>([]);
@@ -45,6 +47,41 @@ export default function ClinicalNotesContainer({
     window.addEventListener("resize", checkIsDesktop);
     return () => window.removeEventListener("resize", checkIsDesktop);
   }, []);
+
+  /**
+   * Which editor this screen actually uses.
+   *
+   * This used to be `isDesktop` alone, and that is why the Interface setting appeared broken:
+   * any window wider than 1024px got the chart-first workspace and `clinicalEditorMode` was never
+   * read at all. Choosing "Pop-up Modal" on a laptop did nothing, with no way to tell whether the
+   * setting or the feature was at fault.
+   *
+   * An explicit choice now wins at every width. Someone who has never opened the setting keeps
+   * exactly what they have today — the workspace on a wide screen, the sheet on a phone — because
+   * a layout should not rearrange itself because a preference grew a third option.
+   */
+  /**
+   * What has been done to each tooth, read off the notes this screen already has.
+   *
+   * Derived here rather than stored on the patient: `teethData` is written wholesale with no
+   * per-tooth history, so a note later edited to a different tooth or deleted outright would leave
+   * a treatment painted on the chart with nothing behind it — and nobody would notice for months.
+   * Recomputing from the notes cannot drift from them, because it is them.
+   */
+  const treatments = useMemo(() => {
+    const categoryById = new Map(servicesList.map((s) => [s.id, s.category]));
+    return treatmentsByTooth(
+      notes,
+      (id) => categoryById.get(id) || undefined,
+      // A clinic that types procedures instead of picking them off the price list still gets a
+      // chart, using the same keyword guess the price list itself uses when a service is created.
+      (name) => suggestCategory(name)
+    );
+  }, [notes, servicesList]);
+
+  const useInlineWorkspace = clinicalEditorModeChosen
+    ? clinicalEditorMode === "inline"
+    : isDesktop;
 
   // Drawer state (mobile, and any desktop user who has not been switched over yet)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -118,7 +155,7 @@ export default function ClinicalNotesContainer({
   const handleAddGeneral = () => {
     setDrawerContextApptId(null);
     setEditingNote(null);
-    if (isDesktop) {
+    if (useInlineWorkspace) {
       // Nothing to open — the form is already on the page. Clear it and take the user to it.
       setWorkspaceTeeth([]);
       setWorkspaceFormNonce((n) => n + 1);
@@ -131,7 +168,7 @@ export default function ClinicalNotesContainer({
   const handleAddAppointmentService = (apptId: string) => {
     setDrawerContextApptId(apptId);
     setEditingNote(null);
-    if (isDesktop) {
+    if (useInlineWorkspace) {
       setWorkspaceTeeth([]);
       setWorkspaceFormNonce((n) => n + 1);
       scrollToWorkspace();
@@ -143,7 +180,7 @@ export default function ClinicalNotesContainer({
   const handleEditService = (note: Note) => {
     setEditingNote(note);
     setDrawerContextApptId(note.appointmentId || null);
-    if (isDesktop) {
+    if (useInlineWorkspace) {
       // Load the note's teeth back onto the chart so the edit reads the same as the entry did.
       setWorkspaceTeeth(parseTeethString(note.tooth || ""));
       scrollToWorkspace();
@@ -257,7 +294,7 @@ export default function ClinicalNotesContainer({
    * modal/drawer preference still governs phones and tablets, where a full arch chart cannot sit
    * above a form and the sheet is the only thing that fits.
    */
-  if (isDesktop) {
+  if (useInlineWorkspace) {
     return (
       <div className="w-full space-y-6 pb-6">
         <div ref={workspaceRef} className="scroll-mt-24">
@@ -265,6 +302,7 @@ export default function ClinicalNotesContainer({
             patientId={patientId}
             patientName={patientName}
             teethData={teethData || {}}
+            treatments={treatments}
             servicesList={servicesList}
             doctors={doctors}
             editingNote={editingNote}
@@ -307,6 +345,8 @@ export default function ClinicalNotesContainer({
           branchId={appointments.find((a) => a.id === drawerContextApptId)?.branchId || null}
           initialNote={editingNote}
           servicesList={servicesList}
+          teethData={teethData || {}}
+          treatments={treatments}
           doctors={doctors}
           onSaved={() => {
             setIsDrawerOpen(false);

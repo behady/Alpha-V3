@@ -29,6 +29,7 @@ import {
   normalizeToothData,
 } from "@/lib/diagnosisCatalog";
 import ToothSVG, { isUpperFDI, toothTypeFromFDI, toothTypeFromPrimaryFDI } from "@/components/teeth/ToothSVG";
+import { TREATMENT_STATES, pendingTreatments, resolveTreatments, type ToothTreatment } from "@/lib/toothTreatments";
 import { type ToothSurface } from "./teeth/ToothSurfaces";
 import PerioOverlay from "./perio/PerioOverlay";
 
@@ -63,6 +64,25 @@ interface TeethChartProps {
   onSelectArch?: (arch: "upper" | "lower") => void;
   perioMode?: boolean;
   onPerioToothClick?: (id: number) => void;
+  /**
+   * What has actually been DONE to each tooth, keyed by FDI, derived from the clinical notes.
+   *
+   * Deliberately separate from `data`, which holds DIAGNOSES. They are different questions — what
+   * is wrong with this tooth, and what have we done about it — and they get different channels on
+   * the drawing: the glow around a tooth stays the diagnosis, the body of the tooth carries the
+   * work. Merging them into one prop would be smaller code and would guarantee that, sooner or
+   * later, a filling gets drawn in the colour of caries.
+   */
+  treatments?: Record<string, ToothTreatment[]>;
+  /**
+   * Squeeze the furniture, never the teeth.
+   *
+   * For the editor popup, where the chart shares a phone screen with a form and a Save button.
+   * The arch header, the canvas padding and the gaps around the tooth numbers come out — about
+   * 86px — while every tooth stays exactly the size it was. Shrinking the teeth instead would
+   * save the same height and cost the thing the chart is for.
+   */
+  dense?: boolean;
 }
 
 export type { ToothData };
@@ -81,6 +101,8 @@ export default function TeethChart({
   onSelectArch,
   perioMode = false,
   onPerioToothClick,
+  treatments = {},
+  dense = false,
 }: TeethChartProps) {
   const { language, isRTL } = useLanguage();
   const { clinicId } = useClinic();
@@ -271,6 +293,14 @@ export default function TeethChart({
     const isActive = activeTooth === id;
     const isHover = hoverTooth === id;
 
+    // What this clinic has actually done to this tooth, and what is still only booked.
+    const toothTreatments = treatments[String(id)];
+    // Two winners, not one: what changed the tooth's FORM and what is marked ON it. A tooth that
+    // was root-filled and then crowned has to show both, or it presents as crowned and vital.
+    const { form: doneForm, mark: doneMark } = resolveTreatments(toothTreatments);
+    const done = doneForm ?? doneMark;
+    const pending = pendingTreatments(toothTreatments);
+
     // Build surface data for the rendering engine
     const activeSurfaces = new Set<ToothSurface>();
     const surfaceColors: Record<string, string> = {};
@@ -285,6 +315,15 @@ export default function TeethChart({
         });
       });
     }
+
+    // The marks are readable; they are not self-explanatory. Hovering a tooth should say what was
+    // done to it in words, so nobody has to hold a colour key in their head.
+    const treatmentLines = [
+      ...[doneForm, doneMark]
+        .filter((t): t is NonNullable<typeof t> => Boolean(t))
+        .map((t) => `${t.procedure || TREATMENT_STATES[t.state].labelEn}${t.date ? ` (${t.date})` : ""}`),
+      ...pending.map((t) => `${t.procedure || TREATMENT_STATES[t.state].labelEn} — ${t.status}`),
+    ];
 
     const tooltipLines = statuses
       .map(s => {
@@ -328,7 +367,7 @@ export default function TeethChart({
 
         {/* Tooth number for Buccal upper */}
         {!isUpper && viewType === "buccal" && !perioMode && (
-           <div className={`text-[10px] sm:text-xs font-bold tabular-nums tracking-tight transition-colors ${isActive ? "text-blue-600" : "text-slate-400 group-hover:text-slate-600"} mt-2`}>
+           <div className={`text-[10px] sm:text-xs font-bold tabular-nums tracking-tight transition-colors ${isActive ? "text-blue-600" : "text-slate-400 group-hover:text-slate-600"} ${dense ? "mt-0.5" : "mt-2"}`}>
              {id}
            </div>
         )}
@@ -341,8 +380,22 @@ export default function TeethChart({
               // each breakpoint: ~48px×16 inside a ~950px card at lg, ~58px×16 at xl and up.
               : `w-[30px] h-[40px] sm:w-[30px] sm:h-[40px] md:w-[42px] md:h-[52px] ${wide ? "lg:w-[48px] lg:h-[60px] xl:w-[58px] xl:h-[72px]" : ""}`
           } ${
-            selectionMode && selectedTeeth.includes(id) 
-              ? "scale-110 z-10 shadow-[0_0_15px_rgba(37,99,235,0.5)] bg-blue-500/10 rounded-full" 
+            selectionMode && selectedTeeth.includes(id)
+              /*
+               * Selected: a hard achromatic frame, no colour and no tint.
+               *
+               * It used to be a soft blue halo, rgba(37,99,235,.5), over a blue-tinted disc — the
+               * same soft blue as the ACTIVE glow and as the `development` diagnosis colour
+               * (#3b82f6). Three different meanings, one colour, all of them rendered as a fuzzy
+               * ring around a tooth. That collision was survivable while the chart was a picture
+               * you looked at; it is not survivable now the chart is how a tooth gets CHOSEN, with
+               * treatment marks underneath that the blue disc was tinting into mush.
+               *
+               * So selection leaves the colour channel entirely: a ring is a different shape from
+               * a glow, black is not a diagnosis hue, and the body of the tooth stays untinted so
+               * whatever was done to it is still legible while it is picked.
+               */
+              ? "scale-110 z-10 rounded-full ring-2 ring-slate-900 ring-offset-2 ring-offset-white" 
               : isActive 
                 ? "scale-110 z-10 shadow-lg rounded-full" 
                 : isHover 
@@ -358,12 +411,18 @@ export default function TeethChart({
             isActive={isActive}
             isHover={isHover}
             hasNotes={hasNotes}
-            size={isPrimary ? 44 : 52}
             viewType={viewType}
-            ariaLabel={`Tooth ${id} ${viewType}${tooltipLines.length ? ` — ${tooltipLines.join(", ")}` : ""}`}
+            ariaLabel={[
+              `Tooth ${id} ${viewType}`,
+              tooltipLines.length ? tooltipLines.join(", ") : "",
+              treatmentLines.length ? treatmentLines.join(", ") : "",
+            ].filter(Boolean).join(" — ")}
             activeSurfaces={Array.from(activeSurfaces)}
             surfaceColors={surfaceColors}
             showRoot={perioMode}
+            treatment={doneForm?.state ?? null}
+            treatmentMark={doneMark?.state ?? null}
+            hasPendingTreatment={pending.length > 0}
           />
         </div>
 
@@ -385,7 +444,7 @@ export default function TeethChart({
 
         {/* Tooth number for lower (below tooth) */}
         {isUpper && viewType === "buccal" && !perioMode && (
-           <div className={`text-[10px] sm:text-xs font-bold tabular-nums tracking-tight transition-colors ${isActive ? "text-blue-600" : "text-slate-400 group-hover:text-slate-600"} mb-2`}>
+           <div className={`text-[10px] sm:text-xs font-bold tabular-nums tracking-tight transition-colors ${isActive ? "text-blue-600" : "text-slate-400 group-hover:text-slate-600"} ${dense ? "mb-0.5" : "mb-2"}`}>
              {id}
            </div>
         )}
@@ -420,7 +479,7 @@ export default function TeethChart({
       <div ref={scrollRef} className="w-full overflow-x-auto no-scrollbar" dir="ltr">
         <div className={`w-full ${wide ? "max-w-none" : "max-w-5xl"} mx-auto ${isPrimary ? "min-w-[440px]" : "min-w-[620px]"} md:min-w-0`}>
           {/* Arch label header */}
-          <div className="flex items-center justify-between px-3 mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+          <div className={`${dense ? "hidden" : "flex"} items-center justify-between px-3 mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400`}>
             <span>{language === "ar" ? "يمين" : "Right"}</span>
             <span className="text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full">
               {isPrimary
@@ -431,8 +490,8 @@ export default function TeethChart({
           </div>
 
           {/* Chart canvas (Grid Layout) */}
-          <div className="rounded-3xl border border-slate-100 bg-white shadow-sm px-2 md:px-6 py-6 md:py-8 flex flex-col items-center justify-center overflow-hidden">
-            <div className={`flex flex-col gap-6 md:gap-8 w-full ${wide ? "max-w-none" : "max-w-3xl"} items-center relative`}>
+          <div className={`rounded-3xl border border-slate-100 bg-white shadow-sm px-2 ${dense ? "md:px-3 py-3" : "md:px-6 py-6 md:py-8"} flex flex-col items-center justify-center overflow-hidden`}>
+            <div className={`flex flex-col ${dense ? "gap-3" : "gap-6 md:gap-8"} w-full ${wide ? "max-w-none" : "max-w-3xl"} items-center relative`}>
                
                {/* Global cross dividers for the entire grid */}
                <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 border-l-2 border-slate-100/80 z-0"></div>
