@@ -1301,34 +1301,6 @@ class AppViewModel : ViewModel() {
         return true
     }
 
-    /**
-     * "Make me a PDF of Sara's prescription" — a fair request, and one the app can
-     * do, just not from this chat.
-     *
-     * The phone draws three documents: the finance report and the day sheet from
-     * here, and the prescription from the patient's file. Saying which is which
-     * costs nothing and points at the button that works. Sending it to the server
-     * instead spends a credit to be told something vague, and answering it with a
-     * month of clinic takings — which is what used to happen — is worse than either.
-     */
-    private fun tryPdfExplainer(prompt: String): Boolean {
-        val lower = prompt.lowercase()
-        if (listOf("pdf", "طباعة", "اطبع", "print").none { it in lower }) return false
-        val arabic = _state.value.arabic
-        val reply = if (arabic) {
-            "أستطيع إنشاء ملفين من هنا: التقرير المالي وجدول المواعيد — " +
-                "مثلاً \"تقرير مالي عن الشهر ده\" أو \"pdf بمواعيد الأسبوع\". " +
-                "الروشتة تُطبع من ملف المريض: افتح المريض ثم الروشتات."
-        } else {
-            "I can build two PDFs from here: the finance report and the appointment schedule — " +
-                "say \"finance report for last month\" or \"pdf of this week's appointments\". " +
-                "A prescription prints from the patient's file — open the patient, then Prescriptions."
-        }
-        appendAiMessage(ChatMessage(fromUser = false, text = reply, at = System.currentTimeMillis()))
-        _state.value = _state.value.copy(aiSpeak = reply)
-        return true
-    }
-
     fun aiSpoken() {
         _state.value = _state.value.copy(aiSpeak = null)
     }
@@ -1372,9 +1344,6 @@ class AppViewModel : ViewModel() {
         // Finance reports are answered by the phone itself: the data is already
         // in Firestore and the PDF is drawn locally, so no AI credit is spent.
         if (tryLocalReport(prompt)) return
-
-        // Any other PDF is a fair thing to ask for and worth a straight answer.
-        if (tryPdfExplainer(prompt)) return
 
         // The cache is only for context-free questions. With an appointment on
         // screen the same words mean something else entirely, and an acting

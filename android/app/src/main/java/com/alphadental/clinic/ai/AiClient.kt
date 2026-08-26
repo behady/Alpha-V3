@@ -121,20 +121,27 @@ object AiClient {
                         "this clinic's operations and general dentistry; if asked about " +
                         "anything else, say briefly that you can only help with clinic and " +
                         "dental matters.\n" +
-                        // The other half of the fix for "the assistant said it did
-                        // something and nothing happened": as well as the app now
-                        // honouring navigate_to, the model is told plainly which
-                        // client it is talking to, so it stops reaching for a tool
-                        // this one cannot carry out and charging a credit to do it.
+                        // Told once, plainly, so the model can answer in its own words.
+                        // A canned client-side sentence used to intercept every request
+                        // containing "pdf" — which meant "can you do payroll?" and the
+                        // follow-up "but you can't?" got the same paragraph twice, and
+                        // the model never saw either question.
                         "THIS CLIENT IS THE ANDROID PHONE APP. It has no file downloads and no " +
                         "browser, so never call trigger_pdf_generation and never say a file is " +
-                        "being generated or downloaded. The phone builds only three documents, " +
-                        "and it builds them itself without asking you: the finance report, the " +
-                        "appointment schedule, and a prescription from the patient's file. If " +
-                        "someone asks for any other document, say plainly that it is available " +
-                        "on the website version. You MAY call navigate_to — the app opens its " +
-                        "own matching screen for /patients, /patients/{id}, /appointments, " +
-                        "/finance, /reports, /inventory, /leads and /ortho."
+                        "being generated or downloaded.\n" +
+                        "The phone builds three documents by itself, without your help, when " +
+                        "asked in plain words: the finance report, the appointment schedule, and " +
+                        "a prescription (from the patient's file — Patients, open the patient, " +
+                        "then Prescriptions).\n" +
+                        "Anything else is on the website, and you should say WHERE rather than " +
+                        "just saying no. Payroll, staff hours and overtime are on the website's " +
+                        "Attendance screen. Treatment plans, invoices and receipts are on the " +
+                        "patient's file on the website. Marketing and settings are website-only.\n" +
+                        "If someone questions or repeats a refusal, do NOT repeat yourself — " +
+                        "answer the new question, explain why, and say where the thing lives.\n" +
+                        "You MAY call navigate_to — the app opens its own matching screen for " +
+                        "/patients, /patients/{id}, /appointments, /finance, /reports, " +
+                        "/inventory, /leads and /ortho."
                 )
             }
         }
