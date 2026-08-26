@@ -7,6 +7,7 @@ import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { hasFeature, getMarketingCreditLimit } from "@/lib/subscriptions";
 import { getClinicProfileAdmin } from "@/lib/clinicProfileServer";
+import { createUsageMeter, tokenIncrements } from "@/lib/aiCreditLog";
 import {
   MARKETING_GOALS, MARKETING_OCCASIONS, MARKETING_TONES, MARKETING_PLAYBOOKS,
   MARKETING_CREDIT_COST, VOICE_FORMALITY, VOICE_EMOJI, VOICE_PRICE, REEL_FORMATS,
@@ -18,6 +19,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 /** A month plan is one large structured generation — give it room. */
 export const maxDuration = 120;
+
+/** Named so the usage log records the model that was actually called. */
+const MARKETING_MODEL = "gemini-flash-latest";
 
 /**
  * The marketing content generator.
@@ -410,9 +414,16 @@ export async function POST(request: Request) {
 
     const genAI = new GoogleGenerativeAI(apiKey);
 
+    /**
+     * Marketing keeps its own token total, under `marketingTokens`, for the same reason it keeps
+     * its own credit meter: the add-on is sold separately, and a month of campaign writing must
+     * never look like the chair-side assistant's spend.
+     */
+    const meter = createUsageMeter(MARKETING_MODEL);
+
     if (mode === "single") {
       const model = genAI.getGenerativeModel({
-        model: "gemini-flash-latest",
+        model: MARKETING_MODEL,
         generationConfig: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -425,6 +436,7 @@ export async function POST(request: Request) {
 
       const prompt = singlePrompt({ kind, language, goal, occasion, tone, facts, reelFormat });
       const result = await model.generateContent(prompt);
+      meter.add(result.response);
 
       let parsed: { variants?: Record<string, unknown>[] };
       try {
@@ -449,7 +461,12 @@ export async function POST(request: Request) {
       }
 
       await usageRef.set(
-        { monthKey, marketingCreditsUsed: FieldValue.increment(cost), updatedAt: FieldValue.serverTimestamp() },
+        {
+          monthKey,
+          marketingCreditsUsed: FieldValue.increment(cost),
+          marketingTokens: tokenIncrements(meter.snapshot()),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
         { merge: true }
       );
 
@@ -466,7 +483,7 @@ export async function POST(request: Request) {
     }
 
     const model = genAI.getGenerativeModel({
-      model: "gemini-flash-latest",
+      model: MARKETING_MODEL,
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -492,6 +509,7 @@ export async function POST(request: Request) {
 
     const prompt = monthPrompt({ playbook, postsPerWeek, language, tone, facts });
     const result = await model.generateContent(prompt);
+    meter.add(result.response);
 
     let parsed: { items?: Record<string, unknown>[] };
     try {
@@ -525,7 +543,12 @@ export async function POST(request: Request) {
     }
 
     await usageRef.set(
-      { monthKey, marketingCreditsUsed: FieldValue.increment(cost), updatedAt: FieldValue.serverTimestamp() },
+      {
+        monthKey,
+        marketingCreditsUsed: FieldValue.increment(cost),
+        marketingTokens: tokenIncrements(meter.snapshot()),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
       { merge: true }
     );
 

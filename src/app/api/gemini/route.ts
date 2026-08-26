@@ -14,7 +14,7 @@ import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { logAiAction } from "@/lib/serverLogger";
-import { logAiCreditUsage } from "@/lib/aiCreditLog";
+import { logAiCreditUsage, createUsageMeter } from "@/lib/aiCreditLog";
 import { resolveNavigablePath, NAVIGABLE_PATHS_HINT } from "@/lib/aiNavigation";
 import { TUTORIALS } from "@/lib/tutorials";
 
@@ -45,6 +45,16 @@ import { isFullAccessRole } from "@/lib/permissions";
  * any patient field could steer it at data it should never reach. Everything here is clinic-scoped
  * at access time, so this list can only ever address the caller's own tenant.
  */
+/**
+ * The model this route talks to, in one place so the usage log records the same name that was
+ * actually called.
+ *
+ * `-latest` is a moving alias: Google reassigns it to each new Flash release, which changes both
+ * behaviour and per-token price without anything being deployed here. Pin it to a dated version
+ * once the usage log has a month of real numbers to compare a switch against.
+ */
+const CHAT_MODEL = "gemini-flash-latest";
+
 const AI_READABLE_COLLECTIONS = new Set([
   "patients",
   "appointments",
@@ -343,6 +353,14 @@ export async function POST(req: Request) {
     // Images cost more to process, so they draw more credits.
     const requiredCredits = image ? 3 : 1;
 
+    /**
+     * What this turn costs US, as opposed to what it costs the clinic in credits.
+     *
+     * Declared here so the chargeCredits closure below can read it: the closure runs after the
+     * tool loop has finished, by which point the meter holds every round the turn took.
+     */
+    const meter = createUsageMeter(CHAT_MODEL);
+
     // Set by the quota check below, invoked only once the turn has produced a real result.
     let chargeCredits: (() => Promise<void>) | null = null;
 
@@ -392,6 +410,7 @@ export async function POST(req: Request) {
               userId,
               userName: typeof userName === "string" ? userName : "",
               detail: image ? "with image" : "",
+              usage: meter.snapshot(),
             });
           };
         }
@@ -924,7 +943,7 @@ export async function POST(req: Request) {
       .filter((f) => (f.name !== "file_bug_report" && f.name !== "file_feature_request") || clientCanFileTickets);
 
     const model = genAI.getGenerativeModel({
-      model: "gemini-flash-latest",
+      model: CHAT_MODEL,
       systemInstruction: isReception ? receptionInstruction : generalInstruction,
       tools: [{ functionDeclarations: activeTools }] as any
     });
@@ -951,6 +970,7 @@ export async function POST(req: Request) {
     }
 
     let result = await model.generateContent({ contents });
+    meter.add(result.response);
 
     let callCount = 0;
 
@@ -1708,6 +1728,7 @@ export async function POST(req: Request) {
       // "user", never "function" — see the comment on `contents` above.
       contents.push({ role: "user", parts: functionResponses });
       result = await model.generateContent({ contents });
+      meter.add(result.response);
       callCount++;
     }
       let replyText = "";

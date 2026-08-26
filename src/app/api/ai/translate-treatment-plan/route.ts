@@ -6,7 +6,7 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
-import { logAiCreditUsage } from "@/lib/aiCreditLog";
+import { logAiCreditUsage, createUsageMeter } from "@/lib/aiCreditLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,6 +14,9 @@ export const maxDuration = 60;
 
 /** A translation is a single small generation. */
 const REQUIRED_CREDITS = 1;
+
+/** Named so the usage log records the model that was actually called. */
+const TRANSLATION_MODEL = "gemini-flash-latest";
 
 type StoredStep = { serviceName?: string; teeth?: string; note?: string };
 type StoredVisit = { label?: string; steps?: StoredStep[] };
@@ -142,8 +145,9 @@ PLAN (JSON):
 ${JSON.stringify(source)}`;
 
     const genAI = new GoogleGenerativeAI(apiKey);
+    const meter = createUsageMeter(TRANSLATION_MODEL);
     const model = genAI.getGenerativeModel({
-      model: "gemini-flash-latest",
+      model: TRANSLATION_MODEL,
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -180,6 +184,7 @@ ${JSON.stringify(source)}`;
     });
 
     const result = await model.generateContent(prompt);
+    meter.add(result.response);
     let translated: PlanTranslation;
     try {
       translated = JSON.parse(result.response.text());
@@ -222,6 +227,7 @@ ${JSON.stringify(source)}`;
       patientId: String(plan.patientId || ""),
       patientName: String(plan.patientName || ""),
       detail: target === "ar" ? "to Arabic" : "to English",
+      usage: meter.snapshot(),
     });
 
     return NextResponse.json({ ok: true, translation: safe, cached: false });
