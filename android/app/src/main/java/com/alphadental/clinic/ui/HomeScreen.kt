@@ -268,7 +268,7 @@ private fun DashboardHeader(
                     text = shortName(name),
                     fontSize = 23.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    fontFamily = FontFamily.Serif,
+                    fontFamily = AlphaType.Display,
                     color = onSlab,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -296,7 +296,7 @@ private fun SlabAvatar(name: String) {
             text = name.trim().firstOrNull()?.uppercase() ?: "•",
             fontSize = 19.sp,
             fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.Serif,
+            fontFamily = AlphaType.Display,
             color = onSlab,
         )
     }
@@ -323,7 +323,7 @@ private fun SlabTakings(
                 text = takingsToday?.let { "${it.toInt()} EGP" } ?: "—",
                 fontSize = 34.sp,
                 fontWeight = FontWeight.ExtraBold,
-                fontFamily = FontFamily.Serif,
+                fontFamily = AlphaType.Display,
                 color = slabAccent,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

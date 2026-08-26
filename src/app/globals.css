@@ -72,16 +72,16 @@
 body {
   background-color: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-body), "Open Sans", "Segoe UI", Tahoma, sans-serif;
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-/* Figures — money, counts, hours — set in a serif with aligned numerals. Labels stay sans;
-   mixing the two is what makes a number read as a stated figure rather than as form data. */
+/* Figures — money, counts, hours — set in the display face with aligned numerals. Labels stay
+   in the body face; the contrast is what makes a number read as a stated figure, not form data. */
 .font-figure {
-  /* Tahoma sits in the stack for Arabic: the Latin serifs carry no Arabic-Indic digits, so
+  /* Tahoma sits in the stack for Arabic: the Latin faces carry no Arabic-Indic digits, so
      ١٨٬٤٥٠ would otherwise be substituted glyph by glyph by whatever the system has. */
-  font-family: var(--font-figures), Georgia, "Times New Roman", Tahoma, serif;
+  font-family: var(--font-figures), "Montserrat", "Segoe UI", Tahoma, sans-serif;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
 }
@@ -157,4 +157,4 @@ body {
     print-color-adjust: exact;
     background-color: #E8F0ED !important;
   }
-}
+}

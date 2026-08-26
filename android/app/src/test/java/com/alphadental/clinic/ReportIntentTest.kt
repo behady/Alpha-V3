@@ -73,6 +73,42 @@ class ReportIntentTest {
         assertEquals("2026-03-17", nextWeek.period.to)
     }
 
+    // ---------------------------------------------------------------- payroll
+
+    @Test
+    fun `asking for payroll gets payroll, not the takings`() {
+        // Reported from the app: this got a canned refusal, then the same canned
+        // refusal again. Wages are not the clinic's income.
+        val request = ReportIntent.parse("can you make a pdf of this month payroll?", march(10))
+        assertNotNull(request)
+        assertEquals(Kind.PAYROLL, request!!.kind)
+        assertEquals("2026-03-01", request.period.from)
+        assertEquals("2026-03-10", request.period.to)
+    }
+
+    @Test
+    fun `payroll answers to its many names`() {
+        listOf(
+            "print the salaries for last month",
+            "pdf of staff wages this month",
+            "payroll report",
+            "اطبع مرتبات الشهر",
+            "تقرير الرواتب",
+        ).forEach {
+            val request = ReportIntent.parse(it, march(10))
+            assertNotNull("expected '$it' to be payroll", request)
+            assertEquals("expected '$it' to be payroll", Kind.PAYROLL, request!!.kind)
+        }
+    }
+
+    @Test
+    fun `payroll beats the money words in the same sentence`() {
+        // "How much did payroll cost this month" carries a finance word too. The
+        // ledger is the wrong answer to it.
+        val request = ReportIntent.parse("report on how much payroll cost this month", march(10))!!
+        assertEquals(Kind.PAYROLL, request.kind)
+    }
+
     // ---------------------------------------------------------------- finance
 
     @Test

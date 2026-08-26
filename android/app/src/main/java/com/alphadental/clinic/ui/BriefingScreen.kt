@@ -76,7 +76,7 @@ fun BriefingScreen(
                         fontSize = 19.sp,
                         fontWeight = FontWeight.ExtraBold,
                         color = Alpha.Slate900,
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
+                        fontFamily = AlphaType.Display,
                     )
                     Text(
                         if (arabic) "محسوب من السجلات، لا من تخمين" else "Computed from records, not guessed",
@@ -172,7 +172,7 @@ fun BriefingScreen(
                                         text = "${briefing.staleBalanceTotal.toInt()} EGP",
                                         fontSize = 27.sp,
                                         fontWeight = FontWeight.ExtraBold,
-                                        fontFamily = FontFamily.Serif,
+                                        fontFamily = AlphaType.Display,
                                         color = Alpha.Slate900,
                                     )
                                     Spacer(Modifier.height(2.dp))
@@ -258,7 +258,7 @@ private fun StaleBalanceRow(
                 text = "${row.balance.toInt()} EGP",
                 fontSize = 15.sp,
                 fontWeight = FontWeight.ExtraBold,
-                fontFamily = FontFamily.Serif,
+                fontFamily = AlphaType.Display,
                 color = Alpha.Slate900,
             )
         }

@@ -154,7 +154,7 @@ private fun CaseList(
                 fontSize = 19.sp,
                 fontWeight = FontWeight.ExtraBold,
                 color = Alpha.Slate900,
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
+                fontFamily = AlphaType.Display,
             )
             Text(
                 if (arabic) "المتابعة والتعديلات" else "Follow-ups and adjustments",
