@@ -328,8 +328,11 @@ export default function AiChatWidget() {
 
   return (
     <>
-      {/* Floating launcher — the same orb as the reception assistant, at coat-pocket size. */}
-      <div className={`fixed bottom-5 ${launcherCornerClass} z-50 transition-all duration-300`}>
+      {/* Floating launcher — the same orb as the reception assistant, at coat-pocket size.
+          Below lg the mobile bottom nav bar (fixed bottom-4, h-16, z-[80], opaque) owns the
+          bottom 80px of the screen; bottom-5 sat entirely behind it, which is why the
+          assistant never appeared on phones or tablets. bottom-24 clears the bar. */}
+      <div className={`fixed bottom-24 lg:bottom-5 ${launcherCornerClass} z-50 transition-all duration-300`}>
         <button
           onClick={() => setIsOpen((prev) => !prev)}
           title={alphaName}
@@ -345,7 +348,7 @@ export default function AiChatWidget() {
       {/* The assistant panel — same glass shell as the reception panel beside the schedule. */}
       {isOpen && (
         <div
-          className={`fixed bottom-24 ${cornerClass} z-50 w-[calc(100vw-2rem)] sm:w-[400px] h-[560px] max-h-[75vh] bg-white/80 backdrop-blur-3xl border border-white/60 shadow-[0_8px_40px_rgba(0,0,0,0.12)] rounded-[2rem] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200`}
+          className={`fixed bottom-44 lg:bottom-24 ${cornerClass} z-50 w-[calc(100vw-2rem)] sm:w-[400px] h-[560px] max-h-[calc(100dvh-13rem)] lg:max-h-[75vh] bg-white/80 backdrop-blur-3xl border border-white/60 shadow-[0_8px_40px_rgba(0,0,0,0.12)] rounded-[2rem] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200`}
           dir={isRTL ? "rtl" : "ltr"}
         >
           {/* Header */}

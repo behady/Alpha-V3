@@ -228,7 +228,7 @@ export default function TutorialOverlay() {
 
       {/* The instruction card — fixed to the bottom so it never covers what the ring marks. */}
       <div
-        className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[9981] w-[calc(100vw-2rem)] max-w-md"
+        className="fixed bottom-24 lg:bottom-4 left-1/2 -translate-x-1/2 z-[9981] w-[calc(100vw-2rem)] max-w-md"
         dir={isRTL ? "rtl" : "ltr"}
       >
         <div className="bg-white/90 backdrop-blur-3xl border border-white/60 shadow-[0_8px_40px_rgba(0,0,0,0.12)] rounded-[1.5rem] px-5 py-4 animate-in slide-in-from-bottom-4 duration-300">
