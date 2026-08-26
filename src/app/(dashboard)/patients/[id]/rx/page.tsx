@@ -13,11 +13,35 @@ import { useAuth } from "@/context/AuthContext";
 import { prescriptionPayloadToPdfBlob } from "@/lib/prescriptionPdfHtml";
 import { isDentistStaff } from "@/lib/staffRoles";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import PermissionGuard from "@/components/PermissionGuard";
 
 interface Drug { id: string; name: string; dose: string; }
 interface RxItem { id: string; name: string; dose: string; note: string; }
 
-export default function PrescriptionStudio() {
+/**
+ * Writing a prescription needs the same permission as saving one.
+ *
+ * This studio had no gate at all while the clinical history and the tooth chart beside it were
+ * both guarded. firestore.rules refuses to store a prescription without `clinical.edit`, so an
+ * unauthorised person hit an error only at Save — after filling the whole form. Everything
+ * before that point still worked: the page rendered on clinic letterhead, Print produced a
+ * finished prescription in a named doctor's name (printing touches no database and no rule can
+ * see it), and Send put it on the patient's WhatsApp.
+ *
+ * `clinical.edit` deliberately matches what the rules demand and what the two PDF-sending routes
+ * now demand, so all three doors answer the same question the same way. Guarding the export
+ * rather than the inner component means an unauthorised visitor never mounts it, and the patient
+ * read never fires.
+ */
+export default function PrescriptionStudioPage() {
+  return (
+    <PermissionGuard permission="clinical.edit">
+      <PrescriptionStudio />
+    </PermissionGuard>
+  );
+}
+
+function PrescriptionStudio() {
   const params = useParams();
   const router = useRouter();
   const id = (params?.id as string) || "";

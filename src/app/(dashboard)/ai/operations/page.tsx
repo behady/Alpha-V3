@@ -26,7 +26,7 @@ import type { InventoryAlertReport } from "@/lib/automation/inventoryAlerts";/*
  * as good news.
  */
 export default function OperationsPage() {
-  const { clinicId } = useClinic();
+  const { clinicId, isAdmin } = useClinic();
   const { language, isRTL } = useLanguage();
   const { showToast } = useUI();
   const isAr = language === "ar";
@@ -116,13 +116,17 @@ export default function OperationsPage() {
                         ? "لا يمكن تحديد المرضى المتأخرين قبل أن تحدد سياسة عيادتك. لن نفترض رقماً نيابةً عنك."
                         : "Nobody can be flagged as overdue until you state your clinic's policy. We will not assume a number on your behalf."}
                     </p>
-                    <Link
-                      href="/settings?tab=recall"
-                      className="inline-flex items-center gap-2 mt-5 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.98]"
-                    >
-                      <Settings size={13} />
-                      {isAr ? "اضبطها الآن" : "Set it now"}
-                    </Link>
+                    {/* Admin-only destination: the recall tab refuses non-admins, so offering
+                        them this button would send them to their own Profile page instead. */}
+                    {isAdmin && (
+                      <Link
+                        href="/settings?tab=recall"
+                        className="inline-flex items-center gap-2 mt-5 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.98]"
+                      >
+                        <Settings size={13} />
+                        {isAr ? "اضبطها الآن" : "Set it now"}
+                      </Link>
+                    )}
                   </div>
                 ) : recalls && recalls.patients.length === 0 ? (
                   <div className="p-10 text-center">

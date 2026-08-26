@@ -14,7 +14,7 @@ import { auth } from "@/lib/firebase";
 import { handleManualWhatsApp } from "@/lib/whatsappManual";
 import { printAssistantDocument } from "@/lib/assistantDocumentPdf";
 import { installErrorBreadcrumbs, getErrorBreadcrumbs } from "@/lib/errorBreadcrumbs";
-import { TUTORIALS } from "@/lib/tutorials";
+import { TUTORIALS, tutorialsFor } from "@/lib/tutorials";
 import { RECEPTIONIST_NAME } from "@/lib/receptionist";
 import AvatarFace from "@/components/appointments/AvatarFace";
 import AssistantMarkdown from "@/components/ai/AssistantMarkdown";
@@ -69,7 +69,7 @@ type AssistantMode = "normal" | "trainer" | "support";
 const CANCEL_TUTORIAL_RE = /(cancel|stop|end|quit|إلغاء|الغاء|الغيه|إلغيه|وقف|أوقف|اوقف|خلاص|كفاية)/i;
 
 export default function AiChatWidget() {
-  const { clinic, clinicId } = useClinic();
+  const { clinic, clinicId, isAdmin } = useClinic();
   const { user } = useAuth();
   const { language, isRTL } = useLanguage();
   const { receptionPanelActive } = useUI();
@@ -709,7 +709,9 @@ export default function AiChatWidget() {
                     <GraduationCap size={11} /> {isAr ? "علّمني" : "Teach me"}
                   </p>
                   <div className="flex flex-col gap-1.5">
-                    {TUTORIALS.map((t) => (
+                    {/* Only lessons this person can finish. A settings lesson offered to a
+                        receptionist rings a tab their role cannot open and stalls on step one. */}
+                    {tutorialsFor(isAdmin, user?.permissions).map((t) => (
                       <button
                         key={t.id}
                         onClick={() => handleStartLesson(t.id)}

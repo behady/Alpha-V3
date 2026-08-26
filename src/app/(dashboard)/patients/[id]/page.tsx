@@ -1036,9 +1036,14 @@ export default function PatientProfile() {
                         {language === 'ar' ? 'الإجراءات السريعة' : 'Quick Actions'}
                     </span>
                     <div className="flex items-center justify-center gap-2">
-                       <button onClick={() => router.push(`/patients/${encodeURIComponent(id)}/rx`)} data-tour="rx-open" className="flex-1 py-2 lg:py-2.5 px-2 lg:px-3 bg-slate-50 hover:bg-slate-100 text-blue-600 rounded-xl font-bold text-[11px] lg:text-xs flex items-center justify-center gap-1.5 lg:gap-2 border border-slate-200 transition-all hover:-translate-y-0.5">
-                          <Pill size={14} /> <span className="truncate">{language === 'ar' ? 'وصفة طبية' : 'Write Rx'}</span>
-                       </button>
+                       {/* Gated to match the studio it opens: without clinical.edit this button
+                           led straight to an Access Restricted screen. The Diagnosis button
+                           beside it has always been gated the same way. */}
+                       <Protect permission="clinical.edit">
+                         <button onClick={() => router.push(`/patients/${encodeURIComponent(id)}/rx`)} data-tour="rx-open" className="flex-1 py-2 lg:py-2.5 px-2 lg:px-3 bg-slate-50 hover:bg-slate-100 text-blue-600 rounded-xl font-bold text-[11px] lg:text-xs flex items-center justify-center gap-1.5 lg:gap-2 border border-slate-200 transition-all hover:-translate-y-0.5">
+                            <Pill size={14} /> <span className="truncate">{language === 'ar' ? 'وصفة طبية' : 'Write Rx'}</span>
+                         </button>
+                       </Protect>
                        {canViewClinical && (
                          <button onClick={() => router.push(`/patients/${encodeURIComponent(id)}/diagnosis`)} className="flex-1 py-2 lg:py-2.5 px-2 lg:px-3 bg-slate-50 hover:bg-slate-100 text-emerald-600 rounded-xl font-bold text-[11px] lg:text-xs flex items-center justify-center gap-1.5 lg:gap-2 border border-slate-200 transition-all hover:-translate-y-0.5">
                             <Stethoscope size={14} /> <span className="truncate">{language === 'ar' ? 'تشخيص' : 'Diagnosis'}</span>

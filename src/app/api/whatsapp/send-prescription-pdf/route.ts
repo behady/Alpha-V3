@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
-import { requireStaffUser } from "@/lib/apiStaffAuth";
+import { requireStaffUser, requireStaffPermission } from "@/lib/apiStaffAuth";
 import { adminBucket } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { sendWhatsAppPdfFromUrl } from "@/lib/whatsapp";
@@ -26,6 +26,24 @@ export async function POST(request: Request) {
     // collections that do not exist, so they silently resolved to empty and this route
     // could never find the record it was asked to send.
     const clinicId = await resolveUserClinicId(authz.uid);
+
+    /**
+     * Sending a prescription is a clinical act, and this route is the only door to it that a
+     * browser cannot be stopped from knocking on.
+     *
+     * firestore.rules already refuses to SAVE a prescription without `clinical.edit`. It cannot
+     * refuse this: the PDF arrives fully rendered in the request body and goes straight to the
+     * patient's WhatsApp, touching no collection the rules guard. So a receptionist — who has no
+     * `clinical.edit` — could not save a prescription but could still send one in a named
+     * doctor's name, and anyone with a token could do it by calling this route directly.
+     *
+     * Checked here rather than at the top because the permission list is per clinic: called
+     * without a clinicId, requireStaffUser falls back to the flat legacy array, which is empty
+     * for a migrated multi-clinic account — that would have denied the very dentists this route
+     * exists for. resolveUserClinicId has to answer first.
+     */
+    const permitted = await requireStaffPermission(request, clinicId, "clinical.edit");
+    if (!permitted.ok) return permitted.response;
 
     const body = (await request.json().catch(() => ({}))) as {
       patientId?: string;

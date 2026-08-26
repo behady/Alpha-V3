@@ -16,7 +16,7 @@ import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { logAiAction } from "@/lib/serverLogger";
 import { logAiCreditUsage, createUsageMeter } from "@/lib/aiCreditLog";
 import { resolveNavigablePath, NAVIGABLE_PATHS_HINT } from "@/lib/aiNavigation";
-import { TUTORIALS } from "@/lib/tutorials";
+import { TUTORIALS, tutorialsFor } from "@/lib/tutorials";
 
 /**
  * One question can take several model round-trips: the assistant calls a tool, reads the result,
@@ -530,6 +530,16 @@ export async function POST(req: Request) {
         }
     }
 
+    /**
+     * Lessons THIS caller can actually finish.
+     *
+     * The settings tabs are gated to match firestore.rules, so a lesson that starts by ringing
+     * the Prices tab dies on step one for anyone without `access.settings`. Filtering here as
+     * well as in the widget's menu means the model is never even told those lessons exist for
+     * this person — it cannot offer one, and cannot pick one if the user asks in words.
+     */
+    const availableTutorials = tutorialsFor(isFullAccessRole(authz.role), authz.permissions);
+
     const functionDeclarations = [
       {
         name: "db_read",
@@ -656,13 +666,13 @@ export async function POST(req: Request) {
         description:
           "Starts an interactive on-screen walkthrough that teaches the user how to do something in this app by pointing a pulsing ring at the real buttons, step by step. " +
           "STRONGLY PREFER this over describing screens in words whenever the user asks HOW to do one of the tasks below. Available lessons: " +
-          TUTORIALS.map((t) => `'${t.id}' (${t.description.en})`).join("; ") + ".",
+          availableTutorials.map((t) => `'${t.id}' (${t.description.en})`).join("; ") + ".",
         parameters: {
           type: SchemaType.OBJECT,
           properties: {
             tutorialId: {
               type: SchemaType.STRING,
-              enum: TUTORIALS.map((t) => t.id),
+              enum: availableTutorials.map((t) => t.id),
               description: "The lesson to start.",
             },
             reason: {
@@ -1618,11 +1628,13 @@ export async function POST(req: Request) {
              }
           } else if (call.name === "start_tutorial") {
              const wantedId = String((call.args as any).tutorialId || "").trim();
-             const tutorial = TUTORIALS.find((t) => t.id === wantedId);
+             // availableTutorials, not TUTORIALS: a model that names a gated lesson anyway
+             // must be refused, not obeyed.
+             const tutorial = availableTutorials.find((t) => t.id === wantedId);
              if (!tutorial) {
                 toolResult = {
                    success: false,
-                   error: `No lesson named '${wantedId}'. Valid ids: ${TUTORIALS.map((t) => t.id).join(", ")}.`,
+                   error: `No lesson named '${wantedId}' is available to this user. Valid ids: ${availableTutorials.map((t) => t.id).join(", ")}.`,
                 };
              } else {
                 const reason = String((call.args as any).reason || "").trim()

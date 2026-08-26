@@ -41,6 +41,25 @@ export interface Tutorial {
   /** One line, shown on the widget's lesson menu and given to the model to pick by. */
   description: { en: string; ar: string };
   steps: TutorialStep[];
+  /**
+   * Who this lesson can actually be completed by.
+   *
+   * A lesson whose very first ring points at a button the user's role cannot see is worse than
+   * no lesson: it starts, hunts, and dies. Both settings lessons became exactly that when the
+   * Schedule, Prices and Prescriptions tabs were gated to match firestore.rules. `adminOnly`
+   * and `requires` are read by BOTH the widget's menu and the server's start_tutorial tool, so
+   * a lesson nobody can finish is never offered and never chosen.
+   */
+  adminOnly?: boolean;
+  requires?: string;
+}
+
+/** The lessons this person can actually complete. Admins pass everything. */
+export function tutorialsFor(isAdmin: boolean, permissions: readonly string[] | undefined): Tutorial[] {
+  if (isAdmin) return TUTORIALS;
+  return TUTORIALS.filter(
+    (t) => !t.adminOnly && (!t.requires || !!permissions?.includes(t.requires)),
+  );
 }
 
 export const TUTORIALS: Tutorial[] = [
@@ -454,6 +473,8 @@ export const TUTORIALS: Tutorial[] = [
       en: "Tell the system when the clinic opens, closes and rests — the assistant's slot suggestions depend on this. Admins only.",
       ar: "عرّف النظام العيادة بتفتح وتقفل امتى وأجازتها امتى — اقتراحات المواعيد بتعتمد على ده. للمدير فقط.",
     },
+    // Saved into the settings collection, which firestore.rules restricts to Admins outright.
+    adminOnly: true,
     steps: [
       {
         route: "/settings",
@@ -500,9 +521,11 @@ export const TUTORIALS: Tutorial[] = [
     id: "update-prices",
     title: { en: "Update the price list", ar: "تحديث قائمة الأسعار" },
     description: {
-      en: "Add or change a treatment's price in Settings → Prices — the catalog every charge and the assistant's answers draw from.",
-      ar: "إضافة أو تعديل سعر علاج من الإعدادات → الأسعار — الكتالوج اللي كل الحسابات وإجابات المساعد بتعتمد عليه.",
+      en: "Add or change a treatment's price in Settings → Prices — the catalog every charge and the assistant's answers draw from. Needs settings access.",
+      ar: "إضافة أو تعديل سعر علاج من الإعدادات → الأسعار — الكتالوج اللي كل الحسابات وإجابات المساعد بتعتمد عليه. محتاج صلاحية الإعدادات.",
     },
+    // The Prices tab is gated on this, so without it step one rings a button that never renders.
+    requires: "access.settings",
     steps: [
       {
         route: "/settings",
