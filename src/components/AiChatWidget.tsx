@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { X, Send, Loader2, Trash2, Zap, AlertTriangle, GraduationCap, Sparkles } from "lucide-react";
+import { X, Send, Loader2, Trash2, Zap, AlertTriangle, GraduationCap, Sparkles, MessageCircle, LifeBuoy, Bug, Lightbulb, Camera } from "lucide-react";
 import { useClinic } from "@/context/ClinicContext";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -13,6 +13,7 @@ import { getClinicDoc } from "@/lib/db-utils";
 import { auth } from "@/lib/firebase";
 import { handleManualWhatsApp } from "@/lib/whatsappManual";
 import { printAssistantDocument } from "@/lib/assistantDocumentPdf";
+import { installErrorBreadcrumbs, getErrorBreadcrumbs } from "@/lib/errorBreadcrumbs";
 import { TUTORIALS } from "@/lib/tutorials";
 import { RECEPTIONIST_NAME } from "@/lib/receptionist";
 import AvatarFace from "@/components/appointments/AvatarFace";
@@ -38,6 +39,21 @@ interface PendingAction {
   documentId: string;
   summary: Record<string, unknown>;
 }
+
+/**
+ * A support ticket the assistant has composed but NOT sent. It renders as a card the user reads,
+ * and only their Send button reaches /api/support/ticket — where the screenshot and recent error
+ * logs are attached, because only this browser has them.
+ */
+interface TicketDraft {
+  kind: "bug" | "feature";
+  title: string;
+  description: string;
+  steps?: string;
+  contactNumber: string;
+}
+
+type AssistantMode = "normal" | "trainer" | "support";
 
 /**
  * "Cancel the tutorial", as typed at the chat in either language.
@@ -78,8 +94,28 @@ export default function AiChatWidget() {
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [resolvingAction, setResolvingAction] = useState(false);
 
+  const [assistantMode, setAssistantMode] = useState<AssistantMode>("normal");
+  const [ticketDraft, setTicketDraft] = useState<TicketDraft | null>(null);
+  const [attachScreenshot, setAttachScreenshot] = useState(true);
+  const [sendingTicket, setSendingTicket] = useState(false);
+
   const [creditsUsed, setCreditsUsed] = useState<number>(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Error breadcrumbs start collecting the moment the dashboard loads — a bug report filed an
+  // hour later carries whatever fired in between. The chosen mode survives reloads.
+  useEffect(() => {
+    installErrorBreadcrumbs();
+    try {
+      const saved = localStorage.getItem("alphaAssistantMode");
+      if (saved === "trainer" || saved === "support") setAssistantMode(saved);
+    } catch { /* default stands */ }
+  }, []);
+
+  const switchMode = (m: AssistantMode) => {
+    setAssistantMode(m);
+    try { localStorage.setItem("alphaAssistantMode", m); } catch { /* fine */ }
+  };
 
   const canUseAi = hasFeature(clinic, "aiChat");
   const totalLimit = getAiCreditLimit(clinic);
@@ -169,6 +205,93 @@ export default function AiChatWidget() {
     }
   };
 
+  /**
+   * A JPEG of what the user is looking at, for the bug ticket.
+   *
+   * html2canvas is imported on demand — it is a heavy library and this is its only use in the
+   * widget. Scaled to ~1280px wide and compressed: the shot rides inside a Firestore document
+   * and an email, not an art gallery. Any failure returns "" — a ticket must never die on its
+   * attachment.
+   */
+  const captureScreenshot = async (): Promise<string> => {
+    try {
+      const { default: html2canvas } = await import("html2canvas");
+      const canvas = await html2canvas(document.body, {
+        useCORS: true,
+        logging: false,
+        scale: Math.min(1, 1280 / Math.max(1, window.innerWidth)),
+      });
+      return canvas.toDataURL("image/jpeg", 0.65);
+    } catch {
+      return "";
+    }
+  };
+
+  const handleSendTicket = async () => {
+    if (!ticketDraft || sendingTicket) return;
+    setSendingTicket(true);
+    try {
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) throw new Error(isAr ? "انتهت الجلسة. سجّل الدخول مرة أخرى." : "Session expired. Please sign in again.");
+
+      let screenshot = "";
+      if (attachScreenshot) {
+        // The panel would sit in its own screenshot, covering the very screen being reported —
+        // so it steps aside for the shot and comes straight back.
+        setIsOpen(false);
+        await new Promise((r) => setTimeout(r, 400));
+        screenshot = await captureScreenshot();
+        setIsOpen(true);
+      }
+
+      const response = await fetch("/api/support/ticket", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({
+          clinicId,
+          kind: ticketDraft.kind,
+          title: ticketDraft.title,
+          description: ticketDraft.description,
+          steps: ticketDraft.steps || "",
+          contactNumber: ticketDraft.contactNumber,
+          screenshot,
+          errors: getErrorBreadcrumbs(),
+          route: window.location.pathname,
+          userAgent: navigator.userAgent,
+          userName: user?.name,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || "Could not send the ticket.");
+
+      const sentLine = data.emailSent
+        ? (isAr
+            ? `✅ اتبعت للدعم الفني — التذكرة رقم ${data.ticketId}. هيتواصلوا معاك على ${ticketDraft.contactNumber}.`
+            : `✅ Sent to the support team — ticket ${data.ticketId}. They'll reach you on ${ticketDraft.contactNumber}.`)
+        : (isAr
+            ? `✅ اتسجلت للدعم الفني — التذكرة رقم ${data.ticketId}. هيشوفوها في النظام وهيتواصلوا معاك على ${ticketDraft.contactNumber}.`
+            : `✅ Logged for the support team — ticket ${data.ticketId}. They'll see it in the system and reach you on ${ticketDraft.contactNumber}.`);
+      setMessages((prev) => [...prev, {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: sentLine,
+        timestamp: new Date(),
+      }]);
+      setTicketDraft(null);
+    } catch (err: any) {
+      // The draft stays on screen: unlike a destructive action, retrying a ticket is safe, and
+      // losing a composed report to a network blip would mean dictating it all over again.
+      setMessages((prev) => [...prev, {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: `⚠️ ${err.message || (isAr ? "تعذر الإرسال — جرب تاني." : "Could not send — try again.")}`,
+        timestamp: new Date(),
+      }]);
+    } finally {
+      setSendingTicket(false);
+    }
+  };
+
   /** Starts a lesson from the menu — no model, no credit, the ring appears immediately. */
   const handleStartLesson = (id: string) => {
     const tutorial = TUTORIALS.find((t) => t.id === id);
@@ -222,6 +345,9 @@ export default function AiChatWidget() {
           // does not have — the model calls it, the server answers "Opened Khaled's 4 PM",
           // and nothing appears.
           client: "web-widget",
+          // Which hat the assistant wears this turn — normal chat, patient trainer, or support
+          // triage. Same brain and tools; the mode shifts emphasis server-side.
+          assistantMode,
           history: messages.map(m => ({ role: m.role, parts: [{ text: m.content }] }))
         })
       });
@@ -279,6 +405,13 @@ export default function AiChatWidget() {
       // The model chose a lesson. Close the panel so the ring owns the screen.
       if (typeof data.startTutorial?.id === "string") {
         if (startTutorial(data.startTutorial.id)) setIsOpen(false);
+      }
+
+      // A composed support ticket. Rendered as a card; nothing leaves until the user hits Send.
+      if (data.ticketDraft?.title && (data.ticketDraft.kind === "bug" || data.ticketDraft.kind === "feature")) {
+        setTicketDraft(data.ticketDraft as TicketDraft);
+        // A screenshot usually helps a bug and rarely helps a wish.
+        setAttachScreenshot(data.ticketDraft.kind === "bug");
       }
     } catch (err: any) {
       const errorMsg: ChatMessage = {
@@ -372,7 +505,7 @@ export default function AiChatWidget() {
               {remainingCredits}
             </span>
             <button
-              onClick={() => { setMessages([]); setPendingAction(null); }}
+              onClick={() => { setMessages([]); setPendingAction(null); setTicketDraft(null); }}
               title={isAr ? "مسح المحادثة" : "Clear chat"}
               className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-full transition-colors shrink-0"
             >
@@ -384,6 +517,28 @@ export default function AiChatWidget() {
             >
               <X size={16} />
             </button>
+          </div>
+
+          {/* Mode switcher — one assistant, three hats. The mode shifts the persona server-side. */}
+          <div className="shrink-0 px-4 pt-2.5 pb-1.5 flex gap-1.5 border-b border-slate-200/40">
+            {([
+              { id: "normal" as const, label: isAr ? "مساعدة" : "Assist", icon: MessageCircle },
+              { id: "trainer" as const, label: isAr ? "تدريب" : "Trainer", icon: GraduationCap },
+              { id: "support" as const, label: isAr ? "الدعم" : "Support", icon: LifeBuoy },
+            ]).map((m) => (
+              <button
+                key={m.id}
+                onClick={() => switchMode(m.id)}
+                className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-full text-[11px] font-black transition-colors ${
+                  assistantMode === m.id
+                    ? "bg-teal-600 text-white shadow-sm shadow-teal-600/20"
+                    : "bg-white/70 text-slate-500 border border-slate-200 hover:text-teal-700 hover:border-teal-300"
+                }`}
+              >
+                <m.icon size={12} />
+                {m.label}
+              </button>
+            ))}
           </div>
 
           {/* Messages Area */}
@@ -398,11 +553,39 @@ export default function AiChatWidget() {
                     {isAr ? `أنا ${alphaName} — تحت أمرك.` : `I'm ${alphaName} — at your service.`}
                   </h4>
                   <p className="text-[11px] font-medium text-slate-500 leading-relaxed">
-                    {isAr
-                      ? "اسألني عن المرضى والمواعيد والفلوس، أو خليني أعلّمك النظام خطوة بخطوة."
-                      : "Ask me about patients, appointments and money — or let me teach you the system, step by step."}
+                    {assistantMode === "trainer"
+                      ? (isAr
+                          ? "وضع التدريب — اختار درس من تحت، أو اسألني «ازاي أعمل...» وأنا أوريك على الشاشة نفسها."
+                          : "Trainer mode — pick a lesson below, or ask me \"how do I…\" and I'll show you on the real screen.")
+                      : assistantMode === "support"
+                        ? (isAr
+                            ? "وضع الدعم — احكيلي المشكلة. هشوف الأول هي غلطة بيانات ولا عطل حقيقي، ولو عطل هجهزلك بلاغ للدعم الفني."
+                            : "Support mode — tell me what's wrong. I'll check whether it's a data slip or a real fault, and if it's a fault I'll prepare a ticket for the support team.")
+                        : (isAr
+                            ? "اسألني عن المرضى والمواعيد والفلوس، أو خليني أعلّمك النظام خطوة بخطوة."
+                            : "Ask me about patients, appointments and money — or let me teach you the system, step by step.")}
                   </p>
                 </div>
+
+                {/* Support mode: the two doors straight into a ticket. Real prompts, sent as typed. */}
+                {assistantMode === "support" && (
+                  <div className="flex flex-col gap-1.5">
+                    <button
+                      onClick={() => void handleSendMessage(undefined, isAr ? "عايز أبلغ عن مشكلة في النظام" : "I want to report a bug in the system")}
+                      className="text-start text-[11px] font-bold text-slate-600 bg-white border border-slate-200 hover:border-rose-300 hover:text-rose-700 hover:bg-rose-50/50 px-3 py-2 rounded-xl transition-colors flex items-center gap-2"
+                    >
+                      <span className="w-5 h-5 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center shrink-0"><Bug size={11} /></span>
+                      {isAr ? "أبلغ عن مشكلة" : "Report a bug"}
+                    </button>
+                    <button
+                      onClick={() => void handleSendMessage(undefined, isAr ? "عندي اقتراح لميزة جديدة في النظام" : "I have an idea for a new feature")}
+                      className="text-start text-[11px] font-bold text-slate-600 bg-white border border-slate-200 hover:border-indigo-300 hover:text-indigo-700 hover:bg-indigo-50/50 px-3 py-2 rounded-xl transition-colors flex items-center gap-2"
+                    >
+                      <span className="w-5 h-5 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0"><Lightbulb size={11} /></span>
+                      {isAr ? "اقترح ميزة جديدة" : "Request a feature"}
+                    </button>
+                  </div>
+                )}
 
                 {/* Try-asking chips: each one is a real prompt, sent as typed. */}
                 <div>
@@ -508,6 +691,65 @@ export default function AiChatWidget() {
                         className="flex-1 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-700 border border-slate-200 px-3 py-2 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.98]"
                       >
                         {isAr ? "إلغاء" : "Cancel"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {/* A composed support ticket. Everything on this card is what actually gets sent. */}
+            {ticketDraft && (
+              <div className="flex justify-start">
+                <div className={`max-w-[92%] bg-white border rounded-2xl rounded-tl-sm shadow-sm overflow-hidden ${ticketDraft.kind === "bug" ? "border-rose-200" : "border-indigo-200"}`}>
+                  <div className={`px-4 py-2.5 border-b flex items-center gap-2 ${ticketDraft.kind === "bug" ? "bg-rose-50 border-rose-100" : "bg-indigo-50 border-indigo-100"}`}>
+                    {ticketDraft.kind === "bug"
+                      ? <Bug size={13} className="text-rose-600 shrink-0" />
+                      : <Lightbulb size={13} className="text-indigo-600 shrink-0" />}
+                    <p className={`text-[11px] font-black uppercase tracking-widest ${ticketDraft.kind === "bug" ? "text-rose-600" : "text-indigo-600"}`}>
+                      {ticketDraft.kind === "bug"
+                        ? (isAr ? "بلاغ عن مشكلة — للمراجعة" : "Bug report — review before sending")
+                        : (isAr ? "طلب ميزة — للمراجعة" : "Feature request — review before sending")}
+                    </p>
+                  </div>
+                  <div className="px-4 py-3 space-y-2">
+                    <p className="text-[13px] font-black text-slate-800 leading-snug">{ticketDraft.title}</p>
+                    <p className="text-[12px] text-slate-600 leading-relaxed whitespace-pre-wrap">{ticketDraft.description}</p>
+                    {ticketDraft.steps && (
+                      <div className="rounded-xl bg-slate-50 border border-slate-200/60 px-3 py-2">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">
+                          {isAr ? "خطوات تكرار المشكلة" : "Steps to reproduce"}
+                        </p>
+                        <p className="text-[12px] text-slate-600 whitespace-pre-wrap leading-relaxed">{ticketDraft.steps}</p>
+                      </div>
+                    )}
+                    <div className="text-[11px] text-slate-500 space-y-0.5">
+                      <p><span className="font-bold text-slate-600">{isAr ? "العيادة:" : "Clinic:"}</span> {clinic?.name || clinicId} <span className="font-mono text-[10px] text-slate-400">({clinicId})</span></p>
+                      <p><span className="font-bold text-slate-600">{isAr ? "رقم التواصل:" : "Contact:"}</span> {ticketDraft.contactNumber}</p>
+                    </div>
+                    <label className="flex items-center gap-2 text-[11px] font-bold text-slate-600 cursor-pointer select-none pt-1">
+                      <input
+                        type="checkbox"
+                        checked={attachScreenshot}
+                        onChange={(e) => setAttachScreenshot(e.target.checked)}
+                        className="accent-teal-600 w-3.5 h-3.5"
+                      />
+                      <Camera size={12} className="text-slate-400" />
+                      {isAr ? "إرفاق لقطة من الشاشة الحالية وسجل الأخطاء" : "Attach a screenshot of the current screen + error log"}
+                    </label>
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={() => void handleSendTicket()}
+                        disabled={sendingTicket}
+                        className={`flex-1 disabled:opacity-50 text-white px-3 py-2 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.98] ${ticketDraft.kind === "bug" ? "bg-rose-600 hover:bg-rose-700" : "bg-indigo-600 hover:bg-indigo-700"}`}
+                      >
+                        {sendingTicket ? (isAr ? "جارٍ الإرسال..." : "Sending...") : (isAr ? "إرسال للدعم" : "Send to support")}
+                      </button>
+                      <button
+                        onClick={() => setTicketDraft(null)}
+                        disabled={sendingTicket}
+                        className="flex-1 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-700 border border-slate-200 px-3 py-2 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.98]"
+                      >
+                        {isAr ? "تجاهل" : "Discard"}
                       </button>
                     </div>
                   </div>

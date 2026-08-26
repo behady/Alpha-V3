@@ -288,6 +288,41 @@ export async function POST(req: Request) {
      * walkthrough no ring will ever join.
      */
     const clientCanRunTutorials = client === "web-widget";
+    /** Ticket drafts render as a card only the widget knows how to show — and send. */
+    const clientCanFileTickets = client === "web-widget";
+
+    /**
+     * The widget's three hats: normal, trainer, support.
+     *
+     * One endpoint and one tool set — the mode changes emphasis, not ability. A trainer that
+     * cannot read the ledger cannot answer "and where would that payment appear?", and a
+     * support agent that cannot start a lesson can only describe the fix instead of walking it.
+     * So the mode is an appended instruction block, never a different tool filter.
+     */
+    const assistantMode =
+      body?.assistantMode === "trainer" || body?.assistantMode === "support"
+        ? (body.assistantMode as string)
+        : "normal";
+
+    const assistantModeInstruction =
+      assistantMode === "trainer"
+        ? `
+
+      CURRENT MODE: TRAINER. The user chose training mode — they want to LEARN the system, not just get answers.
+      - Prefer starting a guided lesson (start_tutorial) over describing steps in words, whenever one matches.
+      - When no lesson matches, teach step by step: where to click, what each field means, what happens after saving. One concept at a time.
+      - After answering, suggest the next natural thing to learn. Be encouraging and patient, never condescending.`
+        : assistantMode === "support"
+        ? `
+
+      CURRENT MODE: CUSTOMER SUPPORT. The user chose support mode — something is bothering them. Triage like a professional support agent:
+      1. UNDERSTAND: ask what happened, where, and what they expected instead. One question at a time.
+      2. DIAGNOSE FIRST: most "bugs" are data-entry or expectation mismatches. Use audit_patient_records / run_clinic_report / db_read to check the facts before blaming the software. If it is a data mistake, explain the fix kindly and offer the matching lesson.
+      3. FILE A TICKET when it looks like a genuine product bug, or when the user insists it is a bug even after your explanation — never argue past that point. Use file_bug_report. For ideas and wishes, use file_feature_request.
+      4. BEFORE filing you MUST have a contact phone number — ask for it in the chat if you do not have one from this conversation. Also compose a clear title, a factual description, and (for bugs) numbered steps to reproduce drawn from what they told you.
+      5. The tool only PREPARES the ticket: a card appears that the user reviews and sends themselves, with a screenshot of their current screen and recent error logs attached automatically. Say the card is ready and that THEY press Send — never say the ticket was sent.
+      6. Stay warm. The person is frustrated; the goal is that they feel heard whether or not the software was wrong.`
+        : "";
 
     // A clinicId is mandatory. Every tool below is scoped by it, and the previous `if (clinicId)`
     // guard meant a request that simply omitted it skipped the plan check and the credit meter
@@ -560,6 +595,35 @@ export async function POST(req: Request) {
           },
           required: ["patientId"]
         }
+      },
+      {
+        name: "file_bug_report",
+        description:
+          "PREPARES a bug report ticket for the human support team — a draft card the user reviews and sends. Use when something looks like a genuine product bug, or when the user insists it is a bug. REQUIRES a contact phone number collected in this conversation: if you do not have one, ask for it instead of calling this. A screenshot of the user's current screen and recent error logs are attached automatically when they send.",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            title: { type: SchemaType.STRING, description: "Short factual summary, e.g. 'Payment saves but the balance does not refresh'." },
+            description: { type: SchemaType.STRING, description: "What happens, what was expected, and any figures/names involved — written from what the user told you." },
+            stepsToReproduce: { type: SchemaType.STRING, description: "Numbered steps that trigger the problem, reconstructed from the conversation." },
+            contactNumber: { type: SchemaType.STRING, description: "The phone number the user gave IN THIS CONVERSATION for the support team to call back." },
+          },
+          required: ["title", "description", "contactNumber"],
+        },
+      },
+      {
+        name: "file_feature_request",
+        description:
+          "PREPARES a feature-request ticket for the product team — a draft card the user reviews and sends. Use when the user wishes the system did something it does not. REQUIRES a contact phone number collected in this conversation; ask for one if missing.",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            title: { type: SchemaType.STRING, description: "Short name for the requested feature." },
+            description: { type: SchemaType.STRING, description: "What they want, why, and how they would use it — in their words, tidied." },
+            contactNumber: { type: SchemaType.STRING, description: "The phone number the user gave IN THIS CONVERSATION." },
+          },
+          required: ["title", "description", "contactNumber"],
+        },
       },
       {
         name: "start_tutorial",
@@ -846,7 +910,7 @@ export async function POST(req: Request) {
       - **TRAINER & SUPPORT**: When the user reports that a number looks wrong ("the balance is wrong", "this doesn't add up", "the count is off"): (1) call 'audit_patient_records' for a patient figure or 'run_clinic_report' for a clinic-wide figure — NEVER recompute by hand; (2) explain what was found in plain, kind language, naming the exact records and dates; (3) say precisely how to fix each finding in the app; (4) if 'start_tutorial' is available and a lesson would stop the mistake recurring, offer it; (5) if the audit is clean, explain how that number is defined (see HOW THE MONEY SCREENS CALCULATE) and what they might have expected instead. Data-entry slips are normal — never blame.
       - **TEACHING**: When the user asks HOW to do something in the app ("how do I add a patient", "where do I record a payment"), call 'start_tutorial' with the matching lesson if that tool is available — a guided ring on the real screen beats any written description. Describe in words only when no lesson matches or the tool is absent.
       - **BE BRIEF**: Keep your chat responses extremely short, direct, and concise. Do not write long paragraphs.
-      - Always reply to the user naturally in their language (Arabic or English).`;
+      - Always reply to the user naturally in their language (Arabic or English).${assistantModeInstruction}`;
 
     // Reception gets a strict subset. Filtering the declarations rather than hiding them in the
     // prompt matters: a tool the model cannot see is one it cannot call, whatever it is asked.
@@ -856,7 +920,8 @@ export async function POST(req: Request) {
         : functionDeclarations
     )
       .filter((f) => f.name !== "open_appointment" || clientHasAppointmentPanel)
-      .filter((f) => f.name !== "start_tutorial" || clientCanRunTutorials);
+      .filter((f) => f.name !== "start_tutorial" || clientCanRunTutorials)
+      .filter((f) => (f.name !== "file_bug_report" && f.name !== "file_feature_request") || clientCanFileTickets);
 
     const model = genAI.getGenerativeModel({
       model: "gemini-flash-latest",
@@ -1345,6 +1410,42 @@ export async function POST(req: Request) {
              }
              
              toolResult = { success: true, duplicateCount: duplicates.length, duplicates };
+          } else if (call.name === "file_bug_report" || call.name === "file_feature_request") {
+             /**
+              * Prepares, never sends. The draft rides back to the widget, which renders it as a
+              * card beside a Send button; only that button reaches /api/support/ticket — where
+              * the screenshot and error breadcrumbs are attached, because only the browser has
+              * them. The separation is the same one every acting tool here obeys: the model
+              * composes, a person commits.
+              */
+             const draftKind = call.name === "file_bug_report" ? "bug" : "feature";
+             const draftTitle = String((call.args as any).title || "").trim();
+             const draftDescription = String((call.args as any).description || "").trim();
+             const draftSteps = String((call.args as any).stepsToReproduce || "").trim();
+             const draftContact = String((call.args as any).contactNumber || "").trim();
+             if (!draftTitle || !draftDescription) {
+                toolResult = { success: false, error: "title and description are both required." };
+             } else if (!draftContact) {
+                toolResult = {
+                   success: false,
+                   error: "No contact number. Ask the user for a phone number the support team can call back on, then call this tool again with it.",
+                };
+             } else {
+                await chargeCredits?.();
+                return NextResponse.json({
+                   reply:
+                     draftKind === "bug"
+                       ? "I've prepared the bug report — review the card below and press Send. Your current screen and recent error logs will be attached."
+                       : "I've prepared the feature request — review the card below and press Send.",
+                   ticketDraft: {
+                      kind: draftKind,
+                      title: draftTitle,
+                      description: draftDescription,
+                      steps: draftSteps,
+                      contactNumber: draftContact,
+                   },
+                });
+             }
           } else if (call.name === "audit_patient_records") {
              /**
               * The support half of the assistant: when a person says "this balance is wrong",
