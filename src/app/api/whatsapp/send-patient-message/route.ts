@@ -439,6 +439,7 @@ export async function POST(request: Request) {
         clinicId,
         to: phone,
         text: merged,
+        audience: "patient",
         queue: unattendedKey ? { key: unattendedKey, type: kind, patientId, patientName } : undefined,
       });
       await adminClinicCollection(clinicId, "whatsapp_logs").add({

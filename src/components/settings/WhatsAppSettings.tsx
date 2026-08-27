@@ -18,7 +18,12 @@ import type {
   WhatsAppTemplateType,
 } from "@/types/whatsapp";
 import { WHATSAPP_SETTINGS_DOC_REF } from "@/types/whatsapp";
-import { WHATSAPP_DEFAULT_BODIES } from "@/lib/whatsappDefaultBodies";
+import {
+  type WhatsAppTemplatePack,
+  WHATSAPP_DEFAULT_BODIES,
+  isTemplatePack,
+  templatePackBodies,
+} from "@/lib/whatsappDefaultBodies";
 import type { WapilotConfigStatus } from "@/types/wapilot";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 const OWNER_ALERT_MATRIX: { module: "appointments" | "finance"; labelEn: string; labelAr: string; keys: OwnerAlertKey[] }[] = [
@@ -119,6 +124,12 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     templates,
     ownerNumber: typeof data?.ownerNumber === "string" ? data.ownerNumber : "",
     ownerAlerts,
+    // Same trap the deliveryMode comment below describes: a field dropped here is a setting that
+    // saves, echoes back through this function without it, and appears on screen to have reset.
+    templatePack: isTemplatePack(data?.templatePack) ? data.templatePack : "bilingual",
+    // Absent means on. The footer is what keeps the number off Meta's report list, so the
+    // default has to survive a document written before this setting existed.
+    optOutFooterEnabled: data?.optOutFooterEnabled !== false,
     // Dropping this field here is what made "manual" look unselectable: the click saved it,
     // the listener echoed the document back through this function, and the choice vanished
     // from the screen — while the server was already honouring it. Spread conditionally so an
@@ -216,6 +227,40 @@ export default function WhatsAppSettings() {
         language === "ar"
           ? "النظام يجهّز الرسالة ويفتح واتساب، والموظف يضغط إرسال. مناسب للعيادات من غير سجل تجاري، ومفيش خطر إيقاف الرقم."
           : "The system writes the message and opens WhatsApp; your staff press send. Works with no commercial registration, and nothing can get the number banned.",
+      packTitle: language === "ar" ? "لغة الرسائل" : "Message language",
+      packBilingual: language === "ar" ? "عربي + إنجليزي" : "Arabic + English",
+      packBilingualHint:
+        language === "ar"
+          ? "عنوان إنجليزي وتحته سطر عربي. مناسب للعيادات اللي مرضاها بيقروا الاتنين."
+          : "An English heading with an Arabic line under it. For clinics whose patients read both.",
+      packArabic: language === "ar" ? "عربي فقط" : "Arabic only",
+      packArabicHint:
+        language === "ar"
+          ? "الرسالة كلها بالعربي المصري. أقصر، وبتقرا كأن موظفة الاستقبال كاتباها."
+          : "The whole message in Egyptian Arabic. Shorter, and reads as if your receptionist wrote it.",
+      packApply: language === "ar" ? "استخدام هذه الصياغة" : "Use this wording",
+      packConfirm:
+        language === "ar"
+          ? "ده هيستبدل نص كل القوالب بالصياغة الجديدة. أي تعديل كتبته بنفسك هيضيع. تكمل؟"
+          : "This replaces the text of every template with the new wording. Any edits you wrote yourself will be lost. Continue?",
+      packApplied: language === "ar" ? "تم تحديث كل القوالب" : "All templates updated",
+      optOutTitle: language === "ar" ? "حماية الرقم من الإيقاف" : "Protecting your number",
+      optOutToggle:
+        language === "ar"
+          ? "إضافة سطر «لإيقاف الرسائل أرسل: إيقاف» في آخر كل رسالة"
+          : "Add a \"reply STOP to stop these messages\" line to every message",
+      optOutHint:
+        language === "ar"
+          ? "لما المريض يرد بكلمة «إيقاف»، النظام بيوقف عنه رسائل الواتساب والرسائل النصية فوراً، وبيظهر ده في ملفه. تقدر ترجّعها من ملف المريض."
+          : "When a patient replies with the stop word, the system switches off both WhatsApp and SMS for them immediately and records it on their profile. Staff can switch it back on from the patient's file.",
+      optOutWarning:
+        language === "ar"
+          ? "اللي بيوقف رقم العيادة على واتساب هو إبلاغ المرضى عنه كـ«سبام». وجود طريقة واضحة للإيقاف هو اللي بيخلي المريض المنزعج يستخدمها بدل زر الإبلاغ. ننصح بشدة بتركها مفعّلة."
+          : "What gets a clinic's number restricted is patients reporting it as spam. A visible way to stop the messages is what an irritated patient uses instead of the report button. Strongly recommended to leave this on.",
+      optOutInboundPending:
+        language === "ar"
+          ? "الرد التلقائي على كلمة «إيقاف» بيشتغل بعد ربط رابط الاستقبال في لوحة Wapilot — كلّمنا لو محتاج ده."
+          : "Acting on the reply automatically needs the inbound webhook connected in your Wapilot dashboard — ask us to switch it on.",
       templateType: language === "ar" ? "نوع القالب" : "Template type",
       templateHint:
         language === "ar"
@@ -494,6 +539,32 @@ export default function WhatsAppSettings() {
     const next = { ...state, templates: merged };
     setState(next);
     void persist(next, "template");
+  };
+
+  /**
+   * Rewrite every template from one of the built-in wordings.
+   *
+   * Confirmed first, because this is the only control on the screen that destroys work: a clinic
+   * that spent an afternoon rewording its reminder would otherwise lose it to a curious click on
+   * a language button. The active/inactive state of each template is kept — that is a decision
+   * about which messages to send, not about how they are worded.
+   */
+  const applyTemplatePack = (pack: WhatsAppTemplatePack) => {
+    if (state.templatePack === pack) return;
+    if (!window.confirm(txt.packConfirm)) return;
+
+    const bodies = templatePackBodies(pack);
+    const next: WhatsAppSettingsDocument = {
+      ...state,
+      templatePack: pack,
+      templates: state.templates.map((t) => ({ ...t, message: bodies[t.type] || t.message })),
+    };
+    setState(next);
+    // The editor below shows a copy of the selected template, so it has to follow or it would
+    // keep displaying the old wording and save it back over the new one.
+    setDraftMessage(bodies[templateType] || "");
+    void persist(next, "none");
+    showToast(txt.packApplied, "success");
   };
 
   const toggleOwnerAlert = (key: OwnerAlertKey, value: boolean) => {
@@ -797,6 +868,66 @@ export default function WhatsAppSettings() {
             <p className="text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 leading-relaxed">
               {txt.leadWarning}
             </p>
+          </div>
+
+          {/* Opt-out. Sits above the template editor on purpose: it is the setting that decides
+              whether the clinic still has a WhatsApp number in six months, and it should be read
+              before the wording is fiddled with rather than found underneath it. */}
+          <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
+            <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">{txt.optOutTitle}</p>
+            <label className="flex items-center justify-between gap-4 cursor-pointer">
+              <span className="text-sm font-bold text-amber-950 leading-relaxed">{txt.optOutToggle}</span>
+              <input
+                type="checkbox"
+                className="h-5 w-5 rounded border-amber-300 text-amber-600 focus:ring-amber-500 shrink-0"
+                checked={state.optOutFooterEnabled !== false}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setState((s) => {
+                    const next = { ...s, optOutFooterEnabled: checked };
+                    void persist(next, "silent");
+                    return next;
+                  });
+                }}
+              />
+            </label>
+            <p className="text-xs text-slate-600 leading-relaxed">{txt.optOutHint}</p>
+            <p className="text-xs text-amber-900 leading-relaxed">{txt.optOutWarning}</p>
+          </div>
+
+          {/* Which built-in wording the templates start from. */}
+          <div className="space-y-3">
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.packTitle}</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {(
+                [
+                  { pack: "bilingual" as const, label: txt.packBilingual, hint: txt.packBilingualHint },
+                  { pack: "arabic" as const, label: txt.packArabic, hint: txt.packArabicHint },
+                ]
+              ).map(({ pack, label, hint }) => {
+                const selected = (state.templatePack ?? "bilingual") === pack;
+                return (
+                  <button
+                    key={pack}
+                    type="button"
+                    onClick={() => applyTemplatePack(pack)}
+                    className={`text-start rounded-xl border p-3 transition-all ${
+                      selected
+                        ? "border-primary-500 bg-primary-50 ring-2 ring-primary-500/15"
+                        : "border-slate-200 bg-slate-50 hover:border-slate-300"
+                    }`}
+                  >
+                    <span className="block text-sm font-black text-slate-800">{label}</span>
+                    <span className="block text-xs text-slate-500 mt-1 leading-relaxed">{hint}</span>
+                    {!selected && (
+                      <span className="block text-[10px] font-black uppercase tracking-widest text-primary-600 mt-2">
+                        {txt.packApply}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div className="space-y-3">

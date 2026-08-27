@@ -71,6 +71,19 @@ export interface SmsSettings {
   events: Record<SmsEventType, boolean>;
   /** Body per event. Supports the same {{placeholders}} as the WhatsApp templates. */
   templates: Record<SmsEventType, string>;
+  /**
+   * Add "للإيقاف أرسل إيقاف" to the end of every text.
+   *
+   * Off by default, and that is a cost decision rather than a policy one. The bodies above are
+   * written to land at 63–69 characters of the 70 an Arabic SMS gets, so this footer always pushes
+   * them into a second billed segment — it doubles the phone bill for every patient message the
+   * clinic sends. A clinic should switch that on knowingly; the settings screen shows the segment
+   * count change as soon as it is ticked.
+   *
+   * The WhatsApp equivalent defaults the other way, because WhatsApp bills nothing per message and
+   * the number itself is what is at risk there.
+   */
+  optOutFooterEnabled: boolean;
 }
 
 /**
@@ -144,6 +157,7 @@ export const DEFAULT_SMS_SETTINGS: SmsSettings = {
   sendHour: DEFAULT_SEND_HOUR,
   events: { ...DEFAULT_SMS_EVENTS },
   templates: { ...DEFAULT_SMS_TEMPLATES },
+  optOutFooterEnabled: false,
 };
 
 export function isReminderChannel(v: unknown): v is ReminderChannel {
@@ -182,6 +196,7 @@ export function parseSmsSettings(data: Record<string, unknown> | undefined): Sms
     sendHour: clampSendHour(data.sendHour),
     events,
     templates,
+    optOutFooterEnabled: data.optOutFooterEnabled === true,
   };
 }
 

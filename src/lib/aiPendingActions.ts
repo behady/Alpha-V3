@@ -3,7 +3,7 @@ import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { buildPaymentRow } from "@/lib/ledgerWrite";
 import { logAiAction } from "@/lib/serverLogger";
 import { sendWhatsApp } from "@/lib/whatsapp";
-import { resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
+import { applyPatientOptOutFooter, resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
 import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
 import { isFullAccessRole } from "@/lib/permissions";
 import {
@@ -279,7 +279,12 @@ export async function createPendingWhatsApp(args: {
   if (!phone) return { ok: false, error: "That patient has no phone number on file." };
   if (!body.trim()) return { ok: false, error: "That message template is empty or switched off." };
 
-  const payload = { patientId, patientName, phone, body, messageType };
+  // Added now rather than at send time, so the card shows the message as the patient will read it.
+  // The whole point of storing the merged body is that the preview cannot drift from what is sent,
+  // and a footer appended later would be the one line nobody approved.
+  const withFooter = await applyPatientOptOutFooter(clinicId, body);
+
+  const payload = { patientId, patientName, phone, body: withFooter, messageType };
   const id = await stagePendingAction({
     clinicId, kind: "whatsapp", collection: "whatsapp_logs", documentId: "",
     payload, snapshot: null, userId, userName, userRole,
@@ -289,7 +294,7 @@ export async function createPendingWhatsApp(args: {
     ok: true,
     preview: {
       id, kind: "whatsapp", collection: "whatsapp_logs", documentId: "",
-      title: "Send WhatsApp message", recipient: phone, messageBody: body,
+      title: "Send WhatsApp message", recipient: phone, messageBody: withFooter,
       summary: { patientName, type: messageType },
     },
   };

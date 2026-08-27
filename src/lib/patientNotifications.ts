@@ -5,7 +5,11 @@ import { pickPatientPhone } from "@/lib/patientPhone";
 import { sendClinicPush } from "@/lib/push";
 import type { SmsEventType } from "@/lib/sms/config";
 import { clinicDisplayName, queuePatientSms } from "@/lib/sms/events";
-import { resolveWhatsappTemplateForPatient } from "@/lib/whatsappDefaultBodies";
+import {
+  type WhatsAppTemplatePack,
+  isTemplatePack,
+  resolveWhatsappTemplateForPatient,
+} from "@/lib/whatsappDefaultBodies";
 import { deliverWhatsAppMessage } from "@/lib/whatsappDelivery";
 import { mergeWhatsAppTemplate } from "@/lib/whatsappTemplateMerge";
 import type { WhatsAppTemplateType } from "@/types/whatsapp";
@@ -52,6 +56,11 @@ export function outboxKey(...parts: string[]): string {
 
 export function isDeletedLedger(d: Record<string, unknown>) {
   return d.status === "deleted" || d.status === "cancelled";
+}
+
+/** Which built-in wording answers for a template the clinic never edited. Bilingual when unset. */
+function pickTemplatePack(settings: Record<string, unknown> | undefined): WhatsAppTemplatePack {
+  return isTemplatePack(settings?.templatePack) ? settings.templatePack : "bilingual";
 }
 
 /**
@@ -184,6 +193,7 @@ async function deliverPatientWhatsApp(args: {
       clinicId,
       to: phone,
       text,
+      audience: "patient",
       // Worth queueing: the patient needs this whether or not a staff member is at a screen
       // right now. The key is derived from what the message is about, so saving the same change
       // twice queues one message while a genuinely new change queues another.
@@ -276,7 +286,7 @@ export async function sendAppointmentPatientMessage(args: {
     return { status: "skipped", reason: "patient_automation_disabled" };
   }
 
-  const tplText = resolveWhatsappTemplateForPatient(settings?.templates, template);
+  const tplText = resolveWhatsappTemplateForPatient(settings?.templates, template, pickTemplatePack(settings));
   if (!tplText?.trim()) {
     return { status: "skipped", reason: "template_disabled" };
   }
@@ -370,7 +380,7 @@ export async function sendPaymentReceiptMessage(args: {
     return { status: "skipped", reason: "patient_automation_disabled" };
   }
 
-  const tplText = resolveWhatsappTemplateForPatient(settings?.templates, "invoice");
+  const tplText = resolveWhatsappTemplateForPatient(settings?.templates, "invoice", pickTemplatePack(settings));
   if (!tplText?.trim()) {
     return { status: "skipped", reason: "template_disabled" };
   }

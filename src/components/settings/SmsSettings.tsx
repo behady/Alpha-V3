@@ -31,6 +31,7 @@ import {
   type SmsEventType,
   type SmsSettings as SmsSettingsShape,
 } from "@/lib/sms/config";
+import { withSmsOptOutFooter } from "@/lib/patientMessaging";
 
 interface Device {
   deviceId: string;
@@ -74,11 +75,18 @@ export default function SmsSettings() {
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [pairingBusy, setPairingBusy] = useState(false);
 
+  // Measured with the opt-out footer included when it is on, because that is what will actually
+  // be sent and billed. Showing the bare body here would under-report every message by a whole
+  // segment — the one number a clinic uses to decide whether it can afford this feature.
   const costs = useMemo(() => {
     const out = {} as Record<SmsEventType, ReturnType<typeof measureSms>>;
-    for (const type of SMS_EVENT_TYPES) out[type] = measureSms(settings.templates[type] || "");
+    for (const type of SMS_EVENT_TYPES) {
+      out[type] = measureSms(
+        withSmsOptOutFooter(settings.templates[type] || "", settings.optOutFooterEnabled === true)
+      );
+    }
     return out;
-  }, [settings.templates]);
+  }, [settings.templates, settings.optOutFooterEnabled]);
 
   const txt = {
     title: isAr ? "الرسائل النصية من هاتف العيادة" : "SMS from the clinic's phone",
@@ -99,6 +107,16 @@ export default function SmsSettings() {
       ? "شركات المحمول قد تقيّد الشرائح العادية التي ترسل رسائل كثيرة متشابهة."
       : "Carriers may restrict a consumer SIM that sends a lot of similar messages.",
     enable: isAr ? "تفعيل الإرسال من الهاتف" : "Send from the clinic phone",
+    optOutTitle: isAr ? "سطر إيقاف الرسائل" : "Opt-out line",
+    optOutToggle: isAr
+      ? "إضافة «للإيقاف أرسل إيقاف» في آخر كل رسالة نصية"
+      : "Add \"reply to stop\" to the end of every text message",
+    optOutHint: isAr
+      ? "لما المريض يرد بكلمة «إيقاف» بتتوقف عنه رسائل الواتساب والنصية مع بعض."
+      : "A patient who replies with the stop word is switched off for both SMS and WhatsApp together.",
+    optOutCost: isAr
+      ? "انتبه: القوالب الافتراضية مكتوبة لتدخل في رسالة واحدة (٧٠ حرفاً). السطر ده بيزوّدها لرسالتين — يعني ضعف الفاتورة. شوف عدّاد الرسائل تحت بعد ما تفعّله."
+      : "Careful: the default bodies are written to fit one billed message (70 characters). This line pushes them into two — double the bill. Watch the segment counter below after you switch it on.",
     channelTitle: isAr ? "كيف تصل رسائل العيادة للمريض" : "How the clinic's messages reach the patient",
     channelWhatsapp: isAr ? "واتساب فقط" : "WhatsApp only",
     channelWhatsappHint: isAr ? "الوضع الحالي. لا تُرسل أي رسالة نصية." : "What happens today. No text messages are sent.",
@@ -491,6 +509,23 @@ export default function SmsSettings() {
             {txt.allOff}
           </p>
         )}
+
+        {/* Above the per-event bodies, because switching it on changes the segment count printed
+            against every one of them — and that number is the whole argument. */}
+        <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50/60 p-4 space-y-2">
+          <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">{txt.optOutTitle}</p>
+          <label className="flex items-center justify-between gap-4 cursor-pointer">
+            <span className="text-sm font-bold text-amber-950 leading-relaxed">{txt.optOutToggle}</span>
+            <input
+              type="checkbox"
+              className="h-5 w-5 rounded border-amber-300 text-amber-600 focus:ring-amber-500 shrink-0"
+              checked={settings.optOutFooterEnabled === true}
+              onChange={(e) => void save({ ...settings, optOutFooterEnabled: e.target.checked })}
+            />
+          </label>
+          <p className="text-xs font-bold text-slate-600 leading-relaxed">{txt.optOutHint}</p>
+          <p className="text-xs text-amber-900 leading-relaxed">{txt.optOutCost}</p>
+        </div>
 
         <div className="mt-5 space-y-3">
           {SMS_EVENT_TYPES.map((type) => {

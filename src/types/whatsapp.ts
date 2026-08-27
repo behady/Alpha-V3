@@ -62,6 +62,19 @@ export interface WhatsAppSettingsDocument {
   ownerAlerts: WhatsAppOwnerAlerts;
   deliveryMode?: WhatsAppDeliveryMode;
   /**
+   * Which built-in wording the clinic started from — `bilingual` or `arabic`. Only decides the
+   * fallback body for a template the clinic never edited; see lib/whatsappDefaultBodies.
+   */
+  templatePack?: "bilingual" | "arabic";
+  /**
+   * Print "to stop, reply STOP" at the bottom of every automated patient message.
+   *
+   * On unless explicitly turned off. What restricts a WhatsApp number is recipients reporting it,
+   * and a visible way out is what an irritated patient uses instead of the report button — so the
+   * clinic that most needs this is exactly the one who would never go looking for the setting.
+   */
+  optOutFooterEnabled?: boolean;
+  /**
    * Answer new leads automatically. Separate from `isPatientAutomationEnabled` on purpose: a
    * clinic may happily remind its own patients while wanting no machine to greet strangers,
    * or the reverse. Off until a manager turns it on — nothing messages anybody by surprise.
