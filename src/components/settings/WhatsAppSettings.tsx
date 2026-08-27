@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MessageCircle, Save, Loader2, Sparkles, Send, Plug, CheckCircle2, AlertCircle } from "lucide-react";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
@@ -134,6 +134,18 @@ export default function WhatsAppSettings() {
 
   const [hasLoaded, setHasLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
+  /**
+   * Why the last save was refused, if it was.
+   *
+   * These controls write optimistically and the document listener is the only
+   * thing that corrects them — but a refused write changes no document, so
+   * nothing fires and the screen keeps showing a choice the clinic does not
+   * have. It looked exactly like the option had been selected, until the page
+   * was next opened and it had silently gone back.
+   */
+  const [saveError, setSaveError] = useState<string | null>(null);
+  /** The last state the server confirmed, to restore when a write is refused. */
+  const serverState = useRef<WhatsAppSettingsDocument | null>(null);
   const [state, setState] = useState<WhatsAppSettingsDocument>({
     isPatientAutomationEnabled: false,
     isLeadAutoReplyEnabled: false,
@@ -171,6 +183,10 @@ export default function WhatsAppSettings() {
           ? "أتمتة رسائل المرضى وتنبيهات المالك"
           : "Patient automation & owner alerts",
       patientCard: language === "ar" ? "أتمتة رسائل المرضى" : "Patient automation",
+    saveRefused:
+      language === "ar"
+        ? "لم يُحفظ هذا التغيير، وأُعيد ما هو مخزَّن بالفعل. إعدادات الواتساب لا يغيّرها إلا مدير العيادة، ولا تُحفظ إذا كان اشتراك العيادة منتهياً."
+        : "That change was not saved, and the screen has been put back to what is stored. Only a clinic Admin can change WhatsApp settings, and nothing saves while the clinic's subscription has lapsed.",
       patientToggle: language === "ar" ? "تفعيل الرسائل التلقائية للمرضى" : "Enable automated patient messages",
       deliveryTitle: language === "ar" ? "طريقة الإرسال" : "How messages are sent",
       deliveryAuto: language === "ar" ? "إرسال تلقائي" : "Send automatically",
@@ -404,6 +420,7 @@ export default function WhatsAppSettings() {
   useEffect(() => {
     const unsub = onSnapshot(getClinicDoc(WHATSAPP_SETTINGS_DOC_REF.collection, WHATSAPP_SETTINGS_DOC_REF.docId), (snap) => {
       const next = normalizeFromFirestore(snap.exists() ? (snap.data() as Record<string, unknown>) : undefined);
+      serverState.current = next;
       setState(next);
       setHasLoaded(true);
     });
@@ -434,11 +451,16 @@ export default function WhatsAppSettings() {
         "WhatsApp settings updated",
         "settings/whatsapp"
       );
+      setSaveError(null);
       if (toastMode === "default") showToast(txt.saved, "success");
       if (toastMode === "template") showToast(txt.templateSaved, "success");
       /* silent | none: no toast (used when auto-saving toggles so we don't spam) */
     } catch (e) {
       console.error(e);
+      // Put the screen back to what is actually stored. Leaving the optimistic
+      // value up is what made a refused change look like a saved one.
+      if (serverState.current) setState(serverState.current);
+      setSaveError(txt.saveRefused);
       showToast(txt.failed, "error");
     } finally {
       setSaving(false);
@@ -659,6 +681,18 @@ export default function WhatsAppSettings() {
               }}
             />
           </label>
+
+          {/* A refused save, said once and left on screen. A toast for this was
+              missed every time, which is how a setting that never saved looked
+              like a setting that would not select. */}
+          {saveError && (
+            <p
+              role="alert"
+              className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2.5 leading-relaxed"
+            >
+              {saveError}
+            </p>
+          )}
 
           <p className="text-xs text-slate-600 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5 leading-relaxed">
             {txt.paymentAutomationHint}
