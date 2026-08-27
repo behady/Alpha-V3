@@ -45,6 +45,9 @@ interface Device {
   instant?: boolean;
 }
 
+/** Matches MAX_SMS_ATTEMPTS in the Android worker. Three tries, then it stops. */
+const MAX_SMS_ATTEMPTS = 3;
+
 interface QueueMessage {
   id: string;
   to: string;
@@ -158,9 +161,10 @@ export default function SmsSettings() {
     statusSending: isAr ? "مع الهاتف" : "With the phone",
     statusSent: isAr ? "أُرسلت" : "Sent",
     statusFailed: isAr ? "فشلت" : "Failed",
+    statusRetrying: isAr ? "إعادة المحاولة" : "Retrying",
     queueNote: isAr
-      ? "«في الانتظار» تعني أن النظام جهّز الرسالة ولم يرسلها أحد بعد. لا تُعتبر مُرسلة إلا عندما يؤكد الهاتف ذلك."
-      : "\"Waiting\" means the system prepared the message and nobody has sent it yet. It only counts as sent once the phone confirms it.",
+      ? "«في الانتظار» تعني أن النظام جهّز الرسالة ولم يحاول الهاتف إرسالها بعد. «إعادة المحاولة» تعني أنه حاول ورفضتها الشبكة، وسيحاول مرة أخرى — والسبب مكتوب تحت الرسالة. لا تُعتبر مُرسلة إلا عندما يؤكد الهاتف ذلك."
+      : "\"Waiting\" means the phone has not tried yet. \"Retrying\" means it tried, the network refused, and it will try again — the reason is written under the message. It only counts as sent once the phone confirms it.",
     inAppHint: isAr
       ? "أنت تفتح النظام من داخل تطبيق ألفا على هذا الهاتف، لذلك يمكنك ربطه مباشرة."
       : "You are viewing this inside the Alpha app on this phone, so you can pair it directly.",
@@ -330,6 +334,26 @@ export default function SmsSettings() {
     sending: { label: txt.statusSending, className: "bg-amber-50 text-amber-700 border-amber-200" },
     sent: { label: txt.statusSent, className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
     failed: { label: txt.statusFailed, className: "bg-rose-50 text-rose-700 border-rose-200" },
+  };
+
+  /**
+   * The badge for one queued message.
+   *
+   * A failed send does not stay failed: the phone records why, puts the message
+   * back on the queue and tries again, up to three times. That left a row which
+   * had been tried and refused looking identical to one nothing had touched —
+   * both grey, both "Waiting" — with the reason printed underneath contradicting
+   * the badge above it. A message on its way round again says so, and says which
+   * attempt it is on.
+   */
+  const badgeFor = (message: QueueMessage) => {
+    if (message.status === "queued" && message.attempts > 0) {
+      return {
+        label: `${txt.statusRetrying} ${message.attempts}/${MAX_SMS_ATTEMPTS}`,
+        className: "bg-amber-50 text-amber-700 border-amber-200",
+      };
+    }
+    return statusMeta[message.status];
   };
 
   if (loading) {
@@ -669,8 +693,8 @@ export default function SmsSettings() {
           ) : (
             messages.map((message) => (
               <div key={message.id} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
-                <span className={`text-[10px] font-black px-2 py-1 rounded-md border shrink-0 ${statusMeta[message.status].className}`}>
-                  {statusMeta[message.status].label}
+                <span className={`text-[10px] font-black px-2 py-1 rounded-md border shrink-0 ${badgeFor(message).className}`}>
+                  {badgeFor(message).label}
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-bold text-slate-800 truncate">
