@@ -9,109 +9,42 @@ import { pickPatientPhone } from "@/lib/patientPhone";
 import { resolveWhatsappTemplateForPatient } from "@/lib/whatsappDefaultBodies";
 import type { WhatsAppTemplateType } from "@/types/whatsapp";
 import { parseLedgerProcedureDescription } from "@/lib/ledgerProcedureParse";
-import { getClinicProfileAdmin } from "@/lib/clinicProfileServer";
-import { clinicDisplayName, queuePatientSms } from "@/lib/sms/events";
 import { sendClinicPush } from "@/lib/push";
-import type { SmsEventType } from "@/lib/sms/config";
+import {
+  type AppointmentPatientTemplate,
+  type PatientMessageOutcome,
+  computePatientBalance,
+  isDeletedLedger,
+  outboxKey,
+  queuePaymentSms,
+  sendAppointmentPatientMessage,
+  sendPaymentReceiptMessage,
+} from "@/lib/patientNotifications";
 
 type Kind = "invoice" | "treatment" | "receipt" | "appointment";
 
-type AppointmentPatientTemplate = Extract<WhatsAppTemplateType, "new" | "edit" | "cancel">;
-
 /**
- * A Firestore document id may not contain a slash, and the parts these keys are built from are
- * user-facing strings (a date, a time like "02:00 PM") rather than ids.
+ * The composition and gating for appointment and receipt messages live in
+ * lib/patientNotifications, shared with the AI assistant's approved actions; this translates the
+ * shared outcome back into the HTTP shapes the fire-and-forget client helpers already understand.
  */
-function outboxKey(...parts: string[]): string {
-  return parts
-    .map((p) => p.trim().replace(/[/\s]+/g, "-"))
-    .filter(Boolean)
-    .join("_");
-}
-
-/**
- * Queue the SMS half of a patient message.
- *
- * Deliberately independent of everything WhatsApp around it: its own enable switch, its own
- * per-event toggle, its own template, its own opt-out. A clinic with WhatsApp automation switched
- * off — or with no gateway configured at all, which is every clinic that has not done the Meta
- * paperwork — still gets its texts out. It also never throws into the caller: a queue write that
- * fails must not turn a successful booking into an error on screen.
- */
-async function queueEventSms(args: {
-  clinicId: string;
-  type: SmsEventType;
-  key: string;
-  patient: Record<string, unknown>;
-  patientId: string;
-  values: Record<string, string>;
-}): Promise<void> {
-  const { clinicId, type, key, patient, patientId, values } = args;
-  try {
-    const clinicName = await clinicDisplayName(clinicId);
-    await queuePatientSms({
-      clinicId,
-      type,
-      key,
-      patientId,
-      phone: pickPatientPhone(patient),
-      patientName: (typeof patient.name === "string" && patient.name.trim()) || "Patient",
-      preferences: {
-        whatsappOptOut: patient.whatsappOptOut === true,
-        smsOptOut: typeof patient.smsOptOut === "boolean" ? patient.smsOptOut : undefined,
-      },
-      values: { ...values, clinic_name: clinicName },
-    });
-  } catch (e) {
-    console.warn(`Could not queue ${type} SMS:`, e);
+function outcomeResponse(outcome: PatientMessageOutcome): NextResponse {
+  if (outcome.status === "skipped" && outcome.reason === "patient_not_found") {
+    return NextResponse.json({ ok: false, error: "Patient not found" }, { status: 404 });
   }
-}
-
-/**
- * Queue the "we received your payment" text.
- *
- * Only for rows that are actually a payment. A procedure being invoiced is money owed, not money
- * received, and telling a patient "we received 1500" when they have just been charged 1500 is the
- * kind of message that produces a phone call and a lost afternoon.
- */
-async function queuePaymentSms(args: {
-  clinicId: string;
-  patient: Record<string, unknown>;
-  patientId: string;
-  ledgerId: string;
-}): Promise<void> {
-  const { clinicId, patient, patientId, ledgerId } = args;
-  try {
-    const snap = await getLedgerDocWithRetry(clinicId, ledgerId);
-    if (!snap?.exists) return;
-
-    const ledger = snap.data() as Record<string, unknown>;
-    if (String(ledger.patientId) !== patientId) return;
-    if (isDeletedLedger(ledger)) return;
-    if (String(ledger.type || "") !== "payment") return;
-
-    const amount = Number(ledger.paid) || 0;
-    const balance = await computePatientBalance(clinicId, patientId);
-
-    await queueEventSms({
-      clinicId,
-      type: "invoice",
-      key: outboxKey(ledgerId, "invoice"),
-      patient,
-      patientId,
-      values: {
-        patient_name: (typeof patient.name === "string" && patient.name.trim()) || "Patient",
-        amount: amount.toLocaleString("en-US"),
-        balance: balance.toLocaleString("en-US"),
-        date: String(ledger.date || "—"),
-        method: String(ledger.method || "—"),
-        description: String(ledger.description || ledger.category || "—"),
-        doctor: String(ledger.doctorName || ledger.doctor || "—"),
-      },
-    });
-  } catch (e) {
-    console.warn("Could not queue payment SMS:", e);
+  if (outcome.status === "skipped") {
+    return NextResponse.json({ ok: true, skipped: true, reason: outcome.reason });
   }
+  if (outcome.status === "manual") {
+    return NextResponse.json({ ok: true, manual: true, phone: outcome.phone, text: outcome.text });
+  }
+  if (outcome.status === "queued") {
+    return NextResponse.json({ ok: true, queued: true });
+  }
+  if (outcome.status === "failed") {
+    return NextResponse.json({ ok: false, error: outcome.error }, { status: 500 });
+  }
+  return NextResponse.json({ ok: true });
 }
 
 type LedgerSummaryRow = {
@@ -156,34 +89,6 @@ function formatReceiptLedgerRow(row: LedgerSummaryRow, amountFmt: (n: number) =>
   lines.push(`${LRM}💰 *المبلغ:* ${prefix}${amountFmt(row.amount)} ج.م`);
 
   return lines.join("\n");
-}
-
-function isDeletedLedger(d: Record<string, unknown>) {
-  return d.status === "deleted" || d.status === "cancelled";
-}
-
-async function getLedgerDocWithRetry(clinicId: string, ledgerId: string, attempts = 4, delayMs = 150) {
-  for (let i = 0; i < attempts; i++) {
-    const snap = await adminClinicDoc(clinicId, "ledger", ledgerId).get();
-    if (snap.exists) return snap;
-    if (i < attempts - 1) {
-      await new Promise((r) => setTimeout(r, delayMs));
-    }
-  }
-  return null;
-}
-
-async function computePatientBalance(clinicId: string, patientId: string): Promise<number> {
-  const snap = await adminClinicCollection(clinicId, "ledger").where("patientId", "==", patientId).get();
-  let billed = 0;
-  let paid = 0;
-  snap.forEach((doc) => {
-    const d = doc.data();
-    if (isDeletedLedger(d)) return;
-    if (d.type === "procedure") billed += Number(d.cost) || 0;
-    if (d.type === "payment") paid += Number(d.paid) || 0;
-  });
-  return billed - paid;
 }
 
 async function computeLedgerSummary(clinicId: string, patientId: string): Promise<{
@@ -292,124 +197,32 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: false, error: "appointmentTemplate must be new, edit, or cancel" }, { status: 400 });
       }
 
-      const patientSnap = await adminClinicDoc(clinicId, "patients", patientId).get();
-      if (!patientSnap.exists) {
-        return NextResponse.json({ ok: false, error: "Patient not found" }, { status: 404 });
-      }
-      const patient = patientSnap.data() as Record<string, unknown>;
-
-      // Before any WhatsApp gate below, because the SMS is not a WhatsApp fallback — it is its own
-      // channel with its own switches. Keyed on the slot rather than just the appointment so that
-      // moving a patient twice sends two texts, while saving the same change twice sends one.
-      await queueEventSms({
-        clinicId,
-        type: appointmentTemplate,
-        key: outboxKey(patientId, appointmentTemplate, apptDateRaw, apptTimeRaw),
-        patient,
-        patientId,
-        values: {
-          patient_name: (typeof patient.name === "string" && patient.name.trim()) || "Patient",
-          date: apptDateRaw || "—",
-          time: apptTimeRaw || "—",
-          doctor: apptDoctorRaw || "—",
-        },
-      });
-
-      const settingsSnap = await adminClinicDoc(clinicId, "settings", "whatsapp").get();
-      const settings = settingsSnap.exists ? settingsSnap.data() : {};
-      if (!Boolean(settings?.isPatientAutomationEnabled)) {
-        return NextResponse.json({ ok: true, skipped: true, reason: "patient_automation_disabled" });
-      }
-
-      const tplText = resolveWhatsappTemplateForPatient(settings?.templates, appointmentTemplate);
-      if (!tplText?.trim()) {
-        return NextResponse.json({ ok: true, skipped: true, reason: "template_disabled" });
-      }
-
-      if (patient.whatsappOptOut === true) {
-        return NextResponse.json({ ok: true, skipped: true, reason: "whatsapp_opt_out" });
-      }
-
-      const phone = pickPatientPhone(patient);
-      if (!phone) {
-        return NextResponse.json({ ok: true, skipped: true, reason: "missing_phone" });
-      }
-
-      const patientName = typeof patient.name === "string" ? patient.name : "Patient";
-      const profile = await getClinicProfileAdmin(clinicId);
-      let clinicName = (profile?.clinicName && profile.clinicName.trim()) || "";
-      if (!clinicName) {
-        const ci = await adminClinicDoc(clinicId, "settings", "clinic_info").get();
-        const d = ci.data() as Record<string, unknown> | undefined;
-        clinicName =
-          (typeof d?.clinicName === "string" && d.clinicName.trim()) ||
-          (typeof d?.name === "string" && d.name.trim()) ||
-          "Alpha Dental";
-      }
-      const reviewUrl = String(profile?.googleReviewUrl || "").trim();
-      const mapsUrl = String(profile?.googleMapsUrl || "").trim();
-      const googleLink = reviewUrl || mapsUrl;
-
-      const logType = `appointment_${appointmentTemplate}`;
-      const merged = mergeWhatsAppTemplate(tplText, {
-        patient_name: patientName,
-        clinic_name: clinicName,
-        doctor: apptDoctorRaw || "—",
-        date: apptDateRaw || "—",
-        time: apptTimeRaw || "—",
-        google_link: googleLink,
-      });
-
-      try {
-        const delivery = await deliverWhatsAppMessage({
+      return outcomeResponse(
+        await sendAppointmentPatientMessage({
           clinicId,
-          to: phone,
-          text: merged,
-          // Worth queueing: the patient needs this whether or not a staff member is at a screen
-          // right now. Keyed on the slot so moving an appointment twice queues two messages while
-          // saving the same change twice queues one.
-          queue: {
-            key: outboxKey(patientId, appointmentTemplate, apptDateRaw, apptTimeRaw),
-            type: logType,
-            patientId,
-            patientName,
-          },
-        });
-        await adminClinicCollection(clinicId, "whatsapp_logs").add({
           patientId,
-          type: logType,
-          message: merged,
-          // Neither "manual" nor "queued" is a delivery. A log claiming otherwise would make the
-          // patient timeline lie about what the patient actually saw.
-          status: delivery.mode === "auto" ? "success" : delivery.mode,
-          createdAt: FieldValue.serverTimestamp(),
-        });
-        if (delivery.mode === "manual") {
-          return NextResponse.json({ ok: true, manual: true, phone: delivery.phone, text: delivery.text });
-        }
-        if (delivery.mode === "queued") {
-          void sendClinicPush(clinicId, {
-            title: "رسالة واتساب في الانتظار",
-            body: "رسالة جاهزة للإرسال من التطبيق — a WhatsApp message is waiting in the app.",
-          });
-          return NextResponse.json({ ok: true, queued: true });
-        }
-        return NextResponse.json({ ok: true });
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : "Send failed";
-        await adminClinicCollection(clinicId, "whatsapp_logs").add({
-          patientId,
-          type: logType,
-          message: merged,
-          status: "failed",
-          createdAt: FieldValue.serverTimestamp(),
-        });
-        return NextResponse.json({ ok: false, error: msg }, { status: 500 });
-      }
+          template: appointmentTemplate as AppointmentPatientTemplate,
+          date: apptDateRaw,
+          time: apptTimeRaw,
+          doctor: apptDoctorRaw,
+        })
+      );
     }
 
     if (kind !== "invoice" && kind !== "treatment" && kind !== "receipt") {
       return NextResponse.json({ ok: false, error: "Invalid kind" }, { status: 400 });
+    }
+
+    // The post-payment receipt automation shares its whole flow — SMS leg included — with the
+    // assistant's approved payments. The manual "send this row" button below keeps its own path
+    // because a person pressing it deserves errors, not silent skips.
+    if (kind === "invoice" && automation) {
+      if (!ledgerIdBody) {
+        return NextResponse.json({ ok: false, error: "ledgerId required for invoice" }, { status: 400 });
+      }
+      return outcomeResponse(
+        await sendPaymentReceiptMessage({ clinicId, patientId, ledgerId: ledgerIdBody })
+      );
     }
 
     const patientSnap = await adminClinicDoc(clinicId, "patients", patientId).get();
@@ -508,13 +321,8 @@ export async function POST(request: Request) {
         if (!ledgerId) {
           return NextResponse.json({ ok: false, error: "ledgerId required for invoice" }, { status: 400 });
         }
-        const ledgerSnap = automation
-          ? await getLedgerDocWithRetry(clinicId, ledgerId)
-          : await adminClinicDoc(clinicId, "ledger", ledgerId).get();
-        if (!ledgerSnap?.exists) {
-          if (automation) {
-            return NextResponse.json({ ok: true, skipped: true, reason: "ledger_not_ready" });
-          }
+        const ledgerSnap = await adminClinicDoc(clinicId, "ledger", ledgerId).get();
+        if (!ledgerSnap.exists) {
           return NextResponse.json({ ok: false, error: "Ledger entry not found" }, { status: 404 });
         }
         const L = ledgerSnap.data() as Record<string, unknown>;
@@ -529,9 +337,6 @@ export async function POST(request: Request) {
         }
 
         const typ = String(L.type || "");
-        if (automation && typ !== "payment") {
-          return NextResponse.json({ ok: true, skipped: true, reason: "not_a_payment" });
-        }
         const amount =
           typ === "payment"
             ? Number(L.paid) || 0
