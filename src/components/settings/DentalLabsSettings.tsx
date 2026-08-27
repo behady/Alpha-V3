@@ -13,6 +13,8 @@ import {
   Truck,
   CalendarClock,
   Printer,
+  Coins,
+  ChevronDown,
   Loader2,
 } from "lucide-react";
 import { useUI } from "@/context/UIContext";
@@ -20,13 +22,19 @@ import { useLanguage } from "@/context/LanguageContext";
 import { getClinicDoc } from "@/lib/db-utils";
 import {
   LABS_SETTINGS_DOC,
+  labPricedCount,
   makeLabId,
   parseDentalLabs,
   parseLabPaper,
   serializeDentalLabs,
   type DentalLab,
 } from "@/lib/dentalLabs";
-import { DEFAULT_LAB_PAPER, LAB_PAPER_OPTIONS, type LabOrderPaper } from "@/lib/labCases";
+import {
+  DEFAULT_LAB_PAPER,
+  LAB_PAPER_OPTIONS,
+  LAB_WORK_TYPES,
+  type LabOrderPaper,
+} from "@/lib/labCases";
 
 /**
  * The dental labs this clinic sends work to.
@@ -43,6 +51,8 @@ export default function DentalLabsSettings() {
   const [labs, setLabs] = useState<DentalLab[]>([]);
   const [paper, setPaper] = useState<LabOrderPaper>(DEFAULT_LAB_PAPER);
   const [newLabName, setNewLabName] = useState("");
+  /** Which labs have their price list expanded. Per lab, so two can be compared side by side. */
+  const [openPrices, setOpenPrices] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [fetched, setFetched] = useState(false);
 
@@ -256,6 +266,80 @@ export default function DentalLabsSettings() {
                   className="w-full ps-9 pe-3 py-2 bg-slate-50/60 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 placeholder:text-slate-400 focus:outline-none focus:border-sky-500 transition-all"
                 />
               </div>
+            </div>
+
+            {/* Price list.
+                Collapsed by default: twelve work types is a long list, and most labs are priced
+                for three or four of them. The summary line carries the only number that matters
+                when it is shut. */}
+            <div className="border border-slate-200 rounded-xl overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setOpenPrices((prev) => ({ ...prev, [lab.id]: !prev[lab.id] }))}
+                className="w-full flex items-center justify-between gap-3 px-3 py-2.5 bg-slate-50/60 hover:bg-slate-100/60 transition-colors"
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  <Coins size={14} className="text-slate-400 shrink-0" />
+                  <span className="text-[11px] font-black uppercase tracking-wider text-slate-600">
+                    {isAr ? "أسعار المعمل" : "Price list"}
+                  </span>
+                  <span className="text-[11px] font-bold text-slate-400 truncate">
+                    {labPricedCount(lab) === 0
+                      ? isAr ? "مفيش أسعار" : "nothing priced yet"
+                      : isAr
+                        ? `${labPricedCount(lab)} نوع شغل`
+                        : `${labPricedCount(lab)} of ${LAB_WORK_TYPES.length} priced`}
+                  </span>
+                </span>
+                <ChevronDown
+                  size={16}
+                  className={`text-slate-400 shrink-0 transition-transform ${openPrices[lab.id] ? "rotate-180" : ""}`}
+                />
+              </button>
+
+              {openPrices[lab.id] && (
+                <div className="p-3 space-y-1.5 bg-white border-t border-slate-200">
+                  <p className="text-[11px] font-semibold text-slate-500 leading-relaxed mb-2">
+                    {isAr
+                      ? "سيب الخانة فاضية لو المعمل ده مبيعملش النوع ده، أو لسه مفيش سعر متفق عليه. السعر بيتحط لوحده في أمر المعمل، وتقدر تغيّره في أي أمر."
+                      : "Leave a box empty for work this lab does not do, or has no agreed price for. The price fills itself in when an order is raised, and can still be changed on any order."}
+                  </p>
+                  {LAB_WORK_TYPES.map((w) => (
+                    <div key={w.id} className="flex items-center gap-2">
+                      <span className="flex-1 min-w-0 text-xs font-bold text-slate-600 truncate">
+                        {isAr ? w.ar : w.en}
+                      </span>
+                      <div className="relative shrink-0">
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          dir="ltr"
+                          value={lab.prices?.[w.id] ?? ""}
+                          onChange={(e) =>
+                            updateLab(lab.id, {
+                              prices: {
+                                ...(lab.prices || {}),
+                                // Cleared removes the entry rather than storing 0 — zero would
+                                // fill an order in as free, which is a real answer for a remake
+                                // and the wrong one for "we never agreed a price".
+                                ...(e.target.value.trim() === ""
+                                  ? { [w.id]: 0 }
+                                  : { [w.id]: Number(e.target.value) }),
+                              },
+                            })
+                          }
+                          placeholder="—"
+                          className="w-28 ps-3 pe-10 py-1.5 bg-slate-50/60 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 text-end placeholder:text-slate-300 focus:outline-none focus:border-sky-500 transition-all tabular-nums"
+                        />
+                        <span className="absolute end-2.5 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400 pointer-events-none">
+                          EGP
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {!lab.turnaroundDays && (
