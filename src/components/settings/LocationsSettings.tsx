@@ -11,6 +11,7 @@ import {
   Phone,
   DoorOpen,
   Loader2,
+  Tag,
 } from "lucide-react";
 import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -21,6 +22,7 @@ import {
   parseClinicBranches,
   type ClinicBranch,
 } from "@/lib/clinicLocations";
+import { branchCodeFor, deriveBranchCode } from "@/lib/labCases";
 
 /**
  * Branches & rooms management.
@@ -100,6 +102,23 @@ export default function LocationsSettings() {
     updateBranch(branchId, { rooms: [...branch.rooms, { id: makeLocationId(), name }] });
     setNewRoomNames((prev) => ({ ...prev, [branchId]: "" }));
   };
+
+  /**
+   * Codes claimed by more than one branch.
+   *
+   * Not an error — the counter is keyed on the code, so two branches sharing one simply share a
+   * sequence and no number is ever printed twice. It is worth saying out loud all the same,
+   * because the whole point of a per-branch prefix is that the code tells you where a case came
+   * from, and a shared prefix quietly gives that up.
+   */
+  const duplicateCodes = (() => {
+    const seen = new Map<string, number>();
+    branches.forEach((b, i) => {
+      const code = branchCodeFor(b, i);
+      seen.set(code, (seen.get(code) || 0) + 1);
+    });
+    return new Set([...seen.entries()].filter(([, n]) => n > 1).map(([code]) => code));
+  })();
 
   const removeRoom = (branchId: string, roomId: string) => {
     const branch = branches.find((b) => b.id === branchId);
@@ -195,6 +214,48 @@ export default function LocationsSettings() {
                 <Trash2 size={16} />
               </button>
             </div>
+
+            {/* Lab case prefix.
+                Its own row rather than a third cell in the grid below, because it is the only
+                field here that gets printed on paper and written on a bag with a marker — and
+                because the preview beside it is the point: an admin should see MAD-0142 before
+                they commit to MAD. */}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 bg-slate-50/60 border border-slate-200 rounded-xl px-3 py-2.5">
+              <div className="flex items-center gap-2 shrink-0">
+                <Tag size={14} className="text-slate-400" />
+                <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                  {isAr ? "كود المعمل" : "Lab code"}
+                </span>
+              </div>
+              <input
+                type="text"
+                dir="ltr"
+                maxLength={4}
+                value={branch.code || ""}
+                onChange={(e) =>
+                  updateBranch(branch.id, {
+                    code: e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 4),
+                  })
+                }
+                placeholder={deriveBranchCode(branch.name, branches.indexOf(branch))}
+                className="w-24 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm font-black text-slate-800 tracking-widest text-center uppercase focus:outline-none focus:border-teal-500 transition-all"
+              />
+              <p className="text-[11px] text-slate-500 font-semibold leading-relaxed min-w-0">
+                {isAr ? "أوامر المعمل من الفرع ده هتترقّم " : "Lab orders from this branch will be numbered "}
+                <span className="font-black text-slate-700" dir="ltr">
+                  {branchCodeFor(branch, branches.indexOf(branch))}-0001
+                </span>
+                {!branch.code && (isAr ? " (متولد من الاسم — غيّره لو حابب)" : " — derived from the name, change it if you like")}
+              </p>
+            </div>
+
+            {duplicateCodes.has(branchCodeFor(branch, branches.indexOf(branch))) && (
+              <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 font-semibold leading-relaxed">
+                {isAr
+                  ? "فرع تاني بنفس الكود. الفرعين هيتشاركوا نفس العداد، يعني الأرقام مش هتتكرر — بس الكود مش هيقولك الحالة جت منين."
+                  : "Another branch uses this code. They will share one counter, so no number is ever printed twice — but the code alone will not say which branch a case came from."}
+              </p>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="relative">

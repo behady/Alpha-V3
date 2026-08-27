@@ -123,6 +123,7 @@ service cloud.firestore {
         'diagnosis_chats': 'clinical.edit',
         'ortho_cases': 'clinical.edit',
         'ortho_sessions': 'clinical.edit',
+        'lab_cases': 'access.lab',
         'services': 'access.settings',
         'categories': 'access.settings',
         'drugs': 'access.settings',
@@ -148,6 +149,7 @@ service cloud.firestore {
         'diagnosis_chats': 'clinical.edit',
         'ortho_cases': 'clinical.edit',
         'ortho_sessions': 'clinical.edit',
+        'lab_cases': 'access.lab',
         'services': 'access.settings',
         'categories': 'access.settings',
         'drugs': 'access.settings',
@@ -173,6 +175,11 @@ service cloud.firestore {
         'diagnosis_chats': 'clinical.delete',
         'ortho_cases': 'clinical.delete',
         'ortho_sessions': 'clinical.delete',
+        // Deliberately access.lab and not a lab.delete grant. A lab case is a record of a bag
+        // that physically left the building, so the app cancels rather than deletes; the only
+        // deletes that reach here are an admin clearing a mistyped case, and an admin passes
+        // holdsPermission unconditionally anyway.
+        'lab_cases': 'access.lab',
         'services': 'access.settings',
         'categories': 'access.settings',
         'drugs': 'access.settings',

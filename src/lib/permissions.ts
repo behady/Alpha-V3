@@ -122,6 +122,11 @@ export const ROLE_BASELINE: Record<string, string[]> = {
     "access.appointments",
     "access.finance",
     "access.reports",
+    // Reception is who actually hands the bag to the driver and who signs it back in when it
+    // returns — and who then has to call the patient to book the fitting. Dentist and Assistant
+    // already held this; leaving reception out would have meant the one person standing at the
+    // desk when the driver arrives could not look the case up.
+    "access.lab",
     "patients.add",
     "patients.edit",
     "appointments.add",
@@ -261,6 +266,7 @@ export const COLLECTION_WRITE_PERMISSIONS: {
     diagnosis_chats: "clinical.edit",
     ortho_cases: "clinical.edit",
     ortho_sessions: "clinical.edit",
+    lab_cases: "access.lab",
     services: "access.settings",
     categories: "access.settings",
     drugs: "access.settings",
@@ -283,6 +289,7 @@ export const COLLECTION_WRITE_PERMISSIONS: {
     diagnosis_chats: "clinical.edit",
     ortho_cases: "clinical.edit",
     ortho_sessions: "clinical.edit",
+    lab_cases: "access.lab",
     services: "access.settings",
     categories: "access.settings",
     drugs: "access.settings",
@@ -305,6 +312,7 @@ export const COLLECTION_WRITE_PERMISSIONS: {
     diagnosis_chats: "clinical.delete",
     ortho_cases: "clinical.delete",
     ortho_sessions: "clinical.delete",
+    lab_cases: "access.lab",
     services: "access.settings",
     categories: "access.settings",
     drugs: "access.settings",

@@ -878,6 +878,58 @@ async function main() {
     "deny"
   );
 
+  // Lab cases are the physical record of a bag that left the building. The gate is access.lab,
+  // which the Dentist, Assistant and Receptionist baselines all carry — the three people who
+  // between them hand a case to a driver, sign it back in, and call the patient about it.
+  console.log("lab cases are gated on access.lab");
+  await check(
+    "an Assistant with access.lab can raise a lab case",
+    setDoc(doc(assistant1, "clinics/clinicA/lab_cases/labA1"), {
+      code: "MAD-0001",
+      codeNumber: 1,
+      labId: "l1",
+      status: "at_lab",
+      teeth: [15, 14],
+      agreedPrice: 1400,
+    }),
+    "allow"
+  );
+  await check(
+    "an Assistant with access.lab can move a case to the next stage",
+    updateDoc(doc(assistant1, "clinics/clinicA/lab_cases/labA1"), { status: "back" }),
+    "allow"
+  );
+  // Reception here holds only patients.add — an admin who has NOT ticked the lab box for them.
+  await check(
+    "a member without access.lab cannot raise a lab case",
+    setDoc(doc(limited1, "clinics/clinicA/lab_cases/labSpoof"), { code: "MAD-9999", status: "at_lab" }),
+    "deny"
+  );
+  await check(
+    "a member without access.lab cannot alter someone else's case",
+    updateDoc(doc(limited1, "clinics/clinicA/lab_cases/labA1"), { status: "fitted" }),
+    "deny"
+  );
+  await check(
+    "an account carrying no permission map at all cannot raise a lab case",
+    setDoc(doc(nolist1, "clinics/clinicA/lab_cases/labSpoof2"), { code: "MAD-9998" }),
+    "deny"
+  );
+  // The counter is deliberately NOT in the rules' permission maps. If it were, a member who
+  // lacks access.lab would be denied on a counter bump they never asked for, and the error would
+  // name the wrong thing — the exact misleading failure the settings/counters comment describes.
+  // The case write above is where they are stopped, and it names what they were doing.
+  await check(
+    "the lab code counter is open to any member, so the meaningful refusal lands on the case",
+    setDoc(doc(limited1, "clinics/clinicA/lab_counters/branches"), { MAD: 1 }, { merge: true }),
+    "allow"
+  );
+  await check(
+    "another clinic's Admin cannot read this clinic's lab cases",
+    getDoc(doc(adminB, "clinics/clinicA/lab_cases/labA1")),
+    "deny"
+  );
+
   console.log("money stays tenant-isolated");
   await check("another clinic's Admin cannot read this ledger", getDoc(doc(adminB, "clinics/clinicA/ledger/ledA1")), "deny");
   await check("another clinic's Admin cannot read this price list", getDoc(doc(adminB, "clinics/clinicA/services/svcA1")), "deny");

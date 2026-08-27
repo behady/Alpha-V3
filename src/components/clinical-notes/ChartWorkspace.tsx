@@ -9,6 +9,7 @@ import ServiceEditorDrawer from "./ServiceEditorDrawer";
 import { Note, Service, Staff } from "./types";
 import { TREATMENT_STATES, resolveTreatments, type ToothTreatment, type TreatmentStateId } from "@/lib/toothTreatments";
 import { LOWER_LEFT_TEETH, LOWER_RIGHT_TEETH, UPPER_LEFT_TEETH, UPPER_RIGHT_TEETH } from "./utils";
+import type { LabCaseSeed } from "@/lib/labCases";
 
 /**
  * The desktop way of recording work: the chart is the input, not a field buried in a pop-up.
@@ -44,7 +45,8 @@ export default function ChartWorkspace({
   selectedTeeth: string[];
   onSelectedTeethChange: (teeth: string[]) => void;
   onCancelEdit: () => void;
-  onSaved: () => void;
+  /** Forwards the editor's lab-order seed to the container, which outlives the remount. */
+  onSaved: (labSeed?: LabCaseSeed) => void;
   /** Changes whenever the form should start over — remounting is what clears it. */
   formKey: string;
   loading?: boolean;

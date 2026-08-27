@@ -22,6 +22,7 @@ import {
   DEFAULT_PRICING_MODE, isPricingMode, pricingUnitsFor, type PricingMode,
 } from "./utils";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import type { LabCaseSeed } from "@/lib/labCases";
 import DiscountEditor, { EMPTY_DISCOUNT, discountPayload, type DiscountState } from "@/components/shared/DiscountEditor";
 import { isDiscountMode, type DiscountMode } from "@/lib/discountMath";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
@@ -39,7 +40,11 @@ interface Props {
   initialNote: Note | null;
   servicesList: Service[];
   doctors: Staff[];
-  onSaved: () => void;
+  /**
+   * Called after a successful save. Receives a lab-order seed when the treatment just written
+   * uses a service flagged `requiresLab`, so the screen above can offer to raise the order.
+   */
+  onSaved: (labSeed?: LabCaseSeed) => void;
   inline?: boolean;
   /**
    * Chart-first desktop layout: the teeth chart lives above this form instead of inside it, so the
@@ -403,14 +408,49 @@ export default function ServiceEditorDrawer({
         patientDefaultPriceListId: patientDefaultPriceListId || null,
       };
 
+      let labSeed: LabCaseSeed | undefined;
+
       if (initialNote) {
         await updateProcedure(initialNote.id, payload);
       } else {
-        await createProcedure(payload);
+        const result = await createProcedure(payload);
+
+        /**
+         * Offer to raise a lab order for work that needs one.
+         *
+         * Only on a NEW treatment: re-saving an existing crown must not offer a second order for
+         * a case that is already at a lab. Detection is client-side because the server computes
+         * `requiresLab` and then discards it — the HTTP response carries the note and ledger ids
+         * and nothing about the lab.
+         *
+         * The seed is handed UP rather than shown here. This component is unmounted the instant a
+         * save succeeds — the drawer closes on mobile, and the inline editor is remounted by a
+         * changed `key` on desktop — so a prompt owned by this component would be destroyed
+         * before anyone saw it.
+         */
+        const { reqLab, labFee } = computeProcedureLabFee({
+          matchedServices: previewMatched,
+          pricingUnits: previewUnits,
+        });
+        if (reqLab) {
+          labSeed = {
+            patientId,
+            patientName,
+            doctorId: selectedDoctorId,
+            doctorName: doctors.find((d) => d.id === selectedDoctorId)?.name || "",
+            clinicalNoteId: result.noteId,
+            ledgerId: result.ledgerId || undefined,
+            teeth: selectedTeeth.map((t) => parseInt(t, 10)).filter((n) => !Number.isNaN(n)),
+            workDescription: procedures.join(", "),
+            units: previewUnits,
+            branchId: branchId || undefined,
+            agreedPrice: Math.round(labFee) || undefined,
+          };
+        }
       }
 
       showToast(initialNote ? "Procedure Updated" : "Procedure Logged", "success");
-      onSaved();
+      onSaved(labSeed);
       onClose();
     } catch (err) {
         showToast(err instanceof MoneyApiError ? err.message : "Error saving procedure", "error");
