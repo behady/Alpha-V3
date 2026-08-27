@@ -54,7 +54,9 @@ function typeLabel(type: string, isAr: boolean): string {
     google_review: { en: "Review request", ar: "طلب تقييم" },
     reactivation: { en: "We miss you", ar: "نفتقدك" },
   };
-  const row = map[type];
+  // The appointment queue writer prefixes its types (`appointment_new`), the reminder sweep and
+  // lead reply do not (`reminder24h`, `lead_welcome`) — accept both spellings of the same thing.
+  const row = map[type] || map[type.replace(/^appointment_/, "")];
   return row ? (isAr ? row.ar : row.en) : type;
 }
 

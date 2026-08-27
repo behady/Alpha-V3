@@ -19,6 +19,7 @@ import { saveBooking } from "@/lib/bookingService";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { allocationMessage, allocationMessageAr, checkAllocation } from "@/lib/paymentAllocation";
 import { MoneyApiError, createPayment, createProcedure, deleteProcedure } from "@/lib/moneyApi";
+import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClient";
 import ServiceCombobox from "@/components/shared/ServiceCombobox";
 
 interface AppointmentSidePanelProps {
@@ -237,7 +238,7 @@ export default function AppointmentSidePanel({
       // doctorId, no lab fee, no commission — so the treating dentist earned nothing on it and the
       // clinic booked all of it as profit, while the commission report skipped the row entirely
       // for having no commission on it. The server now resolves all of that from the procedure.
-      await createPayment({
+      const { id: paymentId } = await createPayment({
         patientId: selectedAppointment.patientId,
         patientName: selectedAppointment.patientName,
         amount: Number(inlinePayAmount),
@@ -245,6 +246,15 @@ export default function AppointmentSidePanel({
         description: ledgerDesc,
         procedureId: selectedProcedure.id === 'general_payment' ? null : selectedProcedure.id,
         date: localDate,
+      });
+
+      // The one payment screen of the four that never told the patient. Fire-and-forget, like
+      // the quick-payment modal: the money is recorded either way, and a messaging outage must
+      // not make it look like the payment failed.
+      void sendPatientPaymentWhatsApp({
+        patientId: String(selectedAppointment.patientId),
+        ledgerId: paymentId,
+        patientName: selectedAppointment.patientName,
       });
 
       showToast(language === 'ar' ? "تم تسجيل الدفعة بنجاح" : "Payment recorded successfully", "success");

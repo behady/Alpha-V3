@@ -119,6 +119,13 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     templates,
     ownerNumber: typeof data?.ownerNumber === "string" ? data.ownerNumber : "",
     ownerAlerts,
+    // Dropping this field here is what made "manual" look unselectable: the click saved it,
+    // the listener echoed the document back through this function, and the choice vanished
+    // from the screen — while the server was already honouring it. Spread conditionally so an
+    // absent field stays absent; a key holding `undefined` would poison the next setDoc.
+    ...(data?.deliveryMode === "manual" || data?.deliveryMode === "auto"
+      ? { deliveryMode: data.deliveryMode }
+      : {}),
   };
 }
 
@@ -703,7 +710,15 @@ export default function WhatsAppSettings() {
             <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">{txt.deliveryTitle}</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {(["auto", "manual"] as const).map((mode) => {
-                const active = (state.deliveryMode ?? "auto") === mode;
+                // When no choice is stored, show what the server will actually do
+                // (resolveWhatsappDeliveryMode): auto needs the plan feature AND a connected
+                // gateway; everything else falls back to a person pressing send.
+                const effectiveMode =
+                  state.deliveryMode ??
+                  (canSendAutomatically && wapilotStatus && wapilotStatus.source !== "none"
+                    ? "auto"
+                    : "manual");
+                const active = effectiveMode === mode;
                 // Shown but not hidden when the plan excludes it: a feature nobody can see is a
                 // feature nobody upgrades for, and silently removing the option would leave a
                 // clinic wondering why their messages stopped sending themselves.

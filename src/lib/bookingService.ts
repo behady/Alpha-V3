@@ -271,13 +271,30 @@ export async function saveBooking(
     const scheduleChanged =
       prevDate !== nextDateNorm || prevTime !== nextTimeNorm || prevDoctor !== nextDoctor;
 
-    if (scheduleChanged && data.patientId) {
+    // The dashboards message the patient when their status buttons cancel a visit, but a save
+    // that comes through here — the appointment side panel's status dropdown, or the booking
+    // modal — used to cancel silently: the patient stayed booked in their own head. A cancel
+    // also swallows the "rescheduled" message; being told your visit moved and then that it is
+    // off reads like the clinic arguing with itself.
+    const becameCancelled = nextStatus === "Cancelled" && prev.status !== "Cancelled";
+
+    if (becameCancelled && data.patientId) {
+      void sendPatientAppointmentWhatsApp({
+        template: "cancel",
+        patientId: String(data.patientId),
+        date: String(normalizedDate || data.date || ""),
+        time: String(normalizedTime || data.time || ""),
+        doctor: nextDoctor,
+        patientName: data.patientName,
+      });
+    } else if (scheduleChanged && data.patientId) {
       void sendPatientAppointmentWhatsApp({
         template: "edit",
         patientId: String(data.patientId),
         date: String(normalizedDate || data.date || ""),
         time: String(normalizedTime || data.time || ""),
         doctor: nextDoctor,
+        patientName: data.patientName,
       });
     }
 
@@ -367,5 +384,27 @@ export async function saveBooking(
 
 export async function updateBookingTime(id: string, newDate: string, newTime: string): Promise<void> {
   const ref = getClinicDoc('appointments', id);
+  // Read before write, because the patient message needs to know whether the slot actually moved
+  // — and who the patient is. Dragging a card onto the slot it already occupies happens all the
+  // time and must not text anybody.
+  const prevSnap = await getDoc(ref);
+  const prev = prevSnap.exists() ? (prevSnap.data() as Record<string, unknown>) : {};
   await updateDoc(ref, { date: newDate, time: newTime });
+
+  const moved =
+    normalizeDateKey(String(prev.date ?? "")) !== normalizeDateKey(newDate) ||
+    normalizeTimeKey(String(prev.time ?? "")) !== normalizeTimeKey(newTime);
+  if (moved && prev.patientId) {
+    // Dragging a card on the dashboard's weekly schedule is a reschedule like any other, but it
+    // came through this two-field shortcut instead of updateBooking, so the patient was the only
+    // person not told their appointment moved.
+    void sendPatientAppointmentWhatsApp({
+      template: "edit",
+      patientId: String(prev.patientId),
+      date: newDate,
+      time: newTime,
+      doctor: String(prev.doctor || ""),
+      patientName: typeof prev.patientName === "string" ? prev.patientName : undefined,
+    });
+  }
 }
