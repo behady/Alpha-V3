@@ -9,7 +9,7 @@ import {
 import { db, auth } from "@/lib/firebase";
 import {
   collection, query, where, getDocs, orderBy,
-  doc, updateDoc, deleteDoc, onSnapshot, limit, addDoc, serverTimestamp, getDoc, arrayUnion
+  doc, updateDoc, deleteDoc, onSnapshot, limit, serverTimestamp, getDoc
 } from "firebase/firestore";
 import PatientHistoryDrawer from "@/components/appointments/PatientHistoryDrawer";
 import StarRating from "@/components/StarRating";
@@ -41,7 +41,6 @@ import { parseClinicSchedule, clinicDayBoundsMinutes, type ClinicScheduleConfig 
 import { useActiveBranch } from "@/lib/useActiveBranch";
 import BranchSelector from "@/components/shared/BranchSelector";
 import type { OwnerAlertKey } from "@/types/whatsapp";
-import { sendPatientAppointmentWhatsApp } from "@/lib/sendPatientAppointmentWhatsAppClient";
 import { prescriptionPayloadToPdfBlob } from "@/lib/prescriptionPdfHtml";
 import {
   buildPrescriptionPayloadFromRecord,
@@ -172,8 +171,6 @@ export default function MobileDashboard() {
   const [preSelectedTime, setPreSelectedTime] = useState<string>("");
   const [preSelectedPatient, setPreSelectedPatient] = useState<{ id: string; name: string } | null>(null);
   const [preSelectedDoctor, setPreSelectedDoctor] = useState<string>("");
-  const [showDelayPrompt, setShowDelayPrompt] = useState(false);
-  const [delayedAppointmentData, setDelayedAppointmentData] = useState<any>(null);
 
   const [historyDrawerPatientId, setHistoryDrawerPatientId] = useState("");
   const [historyDrawerPatientName, setHistoryDrawerPatientName] = useState("");
@@ -250,10 +247,6 @@ export default function MobileDashboard() {
     return diffMins >= 15;
   };
 
-  // Inline editor state
-  const [inlineEdit, setInlineEdit] = useState<Record<string, any>>({});
-
-  const [inlineSaving, setInlineSaving] = useState(false);
   const [patientLedger, setPatientLedger] = useState<any[]>([]);
   const [ledgerLoading, setLedgerLoading] = useState(false);
 
@@ -341,92 +334,7 @@ export default function MobileDashboard() {
     return () => unsub();
   }, [selectedAppointment?.patientId]);
 
-  // Initialize inline edit form when appointment is selected
-  useEffect(() => {
-    if (selectedAppointment) {
-      setInlineEdit({
-        patientName: selectedAppointment.patientName || '',
-        treatment: selectedAppointment.treatment || '',
-        doctor: selectedAppointment.doctor || '',
-        date: selectedAppointment.date || '',
-        time: selectedAppointment.time || '',
-        duration: selectedAppointment.duration || 30,
-        status: selectedAppointment.status || 'Scheduled',
-        notes: selectedAppointment.notes || '',
-        cost: selectedAppointment.cost || 0,
-        serviceId: selectedAppointment.serviceId || '',
-        serviceName: selectedAppointment.serviceName || '',
-      });
-    }
-  }, [selectedAppointment?.id]);
-
-  const hasUnsavedChanges = useMemo(() => {
-    if (!selectedAppointment) return false;
-    const fields = ['patientName', 'treatment', 'doctor', 'date', 'time', 'duration', 'status', 'notes', 'cost', 'serviceId'];
-    for (const key of fields) {
-      let oldVal = (selectedAppointment as any)[key];
-      let newVal = inlineEdit[key];
-      if (oldVal == null) oldVal = '';
-      if (newVal == null) newVal = '';
-      if (String(oldVal) !== String(newVal)) return true;
-    }
-    return false;
-  }, [selectedAppointment, inlineEdit]);
-
-  const saveInlineEdit = async (): Promise<boolean> => {
-    if (!selectedAppointment) return false;
-    if (inlineEdit.status === "Delayed" && selectedAppointment.status !== "Delayed") {
-      setDelayedAppointmentData({ ...inlineEdit, id: selectedAppointment.id });
-      setShowDelayPrompt(true);
-      return false;
-    }
-    setInlineSaving(true);
-    try {
-      const updatePayload: any = {
-        patientName: inlineEdit.patientName,
-        treatment: inlineEdit.treatment,
-        doctor: inlineEdit.doctor,
-        date: inlineEdit.date,
-        time: inlineEdit.time,
-        duration: Number(inlineEdit.duration) || 30,
-        status: inlineEdit.status,
-        notes: inlineEdit.notes,
-        cost: Number(inlineEdit.cost) || 0,
-        serviceId: inlineEdit.serviceId || null,
-        serviceName: inlineEdit.serviceName || null,
-        modifiedBy: user?.name || 'System',
-        updatedAt: serverTimestamp(),
-      };
-
-      Object.keys(updatePayload).forEach(key => {
-        if (updatePayload[key] === undefined) delete updatePayload[key];
-      });
-
-      await updateDoc(getClinicDoc("appointments", selectedAppointment.id), updatePayload);
-      showToast(language === 'ar' ? 'تم الحفظ' : 'Saved!', 'success');
-      return true;
-    } catch (e) {
-      console.error(e);
-      showToast(language === 'ar' ? 'خطأ' : 'Error saving', 'error');
-      return false;
-    } finally {
-      setInlineSaving(false);
-    }
-  };
-
   const handleSelectAppointmentWrapper = async (apt: DashboardAppointment | null) => {
-    if (hasUnsavedChanges && selectedAppointment && apt?.id !== selectedAppointment.id) {
-      const wantToSave = await confirm(
-        language === "ar"
-          ? "لديك تغييرات غير محفوظة. هل تريد حفظها قبل المتابعة؟"
-          : "You have unsaved changes. Do you want to save them before proceeding?",
-        { confirmLabel: language === "ar" ? "حفظ" : "Save", cancelLabel: language === "ar" ? "تجاهل" : "Discard" }
-      );
-      if (wantToSave) {
-        const success = await saveInlineEdit();
-        if (!success) return; // if save failed or hit delay prompt, abort switch
-      }
-    }
     setSelectedAppointment(apt);
   };
 
@@ -558,91 +466,6 @@ export default function MobileDashboard() {
     } catch (error) {
       console.error(error);
       showToast(language === "ar" ? "تعذّر تحديث المزاج" : "Could not update mood", "error");
-    }
-  };
-
-  const handleStatusChange = async (id: string, nextStatus: string) => {
-    const appt = allAppointments.find((a) => a.id === id);
-    if (!appt) return;
-    const prevStatus = appt.status || "Scheduled";
-    if (prevStatus === nextStatus) return;
-
-
-
-    try {
-      const updatePayload: any = {
-        status: nextStatus,
-        modifiedBy: user?.name || "System",
-        updatedAt: serverTimestamp(),
-        ...(nextStatus === "Checked In" && !appt.waitingMood ? { waitingMood: "neutral" } : {}),
-        statusHistory: arrayUnion({
-          status: nextStatus,
-          timestamp: new Date(),
-          modifiedBy: user?.name || "System",
-        })
-      };
-
-      if (nextStatus === "Checked In" && prevStatus !== "Checked In" && !appt.checkInTime) {
-        updatePayload.checkInTime = serverTimestamp();
-      }
-      if ((nextStatus === "Checking Out" || nextStatus === "Completed") && prevStatus !== nextStatus && !appt.checkOutTime) {
-        updatePayload.checkOutTime = serverTimestamp();
-      }
-
-      await updateDoc(getClinicDoc("appointments", id), updatePayload);
-
-      // Cancelling is the one status change the patient has to hear about — everything else is
-      // clinic-side bookkeeping, but a cancelled patient is still expecting to be seen. It lives
-      // here rather than in bookingService because a cancellation is a status change on the
-      // appointment, not a deletion of it, so it never passed through the booking helpers that
-      // send the "booked" and "moved" messages.
-      if (nextStatus === "Cancelled" && prevStatus !== "Cancelled" && appt.patientId) {
-        void sendPatientAppointmentWhatsApp({
-          template: "cancel",
-          patientId: String(appt.patientId),
-          date: String(appt.date || ""),
-          time: String(appt.time || ""),
-          doctor: String(appt.doctor || ""),
-          patientName: appt.patientName,
-        });
-      }
-
-      if (nextStatus === "Checked In" && prevStatus !== "Checked In") {
-        await addDoc(getClinicCollection("attendance"), {
-          patientId: appt.patientId,
-          patientName: appt.patientName,
-          appointmentId: id,
-          checkInTime: serverTimestamp(),
-          doctor: appt.doctor,
-          status: "waiting",
-        });
-      }
-      setAllAppointments((prev) =>
-        prev.map((a) =>
-          a.id === id
-            ? {
-              ...a,
-              status: nextStatus,
-              ...(nextStatus === "Checked In" && !a.waitingMood ? { waitingMood: "neutral" } : {}),
-              checkInTime: updatePayload.checkInTime ? new Date() : a.checkInTime,
-              checkOutTime: updatePayload.checkOutTime ? new Date() : a.checkOutTime,
-            }
-            : a
-        )
-      );
-      setSelectedAppointment((prev) =>
-        prev?.id === id
-          ? {
-            ...prev,
-            status: nextStatus,
-            ...(nextStatus === "Checked In" && !prev.waitingMood ? { waitingMood: "neutral" } : {}),
-          }
-          : prev
-      );
-      showToast(language === "ar" ? "تم تحديث المرحلة" : "Stage updated", "success");
-    } catch (error) {
-      console.error(error);
-      showToast(language === "ar" ? "حدث خطأ" : "Error", "error");
     }
   };
 
@@ -1566,105 +1389,6 @@ export default function MobileDashboard() {
         config={config}
       />
 
-
-
-      {showDelayPrompt && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[9999] p-4">
-          <div className="bg-white rounded-[32px] p-6 max-w-md w-full shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
-            <h3 className="text-xl font-black text-slate-900 mb-2">
-              {language === 'ar' ? 'تأجيل الموعد' : 'Delay Appointment'}
-            </h3>
-            <p className="text-sm font-medium text-slate-600 mb-6 leading-relaxed">
-              {language === 'ar'
-                ? 'هل تريد جدولة موعد جديد لهذا المريض الآن، أم تركه غير محدد بعد؟'
-                : 'Would you like to schedule a new appointment for this patient now, or leave it as not set yet?'}
-            </p>
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={async () => {
-                  setShowDelayPrompt(false);
-                  setInlineSaving(true);
-                  try {
-                    await updateDoc(getClinicDoc("appointments", delayedAppointmentData.id), {
-                      patientName: delayedAppointmentData.patientName,
-                      treatment: delayedAppointmentData.treatment,
-                      doctor: delayedAppointmentData.doctor,
-                      date: delayedAppointmentData.date,
-                      time: delayedAppointmentData.time,
-                      duration: Number(delayedAppointmentData.duration) || 30,
-                      status: "Delayed",
-                      notes: delayedAppointmentData.notes,
-                      cost: Number(delayedAppointmentData.cost) || 0,
-                      serviceId: delayedAppointmentData.serviceId || null,
-                      serviceName: delayedAppointmentData.serviceName || null,
-                      modifiedBy: user?.name || 'System',
-                      updatedAt: serverTimestamp(),
-                    });
-
-                    setAppointmentToEdit(null);
-                    setPreSelectedPatient({
-                      id: selectedAppointment!.patientId!,
-                      name: selectedAppointment!.patientName!
-                    });
-                    setPreSelectedDoctor(selectedAppointment!.doctor || "");
-                    setActiveModal("booking");
-
-                    showToast(language === 'ar' ? 'تم تأجيل الموعد، افتح حجز جديد' : 'Appointment delayed, opening new booking...', 'success');
-                    handleSelectAppointmentWrapper(null);
-                  } catch (e) {
-                    console.error(e);
-                    showToast('Error saving', 'error');
-                  } finally {
-                    setInlineSaving(false);
-                  }
-                }}
-                className="w-full bg-[#60d297] hover:bg-[#4eb37f] text-white font-black py-3 rounded-xl transition-colors text-sm shadow-sm shadow-[#60d297]/30"
-              >
-                {language === 'ar' ? 'جدولة موعد جديد' : 'Schedule New Appointment'}
-              </button>
-              <button
-                onClick={async () => {
-                  setShowDelayPrompt(false);
-                  setInlineSaving(true);
-                  try {
-                    await updateDoc(getClinicDoc("appointments", delayedAppointmentData.id), {
-                      patientName: delayedAppointmentData.patientName,
-                      treatment: delayedAppointmentData.treatment,
-                      doctor: delayedAppointmentData.doctor,
-                      date: delayedAppointmentData.date,
-                      time: delayedAppointmentData.time,
-                      duration: Number(delayedAppointmentData.duration) || 30,
-                      status: "Delayed",
-                      notes: delayedAppointmentData.notes,
-                      cost: Number(delayedAppointmentData.cost) || 0,
-                      serviceId: delayedAppointmentData.serviceId || null,
-                      serviceName: delayedAppointmentData.serviceName || null,
-                      modifiedBy: user?.name || 'System',
-                      updatedAt: serverTimestamp(),
-                    });
-                    showToast(language === 'ar' ? 'تم التأجيل' : 'Appointment delayed', 'success');
-                    handleSelectAppointmentWrapper(null);
-                  } catch (e) {
-                    console.error(e);
-                    showToast('Error saving', 'error');
-                  } finally {
-                    setInlineSaving(false);
-                  }
-                }}
-                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-black py-3 rounded-xl transition-colors text-sm"
-              >
-                {language === 'ar' ? 'غير محدد بعد' : 'Not Set Yet'}
-              </button>
-              <button
-                onClick={() => setShowDelayPrompt(false)}
-                className="w-full bg-white hover:bg-slate-50 text-slate-500 font-bold py-2.5 rounded-xl border border-slate-200 transition-colors text-sm mt-2"
-              >
-                {language === 'ar' ? 'إلغاء' : 'Cancel'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {/* Mobile Appointment Details Sheet */}
       {selectedAppointment && (
         <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm lg:hidden flex flex-col justify-end">
