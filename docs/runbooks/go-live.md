@@ -284,3 +284,71 @@ then in that clinic:
   depend on the subscription. Putting it back is a write.
 
 Put the field back afterwards.
+
+---
+
+# Fourth rollout — records that landed in the wrong clinic
+
+Nothing to publish. Deploy the app and the cause is fixed; the audit below finds anything the bug
+left behind.
+
+## What was wrong
+
+The clinical and money routes fall back to `resolveUserClinicId(uid, null)` when a request names no
+clinic — the caller's `defaultClinicId`, or whichever key `Object.keys(clinicRoles)[0]` returns.
+**Six of the seven write paths never named one.** Only `PatientFinance` did.
+
+So working at a second clinic, writes resolved against the first.
+
+## How much of it actually landed wrong
+
+Less than it sounds, and the difference decides how much of the books need re-checking:
+
+| Write | What happened |
+|---|---|
+| A treatment | **Refused.** It verifies the patient exists in the resolved clinic inside its transaction, and the dentist before that. Both are absent from the wrong clinic. |
+| A payment against a treatment | **Refused.** It verifies the treatment row exists there. |
+| A payment *not* tied to a treatment | **Silently misfiled.** It checks only that a patient id was supplied, never that the patient belongs to the clinic being written to. |
+| A clinic income or expense line | **Silently misfiled**, and undetectable — it names no patient, so nothing on the row says where it belongs. |
+
+The refusal is how the bug surfaced: *"Choose the dentist who performed this treatment"*, with a
+dentist plainly selected on screen. The dentist was real; the clinic being searched was not the one
+on screen.
+
+## The fix
+
+The API client attaches the clinic, the same way it already attaches the auth token — a value every
+request needs and no call site should have to remember. It reads the same global `ClinicProvider`
+publishes and every Firestore path is built from, so there is no second answer to "which clinic am
+I in". An explicit `clinicId` in the body still wins, so the superadmin panel is unaffected.
+
+Defaulting client-side is a convenience and never an authorisation: the route still refuses a
+clinic the caller holds no role in.
+
+## Finding what it left behind
+
+**Superadmin panel → Audit → Run the check.** Superadmin-only, because answering "then whose
+patient is this?" means reading every clinic's patient list at once, and a clinic Admin must never
+have a cross-tenant read.
+
+It looks for one fingerprint: a row naming a patient who does not exist in the clinic holding it,
+while another clinic has exactly that patient. Firestore ids are random, so that is not
+coincidence.
+
+Three verdicts, and the difference between them matters:
+
+- **Misplaced** — the row is in the wrong books, and the report names where it belongs.
+- **Patient not found** — no clinic has that patient. Almost always one deleted since; the recycle
+  bin removes the patient and leaves the ledger alone. A loose end, not a tenancy error.
+- **Not checkable** — clinic income and expense lines, which name no patient. Counted and reported
+  rather than counted as clean, because a run that finds nothing must not read as a clean bill of
+  health when two write paths leave no evidence either way.
+
+`node scripts/find-misplaced-records.mjs` is the same check from a terminal, with a CSV.
+
+## There is no repair button, deliberately
+
+Moving a payment between clinics changes two clinics' revenue, two dentists' commission and a
+patient's balance on both sides. That is an accounting decision with a paper trail behind it, made
+row by row by somebody who can see both sides — not something to automate from a summary screen.
+

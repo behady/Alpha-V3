@@ -16,9 +16,10 @@ import { AnalyticsTab } from "@/components/superadmin/AnalyticsTab";
 import { UsersTab } from "@/components/superadmin/UsersTab";
 import { MetaTab } from "@/components/superadmin/MetaTab";
 import { MigrateTab } from "@/components/superadmin/MigrateTab";
+import MisplacedRecordsTab from "@/components/superadmin/MisplacedRecordsTab";
 
 // Tabs
-type Tab = 'clinics' | 'analytics' | 'users' | 'meta' | 'migrate';
+type Tab = 'clinics' | 'analytics' | 'users' | 'meta' | 'migrate' | 'misplaced';
 
 interface RichClinic extends Clinic {
   ownerEmail?: string;
@@ -212,6 +213,9 @@ export default function SuperAdminDashboard() {
             <button onClick={() => setActiveTab('migrate')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'migrate' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
               <HardDriveDownload size={16} /> Migrate
             </button>
+            <button onClick={() => setActiveTab('misplaced')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'misplaced' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
+              <Search size={16} /> Audit
+            </button>
           </div>
         </div>
       </div>
@@ -377,6 +381,7 @@ export default function SuperAdminDashboard() {
         {activeTab === 'meta' && <MetaTab />}
 
         {activeTab === 'migrate' && <MigrateTab clinics={clinics} />}
+        {activeTab === 'misplaced' && <MisplacedRecordsTab />}
 
       </div>
       

@@ -39,6 +39,8 @@
     "test:teeth": "npx tsx tests/toothTreatments.test.mjs",
     "_comment_test_clinicscope": "Every money and clinical write must name its clinic. The routes otherwise fall back to the caller's defaultClinicId, so a procedure logged at a second clinic was priced, attributed and written into the first one — visible only as 'Choose the dentist' for a dentist who was on screen. The API client attaches it now; this stops that becoming a per-call-site duty again.",
     "test:clinicscope": "npx tsx tests/clinicScoping.test.mjs",
+    "_comment_test_misplaced": "Telling a record in the wrong clinic's books apart from a patient deleted since, and from a row nothing can judge. The last one matters most: two write paths left no evidence either way, and a report that counts them as clean overstates what it knows.",
+    "test:misplaced": "npx tsx tests/misplacedRecords.test.mjs",
     "_comment_test_repair": "The historical payment repair's classifier. The assertions that matter most are the ones that refuse to touch a row whose commission was corrected by hand.",
     "test:repair": "npx tsx tests/repairClassifier.test.mjs",
     "_comment_test_discount": "Price lists and discounts. The two rules that matter: the lab fee is never discounted, and commission is calculated on the net.",
