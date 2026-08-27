@@ -36,6 +36,12 @@ import { APPOINTMENT_STAGES } from "@/lib/appointmentStages";
 import { runClinicReport } from "@/lib/automation/clinicReports";
 import { suggestSlots } from "@/lib/automation/slotSuggestions";
 import { isFullAccessRole } from "@/lib/permissions";
+import {
+  AI_WRITABLE_COLLECTIONS,
+  AI_DELETABLE_COLLECTIONS,
+  requiredWritePermission,
+  mayWrite,
+} from "@/lib/aiWritePolicy";
 
 /**
  * Collections the AI is permitted to touch.
@@ -68,29 +74,9 @@ const AI_READABLE_COLLECTIONS = new Set([
   "expenses",
 ]);
 
-/**
- * Reading is broad; writing is deliberately narrower.
- *
- * `staff` holds payroll (baseSalary, commissionPercentage) and `services` is the price list —
- * firestore.rules restricts both to Clinic Admins, but this route runs on the Admin SDK, which
- * bypasses rules entirely. Write access was previously checked against AI_READABLE_COLLECTIONS,
- * so any staff member with chat access could ask the assistant to edit their own salary. This
- * set is the only thing standing in for those rules, so it lists exactly the collections the
- * documented assistant workflows actually write. `services` being read-only here also matches
- * what the schema block below already tells the model.
- */
-const AI_WRITABLE_COLLECTIONS = new Set([
-  "patients",
-  "appointments",
-  "tickets",
-  "ledger",
-  "clinical_notes",
-  "inventory",
-  "inventory_transactions",
-]);
-
-/** Deleting financial or clinical history is not something a chat turn should be able to do. */
-const AI_DELETABLE_COLLECTIONS = new Set(["appointments", "tickets", "ledger", "inventory_transactions"]);
+// AI_WRITABLE_COLLECTIONS, AI_DELETABLE_COLLECTIONS and the per-caller permission rule live in
+// lib/aiWritePolicy so both can be tested without standing up firebase-admin. `services` staying
+// out of the writable set also matches what the schema block below tells the model.
 
 /**
  * The reception assistant sees less than the general one.
@@ -153,6 +139,35 @@ const AWAITING_CONFIRMATION = {
     "unless they approve it. Tell them briefly what you have prepared and that you need their " +
     "confirmation. Do NOT say it is done, saved, sent, moved, cancelled or recorded.",
 } as const;
+
+/**
+ * Does the person asking actually have the right to this write?
+ *
+ * The collection allowlist below answers a different question — what the ASSISTANT may touch —
+ * and it is the same answer for everybody. Every staff role shares one chat surface, and this
+ * route reaches Firestore through the Admin SDK, which bypasses firestore.rules entirely. So a
+ * receptionist with no clinical permission could ask the assistant to write a clinical note, and
+ * an assistant with no finance permission could have it post a charge: both are refused the
+ * instant they try it from the screen, and neither was refused here.
+ *
+ * COLLECTION_WRITE_PERMISSIONS is the same table firestore.rules mirrors, so the chat and the
+ * browser now give the same answer to the same question. A collection absent from that table
+ * (tickets) is one the rules hand to any active clinic member, which requireStaffUser has already
+ * established — absent means "no extra permission needed", not "unknown, deny", and inventing a
+ * stricter rule here would make the assistant refuse what the page allows.
+ */
+function assertWritePermission(
+  collection: string,
+  mode: "create" | "update" | "delete",
+  role: string | null | undefined,
+  permissions: readonly string[],
+): void {
+  if (mayWrite(collection, mode, role, permissions)) return;
+  throw new Error(
+    `You do not have permission to do this (${requiredWritePermission(collection, mode)}). ` +
+    `Ask a Clinic Admin to grant it, or ask someone who has it.`,
+  );
+}
 
 function assertCollectionAllowed(
   collection: string,
@@ -1035,6 +1050,7 @@ export async function POST(req: Request) {
           } else if (call.name === "db_write") {
              const col = (call.args as any).collection;
              assertCollectionAllowed(col, "write", readableCollections);
+             assertWritePermission(col, "create", authz.role, authz.permissions);
              const data = JSON.parse((call.args as any).dataJson);
 
              if (data.duration) data.duration = Number(data.duration);
@@ -1060,6 +1076,7 @@ export async function POST(req: Request) {
           } else if (call.name === "db_update") {
              const col = (call.args as any).collection;
              assertCollectionAllowed(col, "write", readableCollections);
+             assertWritePermission(col, "update", authz.role, authz.permissions);
              const id = (call.args as any).documentId;
              const data = JSON.parse((call.args as any).dataJson);
 
@@ -1090,6 +1107,9 @@ export async function POST(req: Request) {
           } else if (call.name === "db_delete") {
              const col = (call.args as any).collection;
              assertCollectionAllowed(col, "delete", readableCollections);
+             // Belt and braces. The Admin gate below is stricter than the permission table, but
+             // both are checked so relaxing one alone cannot quietly open the other.
+             assertWritePermission(col, "delete", authz.role, authz.permissions);
              const id = (call.args as any).documentId;
 
              // Deleting clinical and financial records is an Admin decision. Every staff role
@@ -1357,6 +1377,9 @@ export async function POST(req: Request) {
           } else if (call.name === "get_diagnosis_catalog") {
              toolResult = { success: true, catalog: DIAGNOSIS_OPTIONS.map(o => ({ id: o.id, category: o.cat, label: o.labelEn })) };
           } else if (call.name === "update_odontogram") {
+             // Writes teethData onto the patient record, so it is a patient edit — the same
+             // permission the chart screen itself demands.
+             assertWritePermission("patients", "update", authz.role, authz.permissions);
              const patientId = (call.args as any).patientId;
              const updates = (call.args as any).updates || [];
              

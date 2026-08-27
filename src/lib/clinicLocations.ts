@@ -19,6 +19,14 @@ export type ClinicBranch = {
   name: string;
   address?: string;
   phone?: string;
+  /**
+   * The short prefix stamped on this branch's lab case codes — `MAD` in `MAD-0142`.
+   *
+   * Optional, and blank for every branch created before lab tracking existed. `branchCodeFor()`
+   * in labCases.ts derives one from the name when it is empty, so nothing has to be filled in
+   * before the feature works; setting it just replaces a guess with the clinic's own choice.
+   */
+  code?: string;
   rooms: ClinicRoom[];
 };
 
@@ -47,6 +55,11 @@ function sanitizeBranch(raw: unknown): ClinicBranch | null {
     name,
     address: String(b.address || "").trim(),
     phone: String(b.phone || "").trim(),
+    // Normalised on the way in, because this is printed on paper and scanned back: letters and
+    // digits only, upper case, four characters at most. A field missing from here is not merely
+    // unread — LocationsSettings round-trips this output straight back into setDoc, so anything
+    // this function drops is erased the next time somebody saves an unrelated branch edit.
+    code: String(b.code || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 4),
     rooms,
   };
 }

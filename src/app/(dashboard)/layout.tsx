@@ -116,6 +116,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { key: "patients", href: "/patients", icon: Users },
     { key: "appointments", href: "/appointments", icon: Calendar },
     { key: "inventory", href: "/inventory", icon: Package },
+    // Gated on access.lab, which canAccessNavItem derives from the key. The permission and both
+    // translations of this label already existed and pointed at nothing until the page was built.
+    { key: "lab", href: "/lab", icon: FlaskConical },
     { key: "finance", href: "/finance", icon: Wallet },
     { key: "attendanceAi", href: "/ai/attendance", icon: UserCheck },
     { key: "reports", href: "/reports", icon: FileBarChart },

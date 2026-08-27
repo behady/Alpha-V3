@@ -96,8 +96,12 @@ export const DOCUMENT_REROUTES: Record<
  * matching feature works after cutover.
  */
 export const NO_V3_CONSUMER: Record<string, string> = {
-  labs: "v3 has no lab module yet — rows are preserved, but nothing in v3 reads them.",
-  lab_orders: "v3 has no lab module yet — rows are preserved, but nothing in v3 reads them.",
+  // v3 DOES have lab tracking now, but it is not these rows. Its directory is the settings/labs
+  // singleton and its cases live in lab_cases, both written fresh — so a migrated clinic sees an
+  // empty lab board and its v2 history sitting untouched beside it, which is worth saying out
+  // loud rather than letting someone conclude the migration lost their lab work.
+  labs: "v3 keeps its lab directory in settings/labs; these v2 rows are preserved but unread.",
+  lab_orders: "v3 keeps lab cases in lab_cases; these v2 rows are preserved but unread.",
   ortho_visits: "v3 ortho uses ortho_cases and ortho_sessions; preserved unread.",
   ortho_photos: "v3 ortho uses ortho_cases and ortho_sessions; preserved unread.",
   tickets: "No v3 consumer; preserved unread.",

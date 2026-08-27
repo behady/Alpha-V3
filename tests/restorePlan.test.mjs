@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   NOT_COVERED,
   ROOT_COLLECTIONS,
@@ -310,7 +311,10 @@ assert.equal(whenOf({ updatedAt: { toDate: () => { throw new Error("boom"); } } 
 // A root-level match block in the rules is indented four spaces; a clinic subcollection is
 // indented six. That is the whole distinction, and it is load-bearing here: `sms_devices` exists
 // at BOTH levels, and only the clinic one is a thing a restore may write.
-const REPO = new URL("..", import.meta.url).pathname;
+// fileURLToPath, not `.pathname`. On Windows a file URL's pathname is "/C:/Users/…", and joining
+// that produced "C:\C:\Users\…" — so this whole check threw ENOENT before reaching an assertion,
+// and the drift it exists to catch went unguarded on every Windows machine.
+const REPO = fileURLToPath(new URL("..", import.meta.url));
 const rulesText = readFileSync(join(REPO, "firestore.rules"), "utf8");
 
 const rootMatches = new Set(

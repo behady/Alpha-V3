@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { 
   Building, Building2, MapPin, Clock, Pill, Stethoscope, Users, Bell, Palette, ChevronDown, 
-  X, User, Mail, Lock, Badge, Save, MessageCircle, Monitor, CalendarDays, MessagesSquare, Sparkles, Trash2 } from "lucide-react";
+  X, User, Mail, Lock, Badge, Save, MessageCircle, Monitor, CalendarDays, MessagesSquare, Sparkles, Trash2, FlaskConical } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext";
@@ -33,6 +33,7 @@ import PatientSourcesSettings from "@/components/settings/PatientSourcesSettings
 import VisitReasonsSettings from "@/components/settings/VisitReasonsSettings";
 import OnlineBookingSettings from "@/components/settings/OnlineBookingSettings";
 import LocationsSettings from "@/components/settings/LocationsSettings";
+import DentalLabsSettings from "@/components/settings/DentalLabsSettings";
 import AiCreditsSettings from "@/components/settings/AiCreditsSettings";
 import { logActivity } from "@/lib/logger";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
@@ -96,6 +97,7 @@ export default function SettingsPage() {
     { id: "attendance", label: language === 'ar' ? "الحضور" : "Attendance", icon: MapPin, adminOnly: true },
     { id: "clinical", label: language === 'ar' ? "الجدول" : "Schedule", icon: Clock, adminOnly: true },
     { id: "locations", label: language === 'ar' ? "الفروع والغرف" : "Branches & Rooms", icon: Building2, adminOnly: true },
+    { id: "labs", label: language === 'ar' ? "المعامل" : "Dental Labs", icon: FlaskConical, adminOnly: true },
     { id: "recall", label: language === 'ar' ? "المتابعة" : "Recall", icon: Clock, adminOnly: true },
     { id: "prescriptions", label: language === 'ar' ? "الوصفات" : "Prescriptions", icon: Pill, requires: "access.settings" },
     { id: "services", label: language === 'ar' ? "الأسعار" : "Prices", icon: Stethoscope, requires: "access.settings" },
@@ -367,7 +369,13 @@ export default function SettingsPage() {
                     <ChevronDown size={14} className={`text-slate-300 ${isRTL ? "rotate-90" : "-rotate-90"}`} />
                   </Link>
 
-                  {tabs.filter(t => ['users', 'join_requests', 'clinical', 'services', 'prescriptions', 'sources', 'visit_reasons', 'attendance', 'online_booking'].includes(t.id)).map(tab => {
+                  {/* `locations` was in the tabs array but in none of these three group filters,
+                      so Branches & Rooms was reachable only from the mobile dropdown or by typing
+                      ?tab=locations — invisible to every desktop admin. Restored here alongside
+                      `labs`, which needs it: a branch's three-letter code is what a lab case code
+                      is built from. `recall`, `recently_deleted` and `ai_credits` have the same
+                      problem and are still missing; they need a decision about which group. */}
+                  {tabs.filter(t => ['users', 'join_requests', 'clinical', 'services', 'prescriptions', 'sources', 'visit_reasons', 'attendance', 'online_booking', 'locations', 'labs'].includes(t.id)).map(tab => {
                     if (!mayOpenTab(tab)) return null;
                     const isActive = effectiveTab === tab.id;
                     return (
@@ -451,6 +459,7 @@ export default function SettingsPage() {
             {effectiveTab === 'interface' && <InterfaceSettings />}
             {effectiveTab === 'online_booking' && <OnlineBookingSettings />}
             {effectiveTab === 'locations' && isAdmin && <LocationsSettings />}
+            {effectiveTab === 'labs' && isAdmin && <DentalLabsSettings />}
             {effectiveTab === 'sources' && isAdmin && <PatientSourcesSettings />}
             {effectiveTab === 'visit_reasons' && <VisitReasonsSettings />}
         </div>

@@ -120,7 +120,12 @@ export const KNOWN_CLINIC_COLLECTIONS = new Set([
   "whatsapp_outbox",
   // Named only in the rules' permission maps; governed by the blanket subcollection grant.
   "appointments", "categories", "inventory_transactions", "marketing_campaigns", "marketing_cases",
-  "marketing_consents", "marketing_settings", "ortho_cases", "ortho_sessions",
+  "marketing_consents", "marketing_settings", "ortho_cases", "ortho_sessions", "lab_cases",
+  // The per-branch lab case counter. Named nowhere in firestore.rules on purpose: leaving it out
+  // of the permission maps means a member who cannot create a lab case fails on the CASE write,
+  // which names the thing they were actually doing, rather than on a counter bump they never
+  // asked for — the misleading failure the settings/counters comment in the rules describes.
+  "lab_counters",
   // Real, used by the app, and mentioned nowhere in firestore.rules — which is why this list is
   // hand-maintained rather than derived from the rules: a rules-derived list would flag all eight
   // of these as strangers during an incident, and an operator who has been cried wolf at eight
@@ -158,6 +163,12 @@ export const DOCUMENT_DENY: Record<string, string> = {
     "document sends as the clinic. It is absent from live in exactly the clinics the migration " +
     "cleaned, so an additive restore would put it back without any overwrite flag. Restoring one " +
     "tenant re-opens a hole that spans all of them.",
+  "lab_counters/branches":
+    "The transactional generator behind lab case codes. Restoring it rewinds every branch's " +
+    "counter, and the next cases raised are stamped with codes already printed on orders and " +
+    "written in marker on bags sitting at a lab right now. Two different patients' work under one " +
+    "number is precisely the confusion lab tracking exists to prevent, and it surfaces weeks " +
+    "later when a bag comes back. Same reasoning as settings/counters below.",
   "settings/counters":
     "The transactional generator behind patient file numbers. Restoring it rewinds the counter, " +
     "and the next patients registered are stamped with file numbers already printed on existing " +

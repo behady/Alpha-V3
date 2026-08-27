@@ -58,7 +58,11 @@
     "test:tokens": "npx tsx tests/aiTokenUsage.test.mts",
     "test:backup": "npx tsx tests/backupImport.test.mts",
     "_comment_test_ainav": "The allowlist behind the assistant's navigate_to tool. Guards the failure where it announces 'Opening the patient's file' and pushes a 404. No network, no emulator.",
-    "test:ai-nav": "npx tsx tests/aiNavigation.test.mts"
+    "test:ai-nav": "npx tsx tests/aiNavigation.test.mts",
+    "_comment_test_aiwrite": "Who may ask the assistant to change a record. The route runs on the Admin SDK, so firestore.rules never sees these writes and this table is the only thing standing in for them: a receptionist must not get clinical.edit by going through the chat instead of the screen.",
+    "test:ai-write": "npx tsx tests/aiWritePolicy.test.mts",
+    "_comment_test_lab": "Lab case tracking: the per-branch code, searching by the number written on a bag, the twelve work types and which fields each one prints, and the order sheet in all three paper sizes. The one assertion worth reading is that a patient's full name never reaches the paper.",
+    "test:lab": "npx tsx tests/labCases.test.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

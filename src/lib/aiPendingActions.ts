@@ -315,8 +315,10 @@ export async function resolvePendingAiAction(args: {
   userId: string;
   userName?: string | null;
   userRole?: string | null;
+  /** The approver's clinic-scoped permissions. Absent is treated as "none granted". */
+  userPermissions?: readonly string[];
 }): Promise<ResolveResult> {
-  const { clinicId, actionId, decision, userId, userName, userRole } = args;
+  const { clinicId, actionId, decision, userId, userName, userRole, userPermissions } = args;
 
   const pendingRef = adminClinicDoc(clinicId, "ai_pending_actions", actionId);
   const pendingSnap = await pendingRef.get();
@@ -346,6 +348,33 @@ export async function resolvePendingAiAction(args: {
   // role changed between staging and approval.
   if (kind === "delete" && !isFullAccessRole(userRole)) {
     return { ok: false, error: "Only a Clinic Admin can confirm a deletion." };
+  }
+
+  /**
+   * The rest of the staged kinds, gated on the same permissions their screens demand.
+   *
+   * Approving is where the write actually happens, so this is the door that matters. Only
+   * deletions were checked: a receptionist without `finance.add` could have the assistant stage a
+   * payment and then post it themselves, and one without `appointments.edit` could move a booking
+   * — both refused on the screens that own those actions, and neither refused here, because this
+   * runs on the Admin SDK where firestore.rules never gets a say.
+   *
+   * Checked at approval rather than at staging on purpose, and in addition to the route's own
+   * check: a stored action must not become a way around the gate if the person's permissions
+   * changed between the assistant preparing it and someone confirming it.
+   *
+   * `whatsapp` is absent deliberately — there is no messaging permission in the catalogue and no
+   * rules-side analogue (whatsapp_outbox is server-only), so inventing one here would refuse what
+   * every other screen allows. It is the clinic's own templated message to their own patient, and
+   * a human still taps Send.
+   */
+  const requiredForKind: Partial<Record<PendingActionKind, string>> = {
+    appointment_update: "appointments.edit",
+    payment: "finance.add",
+  };
+  const needed = requiredForKind[kind];
+  if (needed && !isFullAccessRole(userRole) && !userPermissions?.includes(needed)) {
+    return { ok: false, error: `You do not have permission to do this (${needed}).` };
   }
 
   const markApproved = () =>
