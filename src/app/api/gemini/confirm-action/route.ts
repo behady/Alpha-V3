@@ -44,6 +44,10 @@ export async function POST(request: Request) {
       userId: authz.uid,
       userName: typeof body.userName === "string" ? body.userName : null,
       userRole: authz.role,
+      // Clinic-scoped, because requireStaffUser was given the clinicId: the resolver gates a
+      // staged payment on finance.add and an appointment change on appointments.edit, and the
+      // flat legacy array would be the wrong list to judge a multi-clinic account by.
+      userPermissions: authz.permissions,
     });
 
     if (!result.ok) return NextResponse.json(result, { status: 400 });
