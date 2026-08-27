@@ -28,7 +28,21 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { requireStaffPermission } from "@/lib/apiStaffAuth";
-import { buildManualEntryRow, buildPaymentRow, type ProcedureLite, type StaffLite } from "@/lib/ledgerWrite";
+import {
+  buildManualEntryRow,
+  buildPaymentRow,
+  resolveDoctorForPayment,
+  sumPayments,
+  type ProcedureLite,
+  type StaffLite,
+} from "@/lib/ledgerWrite";
+import {
+  allocationMessage,
+  chargeAmount,
+  checkAllocation,
+  OVER_ALLOCATION_CODE,
+  type AllocationVerdict,
+} from "@/lib/paymentAllocation";
 import { buildDeleteContext, evaluateDelete, type DeleteTarget } from "@/lib/deletePolicy";
 import { applyProcedureSync, readProcedureCommissionBasis, readProcedurePayments } from "@/lib/server/ledgerSync";
 import { recordLedgerAudit, recordMoneyChange } from "@/lib/server/ledgerAudit";
@@ -41,6 +55,26 @@ type Actor = { uid: string; name: string; role: string };
 
 function bad(error: string, status = 400) {
   return NextResponse.json({ ok: false, error }, { status });
+}
+
+/**
+ * A payment that would settle more than its treatment is worth.
+ *
+ * Thrown from inside a transaction, so it has to survive being caught by the dispatcher. It
+ * carries the numbers rather than a sentence, because the browser needs the remaining amount to
+ * offer "record that much and put the rest on account" — a refusal that only says no leaves the
+ * receptionist holding the patient's money with nowhere to put it.
+ */
+class OverAllocationError extends Error {
+  readonly verdict: Extract<AllocationVerdict, { ok: false }>;
+  readonly description: string | null;
+
+  constructor(verdict: Extract<AllocationVerdict, { ok: false }>, description: string | null) {
+    super("OVER_ALLOCATION");
+    this.name = "OverAllocationError";
+    this.verdict = verdict;
+    this.description = description;
+  }
 }
 
 function todayKey(): string {
@@ -151,6 +185,16 @@ async function createPayment(args: {
       // flag. Whether this is the first payment decides who carries the lab fee, and a browser
       // that raced another receptionist would get that wrong in a way nobody would notice.
       siblings = await readProcedurePayments(txn, clinicId, procedureId);
+
+      // Does this fit? Asked here, inside the transaction, against the payments actually in the
+      // database — a browser that checked against a stale list, or one of the three screens that
+      // did not check at all, is exactly how 1,200 EGP came to settle a 200 EGP consultation.
+      const verdict = checkAllocation({
+        cost: chargeAmount(procedureData),
+        otherPaymentsTotal: sumPayments(siblings),
+        amount,
+      });
+      if (!verdict.ok) throw new OverAllocationError(verdict, procedure.description ?? null);
     }
 
     const patientSnap = await txn.get(adminClinicDoc(clinicId, "patients", patientId));
@@ -300,37 +344,166 @@ async function updateRow(args: { clinicId: string; actor: Actor; body: Record<st
       // rows, cannot disagree with the patient ledger, which reads `paid`.
       update.amount = paid;
 
-      const procedureId = typeof before.procedureId === "string" ? before.procedureId : "";
-      if (procedureId) {
-        const procSnap = await txn.get(adminClinicDoc(clinicId, "ledger", procedureId));
-        if (procSnap.exists) {
-          const procedureData = procSnap.data() || {};
-          const basis = await readProcedureCommissionBasis(txn, clinicId, procedureData);
-          const siblings = await readProcedurePayments(txn, clinicId, procedureId);
-          // The edited row's new figures, in the set the rebalance will see.
-          const paymentsAfter = siblings.map((p) =>
-            p.id === id ? { ...p, paid, date: String(update.date ?? before.date ?? "") } : p
-          );
-          applyProcedureSync(txn, {
-            clinicId,
-            procedureLedgerId: procedureId,
-            payments: paymentsAfter,
-            labFee: basis.labFee,
-            commissionPct: basis.commissionPct,
-          });
-          // applyProcedureSync writes this row's commission too; keep the two writes consistent
-          // by letting it win rather than computing a second answer here.
-        } else {
-          const { doctorCommissionAmount, clinicProfit } = recalcCommissionFromPayment(
-            paid,
-            Number(before.labFee) || 0,
-            Number(before.doctorCommissionPercentage) || 0
-          );
-          update.doctorCommissionAmount = doctorCommissionAmount;
-          update.clinicProfit = clinicProfit;
+      const beforeProcedureId = typeof before.procedureId === "string" ? before.procedureId.trim() : "";
+      const beforePaid = Number(before.paid ?? before.amount ?? 0) || 0;
+
+      /**
+       * Which treatment this payment settles — changeable, deliberately.
+       *
+       * It was not, and that is half of why a misallocated payment was so hard to put right: the
+       * only way to move 1,200 EGP off the wrong charge was to delete the row and re-enter it,
+       * which loses who collected it, when, and the audit trail that says it ever existed. The
+       * money was real; only the row it pointed at was wrong. So the link is editable, and every
+       * consequence of moving it — the dentist, the lab fee, the commission on both charges — is
+       * recomputed here rather than left for somebody to notice.
+       */
+      const repointing = patch.procedureId !== undefined;
+      const nextProcedureId = repointing
+        ? String(patch.procedureId ?? "").trim()
+        : beforeProcedureId;
+
+      // Everything read up front: a transaction cannot read after it writes, and moving a payment
+      // touches two procedures.
+      const beforeProcSnap = beforeProcedureId
+        ? await txn.get(adminClinicDoc(clinicId, "ledger", beforeProcedureId))
+        : null;
+
+      const sameTarget = nextProcedureId === beforeProcedureId;
+      const nextProcSnap = !nextProcedureId
+        ? null
+        : sameTarget
+          ? beforeProcSnap
+          : await txn.get(adminClinicDoc(clinicId, "ledger", nextProcedureId));
+
+      if (nextProcedureId && !sameTarget) {
+        if (!nextProcSnap?.exists) throw new Error("NO_PROCEDURE");
+        const nextData = nextProcSnap.data() || {};
+        if (String(nextData.type || "") !== "procedure") throw new Error("NOT_A_PROCEDURE");
+        // A payment may only be moved between charges belonging to the same patient. Without this
+        // the edit dialog becomes a way to move money between patients' books with no trace of
+        // where it came from.
+        if (String(nextData.patientId || "") !== String(before.patientId || "")) {
+          throw new Error("WRONG_PATIENT");
         }
-      } else {
+      }
+
+      const beforeSiblings = beforeProcedureId
+        ? await readProcedurePayments(txn, clinicId, beforeProcedureId)
+        : [];
+      const nextSiblings = !nextProcedureId
+        ? []
+        : sameTarget
+          ? beforeSiblings
+          : await readProcedurePayments(txn, clinicId, nextProcedureId);
+
+      if (nextProcedureId && nextProcSnap?.exists) {
+        const nextData = nextProcSnap.data() || {};
+        const verdict = checkAllocation({
+          cost: chargeAmount(nextData),
+          otherPaymentsTotal: sumPayments(nextSiblings.filter((p) => p.id !== id)),
+          amount: paid,
+          // Only the row's own history excuses an overage, and only when it stays on the same
+          // charge. Dropping 1,400 onto a charge it was never on is a fresh over-allocation.
+          previousAmount: sameTarget ? beforePaid : null,
+        });
+        if (!verdict.ok) {
+          throw new OverAllocationError(
+            verdict,
+            typeof nextData.description === "string" ? nextData.description : null
+          );
+        }
+      }
+
+      if (repointing && !sameTarget) {
+        update.procedureId = nextProcedureId || null;
+        // The dentist follows the treatment. A payment left pointing at the old dentist would keep
+        // paying them commission for work it no longer settles.
+        const nextData = nextProcSnap?.exists ? nextProcSnap.data() || {} : null;
+        const doctor = resolveDoctorForPayment(
+          nextData
+            ? {
+                id: nextProcedureId,
+                doctorId: typeof nextData.doctorId === "string" ? nextData.doctorId : null,
+                doctorName: typeof nextData.doctorName === "string" ? nextData.doctorName : null,
+                doctor: typeof nextData.doctor === "string" ? nextData.doctor : null,
+              }
+            : null,
+          staff
+        );
+        update.doctorId = doctor ? doctor.id : null;
+        update.doctorName = doctor ? doctor.name || null : null;
+        update.category = nextProcedureId ? "Treatment Payment" : "Advance Payment";
+        // A split someone set by hand was set against the OLD treatment. Carrying the flag over
+        // would tell the repair classifier that these freshly-derived figures were a human's
+        // decision, and it would then refuse to correct them forever.
+        update.commissionSetManually = false;
+        if (!nextProcedureId) {
+          // Unlinked: it settles no treatment, so it owes no lab fee and earns no commission.
+          // Explicit zeroes, not absent fields — the repair classifier tells those two apart.
+          // The amount-derived fields are written by the unallocated branch below, which every
+          // payment carrying no procedure passes through.
+          update.labFee = 0;
+          update.doctorCommissionPercentage = 0;
+        }
+      }
+
+      // Rebalance whichever charges changed. Both, when the payment moved between them: the one it
+      // left has one fewer payment (so the lab fee may move to a different row), and the one it
+      // joined has one more.
+      // Both bases read here, before the first write: a Firestore transaction refuses any read
+      // issued after a write, and moving a payment has to rebalance two procedures.
+      const beforeBasis =
+        beforeProcedureId && beforeProcSnap?.exists && !sameTarget
+          ? await readProcedureCommissionBasis(txn, clinicId, beforeProcSnap.data() || {})
+          : null;
+      const nextBasis =
+        nextProcedureId && nextProcSnap?.exists
+          ? await readProcedureCommissionBasis(txn, clinicId, nextProcSnap.data() || {})
+          : null;
+
+      if (beforeProcedureId && beforeProcSnap?.exists && !sameTarget && beforeBasis) {
+        const basis = beforeBasis;
+        applyProcedureSync(txn, {
+          clinicId,
+          procedureLedgerId: beforeProcedureId,
+          payments: beforeSiblings.filter((p) => p.id !== id),
+          labFee: basis.labFee,
+          commissionPct: basis.commissionPct,
+        });
+      }
+
+      if (nextProcedureId && nextProcSnap?.exists && nextBasis) {
+        const basis = nextBasis;
+        const date = String(update.date ?? before.date ?? "");
+        const withoutThis = nextSiblings.filter((p) => p.id !== id);
+        // The set as it will stand once this edit lands. The row may be joining the set for the
+        // first time, so it is added rather than mapped over.
+        const paymentsAfter = [...withoutThis, { id, paid, amount: paid, date }];
+        applyProcedureSync(txn, {
+          clinicId,
+          procedureLedgerId: nextProcedureId,
+          payments: paymentsAfter,
+          labFee: basis.labFee,
+          commissionPct: basis.commissionPct,
+        });
+        // applyProcedureSync writes this row's lab fee and commission too. Leaving them out of
+        // `update` — which is written last and would win — is what keeps the two agreeing.
+      } else if (nextProcedureId && !nextProcSnap?.exists) {
+        // The charge this settles has been deleted out from under it. Keep whatever was recorded
+        // rather than inventing a new split from a row that is gone.
+        const { doctorCommissionAmount, clinicProfit } = recalcCommissionFromPayment(
+          paid,
+          Number(before.labFee) || 0,
+          Number(before.doctorCommissionPercentage) || 0
+        );
+        update.doctorCommissionAmount = doctorCommissionAmount;
+        update.clinicProfit = clinicProfit;
+      } else if (!nextProcedureId) {
         // Unallocated payment: no dentist, so nothing to recompute beyond the amount itself.
+        // Reached both by a payment that never had a treatment and by one just unlinked from
+        // theirs. Gating this on `!repointing` left an on-account payment's clinicProfit frozen at
+        // the old amount whenever the figure was edited, because the screen now sends the (unchanged)
+        // link on every save.
         const { doctorCommissionAmount, clinicProfit } = recalcCommissionFromPayment(paid, 0, 0);
         update.doctorCommissionAmount = doctorCommissionAmount;
         update.clinicProfit = clinicProfit;
@@ -615,12 +788,28 @@ export async function POST(request: Request) {
         return bad("Unknown action.");
     }
   } catch (e) {
+    // Carries its numbers, so this cannot go through the message-string switch below.
+    if (e instanceof OverAllocationError) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: allocationMessage(e.verdict, e.description),
+          reason: OVER_ALLOCATION_CODE,
+          remaining: e.verdict.remaining,
+          excess: e.verdict.excess,
+        },
+        { status: 409 }
+      );
+    }
+
     const message = e instanceof Error ? e.message : "";
     switch (message) {
       case "NO_PROCEDURE":
         return bad("That treatment no longer exists. Refresh and try again.", 404);
       case "NOT_A_PROCEDURE":
         return bad("A payment can only be linked to a treatment charge.");
+      case "WRONG_PATIENT":
+        return bad("A payment can only be moved to a treatment belonging to the same patient.");
       case "NOT_FOUND":
         return bad("That row no longer exists. Refresh and try again.", 404);
       case "NOT_A_PAYMENT":

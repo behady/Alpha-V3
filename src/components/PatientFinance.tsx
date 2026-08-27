@@ -3,7 +3,8 @@
 import { useState, useEffect, useMemo, Fragment } from "react";
 import { 
   Plus, Wallet, Trash2, Printer, CreditCard, Edit2, 
-  X, Save, Link as LinkIcon, ChevronDown, ChevronRight, Check, User, MessageCircle, Loader2, ScrollText, Clock
+  X, Save, Link as LinkIcon, ChevronDown, ChevronRight, Check, User, MessageCircle, Loader2, ScrollText, Clock,
+  AlertTriangle
 } from "lucide-react";
 import { auth, db } from "@/lib/firebase";
 import { isDentistStaff } from "@/lib/staffRoles";
@@ -39,6 +40,7 @@ import {
   deleteLedgerRow,
   updateLedgerRow,
 } from "@/lib/moneyApi";
+import { allocationMessage, allocationMessageAr, checkAllocation, overAllocation } from "@/lib/paymentAllocation";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 function formatWhatsAppLedgerMessage(
   patientName: string,
@@ -222,6 +224,15 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
     whatsappFail: language === 'ar' ? "فشل إرسال واتساب" : "WhatsApp send failed",
     receiptWhatsappFail: language === 'ar' ? "فشل إرسال كشف الحساب" : "Receipt send failed",
     whatsappNeedAuth: language === 'ar' ? "سجّل الدخول أولاً" : "Sign in required",
+    creditBalance: language === 'ar' ? "رصيد للمريض" : "Patient Credit",
+    settlesWhich: language === 'ar' ? "هذه الدفعة تخص" : "This payment settles",
+    onAccount: language === 'ar' ? "-- دفعة تحت الحساب --" : "-- Payment on account --",
+    overpaidBy: language === 'ar' ? "مدفوع بالزيادة" : "Overpaid by",
+    overpaidHint: language === 'ar'
+      ? "دفعة أو أكثر مربوطة بهذا العلاج بأكثر من قيمته. عدّل الدفعة وحوّلها للعلاج الصحيح أو تحت الحساب."
+      : "One or more payments settle this treatment for more than it costs. Edit the payment and move it to the treatment it belongs to, or to the patient's account.",
+    remainingOn: language === 'ar' ? "المتبقي" : "remaining",
+    settledFull: language === 'ar' ? "مسدّد بالكامل" : "settled",
   };
 
   useEffect(() => {
@@ -304,7 +315,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
     return rawProcs.map(proc => {
         const paidForThis = payments.filter(p => p.procedureId === proc.id).reduce((sum, p) => sum + (Number(p.paid) || 0), 0);
         const remaining = (Number(proc.cost) || 0) - paidForThis;
-        return { ...proc, remaining: remaining > 0 ? remaining : 0, isPaid: remaining <= 0 };
+        return { ...proc, remaining: remaining > 0 ? remaining : 0, isPaid: remaining <= 0, paidForThis };
     });
   }, [transactions]);
 
@@ -318,6 +329,31 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
         showToast(language === 'ar' ? "لا يمكن إضافة مبلغ بالسالب" : "Cannot add negative payment amount", "error");
         return;
     } // Fix Scenario 2: Negative Typo protection
+
+    // Does this fit on the charge it is being pointed at? Asked here so the receptionist finds out
+    // before the patient hands the money over — and asked again by the server, which is the one
+    // that counts. This screen was the loosest of the four that take payments: it checked nothing,
+    // which is how 1,200 EGP came to settle a 200 EGP consultation and left the patient looking
+    // owed 1,200 she had never been given.
+    if (selectedProcedureId) {
+      const target = proceduresWithBalance.find(p => p.id === selectedProcedureId);
+      if (target) {
+        const verdict = checkAllocation({
+          cost: Number(target.cost) || 0,
+          otherPaymentsTotal: target.paidForThis,
+          amount: payNum,
+        });
+        if (!verdict.ok) {
+          showToast(
+            language === 'ar'
+              ? allocationMessageAr(verdict, target.description)
+              : allocationMessage(verdict, target.description),
+            "error"
+          );
+          return;
+        }
+      }
+    }
 
     setIsAddingPaymentStateLocked(true);
 
@@ -398,6 +434,10 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
               description: editingItem.description,
               paid: Number(editingItem.paid),
               method: editingItem.method || null,
+              // Sent on every payment edit, not only when it changed: the server treats an
+              // unchanged link as a no-op, and leaving it out on some saves is how a screen ends up
+              // with two behaviours nobody can predict from the outside.
+              ...(editingItem.type === "payment" ? { procedureId: editingItem.procedureId || null } : {}),
             };
 
       await updateLedgerRow(editingItem.id, patch, clinic?.id);
@@ -576,9 +616,15 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{txt.totalPaid}</span>
             <span className="text-2xl font-black text-green-600">{totalPaid.toLocaleString()} <span className="text-xs text-green-400">EGP</span></span>
             </div>
-            <div className={`p-5 rounded-2xl border shadow-sm flex flex-col items-center justify-center gap-2 ${balance > 0 ? 'bg-red-50 border-red-100' : 'bg-green-50 border-green-100'}`}>
-            <span className={`text-[10px] font-black uppercase tracking-widest ${balance > 0 ? 'text-red-400' : 'text-green-500'}`}>{txt.balanceDue}</span>
-            <span className={`text-2xl font-black ${balance > 0 ? 'text-red-600' : 'text-green-600'}`}>{balance.toLocaleString()} <span className="text-xs opacity-50">EGP</span></span>
+            {/*
+              A negative balance is not a smaller amount owed — it is money the clinic is holding.
+              It used to render as "-1,200" under a green heading reading BALANCE DUE, which is how
+              a patient sat for weeks looking as though she were owed 1,200 EGP nobody had given
+              her. Credit gets its own name and its own colour.
+            */}
+            <div className={`p-5 rounded-2xl border shadow-sm flex flex-col items-center justify-center gap-2 ${balance > 0 ? 'bg-red-50 border-red-100' : balance < 0 ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-100'}`}>
+            <span className={`text-[10px] font-black uppercase tracking-widest ${balance > 0 ? 'text-red-400' : balance < 0 ? 'text-amber-600' : 'text-green-500'}`}>{balance < 0 ? txt.creditBalance : txt.balanceDue}</span>
+            <span className={`text-2xl font-black ${balance > 0 ? 'text-red-600' : balance < 0 ? 'text-amber-700' : 'text-green-600'}`}>{Math.abs(balance).toLocaleString()} <span className="text-xs opacity-50">EGP</span></span>
             </div>
         </div>
 
@@ -746,6 +792,53 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                               </p>
                             </div>
                         ) : (
+                          <>
+                            {/*
+                              Which treatment this payment settles.
+                              Until this existed there was no way to move money off the wrong charge
+                              except deleting the row and typing it again — which loses the date, the
+                              method, who collected it, and the fact that it ever happened. The
+                              server re-derives the dentist and the commission on both charges.
+                            */}
+                            {editingItem.type === 'payment' && (
+                              <div>
+                                <label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">{txt.settlesWhich}</label>
+                                <select
+                                  value={editingItem.procedureId || ""}
+                                  onChange={e => setEditingItem({ ...editingItem, procedureId: e.target.value || undefined })}
+                                  className="w-full p-3 border border-gray-200 rounded-xl font-bold text-sm outline-none focus:border-blue-500 bg-white"
+                                >
+                                  <option value="">{txt.onAccount}</option>
+                                  {/*
+                                    The charge is gone but the row still points at it. Without an
+                                    option carrying that id the select would fall back to showing
+                                    "payment on account" while the state still held the dangling
+                                    link — so the screen would say one thing and the database
+                                    another, and saving without touching it would look like a no-op.
+                                  */}
+                                  {editingItem.procedureId && !proceduresWithBalance.some(p => p.id === editingItem.procedureId) && (
+                                    <option value={editingItem.procedureId}>
+                                      {language === 'ar' ? "علاج محذوف" : "Deleted treatment"} ({editingItem.procedureId})
+                                    </option>
+                                  )}
+                                  {proceduresWithBalance.map(proc => (
+                                    <option key={proc.id} value={proc.id}>
+                                      {proc.date} · {proc.description.split('(')[0].trim()} · {(Number(proc.cost) || 0).toLocaleString()} EGP
+                                      {proc.remaining > 0 ? ` (${proc.remaining.toLocaleString()} ${txt.remainingOn})` : ` (${txt.settledFull})`}
+                                    </option>
+                                  ))}
+                                </select>
+                                {/* The charge this row points at has been deleted since. Say so, rather
+                                    than showing "payment on account" for money that is not on account. */}
+                                {editingItem.procedureId && !proceduresWithBalance.some(p => p.id === editingItem.procedureId) && (
+                                  <p className="mt-1.5 text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-2 py-1.5">
+                                    {language === 'ar'
+                                      ? "العلاج المرتبط بهذه الدفعة لم يعد موجودًا. اختر العلاج الصحيح أو حوّلها تحت الحساب."
+                                      : "The treatment this payment settled no longer exists. Pick the right one, or move it to the patient's account."}
+                                  </p>
+                                )}
+                              </div>
+                            )}
                             <div className="grid grid-cols-2 gap-4">
                                 <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">{txt.paidAmount}</label><input type="number" value={editingItem.paid} onChange={e => setEditingItem({...editingItem, paid: Number(e.target.value)})} className="w-full p-3 border border-gray-200 rounded-xl font-black text-green-600 outline-none focus:border-green-500"/></div>
                                 <div>
@@ -755,6 +848,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                     </select>
                                 </div>
                             </div>
+                          </>
                         )}
                         <button type="submit" className="w-full bg-blue-600 text-white py-3.5 rounded-xl font-black text-xs uppercase shadow-lg hover:bg-blue-700 flex items-center justify-center gap-2 mt-2 transition-all active:scale-95"><Save size={16}/> {txt.saveChanges}</button>
                     </form>
@@ -779,7 +873,11 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                 const linkedPayments = payments.filter(p => p.procedureId === proc.id);
                                 const paidForThis = linkedPayments.reduce((sum, p) => sum + (Number(p.paid) || 0), 0);
                                 const remaining = (Number(proc.cost) || 0) - paidForThis;
-                                return { ...proc, remaining: remaining > 0 ? remaining : 0, isPaid: remaining <= 0, linkedPayments, paidForThis };
+                                // Money settling this charge beyond what it costs. The server refuses
+                                // to create any more of these; this is how the ones already in the
+                                // books stop being invisible.
+                                const overpaid = overAllocation(Number(proc.cost) || 0, paidForThis);
+                                return { ...proc, remaining: remaining > 0 ? remaining : 0, isPaid: remaining <= 0, linkedPayments, paidForThis, overpaid };
                             });
                             
                             const unlinkedPayments = payments.filter(p => !p.procedureId || !rawProcs.some(rp => rp.id === p.procedureId));
@@ -839,6 +937,16 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                      </span>
                                                    )}
                                                    
+                                                   {item.overpaid > 0 && (
+                                                       <div className="mt-1.5 rounded-lg border border-amber-300 bg-amber-100/80 px-2 py-1.5 text-[10px] font-black leading-relaxed text-amber-900 w-fit max-w-sm">
+                                                         <span className="inline-flex items-center gap-1">
+                                                           <AlertTriangle size={11} className="shrink-0" />
+                                                           {txt.overpaidBy} {item.overpaid.toLocaleString()} EGP
+                                                         </span>
+                                                         <div className="font-bold text-amber-800 mt-0.5">{txt.overpaidHint}</div>
+                                                       </div>
+                                                   )}
+
                                                    {/* Progress Bar */}
                                                    <div className="mt-3 w-full max-w-sm h-1.5 bg-gray-100 rounded-full overflow-hidden flex">
                                                        <div 

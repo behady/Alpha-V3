@@ -1,5 +1,6 @@
 import { adminClinicCollection } from "@/lib/adminClinicDb";
 import { pickPatientPhone } from "@/lib/patientPhone";
+import { chargeAmount, overAllocation } from "@/lib/paymentAllocation";
 import { rowAmount } from "@/lib/revenueRecovery";
 
 /**
@@ -26,6 +27,42 @@ const MIN_OWED = 1;
 
 /** Ledger and note volume is unbounded; cap reads so one large clinic cannot stall the request. */
 const SCAN_LIMIT = 4000;
+
+/**
+ * A payment sitting on a charge it does not belong to.
+ *
+ * This list exists because the debtors list below deliberately cannot show it. A credit balance is
+ * clamped to zero there, so that one patient's prepayment does not cancel out another's arrears in
+ * the headline — which is correct for a call list, and means a patient whose books say she is owed
+ * 1,200 EGP she was never given appears nowhere at all.
+ *
+ * Two shapes, same disease:
+ *
+ *   `over_allocated`   — more money settles a charge than the charge is worth. A 200 EGP
+ *                        consultation reading "paid 1,400".
+ *   `orphaned_payment` — the charge a payment settled has been deleted and the payment stayed.
+ *                        Usually a duplicate treatment cleaned up from a screen that removed the
+ *                        charge without its money.
+ *
+ * Both distort the patient's balance by exactly the excess, and neither is visible from any screen
+ * that reports totals.
+ */
+export interface LedgerMisallocation {
+  kind: "over_allocated" | "orphaned_payment";
+  patientId: string;
+  patientName: string;
+  /** The charge these payments point at. Still set for an orphan — that is the id that dangles. */
+  procedureId: string;
+  /** Empty for an orphan: the row that would have named it is gone. */
+  procedureDescription: string;
+  procedureCost: number;
+  paidTotal: number;
+  /** How far past the charge this goes. The whole amount, when the charge no longer exists. */
+  excess: number;
+  /** The most recent date among the payments, for sorting a work queue. */
+  date: string;
+  paymentIds: string[];
+}
 
 export interface UnbilledItem {
   noteId: string;
@@ -64,6 +101,10 @@ export interface RecoveryList {
     unbilled: number;
     totalOwed: number;
   };
+  /** Payments settling a charge they do not belong to. Never empty-by-design — see the type. */
+  misallocations: LedgerMisallocation[];
+  /** Total distortion those misallocations put into patients' balances. */
+  misallocatedTotal: number;
   /** True when a scan cap was hit, so the totals are a floor rather than the full picture. */
   truncated: boolean;
   notes: string[];
@@ -137,6 +178,94 @@ export function buildRecoveryList(
     const when = parseDate(row.date);
     if (when && (!tally.lastActivity || when > tally.lastActivity)) tally.lastActivity = when;
   }
+
+  /**
+   * Payments settling a charge they do not belong to.
+   *
+   * Walked separately from the tallies above because those work per patient, and this question is
+   * per charge: a patient whose totals happen to balance can still have 1,200 EGP sitting on a
+   * 200 EGP consultation, and the totals will never say so.
+   */
+  const procedureById = new Map<string, Record<string, unknown>>();
+  for (const row of ledger) {
+    if (String(row.type || "") === "procedure") procedureById.set(String(row.id || ""), row);
+  }
+
+  type PaymentGroup = { total: number; ids: string[]; date: string; patientId: string; patientName: string };
+  const paymentsByProcedure = new Map<string, PaymentGroup>();
+  for (const row of ledger) {
+    if (String(row.type || "") !== "payment") continue;
+    const procedureId = typeof row.procedureId === "string" ? row.procedureId.trim() : "";
+    if (!procedureId) continue; // A payment on account settles no charge, so it cannot overshoot one.
+
+    const group = paymentsByProcedure.get(procedureId) ?? {
+      total: 0,
+      ids: [],
+      date: "",
+      patientId: String(row.patientId || ""),
+      patientName: String(row.patientName || ""),
+    };
+    group.total += rowAmount(row);
+    group.ids.push(String(row.id || ""));
+    const when = String(row.date || "");
+    if (when > group.date) group.date = when;
+    if (!group.patientName && typeof row.patientName === "string") group.patientName = row.patientName;
+    paymentsByProcedure.set(procedureId, group);
+  }
+
+  const misallocations: LedgerMisallocation[] = [];
+  for (const [procedureId, group] of paymentsByProcedure) {
+    const procedure = procedureById.get(procedureId);
+    const patient = patientById.get(group.patientId);
+    const patientName =
+      (patient && typeof patient.name === "string" && patient.name.trim()) ||
+      group.patientName.trim() ||
+      "Unknown patient";
+
+    if (!procedure) {
+      // The charge was deleted and its money stayed behind. The whole payment is the distortion.
+      misallocations.push({
+        kind: "orphaned_payment",
+        patientId: group.patientId,
+        patientName,
+        procedureId,
+        procedureDescription: "",
+        procedureCost: 0,
+        paidTotal: group.total,
+        excess: group.total,
+        date: group.date,
+        paymentIds: group.ids,
+      });
+      continue;
+    }
+
+    // The same tolerant reading the server guard uses, so a charge the guard treats as unpriced is
+    // not reported here as overpaid.
+    const cost = chargeAmount(procedure);
+    // An unpriced charge is a different problem — see lib/paymentAllocation. Reporting every
+    // payment against one as an overpayment would bury the real ones.
+    if (cost <= 0) continue;
+
+    const excess = overAllocation(cost, group.total);
+    if (excess <= 0) continue;
+
+    misallocations.push({
+      kind: "over_allocated",
+      patientId: group.patientId,
+      patientName,
+      procedureId,
+      procedureDescription: String(procedure.description || "Treatment"),
+      procedureCost: cost,
+      paidTotal: group.total,
+      excess,
+      date: group.date,
+      paymentIds: group.ids,
+    });
+  }
+
+  // Biggest distortion first: this is a work queue like the debtors list beside it.
+  misallocations.sort((a, b) => b.excess - a.excess);
+  const misallocatedTotal = misallocations.reduce((sum, m) => sum + m.excess, 0);
 
   /**
    * Work recorded clinically but never posted to the ledger.
@@ -226,8 +355,24 @@ export function buildRecoveryList(
   if (missingPhones > 0) {
     notesOut.push(`${missingPhones} of these patients have no phone number on file and cannot be contacted from here.`);
   }
+  if (misallocations.length > 0) {
+    notesOut.push(
+      `${misallocations.length} treatment(s) have payments recorded against them that do not fit — ` +
+        `${Math.round(misallocatedTotal).toLocaleString()} EGP in total. Those patients' balances are wrong by that much, ` +
+        `in the patient's favour, so they do not appear on the list above.`
+    );
+  }
 
-  return { scannedAt: new Date(now).toISOString(), clinicId, rows, totals, truncated, notes: notesOut };
+  return {
+    scannedAt: new Date(now).toISOString(),
+    clinicId,
+    rows,
+    totals,
+    misallocations,
+    misallocatedTotal: Number(misallocatedTotal.toFixed(2)),
+    truncated,
+    notes: notesOut,
+  };
 }
 
 async function readCollection(clinicId: string, path: string): Promise<Record<string, unknown>[]> {

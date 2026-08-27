@@ -17,6 +17,7 @@ import { useUI } from "@/context/UIContext";
 import { getAppointmentStatusStyles, APPOINTMENT_STAGES, getAppointmentStageLabel } from "@/lib/appointmentStages";
 import { saveBooking } from "@/lib/bookingService";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { allocationMessage, allocationMessageAr, checkAllocation } from "@/lib/paymentAllocation";
 import { MoneyApiError, createPayment, createProcedure, deleteProcedure } from "@/lib/moneyApi";
 import ServiceCombobox from "@/components/shared/ServiceCombobox";
 
@@ -200,8 +201,24 @@ export default function AppointmentSidePanel({
       return;
     }
     
-    if (Number(inlinePayAmount) > selectedProcedure.remaining) {
-      if (!(await confirm(language === 'ar' ? "المبلغ أكبر من المتبقي. متابعة؟" : "Amount is greater than remaining. Continue?"))) {
+    // This used to ask "Amount is greater than remaining. Continue?" and take yes for an answer,
+    // while the quick-payment modal refused the same thing outright and the patient ledger never
+    // checked at all. That disagreement is how 1,200 EGP came to settle a 200 EGP consultation.
+    // The server refuses it now; refusing here too means the receptionist finds out before the
+    // patient has handed the money over.
+    if (selectedProcedure.id !== 'general_payment') {
+      const verdict = checkAllocation({
+        cost: Number(selectedProcedure.cost) || 0,
+        otherPaymentsTotal: Number(selectedProcedure.paid) || 0,
+        amount: Number(inlinePayAmount),
+      });
+      if (!verdict.ok) {
+        showToast(
+          language === 'ar'
+            ? allocationMessageAr(verdict, selectedProcedure.description)
+            : allocationMessage(verdict, selectedProcedure.description),
+          "error"
+        );
         return;
       }
     }

@@ -105,6 +105,21 @@ export default function RecoverPaymentsPage() {
     statusIgnored: isAr ? "تم التجاهل" : "Written off",
     markedBy: isAr ? "بواسطة" : "by",
     whatsappBody: isAr ? "نص الرسالة" : "Message",
+    misTitle: isAr ? "دفعات على العلاج الخطأ" : "Payments on the wrong treatment",
+    misSubtitle: isAr
+      ? "هذه المبالغ مسجلة على علاج لا يتحملها، فرصيد المريض خطأ بنفس المقدار — لصالحه. لن تظهر في القائمة أعلاه لأن القائمة تعرض المدينين فقط."
+      : "These amounts settle a treatment that cannot carry them, so the patient's balance is wrong by that much — in their favour. They cannot appear on the list above, which shows debtors only.",
+    misOver: isAr ? "أكثر من قيمة العلاج" : "More than the treatment costs",
+    misOrphan: isAr ? "العلاج محذوف" : "Treatment deleted",
+    misExcess: isAr ? "الفرق" : "Off by",
+    misFix: isAr
+      ? "افتح ملف المريض ← المالية ← عدّل الدفعة واختر العلاج الصحيح، أو حوّلها تحت الحساب."
+      : "Open the patient's file → Finance → edit the payment and pick the treatment it belongs to, or move it to their account.",
+    misOrphanFix: isAr
+      ? "العلاج الذي كانت تخصه لم يعد موجودًا. عدّل الدفعة واختر العلاج الصحيح، أو حوّلها تحت الحساب."
+      : "The treatment it settled no longer exists. Edit the payment and pick the right treatment, or move it to the patient's account.",
+    misPayments: isAr ? "دفعة" : "payment(s)",
+    misOpen: isAr ? "افتح المالية" : "Open finance",
   };
 
   const money = useCallback(
@@ -279,6 +294,69 @@ export default function RecoverPaymentsPage() {
                   <FileWarning size={13} /> {txt.neverInvoiced}
                 </p>
                 <p className="text-2xl font-black text-rose-600 mt-2">{money(list.totals.unbilled)}</p>
+              </div>
+            </div>
+          )}
+
+          {/*
+            Money sitting on a charge that cannot carry it.
+            Placed above the debtors list rather than inside it, because these patients owe nothing
+            — their books are simply wrong, in their favour, and the list below clamps a credit to
+            zero on purpose so one patient's overpayment cannot cancel out another's arrears. Which
+            is correct, and is exactly why this had to be its own section: without it a patient
+            whose file reads BALANCE −1,200 appears on no report in the app.
+          */}
+          {list && list.misallocations.length > 0 && (
+            <div className="bg-white rounded-3xl border border-amber-200 shadow-sm overflow-hidden">
+              <div className="bg-amber-50 border-b border-amber-200 px-5 py-4">
+                <p className="text-sm font-black text-amber-900 flex items-center gap-2">
+                  <AlertCircle size={16} className="shrink-0" />
+                  {txt.misTitle} · {money(list.misallocatedTotal)}
+                </p>
+                <p className="text-xs font-bold text-amber-800/80 mt-1.5 leading-relaxed">{txt.misSubtitle}</p>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {list.misallocations.map((mis) => (
+                  <div key={`${mis.procedureId}-${mis.paymentIds.join("-")}`} className="px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-black text-slate-900 text-sm truncate">{mis.patientName}</p>
+                      <p className="text-xs font-bold text-slate-500 mt-1 leading-relaxed">
+                        <span className="inline-block px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-black uppercase me-1.5">
+                          {mis.kind === "orphaned_payment" ? txt.misOrphan : txt.misOver}
+                        </span>
+                        {mis.kind === "orphaned_payment" ? (
+                          <>{money(mis.paidTotal)} · {mis.paymentIds.length} {txt.misPayments}</>
+                        ) : (
+                          <>{mis.procedureDescription} · {money(mis.procedureCost)} → {money(mis.paidTotal)}</>
+                        )}
+                        {mis.date && <span className="text-slate-400"> · {mis.date}</span>}
+                      </p>
+                      <p className="text-[11px] font-bold text-slate-400 mt-1 leading-relaxed">
+                        {mis.kind === "orphaned_payment" ? txt.misOrphanFix : txt.misFix}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="text-end">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{txt.misExcess}</p>
+                        <p className="text-lg font-black text-amber-700">{money(mis.excess)}</p>
+                      </div>
+                      {/*
+                        `tx` is the row the patient's finance tab scrolls to and highlights, so
+                        whoever is fixing this lands on it rather than hunting for it. For an
+                        over-allocated charge that is the charge itself — it carries the "Overpaid
+                        by" badge and opens to show every payment on it, and which one does not
+                        belong is a judgement only a person can make. An orphan has no charge left
+                        to land on, so it points at the payment.
+                      */}
+                      <Link
+                        href={`/patients/${mis.patientId}?tab=finance&tx=${mis.kind === "orphaned_payment" ? (mis.paymentIds[0] || "") : mis.procedureId}`}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 text-white text-xs font-black hover:bg-slate-800 transition-colors"
+                      >
+                        {txt.misOpen} <ArrowUpRight size={13} />
+                      </Link>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}

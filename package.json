@@ -27,6 +27,8 @@
     "test:ledger": "npx tsx tests/ledgerWrite.test.mjs",
     "_comment_test_delete": "The one delete rule, shared by every screen: a charge with payments recorded against it cannot be deleted until they are.",
     "test:delete": "npx tsx tests/deletePolicy.test.mjs",
+    "_comment_test_allocation": "How much of a payment may settle one treatment. A 200 EGP consultation read 'paid 1,400' because four screens disagreed about overpayment and the server, the only one that cannot be bypassed, never asked. Includes the repair cases: an over-allocation already in the books must stay editable downwards.",
+    "test:allocation": "npx tsx tests/paymentAllocation.test.mjs",
     "_comment_test_recyclebin": "The recycle bin's boundaries. A server route bypasses firestore.rules entirely, so every limit the rules enforce is re-enforced here or it is gone: path escapes, audit trails, the Admin short-circuit, and a restore that never overwrites.",
     "test:recyclebin": "npx tsx tests/recycleBin.test.mjs",
     "_comment_test_clinicstatus": "Does the server agree with firestore.rules about whether a clinic may still be written to? The rules gate browser writes; the Admin SDK routes bypass rules entirely, so the same decision has to exist in code or an expired clinic keeps taking payments through a route that never asked.",

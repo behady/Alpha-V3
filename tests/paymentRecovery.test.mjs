@@ -33,6 +33,24 @@ const ledger = [
   // Nour overpaid by 200. A credit is not a debt, and must not net off anyone else's arrears.
   { id: "L9", patientId: "p_nour", type: "procedure", amount: 300, date: daysAgo(30), description: "Scaling" },
   { id: "L10", patientId: "p_nour", type: "payment", paid: 500, date: daysAgo(30) },
+
+  // Mona: the case this detection exists for, taken from a real patient's file. A 200 EGP
+  // consultation and a 1,200 EGP root canal, both settled — and a second 1,200 payment, left over
+  // from a duplicate treatment that was deleted, sitting on the consultation. Her totals read
+  // TREATMENT 1,400 / PAID 2,600 / BALANCE −1,200, and she appears on no report anywhere.
+  { id: "L11", patientId: "p_mona", type: "procedure", amount: 200, cost: 200, date: daysAgo(3), description: "كشف" },
+  { id: "L12", patientId: "p_mona", type: "payment", paid: 200, procedureId: "L11", date: daysAgo(3) },
+  { id: "L13", patientId: "p_mona", type: "payment", paid: 1200, procedureId: "L11", date: daysAgo(3) },
+  { id: "L14", patientId: "p_mona", type: "procedure", amount: 1200, cost: 1200, date: daysAgo(3), description: "حشو عصب" },
+  { id: "L15", patientId: "p_mona", type: "payment", paid: 1200, procedureId: "L14", date: daysAgo(3) },
+
+  // Tarek: the other shape. The charge his payment settled was deleted and the payment stayed.
+  { id: "L16", patientId: "p_tarek", type: "payment", paid: 750, procedureId: "L_deleted", date: daysAgo(9) },
+
+  // Youssef: an unpriced charge. Every payment against it would look like an overpayment if the
+  // scan compared against zero, so it must be left alone.
+  { id: "L17", patientId: "p_youssef", type: "procedure", amount: 0, date: daysAgo(2), description: "Follow-up" },
+  { id: "L18", patientId: "p_youssef", type: "payment", paid: 400, procedureId: "L17", date: daysAgo(2) },
 ];
 
 const notes = [
@@ -57,6 +75,9 @@ const patients = [
   { id: "p_nour", name: "Nour Ibrahim", phone: "01333333333" },
   // Deliberately no phone field: the UI has to be able to say "no phone on file".
   { id: "p_karim", name: "Karim Saad" },
+  { id: "p_mona", name: "Mona Adel", phone: "01444444444" },
+  { id: "p_tarek", name: "Tarek Zaki", phone: "01555555555" },
+  { id: "p_youssef", name: "Youssef Amin", phone: "01666666666" },
 ];
 
 const list = buildRecoveryList("clinic_test", ledger, notes, patients, NOW);
@@ -102,4 +123,45 @@ assert.ok(
   "the list must say out loud that someone on it cannot be contacted"
 );
 
-console.log(`✓ paymentRecovery: ${list.rows.length} debtors, ${list.totals.totalOwed} EGP outstanding`);
+// --- payments settling a charge they do not belong to -------------------------------------------
+// None of this can show on the debtors list: a credit balance is clamped to zero there, which is
+// correct for a call list and means a patient whose books say she is owed 1,200 EGP she never
+// received appears nowhere at all.
+{
+  const byProcedure = new Map(list.misallocations.map((m) => [m.procedureId, m]));
+
+  const mona = byProcedure.get("L11");
+  assert.ok(mona, "the 1,200 sitting on a 200 EGP consultation must be found");
+  assert.equal(mona.kind, "over_allocated");
+  assert.equal(mona.procedureCost, 200);
+  assert.equal(mona.paidTotal, 1400, "200 + 1,200, both pointed at the consultation");
+  assert.equal(mona.excess, 1200, "exactly the amount her balance is wrong by");
+  assert.deepEqual(mona.paymentIds.sort(), ["L12", "L13"], "both payments named, so a person can pick the wrong one");
+  assert.equal(mona.patientName, "Mona Adel", "the name comes from the patient record");
+
+  assert.ok(!byProcedure.has("L14"), "the root canal is settled exactly and is not a finding");
+
+  const tarek = byProcedure.get("L_deleted");
+  assert.ok(tarek, "a payment whose charge was deleted must be found");
+  assert.equal(tarek.kind, "orphaned_payment");
+  assert.equal(tarek.excess, 750, "with the charge gone, the whole payment is the distortion");
+  assert.equal(tarek.procedureDescription, "", "there is no row left to name it, and inventing one would be a lie");
+
+  assert.ok(!byProcedure.has("L17"), "an unpriced charge is a different problem and must not be reported here");
+
+  assert.equal(list.misallocatedTotal, 1950, "1,200 + 750");
+  assert.equal(list.misallocations[0].excess, 1200, "biggest distortion first — this is a work queue");
+  assert.ok(
+    list.notes.some((n) => n.includes("do not fit")),
+    "the report must say out loud that these balances are wrong, since the list above cannot show them"
+  );
+}
+
+// A patient who only appears through a misallocation is still not a debtor — the two lists answer
+// different questions, and merging them would put "owes 0" next to a name on a call queue.
+assert.ok(!byId.has("p_mona"), "Mona owes nothing; she is on the misallocation list, not the call list");
+
+console.log(
+  `✓ paymentRecovery: ${list.rows.length} debtors, ${list.totals.totalOwed} EGP outstanding, ` +
+    `${list.misallocations.length} misallocated (${list.misallocatedTotal} EGP)`
+);

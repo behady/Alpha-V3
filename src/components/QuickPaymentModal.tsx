@@ -17,6 +17,7 @@ import { logActivity } from "@/lib/logger";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
 import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClient";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { allocationMessage, allocationMessageAr, checkAllocation } from "@/lib/paymentAllocation";
 import { MoneyApiError, createPayment } from "@/lib/moneyApi";
 
 const GENERAL_PAYMENT = {
@@ -153,9 +154,24 @@ export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, p
         
         const amountToPay = Number(payAmount);
         
-        if (selectedProcedure.id !== 'general_payment' && amountToPay > selectedProcedure.remaining) {
-            showToast(t.errorExceed, "error");
-            return;
+        // The one rule, shared with the patient ledger, the appointment side panel and the server.
+        // This screen already refused an overpayment; the other two did not, and the server never
+        // asked at all — so what the books could say was decided by whichever screen was loosest.
+        if (selectedProcedure.id !== 'general_payment') {
+            const verdict = checkAllocation({
+                cost: Number(selectedProcedure.cost) || 0,
+                otherPaymentsTotal: Number(selectedProcedure.paid) || 0,
+                amount: amountToPay,
+            });
+            if (!verdict.ok) {
+                showToast(
+                    language === 'ar'
+                        ? allocationMessageAr(verdict, selectedProcedure.description)
+                        : allocationMessage(verdict, selectedProcedure.description),
+                    "error"
+                );
+                return;
+            }
         }
 
         setLoading(true);

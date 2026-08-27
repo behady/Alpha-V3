@@ -16,12 +16,17 @@
 
 import { auth } from "@/lib/firebase";
 import { CLINIC_INACTIVE_CODE } from "@/lib/clinicStatus";
+import { OVER_ALLOCATION_CODE } from "@/lib/paymentAllocation";
 import { currentClinicId } from "@/lib/db-utils";
 
 export class MoneyApiError extends Error {
   status: number;
   reason?: string;
   blockingPaymentIds?: string[];
+  /** How much was still owed on the treatment, when the refusal was an over-allocation. */
+  remaining?: number;
+  /** How far past the charge the attempted payment would have gone. */
+  excess?: number;
 
   constructor(message: string, status: number, reason?: string, blockingPaymentIds?: string[]) {
     super(message);
@@ -30,6 +35,16 @@ export class MoneyApiError extends Error {
     this.reason = reason;
     this.blockingPaymentIds = blockingPaymentIds;
   }
+}
+
+/**
+ * True when the server refused because the payment would settle more than the treatment is worth.
+ *
+ * The error carries `remaining`, so a screen can offer the right next step — record what is
+ * actually owed and take the rest on account — instead of just repeating the refusal.
+ */
+export function isOverAllocationError(error: unknown): error is MoneyApiError {
+  return error instanceof MoneyApiError && error.reason === OVER_ALLOCATION_CODE;
 }
 
 /** True when the server refused because money has already been collected. */
@@ -86,12 +101,15 @@ async function post<T = Record<string, unknown>>(path: string, body: Record<stri
   }
 
   if (!response.ok || payload.ok === false) {
-    throw new MoneyApiError(
+    const error = new MoneyApiError(
       typeof payload.error === "string" ? payload.error : "Something went wrong. Nothing was changed.",
       response.status,
       typeof payload.reason === "string" ? payload.reason : undefined,
       Array.isArray(payload.blockingPaymentIds) ? (payload.blockingPaymentIds as string[]) : undefined
     );
+    if (typeof payload.remaining === "number") error.remaining = payload.remaining;
+    if (typeof payload.excess === "number") error.excess = payload.excess;
+    throw error;
   }
 
   return payload as T;
@@ -154,7 +172,15 @@ export function createLedgerEntry(args: CreateEntryArgs): Promise<{ id: string }
   return post("/api/finance/ledger", { action: "create-entry", ...args });
 }
 
-/** Edit a payment, or a clinic income/expense line. Treatment charges go through updateProcedure. */
+/**
+ * Edit a payment, or a clinic income/expense line. Treatment charges go through updateProcedure.
+ *
+ * `patch.procedureId` moves a payment to a different treatment of the same patient, or to no
+ * treatment at all (`null`) — the repair for money recorded against the wrong charge. The server
+ * re-derives the dentist, the lab fee and the commission on both the old charge and the new one,
+ * so this is not the same as deleting the row and re-entering it: the payment keeps its date, its
+ * method, who collected it, and its place in the audit trail.
+ */
 export function updateLedgerRow(id: string, patch: Record<string, unknown>, clinicId?: string | null) {
   return post("/api/finance/ledger", { action: "update", id, patch, clinicId });
 }
