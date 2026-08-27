@@ -1,5 +1,17 @@
 import { SubscriptionTier, Clinic } from "@/types/saas";
 
+/**
+ * Monthly AI allowances are sized against what a credit actually COSTS us, measured 2026-08-26:
+ * roughly $0.0076-0.0103 per credit in Gemini fees, and one credit can be several API rounds.
+ *
+ * At the annual prices these plans sell for (Pro 5,000 EGP, Premium 10,000 EGP), the old
+ * allowances of 1,000 and 2,000 a month would have cost more in API fees than the subscription
+ * itself if a clinic used them fully. These figures hold that spend near 15% of revenue even in
+ * the worst case, with room to survive the Gemini price rise scheduled for 1 January 2027.
+ *
+ * Raise them per clinic through the superadmin feature overrides when a customer pays for it —
+ * do not raise them here without redoing that arithmetic.
+ */
 export const TIER_LIMITS: Record<SubscriptionTier, {
   maxStaff: number;
   aiMonthlyCredits: number;
@@ -26,7 +38,9 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
 }> = {
   'Free Trial': {
     maxStaff: 3,
-    aiMonthlyCredits: 200,
+    // Fourteen days, so this is deliberately more per-day than Pro: the trial has to show what
+    // the assistant can do, and it costs about a dollar.
+    aiMonthlyCredits: 150,
     features: {
       whatsappIntegration: false,
       inventory: false,
@@ -56,7 +70,8 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
   },
   'Pro': {
     maxStaff: 10,
-    aiMonthlyCredits: 1000,
+    /** ~7 assistant actions on every working day. */
+    aiMonthlyCredits: 150,
     features: {
       whatsappIntegration: false,
       inventory: true,
@@ -71,7 +86,8 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
   },
   'Premium': {
     maxStaff: 0, // unlimited
-    aiMonthlyCredits: 2000,
+    /** ~14 assistant actions on every working day. The scans and briefings cost no credits. */
+    aiMonthlyCredits: 300,
     features: {
       whatsappIntegration: true,
       inventory: true,

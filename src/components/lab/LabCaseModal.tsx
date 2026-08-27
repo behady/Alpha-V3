@@ -8,7 +8,7 @@ import { useUI } from "@/context/UIContext";
 import { getClinicCollection } from "@/lib/db-utils";
 import { localYmd } from "@/lib/clinicDate";
 import { matchesTokenizedSubstring, patientMatchesSearch } from "@/lib/flexibleSearch";
-import { findLab, type DentalLab } from "@/lib/dentalLabs";
+import { findLab, labPriceFor, type DentalLab } from "@/lib/dentalLabs";
 import {
   LAB_CASES_COLLECTION,
   ABUTMENT_OPTIONS,
@@ -239,9 +239,17 @@ export default function LabCaseModal({
     setGuideType(src?.guideType || "");
     setSleeveSystem(src?.sleeveSystem || "");
     setNotes(src?.notes || "");
-    setAgreedPrice(
-      src ? (src.agreedPrice ? String(src.agreedPrice) : "") : seed?.agreedPrice ? String(Math.round(seed.agreedPrice)) : ""
-    );
+    const seededAgreed = src
+      ? src.agreedPrice
+        ? String(src.agreedPrice)
+        : ""
+      : seed?.agreedPrice
+        ? String(Math.round(seed.agreedPrice))
+        : "";
+    // Kept so the lab-price effect can fall back to it when the chosen lab has no agreed rate for
+    // this work, instead of leaving a figure that belonged to a different lab.
+    seededPrice.current = seededAgreed;
+    setAgreedPrice(seededAgreed);
     setSentVia(src?.sentVia || (workTypeFor(src?.workType || "zirconia").digitalByDefault ? "digital" : "driver"));
     setNeedsTryIn(src ? src.needsTryIn : false);
     setDueDate(src?.dueDate || "");
@@ -281,6 +289,29 @@ export default function LabCaseModal({
   const selectedLab = findLab(labs, labId);
 
   /** The lab's usual turnaround fills the due date in — the reason it is worth recording. */
+  /**
+   * The price this lab charges for this kind of work.
+   *
+   * Keyed on the lab AND the work type, so it re-runs exactly when one of the two things that
+   * determine a price changes — and never while somebody is typing in the box.
+   *
+   * The seeded estimate is remembered rather than discarded: when the chosen lab has no agreed
+   * price for this work, the field falls back to the clinic's own `estimatedLabFee` from the
+   * treatment that raised the order. Leaving another lab's figure sitting under a new lab's name
+   * is the failure to avoid — it looks agreed when nobody agreed it.
+   */
+  const seededPrice = useRef<string>("");
+
+  useEffect(() => {
+    if (!open || isEdit) return;
+    const agreed = labPriceFor(selectedLab, workType);
+    if (agreed !== null) {
+      setAgreedPrice(String(agreed));
+    } else if (selectedLab) {
+      setAgreedPrice(seededPrice.current);
+    }
+  }, [selectedLab, workType, open, isEdit]);
+
   useEffect(() => {
     if (!open || isEdit) return;
     // Switching to a lab that has no recorded turnaround CLEARS the date rather than leaving it.
@@ -814,6 +845,24 @@ export default function LabCaseModal({
                 placeholder="EGP"
                 className={INPUT}
               />
+              {/* Where the number came from. A price that appears on its own is a price nobody
+                  checks — saying which lab's rate it is makes it worth glancing at, and makes an
+                  out-of-date rate visible instead of silently agreed. */}
+              {!isEdit && selectedLab && (
+                <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">
+                  {labPriceFor(selectedLab, workType) !== null
+                    ? isAr
+                      ? `سعر ${selectedLab.name} للشغل ده`
+                      : `${selectedLab.name}'s rate for this work`
+                    : agreedPrice
+                      ? isAr
+                        ? "تقديري من قائمة أسعار العيادة — مش متفق عليه مع المعمل ده"
+                        : "Your clinic's estimate — not a rate agreed with this lab"
+                      : isAr
+                        ? "مفيش سعر متفق عليه مع المعمل ده للشغل ده"
+                        : "No agreed rate with this lab for this work"}
+                </p>
+              )}
             </div>
             <div>
               <label className={LABEL}>{isAr ? "بتروح إزاي" : "How it leaves"}</label>

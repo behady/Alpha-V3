@@ -26,7 +26,13 @@ import {
   optionLabel,
   RETENTION_OPTIONS,
 } from "../src/lib/labCases.ts";
-import { parseDentalLabs, parseLabPaper, serializeDentalLabs } from "../src/lib/dentalLabs.ts";
+import {
+  labPriceFor,
+  labPricedCount,
+  parseDentalLabs,
+  parseLabPaper,
+  serializeDentalLabs,
+} from "../src/lib/dentalLabs.ts";
 import { buildLabOrderSrcDoc } from "../src/lib/labOrderHtml.ts";
 import { parseClinicBranches } from "../src/lib/clinicLocations.ts";
 
@@ -286,6 +292,60 @@ for (const row of serializeDentalLabs([
 }
 assert.equal(serializeDentalLabs([{ id: "l2", name: "Second", turnaroundDays: 5 }])[0].turnaroundDays, 5);
 
+// --- per-lab price lists -------------------------------------------------------------------------
+
+// The point of a price PER LAB: the clinic's own estimatedLabFee is one number for every lab, so
+// it cannot know that one charges 600 for a crown and another 750. This can.
+const priced = parseDentalLabs({
+  labs: [
+    {
+      id: "l1",
+      name: "Cairo Lab",
+      prices: {
+        zirconia: 600,
+        emax: "750",          // a string from an old document still counts
+        full_denture: 0,      // cleared: not priced, NOT free
+        pfm: -50,             // nonsense
+        unicorn_crown: 900,   // a work type that does not exist
+      },
+    },
+    { id: "l2", name: "Nile Lab", prices: { zirconia: 750 } },
+    { id: "l3", name: "Unpriced Lab" },
+  ],
+});
+
+assert.equal(labPriceFor(priced[0], "zirconia"), 600);
+assert.equal(labPriceFor(priced[0], "emax"), 750);
+assert.equal(labPriceFor(priced[1], "zirconia"), 750, "the same work costs different money at different labs");
+// An empty box means "we have never agreed a price", which is a different claim from "free". If
+// this returned 0 the order would fill in as costing nothing.
+assert.equal(labPriceFor(priced[0], "full_denture"), null);
+assert.equal(labPriceFor(priced[0], "pfm"), null);
+assert.equal(labPriceFor(priced[0], "night_guard"), null);
+assert.equal(labPriceFor(priced[2], "zirconia"), null, "a lab with no price list at all");
+assert.equal(labPriceFor(null, "zirconia"), null);
+assert.equal(labPriceFor(priced[0], ""), null);
+// A work type that no longer exists is dropped rather than carried forever, invisible in the
+// settings screen and impossible to remove.
+assert.ok(!("unicorn_crown" in (priced[0].prices || {})));
+assert.equal(labPricedCount(priced[0]), 2);
+assert.equal(labPricedCount(priced[2]), 0);
+
+// A lab priced for nothing carries no empty object around.
+assert.ok(!("prices" in priced[2]), "an unpriced lab should omit the key entirely");
+
+// And nothing nested reaches Firestore as undefined — clearing a price box is the obvious way to
+// produce one, and a nested undefined rejects the write exactly as a top-level one does.
+const serializedPrices = serializeDentalLabs([
+  { id: "l1", name: "Cairo Lab", prices: { zirconia: 600, emax: undefined, pfm: 0 } },
+  { id: "l2", name: "Bare", prices: {} },
+]);
+assert.deepEqual(serializedPrices[0].prices, { zirconia: 600 });
+assert.ok(!("prices" in serializedPrices[1]), "an emptied price table is dropped, not written as {}");
+for (const row of serializedPrices) {
+  for (const v of Object.values(row.prices || {})) assert.equal(typeof v, "number");
+}
+
 // --- option ids, not translated labels -----------------------------------------------------------
 
 // These selects store the id. Storing the visible label meant a case raised in Arabic showed an
@@ -407,5 +467,5 @@ const general = { ...crown, teeth: [] };
 assert.ok(buildLabOrderSrcDoc(general, clinic, "", noLogo, "en", "a4_full").includes("No specific teeth"));
 
 console.log(
-  "✓ lab cases: codes, bag-number search, teeth, 12 work types, 20 VITA shades, stages, due dates, board counts, labs directory, and the printed order in 3 paper sizes"
+  "✓ lab cases: codes, bag-number search, teeth, 12 work types, 20 VITA shades, stages, due dates, board counts, labs directory, per-lab price lists, and the printed order in 3 paper sizes"
 );
