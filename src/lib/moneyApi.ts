@@ -16,6 +16,7 @@
 
 import { auth } from "@/lib/firebase";
 import { CLINIC_INACTIVE_CODE } from "@/lib/clinicStatus";
+import { currentClinicId } from "@/lib/db-utils";
 
 export class MoneyApiError extends Error {
   status: number;
@@ -54,10 +55,27 @@ async function authHeaders(): Promise<Record<string, string>> {
 }
 
 async function post<T = Record<string, unknown>>(path: string, body: Record<string, unknown>): Promise<T> {
+  /**
+   * Which clinic this write belongs to, attached here rather than at each call site.
+   *
+   * The routes fall back to `resolveUserClinicId(uid, null)` when the body names no clinic — which
+   * is the caller's `defaultClinicId`, or whichever key `Object.keys(clinicRoles)[0]` happens to
+   * return. Six of the seven write paths never sent one. So somebody working at a second clinic
+   * logged a procedure and it was priced against the FIRST clinic's price list, attributed to the
+   * first clinic's staff, and written into the first clinic's records — with the only visible
+   * symptom being "Choose the dentist who performed this treatment", because the dentist on screen
+   * belonged to the clinic they were actually looking at.
+   *
+   * Attached once, here, for the same reason the auth token is: a value every request needs and
+   * no request should have to remember. An explicit `clinicId` in the body still wins, so the
+   * superadmin panel and anything else acting on another clinic is unaffected.
+   */
+  const clinicId = body.clinicId ?? currentClinicId();
+
   const response = await fetch(path, {
     method: "POST",
     headers: await authHeaders(),
-    body: JSON.stringify(body),
+    body: JSON.stringify(clinicId ? { ...body, clinicId } : body),
   });
 
   let payload: Record<string, unknown> = {};
@@ -235,7 +253,10 @@ export type DeletePreview = {
 /** What deleting this appointment would affect, so the screen can ask before doing it. */
 export function previewAppointmentDelete(appointmentId: string, clinicId?: string | null): Promise<DeletePreview> {
   const params = new URLSearchParams({ appointmentId });
-  if (clinicId) params.set("clinicId", clinicId);
+  // Same rule as the writes: default to the clinic on screen. A preview naming the wrong tenant
+  // would describe an appointment that is not the one about to be deleted.
+  const resolved = clinicId ?? currentClinicId();
+  if (resolved) params.set("clinicId", resolved);
   return get(`/api/appointments/delete?${params.toString()}`);
 }
 

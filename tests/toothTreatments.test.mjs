@@ -203,6 +203,25 @@ const beforehand = treatmentsByTooth([
 ], (id) => ({ ...CATS2, s_impl: "implants" })[id], byName);
 assert.equal(resolveTreatments(beforehand["46"]).form.state, "extracted");
 
+// --- a tooth that is gone carries no marks -----------------------------------------------------
+//
+// Seen live: 16 was root-filled and later extracted. The chart drew a ✕ and, correctly, no root
+// canal stripe — there is nothing to draw it on. But the legend read the same result without that
+// rule and printed "Root canal — 16" next to it. A picture disagreeing with its own key is the one
+// thing a chart may never do: whichever the dentist believes, the other one has just taught them
+// the chart cannot be trusted.
+const filledThenGone = treatmentsByTooth([
+  note({ id: "a", tooth: "16", serviceIds: ["s_rct"], date: "2026-03-01" }),
+  note({ id: "b", tooth: "16", serviceIds: ["s_ext"], date: "2026-06-01" }),
+], (id) => CATS[id], byName);
+const goneTooth = resolveTreatments(filledThenGone["16"]);
+assert.equal(goneTooth.form.state, "extracted");
+assert.equal(goneTooth.mark, null, "an extracted tooth must not advertise work done on it");
+
+// The history itself survives, so a tooltip can still say what happened before it came out.
+assert.equal(filledThenGone["16"].length, 2);
+assert.ok(filledThenGone["16"].some((e) => e.state === "root_canal"));
+
 // --- a crowned tooth that has had its nerve taken out ----------------------------------------------
 //
 // The commonest pair in dentistry, and the one a single winner destroyed. Drawing only the crown

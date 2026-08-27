@@ -107,7 +107,11 @@ async function priceRequest(clinicId: string, body: Record<string, unknown>, act
   const doctorId = String(body.doctorId || "").trim();
   if (!doctorId) throw new Error("NO_DOCTOR");
   const staffSnap = await adminClinicDoc(clinicId, "staff", doctorId).get();
-  if (!staffSnap.exists) throw new Error("NO_DOCTOR");
+  // Two different failures wearing one message. "Choose the dentist" is true when the field was
+  // left empty and a lie when a name is sitting in the dropdown — which is what the owner saw:
+  // Dr Omar Sherif selected on screen, and the app telling him to pick a dentist. The dentist he
+  // picked no longer resolves to a staff record, and that is what it should say.
+  if (!staffSnap.exists) throw new Error("DOCTOR_NOT_FOUND");
   const staff = staffSnap.data() || {};
   const doctorName = String(staff.name || "").trim() || "Unknown Doctor";
 
@@ -721,6 +725,11 @@ export async function POST(request: Request) {
     switch (message) {
       case "NO_DOCTOR":
         return bad("Choose the dentist who performed this treatment.");
+      case "DOCTOR_NOT_FOUND":
+        return bad(
+          "That dentist is no longer on this clinic's team, so the treatment cannot be attributed " +
+          "to them. Pick another name, or add them back under Settings → Users."
+        );
       case "NO_PROCEDURE_NAME":
         return bad("Name the procedure.");
       case "NO_PATIENT":

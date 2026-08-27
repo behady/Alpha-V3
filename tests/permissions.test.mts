@@ -503,6 +503,7 @@ const ALLOWED_INACTIVE = [
   "appointments/delete/route.ts",  // GET: the delete PREVIEW. The POST that deletes is gated.
   "appointments/free-slots/route.ts", // POST by name, a query
   "marketing/cases/route.ts",      // GET: the case library, read
+  "payroll/route.ts",              // GET: what staff are owed, read
   "message-drafts/route.ts",       // GET: drafts, read
   "records/bin/route.ts",          // GET: what is in the bin. Seeing what you lost must never
                                    // depend on the subscription; restoring it does.

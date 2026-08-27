@@ -71,6 +71,8 @@ jobs:
         run: npm run --silent test:restore
       - name: Odontogram treatment derivation
         run: npm run --silent test:teeth
+      - name: Clinic scoping on money writes
+        run: npm run --silent test:clinicscope
       - name: Lint baseline (pre-existing errors only, none added)
         run: node scripts/check-lint-baseline.mjs
       # functions/ has no tests and no build step, so nothing else here would notice a syntax

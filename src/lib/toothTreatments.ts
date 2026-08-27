@@ -296,6 +296,20 @@ export function resolveTreatments(entries: ToothTreatment[] | undefined): {
     if (replacement) form = replacement;
   }
 
+  /**
+   * A gone tooth carries no marks.
+   *
+   * The chart already refused to draw them — there is nothing to draw them on — but the legend and
+   * the popup's summary read the same result and did not, so a mouth with 16 extracted after a
+   * root canal listed "Root canal — 16" beside a tooth showing only a ✕. The picture and its own
+   * key disagreeing is the one thing a chart may never do: whichever the dentist believes, the
+   * other one taught them the chart is unreliable.
+   *
+   * The history is not lost — the full entry list is still there for the tooltip, which is the
+   * right place for "this tooth was root-filled in March and taken out in June".
+   */
+  if (form?.state === "extracted") return { form, mark: null };
+
   return { form, mark };
 }
 

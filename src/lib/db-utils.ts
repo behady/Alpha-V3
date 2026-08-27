@@ -7,6 +7,17 @@ export function setGlobalClinicId(id: string | null) {
   globalClinicId = id;
 }
 
+/**
+ * The active clinic, or null when none is selected yet.
+ *
+ * The throwing version below is right for building a Firestore path — a path with no tenant in it
+ * is never something to guess at. This one is for callers that can carry the answer as data and
+ * would rather send nothing than crash a save.
+ */
+export function currentClinicId(): string | null {
+  return globalClinicId;
+}
+
 export function getGlobalClinicId(): string {
   if (!globalClinicId) {
     throw new Error("No clinic selected globally. Ensure ClinicProvider is mounted.");
