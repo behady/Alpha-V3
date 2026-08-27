@@ -12,7 +12,8 @@
 // Putting the clinic in the path is what makes the rule expressible at all.
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   LEGACY_PREFIXES,
   bookingHeroPath,
@@ -23,7 +24,10 @@ import {
   toothImagePath,
 } from "../src/lib/storagePaths.ts";
 
-const REPO = new URL("..", import.meta.url).pathname;
+// .pathname on Windows yields "/C:/Users/...", which join() then turns into "C:\C:\Users\..." —
+// the whole file threw before its first assertion ran. Forward slashes so the endsWith() and
+// slice() below, which are written in posix, keep working on both platforms.
+const REPO = fileURLToPath(new URL("..", import.meta.url)).split(sep).join("/");
 const CLINIC = "clinicA";
 
 // --- every clinic-owned path starts with the clinic ------------------------------------------
@@ -89,7 +93,7 @@ function walk(dir) {
     if (name === "node_modules" || name === ".next") continue;
     const full = join(dir, name);
     if (statSync(full).isDirectory()) out.push(...walk(full));
-    else if (/\.(ts|tsx)$/.test(name)) out.push(full);
+    else if (/\.(ts|tsx)$/.test(name)) out.push(full.split(sep).join("/"));
   }
   return out;
 }
@@ -114,8 +118,53 @@ assert.deepEqual(
 // It did not exist until 2026-08-24; the bucket was governed from the console alone, unversioned —
 // the same state firestore.rules was in when it was found to have drifted ahead of the repository.
 const rules = readFileSync(join(REPO, "storage.rules"), "utf8");
-assert.ok(rules.includes("match /clinics/{clinicId}/{allPaths=**}"), "no clinic-scoped rule");
-assert.ok(/hasClinicRole\(clinicId\)/.test(rules), "the clinic rule does not check membership");
+
+// The comments in storage.rules quote the broken Firestore lookup in order to explain why it is
+// gone, so every assertion about what the ruleset DOES reads the code with the comments stripped.
+// Otherwise the explanation trips the check that exists to keep the explained thing out.
+// Every comment line in storage.rules is a whole line, so dropping them needs no parsing.
+const rulesCode = rules
+  .split("\n")
+  .map((line) => (line.trimStart().startsWith("//") ? "" : line))
+  .join("\n");
+
+// The shapes this file pins down, named so the assertions below read as prose.
+const RX_CLINIC = /match \/clinics\/\{clinicId\}\/\{allPaths=\*\*\}\s*\{([\s\S]*?)\n    \}/;
+const RX_CROSS  = /firestore\.(get|exists)\s*\(\s*\/databases\/\(default\)/;
+const RX_GET    = /allow get: if isAuth\(\);/;
+const RX_WRITE  = /allow create, update: if isAuth\(\) && sizeOk\(\);/;
+const RX_BROAD  = /allow (read|write)\b/;
+const RX_UID    = /fileName\.split\('_'\)\[0\] == request\.auth\.uid/;
+
+// This test used to demand a membership check here, and that was wrong: it demanded something a
+// Storage rule in this project cannot do. Storage rules may only read the (default) Firestore
+// database, and this one is NAMED default — a different database, which (default) is not an alias
+// for. A ruleset carrying that lookup denies every upload, so this assertion was holding the file
+// open at exactly the shape that breaks it.
+const clinicRule = rulesCode.match(RX_CLINIC);
+assert.ok(clinicRule, "no clinic-scoped rule");
+
+assert.ok(
+  !RX_CROSS.test(rulesCode),
+  "storage.rules reads the (default) Firestore database, which does not exist in this project — " +
+    "every clinic upload would be denied. See the comment at the top of storage.rules."
+);
+
+// What the clinic rule CAN check, and must: signed in, and size-capped on the way in.
+assert.match(clinicRule[1], RX_GET, "clinic reads are no longer gated on being signed in");
+assert.match(clinicRule[1], RX_WRITE, "clinic uploads are no longer gated on auth + size");
+
+// read is get + list; write is create + update + delete. Either convenience method on a clinic
+// folder hands a signed-in user enumeration of every patient photograph in it, or the ability to
+// erase them. Nothing in src/ lists or deletes, so nothing needs them.
+assert.ok(
+  !RX_BROAD.test(clinicRule[1]),
+  "clinic folders grant read or write — use get and create, update so list and delete stay denied"
+);
+
+// The one prefix still fully enforced, because the identity it needs is in the path and the token
+// with no Firestore lookup in between: you may write only a file named for your own uid.
+assert.ok(RX_UID.test(rulesCode), "staff_profiles no longer pins the uploaded file to the uploader uid");
 
 // Every legacy prefix must be denied by name. Frozen, not deleted: URLs already in Firestore keep
 // working because a download URL's token bypasses rules. What is refused is path access — above
