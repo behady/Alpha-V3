@@ -2,20 +2,51 @@ rules_version = '2';
 
 // Cloud Storage rules.
 //
-// This file did not exist until 2026-08-24. Whatever governed the bucket lived only in the Firebase
-// console, unversioned, reviewed by nobody — which is exactly the state firestore.rules was in when
-// it was found to have drifted ahead of the repository with no way to tell what had changed or why.
+// This file did not exist until 2026-08-24, and until 2026-08-27 it had still never been deployed.
+// What actually governed the bucket was the Firebase console's starter template:
 //
-// Two things make these rules shorter than they look.
+//     allow read, write: if request.time < timestamp.date(2026, 8, 27);
+//
+// Unauthenticated read and write over the whole bucket, with an expiry date on it. On 2026-08-27
+// the date passed, every upload in the app started failing with "Upload failed", and that is how
+// anyone found out this file was a document rather than a deployed ruleset.
+//
+// --- why there is no membership check here -------------------------------------------------------
+//
+// The first version of this file asked Firestore who the uploader was:
+//
+//     firestore.get(/databases/(default)/documents/users/$(request.auth.uid))
+//
+// That can never work in this project. Storage rules may only reach the `(default)` Firestore
+// database — Google's own limit, stated as a warning on the Storage rules-conditions page — and
+// this project's database is literally NAMED `default`, which is a different database. `(default)`
+// does not exist here at all; see the comment in firebase.json, where the CLI tried to create it.
+//
+// So the lookup would find nothing, the membership check would be false for every user, and
+// deploying that version would have swapped "everything is allowed" for "nothing is allowed". The
+// upload would still fail, just for the opposite reason.
+//
+// What the clinic rule below can therefore check is that you are signed in. It cannot check WHICH
+// clinic you belong to. Stated plainly, that costs: a signed-in user who knows another clinic's id
+// could read a file at a path they already know, or write a file into that clinic's folder. Two
+// things bound it — clinic ids are Firestore auto-ids (`SmtW6r6jKaFhfRWYcxsG`), so they are not
+// guessable, and `list` is granted nowhere below, so the bucket cannot be enumerated to find one.
+//
+// Closing that properly needs the uploader's clinics inside the auth token (custom claims, kept in
+// step with users/{uid}.clinicRoles) or uploads moved behind a server-issued signed URL. Both are
+// real work; neither belongs in the change that stops the bucket being world-writable.
+//
+// --- two things that make these rules shorter than they look -------------------------------------
 //
 // 1. The app never reads Storage by path. It uploads, calls getDownloadURL(), and stores that URL
 //    in Firestore; every <img> renders from the stored URL. A download URL carries its own token
-//    and does not consult these rules at all, so denying path reads costs the app nothing and
-//    takes away the ability to browse the bucket. `getDownloadURL` DOES consult them, which is why
-//    members can read inside their own clinic — that call happens moments after the upload.
+//    and does not consult these rules at all — which is why the public booking page keeps working
+//    with no unauthenticated grant anywhere below. `getDownloadURL` DOES consult them, which is
+//    why `get` is granted: that call happens moments after the upload, while still signed in.
 //
-// 2. Nothing lists. There is no listAll() anywhere in the codebase, and `list` is not granted
-//    below, so no client can enumerate a folder even where it can read a known object.
+// 2. Nothing lists and nothing deletes from the browser. There is no listAll() and no
+//    deleteObject() anywhere in src/, so neither is granted. Server-side cleanup is unaffected —
+//    the recycle bin deletes through the Admin SDK, which ignores rules entirely.
 
 service firebase.storage {
   match /b/{bucket}/o {
@@ -24,43 +55,48 @@ service firebase.storage {
       return request.auth != null;
     }
 
-    // The same source of truth firestore.rules uses: the role map on the user's own document.
-    // Storage rules can read Firestore, and this is worth the read — the alternative is custom
-    // claims, which would then need to be kept in step with the map by hand.
-    function hasClinicRole(clinicId) {
-      return isAuth()
-        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
-        && firestore.get(/databases/(default)/documents/users/$(request.auth.uid))
-             .data.get('clinicRoles', {}).keys().hasAny([clinicId]);
-    }
-
     // 20 MB. Large enough for a full-resolution intraoral photograph, small enough that a mistake
     // or a malicious upload cannot quietly fill the bucket.
     function sizeOk() {
       return request.resource.size < 20 * 1024 * 1024;
     }
 
+    // Guarded against a null contentType. An unset one makes `.matches()` error, and a rule that
+    // errors denies — which the user would read as "Upload failed" all over again.
     function isImage() {
-      return request.resource.contentType.matches('image/.*');
+      return request.resource.contentType != null
+        && request.resource.contentType.matches('image/.*');
     }
 
     // --- everything a clinic owns -----------------------------------------------------------
     //
     // One rule covers patient avatars, patient media, tooth photographs, the logo and the booking
-    // hero, because src/lib/storagePaths.ts now puts all of them under the clinic. That is the
-    // whole point of the path change: the rule can name the clinic, so it can check membership.
+    // hero, because src/lib/storagePaths.ts puts all of them under the clinic. The clinic segment
+    // no longer changes the decision (see above), but it stays named so the day custom claims or
+    // signed URLs land, the check has somewhere to go.
+    //
+    // `get` rather than `read`: in rules_version 2, `read` is `get` + `list`, and granting list
+    // would let any signed-in user enumerate a clinic's patient photographs. Only `get` is needed.
+    //
+    // `create, update` rather than `write`: `write` is create + update + delete. No browser code
+    // deletes from Storage, so refusing delete costs nothing and means no signed-in user can erase
+    // a clinic's files.
+    //
+    // No content-type check: this folder legitimately holds uploaded documents, not just images.
     match /clinics/{clinicId}/{allPaths=**} {
-      allow read: if hasClinicRole(clinicId);
-      allow write: if hasClinicRole(clinicId) && sizeOk();
+      allow get: if isAuth();
+      allow create, update: if isAuth() && sizeOk();
     }
 
     // --- a person's own profile picture -----------------------------------------------------
     //
     // Not under a clinic, on purpose: one person can work at several and the picture is theirs.
-    // The uid prefix is what makes it enforceable — you may write only a file named for you.
+    // The uid prefix is what makes it enforceable — you may write only a file named for you. This
+    // is the one prefix where the rule is still fully enforced, because the identity it needs is
+    // in the path and in the token, with no Firestore lookup in between.
     match /staff_profiles/{fileName} {
-      allow read: if isAuth();
-      allow write: if isAuth()
+      allow get: if isAuth();
+      allow create, update: if isAuth()
         && fileName.split('_')[0] == request.auth.uid
         && sizeOk() && isImage();
     }
