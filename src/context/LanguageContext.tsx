@@ -218,7 +218,34 @@ const translations = {
     selectedTooth: "Selected Tooth",
     generalNote: "General Note",
     saving: "Saving...",
-    allSaved: "All Saved"
+    allSaved: "All Saved",
+
+    // --- PATIENT MESSAGING (patient profile: opt-out card + communication log) ---
+    // These were referenced by the patient page with English fallbacks written after `||`, but
+    // `t()` returns the key itself when it finds nothing, so the fallback was unreachable and the
+    // screen printed "whatsappOptOutLabel" at staff all day.
+    whatsappOptOutHint: "Turn off automated appointment messages from the clinic (reminders and booking alerts).",
+    whatsappOptOutLabel: "Opt-out of automated WhatsApp messages",
+    whatsappOptOutStatusOn: "Status: eligible for automation",
+    whatsappOptOutStatusOff: "Status: opted out",
+    whatsappOptOutOn: "Patient will not receive automated WhatsApp messages.",
+    whatsappOptOutOff: "Patient can receive automated WhatsApp messages again.",
+    whatsappCommLog: "WhatsApp communication log",
+    whatsappNoLogs: "No automated WhatsApp messages logged for this patient yet.",
+    entries: "entries",
+    date: "Date",
+    type: "Type",
+    message: "Snippet",
+    sent: "Sent",
+    failed: "Failed",
+    // A queued or ready message has not failed — it is waiting for someone to press send. The log
+    // used to paint both red and call them "Failed", which reads as "the clinic never reached this
+    // patient" when in fact the message is sitting in the send list, intact.
+    queued: "In send list",
+    readyToSend: "Ready to send",
+    received: "Received",
+    generalConsultation: "General consultation",
+    reasonForVisit: "Reason for visit",
   },
   ar: {
     // --- NAVIGATION ---
@@ -433,7 +460,28 @@ const translations = {
     selectedTooth: "السن المحدد",
     generalNote: "ملاحظة عامة",
     saving: "جاري الحفظ...",
-    allSaved: "تم الحفظ"
+    allSaved: "تم الحفظ",
+
+    // --- PATIENT MESSAGING (patient profile: opt-out card + communication log) ---
+    whatsappOptOutHint: "إيقاف الرسائل التلقائية الخاصة بالمواعيد (التذكيرات وتأكيد الحجز).",
+    whatsappOptOutLabel: "إيقاف رسائل الواتساب التلقائية",
+    whatsappOptOutStatusOn: "الحالة: يستقبل الرسائل",
+    whatsappOptOutStatusOff: "الحالة: موقوف",
+    whatsappOptOutOn: "لن يستقبل هذا المريض رسائل واتساب تلقائية.",
+    whatsappOptOutOff: "أصبح المريض يستقبل رسائل واتساب تلقائية مرة أخرى.",
+    whatsappCommLog: "سجل رسائل واتساب",
+    whatsappNoLogs: "لا توجد رسائل واتساب تلقائية مسجلة لهذا المريض حتى الآن.",
+    entries: "رسالة",
+    date: "التاريخ",
+    type: "النوع",
+    message: "الرسالة",
+    sent: "تم الإرسال",
+    failed: "فشل",
+    queued: "في قائمة الإرسال",
+    readyToSend: "جاهزة للإرسال",
+    received: "واردة",
+    generalConsultation: "كشف عام",
+    reasonForVisit: "سبب الزيارة",
   }
 };
 

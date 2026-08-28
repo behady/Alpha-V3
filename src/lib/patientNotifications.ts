@@ -1,7 +1,7 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { getClinicProfileAdmin } from "@/lib/clinicProfileServer";
-import { pickPatientPhone } from "@/lib/patientPhone";
+import { patientSendablePhone, pickPatientPhone } from "@/lib/patientPhone";
 import { sendClinicPush } from "@/lib/push";
 import type { SmsEventType } from "@/lib/sms/config";
 import { clinicDisplayName, queuePatientSms } from "@/lib/sms/events";
@@ -116,7 +116,9 @@ async function queueEventSms(args: {
       type,
       key,
       patientId,
-      phone: pickPatientPhone(patient),
+      // Normalised here rather than passed as stored: a patient written down as
+      // "01024348877" was skipped as missing_phone every single time.
+      phone: patientSendablePhone(patient),
       patientName: (typeof patient.name === "string" && patient.name.trim()) || "Patient",
       preferences: {
         whatsappOptOut: patient.whatsappOptOut === true,
@@ -295,7 +297,7 @@ export async function sendAppointmentPatientMessage(args: {
     return { status: "skipped", reason: "whatsapp_opt_out" };
   }
 
-  const phone = pickPatientPhone(patient);
+  const phone = patientSendablePhone(patient);
   if (!phone) {
     return { status: "skipped", reason: "missing_phone" };
   }
@@ -369,7 +371,7 @@ export async function sendPaymentReceiptMessage(args: {
     return { status: "skipped", reason: "whatsapp_opt_out" };
   }
 
-  const phone = pickPatientPhone(patient);
+  const phone = patientSendablePhone(patient);
   if (!phone) {
     return { status: "skipped", reason: "missing_phone" };
   }

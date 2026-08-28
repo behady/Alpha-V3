@@ -5,7 +5,7 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { deliverWhatsAppMessage } from "@/lib/whatsappDelivery";
 import { mergeWhatsAppTemplate } from "@/lib/whatsappTemplateMerge";
-import { pickPatientPhone } from "@/lib/patientPhone";
+import { patientSendablePhone } from "@/lib/patientPhone";
 import { resolveWhatsappTemplateForPatient } from "@/lib/whatsappDefaultBodies";
 import type { WhatsAppTemplateType } from "@/types/whatsapp";
 import { parseLedgerProcedureDescription } from "@/lib/ledgerProcedureParse";
@@ -247,7 +247,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: false, error: "Patient opted out of WhatsApp automation" }, { status: 400 });
     }
 
-    const phone = pickPatientPhone(patient);
+    const phone = patientSendablePhone(patient);
     if (!phone) {
       if (automation) {
         return NextResponse.json({ ok: true, skipped: true, reason: "missing_phone" });

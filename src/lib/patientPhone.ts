@@ -1,3 +1,5 @@
+import { foldArabicDigits, normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
+
 /** First non-empty phone-like field on a patient document (matches Cloud Functions logic). */
 export function pickPatientPhone(patient: Record<string, unknown> | null | undefined): string {
   if (!patient || typeof patient !== "object") return "";
@@ -43,9 +45,7 @@ export function phoneMatchKey(raw: string | null | undefined): string {
   let s = String(raw ?? "").trim();
   if (!s) return "";
 
-  // ٠١٢٣٤٥٦٧٨٩ and ۰۱۲۳۴۵۶۷۸۹ → 0123456789
-  s = s.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660));
-  s = s.replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
+  s = foldArabicDigits(s);
 
   let digits = s.replace(/\D/g, "");
   if (!digits) return "";
@@ -62,4 +62,18 @@ export function samePhone(a: string | null | undefined, b: string | null | undef
   const ka = phoneMatchKey(a);
   const kb = phoneMatchKey(b);
   return ka.length >= 7 && ka === kb;
+}
+
+/**
+ * The patient's phone in the form a gateway will accept, or "" when there is none.
+ *
+ * `pickPatientPhone` returns the number as stored, which is right for showing on screen and wrong
+ * for dialling: a stored `01024348877` is rejected by both senders before it leaves the building.
+ * Everything that actually sends to a patient should go through this instead.
+ */
+export function patientSendablePhone(
+  patient: Record<string, unknown> | null | undefined,
+  countryCode?: string
+): string {
+  return normalizeToE164AssumingCountry(pickPatientPhone(patient), countryCode);
 }

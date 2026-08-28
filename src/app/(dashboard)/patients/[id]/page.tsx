@@ -1305,7 +1305,39 @@ export default function PatientProfile() {
                                     })
                                   : "—";
                               const st = String(row.status || "").toLowerCase();
-                              const ok = st === "success";
+                              /*
+                               * Five states, not two.
+                               *
+                               * This read `ok = st === "success"` and painted everything else red
+                               * as "Failed" — so a message sitting healthily in the send list, or
+                               * composed and waiting for a staff member to tap, was reported to the
+                               * clinic as a message the patient never got. The clinic's own log was
+                               * the least trustworthy thing on the screen: during the hours before
+                               * a gateway is connected every message queues, and every one of them
+                               * claimed to have failed.
+                               *
+                               * "received" is the patient writing to us (an opt-out reply), which
+                               * is not an outgoing delivery at all and must not be coloured like a
+                               * success or a failure.
+                               */
+                              const tone =
+                                st === "success"
+                                  ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                                  : st === "queued" || st === "manual"
+                                    ? "bg-amber-50 text-amber-700 border-amber-100"
+                                    : st === "received"
+                                      ? "bg-slate-100 text-slate-600 border-slate-200"
+                                      : "bg-rose-50 text-rose-700 border-rose-100";
+                              const label =
+                                st === "success"
+                                  ? t("sent") || "Sent"
+                                  : st === "queued"
+                                    ? t("queued") || "In send list"
+                                    : st === "manual"
+                                      ? t("readyToSend") || "Ready to send"
+                                      : st === "received"
+                                        ? t("received") || "Received"
+                                        : t("failed") || "Failed";
                               return (
                                 <tr key={row.id} className="hover:bg-slate-50/50 transition-colors">
                                   <td className="px-6 py-3.5 text-xs font-semibold text-slate-600 whitespace-nowrap tabular-nums">
@@ -1321,13 +1353,9 @@ export default function PatientProfile() {
                                   </td>
                                   <td className="px-6 py-3.5 text-right">
                                     <span
-                                      className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wide border ${
-                                        ok
-                                          ? "bg-emerald-50 text-emerald-700 border-emerald-100"
-                                          : "bg-rose-50 text-rose-700 border-rose-100"
-                                      }`}
+                                      className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wide border ${tone}`}
                                     >
-                                      {ok ? t("sent") || "Sent" : t("failed") || "Failed"}
+                                      {label}
                                     </span>
                                   </td>
                                 </tr>
