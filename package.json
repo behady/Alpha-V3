@@ -20,6 +20,8 @@
     "test:sms": "npx tsx tests/smsCost.test.mjs",
     "test:sms-schedule": "npx tsx tests/smsSchedule.test.mjs",
     "_comment_test_phone": "Two phone rules that must not be confused: sending refuses a number naming no country, matching accepts every shape one was written in. Conflating them made every patient stored as 01... unreachable on both channels, and made inbound STOP match nobody.",
+  "_comment_test_bot": "The WhatsApp assistant's decisions, as a pure function. The assertions that matter are the refusals: never answer a clinical message, never talk over a human who has taken the thread, never answer a stop request, and never ask the same question three times.",
+  "test:bot": "npx tsx tests/botEngine.test.mts",
   "test:phone": "npx tsx tests/patientPhone.test.mjs",
   "test:optout": "npx tsx tests/patientMessaging.test.mjs",
     "test:attendance": "npx tsx tests/attendanceGeofence.test.mjs",

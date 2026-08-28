@@ -75,6 +75,22 @@ export interface WhatsAppSettingsDocument {
    */
   optOutFooterEnabled?: boolean;
   /**
+   * Answer patients who message the clinic's WhatsApp, rather than only sending to them.
+   *
+   * Off until switched on, and it needs a working gateway: in manual delivery there is nobody at
+   * a screen when the patient writes, and a reply queued for someone to tap tomorrow is not a
+   * conversation. See lib/bot/respond, which re-checks every gate itself.
+   */
+  botEnabled?: boolean;
+  /**
+   * Answer numbers with no patient record.
+   *
+   * Off by default, and that default is the ban-protection one: answering unknown numbers means
+   * answering wrong numbers and anyone who ever saw the clinic's number — strangers who never
+   * asked to be messaged, which is exactly the traffic that gets a number reported.
+   */
+  botAnswerStrangers?: boolean;
+  /**
    * Answer new leads automatically. Separate from `isPatientAutomationEnabled` on purpose: a
    * clinic may happily remind its own patients while wanting no machine to greet strangers,
    * or the reverse. Off until a manager turns it on — nothing messages anybody by surprise.

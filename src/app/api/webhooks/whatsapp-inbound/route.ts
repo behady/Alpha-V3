@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection } from "@/lib/adminClinicDb";
+import { respondToPatientMessage } from "@/lib/bot/respond";
 import { applyInboundOptOut } from "@/lib/optOutInbound";
 import { reportServerError } from "@/lib/server/reportError";
 
@@ -15,9 +16,13 @@ export const dynamic = "force-dynamic";
  * asks to be left alone and is messaged anyway reports the number, and a reported number is how a
  * clinic loses WhatsApp contact with all of its patients at once.
  *
- * Deliberately *not* a general inbound-message handler. It reads a reply, decides whether it is a
- * stop request, and does nothing else — no auto-replies, no conversation state, no storing of
- * message content beyond the diagnostic trail described below.
+ * Two things happen to an inbound message, in this order and never the other way round:
+ *   1. Is it a stop request? If so it is acted on and nothing else happens.
+ *   2. Otherwise, if the clinic has switched the assistant on, it may be answered — see
+ *      lib/bot/respond, which re-checks every gate itself and is silent unless enabled.
+ *
+ * The order is the safety property. Answering "إيقاف" with a menu is how a patient who asked to
+ * be left alone becomes a patient who reports the number.
  *
  * ── Routing ──────────────────────────────────────────────────────────────────────────────────
  * The clinic comes from the URL, not the payload: `?clinicId=<id>&token=<secret>`. The gateway's
@@ -180,14 +185,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, ignored: "no_message" });
     }
 
+    // Opt-out first, always. A patient asking to be left alone must never be answered by the
+    // assistant instead — that is the single most effective way to turn a stop request into a
+    // spam report, which is the outcome this whole endpoint exists to avoid.
     const result = await applyInboundOptOut({
       clinicId,
       phone: reply.phone,
       text: reply.text,
       channel: "whatsapp",
     });
+    if (result.status !== "ignored") {
+      return NextResponse.json({ ok: true, result: result.status });
+    }
 
-    return NextResponse.json({ ok: true, result: result.status });
+    // Not a stop request, so it may be a conversation. Off unless the clinic switched it on;
+    // respondToPatientMessage re-checks every gate itself and stays silent by default.
+    const bot = await respondToPatientMessage({
+      clinicId,
+      phone: reply.phone,
+      text: reply.text,
+    });
+
+    return NextResponse.json({ ok: true, result: result.status, bot: bot.status });
   } catch (error) {
     reportServerError("[whatsapp-inbound] Failed to handle payload:", error);
     // Still 200: an error response makes the gateway redeliver, and redelivering a stop request

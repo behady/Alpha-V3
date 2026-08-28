@@ -130,6 +130,10 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     // Absent means on. The footer is what keeps the number off Meta's report list, so the
     // default has to survive a document written before this setting existed.
     optOutFooterEnabled: data?.optOutFooterEnabled !== false,
+    // Both default to off. A field dropped here would read back as off and look like the toggle
+    // refused to save — the same trap deliveryMode fell into.
+    botEnabled: data?.botEnabled === true,
+    botAnswerStrangers: data?.botAnswerStrangers === true,
     // Dropping this field here is what made "manual" look unselectable: the click saved it,
     // the listener echoed the document back through this function, and the choice vanished
     // from the screen — while the server was already honouring it. Spread conditionally so an
@@ -261,6 +265,31 @@ export default function WhatsAppSettings() {
         language === "ar"
           ? "الرد التلقائي على كلمة «إيقاف» بيشتغل بعد ربط رابط الاستقبال في لوحة Wapilot — كلّمنا لو محتاج ده."
           : "Acting on the reply automatically needs the inbound webhook connected in your Wapilot dashboard — ask us to switch it on.",
+      botTitle: language === "ar" ? "الرد التلقائي على رسائل المرضى" : "Answering patients who write to you",
+      botToggle:
+        language === "ar"
+          ? "خلي النظام يرد على المريض اللي يبعت للعيادة"
+          : "Let the system reply when a patient messages the clinic",
+      botHint:
+        language === "ar"
+          ? "بيرد بقائمة بسيطة: حجز، مواعيد وعنوان، أو التحويل للاستقبال. أي رسالة فيها ألم أو ورم أو نزيف بتتحول لموظف على طول، والبوت بيسكت لما حد من العيادة يدخل على المحادثة."
+          : "Replies with a short menu: booking, hours and address, or hand over to reception. Anything mentioning pain, swelling or bleeding goes straight to a person, and the bot goes quiet once a staff member takes the thread.",
+      botNeedsGateway:
+        language === "ar"
+          ? "محتاج «إرسال تلقائي» شغال. في وضع «فتح واتساب للإرسال» مفيش حد قدام الشاشة وقت ما المريض يكتب، فالرد مش هيتبعت."
+          : "Needs automatic sending. In click-to-send mode nobody is at a screen when the patient writes, so no reply can go out.",
+      botStrangers:
+        language === "ar"
+          ? "يرد كمان على الأرقام غير المسجلة كمرضى"
+          : "Also answer numbers that are not patients",
+      botStrangersHint:
+        language === "ar"
+          ? "ننصح تسيبها مقفولة. الرد على أرقام غريبة معناه الرد على أرقام غلط وإعلانات، وده بالظبط اللي بيخلي الرقم يتبلغ عنه."
+          : "Recommended off. Answering unknown numbers means answering wrong numbers and spam — exactly the traffic that gets a number reported.",
+      botLimits:
+        language === "ar"
+          ? "بحد أقصى ٨ ردود للرقم الواحد في الساعة، وبيوقف ويحوّل لموظف لو المحادثة طالت."
+          : "At most 8 replies to one number per hour, and it stops and hands over if a conversation drags on.",
       templateType: language === "ar" ? "نوع القالب" : "Template type",
       templateHint:
         language === "ar"
@@ -893,6 +922,58 @@ export default function WhatsAppSettings() {
             </label>
             <p className="text-xs text-slate-600 leading-relaxed">{txt.optOutHint}</p>
             <p className="text-xs text-amber-900 leading-relaxed">{txt.optOutWarning}</p>
+          </div>
+
+          {/* Answering inbound messages. Sits under the opt-out card because it shares the same
+              risk: this is the one feature that talks to a patient with no staff member deciding
+              to, so its off-switch and its limits belong where they can be read together. */}
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 space-y-3">
+            <p className="text-[11px] font-black uppercase tracking-widest text-indigo-800">{txt.botTitle}</p>
+            <label className="flex items-center justify-between gap-4 cursor-pointer">
+              <span className="text-sm font-black text-indigo-950 leading-relaxed">{txt.botToggle}</span>
+              <input
+                type="checkbox"
+                className="h-5 w-5 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
+                checked={state.botEnabled === true}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setState((s) => {
+                    const next = { ...s, botEnabled: checked };
+                    void persist(next, "silent");
+                    return next;
+                  });
+                }}
+              />
+            </label>
+            <p className="text-xs text-slate-600 leading-relaxed">{txt.botHint}</p>
+
+            {state.botEnabled === true && (
+              <>
+                {(state.deliveryMode ?? (canSendAutomatically ? "auto" : "manual")) !== "auto" && (
+                  <p className="text-xs font-bold text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+                    {txt.botNeedsGateway}
+                  </p>
+                )}
+                <label className="flex items-center justify-between gap-4 cursor-pointer pt-1">
+                  <span className="text-sm font-bold text-indigo-950 leading-relaxed">{txt.botStrangers}</span>
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
+                    checked={state.botAnswerStrangers === true}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setState((s) => {
+                        const next = { ...s, botAnswerStrangers: checked };
+                        void persist(next, "silent");
+                        return next;
+                      });
+                    }}
+                  />
+                </label>
+                <p className="text-xs text-slate-500 leading-relaxed">{txt.botStrangersHint}</p>
+                <p className="text-xs text-slate-500 leading-relaxed">{txt.botLimits}</p>
+              </>
+            )}
           </div>
 
           {/* Which built-in wording the templates start from. */}
