@@ -26,8 +26,8 @@ import { decideBotReply, type BotContext } from "./engine";
  */
 
 export type BotOutcome =
-  | { status: "replied"; text: string; handoff: boolean }
-  | { status: "handoff_only" }
+  | { status: "replied"; text: string; handoff: boolean; reason: string }
+  | { status: "handoff_only"; reason: string }
   | { status: "skipped"; reason: string };
 
 const skip = (reason: string): BotOutcome => ({ status: "skipped", reason });
@@ -181,7 +181,7 @@ export async function respondToPatientMessage(args: {
       },
       now
     );
-    return decision.handoff ? { status: "handoff_only" } : skip(decision.reason);
+    return decision.handoff ? { status: "handoff_only", reason: decision.reason } : skip(decision.reason);
   }
 
   // The stop line goes on the opening turn only. The patient started this conversation, so
@@ -194,7 +194,13 @@ export async function respondToPatientMessage(args: {
   try {
     await sendWhatsApp({ clinicId, to: phone, text: body });
   } catch (e) {
-    console.warn("[bot] reply failed to send:", e);
+    const detail = e instanceof Error ? e.message : String(e);
+    console.warn("[bot] reply failed to send:", detail);
+    await adminClinicCollection(clinicId, "whatsapp_inbound_debug").add({
+      reason: "bot_send_failed",
+      raw: detail.slice(0, 2000),
+      createdAt: FieldValue.serverTimestamp(),
+    }).catch(() => {});
     // Not recorded as a reply: a send that failed did not use up the number's budget, and the
     // conversation must not advance past a turn the patient never saw.
     return skip("send_failed");
@@ -221,5 +227,5 @@ export async function respondToPatientMessage(args: {
     now
   );
 
-  return { status: "replied", text: body, handoff: decision.handoff };
+  return { status: "replied", text: body, handoff: decision.handoff, reason: decision.reason };
 }

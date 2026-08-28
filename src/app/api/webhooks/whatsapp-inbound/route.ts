@@ -206,7 +206,7 @@ export async function POST(request: NextRequest) {
       text: reply.text,
     });
 
-    return NextResponse.json({ ok: true, result: result.status, bot: bot.status });
+    return NextResponse.json({ ok: true, result: result.status, bot: bot.status, why: bot.reason });
   } catch (error) {
     reportServerError("[whatsapp-inbound] Failed to handle payload:", error);
     // Still 200: an error response makes the gateway redeliver, and redelivering a stop request
