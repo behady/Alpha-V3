@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { FieldValue } from "firebase-admin/firestore";
+import { adminClinicCollection } from "@/lib/adminClinicDb";
 import { applyInboundOptOut } from "@/lib/optOutInbound";
 import { reportServerError } from "@/lib/server/reportError";
 
@@ -15,19 +17,21 @@ export const dynamic = "force-dynamic";
  *
  * Deliberately *not* a general inbound-message handler. It reads a reply, decides whether it is a
  * stop request, and does nothing else — no auto-replies, no conversation state, no storing of
- * message content beyond the request itself. Anything more is a product decision nobody has made.
+ * message content beyond the diagnostic trail described below.
  *
  * ── Routing ──────────────────────────────────────────────────────────────────────────────────
- * The clinic comes from the URL, not the payload: `?clinicId=<id>&token=<secret>`. Wapilot's
+ * The clinic comes from the URL, not the payload: `?clinicId=<id>&token=<secret>`. The gateway's
  * webhook field takes a full URL, so pointing each clinic's instance at its own one costs nothing
- * and removes the need to reverse-engineer which of the payload's ids identifies the tenant. It
- * also means this keeps working if the gateway changes its body format.
+ * and removes the need to work out which of the payload's ids identifies the tenant. It also
+ * means this keeps working if the gateway changes its body format.
  *
  * ── Payload ──────────────────────────────────────────────────────────────────────────────────
- * The *body* shape is read defensively, because the gateway's exact field names are not
- * documented anywhere we control. Both known shapes are handled, an unrecognised one is logged in
- * full rather than dropped, and the endpoint always answers 200: a gateway that receives an error
- * retries, and a retried STOP is not more stop.
+ * The body shape is read defensively, because the gateway's field names are not documented
+ * anywhere we control. The first live test failed exactly here: Wapilot is WAHA-shaped and wraps
+ * the message in `payload`, which the original reader did not look inside, so a real stop request
+ * was parsed as "no message" and silently did nothing. Hence `candidateMessages` below — every
+ * known wrapper is tried rather than one assumed chain — and hence the diagnostic trail, so the
+ * next unknown shape is a document that can be read rather than a guess.
  */
 
 /** `201012345678@c.us`, `+20 101 234 5678`, `201012345678` — all the same person. */
@@ -44,42 +48,70 @@ function firstString(...values: unknown[]): string {
   return "";
 }
 
+function obj(v: unknown): Record<string, any> | null {
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, any>) : null;
+}
+
+/**
+ * Every wrapper a gateway might put the message inside, outermost first.
+ *
+ * Listed rather than chained, because the chain was the bug: assuming `data` and falling back to
+ * the root meant a body under `payload` matched nothing and reported "no message", which reads
+ * identically to "no message arrived". Adding a name here is how this survives the next gateway.
+ */
+function candidateMessages(body: Record<string, any>): Record<string, any>[] {
+  const out: Record<string, any>[] = [];
+  const push = (v: unknown) => {
+    const o = obj(v);
+    if (o && !out.includes(o)) out.push(o);
+  };
+
+  // WAHA / Wapilot.
+  push(body.payload);
+  push(obj(body.payload)?.message);
+  push(obj(body.payload)?._data);
+  // Other flat gateways.
+  push(body.data);
+  push(obj(body.data)?.message);
+  push(body.message);
+  push(body.msg);
+  // The message at the root.
+  push(body);
+
+  return out;
+}
+
 /**
  * Pull `{ phone, text }` out of whatever arrived.
  *
- * Covers the Wapilot v2 shape (`from` / `chat_id` with `body` or `text`), the Meta Cloud API
- * shape (`entry[].changes[].value.messages[]`), and the flat shape several gateways post. Returns
- * null when none of them fit, which is the signal to log the body and move on.
+ * Returns null when nothing fits, which is the signal to record the body and move on.
  */
 function extractReply(body: unknown): { phone: string; text: string } | null {
-  if (!body || typeof body !== "object") return null;
-  const b = body as Record<string, any>;
+  const b = obj(body);
+  if (!b) return null;
 
-  // Meta Cloud API.
-  const metaMessage = b?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+  // Meta Cloud API, which nests far enough to be worth its own branch.
+  const metaMessage = obj(b?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]);
   if (metaMessage) {
     const phone = cleanPhone(metaMessage.from);
-    const text = firstString(metaMessage.text?.body, metaMessage.button?.text, metaMessage.body);
+    const text = firstString(obj(metaMessage.text)?.body, obj(metaMessage.button)?.text, metaMessage.body);
     if (phone && text) return { phone, text };
   }
 
-  // Wapilot and the flat gateways: the message may be at the root or one level down.
-  const m = (b.data && typeof b.data === "object" ? b.data : b) as Record<string, any>;
-  const msg = (m.message && typeof m.message === "object" ? m.message : m) as Record<string, any>;
+  for (const m of candidateMessages(b)) {
+    const phone = cleanPhone(
+      firstString(m.from, m.chat_id, m.chatId, m.author, m.sender, m.participant, m.number)
+    );
+    const text = firstString(
+      typeof m.body === "string" ? m.body : "",
+      typeof m.text === "string" ? m.text : "",
+      obj(m.text)?.body,
+      typeof m.message === "string" ? m.message : "",
+      m.caption
+    );
+    if (phone && text) return { phone, text };
+  }
 
-  const phone = cleanPhone(
-    firstString(msg.from, msg.chat_id, msg.chatId, msg.author, msg.sender, m.from, m.chat_id, b.from)
-  );
-  const text = firstString(
-    typeof msg.body === "string" ? msg.body : "",
-    typeof msg.text === "string" ? msg.text : "",
-    msg.text?.body,
-    msg.message,
-    m.body,
-    b.body
-  );
-
-  if (phone && text) return { phone, text };
   return null;
 }
 
@@ -88,20 +120,35 @@ function extractReply(body: unknown): { phone: string; text: string } | null {
  *
  * Gateways commonly post both directions to the same webhook, and the outgoing copy carries the
  * patient's number as the chat it belongs to. Without this, the opt-out footer on an outgoing
- * message could opt the patient out of everything the moment it was sent.
+ * message could opt the patient out the moment it was sent.
  */
 function isFromMe(body: unknown): boolean {
-  if (!body || typeof body !== "object") return false;
-  const b = body as Record<string, any>;
-  const candidates = [
-    b?.data?.message?.fromMe,
-    b?.data?.fromMe,
-    b?.message?.fromMe,
-    b?.fromMe,
-    b?.from_me,
-    b?.data?.from_me,
-  ];
-  return candidates.some((v) => v === true || v === "true");
+  const b = obj(body);
+  if (!b) return false;
+  for (const m of candidateMessages(b)) {
+    if (m.fromMe === true || m.fromMe === "true" || m.from_me === true || m.from_me === "true") return true;
+  }
+  return false;
+}
+
+/**
+ * Write down what arrived when it could not be read.
+ *
+ * `console.warn` goes to a log that is awkward to reach, which is why the first failure took a
+ * round trip through a real phone to diagnose. A document in the clinic's own data can be read
+ * directly the next time something does not fire. Only written on failure and capped in size, so
+ * this is a diagnostic trail rather than a transcript of everyone's messages.
+ */
+async function recordUnparsed(clinicId: string, body: unknown, reason: string): Promise<void> {
+  try {
+    await adminClinicCollection(clinicId, "whatsapp_inbound_debug").add({
+      reason,
+      raw: JSON.stringify(body ?? null).slice(0, 4000),
+      createdAt: FieldValue.serverTimestamp(),
+    });
+  } catch {
+    // Diagnostics must never be the reason a webhook fails.
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -126,13 +173,10 @@ export async function POST(request: NextRequest) {
 
     const reply = extractReply(body);
     if (!reply) {
-      // Not an error: most posts here are delivery receipts and presence updates. Logged at a
-      // level someone will actually find, because this is also what a changed payload format
-      // looks like, and the first real STOP being silently unparsed is the failure that matters.
-      console.warn(
-        "[whatsapp-inbound] No message found in payload:",
-        JSON.stringify(body ?? null).slice(0, 2000)
-      );
+      // Not an error: most posts here are delivery receipts and presence updates. Recorded
+      // anyway, because this is also what a changed payload format looks like, and the first
+      // real stop request being silently unparsed is the failure that matters.
+      await recordUnparsed(clinicId, body, "no_message");
       return NextResponse.json({ ok: true, ignored: "no_message" });
     }
 
@@ -142,10 +186,6 @@ export async function POST(request: NextRequest) {
       text: reply.text,
       channel: "whatsapp",
     });
-
-    if (result.status === "unknown_number") {
-      console.warn(`[whatsapp-inbound] Opt-out from a number with no patient record: ${result.phone}`);
-    }
 
     return NextResponse.json({ ok: true, result: result.status });
   } catch (error) {
