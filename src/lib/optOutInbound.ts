@@ -1,7 +1,7 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { isOptOutReply } from "@/lib/patientMessaging";
-import { pickPatientPhone } from "@/lib/patientPhone";
+import { phoneMatchKey, pickPatientPhone } from "@/lib/patientPhone";
 import { normalizeToInternationalDigits } from "@/lib/whatsapp";
 
 /**
@@ -30,61 +30,38 @@ export type OptOutResult =
   | { status: "unknown_number"; phone: string };
 
 /**
- * Phone fields a patient record may carry, in the order pickPatientPhone prefers them.
- *
- * Matching is on international digits rather than the stored string: the same patient is written
- * as `01012345678` by one receptionist, `+20 101 234 5678` by another and `201012345678` by the
- * import script, and an equality query on the raw text finds whichever one it was told about.
- */
-const PHONE_FIELDS = [
-  "phone",
-  "phoneNumber",
-  "phoneE164",
-  "patientPhone",
-  "mobile",
-  "whatsapp",
-  "whatsApp",
-  "contactNumber",
-  "telephone",
-  "primaryPhone",
-] as const;
-
-/**
  * Find the patient behind an inbound number.
  *
- * Equality queries first, across the field names and the three ways an Egyptian mobile is
- * commonly stored — that answers in one indexed read for almost every real record. The scan is
- * the fallback for a number stored in a shape nobody anticipated, and it is bounded: an inbound
- * webhook must not be able to trigger an unbounded read of a large clinic's whole patient list.
+ * One indexed query for the shape almost every record actually uses, then a bounded scan
+ * comparing `phoneMatchKey` — because the stored shapes genuinely vary in this data
+ * (`+201551552440`, `01024348877`, `٠١٢٢٢٦٨١٥٧٨` all appear), and an equality query can only
+ * ever find the one spelling it was handed. The scan is capped: an inbound webhook must not be
+ * able to trigger an unbounded read of a large clinic's whole patient list.
  */
 async function findPatientByPhone(
   clinicId: string,
   phone: string
 ): Promise<{ id: string; data: Record<string, unknown> } | null> {
-  const digits = normalizeToInternationalDigits(phone);
-  if (!digits) return null;
+  const key = phoneMatchKey(phone);
+  if (key.length < 7) return null;
 
-  // "201012345678" → also try "+201012345678" and the local "01012345678".
-  const local = digits.startsWith("20") ? `0${digits.slice(2)}` : "";
-  const candidates = [digits, `+${digits}`, local].filter(Boolean);
-
-  for (const field of PHONE_FIELDS) {
-    for (const value of candidates) {
-      const snap = await adminClinicCollection(clinicId, "patients")
-        .where(field, "==", value)
-        .limit(1)
-        .get();
-      if (!snap.empty) {
-        const doc = snap.docs[0];
-        return { id: doc.id, data: (doc.data() || {}) as Record<string, unknown> };
-      }
+  // Fast path: the dominant stored format is `+<international digits>` on the `phone` field.
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (digits) {
+    const direct = await adminClinicCollection(clinicId, "patients")
+      .where("phone", "==", `+${digits}`)
+      .limit(1)
+      .get();
+    if (!direct.empty) {
+      const doc = direct.docs[0];
+      return { id: doc.id, data: (doc.data() || {}) as Record<string, unknown> };
     }
   }
 
   const scan = await adminClinicCollection(clinicId, "patients").limit(3000).get();
   for (const doc of scan.docs) {
     const data = (doc.data() || {}) as Record<string, unknown>;
-    if (normalizeToInternationalDigits(pickPatientPhone(data)) === digits) {
+    if (phoneMatchKey(pickPatientPhone(data)) === key) {
       return { id: doc.id, data };
     }
   }
