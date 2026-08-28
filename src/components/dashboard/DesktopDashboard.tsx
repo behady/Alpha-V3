@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { 
     Calendar, Plus, ChevronRight, ChevronLeft, Wallet, User, Clock, Check,
     Loader2, Edit, Printer, UserX, MessageCircle, Pill, Receipt,
-    X, Save, Trash2, FileText, ChevronDown, Bell, UserPlus, AlertCircle, Building2
+    X, Save, Trash2, ChevronDown, Bell, UserPlus, AlertCircle, Building2
 } from "lucide-react";
 import { db, auth } from "@/lib/firebase";
 import { 
@@ -834,6 +834,20 @@ export default function DesktopDashboard() {
   }, [language]);
 
   const isScheduleToday = scheduleViewDate === getLocalDateKey();
+  /**
+   * Whether the right-hand column has anything to hold. Three things can fill it, and the column
+   * has to stay open for all of them, not just a selected appointment:
+   *   - an appointment is selected (the editor or the assistant is showing it)
+   *   - the assistant is the chosen panel, which stays available with nothing selected precisely
+   *     so it can be asked to find something
+   *   - a booking is being made in drawer mode, which renders the form in this column
+   * Anything else and it closes, handing the width to the schedule.
+   */
+  const sidePanelOpen =
+    !!selectedAppointment ||
+    (appointmentPanelMode === "avatar" && activeModal !== "booking") ||
+    (activeModal === "booking" && appointmentEditorMode === "drawer");
+
 
   const summaryHeading = useMemo(() => {
     if (isScheduleToday) {
@@ -1082,7 +1096,7 @@ export default function DesktopDashboard() {
         )}
 
         {/* === MAIN DASHBOARD CONTENT: Schedule + Detail === */}
-        <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 mt-4 lg:mt-0">
+        <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 lg:gap-0 mt-4 lg:mt-0">
             
             {/* 5. SCHEDULE LIST WIDGET */}
             <div className="flex-1 flex flex-col bg-white/80 backdrop-blur-3xl border border-white rounded-[2.5rem] shadow-[0_8px_40px_rgb(0,0,0,0.05)] h-[600px] lg:h-full lg:min-h-0 overflow-hidden">
@@ -1529,10 +1543,28 @@ export default function DesktopDashboard() {
             </div>
 
             {/* 6. PATIENT LEDGER / EDIT PANEL */}
-            <div className="hidden lg:flex w-full lg:w-[400px] xl:w-[450px] shrink-0 flex-col gap-4 z-20">
+            {/*
+              The column collapses to nothing when there is nothing to put in it, so the schedule
+              gets the width back instead of staring at a placeholder. It animates rather than
+              snapping, because in Week view an instant change re-flows seven day columns and reads
+              as a glitch; the slide makes it legible as one thing giving way to another.
+
+              The gap lives on this element rather than on the row, so a collapsed panel leaves no
+              orphaned 16px between the schedule and the edge. The inner shell keeps its full width
+              throughout, so the panel slides out of view instead of squashing on the way.
+            */}
+            <div
+              className={`hidden lg:flex shrink-0 min-w-0 flex-col z-20 overflow-hidden transition-[width,margin,opacity] duration-300 ease-out motion-reduce:transition-none ${
+                sidePanelOpen
+                  ? "lg:w-[400px] xl:w-[450px] lg:ms-4 opacity-100"
+                  : "lg:w-[0px] lg:ms-[0px] opacity-0 pointer-events-none"
+              }`}
+              aria-hidden={!sidePanelOpen}
+            >
+             <div className="w-[400px] xl:w-[450px] h-full flex flex-col gap-4">
                {/* The assistant stays available with nothing selected — that is when you ask it to
-                   find an appointment. The editor has nothing to show without one, so it keeps the
-                   original empty state. */}
+                   find an appointment. The editor has nothing to show without one, so the column
+                   simply closes. */}
                {selectedAppointment || (appointmentPanelMode === 'avatar' && activeModal !== 'booking') ? (
                    (() => {
                        // Both panels take the same props and fill the same column, so which one
@@ -1584,13 +1616,8 @@ export default function DesktopDashboard() {
                             preSelectedPatient={preSelectedPatient}
                             preSelectedBranchId={scopeBranchId}
                         />
-                    ) : (
-                        <div className="flex-1 flex flex-col items-center justify-center text-white/60 lg:text-indigo-900/40 p-6 text-center">
-                           <FileText size={48} className="mb-4 opacity-40 lg:opacity-30 lg:text-indigo-400"/>
-                           <p className="text-lg font-bold text-white lg:text-indigo-950 mb-1">Select an Appointment</p>
-                           <p className="text-sm font-medium opacity-80 lg:text-slate-500 lg:opacity-100 max-w-[250px]">Click on any appointment in the schedule to view finances and edit details.</p>
-                        </div>
-                    )}
+                    ) : null}
+             </div>
             </div>
         </div>
       </div>
