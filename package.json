@@ -35,6 +35,8 @@
     "test:clinicstatus": "npx tsx tests/clinicStatus.test.mjs",
     "_comment_test_storage": "Where uploaded files land. Four of six upload sites had no clinic in the path, two of them flat folders every clinic shares — and a Storage rule cannot scope what the path does not name. Also asserts storage.rules exists and is deployed, since it did not exist at all until 2026-08-24.",
     "test:storage": "npx tsx tests/storagePaths.test.mjs",
+    "_comment_test_storage_rules": "The ruleset itself, asked of the rules engine on the storage emulator. storagePaths.test.mjs can only check that a line is present; this uploads, reads, lists and deletes. Written after storage.rules sat undeployed for three days with a Firestore lookup in it that can never resolve in this project.",
+    "test:storage-rules": "npx firebase-tools@13 emulators:exec --only storage \"node tests/storage.rules.test.mjs\"",
     "_comment_test_restore": "What a per-clinic restore may touch. The refusals matter more than the copying: users holds clinicRoles for EVERY clinic a person works at, and sms_outbox is drained by a worker that sends without a human and never expires a message. Includes a drift check against the root collections firestore.rules declares, which caught five the hand-written list had missed.",
     "test:restore": "npx tsx tests/restorePlan.test.mjs",
     "_comment_test_teeth": "What the odontogram may claim was done to a tooth. This is a medical record drawn as a picture, so the failure mode is a dentist believing it and being wrong: planned work must never repaint a tooth, an extraction outranks everything done before it, and a treatment colour must never be mistakable for a diagnosis colour.",
