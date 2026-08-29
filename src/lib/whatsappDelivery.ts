@@ -6,6 +6,7 @@ import {
   appendOptOutFooter,
 } from "@/lib/patientMessaging";
 import { loadWapilotConfig } from "@/lib/wapilotConfig";
+import { loadMetaWhatsappConfig, sendMetaWhatsappText } from "@/lib/metaWhatsapp";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { enqueueWhatsapp } from "@/lib/whatsapp/outbox";
 
@@ -48,6 +49,15 @@ export type WhatsappDeliveryResult =
  * plan. Everything else falls back to a human pressing send, which is free and cannot be banned.
  */
 export async function resolveWhatsappDeliveryMode(clinicId: string): Promise<WhatsappDeliveryMode> {
+  // The official Cloud API wins outright. It is Meta-hosted, cannot drop a session, and does not
+  // sit behind the whatsappIntegration plan gate the way the Wapilot path does — a clinic that has
+  // connected an official number is auto, full stop, whatever else is configured.
+  try {
+    if (await loadMetaWhatsappConfig(clinicId)) return "auto";
+  } catch {
+    /* fall through to the Wapilot decision */
+  }
+
   try {
     const snap = await adminClinicDoc(clinicId, "settings", "whatsapp").get();
     if (snap.exists && String(snap.data()?.deliveryMode || "") === "manual") return "manual";
@@ -66,6 +76,24 @@ export async function resolveWhatsappDeliveryMode(clinicId: string): Promise<Wha
   } catch {
     return "manual";
   }
+}
+
+/**
+ * Send one already-composed patient message through whichever channel the clinic runs on.
+ *
+ * The single place the Meta-vs-Wapilot choice is made for an unattended send, so no caller has to
+ * know which gateway a clinic is on. Meta first, because a clinic that has both configured during
+ * a migration wants the drop-proof one. Throws on failure exactly as `sendWhatsApp` did, so the
+ * callers' existing try/catch (which records a failed log row) keeps working unchanged.
+ */
+export async function sendPatientWhatsAppAuto(clinicId: string, to: string, text: string): Promise<void> {
+  const meta = await loadMetaWhatsappConfig(clinicId);
+  if (meta) {
+    const result = await sendMetaWhatsappText({ config: meta, to, text });
+    if (!result.ok) throw new Error(`Meta Cloud API failed: ${result.error || "unknown"}`);
+    return;
+  }
+  await sendWhatsApp({ clinicId, to, text });
 }
 
 /**
@@ -111,7 +139,7 @@ export async function deliverWhatsAppMessage(args: {
   const text = args.audience === "patient" ? await applyPatientOptOutFooter(args.clinicId, args.text) : args.text;
 
   if (mode === "auto") {
-    await sendWhatsApp({ clinicId: args.clinicId, to: args.to, text });
+    await sendPatientWhatsAppAuto(args.clinicId, args.to, text);
     return { mode: "auto", sent: true };
   }
 

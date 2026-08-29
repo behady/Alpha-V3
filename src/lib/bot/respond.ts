@@ -4,9 +4,9 @@ import { loadPublicClinicProfile } from "@/lib/publicBooking";
 import { clinicDisplayName } from "@/lib/sms/events";
 import { patientSendablePhone, phoneMatchKey, pickPatientPhone } from "@/lib/patientPhone";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
-import { resolveLidToPhone, sendWhatsApp } from "@/lib/whatsapp";
+import { resolveLidToPhone } from "@/lib/whatsapp";
 import { findPatientByLid } from "@/lib/whatsappLid";
-import { resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
+import { resolveWhatsappDeliveryMode, sendPatientWhatsAppAuto } from "@/lib/whatsappDelivery";
 import { appendOptOutFooter, WHATSAPP_OPT_OUT_FOOTER_AR } from "@/lib/patientMessaging";
 import {
   conversationKey,
@@ -268,7 +268,7 @@ export async function respondToPatientMessage(args: {
       : decision.reply;
 
   try {
-    await sendWhatsApp({ clinicId, to: replyTo, text: body });
+    await sendPatientWhatsAppAuto(clinicId, replyTo, body);
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
     console.warn("[bot] reply failed to send:", detail);
