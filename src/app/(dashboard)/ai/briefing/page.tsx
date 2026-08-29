@@ -58,7 +58,7 @@ export default function BriefingPage() {
                   key={tab.key}
                   onClick={() => setPeriod(tab.key)}
                   className={`inline-flex items-center gap-2 rounded-full px-5 py-2 text-xs font-bold transition-colors ${
-                    active ? "bg-[#1A2130] text-white" : "text-slate-500 hover:text-slate-900"
+                    active ? "bg-ink-slab text-white" : "text-slate-500 hover:text-slate-900"
                   }`}
                 >
                   <Icon size={14} />

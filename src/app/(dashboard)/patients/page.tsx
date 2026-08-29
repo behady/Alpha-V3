@@ -143,10 +143,10 @@ export default function PatientsPage() {
                  </div>
                  
                  <div className="flex items-center gap-2">
-                    <button onClick={toggleLanguage} className="w-8 h-8 rounded-full bg-slate-50 hover:bg-[#E8F7F0] text-slate-500 hover:text-accent flex items-center justify-center font-bold text-[10px] uppercase tracking-widest transition-colors border border-slate-100">
+                    <button onClick={toggleLanguage} className="w-8 h-8 rounded-full bg-slate-50 hover:bg-accent-tint text-slate-500 hover:text-accent flex items-center justify-center font-bold text-[10px] uppercase tracking-widest transition-colors border border-slate-100">
                        {language === 'ar' ? 'EN' : 'ع'}
                     </button>
-                    <button className="w-8 h-8 rounded-full bg-slate-50 hover:bg-[#E8F7F0] text-slate-500 hover:text-accent flex items-center justify-center transition-colors relative border border-slate-100">
+                    <button className="w-8 h-8 rounded-full bg-slate-50 hover:bg-accent-tint text-slate-500 hover:text-accent flex items-center justify-center transition-colors relative border border-slate-100">
                         <Bell size={14}/>
                         <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-red-500 rounded-full border border-white"></span>
                     </button>
@@ -243,7 +243,7 @@ export default function PatientsPage() {
                                 <span className="text-xs font-bold text-slate-500 tracking-wide" dir="ltr">{p.phone || "---"}</span>
                             </div>
                             
-                            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-50 flex items-center justify-center border border-slate-100 group-hover:bg-[#E8F7F0] group-hover:border-primary-100 transition-colors">
+                            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-50 flex items-center justify-center border border-slate-100 group-hover:bg-accent-tint group-hover:border-primary-100 transition-colors">
                                 <span className="sm:hidden text-slate-400 group-hover:text-accent"><Phone size={14} className="fill-current opacity-20 group-hover:opacity-100 transition-all"/></span>
                                 <span className="hidden sm:block text-slate-300 group-hover:text-accent transition-transform group-hover:translate-x-0.5"><ChevronRight size={18}/></span>
                             </div>

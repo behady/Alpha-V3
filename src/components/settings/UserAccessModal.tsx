@@ -318,7 +318,7 @@ export default function UserAccessModal({
                       }}
                     >
                       <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors ${!collapsed ? 'bg-[#E8F7F0] text-accent-soft' : 'bg-slate-100 text-slate-400'}`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors ${!collapsed ? 'bg-accent-tint text-accent-soft' : 'bg-slate-100 text-slate-400'}`}>
                           {collapsed ? (isRTL ? <ChevronRight size={16}/> : <ChevronDown size={16}/>) : <ChevronDown size={16}/>}
                         </div>
                         <div className="min-w-0">
@@ -362,7 +362,7 @@ export default function UserAccessModal({
                                 bypassesEverything
                                   ? 'bg-slate-50 cursor-default'
                                   : isSet
-                                    ? 'bg-[#E8F7F0]/40 cursor-pointer'
+                                    ? 'bg-accent-tint/40 cursor-pointer'
                                     : 'hover:bg-slate-50 cursor-pointer'
                               }`}
                             >

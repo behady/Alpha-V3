@@ -333,7 +333,7 @@ function PrescriptionStudio() {
             <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm space-y-5">
                <h3 className="font-black text-slate-900 text-lg border-b border-slate-100 pb-3 flex items-center justify-between">
                   Add Medication
-                  <span className="bg-[#E8F7F0] text-accent px-2 py-1 rounded-lg text-[10px] uppercase">
+                  <span className="bg-accent-tint text-accent px-2 py-1 rounded-lg text-[10px] uppercase">
                     {rxItems.length} in Rx · {drugDb.length} shortcuts
                   </span>
                </h3>

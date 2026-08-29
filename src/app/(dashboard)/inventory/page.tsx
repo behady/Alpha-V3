@@ -537,7 +537,7 @@ export default function InventoryPage() {
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "أصناف مطابقة" : "Total items"}</p>
                     <p className="text-xs text-slate-500 mt-1 font-medium">{language === "ar" ? "حسب الفلاتر" : "Matching filters"}</p>
                   </div>
-                  <div className="w-11 h-11 rounded-2xl bg-[#E8F7F0] text-accent flex items-center justify-center shrink-0">
+                  <div className="w-11 h-11 rounded-2xl bg-accent-tint text-accent flex items-center justify-center shrink-0">
                     <Layers size={22} />
                   </div>
                 </div>

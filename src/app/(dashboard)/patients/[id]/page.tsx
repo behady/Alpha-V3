@@ -856,7 +856,7 @@ export default function PatientProfile() {
     return patientMedia.filter((m) => m.category === mediaCategoryFilter);
   }, [patientMedia, mediaCategoryFilter]);
 
-  if (loading || authLoading || activeTab === "") return <div className="h-screen flex items-center justify-center bg-[#f8fafc]"><Loader2 className="animate-spin text-accent" size={40}/></div>;
+  if (loading || authLoading || activeTab === "") return <div className="h-screen flex items-center justify-center bg-surface-subtle"><Loader2 className="animate-spin text-accent" size={40}/></div>;
   if (error) return <div className="p-10 text-center text-slate-500 font-bold">{error}</div>;
 
   const displayAge = patient.dateOfBirth ? calculateAge(patient.dateOfBirth) : (patient.age || "N/A");
@@ -896,7 +896,7 @@ export default function PatientProfile() {
 
   return (
     <PermissionGuard permission="access.patients">
-      <div className="min-h-screen bg-[#f8fafc] p-4 md:p-8 animate-in fade-in lg:pb-0">
+      <div className="min-h-screen bg-surface-subtle p-4 md:p-8 animate-in fade-in lg:pb-0">
         
         {/* TOP GRID WIDGETS */}
         <div className="max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-3 lg:gap-6 mb-6">
@@ -1060,7 +1060,7 @@ export default function PatientProfile() {
 
            {/* COL 3: Timeline Summary Dark Card */}
            <div className="hidden lg:flex lg:col-span-3 lg:pt-8 flex-col h-full">
-               <div className="bg-[#1A2130] text-white rounded-[1.5rem] lg:rounded-[2rem] p-4 lg:p-6 shadow-[0_12px_40px_rgba(26,33,48,0.2)] flex-1 flex flex-col relative overflow-hidden">
+               <div className="bg-ink-slab text-white rounded-[1.5rem] lg:rounded-[2rem] p-4 lg:p-6 shadow-[0_12px_40px_rgba(26,33,48,0.2)] flex-1 flex flex-col relative overflow-hidden">
                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
                    <div className="flex items-center justify-between mb-4 lg:mb-6 relative z-10">
                       <span className="text-sm font-medium text-slate-400">{language === 'ar' ? 'آخر نشاط' : 'Recent Activity'}</span>
@@ -1569,7 +1569,7 @@ export default function PatientProfile() {
                       <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2"><Users size={14} className="text-blue-500"/> Connected Family Profile</h3>
                       <div className="flex flex-wrap gap-3">
                          {familyMembers.map((member: any) => (
-                            <button key={member.id} onClick={() => router.push(`/patients/${member.id}`)} className="flex items-center gap-3 px-4 py-2.5 bg-slate-50 hover:bg-[#E8F7F0] border border-slate-100 hover:border-[#A7E2C3] rounded-xl transition-all duration-200 hover:shadow-sm group">
+                            <button key={member.id} onClick={() => router.push(`/patients/${member.id}`)} className="flex items-center gap-3 px-4 py-2.5 bg-slate-50 hover:bg-accent-tint border border-slate-100 hover:border-[#A7E2C3] rounded-xl transition-all duration-200 hover:shadow-sm group">
                                <div className="text-left">
                                   <div className="text-sm font-bold text-slate-900 group-hover:text-[#1E5631] transition-colors">{member.name}</div>
                                   <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mt-0.5">{calculateAge(member.dateOfBirth)} Y · {member.gender}</div>

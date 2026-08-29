@@ -281,7 +281,7 @@ export default function SettingsPage() {
       
       {/* HEADER */}
       <div className="flex items-center gap-4 bg-white p-6 rounded-[2rem] border border-slate-200/60 shadow-sm mb-8">
-          <div className="bg-[#E8F7F0] p-3.5 rounded-2xl text-accent shrink-0">
+          <div className="bg-accent-tint p-3.5 rounded-2xl text-accent shrink-0">
               <ActiveIcon size={26}/>
           </div>
           <div>
@@ -316,7 +316,7 @@ export default function SettingsPage() {
                                       key={tab.id}
                                       onClick={() => { setActiveTab(tab.id); setIsTopMenuOpen(false); }}
                                       data-tour={tab.id === 'clinical' ? 'settings-tab-schedule' : tab.id === 'services' ? 'settings-tab-prices' : undefined}
-                                      className={`w-full flex items-center gap-3 px-5 py-3 text-sm font-bold transition-colors ${isActive ? 'bg-[#E8F7F0] text-accent' : 'text-slate-600 hover:bg-slate-50'}`}
+                                      className={`w-full flex items-center gap-3 px-5 py-3 text-sm font-bold transition-colors ${isActive ? 'bg-accent-tint text-accent' : 'text-slate-600 hover:bg-slate-50'}`}
                                   >
                                       <tab.icon size={18} className={isActive ? 'text-accent' : 'text-slate-400'}/> {tab.label}
                                   </button>

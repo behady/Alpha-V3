@@ -1015,7 +1015,7 @@ export default function FinancePage() {
                               {tx.doctorCommissionAmount || tx.labFee || tx.clinicProfit !== undefined ? (
                                 <div className="flex flex-col gap-1">
                                   {tx.doctorCommissionAmount ? (
-                                    <span className="text-[10px] font-bold bg-[#E8F7F0] text-[#1E5631] px-2 py-1 rounded-lg border border-[#A7E2C3] w-fit">
+                                    <span className="text-[10px] font-bold bg-accent-tint text-[#1E5631] px-2 py-1 rounded-lg border border-[#A7E2C3] w-fit">
                                       Doc {tx.doctorCommissionAmount}
                                     </span>
                                   ) : null}
@@ -1129,7 +1129,7 @@ export default function FinancePage() {
                         {(tx.doctorCommissionAmount || tx.labFee) && (
                           <div className="flex flex-wrap gap-1 ps-12">
                             {tx.doctorCommissionAmount ? (
-                              <span className="text-[9px] bg-[#E8F7F0] text-accent px-2 py-0.5 rounded border border-[#A7E2C3] font-bold">
+                              <span className="text-[9px] bg-accent-tint text-accent px-2 py-0.5 rounded border border-[#A7E2C3] font-bold">
                                 Doc: {tx.doctorCommissionAmount}
                               </span>
                             ) : null}

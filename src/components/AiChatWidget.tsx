@@ -732,7 +732,7 @@ export default function AiChatWidget() {
               <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-[13px] leading-relaxed shadow-sm ${
                   msg.role === "user"
-                    ? "bg-[#1A2130] text-white rounded-tr-sm whitespace-pre-wrap"
+                    ? "bg-ink-slab text-white rounded-tr-sm whitespace-pre-wrap"
                     : "bg-white text-slate-700 border border-slate-200/60 rounded-tl-sm"
                 }`}>
                   {/* An attached image renders above its caption, like any messenger. */}

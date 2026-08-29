@@ -200,7 +200,7 @@ export default function DiagnosisPage() {
 
   if (loading || !patient) {
     return (
-      <div className="h-screen flex items-center justify-center bg-[#f8fafc]">
+      <div className="h-screen flex items-center justify-center bg-surface-subtle">
         <Loader2 className="animate-spin text-accent" size={32} />
       </div>
     );
@@ -208,7 +208,7 @@ export default function DiagnosisPage() {
 
   return (
     <PermissionGuard permission="access.clinical">
-      <div className="min-h-screen bg-[#f8fafc] pb-28 md:pb-12 animate-in fade-in">
+      <div className="min-h-screen bg-surface-subtle pb-28 md:pb-12 animate-in fade-in">
         {/* Header */}
         <header className="bg-white/95 backdrop-blur-md border-b border-slate-200/70 sticky top-0 z-40">
           <div className="max-w-[1600px] mx-auto px-3 md:px-6 py-3 flex items-center gap-3">

@@ -911,7 +911,7 @@ export default function DesktopDashboard() {
                 {/* Appointments */}
                 <div className="flex flex-col justify-center px-2 shrink-0">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 leading-none">{language === 'ar' ? 'المواعيد' : 'Appts'}</span>
-                  <span className="text-lg font-semibold text-[#2D3748] leading-none mt-1.5">{activeAppointmentsCount}</span>
+                  <span className="text-lg font-semibold text-ink-strong leading-none mt-1.5">{activeAppointmentsCount}</span>
                 </div>
 
                 <span className="w-px h-8 bg-slate-200/70 shrink-0" />
@@ -919,9 +919,9 @@ export default function DesktopDashboard() {
                 {/* Appointment status chips */}
                 <div className="flex items-center gap-1.5 px-1 shrink-0">
                   <div className="flex items-center gap-1.5 rounded-xl bg-slate-100/70 px-2.5 py-1.5" title={language === 'ar' ? 'مؤكد' : 'Confirmed'}>
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#1A2130] shrink-0" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-ink-slab shrink-0" />
                     <span className="hidden 2xl:inline text-[10px] font-bold uppercase tracking-wide text-slate-500">{language === 'ar' ? 'مؤكد' : 'Confirmed'}</span>
-                    <span className="text-sm font-extrabold text-[#1A2130] leading-none">{summaryStats.confirmed}</span>
+                    <span className="text-sm font-extrabold text-ink-slab leading-none">{summaryStats.confirmed}</span>
                   </div>
                   <div className="flex items-center gap-1.5 rounded-xl bg-amber-50 px-2.5 py-1.5" title={language === 'ar' ? 'غير مؤكد' : 'Unconfirmed'}>
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
@@ -979,13 +979,13 @@ export default function DesktopDashboard() {
                 title={language === 'ar' ? 'مريض جديد' : 'New Patient'}
                 className="group flex items-center gap-2 bg-white/90 backdrop-blur-md text-slate-700 font-bold text-sm px-4 py-2.5 rounded-2xl hover:-translate-y-0.5 transition-all duration-300 shadow-[0_4px_20px_rgb(0,0,0,0.04)] border border-white/50"
               >
-                <Plus size={18} strokeWidth={2.5} className="text-slate-500 group-hover:text-[#2D3748] transition-colors shrink-0" />
+                <Plus size={18} strokeWidth={2.5} className="text-slate-500 group-hover:text-ink-strong transition-colors shrink-0" />
                 <span className="hidden xl:inline whitespace-nowrap">{language === 'ar' ? 'مريض جديد' : 'New Patient'}</span>
               </button>
               <button
                 onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }}
                 title={language === 'ar' ? 'دفع سريع' : 'Quick Pay'}
-                className="group flex items-center gap-2 bg-[#2D3748] text-white font-bold text-sm px-4 py-2.5 rounded-2xl hover:-translate-y-0.5 transition-all duration-300 shadow-[0_8px_20px_rgba(45,55,72,0.2)] border border-[#2D3748]"
+                className="group flex items-center gap-2 bg-ink-strong text-white font-bold text-sm px-4 py-2.5 rounded-2xl hover:-translate-y-0.5 transition-all duration-300 shadow-[0_8px_20px_rgba(45,55,72,0.2)] border border-ink-strong"
               >
                 <Wallet size={18} strokeWidth={2.5} className="shrink-0" />
                 <span className="hidden xl:inline whitespace-nowrap">{language === 'ar' ? 'دفع سريع' : 'Quick Pay'}</span>
@@ -1018,19 +1018,19 @@ export default function DesktopDashboard() {
             <div className="col-span-1 row-span-2 bg-white text-slate-800 rounded-2xl p-4 shadow-[0_8px_20px_rgb(0,0,0,0.05)] border border-slate-100 flex flex-col justify-center">
                 <div className="grid grid-cols-2 gap-3 h-full">
                     <button onClick={() => setActiveModal('patient')} className="flex flex-col items-center justify-center gap-1.5 lg:gap-2 hover:scale-[1.05] transition-transform group">
-                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-[#E8F7F0] text-accent flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors shadow-sm">
+                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-accent-tint text-accent flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors shadow-sm">
                             <User size={28} className="scale-75 lg:scale-100" strokeWidth={2.5} />
                         </div>
                         <span className="text-[10px] md:text-xs lg:text-sm font-extrabold text-slate-600 lg:text-slate-700">{language === 'ar' ? 'مريض' : 'Patient'}</span>
                     </button>
                     <button onClick={() => { setAppointmentToEdit(null); setActiveModal('booking'); }} className="flex flex-col items-center justify-center gap-1.5 lg:gap-2 hover:scale-[1.05] transition-transform group">
-                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-[#E8F7F0] text-accent flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors shadow-sm">
+                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-accent-tint text-accent flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors shadow-sm">
                             <Calendar size={28} className="scale-75 lg:scale-100" strokeWidth={2.5} />
                         </div>
                         <span className="text-[10px] md:text-xs lg:text-sm font-extrabold text-slate-600 lg:text-slate-700">{language === 'ar' ? 'زيارة' : 'Visit'}</span>
                     </button>
                     <button onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }} className="flex flex-col items-center justify-center gap-1.5 lg:gap-2 hover:scale-[1.05] transition-transform group">
-                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-[#E8F7F0] text-accent flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors shadow-sm">
+                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-accent-tint text-accent flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors shadow-sm">
                             <Wallet size={28} className="scale-75 lg:scale-100" strokeWidth={2.5} />
                         </div>
                         <span className="text-[10px] md:text-xs lg:text-sm font-extrabold text-slate-600 lg:text-slate-700">{language === 'ar' ? 'دفع' : 'Pay'}</span>
@@ -1102,7 +1102,7 @@ export default function DesktopDashboard() {
             <div className="flex-1 flex flex-col bg-white/80 backdrop-blur-3xl border border-white rounded-[2.5rem] shadow-[0_8px_40px_rgb(0,0,0,0.05)] h-[600px] lg:h-full lg:min-h-0 overflow-hidden">
                 <div className="flex justify-between items-center gap-3 px-6 py-5 border-b border-slate-100/50 bg-transparent shrink-0">
                     <div className="relative flex min-w-0 flex-1 flex-wrap items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-[#1A2130] text-white flex items-center justify-center shrink-0 shadow-md">
+                      <div className="w-10 h-10 rounded-xl bg-ink-slab text-white flex items-center justify-center shrink-0 shadow-md">
                         <Calendar size={20} />
                       </div>
                       <div className="flex items-center gap-1 shrink-0 bg-slate-100/80 rounded-xl p-1 shadow-inner mr-1">
@@ -1151,7 +1151,7 @@ export default function DesktopDashboard() {
                           <span className="text-lg font-light tracking-widest text-slate-800">
                             {language === 'ar' ? 'جدول المواعيد' : 'Schedule'}
                           </span>
-                          <span className="text-xs font-bold text-[#64748B] lg:text-slate-600 mt-0.5">
+                          <span className="text-xs font-bold text-ink-muted lg:text-slate-600 mt-0.5">
                             {scheduleViewDate}
                             {scheduleViewDate === getLocalDateKey()
                               ? language === "ar"
@@ -1225,7 +1225,7 @@ export default function DesktopDashboard() {
                       <button
                         type="button"
                         onClick={() => setPrescriptionFinderOpen(true)}
-                        className="flex items-center gap-1.5 rounded-full bg-[#2D3748] px-5 py-2 text-xs font-bold text-white transition hover:bg-[#1A202C] shadow-sm hover:shadow-md"
+                        className="flex items-center gap-1.5 rounded-full bg-ink-strong px-5 py-2 text-xs font-bold text-white transition hover:bg-[#1A202C] shadow-sm hover:shadow-md"
                       >
                         <Pill size={14} />
                         {language === "ar" ? "طباعة وصفة" : "Print Rx"}
@@ -1483,7 +1483,7 @@ export default function DesktopDashboard() {
                                                                            return (
                                                                                <button 
                                                                                    onClick={(e) => { e.stopPropagation(); handleStatusChange(apt.id, action.next); }} 
-                                                                                   className={`px-4 py-1.5 text-[11px] font-extrabold rounded-full mr-2 transition-all shadow-md hover:-translate-y-0.5 bg-[#2D3748] text-white hover:shadow-lg hover:bg-slate-800 border border-white/20`}
+                                                                                   className={`px-4 py-1.5 text-[11px] font-extrabold rounded-full mr-2 transition-all shadow-md hover:-translate-y-0.5 bg-ink-strong text-white hover:shadow-lg hover:bg-slate-800 border border-white/20`}
                                                                                >
                                                                                    {action.label}
                                                                                </button>

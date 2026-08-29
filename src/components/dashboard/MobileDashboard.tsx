@@ -892,7 +892,7 @@ export default function MobileDashboard() {
               <div className="text-slate-900 group-hover:scale-110 transition-transform"><Plus size={18} strokeWidth={2.5} /></div>
               {language === 'ar' ? 'مريض جديد' : 'New Patient'}
             </button>
-            <button onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }} className="group flex items-center gap-2 bg-[#1A2130] text-white font-bold text-sm px-6 py-3 rounded-full hover:-translate-y-0.5 transition-all duration-300 shadow-[0_8px_20px_rgba(26,33,48,0.2)] border border-[#1A2130]">
+            <button onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }} className="group flex items-center gap-2 bg-ink-slab text-white font-bold text-sm px-6 py-3 rounded-full hover:-translate-y-0.5 transition-all duration-300 shadow-[0_8px_20px_rgba(26,33,48,0.2)] border border-ink-slab">
               <div className="text-white group-hover:scale-110 transition-transform"><Wallet size={18} strokeWidth={2.5} /></div>
               {language === 'ar' ? 'دفع سريع' : 'Quick Pay'}
             </button>
@@ -902,7 +902,7 @@ export default function MobileDashboard() {
         {/* === DESKTOP: Floating High-Contrast Stats === */}
         <div className="hidden lg:flex items-center gap-12 shrink-0 py-4 px-2">
           {/* Daily Income - Dark Contrast Card */}
-          <div className="bg-[#1A2130] text-white p-5 rounded-[2rem] shadow-[0_12px_40px_rgba(26,33,48,0.2)] flex flex-col min-w-[200px] hover:-translate-y-1 hover:shadow-2xl transition-all duration-300">
+          <div className="bg-ink-slab text-white p-5 rounded-[2rem] shadow-[0_12px_40px_rgba(26,33,48,0.2)] flex flex-col min-w-[200px] hover:-translate-y-1 hover:shadow-2xl transition-all duration-300">
             <div className="flex items-center justify-between mb-4">
               <span className="text-sm font-medium text-slate-400">{language === 'ar' ? 'دخل اليوم' : 'Daily Income'}</span>
               <Wallet size={18} className="text-slate-400" />
@@ -1061,7 +1061,7 @@ export default function MobileDashboard() {
             <div className="flex justify-between items-center gap-3 px-4 md:px-6 py-4 border-b border-white/40 bg-transparent shrink-0">
               {/* Desktop Date switcher (Hidden on Mobile) */}
               <div className="hidden lg:flex relative min-w-0 flex-1 flex-wrap items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[#1A2130] text-white flex items-center justify-center shrink-0 shadow-md">
+                <div className="w-10 h-10 rounded-xl bg-ink-slab text-white flex items-center justify-center shrink-0 shadow-md">
                   <Calendar size={20} />
                 </div>
                 <div className="flex items-center gap-1 shrink-0 bg-slate-100/80 rounded-xl p-1 shadow-inner mr-1">
@@ -1110,7 +1110,7 @@ export default function MobileDashboard() {
                     <span className="text-lg font-light tracking-widest text-slate-800">
                       {language === 'ar' ? 'جدول المواعيد' : 'Schedule'}
                     </span>
-                    <span className="text-xs font-bold text-[#64748B] lg:text-slate-600 mt-0.5">
+                    <span className="text-xs font-bold text-ink-muted lg:text-slate-600 mt-0.5">
                       {scheduleViewDate}
                       {scheduleViewDate === getLocalDateKey()
                         ? language === "ar"
@@ -1205,7 +1205,7 @@ export default function MobileDashboard() {
                 <button
                   type="button"
                   onClick={() => setPrescriptionFinderOpen(true)}
-                  className="flex items-center gap-1.5 rounded-full bg-[#1A2130] px-4 py-2 text-xs font-medium text-white transition hover:bg-slate-800 hover:shadow-md"
+                  className="flex items-center gap-1.5 rounded-full bg-ink-slab px-4 py-2 text-xs font-medium text-white transition hover:bg-slate-800 hover:shadow-md"
                 >
                   <Pill size={14} />
                   {language === "ar" ? "طباعة وصفة" : "Print Rx"}

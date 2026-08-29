@@ -213,9 +213,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <TutorialProvider>
-    <div className={`min-h-[100dvh] lg:h-[100dvh] lg:overflow-hidden bg-[#E8F0ED] text-slate-700 flex ${isRTL ? cairo.className : plusJakartaSans.className} relative z-0`} dir={isRTL ? 'rtl' : 'ltr'}>
+    <div className={`min-h-[100dvh] lg:h-[100dvh] lg:overflow-hidden bg-surface-page text-slate-700 flex ${isRTL ? cairo.className : plusJakartaSans.className} relative z-0`} dir={isRTL ? 'rtl' : 'ltr'}>
       {/* Decorative Minimal Background - Stronger Green/White Gradient */}
-      <div className="hidden lg:block absolute inset-0 w-full h-full overflow-hidden pointer-events-none -z-10 bg-gradient-to-br from-[#F4F7F6] via-[#E8F0ED] to-[#AEE2CD]">
+      <div className="hidden lg:block absolute inset-0 w-full h-full overflow-hidden pointer-events-none -z-10 bg-gradient-to-br from-[#F4F7F6] via-surface-page to-[#AEE2CD]">
          <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-white rounded-full blur-[120px] opacity-[0.8]"></div>
          <div className="absolute bottom-[-10%] right-[-5%] w-[50%] h-[70%] bg-[#8DE3C4] rounded-full blur-[140px] opacity-[0.3]"></div>
       </div>

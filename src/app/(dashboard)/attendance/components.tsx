@@ -80,7 +80,7 @@ export const PersonalWorksheet = ({
                         )}
 
                         {myProfile && !myProfile.registeredDeviceId && !activeSession && (
-                            <div className="mt-4 flex items-start gap-2 text-left bg-[#E8F7F0] text-[#1E5631] p-3 rounded-xl border border-[#A7E2C3] text-xs font-semibold leading-relaxed">
+                            <div className="mt-4 flex items-start gap-2 text-left bg-accent-tint text-[#1E5631] p-3 rounded-xl border border-[#A7E2C3] text-xs font-semibold leading-relaxed">
                                 <ShieldAlert size={16} className="shrink-0 mt-0.5"/> This device will be registered as your clock-in device when you punch in.
                             </div>
                         )}
@@ -253,7 +253,7 @@ export const TeamOverview = ({
                     </p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <span className="text-[11px] font-black uppercase tracking-widest text-accent bg-[#E8F7F0] border border-[#A7E2C3] px-3 py-1.5 rounded-xl">
+                    <span className="text-[11px] font-black uppercase tracking-widest text-accent bg-accent-tint border border-[#A7E2C3] px-3 py-1.5 rounded-xl">
                         {commissionBreakdownRows.length} entries
                     </span>
                     <button onClick={handleGenerateCommissionPDF} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-md hover:bg-indigo-700 transition-all shrink-0 active:scale-95">
@@ -475,7 +475,7 @@ export const StaffSettingsModal = ({ settingsModal, setSettingsModal, handleUpda
                 <form onSubmit={handleUpdateStaffSettings} className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60"><label className="text-[11px] font-bold text-slate-500 uppercase block mb-2">Monthly Base Salary (EGP)</label><input type="number" required value={settingsModal.baseSalary} onChange={e => setSettingsModal({...settingsModal, baseSalary: Number(e.target.value)})} className="w-full px-4 py-3 bg-white rounded-xl border border-slate-200 font-black outline-none focus:border-accent-soft"/></div>
-                        <div className="bg-[#E8F7F0] p-4 rounded-2xl border border-[#A7E2C3]"><label className="text-[11px] font-bold text-accent uppercase block mb-2">Commission (%)</label><input type="number" required value={settingsModal.commissionPercentage} onChange={e => setSettingsModal({...settingsModal, commissionPercentage: Number(e.target.value)})} className="w-full px-4 py-3 bg-white rounded-xl border border-[#A7E2C3] font-black text-[#1E5631] outline-none focus:border-accent-soft"/></div>
+                        <div className="bg-accent-tint p-4 rounded-2xl border border-[#A7E2C3]"><label className="text-[11px] font-bold text-accent uppercase block mb-2">Commission (%)</label><input type="number" required value={settingsModal.commissionPercentage} onChange={e => setSettingsModal({...settingsModal, commissionPercentage: Number(e.target.value)})} className="w-full px-4 py-3 bg-white rounded-xl border border-[#A7E2C3] font-black text-[#1E5631] outline-none focus:border-accent-soft"/></div>
                         <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60"><label className="text-[11px] font-bold text-slate-500 uppercase block mb-2">Overtime Multiplier</label><input type="number" step="0.1" required value={settingsModal.overtimeMultiplier} onChange={e => setSettingsModal({...settingsModal, overtimeMultiplier: Number(e.target.value)})} className="w-full px-4 py-3 bg-white rounded-xl border border-slate-200 font-black outline-none focus:border-accent-soft"/></div>
                     </div>
                     <div>

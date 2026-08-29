@@ -658,7 +658,7 @@ export default function AppointmentSidePanel({
 
 
                       {onQuickPay && (
-                        <button onClick={(e) => { e.stopPropagation(); onQuickPay(selectedAppointment.patientId!, selectedAppointment.patientName!); }} className="w-full text-sm font-bold text-white bg-[#1A2130] border border-[#1A2130] hover:bg-slate-800 rounded-xl py-3 flex items-center justify-center gap-1.5 transition-colors shadow-md">
+                        <button onClick={(e) => { e.stopPropagation(); onQuickPay(selectedAppointment.patientId!, selectedAppointment.patientName!); }} className="w-full text-sm font-bold text-white bg-ink-slab border border-ink-slab hover:bg-slate-800 rounded-xl py-3 flex items-center justify-center gap-1.5 transition-colors shadow-md">
                           <Wallet size={16}/> {language === 'ar' ? 'دفع سريع' : 'Quick Pay'}
                         </button>
                       )}
@@ -703,7 +703,7 @@ export default function AppointmentSidePanel({
                             } catch (e) { console.error(e); }
                             finally { setUnpaidLoading(false); }
                         }}
-                        className={`text-sm font-bold px-4 py-2 rounded-full transition-all flex items-center gap-1.5 shadow-sm ${showInlinePayment ? 'text-slate-600 bg-white border border-slate-200 hover:bg-slate-50' : 'text-white bg-[#1A2130] hover:bg-slate-800'}`}
+                        className={`text-sm font-bold px-4 py-2 rounded-full transition-all flex items-center gap-1.5 shadow-sm ${showInlinePayment ? 'text-slate-600 bg-white border border-slate-200 hover:bg-slate-50' : 'text-white bg-ink-slab hover:bg-slate-800'}`}
                       >
                         <Wallet size={14}/> {showInlinePayment ? (language === 'ar' ? 'إلغاء' : 'Cancel') : (language === 'ar' ? 'دفع' : 'Pay')}
                       </button>
@@ -727,7 +727,7 @@ export default function AppointmentSidePanel({
                               <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider mb-1">{language === 'ar' ? 'المدفوع' : 'Paid'}</p>
                               <p className="text-base font-black text-emerald-600">{totalPaid.toLocaleString()} <span className="text-[10px] text-emerald-600/50">EGP</span></p>
                             </div>
-                            <div className="flex-1 bg-[#1A2130] border border-[#1A2130] rounded-xl p-3 text-center shadow-md">
+                            <div className="flex-1 bg-ink-slab border border-ink-slab rounded-xl p-3 text-center shadow-md">
                               <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider mb-1">{language === 'ar' ? 'المتبقي' : 'Remaining'}</p>
                               <p className={`text-base font-black ${totalRemaining > 0 ? 'text-white' : 'text-slate-400'}`}>{totalRemaining.toLocaleString()} <span className="text-[10px] opacity-50">EGP</span></p>
                             </div>
@@ -784,7 +784,7 @@ export default function AppointmentSidePanel({
                                     <button
                                       disabled={inlinePayLoading || !selectedProcedure || !inlinePayAmount}
                                       onClick={handleInlinePayment}
-                                      className="bg-[#1A2130] hover:bg-slate-800 text-white font-bold h-[38px] px-4 rounded-lg flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+                                      className="bg-ink-slab hover:bg-slate-800 text-white font-bold h-[38px] px-4 rounded-lg flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
                                     >
                                     {inlinePayLoading ? <Loader2 size={16} className="animate-spin"/> : <Check size={16}/>}
                                     {language === 'ar' ? 'تأكيد' : 'Confirm'}

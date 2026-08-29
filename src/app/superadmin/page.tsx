@@ -180,7 +180,7 @@ export default function SuperAdminDashboard() {
   );
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center bg-[#E8F0ED]"><Loader2 className="animate-spin text-slate-500" size={32} /></div>;
+    return <div className="min-h-screen flex items-center justify-center bg-surface-page"><Loader2 className="animate-spin text-slate-500" size={32} /></div>;
   }
 
   return (

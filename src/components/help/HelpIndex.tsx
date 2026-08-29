@@ -45,7 +45,7 @@ export default function HelpIndex({ articles }: { articles: { en: HelpArticle[];
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 md:px-8" dir={isRTL ? "rtl" : "ltr"}>
       <header className="mb-8 flex items-center gap-4">
-        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#E8F7F0] text-accent">
+        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-accent-tint text-accent">
           <LifeBuoy size={28} />
         </span>
         <div>

@@ -213,7 +213,7 @@ export default function OnboardingPage() {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4" dir={isAr ? "rtl" : "ltr"}>
         <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-10 max-w-md w-full text-center">
-          <div className="w-16 h-16 rounded-2xl bg-[#E8F7F0] text-accent flex items-center justify-center mx-auto mb-6">
+          <div className="w-16 h-16 rounded-2xl bg-accent-tint text-accent flex items-center justify-center mx-auto mb-6">
             {slowGrant ? <AlertCircle size={28} /> : <Loader2 size={28} className="animate-spin" />}
           </div>
           <h1 className="text-xl font-black text-slate-900 mb-2">{t.creating}</h1>
@@ -244,7 +244,7 @@ export default function OnboardingPage() {
     <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6" dir={isAr ? "rtl" : "ltr"}>
       <div className="max-w-md mx-auto">
         <div className="text-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-[#E8F7F0] text-accent flex items-center justify-center mx-auto mb-4">
+          <div className="w-14 h-14 rounded-2xl bg-accent-tint text-accent flex items-center justify-center mx-auto mb-4">
             <Building2 size={26} />
           </div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">{t.welcome}</h1>
@@ -303,7 +303,7 @@ export default function OnboardingPage() {
             <h2 className="text-base font-black text-slate-900 mb-4">{t.joinTitle}</h2>
 
             {joinSent ? (
-              <div className="rounded-2xl bg-[#E8F7F0] border border-emerald-200 p-5 text-center">
+              <div className="rounded-2xl bg-accent-tint border border-emerald-200 p-5 text-center">
                 <div className="w-11 h-11 rounded-full bg-white text-accent flex items-center justify-center mx-auto mb-3">
                   <Check size={22} />
                 </div>
