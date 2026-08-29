@@ -1466,7 +1466,7 @@ export default function AppointmentsPage() {
                     showToast("Error updating status", "error");
                   }
                 }}
-                className="w-full bg-[#60d297] hover:bg-[#4eb37f] text-white font-bold py-3 px-4 rounded-xl transition-colors"
+                className="w-full bg-accent-soft hover:bg-[#4eb37f] text-white font-bold py-3 px-4 rounded-xl transition-colors"
               >
                 {language === 'ar' ? 'تحديد موعد جديد' : 'Schedule New Appointment'}
               </button>

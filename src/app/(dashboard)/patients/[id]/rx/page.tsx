@@ -252,7 +252,7 @@ function PrescriptionStudio() {
     }
   };
 
-  if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-[#27ae60]" size={40}/></div>;
+  if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-accent" size={40}/></div>;
   if (!patient) return <div className="p-10 text-center font-black">Patient not found.</div>;
 
   return (
@@ -267,9 +267,9 @@ function PrescriptionStudio() {
             </button>
             <div>
                <h1 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-                 <Pill className="text-[#60d297]" size={24}/> Prescription Studio
+                 <Pill className="text-accent-soft" size={24}/> Prescription Studio
                </h1>
-               <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Generating Rx for: <span className="text-[#27ae60]">{patient.name}</span></p>
+               <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Generating Rx for: <span className="text-accent">{patient.name}</span></p>
             </div>
           </div>
 
@@ -278,7 +278,7 @@ function PrescriptionStudio() {
                 type="button"
                 onClick={() => void handleSave()} data-tour="rx-save"
                 disabled={isSaving || rxItems.length === 0}
-                className="flex-1 md:flex-none bg-[#27ae60] text-white hover:bg-[#4eb37f] px-5 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:opacity-50"
+                className="flex-1 md:flex-none bg-accent text-white hover:bg-[#4eb37f] px-5 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:opacity-50"
              >
                 {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
                 Save
@@ -317,7 +317,7 @@ function PrescriptionStudio() {
                
                <div className="space-y-1.5">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Attending Doctor</label>
-                  <select value={selectedDoctor} onChange={e => setSelectedDoctor(e.target.value)} className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all cursor-pointer">
+                  <select value={selectedDoctor} onChange={e => setSelectedDoctor(e.target.value)} className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all cursor-pointer">
                      {doctors.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
                      {doctors.length === 0 && <option value="">No Doctors Found</option>}
                   </select>
@@ -325,7 +325,7 @@ function PrescriptionStudio() {
 
                <div className="space-y-1.5">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Diagnosis / CC (Optional)</label>
-                  <input value={diagnosis} onChange={e => setDiagnosis(e.target.value)} placeholder="e.g. Acute Pulpitis..." className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all"/>
+                  <input value={diagnosis} onChange={e => setDiagnosis(e.target.value)} placeholder="e.g. Acute Pulpitis..." className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all"/>
                </div>
             </div>
 
@@ -333,14 +333,14 @@ function PrescriptionStudio() {
             <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm space-y-5">
                <h3 className="font-black text-slate-900 text-lg border-b border-slate-100 pb-3 flex items-center justify-between">
                   Add Medication
-                  <span className="bg-[#E8F7F0] text-[#27ae60] px-2 py-1 rounded-lg text-[10px] uppercase">
+                  <span className="bg-[#E8F7F0] text-accent px-2 py-1 rounded-lg text-[10px] uppercase">
                     {rxItems.length} in Rx · {drugDb.length} shortcuts
                   </span>
                </h3>
                
                <div className="space-y-1.5">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Select from Database</label>
-                  <select value={selectedDrugId} onChange={handleDrugSelect} className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all cursor-pointer">
+                  <select value={selectedDrugId} onChange={handleDrugSelect} className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all cursor-pointer">
                      <option value="">-- Manual Entry --</option>
                      {drugDb.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                   </select>
@@ -359,18 +359,18 @@ function PrescriptionStudio() {
                           if (selectedDrugId) setSelectedDrugId("");
                         }} 
                         placeholder="e.g. Amoxicillin 500mg" 
-                        className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all"
+                        className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all"
                      />
                   </div>
 
                   <div className="space-y-1.5 md:col-span-2">
                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Dose / Frequency</label>
-                     <input value={currentDose} onChange={e => setCurrentDose(e.target.value)} placeholder="e.g. 1 tablet every 12 hours" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all"/>
+                     <input value={currentDose} onChange={e => setCurrentDose(e.target.value)} placeholder="e.g. 1 tablet every 12 hours" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all"/>
                   </div>
                   
                   <div className="space-y-1.5 md:col-span-2">
                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Special Instructions (Optional)</label>
-                     <input value={currentNote} onChange={e => setCurrentNote(e.target.value)} placeholder="e.g. Take after meals" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all"/>
+                     <input value={currentNote} onChange={e => setCurrentNote(e.target.value)} placeholder="e.g. Take after meals" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all"/>
                   </div>
                </div>
 

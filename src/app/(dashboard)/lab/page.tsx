@@ -257,7 +257,7 @@ export default function LabTrackingPage() {
           {/* Page header */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between shrink-0">
             <div>
-              <p className="text-[11px] font-black uppercase tracking-[0.2em] text-[#27ae60]">Alpha</p>
+              <p className="text-[11px] font-black uppercase tracking-[0.2em] text-accent">Alpha</p>
               <h1 className="text-2xl xl:text-3xl font-black text-slate-900 tracking-tight mt-1">
                 {isAr ? "متابعة المعمل" : "Lab Tracking"}
               </h1>
@@ -279,11 +279,11 @@ export default function LabTrackingPage() {
           {/* Hero + counts */}
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 xl:gap-6 shrink-0">
             <div className="xl:col-span-5 rounded-3xl bg-slate-900 text-white p-6 xl:p-8 shadow-xl shadow-slate-900/25 relative overflow-hidden border border-slate-800">
-              <div className="absolute -top-24 -end-24 w-72 h-72 rounded-full bg-[#60d297]/15 blur-3xl pointer-events-none" aria-hidden />
+              <div className="absolute -top-24 -end-24 w-72 h-72 rounded-full bg-accent-soft/15 blur-3xl pointer-events-none" aria-hidden />
               <div className="absolute -bottom-16 -start-16 w-56 h-56 rounded-full bg-sky-500/10 blur-3xl pointer-events-none" aria-hidden />
               <div className="relative">
                 <div className="flex items-center gap-2 text-slate-400">
-                  <Truck className="w-4 h-4 text-[#60d297]" />
+                  <Truck className="w-4 h-4 text-accent-soft" />
                   <p className="text-xs font-bold uppercase tracking-widest">
                     {isAr ? "برّه في المعامل" : "Out at labs"}
                   </p>

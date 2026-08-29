@@ -1338,7 +1338,7 @@ export default function MobileDashboard() {
                             return (
                               <div
                                 key={idx}
-                                className={`border-b ${isHourSlot ? 'border-[#60d297]/40' : 'border-dashed border-[#60d297]/20'} flex-1 relative pointer-events-auto cursor-pointer hover:bg-emerald-50/30 transition-colors group/slot`}
+                                className={`border-b ${isHourSlot ? 'border-accent-soft/40' : 'border-dashed border-accent-soft/20'} flex-1 relative pointer-events-auto cursor-pointer hover:bg-emerald-50/30 transition-colors group/slot`}
                                 style={{ height: `${rowHeight}px` }}
                                 onClick={() => {
                                   handleSelectAppointmentWrapper(null);
@@ -1618,7 +1618,7 @@ export default function MobileDashboard() {
                     setInlineSaving(false);
                   }
                 }}
-                className="w-full bg-[#60d297] hover:bg-[#4eb37f] text-white font-black py-3 rounded-xl transition-colors text-sm shadow-sm shadow-[#60d297]/30"
+                className="w-full bg-accent-soft hover:bg-[#4eb37f] text-white font-black py-3 rounded-xl transition-colors text-sm shadow-sm shadow-accent-soft/30"
               >
                 {language === 'ar' ? 'جدولة موعد جديد' : 'Schedule New Appointment'}
               </button>

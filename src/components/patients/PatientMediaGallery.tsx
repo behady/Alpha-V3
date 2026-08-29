@@ -424,7 +424,7 @@ export default function PatientMediaGallery({
       <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h3 className="text-xl font-black text-slate-900 flex items-center gap-2.5">
-            <div className="w-9 h-9 bg-emerald-50 text-[#27ae60] rounded-xl flex items-center justify-center shadow-sm">
+            <div className="w-9 h-9 bg-emerald-50 text-accent rounded-xl flex items-center justify-center shadow-sm">
               <Camera size={22} />
             </div>
             {language === "ar" ? "الأشعة والصور السريرية" : "X-Rays & Clinical Media"}
@@ -461,7 +461,7 @@ export default function PatientMediaGallery({
                 <span
                   className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${
                     isSelected
-                      ? "bg-[#27ae60] text-white"
+                      ? "bg-accent text-white"
                       : "bg-slate-200 text-slate-600"
                   }`}
                 >
@@ -489,13 +489,13 @@ export default function PatientMediaGallery({
               placeholder={language === "ar" ? "بحث بالاسم..." : "Search photo..."}
               className={`text-xs font-bold bg-white border border-slate-200 rounded-xl py-1.5 ${
                 isRTL ? "pr-8 pl-3" : "pl-8 pr-3"
-              } text-slate-700 outline-none focus:ring-2 focus:ring-[#27ae60]/20 focus:border-[#27ae60] w-36 sm:w-44`}
+              } text-slate-700 outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent w-36 sm:w-44`}
             />
           </div>
 
           {/* Date Filter Dropdown */}
           <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-sm">
-            <Calendar size={14} className="text-[#27ae60]" />
+            <Calendar size={14} className="text-accent" />
             <span className="text-[11px] font-extrabold text-slate-500 whitespace-nowrap">
               {language === "ar" ? "تاريخ الرفع:" : "Upload Date:"}
             </span>
@@ -523,7 +523,7 @@ export default function PatientMediaGallery({
               onClick={toggleSelectAll}
               className="text-xs font-bold text-slate-300 hover:text-white flex items-center gap-1.5"
             >
-              <CheckSquare size={16} className="text-[#27ae60]" />
+              <CheckSquare size={16} className="text-accent" />
               <span>
                 {language === "ar"
                   ? `محدد (${selectedIds.length})`
@@ -545,7 +545,7 @@ export default function PatientMediaGallery({
                     e.target.value = "";
                   }
                 }}
-                className="bg-slate-800 text-white text-xs font-bold rounded-xl px-3 py-1.5 border border-slate-700 outline-none focus:ring-2 focus:ring-[#27ae60]"
+                className="bg-slate-800 text-white text-xs font-bold rounded-xl px-3 py-1.5 border border-slate-700 outline-none focus:ring-2 focus:ring-accent"
               >
                 <option value="">{language === "ar" ? "-- اختر القسم --" : "-- Select Section --"}</option>
                 {CATEGORIES.filter((c) => c.id !== "All").map((cat) => (
@@ -584,12 +584,12 @@ export default function PatientMediaGallery({
         onClick={() => fileInputRef.current?.click()}
         className={`relative border-2 border-dashed rounded-3xl p-6 sm:p-8 text-center cursor-pointer transition-all duration-200 ${
           dragActive
-            ? "border-[#27ae60] bg-emerald-50/60 scale-[1.005]"
-            : "border-slate-200/90 bg-white hover:border-[#27ae60]/60 hover:bg-slate-50/50 shadow-sm"
+            ? "border-accent bg-emerald-50/60 scale-[1.005]"
+            : "border-slate-200/90 bg-white hover:border-accent/60 hover:bg-slate-50/50 shadow-sm"
         }`}
       >
         <div className="max-w-md mx-auto space-y-3 pointer-events-none">
-          <div className="w-14 h-14 bg-emerald-50 text-[#27ae60] rounded-2xl flex items-center justify-center mx-auto shadow-sm group-hover:scale-110 transition-transform">
+          <div className="w-14 h-14 bg-emerald-50 text-accent rounded-2xl flex items-center justify-center mx-auto shadow-sm group-hover:scale-110 transition-transform">
             <UploadCloud size={30} />
           </div>
           <div>
@@ -610,7 +610,7 @@ export default function PatientMediaGallery({
           </div>
           <button
             type="button"
-            className="inline-flex items-center gap-2 bg-[#27ae60] hover:bg-[#219653] text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-md shadow-emerald-600/20 transition-all pointer-events-auto active:scale-95"
+            className="inline-flex items-center gap-2 bg-accent hover:bg-[#219653] text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-md shadow-emerald-600/20 transition-all pointer-events-auto active:scale-95"
           >
             <PlusCircle size={16} />
             <span>
@@ -652,7 +652,7 @@ export default function PatientMediaGallery({
                 key={media.id}
                 className={`group bg-white rounded-2xl border transition-all duration-200 overflow-hidden flex flex-col ${
                   isSelected
-                    ? "border-[#27ae60] ring-2 ring-[#27ae60]/20 shadow-md"
+                    ? "border-accent ring-2 ring-accent/20 shadow-md"
                     : "border-slate-200/80 hover:shadow-md hover:border-emerald-300"
                 }`}
               >
@@ -674,7 +674,7 @@ export default function PatientMediaGallery({
                     className="absolute top-2.5 start-2.5 z-10 text-white bg-slate-900/60 p-1 rounded-lg backdrop-blur-md hover:bg-slate-900/90 transition-colors"
                   >
                     {isSelected ? (
-                      <CheckSquare size={18} className="text-[#27ae60]" />
+                      <CheckSquare size={18} className="text-accent" />
                     ) : (
                       <Square size={18} className="text-slate-300" />
                     )}
@@ -691,7 +691,7 @@ export default function PatientMediaGallery({
                     className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <span className="bg-white/95 text-slate-800 text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-lg backdrop-blur-sm hover:scale-105 transition-transform">
-                      <Eye size={14} className="text-[#27ae60]" />
+                      <Eye size={14} className="text-accent" />
                       {language === "ar" ? "تكبير / معاينة" : "Inspect"}
                     </span>
                   </div>
@@ -720,7 +720,7 @@ export default function PatientMediaGallery({
                         onClick={() =>
                           setMovingMediaId(movingMediaId === media.id ? null : media.id)
                         }
-                        className="text-[11px] font-bold text-slate-600 hover:text-[#27ae60] bg-slate-50 hover:bg-emerald-50 px-2 py-1 rounded-lg transition-colors flex items-center gap-1"
+                        className="text-[11px] font-bold text-slate-600 hover:text-accent bg-slate-50 hover:bg-emerald-50 px-2 py-1 rounded-lg transition-colors flex items-center gap-1"
                         title={language === "ar" ? "نقل إلى قسم آخر" : "Move to another category"}
                       >
                         <FolderOutput size={13} />
@@ -737,8 +737,8 @@ export default function PatientMediaGallery({
                             <button
                               key={cat.id}
                               onClick={() => handleMoveCategory(media.id, cat.id)}
-                              className={`w-full text-start px-3 py-1.5 hover:bg-emerald-50 hover:text-[#27ae60] transition-colors flex items-center justify-between ${
-                                media.category === cat.id ? "text-[#27ae60] font-black" : "text-slate-700"
+                              className={`w-full text-start px-3 py-1.5 hover:bg-emerald-50 hover:text-accent transition-colors flex items-center justify-between ${
+                                media.category === cat.id ? "text-accent font-black" : "text-slate-700"
                               }`}
                             >
                               <span>{language === "ar" ? cat.label.ar : cat.label.en}</span>
@@ -783,7 +783,7 @@ export default function PatientMediaGallery({
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-                  <UploadCloud size={20} className="text-[#27ae60]" />
+                  <UploadCloud size={20} className="text-accent" />
                   {language === "ar" ? "تأكيد رفع الصور المحددة" : "Confirm Selected Photo Uploads"}
                 </h3>
                 <p className="text-xs text-slate-500 font-medium">
@@ -835,7 +835,7 @@ export default function PatientMediaGallery({
                           prev.map((item, i) => (i === idx ? { ...item, category: newCat } : item))
                         );
                       }}
-                      className="text-xs font-bold text-slate-800 bg-white border border-slate-200 rounded-xl px-3 py-1.5 outline-none focus:ring-2 focus:ring-[#27ae60]"
+                      className="text-xs font-bold text-slate-800 bg-white border border-slate-200 rounded-xl px-3 py-1.5 outline-none focus:ring-2 focus:ring-accent"
                     >
                       {CATEGORIES.filter((c) => c.id !== "All").map((cat) => (
                         <option key={cat.id} value={cat.id}>
@@ -868,7 +868,7 @@ export default function PatientMediaGallery({
               <button
                 onClick={executeUploadStagedFiles}
                 disabled={isUploading}
-                className="bg-[#27ae60] hover:bg-[#219653] text-white text-xs font-extrabold px-6 py-2.5 rounded-xl shadow-md shadow-emerald-600/20 transition-all flex items-center gap-2"
+                className="bg-accent hover:bg-[#219653] text-white text-xs font-extrabold px-6 py-2.5 rounded-xl shadow-md shadow-emerald-600/20 transition-all flex items-center gap-2"
               >
                 {isUploading ? (
                   <>
@@ -965,7 +965,7 @@ export default function PatientMediaGallery({
           {/* Top Bar */}
           <div className="w-full max-w-6xl flex items-center justify-between text-white shrink-0 mb-3 bg-slate-900/60 p-3.5 rounded-2xl border border-white/10 backdrop-blur-md">
             <div className="flex items-center gap-3 min-w-0">
-              <div className="w-9 h-9 bg-emerald-500/20 text-[#27ae60] rounded-xl flex items-center justify-center border border-emerald-500/30">
+              <div className="w-9 h-9 bg-emerald-500/20 text-accent rounded-xl flex items-center justify-center border border-emerald-500/30">
                 <Camera size={20} />
               </div>
               <div className="min-w-0">
@@ -973,7 +973,7 @@ export default function PatientMediaGallery({
                   {currentLightboxMedia.filename || "Patient Radiograph"}
                 </h3>
                 <div className="flex items-center gap-2 text-[11px] text-slate-400 font-medium mt-0.5">
-                  <span className="bg-[#27ae60] text-white font-black px-2 py-0.5 rounded-md text-[10px]">
+                  <span className="bg-accent text-white font-black px-2 py-0.5 rounded-md text-[10px]">
                     {currentLightboxMedia.category || "X-Ray"}
                   </span>
                   <span>•</span>
@@ -992,7 +992,7 @@ export default function PatientMediaGallery({
               <select
                 value={currentLightboxMedia.category || "X-Ray"}
                 onChange={(e) => handleMoveCategory(currentLightboxMedia.id, e.target.value)}
-                className="bg-slate-800 text-white text-xs font-bold rounded-xl px-3 py-1.5 border border-slate-700 outline-none focus:ring-2 focus:ring-[#27ae60] hidden sm:block"
+                className="bg-slate-800 text-white text-xs font-bold rounded-xl px-3 py-1.5 border border-slate-700 outline-none focus:ring-2 focus:ring-accent hidden sm:block"
               >
                 {CATEGORIES.filter((c) => c.id !== "All").map((cat) => (
                   <option key={cat.id} value={cat.id}>
@@ -1017,7 +1017,7 @@ export default function PatientMediaGallery({
                 target="_blank"
                 rel="noreferrer"
                 download
-                className="bg-[#27ae60] hover:bg-[#219653] text-white text-xs font-bold px-3.5 py-1.5 rounded-xl shadow-md transition-all flex items-center gap-1.5"
+                className="bg-accent hover:bg-[#219653] text-white text-xs font-bold px-3.5 py-1.5 rounded-xl shadow-md transition-all flex items-center gap-1.5"
               >
                 <Download size={15} />
                 <span className="hidden sm:inline">{language === "ar" ? "تحميل" : "Download"}</span>

@@ -607,7 +607,7 @@ export default function FinancePage() {
           {/* Page header */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between shrink-0">
             <div>
-              <p className="text-[11px] font-black uppercase tracking-[0.2em] text-[#27ae60]">Alpha</p>
+              <p className="text-[11px] font-black uppercase tracking-[0.2em] text-accent">Alpha</p>
               <h1 className="text-2xl xl:text-3xl font-black text-slate-900 tracking-tight mt-1">{t("finance")}</h1>
               <p className="text-slate-500 font-semibold text-sm mt-1 tabular-nums">{periodLabel}</p>
             </div>
@@ -615,7 +615,7 @@ export default function FinancePage() {
               <button type="button" onClick={handleLangToggle} className="w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 flex items-center justify-center font-bold text-[10px] uppercase tracking-widest shadow-sm transition-colors">
                 {language === "ar" ? "EN" : "ع"}
               </button>
-              <button type="button" className="w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-[#27ae60] flex items-center justify-center shadow-sm transition-colors relative">
+              <button type="button" className="w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-accent flex items-center justify-center shadow-sm transition-colors relative">
                 <Bell size={18} />
                 <span className="absolute top-2 end-2 w-1.5 h-1.5 bg-red-500 rounded-full border-2 border-white" />
               </button>
@@ -625,11 +625,11 @@ export default function FinancePage() {
           {/* Hero + metric tiles */}
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 xl:gap-6 shrink-0">
             <div className="xl:col-span-5 rounded-3xl bg-slate-900 text-white p-6 xl:p-8 shadow-xl shadow-slate-900/25 relative overflow-hidden border border-slate-800">
-              <div className="absolute -top-24 -end-24 w-72 h-72 rounded-full bg-[#60d297]/15 blur-3xl pointer-events-none" aria-hidden />
+              <div className="absolute -top-24 -end-24 w-72 h-72 rounded-full bg-accent-soft/15 blur-3xl pointer-events-none" aria-hidden />
               <div className="absolute -bottom-16 -start-16 w-56 h-56 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" aria-hidden />
               <div className="relative">
                 <div className="flex items-center gap-2 text-slate-400">
-                  <Wallet className="w-4 h-4 text-[#60d297]" />
+                  <Wallet className="w-4 h-4 text-accent-soft" />
                   <p className="text-xs font-bold uppercase tracking-widest">
                     {language === "ar" ? "صافي العيادة" : "True net"}
                   </p>
@@ -783,7 +783,7 @@ export default function FinancePage() {
                   type="button"
                   onClick={() => handleTimeViewChange("daily")}
                   className={`flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-lg transition-all ${
-                    timeView === "daily" ? "bg-white shadow text-[#27ae60] border border-slate-200/50" : "text-slate-500"
+                    timeView === "daily" ? "bg-white shadow text-accent border border-slate-200/50" : "text-slate-500"
                   }`}
                 >
                   <CalendarDays size={16} />
@@ -793,7 +793,7 @@ export default function FinancePage() {
                   type="button"
                   onClick={() => handleTimeViewChange("monthly")}
                   className={`flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-lg transition-all ${
-                    timeView === "monthly" ? "bg-white shadow text-[#27ae60] border border-slate-200/50" : "text-slate-500"
+                    timeView === "monthly" ? "bg-white shadow text-accent border border-slate-200/50" : "text-slate-500"
                   }`}
                 >
                   <CalendarClock size={16} />
@@ -803,7 +803,7 @@ export default function FinancePage() {
                   type="button"
                   onClick={() => handleTimeViewChange("range")}
                   className={`flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-lg transition-all ${
-                    timeView === "range" ? "bg-white shadow text-[#27ae60] border border-slate-200/50" : "text-slate-500"
+                    timeView === "range" ? "bg-white shadow text-accent border border-slate-200/50" : "text-slate-500"
                   }`}
                 >
                   <CalendarDays size={16} />
@@ -816,14 +816,14 @@ export default function FinancePage() {
                     type="date"
                     value={customStartDate}
                     onChange={(e) => setCustomStartDate(e.target.value)}
-                    className="bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[160px] cursor-pointer focus:border-[#60d297] focus:ring-2 focus:ring-[#60d297]/20 transition-all"
+                    className="bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[160px] cursor-pointer focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 transition-all"
                   />
                   <span className="text-slate-400 font-bold text-xs">→</span>
                   <input
                     type="date"
                     value={customEndDate}
                     onChange={(e) => setCustomEndDate(e.target.value)}
-                    className="bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[160px] cursor-pointer focus:border-[#60d297] focus:ring-2 focus:ring-[#60d297]/20 transition-all"
+                    className="bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[160px] cursor-pointer focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 transition-all"
                   />
                 </div>
               ) : (
@@ -831,7 +831,7 @@ export default function FinancePage() {
                   type={timeView === "daily" ? "date" : "month"}
                   value={dateRange}
                   onChange={(e) => setDateRange(e.target.value)}
-                  className="bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[160px] cursor-pointer focus:border-[#60d297] focus:ring-2 focus:ring-[#60d297]/20 transition-all"
+                  className="bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[160px] cursor-pointer focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 transition-all"
                 />
               )}
               <div className="flex-1 min-w-[80px]" />
@@ -881,7 +881,7 @@ export default function FinancePage() {
                 <select
                   value={filterDoctor}
                   onChange={(e) => setFilterDoctor(e.target.value)}
-                  className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none w-full sm:max-w-[220px] cursor-pointer focus:border-[#60d297]"
+                  className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none w-full sm:max-w-[220px] cursor-pointer focus:border-accent-soft"
                 >
                   <option value="all">{language === "ar" ? "كل الأطباء" : "All doctors"}</option>
                   {availableDoctors.map((d) => (
@@ -897,7 +897,7 @@ export default function FinancePage() {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder={language === "ar" ? "بحث..." : "Search patient or note..."}
-                    className="bg-slate-50 border border-slate-200 rounded-xl ps-10 pe-4 py-2.5 text-sm font-semibold text-slate-800 outline-none w-full focus:border-[#60d297] focus:ring-2 focus:ring-[#60d297]/15"
+                    className="bg-slate-50 border border-slate-200 rounded-xl ps-10 pe-4 py-2.5 text-sm font-semibold text-slate-800 outline-none w-full focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/15"
                   />
                 </div>
                 <div className="flex gap-2 shrink-0">
@@ -919,7 +919,7 @@ export default function FinancePage() {
           <div className="bg-white rounded-2xl xl:rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden flex flex-col flex-1 min-h-[420px] ring-1 ring-slate-100">
             {isLoading ? (
               <div className="flex-1 flex flex-col items-center justify-center text-slate-400 min-h-[320px]">
-                <Loader2 size={28} className="animate-spin mb-3 text-[#60d297]" />
+                <Loader2 size={28} className="animate-spin mb-3 text-accent-soft" />
                 <p className="font-bold text-xs text-slate-500 uppercase tracking-widest">
                   {language === "ar" ? "جاري التحميل..." : "Loading ledger..."}
                 </p>
@@ -978,7 +978,7 @@ export default function FinancePage() {
                                   <p className="text-[11px] font-semibold text-slate-400 uppercase mt-1">
                                     {tx.category || tx.method || "—"}
                                     {(tx.doctorName || tx.doctor) && (
-                                      <span className="text-[#27ae60] ms-2">
+                                      <span className="text-accent ms-2">
                                         · Dr. {(tx.doctorName || tx.doctor || "").replace(/^Dr\.\s*/i, "").split(" ")[0]}
                                       </span>
                                     )}
@@ -1001,7 +1001,7 @@ export default function FinancePage() {
                               {tx.patientId ? (
                                 <button
                                   onClick={() => router.push(`/patients/${tx.patientId}?tab=finance&tx=${tx.id}`)}
-                                  className="text-slate-700 font-semibold text-sm hover:text-[#60d297] hover:underline transition-colors text-start"
+                                  className="text-slate-700 font-semibold text-sm hover:text-accent-soft hover:underline transition-colors text-start"
                                 >
                                   {tx.patientName?.trim() ? tx.patientName.trim().split(" ")[0] : "—"}
                                 </button>
@@ -1049,7 +1049,7 @@ export default function FinancePage() {
                                     <button
                                       type="button"
                                       onClick={() => handleEdit(tx)}
-                                      className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-[#27ae60] hover:border-[#A7E2C3] shadow-sm"
+                                      className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-accent hover:border-[#A7E2C3] shadow-sm"
                                     >
                                       <Edit2 size={16} />
                                     </button>
@@ -1102,19 +1102,19 @@ export default function FinancePage() {
                               {tx.patientId ? (
                                 <button
                                   onClick={() => router.push(`/patients/${tx.patientId}?tab=finance&tx=${tx.id}`)}
-                                  className="text-xs font-bold text-[#27ae60] mt-1 truncate hover:underline text-start"
+                                  className="text-xs font-bold text-accent mt-1 truncate hover:underline text-start"
                                 >
                                   {tx.patientName?.trim() ? tx.patientName.trim() : "—"}
                                 </button>
                               ) : tx.patientName?.trim() ? (
-                                <p className="text-xs font-bold text-[#27ae60] mt-1 truncate">
+                                <p className="text-xs font-bold text-accent mt-1 truncate">
                                   {tx.patientName.trim()}
                                 </p>
                               ) : null}
                               <p className="text-[11px] font-bold text-slate-400 uppercase mt-1">
                                 {tx.date} · {tx.category || tx.method || "Gen"}
                                 {(tx.doctorName || tx.doctor) ? (
-                                  <span className="text-[#27ae60] ms-1">
+                                  <span className="text-accent ms-1">
                                     · Dr. {(tx.doctorName || tx.doctor || "").replace(/^Dr\.\s*/i, "").split(" ")[0]}
                                   </span>
                                 ) : null}
@@ -1129,7 +1129,7 @@ export default function FinancePage() {
                         {(tx.doctorCommissionAmount || tx.labFee) && (
                           <div className="flex flex-wrap gap-1 ps-12">
                             {tx.doctorCommissionAmount ? (
-                              <span className="text-[9px] bg-[#E8F7F0] text-[#27ae60] px-2 py-0.5 rounded border border-[#A7E2C3] font-bold">
+                              <span className="text-[9px] bg-[#E8F7F0] text-accent px-2 py-0.5 rounded border border-[#A7E2C3] font-bold">
                                 Doc: {tx.doctorCommissionAmount}
                               </span>
                             ) : null}
@@ -1203,7 +1203,7 @@ export default function FinancePage() {
                           onClick={() => setCurrentPage(pageNum)}
                           className={`min-w-[2.25rem] h-9 px-2 rounded-xl text-xs font-black ${
                             currentPage === pageNum
-                              ? "bg-[#27ae60] text-white shadow-md"
+                              ? "bg-accent text-white shadow-md"
                               : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
                           }`}
                         >
@@ -1257,7 +1257,7 @@ export default function FinancePage() {
                         type="date"
                         value={pdfDateFrom}
                         onChange={e => setPdfDateFrom(e.target.value)}
-                        className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-[#60d297] focus:ring-2 focus:ring-[#60d297]/15"
+                        className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/15"
                       />
                     </div>
                     <div>
@@ -1266,7 +1266,7 @@ export default function FinancePage() {
                         type="date"
                         value={pdfDateTo}
                         onChange={e => setPdfDateTo(e.target.value)}
-                        className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-[#60d297] focus:ring-2 focus:ring-[#60d297]/15"
+                        className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/15"
                       />
                     </div>
                   </div>
@@ -1332,20 +1332,20 @@ export default function FinancePage() {
                     </div>
                     <div className="space-y-1">
                        <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider pl-1">{t('date')}</label>
-                       <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200/60 rounded-lg text-xs font-semibold text-slate-900 outline-none focus:border-[#60d297]"/>
+                       <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200/60 rounded-lg text-xs font-semibold text-slate-900 outline-none focus:border-accent-soft"/>
                     </div>
                     <div className="space-y-1">
                        <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider pl-1">{t('description')}</label>
-                       <input required value={description} onChange={e => setDescription(e.target.value)} placeholder="e.g. Electricity Bill" data-tour="finance-expense-desc" className="w-full px-3 py-2 bg-slate-50 border border-slate-200/60 rounded-lg text-xs font-semibold text-slate-900 outline-none focus:border-[#60d297]"/>
+                       <input required value={description} onChange={e => setDescription(e.target.value)} placeholder="e.g. Electricity Bill" data-tour="finance-expense-desc" className="w-full px-3 py-2 bg-slate-50 border border-slate-200/60 rounded-lg text-xs font-semibold text-slate-900 outline-none focus:border-accent-soft"/>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                        <div className="space-y-1">
                           <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider pl-1">{language === 'ar' ? 'المبلغ' : 'Amount'}</label>
-                          <input required type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" className="w-full px-3 py-2 bg-slate-50 border border-slate-200/60 rounded-lg text-xs font-semibold text-slate-900 outline-none focus:border-[#60d297]"/>
+                          <input required type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" className="w-full px-3 py-2 bg-slate-50 border border-slate-200/60 rounded-lg text-xs font-semibold text-slate-900 outline-none focus:border-accent-soft"/>
                        </div>
                        <div className="space-y-1">
                           <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider pl-1">{t('category')}</label>
-                          <select value={category} onChange={e => setCategory(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200/60 rounded-lg text-xs font-semibold text-slate-900 outline-none focus:border-[#60d297]">
+                          <select value={category} onChange={e => setCategory(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200/60 rounded-lg text-xs font-semibold text-slate-900 outline-none focus:border-accent-soft">
                              <option value="General">General</option><option value="Supplies">Supplies</option><option value="Rent">Rent</option><option value="Salary">Salary</option><option value="Lab">Lab</option>
                           </select>
                        </div>

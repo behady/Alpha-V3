@@ -467,7 +467,7 @@ export default function InventoryPage() {
   }, [categories]);
 
   if (loading && inventory.length === 0) {
-    return <div className="h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-[#27ae60]" size={40} /></div>;
+    return <div className="h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-accent" size={40} /></div>;
   }
 
   const formatCurrency = (val: number) => val.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US');
@@ -480,7 +480,7 @@ export default function InventoryPage() {
           {/* Page header */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between shrink-0">
             <div>
-              <p className="text-[11px] font-black uppercase tracking-[0.2em] text-[#27ae60]">Alpha</p>
+              <p className="text-[11px] font-black uppercase tracking-[0.2em] text-accent">Alpha</p>
               <h1 className="text-2xl xl:text-3xl font-black text-slate-900 tracking-tight mt-1">{language === "ar" ? "إدارة المخزون" : "Inventory"}</h1>
               <p className="text-slate-500 font-semibold text-sm mt-1">{language === "ar" ? "نظرة عامة على الأرصدة والقيمة الإجمالية" : "Overview of stock levels and total value"}</p>
             </div>
@@ -495,11 +495,11 @@ export default function InventoryPage() {
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 xl:gap-6 shrink-0">
             {/* Main Dark Card */}
             <div className="xl:col-span-5 rounded-3xl bg-slate-900 text-white p-6 xl:p-8 shadow-xl shadow-slate-900/25 relative overflow-hidden border border-slate-800">
-              <div className="absolute -top-24 -end-24 w-72 h-72 rounded-full bg-[#60d297]/15 blur-3xl pointer-events-none" aria-hidden />
+              <div className="absolute -top-24 -end-24 w-72 h-72 rounded-full bg-accent-soft/15 blur-3xl pointer-events-none" aria-hidden />
               <div className="absolute -bottom-16 -start-16 w-56 h-56 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" aria-hidden />
               <div className="relative">
                 <div className="flex items-center gap-2 text-slate-400">
-                  <Package className="w-4 h-4 text-[#60d297]" />
+                  <Package className="w-4 h-4 text-accent-soft" />
                   <p className="text-xs font-bold uppercase tracking-widest">
                     {language === "ar" ? "إجمالي القيمة" : "Total Value"}
                   </p>
@@ -537,11 +537,11 @@ export default function InventoryPage() {
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "أصناف مطابقة" : "Total items"}</p>
                     <p className="text-xs text-slate-500 mt-1 font-medium">{language === "ar" ? "حسب الفلاتر" : "Matching filters"}</p>
                   </div>
-                  <div className="w-11 h-11 rounded-2xl bg-[#E8F7F0] text-[#27ae60] flex items-center justify-center shrink-0">
+                  <div className="w-11 h-11 rounded-2xl bg-[#E8F7F0] text-accent flex items-center justify-center shrink-0">
                     <Layers size={22} />
                   </div>
                 </div>
-                <p className="text-2xl xl:text-3xl font-black text-[#27ae60] tabular-nums mt-4">
+                <p className="text-2xl xl:text-3xl font-black text-accent tabular-nums mt-4">
                   {formatCurrency(stockSummary.totalItems)}
                 </p>
               </div>
@@ -614,7 +614,7 @@ export default function InventoryPage() {
                      type="button"
                      onClick={() => setStockStatusFilter(type)}
                      className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${
-                       stockStatusFilter === type ? "bg-white text-[#27ae60] shadow-sm border border-slate-200/50" : "text-slate-500"
+                       stockStatusFilter === type ? "bg-white text-accent shadow-sm border border-slate-200/50" : "text-slate-500"
                      }`}
                    >
                      {language === "ar" ? (type === "all" ? "الكل" : type === "low" ? "منخفض" : "جيد") : type}
@@ -626,14 +626,14 @@ export default function InventoryPage() {
                  type="date"
                  value={startDate}
                  onChange={(e) => setStartDate(e.target.value)}
-                 className="bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[140px] cursor-pointer focus:border-[#60d297] focus:ring-2 focus:ring-[#60d297]/20 transition-all"
+                 className="bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[140px] cursor-pointer focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 transition-all"
                />
                <span className="text-slate-400 font-bold">-</span>
                <input
                  type="date"
                  value={endDate}
                  onChange={(e) => setEndDate(e.target.value)}
-                 className="bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[140px] cursor-pointer focus:border-[#60d297] focus:ring-2 focus:ring-[#60d297]/20 transition-all"
+                 className="bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[140px] cursor-pointer focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 transition-all"
                />
 
                <div className="flex-1 min-w-[40px]" />
@@ -669,7 +669,7 @@ export default function InventoryPage() {
                   <select
                     value={selectedCategory}
                     onChange={(e) => setSelectedCategory(e.target.value)}
-                    className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none w-full sm:max-w-[180px] cursor-pointer focus:border-[#60d297]"
+                    className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none w-full sm:max-w-[180px] cursor-pointer focus:border-accent-soft"
                   >
                     {categoryOptions.map((c) => <option key={c} value={c}>{c === "All" ? (language === "ar" ? "كل التصنيفات" : "All Categories") : c}</option>)}
                   </select>
@@ -677,7 +677,7 @@ export default function InventoryPage() {
                   <select
                     value={selectedSubCategory}
                     onChange={(e) => setSelectedSubCategory(e.target.value)}
-                    className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none w-full sm:max-w-[180px] cursor-pointer focus:border-[#60d297]"
+                    className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none w-full sm:max-w-[180px] cursor-pointer focus:border-accent-soft"
                   >
                     {subCategoryOptions.map((c) => <option key={c} value={c}>{c === "All" ? (language === "ar" ? "كل الفروع" : "All Sub-cats") : c}</option>)}
                   </select>
@@ -689,7 +689,7 @@ export default function InventoryPage() {
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       placeholder={language === "ar" ? "بحث بالاسم..." : "Search items..."}
-                      className="bg-slate-50 border border-slate-200 rounded-xl ps-10 pe-4 py-2.5 text-sm font-semibold text-slate-800 outline-none w-full focus:border-[#60d297] focus:ring-2 focus:ring-[#60d297]/15"
+                      className="bg-slate-50 border border-slate-200 rounded-xl ps-10 pe-4 py-2.5 text-sm font-semibold text-slate-800 outline-none w-full focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/15"
                     />
                   </div>
                 </div>
@@ -768,7 +768,7 @@ export default function InventoryPage() {
                                 <button onClick={() => void handleQuickAdjust(item, item.isPercentage ? -10 : -1)} className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-red-600 hover:border-red-200 shadow-sm flex items-center justify-center font-bold text-xs transition-colors">-1</button>
                                 <button onClick={() => void handleQuickAdjust(item, item.isPercentage ? 10 : 1)} className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-emerald-600 hover:border-emerald-200 shadow-sm flex items-center justify-center font-bold text-xs transition-colors">+1</button>
                                 <div className="w-2" />
-                                <button onClick={() => openForEdit(item)} className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-[#27ae60] hover:border-[#A7E2C3] shadow-sm transition-colors">
+                                <button onClick={() => openForEdit(item)} className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-accent hover:border-[#A7E2C3] shadow-sm transition-colors">
                                   <Edit2 size={16} />
                                 </button>
                              </Protect>
@@ -825,37 +825,37 @@ export default function InventoryPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">{language === "ar" ? "اسم الصنف" : "Item name"}</label>
-                  <input data-tour="inventory-item-name" value={formName} onChange={(e) => setFormName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-[#60d297]" />
+                  <input data-tour="inventory-item-name" value={formName} onChange={(e) => setFormName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">{language === "ar" ? "التصنيف" : "Category"}</label>
-                  <input value={formCategory} onChange={(e) => setFormCategory(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-[#60d297]" />
+                  <input value={formCategory} onChange={(e) => setFormCategory(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">{language === "ar" ? "التصنيف الفرعي" : "Sub-category"}</label>
-                  <input value={formSubCategory} onChange={(e) => setFormSubCategory(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-[#60d297]" />
+                  <input value={formSubCategory} onChange={(e) => setFormSubCategory(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">{language === "ar" ? "الوحدة" : "Unit"}</label>
-                  <input value={formUnit} onChange={(e) => setFormUnit(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-[#60d297]" />
+                  <input value={formUnit} onChange={(e) => setFormUnit(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">{language === "ar" ? "المخزون" : "Stock"}</label>
-                  <input type="number" value={formStock} onChange={(e) => setFormStock(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-[#60d297]" />
+                  <input type="number" value={formStock} onChange={(e) => setFormStock(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">{language === "ar" ? "الحد الأدنى" : "Min stock"}</label>
-                  <input type="number" value={formMinStock} onChange={(e) => setFormMinStock(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-[#60d297]" />
+                  <input type="number" value={formMinStock} onChange={(e) => setFormMinStock(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">{language === "ar" ? "تكلفة الوحدة" : "Cost per unit"}</label>
-                  <input type="number" value={formCost} onChange={(e) => setFormCost(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-[#60d297]" />
+                  <input type="number" value={formCost} onChange={(e) => setFormCost(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
                 </div>
                 <div className="flex items-center pt-5 pl-2">
                   <label className="flex items-center gap-2 cursor-pointer group">
                     <div className="relative flex items-center justify-center">
                       <input type="checkbox" checked={formIsPercentage} onChange={(e) => setFormIsPercentage(e.target.checked)} className="peer sr-only" />
-                      <div className="w-5 h-5 border-2 border-slate-300 rounded peer-checked:bg-[#27ae60] peer-checked:border-primary-600 transition-colors"></div>
+                      <div className="w-5 h-5 border-2 border-slate-300 rounded peer-checked:bg-accent peer-checked:border-primary-600 transition-colors"></div>
                       <svg className="absolute w-3 h-3 text-white opacity-0 peer-checked:opacity-100 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"></path></svg>
                     </div>
                     <span className="text-sm font-bold text-slate-600 group-hover:text-slate-900 transition-colors">{language === "ar" ? "تتبع كنسبة مئوية" : "Track as percentage"}</span>
@@ -879,20 +879,20 @@ export default function InventoryPage() {
               <h3 className="text-lg font-black text-slate-900 tracking-tight">{language === "ar" ? "التصنيفات" : "Categories"}</h3>
               
               <div className="flex gap-2">
-                <input value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder={language === "ar" ? "تصنيف رئيسي جديد" : "New top-level category"} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-[#60d297]" />
-                <button onClick={() => void handleAddCategory()} className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-[#27ae60] hover:border-[#A7E2C3] transition-colors">
+                <input value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder={language === "ar" ? "تصنيف رئيسي جديد" : "New top-level category"} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
+                <button onClick={() => void handleAddCategory()} className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-accent hover:border-[#A7E2C3] transition-colors">
                   <Plus size={18} />
                 </button>
               </div>
               
               <div className="flex flex-col sm:flex-row gap-2">
-                <select value={subCategoryParent} onChange={(e) => setSubCategoryParent(e.target.value)} className="w-full sm:w-1/2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-[#60d297] cursor-pointer">
+                <select value={subCategoryParent} onChange={(e) => setSubCategoryParent(e.target.value)} className="w-full sm:w-1/2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft cursor-pointer">
                   <option value="">{language === "ar" ? "اختر تصنيفًا رئيسيًا" : "Select parent"}</option>
                   {topCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
                 <div className="flex gap-2 w-full sm:w-1/2">
-                  <input value={newSubCategoryName} onChange={(e) => setNewSubCategoryName(e.target.value)} placeholder={language === "ar" ? "تصنيف فرعي" : "Sub-category"} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-[#60d297]" />
-                  <button onClick={() => void handleAddSubCategory()} className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-[#27ae60] hover:border-[#A7E2C3] transition-colors shrink-0">
+                  <input value={newSubCategoryName} onChange={(e) => setNewSubCategoryName(e.target.value)} placeholder={language === "ar" ? "تصنيف فرعي" : "Sub-category"} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
+                  <button onClick={() => void handleAddSubCategory()} className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-accent hover:border-[#A7E2C3] transition-colors shrink-0">
                     <Plus size={18} />
                   </button>
                 </div>

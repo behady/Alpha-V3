@@ -504,7 +504,7 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
             <div
               key={u.id}
               className={`bg-white rounded-3xl border shadow-sm transition-all hover:shadow-md relative overflow-hidden flex flex-col ${
-                isOrphan ? "border-red-200 bg-red-50/10" : updatingUserId === u.id ? "border-[#60d297] opacity-70" : "border-slate-200/60 hover:border-slate-300"
+                isOrphan ? "border-red-200 bg-red-50/10" : updatingUserId === u.id ? "border-accent-soft opacity-70" : "border-slate-200/60 hover:border-slate-300"
               }`}
             >
               {isOrphan && (
@@ -648,7 +648,7 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-slate-900 tracking-tight">
                 {isAr ? "كلمة مرور جديدة لـ" : "New Password For"}{" "}
-                <span className="text-[#60d297]">{resetTarget.name}</span>
+                <span className="text-accent-soft">{resetTarget.name}</span>
               </h2>
               <button type="button" onClick={() => setResetTarget(null)} className="text-slate-400 hover:text-red-500 bg-slate-50 hover:bg-red-50 p-2 rounded-full transition-colors">
                 <X size={20} />
@@ -675,7 +675,7 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="Minimum 6 characters"
-                    className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all ${
+                    className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all ${
                       isRTL ? "pr-11 pl-4" : "pl-11 pr-4"
                     }`}
                   />

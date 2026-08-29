@@ -1018,19 +1018,19 @@ export default function DesktopDashboard() {
             <div className="col-span-1 row-span-2 bg-white text-slate-800 rounded-2xl p-4 shadow-[0_8px_20px_rgb(0,0,0,0.05)] border border-slate-100 flex flex-col justify-center">
                 <div className="grid grid-cols-2 gap-3 h-full">
                     <button onClick={() => setActiveModal('patient')} className="flex flex-col items-center justify-center gap-1.5 lg:gap-2 hover:scale-[1.05] transition-transform group">
-                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-[#E8F7F0] text-[#27ae60] flex items-center justify-center group-hover:bg-[#27ae60] group-hover:text-white transition-colors shadow-sm">
+                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-[#E8F7F0] text-accent flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors shadow-sm">
                             <User size={28} className="scale-75 lg:scale-100" strokeWidth={2.5} />
                         </div>
                         <span className="text-[10px] md:text-xs lg:text-sm font-extrabold text-slate-600 lg:text-slate-700">{language === 'ar' ? 'مريض' : 'Patient'}</span>
                     </button>
                     <button onClick={() => { setAppointmentToEdit(null); setActiveModal('booking'); }} className="flex flex-col items-center justify-center gap-1.5 lg:gap-2 hover:scale-[1.05] transition-transform group">
-                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-[#E8F7F0] text-[#27ae60] flex items-center justify-center group-hover:bg-[#27ae60] group-hover:text-white transition-colors shadow-sm">
+                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-[#E8F7F0] text-accent flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors shadow-sm">
                             <Calendar size={28} className="scale-75 lg:scale-100" strokeWidth={2.5} />
                         </div>
                         <span className="text-[10px] md:text-xs lg:text-sm font-extrabold text-slate-600 lg:text-slate-700">{language === 'ar' ? 'زيارة' : 'Visit'}</span>
                     </button>
                     <button onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }} className="flex flex-col items-center justify-center gap-1.5 lg:gap-2 hover:scale-[1.05] transition-transform group">
-                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-[#E8F7F0] text-[#27ae60] flex items-center justify-center group-hover:bg-[#27ae60] group-hover:text-white transition-colors shadow-sm">
+                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-[#E8F7F0] text-accent flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors shadow-sm">
                             <Wallet size={28} className="scale-75 lg:scale-100" strokeWidth={2.5} />
                         </div>
                         <span className="text-[10px] md:text-xs lg:text-sm font-extrabold text-slate-600 lg:text-slate-700">{language === 'ar' ? 'دفع' : 'Pay'}</span>
@@ -1048,7 +1048,7 @@ export default function DesktopDashboard() {
             </div>
 
             {/* 3. DAILY INCOME WIDGET (1x2, Middle Left) */}
-            <div className="col-span-1 row-span-2 bg-gradient-to-br from-[#60d297] to-[#4eb37f] text-white rounded-2xl p-5 shadow-lg flex flex-col justify-between relative overflow-hidden">
+            <div className="col-span-1 row-span-2 bg-gradient-to-br from-accent-soft to-[#4eb37f] text-white rounded-2xl p-5 shadow-lg flex flex-col justify-between relative overflow-hidden">
                 <div className="absolute -top-10 -right-10 w-32 h-32 bg-white/20 rounded-full blur-[20px]"></div>
                 
                 <div className="flex flex-col h-full z-10 relative">
@@ -1716,7 +1716,7 @@ export default function DesktopDashboard() {
                     setInlineSaving(false);
                   }
                 }}
-                className="w-full bg-[#60d297] hover:bg-[#4eb37f] text-white font-black py-3 rounded-xl transition-colors text-sm shadow-sm shadow-[#60d297]/30"
+                className="w-full bg-accent-soft hover:bg-[#4eb37f] text-white font-black py-3 rounded-xl transition-colors text-sm shadow-sm shadow-accent-soft/30"
               >
                 {language === 'ar' ? 'جدولة موعد جديد' : 'Schedule New Appointment'}
               </button>

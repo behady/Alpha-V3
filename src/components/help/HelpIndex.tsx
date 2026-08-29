@@ -45,7 +45,7 @@ export default function HelpIndex({ articles }: { articles: { en: HelpArticle[];
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 md:px-8" dir={isRTL ? "rtl" : "ltr"}>
       <header className="mb-8 flex items-center gap-4">
-        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#E8F7F0] text-[#27ae60]">
+        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[#E8F7F0] text-accent">
           <LifeBuoy size={28} />
         </span>
         <div>
@@ -64,7 +64,7 @@ export default function HelpIndex({ articles }: { articles: { en: HelpArticle[];
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder={txt.search}
-          className={`w-full rounded-2xl border border-slate-200/60 bg-white py-4 text-sm font-bold text-slate-800 shadow-sm outline-none transition-all focus:border-[#60d297] focus:ring-2 focus:ring-[#60d297]/20 ${
+          className={`w-full rounded-2xl border border-slate-200/60 bg-white py-4 text-sm font-bold text-slate-800 shadow-sm outline-none transition-all focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 ${
             isRTL ? "pr-12 pl-4" : "pl-12 pr-4"
           }`}
         />
@@ -120,7 +120,7 @@ export default function HelpIndex({ articles }: { articles: { en: HelpArticle[];
                     </div>
                     <Arrow
                       size={18}
-                      className="shrink-0 text-slate-300 transition-colors group-hover:text-[#27ae60]"
+                      className="shrink-0 text-slate-300 transition-colors group-hover:text-accent"
                     />
                   </Link>
                 ))}
