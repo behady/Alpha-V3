@@ -120,6 +120,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => null);
     const messages = extractMessages(body);
+    let lastBot: Awaited<ReturnType<typeof respondToPatientMessage>> | null = null;
 
     // No messages is normal: most calls are delivery/read status updates. But a status carrying
     // an error is a message Meta ACCEPTED and then refused to deliver — the free-form-outside-
@@ -168,10 +169,17 @@ export async function POST(request: NextRequest) {
       // Otherwise it may be a conversation. respondToPatientMessage re-checks every gate and is
       // silent unless the clinic enabled the assistant. chatId and phone are the same here — the
       // real number — which is exactly the simplification the official API buys.
-      await respondToPatientMessage({ clinicId, chatId: msg.from, phone: msg.from, text: msg.text });
+      lastBot = await respondToPatientMessage({ clinicId, chatId: msg.from, phone: msg.from, text: msg.text });
     }
 
-    return NextResponse.json({ ok: true, handled: messages.length });
+    // The outcome rides on the response, as the Wapilot webhook's does. Its absence here meant a
+    // test could only poll blind — and a blind poll that POSTs is a message flood, which is not a
+    // hypothetical: thirteen duplicate day-lists reached a real phone finding this out.
+    return NextResponse.json({
+      ok: true,
+      handled: messages.length,
+      ...(lastBot ? { bot: lastBot.status, why: lastBot.reason } : {}),
+    });
   } catch (error) {
     reportServerError("[meta-whatsapp] Failed to handle payload:", error);
     // 200 regardless: Meta retries on non-200, and a retried message helps nothing.
