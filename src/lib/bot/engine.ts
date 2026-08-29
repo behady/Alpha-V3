@@ -40,8 +40,35 @@ export type BotAction =
   /** `index` is 1-based, exactly the number the patient typed. */
   | { type: "list_times"; index: number }
   | { type: "book"; index: number }
+  /** A tapped day button — the date travels IN the id, so the tap is stale-proof. */
+  | { type: "list_times_date"; dateKey: string }
+  /** A tapped time button — date and time both travel in the id. */
+  | { type: "book_slot"; dateKey: string; time: string }
   /** The reply was not a valid pick; show the same options again. */
   | { type: "relist" };
+
+/**
+ * A button tap, decoded from the id the button carried.
+ *
+ * WhatsApp lets a patient tap buttons on ANY earlier message, however old, and the first live
+ * test did exactly that: a tap on a stale menu was read against the CURRENT step's numbering and
+ * booked the wrong day. So tap ids carry their whole meaning — `d2026-08-30` is that date
+ * whenever it is tapped, `t2026-08-30|04:30 PM` is that exact slot — and interpreting them needs
+ * no conversation state at all. Typed digits remain stateful; only they need the stored lists.
+ */
+export function parseTapId(
+  text: string
+): { kind: "menu"; choice: "1" | "2" | "3" } | { kind: "day"; dateKey: string } | { kind: "time"; dateKey: string; time: string } | { kind: "back_menu" } | { kind: "back_days" } | null {
+  const t = text.trim();
+  if (t === "m1" || t === "m2" || t === "m3") return { kind: "menu", choice: t[1] as "1" | "2" | "3" };
+  if (t === "back_menu") return { kind: "back_menu" };
+  if (t === "back_days") return { kind: "back_days" };
+  const day = /^d(\d{4}-\d{2}-\d{2})$/.exec(t);
+  if (day) return { kind: "day", dateKey: day[1] };
+  const time = /^t(\d{4}-\d{2}-\d{2})\|(.+)$/.exec(t);
+  if (time) return { kind: "time", dateKey: time[1], time: time[2].trim() };
+  return null;
+}
 
 export interface BotContext {
   /** Clinic display name, for the greeting. */
@@ -182,6 +209,36 @@ export function decideBotReply(args: {
   // is still a patient in pain.
   if (needsHuman(text)) {
     return { reply: CLINICAL_REPLY, next: "handed_off", handoff: true, reason: "clinical" };
+  }
+
+  /*
+   * Button taps first, and from ANY state — including handed_off. A tap is unambiguous intent
+   * aimed at a specific button the clinic itself offered; unlike free text it cannot be
+   * misread, and making it dead after a handoff turns every old message into a field of broken
+   * buttons. The id says everything; the caller validates dates against today.
+   */
+  const tap = parseTapId(text);
+  if (tap) {
+    switch (tap.kind) {
+      case "menu":
+        if (tap.choice === "1") {
+          return ctx.canOfferBooking
+            ? { reply: "", action: { type: "list_days" }, next: "booking_day", handoff: false, reason: "booking_days" }
+            : { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "booking_request" };
+        }
+        if (tap.choice === "2") {
+          return { reply: hoursAndAddress(ctx), next: "awaiting_choice", handoff: false, reason: "hours" };
+        }
+        return { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "asked_for_human" };
+      case "back_menu":
+        return { reply: greeting(ctx), next: "awaiting_choice", handoff: false, reason: "back_to_menu" };
+      case "back_days":
+        return { reply: "", action: { type: "list_days" }, next: "booking_day", handoff: false, reason: "booking_back" };
+      case "day":
+        return { reply: "", action: { type: "list_times_date", dateKey: tap.dateKey }, next: "booking_time", handoff: false, reason: "booking_times" };
+      case "time":
+        return { reply: "", action: { type: "book_slot", dateKey: tap.dateKey, time: tap.time }, next: "awaiting_choice", handoff: false, reason: "booking_book" };
+    }
   }
 
   // A person is already dealing with this. Two voices in one thread is worse than one slow voice.

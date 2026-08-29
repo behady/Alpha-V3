@@ -131,6 +131,35 @@ export async function loadPublicClinicProfile(
   };
 }
 
+/**
+ * The clinic's wall clock, not the server's.
+ *
+ * Vercel runs on UTC; Cairo is two-to-three hours ahead. Deciding "has this slot already passed"
+ * against server time offered afternoon slots that were nearly an hour gone — and one was
+ * genuinely booked through the WhatsApp assistant before this existed. Every "now" in
+ * availability goes through here. Hardcoding Africa/Cairo is a product decision, not laziness:
+ * this system sells to Egyptian clinics, and a per-clinic timezone field can replace the constant
+ * the day that stops being true.
+ */
+export function clinicNow(): { dateKey: string; minutes: number } {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Africa/Cairo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const get = (t: string) => parts.find((x) => x.type === t)?.value || "00";
+  // en-GB keeps hour "24" out (uses 00); guard anyway.
+  const hour = Number(get("hour")) % 24;
+  return {
+    dateKey: `${get("year")}-${get("month")}-${get("day")}`,
+    minutes: hour * 60 + Number(get("minute")),
+  };
+}
+
 /** Is this YYYY-MM-DD one of the clinic's days off? */
 export function isClinicClosedOn(dateKey: string, schedule: ClinicScheduleConfig): boolean {
   const parsed = new Date(`${dateKey}T12:00:00`);
@@ -201,11 +230,9 @@ export async function computeAvailableSlots(args: {
   const step = schedule.slotDuration;
   const need = profile.defaultDurationMinutes;
 
-  // A slot that starts today but has not started yet. Offering 10:00 at 11:30 wastes everyone's
-  // time and makes the clinic look disorganised.
-  const now = new Date();
-  const todayKey = normalizeDateKey(now.toISOString().split("T")[0]);
-  const minutesNow = now.getHours() * 60 + now.getMinutes();
+  // A slot that starts today but has not started yet — on the CLINIC's clock. Offering 10:00 at
+  // 11:30 wastes everyone's time and makes the clinic look disorganised.
+  const { dateKey: todayKey, minutes: minutesNow } = clinicNow();
 
   const free: string[] = [];
   for (let m = dayStart; m + need <= dayEnd; m += step) {
@@ -278,7 +305,11 @@ export async function createPatientBooking(args: {
   const { clinicId, profile, patientId, patientName, phone, dateKey, time, source, autoConfirm } = args;
   const appointmentsRef = clinicRef(clinicId).collection("appointments");
 
-  const today = normalizeDateKey(new Date().toISOString().split("T")[0]);
+  const today = clinicNow().dateKey;
+  // A tap on a stale list can name yesterday. computeAvailableSlots below would refuse it anyway
+  // for today (past times drop out), but a whole past DATE returns that day's free grid — so the
+  // date is checked here, where the intent to write exists.
+  if (dateKey < today) return { ok: false, reason: "slot_taken" };
   const openSnap = await appointmentsRef.where("patientId", "==", patientId).get();
   const open = openSnap.docs.filter((d) => {
     const a = d.data() || {};

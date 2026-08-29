@@ -175,3 +175,34 @@ assert.equal(lidChatFromEvent({}), "");
 assert.equal(lidChatFromEvent(null), "");
 
 console.log("✓ lid mapping: the chat id is read from the echo, and phones are never mistaken for lids");
+
+// ================================================================================================
+// Tap ids: a button carries its whole meaning, so stale taps are safe.
+// The first live tap-through booked the WRONG DAY because ids were bare digits read against the
+// current step; these pin the fix.
+// ================================================================================================
+import { parseTapId } from "../src/lib/bot/engine";
+
+assert.deepEqual(parseTapId("d2026-08-30"), { kind: "day", dateKey: "2026-08-30" });
+assert.deepEqual(parseTapId("t2026-08-30|04:30 PM"), { kind: "time", dateKey: "2026-08-30", time: "04:30 PM" });
+assert.deepEqual(parseTapId("m1"), { kind: "menu", choice: "1" });
+assert.equal(parseTapId("1"), null, "typed digits are NOT taps — they stay stateful");
+assert.equal(parseTapId("d2026-13-99x"), null);
+
+// A tapped day means that day from ANY state — even mid-times, even handed off.
+for (const state of ["awaiting_choice", "booking_time", "handed_off", "reprompted"] as const) {
+  const d = decideBotReply({ state, text: "d2026-08-30", ctx: bctx });
+  assert.deepEqual(d.action, { type: "list_times_date", dateKey: "2026-08-30" }, `day tap from ${state}`);
+}
+const slotTap = decideBotReply({ state: "awaiting_choice", text: "t2026-08-30|04:30 PM", ctx: bctx });
+assert.deepEqual(slotTap.action, { type: "book_slot", dateKey: "2026-08-30", time: "04:30 PM" });
+
+// The old failure, replayed: menu tap while the conversation sits in booking_day must open the
+// booking flow fresh — never be read as "day number 1".
+const staleMenuTap = decideBotReply({ state: "booking_day", text: "m1", ctx: bctx });
+assert.deepEqual(staleMenuTap.action, { type: "list_days" }, "a stale menu tap restarts booking, not picks a day");
+
+// Taps still lose to the absolute rules.
+assert.equal(decideBotReply({ state: "awaiting_choice", text: "إيقاف", ctx: bctx }).reply, "");
+
+console.log("✓ tap ids: buttons mean what they say, whenever and wherever they are tapped");

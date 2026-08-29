@@ -8,6 +8,7 @@ import {
 } from "@/lib/publicBooking";
 import type { ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { normalizeDateKey } from "@/lib/appointmentTime";
+import { clinicNow } from "@/lib/publicBooking";
 import { sendClinicPush } from "@/lib/push";
 import { clinicDisplayName } from "@/lib/sms/events";
 import { patientSendablePhone, phoneMatchKey, pickPatientPhone } from "@/lib/patientPhone";
@@ -111,7 +112,9 @@ function arabicTimeLabel(time: string): string {
  */
 function upcomingOpenDays(schedule: ClinicScheduleConfig, count = 6, horizonDays = 14): string[] {
   const out: string[] = [];
-  const d = new Date();
+  // From the clinic's own today, not the server's: past 9pm Cairo the UTC date is still
+  // yesterday, and "today" in a day list must mean the day the patient is living in.
+  const d = new Date(`${clinicNow().dateKey}T12:00:00`);
   for (let i = 0; i < horizonDays && out.length < count; i++) {
     const key = normalizeDateKey(d.toISOString().split("T")[0]);
     if (!schedule.offDays.includes(DAY_KEYS[new Date(`${key}T12:00:00`).getDay()])) out.push(key);
@@ -139,19 +142,30 @@ const RELIST_PREFIX = "معلش مفهمتش 🙏 ابعت رقم من الاخ�
 /** The main menu as WhatsApp reply buttons. Ids are the digits the engine already understands. */
 function menuButtons(canOfferBooking: boolean): MetaInteractive["buttons"] {
   return [
-    { id: "1", title: canOfferBooking ? "حجز موعد 🦷" : "الحجز مع الاستقبال" },
-    { id: "2", title: "مواعيد العمل 🕐" },
-    { id: "3", title: "الاستقبال 💬" },
+    { id: "m1", title: canOfferBooking ? "حجز موعد 🦷" : "الحجز مع الاستقبال" },
+    { id: "m2", title: "مواعيد العمل 🕐" },
+    { id: "m3", title: "الاستقبال 💬" },
   ];
 }
 
-/** A day/time list as a WhatsApp list message, with a walk-back row. */
-function optionList(buttonLabel: string, options: string[], labeler: (v: string) => string, backTitle: string): MetaInteractive["list"] {
+/**
+ * A day/time list as a WhatsApp list message, with a walk-back row.
+ *
+ * Row ids carry the option's full meaning (see parseTapId), so a tap on a week-old list still
+ * does exactly what its label says instead of being read against whatever step is current.
+ */
+function optionList(
+  buttonLabel: string,
+  options: string[],
+  labeler: (v: string) => string,
+  idFor: (v: string) => string,
+  back: { id: string; title: string }
+): MetaInteractive["list"] {
   return {
     buttonLabel,
     rows: [
-      ...options.slice(0, 9).map((v, i) => ({ id: String(i + 1), title: labeler(v) })),
-      { id: "0", title: backTitle },
+      ...options.slice(0, 9).map((v) => ({ id: idFor(v), title: labeler(v) })),
+      back,
     ],
   };
 }
@@ -356,7 +370,7 @@ export async function respondToPatientMessage(args: {
       replyText = renderDayList(days);
       structure = {
         body: "📅 اختار اليوم اللي يناسبك:",
-        list: optionList("اختيار اليوم", days, arabicDayLabel, "رجوع للقائمة"),
+        list: optionList("اختيار اليوم", days, arabicDayLabel, (d) => `d${d}`, { id: "back_menu", title: "رجوع للقائمة" }),
       };
       nextState = "booking_day";
       pending = { days };
@@ -376,7 +390,7 @@ export async function respondToPatientMessage(args: {
       replyText = renderTimeList(dateKey, times);
       structure = {
         body: `⏰ المواعيد المتاحة يوم ${arabicDayLabel(dateKey)}:`,
-        list: optionList("اختيار الميعاد", times, arabicTimeLabel, "رجوع لاختيار اليوم"),
+        list: optionList("اختيار الميعاد", times, arabicTimeLabel, (t) => `t${dateKey}|${t}`, { id: "back_days", title: "رجوع لاختيار اليوم" }),
       };
       nextState = "booking_time";
       pending = { days: conversation.pendingDays, times, date: dateKey };
@@ -389,14 +403,14 @@ export async function respondToPatientMessage(args: {
         replyText = RELIST_PREFIX + renderTimeList(conversation.pendingDate, conversation.pendingTimes);
         structure = {
           body: RELIST_PREFIX.trim(),
-          list: optionList("اختيار الميعاد", conversation.pendingTimes, arabicTimeLabel, "رجوع لاختيار اليوم"),
+          list: optionList("اختيار الميعاد", conversation.pendingTimes, arabicTimeLabel, (t) => `t${conversation.pendingDate}|${t}`, { id: "back_days", title: "رجوع لاختيار اليوم" }),
         };
         pending = { days: conversation.pendingDays, times: conversation.pendingTimes, date: conversation.pendingDate };
       } else if (conversation.pendingDays?.length) {
         replyText = RELIST_PREFIX + renderDayList(conversation.pendingDays);
         structure = {
           body: RELIST_PREFIX.trim(),
-          list: optionList("اختيار اليوم", conversation.pendingDays, arabicDayLabel, "رجوع للقائمة"),
+          list: optionList("اختيار اليوم", conversation.pendingDays, arabicDayLabel, (d) => `d${d}`, { id: "back_menu", title: "رجوع للقائمة" }),
         };
         nextState = "booking_day";
         pending = { days: conversation.pendingDays };
@@ -408,9 +422,14 @@ export async function respondToPatientMessage(args: {
       const dateKey = conversation.pendingDays?.[act.index - 1];
       if (!dateKey) listDays();
       else await listTimes(dateKey);
-    } else if (act.type === "book") {
-      const time = conversation.pendingTimes?.[act.index - 1];
-      const dateKey = conversation.pendingDate;
+    } else if (act.type === "list_times_date") {
+      // A tapped day carries its own date. A stale tap can name a day already gone — fresh days
+      // then, with no scolding: the patient did nothing wrong, the message was just old.
+      if (act.dateKey < clinicNow().dateKey) listDays();
+      else await listTimes(act.dateKey);
+    } else if (act.type === "book" || act.type === "book_slot") {
+      const time = act.type === "book_slot" ? act.time : conversation.pendingTimes?.[act.index - 1];
+      const dateKey = act.type === "book_slot" ? act.dateKey : conversation.pendingDate;
       if (!time || !dateKey || !patient || !phone) {
         listDays();
       } else {
