@@ -132,7 +132,12 @@ export async function answerWithAi(args: {
           },
           required: ["action"],
         },
-        maxOutputTokens: 400,
+        // Arabic is token-hungry and the reply travels inside JSON: 400 tokens truncated the
+        // first live answer mid-string, and a broken JSON read as "the model refused". Three
+        // short sentences of Arabic plus scaffolding fit comfortably in 1500 with margin for the
+        // model's own overhead — and the hard length guard on `reply` below caps what a rambling
+        // answer can cost regardless.
+        maxOutputTokens: 1500,
         temperature: 0.3,
       },
     });
