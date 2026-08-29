@@ -188,6 +188,8 @@ async function deliverPatientWhatsApp(args: {
   /** Written to whatsapp_logs and onto the queued row — the Messages page knows these slugs. */
   type: string;
   queueKey: string;
+  /** Template kind + params for the official channel; see deliverWhatsAppMessage. */
+  metaTemplate?: { kind: string; params: string[] };
 }): Promise<PatientMessageOutcome> {
   const { clinicId, patientId, patientName, phone, type, queueKey } = args;
   // The footer is applied here as well as inside delivery (appending is idempotent), so that the
@@ -206,6 +208,7 @@ async function deliverPatientWhatsApp(args: {
       // right now. The key is derived from what the message is about, so saving the same change
       // twice queues one message while a genuinely new change queues another.
       queue: { key: queueKey, type, patientId, patientName },
+      metaTemplate: args.metaTemplate,
     });
     await adminClinicCollection(clinicId, "whatsapp_logs").add({
       patientId,
@@ -340,6 +343,10 @@ export async function sendAppointmentPatientMessage(args: {
     text: merged,
     type: `appointment_${template}`,
     queueKey: outboxKey(patientId, template, date, time),
+    metaTemplate: {
+      kind: template,
+      params: template === "cancel" ? [clinicName, date || "—"] : [clinicName, date || "—", time || "—"],
+    },
   });
 }
 
@@ -434,5 +441,6 @@ export async function sendPaymentReceiptMessage(args: {
     text: merged,
     type: "invoice",
     queueKey: outboxKey(ledgerId, "invoice"),
+    metaTemplate: { kind: "invoice", params: [amount.toLocaleString("en-US"), clinicName, balance.toLocaleString("en-US")] },
   });
 }

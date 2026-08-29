@@ -261,3 +261,62 @@ export async function sendMetaWhatsappInteractive(args: {
     return { ok: false, error: e instanceof Error ? e.message : "send_failed" };
   }
 }
+
+/**
+ * The pre-approved utility templates, one per business-initiated message kind.
+ *
+ * WhatsApp only delivers free-form text inside the 24-hour window a patient's own message opens;
+ * outside it, the API answers "accepted" and drops the message silently — verified live, at the
+ * cost of a confused debugging hour. Reminders and staff-triggered notifications are exactly the
+ * messages that go out unprompted, so on this channel they are ALWAYS sent as templates: slightly
+ * plainer than the clinic's custom bodies, but delivered every time, which is the property a
+ * reminder exists for. Bot replies stay free-form — they are always answers, always in-window.
+ *
+ * Registered on the WABA as `alpha_*_ar` (Arabic, UTILITY). Params are positional {{1}}..{{n}}.
+ */
+export const META_TEMPLATE_FOR_KIND: Record<string, { name: string; paramCount: number }> = {
+  new: { name: "alpha_appt_new_ar", paramCount: 3 }, // clinic, date, time
+  edit: { name: "alpha_appt_edit_ar", paramCount: 3 }, // clinic, date, time
+  cancel: { name: "alpha_appt_cancel_ar", paramCount: 2 }, // clinic, date
+  reminder24h: { name: "alpha_appt_reminder_ar", paramCount: 3 }, // clinic, date, time
+  invoice: { name: "alpha_payment_ar", paramCount: 3 }, // amount, clinic, balance
+};
+
+/** Send one of the registered templates. Throws nothing; the result carries the error. */
+export async function sendMetaTemplate(args: {
+  config: MetaWhatsappConfig;
+  to: string;
+  templateName: string;
+  params: string[];
+}): Promise<MetaSendResult> {
+  const digits = String(args.to || "").replace(/\D/g, "");
+  if (!digits) return { ok: false, error: "invalid_phone" };
+
+  try {
+    const res = await fetch(`${GRAPH}/${args.config.phoneNumberId}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${args.config.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to: digits,
+        type: "template",
+        template: {
+          name: args.templateName,
+          language: { code: "ar" },
+          components: args.params.length
+            ? [{ type: "body", parameters: args.params.map((text) => ({ type: "text", text })) }]
+            : [],
+        },
+      }),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, any>;
+    if (!res.ok) return { ok: false, error: data?.error?.message || `HTTP ${res.status}` };
+    const messageId = data?.messages?.[0]?.id;
+    return { ok: true, messageId: typeof messageId === "string" ? messageId : undefined };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "send_failed" };
+  }
+}

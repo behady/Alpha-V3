@@ -6,7 +6,14 @@ import {
   appendOptOutFooter,
 } from "@/lib/patientMessaging";
 import { loadWapilotConfig } from "@/lib/wapilotConfig";
-import { loadMetaWhatsappConfig, sendMetaWhatsappInteractive, sendMetaWhatsappText, type MetaInteractive } from "@/lib/metaWhatsapp";
+import {
+  META_TEMPLATE_FOR_KIND,
+  loadMetaWhatsappConfig,
+  sendMetaTemplate,
+  sendMetaWhatsappInteractive,
+  sendMetaWhatsappText,
+  type MetaInteractive,
+} from "@/lib/metaWhatsapp";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { enqueueWhatsapp } from "@/lib/whatsapp/outbox";
 
@@ -129,6 +136,16 @@ export async function deliverWhatsAppMessage(args: {
     patientName?: string;
     appointmentId?: string;
   };
+  /**
+   * The values for this message's pre-approved Meta template, in template-parameter order.
+   *
+   * Business-initiated messages — the ones nobody asked for right now — only deliver on the
+   * official channel as templates; free-form text is silently dropped outside the 24-hour
+   * window. Callers that ARE business-initiated pass this; the message kind maps to its
+   * registered template via META_TEMPLATE_FOR_KIND. Without it, a Meta-channel send falls back
+   * to free-form text and takes its chances with the window.
+   */
+  metaTemplate?: { kind: string; params: string[] };
 }): Promise<WhatsappDeliveryResult> {
   const mode = await resolveWhatsappDeliveryMode(args.clinicId);
 
@@ -139,6 +156,18 @@ export async function deliverWhatsAppMessage(args: {
   const text = args.audience === "patient" ? await applyPatientOptOutFooter(args.clinicId, args.text) : args.text;
 
   if (mode === "auto") {
+    const meta = await loadMetaWhatsappConfig(args.clinicId);
+    const tpl = args.metaTemplate ? META_TEMPLATE_FOR_KIND[args.metaTemplate.kind] : undefined;
+    if (meta && tpl) {
+      const result = await sendMetaTemplate({
+        config: meta,
+        to: args.to,
+        templateName: tpl.name,
+        params: args.metaTemplate!.params.slice(0, tpl.paramCount),
+      });
+      if (!result.ok) throw new Error(`Meta template failed: ${result.error || "unknown"}`);
+      return { mode: "auto", sent: true };
+    }
     await sendPatientWhatsAppAuto(args.clinicId, args.to, text);
     return { mode: "auto", sent: true };
   }

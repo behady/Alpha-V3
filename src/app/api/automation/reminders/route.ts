@@ -215,6 +215,12 @@ async function sendWhatsAppLeg(args: {
       patientName,
       appointmentId: appointment.id,
     },
+    // A reminder is the canonical out-of-window message: nobody wrote to the clinic today. On
+    // the official channel it goes as the approved template or it does not arrive at all.
+    metaTemplate: {
+      kind: "reminder24h",
+      params: [clinicName, appointment.date || "—", appointment.time || "—"],
+    },
   });
 
   if (delivery.mode === "manual") return { status: "skipped", reason: "no_whatsapp_connection" };
