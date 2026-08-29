@@ -28,7 +28,11 @@ export const CONVERSATION_TTL_MS = 60 * 60 * 1000;
  * exactly what an automated account looks like from the outside, and the clinic's own number is
  * what gets restricted. A patient who genuinely needs more than this needs a person anyway.
  */
-export const MAX_REPLIES_PER_HOUR = 8;
+// A full booking costs four replies (menu, days, times, confirmation); a patient who books and
+// asks about hours is at six. Eight was hit by the first real test session within the hour, and
+// the silence read as breakage — the cap must fit a legitimate conversation with room to spare
+// while still strangling anything resembling a flood.
+export const MAX_REPLIES_PER_HOUR = 15;
 const RATE_WINDOW_MS = 60 * 60 * 1000;
 
 /**
@@ -37,7 +41,7 @@ const RATE_WINDOW_MS = 60 * 60 * 1000;
  * The engine hands off long before this in normal use; the cap exists for the case the engine has
  * a loop in it that nobody spotted. A bot stuck repeating itself is worse than a silent one.
  */
-export const MAX_TURNS = 12;
+export const MAX_TURNS = 40;
 
 export interface BotConversation {
   phoneKey: string;

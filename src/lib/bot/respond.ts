@@ -465,8 +465,19 @@ export async function respondToPatientMessage(args: {
 
   // Menu-shaped replies become tappable buttons on the official channel. Attached here rather
   // than in the engine because buttons are a channel capability, not a conversation decision.
+  // The body drops the numbered lines and the "send the number" instruction — telling someone
+  // holding three buttons to type a digit reads as a bot that does not know what it just sent.
   if (!structure && replyText && ["greeted", "reprompt", "back_to_menu", "hours"].includes(reason)) {
-    structure = { body: replyText, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
+    const buttonBody = replyText
+      .split("\n")
+      .filter((line) => !/^\*[123]\*/.test(line.trim()) && !line.includes("ابعت رقم الاختيار"))
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+    structure = {
+      body: `${buttonBody}\n\nاختار من الأزرار 👇`,
+      buttons: menuButtons(Boolean(ctx.canOfferBooking)),
+    };
   }
 
   if (handoff) {
