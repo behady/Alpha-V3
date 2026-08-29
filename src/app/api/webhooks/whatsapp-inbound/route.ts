@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection } from "@/lib/adminClinicDb";
+import { conversationKey, markConversationOptedOut } from "@/lib/bot/conversation";
+import { isOptOutReply } from "@/lib/patientMessaging";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { respondToPatientMessage } from "@/lib/bot/respond";
 import { applyInboundOptOut } from "@/lib/optOutInbound";
@@ -187,16 +189,19 @@ export async function POST(request: NextRequest) {
     }
 
     /*
-     * One conversion, at the edge, before anything downstream sees the number.
+     * Sort out WHO this is and WHERE a reply would go, once, before anything downstream.
      *
-     * WhatsApp identifies a sender as `201551552440` — international digits, no plus — and every
-     * sender in this codebase refuses a number that names no country, on purpose. The reply was
-     * therefore composed correctly and then thrown away with "Invalid destination phone". That
-     * same mismatch has now bitten three separate call sites, so the fix belongs here rather than
-     * in each of them: past this line, a phone is E.164 or it does not exist.
+     * Two shapes arrive here. A plain number — `201551552440`, no plus — which the strict phone
+     * rules refuse and the country-assuming conversion below repairs. And, since WhatsApp's
+     * privacy rollout, `172357054414966@lid`: an anonymised id with NO phone anywhere in the
+     * payload. A lid is a valid reply address (verified live — the gateway delivers to it) but
+     * not an identity, so from here down the two travel separately: `chatId` is where words go,
+     * `phone` is who this is, and either can exist without the other.
      */
-    const phone = normalizeToE164AssumingCountry(reply.phone);
-    if (!phone) {
+    const isLid = /@lid$/i.test(reply.phone);
+    const phone = isLid ? "" : normalizeToE164AssumingCountry(reply.phone);
+    const chatId = isLid ? reply.phone : phone;
+    if (!chatId) {
       await recordUnparsed(clinicId, { from: reply.phone }, "unusable_phone");
       return NextResponse.json({ ok: true, ignored: "unusable_phone" });
     }
@@ -204,25 +209,43 @@ export async function POST(request: NextRequest) {
     // Opt-out first, always. A patient asking to be left alone must never be answered by the
     // assistant instead — that is the single most effective way to turn a stop request into a
     // spam report, which is the outcome this whole endpoint exists to avoid.
-    const result = await applyInboundOptOut({
-      clinicId,
-      phone,
-      text: reply.text,
-      channel: "whatsapp",
-    });
-    if (result.status !== "ignored") {
-      return NextResponse.json({ ok: true, result: result.status });
+    if (phone) {
+      const result = await applyInboundOptOut({
+        clinicId,
+        phone,
+        text: reply.text,
+        channel: "whatsapp",
+      });
+      if (result.status !== "ignored") {
+        return NextResponse.json({ ok: true, result: result.status });
+      }
+    } else if (isOptOutReply(reply.text)) {
+      // A stop request from behind a lid. There is no patient record to flag, so it is recorded
+      // on the sender itself — the assistant checks that flag before every reply — and kept in
+      // messaging_opt_outs so a person can see that an unidentifiable number asked for silence.
+      await markConversationOptedOut(clinicId, chatId);
+      await adminClinicCollection(clinicId, "messaging_opt_outs")
+        .doc(conversationKey(chatId))
+        .set({
+          phone: chatId,
+          channel: "whatsapp",
+          reply: reply.text,
+          matchedPatient: false,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      return NextResponse.json({ ok: true, result: "opted_out_lid" });
     }
 
     // Not a stop request, so it may be a conversation. Off unless the clinic switched it on;
     // respondToPatientMessage re-checks every gate itself and stays silent by default.
     const bot = await respondToPatientMessage({
       clinicId,
+      chatId,
       phone,
       text: reply.text,
     });
 
-    return NextResponse.json({ ok: true, result: result.status, bot: bot.status, why: bot.reason });
+    return NextResponse.json({ ok: true, bot: bot.status, why: bot.reason });
   } catch (error) {
     reportServerError("[whatsapp-inbound] Failed to handle payload:", error);
     // Still 200: an error response makes the gateway redeliver, and redelivering a stop request

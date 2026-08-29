@@ -52,6 +52,32 @@ export interface BotConversation {
   windowStartedAt: number;
   /** Replies sent inside the current window. */
   repliesInWindow: number;
+  /**
+   * This sender said stop, and could not be matched to a patient record to say it there.
+   *
+   * Exists for `@lid` senders — WhatsApp's anonymised ids, which hide the phone and therefore the
+   * patient. Carried across conversation expiry on purpose: the chat lapsing after an hour must
+   * not mean the bot greets someone who asked to be left alone, and this flag is the only place
+   * that request can live when there is no patient document to hold it.
+   */
+  optedOut?: boolean;
+}
+
+/**
+ * The storage key for one sender.
+ *
+ * A phone reduces to its subscriber digits so every spelling of the same number shares one
+ * conversation. An `@lid` id is NOT a phone: its digits are an opaque WhatsApp identifier, and
+ * putting them through the phone reduction could collide with a real number's key — so lids get
+ * their own prefix and keep every digit.
+ */
+export function conversationKey(address: string): string {
+  const raw = String(address || "").trim();
+  if (/@lid$/i.test(raw)) {
+    const digits = raw.replace(/\D/g, "");
+    return digits ? `lid_${digits}` : "unknown";
+  }
+  return phoneMatchKey(raw) || raw.replace(/\D/g, "") || "unknown";
 }
 
 function ref(clinicId: string, phoneKey: string) {
@@ -70,7 +96,7 @@ export async function loadConversation(
   phone: string,
   now: number
 ): Promise<BotConversation> {
-  const phoneKey = phoneMatchKey(phone) || phone.replace(/\D/g, "") || "unknown";
+  const phoneKey = conversationKey(phone);
   const snap = await ref(clinicId, phoneKey).get();
 
   const fresh: BotConversation = {
@@ -99,7 +125,7 @@ export async function loadConversation(
   return {
     phoneKey,
     phone,
-    // The conversation resets, the rate limit does not.
+    // The conversation resets; the rate limit and a recorded opt-out do not.
     state: expired ? "new" : ((d.state as BotState) || "new"),
     turns: expired ? 0 : Number(d.turns) || 0,
     patientId: typeof d.patientId === "string" ? d.patientId : undefined,
@@ -107,6 +133,7 @@ export async function loadConversation(
     lastMessageAt,
     windowStartedAt,
     repliesInWindow,
+    optedOut: d.optedOut === true,
   };
 }
 
@@ -160,6 +187,20 @@ export async function markHandoff(
 ): Promise<void> {
   await ref(clinicId, phoneKey).set(
     { needsHuman: true, handoffReason: reason, handoffAt: FieldValue.serverTimestamp() },
+    { merge: true }
+  );
+}
+
+/**
+ * Record "stop" for a sender who has no patient record to record it on.
+ *
+ * The `@lid` case: the phone is hidden, so `whatsappOptOut` on the patient cannot be reached.
+ * This flag is what the bot checks instead, and it survives the conversation expiring. One-way
+ * here, like the patient-record version — only a person can decide the sender changed their mind.
+ */
+export async function markConversationOptedOut(clinicId: string, address: string): Promise<void> {
+  await ref(clinicId, conversationKey(address)).set(
+    { phone: address, optedOut: true, optedOutAt: FieldValue.serverTimestamp() },
     { merge: true }
   );
 }

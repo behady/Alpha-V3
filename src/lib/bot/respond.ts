@@ -3,10 +3,11 @@ import { FieldValue } from "firebase-admin/firestore";
 import { loadPublicClinicProfile } from "@/lib/publicBooking";
 import { clinicDisplayName } from "@/lib/sms/events";
 import { phoneMatchKey, pickPatientPhone } from "@/lib/patientPhone";
-import { sendWhatsApp } from "@/lib/whatsapp";
+import { resolveLidToPhone, sendWhatsApp } from "@/lib/whatsapp";
 import { resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
 import { appendOptOutFooter, WHATSAPP_OPT_OUT_FOOTER_AR } from "@/lib/patientMessaging";
 import {
+  conversationKey,
   loadConversation,
   markHandoff,
   replyAllowance,
@@ -102,12 +103,20 @@ async function findPatient(
 
 export async function respondToPatientMessage(args: {
   clinicId: string;
-  phone: string;
+  /**
+   * Where the reply goes, verbatim: an E.164 phone, or the raw `...@lid` id WhatsApp used to hide
+   * one. Separate from identity on purpose — since the lid rollout, "who do I answer" and "who is
+   * this" stopped being the same question, and conflating them is why replies once composed fine
+   * and then failed to dial.
+   */
+  chatId: string;
+  /** The sender's phone when the payload revealed one; empty behind a lid. */
+  phone?: string;
   text: string;
   /** Injectable so tests and the webhook agree on "now" rather than racing the clock. */
   now?: number;
 }): Promise<BotOutcome> {
-  const { clinicId, phone, text } = args;
+  const { clinicId, chatId, text } = args;
   const now = args.now ?? Date.now();
 
   const settings = await loadBotSettings(clinicId);
@@ -119,7 +128,14 @@ export async function respondToPatientMessage(args: {
   const mode = await resolveWhatsappDeliveryMode(clinicId);
   if (mode !== "auto") return skip("no_gateway");
 
-  const patient = await findPatient(clinicId, phone);
+  // Behind a lid, ask the gateway who this is. Broken on Wapilot's side today — it fails fast
+  // and quietly — but the day it works, lid senders become patients again with no change here.
+  let phone = args.phone || "";
+  if (!phone && /@lid$/i.test(chatId)) {
+    phone = await resolveLidToPhone(clinicId, chatId);
+  }
+
+  const patient = phone ? await findPatient(clinicId, phone) : null;
 
   // A patient who asked to be left alone asked to be left alone. This is checked before the
   // engine, so no branch of it can ever talk to someone who opted out.
@@ -129,11 +145,20 @@ export async function respondToPatientMessage(args: {
     // The cautious default. Answering unknown numbers means answering wrong numbers, spam and
     // anyone who ever saw the clinic's number — and every one of those is a stranger who did not
     // ask to be messaged, which is precisely the traffic that gets a number reported.
-    await markHandoff(clinicId, phoneMatchKey(phone) || phone, "unknown_number");
+    //
+    // Note what the lid rollout does to this switch: a sender hidden behind `@lid` cannot be
+    // matched to their patient record, so with this off, the bot is silent for them too. That is
+    // the safe direction to be wrong in — but it means clinics whose patients mostly appear as
+    // lids will find the bot quiet until they enable answering unidentified senders.
+    await markHandoff(clinicId, conversationKey(chatId), "unknown_number");
     return skip("unknown_number");
   }
 
-  const conversation = await loadConversation(clinicId, phone, now);
+  const conversation = await loadConversation(clinicId, chatId, now);
+
+  // A stop request recorded against this sender directly — the only place it can live when a lid
+  // hides the patient record. Survives conversation expiry; see markConversationOptedOut.
+  if (conversation.optedOut) return skip("opted_out");
 
   const allowance = replyAllowance(conversation);
   if (!allowance.allowed) {
@@ -192,7 +217,7 @@ export async function respondToPatientMessage(args: {
       : decision.reply;
 
   try {
-    await sendWhatsApp({ clinicId, to: phone, text: body });
+    await sendWhatsApp({ clinicId, to: chatId, text: body });
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
     console.warn("[bot] reply failed to send:", detail);
