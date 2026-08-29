@@ -207,6 +207,7 @@ async function sendWhatsAppLeg(args: {
     clinicId,
     to: e164,
     text: msg,
+    audience: "patient",
     queue: {
       key: `${appointment.id}_24h`,
       type: "reminder24h",

@@ -18,7 +18,12 @@ import type {
   WhatsAppTemplateType,
 } from "@/types/whatsapp";
 import { WHATSAPP_SETTINGS_DOC_REF } from "@/types/whatsapp";
-import { WHATSAPP_DEFAULT_BODIES } from "@/lib/whatsappDefaultBodies";
+import {
+  type WhatsAppTemplatePack,
+  WHATSAPP_DEFAULT_BODIES,
+  isTemplatePack,
+  templatePackBodies,
+} from "@/lib/whatsappDefaultBodies";
 import type { WapilotConfigStatus } from "@/types/wapilot";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 const OWNER_ALERT_MATRIX: { module: "appointments" | "finance"; labelEn: string; labelAr: string; keys: OwnerAlertKey[] }[] = [
@@ -119,6 +124,16 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     templates,
     ownerNumber: typeof data?.ownerNumber === "string" ? data.ownerNumber : "",
     ownerAlerts,
+    // Same trap the deliveryMode comment below describes: a field dropped here is a setting that
+    // saves, echoes back through this function without it, and appears on screen to have reset.
+    templatePack: isTemplatePack(data?.templatePack) ? data.templatePack : "bilingual",
+    // Absent means on. The footer is what keeps the number off Meta's report list, so the
+    // default has to survive a document written before this setting existed.
+    optOutFooterEnabled: data?.optOutFooterEnabled !== false,
+    // Both default to off. A field dropped here would read back as off and look like the toggle
+    // refused to save — the same trap deliveryMode fell into.
+    botEnabled: data?.botEnabled === true,
+    botAnswerStrangers: data?.botAnswerStrangers === true,
     // Dropping this field here is what made "manual" look unselectable: the click saved it,
     // the listener echoed the document back through this function, and the choice vanished
     // from the screen — while the server was already honouring it. Spread conditionally so an
@@ -179,6 +194,16 @@ export default function WhatsAppSettings() {
   const [wapilotSaving, setWapilotSaving] = useState(false);
   const [showAdvancedWapilot, setShowAdvancedWapilot] = useState(false);
 
+  // Official Meta Cloud API connection — the drop-proof channel. Mirrors the Wapilot block:
+  // status is loaded (never the token), an empty token on save keeps the stored one.
+  const [metaStatus, setMetaStatus] = useState<{ configured: boolean; phoneNumberId: string; tokenSet: boolean } | null>(null);
+  const [metaLoading, setMetaLoading] = useState(true);
+  const [metaSaving, setMetaSaving] = useState(false);
+  const [metaPhoneNumberId, setMetaPhoneNumberId] = useState("");
+  const [metaWabaId, setMetaWabaId] = useState("");
+  const [metaTokenDraft, setMetaTokenDraft] = useState("");
+  const [metaTestTo, setMetaTestTo] = useState("");
+
   const testDial = useMemo(() => WHATSAPP_DIAL_COUNTRIES.find((c) => c.iso === testCountryIso)?.dial ?? "20", [testCountryIso]);
   const testE164Preview = useMemo(() => buildE164FromDialAndNational(testDial, testNational), [testDial, testNational]);
 
@@ -216,6 +241,65 @@ export default function WhatsAppSettings() {
         language === "ar"
           ? "النظام يجهّز الرسالة ويفتح واتساب، والموظف يضغط إرسال. مناسب للعيادات من غير سجل تجاري، ومفيش خطر إيقاف الرقم."
           : "The system writes the message and opens WhatsApp; your staff press send. Works with no commercial registration, and nothing can get the number banned.",
+      packTitle: language === "ar" ? "لغة الرسائل" : "Message language",
+      packBilingual: language === "ar" ? "عربي + إنجليزي" : "Arabic + English",
+      packBilingualHint:
+        language === "ar"
+          ? "عنوان إنجليزي وتحته سطر عربي. مناسب للعيادات اللي مرضاها بيقروا الاتنين."
+          : "An English heading with an Arabic line under it. For clinics whose patients read both.",
+      packArabic: language === "ar" ? "عربي فقط" : "Arabic only",
+      packArabicHint:
+        language === "ar"
+          ? "الرسالة كلها بالعربي المصري. أقصر، وبتقرا كأن موظفة الاستقبال كاتباها."
+          : "The whole message in Egyptian Arabic. Shorter, and reads as if your receptionist wrote it.",
+      packApply: language === "ar" ? "استخدام هذه الصياغة" : "Use this wording",
+      packConfirm:
+        language === "ar"
+          ? "ده هيستبدل نص كل القوالب بالصياغة الجديدة. أي تعديل كتبته بنفسك هيضيع. تكمل؟"
+          : "This replaces the text of every template with the new wording. Any edits you wrote yourself will be lost. Continue?",
+      packApplied: language === "ar" ? "تم تحديث كل القوالب" : "All templates updated",
+      optOutTitle: language === "ar" ? "حماية الرقم من الإيقاف" : "Protecting your number",
+      optOutToggle:
+        language === "ar"
+          ? "إضافة سطر «لإيقاف الرسائل أرسل: إيقاف» في آخر كل رسالة"
+          : "Add a \"reply STOP to stop these messages\" line to every message",
+      optOutHint:
+        language === "ar"
+          ? "لما المريض يرد بكلمة «إيقاف»، النظام بيوقف عنه رسائل الواتساب والرسائل النصية فوراً، وبيظهر ده في ملفه. تقدر ترجّعها من ملف المريض."
+          : "When a patient replies with the stop word, the system switches off both WhatsApp and SMS for them immediately and records it on their profile. Staff can switch it back on from the patient's file.",
+      optOutWarning:
+        language === "ar"
+          ? "اللي بيوقف رقم العيادة على واتساب هو إبلاغ المرضى عنه كـ«سبام». وجود طريقة واضحة للإيقاف هو اللي بيخلي المريض المنزعج يستخدمها بدل زر الإبلاغ. ننصح بشدة بتركها مفعّلة."
+          : "What gets a clinic's number restricted is patients reporting it as spam. A visible way to stop the messages is what an irritated patient uses instead of the report button. Strongly recommended to leave this on.",
+      optOutInboundPending:
+        language === "ar"
+          ? "الرد التلقائي على كلمة «إيقاف» بيشتغل بعد ربط رابط الاستقبال في لوحة Wapilot — كلّمنا لو محتاج ده."
+          : "Acting on the reply automatically needs the inbound webhook connected in your Wapilot dashboard — ask us to switch it on.",
+      botTitle: language === "ar" ? "الرد التلقائي على رسائل المرضى" : "Answering patients who write to you",
+      botToggle:
+        language === "ar"
+          ? "خلي النظام يرد على المريض اللي يبعت للعيادة"
+          : "Let the system reply when a patient messages the clinic",
+      botHint:
+        language === "ar"
+          ? "بيرد بقائمة بسيطة: حجز، مواعيد وعنوان، أو التحويل للاستقبال. أي رسالة فيها ألم أو ورم أو نزيف بتتحول لموظف على طول، والبوت بيسكت لما حد من العيادة يدخل على المحادثة."
+          : "Replies with a short menu: booking, hours and address, or hand over to reception. Anything mentioning pain, swelling or bleeding goes straight to a person, and the bot goes quiet once a staff member takes the thread.",
+      botNeedsGateway:
+        language === "ar"
+          ? "محتاج «إرسال تلقائي» شغال. في وضع «فتح واتساب للإرسال» مفيش حد قدام الشاشة وقت ما المريض يكتب، فالرد مش هيتبعت."
+          : "Needs automatic sending. In click-to-send mode nobody is at a screen when the patient writes, so no reply can go out.",
+      botStrangers:
+        language === "ar"
+          ? "يرد كمان على الأرقام غير المسجلة كمرضى"
+          : "Also answer numbers that are not patients",
+      botStrangersHint:
+        language === "ar"
+          ? "ننصح تسيبها مقفولة. الرد على أرقام غريبة معناه الرد على أرقام غلط وإعلانات، وده بالظبط اللي بيخلي الرقم يتبلغ عنه."
+          : "Recommended off. Answering unknown numbers means answering wrong numbers and spam — exactly the traffic that gets a number reported.",
+      botLimits:
+        language === "ar"
+          ? "بحد أقصى ٨ ردود للرقم الواحد في الساعة، وبيوقف ويحوّل لموظف لو المحادثة طالت."
+          : "At most 8 replies to one number per hour, and it stops and hands over if a conversation drags on.",
       templateType: language === "ar" ? "نوع القالب" : "Template type",
       templateHint:
         language === "ar"
@@ -290,6 +374,21 @@ export default function WhatsAppSettings() {
       testFail: language === "ar" ? "فشل الإرسال" : "Send failed",
       testNeedPhone: language === "ar" ? "أدخل رقمًا صالحًا" : "Enter a valid number",
       testNeedAuth: language === "ar" ? "سجّل الدخول أولاً" : "Sign in required",
+      metaCard: language === "ar" ? "الواتساب الرسمي (Meta)" : "Official WhatsApp (Meta)",
+      metaHint:
+        language === "ar"
+          ? "القناة الرسمية من ميتا: لا تنقطع، لا تحتاج مسح QR، وتتعرف على رقم المريض مباشرة. لما تتفعّل بتاخد الأولوية على Wapilot تلقائياً."
+          : "Meta's official channel: never drops, no QR scans, and identifies the patient's number directly. When configured it automatically takes priority over Wapilot.",
+      metaPhoneNumberId: language === "ar" ? "Phone Number ID (من لوحة Meta)" : "Phone Number ID (from the Meta dashboard)",
+      metaWabaId: language === "ar" ? "WhatsApp Business Account ID (اختياري)" : "WhatsApp Business Account ID (optional)",
+      metaToken: language === "ar" ? "Access Token (يُلصق هنا ولا يُعرض مرة أخرى)" : "Access token (pasted here, never shown again)",
+      metaTokenKept: language === "ar" ? "التوكن محفوظ — اتركه فارغاً للإبقاء عليه" : "Token stored — leave empty to keep it",
+      metaTestTo: language === "ar" ? "رقم لتجربة الإرسال بعد الحفظ (اختياري)" : "Number to send a test to after saving (optional)",
+      metaConnected: language === "ar" ? "متصل" : "Connected",
+      metaNotConnected: language === "ar" ? "غير متصل" : "Not connected",
+      metaSaved: language === "ar" ? "تم حفظ الاتصال الرسمي" : "Official connection saved",
+      metaTestSent: language === "ar" ? "تم إرسال رسالة التجربة ✅" : "Test message sent ✅",
+      metaTestFailed: language === "ar" ? "الحفظ تم لكن رسالة التجربة فشلت: " : "Saved, but the test message failed: ",
       wapilotCard: language === "ar" ? "اتصال Wapilot" : "Wapilot connection",
       wapilotHint:
         language === "ar"
@@ -363,6 +462,69 @@ export default function WhatsAppSettings() {
   useEffect(() => {
     void loadWapilotStatus();
   }, [loadWapilotStatus]);
+
+  const loadMetaStatus = useCallback(async () => {
+    try {
+      const u = auth.currentUser;
+      if (!u) return;
+      const idToken = await u.getIdToken();
+      const res = await fetch("/api/admin/meta-whatsapp-config", {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        setMetaStatus({ configured: data.configured === true, phoneNumberId: data.phoneNumberId || "", tokenSet: data.tokenSet === true });
+        if (data.phoneNumberId) setMetaPhoneNumberId(data.phoneNumberId);
+        if (data.wabaId) setMetaWabaId(data.wabaId);
+      }
+    } catch {
+      /* the card simply shows not-connected */
+    } finally {
+      setMetaLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadMetaStatus();
+  }, [loadMetaStatus]);
+
+  const handleSaveMetaConnection = async () => {
+    const u = auth.currentUser;
+    if (!u) return;
+    if (!metaPhoneNumberId.trim()) {
+      showToast(language === "ar" ? "أدخل Phone Number ID" : "Enter the Phone Number ID", "error");
+      return;
+    }
+    setMetaSaving(true);
+    try {
+      const idToken = await u.getIdToken();
+      const res = await fetch("/api/admin/meta-whatsapp-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({
+          phoneNumberId: metaPhoneNumberId.trim(),
+          wabaId: metaWabaId.trim(),
+          token: metaTokenDraft.trim(),
+          testTo: metaTestTo.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) throw new Error(data.error || "Save failed");
+      // Never keep a credential in component state longer than the save needs it.
+      setMetaTokenDraft("");
+      await loadMetaStatus();
+      if (data.test?.attempted) {
+        if (data.test.ok) showToast(txt.metaTestSent, "success");
+        else showToast(txt.metaTestFailed + (data.test.error || ""), "error");
+      } else {
+        showToast(txt.metaSaved, "success");
+      }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : txt.failed, "error");
+    } finally {
+      setMetaSaving(false);
+    }
+  };
 
   const handleSaveWapilotConnection = async () => {
     const firebaseUser = auth.currentUser;
@@ -494,6 +656,32 @@ export default function WhatsAppSettings() {
     const next = { ...state, templates: merged };
     setState(next);
     void persist(next, "template");
+  };
+
+  /**
+   * Rewrite every template from one of the built-in wordings.
+   *
+   * Confirmed first, because this is the only control on the screen that destroys work: a clinic
+   * that spent an afternoon rewording its reminder would otherwise lose it to a curious click on
+   * a language button. The active/inactive state of each template is kept — that is a decision
+   * about which messages to send, not about how they are worded.
+   */
+  const applyTemplatePack = (pack: WhatsAppTemplatePack) => {
+    if (state.templatePack === pack) return;
+    if (!window.confirm(txt.packConfirm)) return;
+
+    const bodies = templatePackBodies(pack);
+    const next: WhatsAppSettingsDocument = {
+      ...state,
+      templatePack: pack,
+      templates: state.templates.map((t) => ({ ...t, message: bodies[t.type] || t.message })),
+    };
+    setState(next);
+    // The editor below shows a copy of the selected template, so it has to follow or it would
+    // keep displaying the old wording and save it back over the new one.
+    setDraftMessage(bodies[templateType] || "");
+    void persist(next, "none");
+    showToast(txt.packApplied, "success");
   };
 
   const toggleOwnerAlert = (key: OwnerAlertKey, value: boolean) => {
@@ -664,6 +852,86 @@ export default function WhatsAppSettings() {
         </button>
       </section>
 
+      {/* Official Meta Cloud API. Above the two-column grid, beside Wapilot's card: they are the
+          same decision — how this clinic's messages leave — and reading one without seeing the
+          other is how a clinic ends up configured twice or not at all. */}
+      <section className="rounded-2xl xl:rounded-3xl bg-white border border-emerald-200/80 shadow-sm ring-1 ring-emerald-100 p-5 xl:p-6 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-center gap-2 text-emerald-700">
+            <MessageCircle size={18} />
+            <div>
+              <h3 className="text-sm font-black uppercase tracking-wider text-slate-800">{txt.metaCard}</h3>
+              <p className="text-xs text-slate-500 font-medium mt-0.5 max-w-xl">{txt.metaHint}</p>
+            </div>
+          </div>
+          {metaLoading ? (
+            <Loader2 size={18} className="animate-spin text-emerald-500" />
+          ) : metaStatus?.configured ? (
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full">
+              <CheckCircle2 size={14} />
+              {txt.metaConnected}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-full">
+              <AlertCircle size={14} />
+              {txt.metaNotConnected}
+            </span>
+          )}
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.metaPhoneNumberId}</span>
+            <input
+              type="text"
+              value={metaPhoneNumberId}
+              onChange={(e) => setMetaPhoneNumberId(e.target.value)}
+              placeholder="1142062985667803"
+              className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.metaWabaId}</span>
+            <input
+              type="text"
+              value={metaWabaId}
+              onChange={(e) => setMetaWabaId(e.target.value)}
+              className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+            />
+          </label>
+        </div>
+        <label className="block">
+          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.metaToken}</span>
+          <input
+            type="password"
+            value={metaTokenDraft}
+            onChange={(e) => setMetaTokenDraft(e.target.value)}
+            placeholder={metaStatus?.tokenSet ? txt.metaTokenKept : "EAA..."}
+            autoComplete="off"
+            className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+          />
+        </label>
+        <label className="block">
+          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.metaTestTo}</span>
+          <input
+            type="tel"
+            value={metaTestTo}
+            onChange={(e) => setMetaTestTo(e.target.value)}
+            placeholder="+2010..."
+            className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={() => void handleSaveMetaConnection()}
+          disabled={metaSaving || metaLoading}
+          className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-600 text-white text-xs font-black uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-50 transition-all"
+        >
+          {metaSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+          {txt.saveConnection}
+        </button>
+      </section>
+
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         {/* Patient automation */}
         <section className="rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 shadow-sm ring-1 ring-slate-100 p-5 xl:p-6 flex flex-col gap-5">
@@ -797,6 +1065,118 @@ export default function WhatsAppSettings() {
             <p className="text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 leading-relaxed">
               {txt.leadWarning}
             </p>
+          </div>
+
+          {/* Opt-out. Sits above the template editor on purpose: it is the setting that decides
+              whether the clinic still has a WhatsApp number in six months, and it should be read
+              before the wording is fiddled with rather than found underneath it. */}
+          <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
+            <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">{txt.optOutTitle}</p>
+            <label className="flex items-center justify-between gap-4 cursor-pointer">
+              <span className="text-sm font-bold text-amber-950 leading-relaxed">{txt.optOutToggle}</span>
+              <input
+                type="checkbox"
+                className="h-5 w-5 rounded border-amber-300 text-amber-600 focus:ring-amber-500 shrink-0"
+                checked={state.optOutFooterEnabled !== false}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setState((s) => {
+                    const next = { ...s, optOutFooterEnabled: checked };
+                    void persist(next, "silent");
+                    return next;
+                  });
+                }}
+              />
+            </label>
+            <p className="text-xs text-slate-600 leading-relaxed">{txt.optOutHint}</p>
+            <p className="text-xs text-amber-900 leading-relaxed">{txt.optOutWarning}</p>
+          </div>
+
+          {/* Answering inbound messages. Sits under the opt-out card because it shares the same
+              risk: this is the one feature that talks to a patient with no staff member deciding
+              to, so its off-switch and its limits belong where they can be read together. */}
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 space-y-3">
+            <p className="text-[11px] font-black uppercase tracking-widest text-indigo-800">{txt.botTitle}</p>
+            <label className="flex items-center justify-between gap-4 cursor-pointer">
+              <span className="text-sm font-black text-indigo-950 leading-relaxed">{txt.botToggle}</span>
+              <input
+                type="checkbox"
+                className="h-5 w-5 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
+                checked={state.botEnabled === true}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setState((s) => {
+                    const next = { ...s, botEnabled: checked };
+                    void persist(next, "silent");
+                    return next;
+                  });
+                }}
+              />
+            </label>
+            <p className="text-xs text-slate-600 leading-relaxed">{txt.botHint}</p>
+
+            {state.botEnabled === true && (
+              <>
+                {(state.deliveryMode ?? (canSendAutomatically ? "auto" : "manual")) !== "auto" && (
+                  <p className="text-xs font-bold text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+                    {txt.botNeedsGateway}
+                  </p>
+                )}
+                <label className="flex items-center justify-between gap-4 cursor-pointer pt-1">
+                  <span className="text-sm font-bold text-indigo-950 leading-relaxed">{txt.botStrangers}</span>
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
+                    checked={state.botAnswerStrangers === true}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setState((s) => {
+                        const next = { ...s, botAnswerStrangers: checked };
+                        void persist(next, "silent");
+                        return next;
+                      });
+                    }}
+                  />
+                </label>
+                <p className="text-xs text-slate-500 leading-relaxed">{txt.botStrangersHint}</p>
+                <p className="text-xs text-slate-500 leading-relaxed">{txt.botLimits}</p>
+              </>
+            )}
+          </div>
+
+          {/* Which built-in wording the templates start from. */}
+          <div className="space-y-3">
+            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.packTitle}</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {(
+                [
+                  { pack: "bilingual" as const, label: txt.packBilingual, hint: txt.packBilingualHint },
+                  { pack: "arabic" as const, label: txt.packArabic, hint: txt.packArabicHint },
+                ]
+              ).map(({ pack, label, hint }) => {
+                const selected = (state.templatePack ?? "bilingual") === pack;
+                return (
+                  <button
+                    key={pack}
+                    type="button"
+                    onClick={() => applyTemplatePack(pack)}
+                    className={`text-start rounded-xl border p-3 transition-all ${
+                      selected
+                        ? "border-primary-500 bg-primary-50 ring-2 ring-primary-500/15"
+                        : "border-slate-200 bg-slate-50 hover:border-slate-300"
+                    }`}
+                  >
+                    <span className="block text-sm font-black text-slate-800">{label}</span>
+                    <span className="block text-xs text-slate-500 mt-1 leading-relaxed">{hint}</span>
+                    {!selected && (
+                      <span className="block text-[10px] font-black uppercase tracking-widest text-primary-600 mt-2">
+                        {txt.packApply}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <div className="space-y-3">

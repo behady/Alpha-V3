@@ -3,9 +3,14 @@ import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { buildPaymentRow } from "@/lib/ledgerWrite";
 import { logAiAction } from "@/lib/serverLogger";
 import { sendWhatsApp } from "@/lib/whatsapp";
-import { resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
+import { applyPatientOptOutFooter, resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
 import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
 import { isFullAccessRole } from "@/lib/permissions";
+import {
+  type PatientMessageOutcome,
+  sendAppointmentPatientMessage,
+  sendPaymentReceiptMessage,
+} from "@/lib/patientNotifications";
 
 /**
  * Two-step confirmation for destructive assistant actions.
@@ -274,7 +279,12 @@ export async function createPendingWhatsApp(args: {
   if (!phone) return { ok: false, error: "That patient has no phone number on file." };
   if (!body.trim()) return { ok: false, error: "That message template is empty or switched off." };
 
-  const payload = { patientId, patientName, phone, body, messageType };
+  // Added now rather than at send time, so the card shows the message as the patient will read it.
+  // The whole point of storing the merged body is that the preview cannot drift from what is sent,
+  // and a footer appended later would be the one line nobody approved.
+  const withFooter = await applyPatientOptOutFooter(clinicId, body);
+
+  const payload = { patientId, patientName, phone, body: withFooter, messageType };
   const id = await stagePendingAction({
     clinicId, kind: "whatsapp", collection: "whatsapp_logs", documentId: "",
     payload, snapshot: null, userId, userName, userRole,
@@ -284,10 +294,40 @@ export async function createPendingWhatsApp(args: {
     ok: true,
     preview: {
       id, kind: "whatsapp", collection: "whatsapp_logs", documentId: "",
-      title: "Send WhatsApp message", recipient: phone, messageBody: body,
+      title: "Send WhatsApp message", recipient: phone, messageBody: withFooter,
       summary: { patientName, type: messageType },
     },
   };
+}
+
+/**
+ * Tell the patient about an approved action, and say in one clause what came of it.
+ *
+ * The action has already been written by the time this runs, so nothing here may fail the
+ * approval: a messaging problem becomes a sentence in the confirmation, never an error. A skip
+ * stays silent — the clinic or the patient configured that silence, exactly as on the booking and
+ * payment screens, and announcing it would read as something going wrong.
+ */
+async function tellPatient(noun: string, run: () => Promise<PatientMessageOutcome>): Promise<string> {
+  let outcome: PatientMessageOutcome;
+  try {
+    outcome = await run();
+  } catch (e) {
+    console.warn(`Could not send ${noun}:`, e);
+    return ` The ${noun} to the patient could not be sent.`;
+  }
+  switch (outcome.status) {
+    case "sent":
+      return ` The patient was sent a ${noun} on WhatsApp.`;
+    case "queued":
+    case "manual":
+      return ` A ${noun} for the patient is waiting in the WhatsApp send list.`;
+    case "failed":
+      console.warn(`Could not send ${noun}:`, outcome.error);
+      return ` The ${noun} to the patient could not be sent.`;
+    default:
+      return "";
+  }
 }
 
 export type ResolveResult =
@@ -489,10 +529,24 @@ export async function resolvePendingAiAction(args: {
       });
       await markApproved();
 
+      // The same "your appointment moved" message the booking screens send, through the same
+      // gates (automation switch, template on/off, opt-out, phone on file) — an approved
+      // reschedule used to move the calendar and tell everyone except the patient.
+      const patientNote = await tellPatient("reschedule message", () =>
+        sendAppointmentPatientMessage({
+          clinicId,
+          patientId: String(current.patientId || ""),
+          template: "edit",
+          date: toDate,
+          time: toTime,
+          doctor: String(updates.doctor ?? current.doctor ?? ""),
+        })
+      );
+
       return {
         ok: true, status: "approved", kind, collection, documentId,
         newAppointmentId: newRef.id,
-        message: `Moved from ${fromDate} ${fromTime} to ${toDate} ${toTime}. The original stays on its day, marked Rescheduled.`,
+        message: `Moved from ${fromDate} ${fromTime} to ${toDate} ${toTime}. The original stays on its day, marked Rescheduled.${patientNote}`,
       };
     }
 
@@ -549,7 +603,39 @@ export async function resolvePendingAiAction(args: {
     });
     await markApproved();
 
-    return { ok: true, status: "approved", kind, collection, documentId, message: "Appointment updated." };
+    // The booking screens message the patient when a visit is cancelled or handed to a different
+    // dentist (a cancel wins when both happen at once — being told your visit changed and then
+    // that it is off reads like the clinic arguing with itself). Other status moves — check-in,
+    // confirm, completed — are the clinic's own bookkeeping and message nobody, there as here.
+    const becameCancelled = nextStatus === "Cancelled" && prevStatus !== "Cancelled";
+    const doctorChanged =
+      updates.doctor !== undefined && String(current.doctor ?? "") !== String(updates.doctor);
+    let patientNote = "";
+    if (becameCancelled) {
+      patientNote = await tellPatient("cancellation message", () =>
+        sendAppointmentPatientMessage({
+          clinicId,
+          patientId: String(current.patientId || ""),
+          template: "cancel",
+          date: String(current.date ?? ""),
+          time: String(current.time ?? ""),
+          doctor: String(updates.doctor ?? current.doctor ?? ""),
+        })
+      );
+    } else if (doctorChanged) {
+      patientNote = await tellPatient("appointment-change message", () =>
+        sendAppointmentPatientMessage({
+          clinicId,
+          patientId: String(current.patientId || ""),
+          template: "edit",
+          date: String(current.date ?? ""),
+          time: String(current.time ?? ""),
+          doctor: String(updates.doctor),
+        })
+      );
+    }
+
+    return { ok: true, status: "approved", kind, collection, documentId, message: `Appointment updated.${patientNote}` };
   }
 
   // --- Payment --------------------------------------------------------------------------------
@@ -585,7 +671,17 @@ export async function resolvePendingAiAction(args: {
     });
     await markApproved();
 
-    return { ok: true, status: "approved", kind, collection: "ledger", documentId: ref.id, message: "Payment recorded." };
+    // Every payment screen sends the "we received your payment" receipt; a payment taken through
+    // the assistant was the one that never did. Same shared flow, SMS leg included.
+    const patientNote = await tellPatient("payment receipt", () =>
+      sendPaymentReceiptMessage({
+        clinicId,
+        patientId: String(payload.patientId || ""),
+        ledgerId: ref.id,
+      })
+    );
+
+    return { ok: true, status: "approved", kind, collection: "ledger", documentId: ref.id, message: `Payment recorded.${patientNote}` };
   }
 
   // --- WhatsApp -------------------------------------------------------------------------------

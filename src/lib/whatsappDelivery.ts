@@ -1,6 +1,12 @@
 import { adminClinicDoc } from "@/lib/adminClinicDb";
 import { clinicHasFeature } from "@/lib/clinicFeatures";
+import {
+  WHATSAPP_OPT_OUT_FOOTER_AR,
+  WHATSAPP_OPT_OUT_FOOTER_BILINGUAL,
+  appendOptOutFooter,
+} from "@/lib/patientMessaging";
 import { loadWapilotConfig } from "@/lib/wapilotConfig";
+import { loadMetaWhatsappConfig, sendMetaWhatsappText } from "@/lib/metaWhatsapp";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { enqueueWhatsapp } from "@/lib/whatsapp/outbox";
 
@@ -43,6 +49,15 @@ export type WhatsappDeliveryResult =
  * plan. Everything else falls back to a human pressing send, which is free and cannot be banned.
  */
 export async function resolveWhatsappDeliveryMode(clinicId: string): Promise<WhatsappDeliveryMode> {
+  // The official Cloud API wins outright. It is Meta-hosted, cannot drop a session, and does not
+  // sit behind the whatsappIntegration plan gate the way the Wapilot path does — a clinic that has
+  // connected an official number is auto, full stop, whatever else is configured.
+  try {
+    if (await loadMetaWhatsappConfig(clinicId)) return "auto";
+  } catch {
+    /* fall through to the Wapilot decision */
+  }
+
   try {
     const snap = await adminClinicDoc(clinicId, "settings", "whatsapp").get();
     if (snap.exists && String(snap.data()?.deliveryMode || "") === "manual") return "manual";
@@ -64,6 +79,24 @@ export async function resolveWhatsappDeliveryMode(clinicId: string): Promise<Wha
 }
 
 /**
+ * Send one already-composed patient message through whichever channel the clinic runs on.
+ *
+ * The single place the Meta-vs-Wapilot choice is made for an unattended send, so no caller has to
+ * know which gateway a clinic is on. Meta first, because a clinic that has both configured during
+ * a migration wants the drop-proof one. Throws on failure exactly as `sendWhatsApp` did, so the
+ * callers' existing try/catch (which records a failed log row) keeps working unchanged.
+ */
+export async function sendPatientWhatsAppAuto(clinicId: string, to: string, text: string): Promise<void> {
+  const meta = await loadMetaWhatsappConfig(clinicId);
+  if (meta) {
+    const result = await sendMetaWhatsappText({ config: meta, to, text });
+    if (!result.ok) throw new Error(`Meta Cloud API failed: ${result.error || "unknown"}`);
+    return;
+  }
+  await sendWhatsApp({ clinicId, to, text });
+}
+
+/**
  * Sends through the gateway, or returns the composed message for a human to send.
  *
  * Callers must handle both outcomes. The message body, opt-out checks and template resolution all
@@ -74,6 +107,15 @@ export async function deliverWhatsAppMessage(args: {
   clinicId: string;
   to: string;
   text: string;
+  /**
+   * Who is being written to.
+   *
+   * Required rather than defaulted, so that adding a new sender forces the question to be
+   * answered. `patient` gets the opt-out footer; `staff` — owner alerts, lab orders, the clinic
+   * messaging itself — never does, because telling an owner they may reply STOP to their own
+   * alerts is nonsense, and because those numbers are not the ones at risk of being reported.
+   */
+  audience: "patient" | "staff";
   /**
    * Supply this for messages that are worth queueing when there is no gateway: the ones aimed at
    * a patient, which a staff member can work through later. Omitting it keeps the old behaviour of
@@ -90,8 +132,14 @@ export async function deliverWhatsAppMessage(args: {
 }): Promise<WhatsappDeliveryResult> {
   const mode = await resolveWhatsappDeliveryMode(args.clinicId);
 
+  // Added here, at the single point every WhatsApp message passes through, rather than in each
+  // template: a footer that depends on the caller remembering it is a footer that is missing from
+  // whichever sender gets written next — and the number is banned by the aggregate, not by the
+  // one message someone remembered to mark.
+  const text = args.audience === "patient" ? await applyPatientOptOutFooter(args.clinicId, args.text) : args.text;
+
   if (mode === "auto") {
-    await sendWhatsApp({ clinicId: args.clinicId, to: args.to, text: args.text });
+    await sendPatientWhatsAppAuto(args.clinicId, args.to, text);
     return { mode: "auto", sent: true };
   }
 
@@ -100,7 +148,7 @@ export async function deliverWhatsAppMessage(args: {
   if (args.queue) {
     await enqueueWhatsapp(args.clinicId, args.queue.key, {
       to: args.to,
-      text: args.text,
+      text,
       type: args.queue.type,
       patientId: args.queue.patientId,
       patientName: args.queue.patientName,
@@ -109,5 +157,30 @@ export async function deliverWhatsAppMessage(args: {
     return { mode: "queued", sent: false };
   }
 
-  return { mode: "manual", sent: false, phone: args.to, text: args.text };
+  return { mode: "manual", sent: false, phone: args.to, text };
+}
+
+/**
+ * The clinic's opt-out line, in the language its templates are written in.
+ *
+ * Reads the settings document rather than taking a parameter, for the same reason the footer is
+ * applied here at all: every sender would otherwise have to pass it, and one that forgets removes
+ * the protection silently. A settings read that fails leaves the footer ON — the failure mode
+ * that costs a line of text, not the one that costs the number.
+ *
+ * Exported for the assistant's staged messages, which show the body on a confirmation card before
+ * anyone approves it: the footer has to be on the text being previewed, or the card would promise
+ * one thing and the patient receive another. Appending twice is harmless — see appendOptOutFooter.
+ */
+export async function applyPatientOptOutFooter(clinicId: string, text: string): Promise<string> {
+  let arabicOnly = false;
+  try {
+    const snap = await adminClinicDoc(clinicId, "settings", "whatsapp").get();
+    const data = snap.exists ? snap.data() : undefined;
+    if (data?.optOutFooterEnabled === false) return text;
+    arabicOnly = data?.templatePack === "arabic";
+  } catch {
+    // Fall through with the footer on. See above.
+  }
+  return appendOptOutFooter(text, arabicOnly ? WHATSAPP_OPT_OUT_FOOTER_AR : WHATSAPP_OPT_OUT_FOOTER_BILINGUAL);
 }

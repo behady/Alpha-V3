@@ -1,6 +1,6 @@
 import { adminClinicDoc } from "@/lib/adminClinicDb";
 import { getClinicProfileAdmin } from "@/lib/clinicProfileServer";
-import { isSmsBlocked, type PatientContactPreferences } from "@/lib/patientMessaging";
+import { isSmsBlocked, withSmsOptOutFooter, type PatientContactPreferences } from "@/lib/patientMessaging";
 import { mergeWhatsAppTemplate } from "@/lib/whatsappTemplateMerge";
 import { normalizeToE164 } from "@/lib/whatsapp";
 import type { SmsEventType, SmsSettings } from "./config";
@@ -84,8 +84,13 @@ export async function queuePatientSms(args: QueuePatientSmsArgs): Promise<SmsQue
   // clinic watches a "waiting" list grow that will never move.
   if (!(await hasActiveDevice(clinicId))) return { status: "skipped", reason: "no_paired_phone" };
 
-  const text = mergeWhatsAppTemplate(settings.templates[type] || "", values).trim();
-  if (!text) return { status: "skipped", reason: "empty_template" };
+  const merged = mergeWhatsAppTemplate(settings.templates[type] || "", values).trim();
+  if (!merged) return { status: "skipped", reason: "empty_template" };
+
+  // Appended after the emptiness check so an empty body stays a skip rather than becoming a text
+  // consisting only of instructions for stopping texts. See SmsSettings.optOutFooterEnabled for
+  // why this is off unless the clinic asked: it always costs a second billed segment.
+  const text = withSmsOptOutFooter(merged, settings.optOutFooterEnabled);
 
   const queued = await enqueueSms(clinicId, key, {
     to: e164,
