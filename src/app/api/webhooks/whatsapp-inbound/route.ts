@@ -198,9 +198,23 @@ export async function POST(request: NextRequest) {
           );
           if (lid && echoText) {
             const learned = await learnPatientLid(clinicId, lid, echoText);
+            // A failed binding is recorded, because from outside it is indistinguishable from
+            // the echo never arriving — and that distinction is exactly what took three round
+            // trips through a real phone to establish for the inbound direction.
+            if (learned.reason !== "learned" && learned.reason !== "already_known") {
+              await recordUnparsed(clinicId, { lid, echo: echoText.slice(0, 200) }, `lid_${learned.reason}`);
+            }
             return NextResponse.json({ ok: true, ignored: "outgoing", lid: learned.reason });
           }
         }
+        // An outgoing event we could not read a chat/body from — record a fingerprint of its
+        // shape (keys only at each level), which is enough to extend the parser without ever
+        // storing the clinic's own message content wholesale.
+        await recordUnparsed(
+          clinicId,
+          { shape: Object.keys(b), inner: candidateMessages(b).map((m) => Object.keys(m).slice(0, 20)) },
+          "outgoing_unreadable"
+        );
       }
       return NextResponse.json({ ok: true, ignored: "outgoing" });
     }
