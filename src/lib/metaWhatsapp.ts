@@ -172,3 +172,92 @@ export async function anyClinicOnMeta(): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * A structured message: tap-to-answer instead of type-a-digit.
+ *
+ * Only the official API renders these. `buttons` becomes WhatsApp reply buttons (max 3, titles
+ * <=20 chars); `list` becomes a list message (max 10 rows, titles <=24 chars). The ids come back
+ * verbatim in the webhook's interactive reply, and ours are the same digits a typed answer would
+ * be — so the conversation engine cannot tell a tap from a keystroke, which is the point: the
+ * Wapilot channel falls back to the numbered-text version of the same message and both channels
+ * stay one state machine.
+ */
+export interface MetaInteractive {
+  body: string;
+  buttons?: Array<{ id: string; title: string }>;
+  list?: {
+    buttonLabel: string;
+    rows: Array<{ id: string; title: string; description?: string }>;
+  };
+}
+
+export async function sendMetaWhatsappInteractive(args: {
+  config: MetaWhatsappConfig;
+  to: string;
+  message: MetaInteractive;
+}): Promise<MetaSendResult> {
+  const digits = String(args.to || "").replace(/\D/g, "");
+  if (!digits) return { ok: false, error: "invalid_phone" };
+  const { body, buttons, list } = args.message;
+
+  // WhatsApp rejects over-length parts with an opaque 400; trim here so a long clinic name can
+  // never break the whole message.
+  const clip = (v: string, n: number) => (v.length > n ? v.slice(0, n - 1) + "…" : v);
+
+  let interactive: Record<string, unknown>;
+  if (buttons?.length) {
+    interactive = {
+      type: "button",
+      body: { text: clip(body, 1024) },
+      action: {
+        buttons: buttons.slice(0, 3).map((b) => ({
+          type: "reply",
+          reply: { id: b.id, title: clip(b.title, 20) },
+        })),
+      },
+    };
+  } else if (list?.rows.length) {
+    interactive = {
+      type: "list",
+      body: { text: clip(body, 1024) },
+      action: {
+        button: clip(list.buttonLabel, 20),
+        sections: [
+          {
+            rows: list.rows.slice(0, 10).map((r) => ({
+              id: r.id,
+              title: clip(r.title, 24),
+              ...(r.description ? { description: clip(r.description, 72) } : {}),
+            })),
+          },
+        ],
+      },
+    };
+  } else {
+    return sendMetaWhatsappText({ config: args.config, to: args.to, text: body });
+  }
+
+  try {
+    const res = await fetch(`${GRAPH}/${args.config.phoneNumberId}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${args.config.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: digits,
+        type: "interactive",
+        interactive,
+      }),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, any>;
+    if (!res.ok) return { ok: false, error: data?.error?.message || `HTTP ${res.status}` };
+    const messageId = data?.messages?.[0]?.id;
+    return { ok: true, messageId: typeof messageId === "string" ? messageId : undefined };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "send_failed" };
+  }
+}

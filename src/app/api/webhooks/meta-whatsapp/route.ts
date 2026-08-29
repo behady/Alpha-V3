@@ -84,8 +84,17 @@ function extractMessages(body: unknown): InboundMessage[] {
       if (!Array.isArray(messages)) continue; // status updates have no `messages`
       for (const m of messages) {
         const from = String(m?.from || "").trim();
+        // Interactive reply IDS before anything else: our buttons and list rows carry the same
+        // digits a typed answer would be, so a tap and a keystroke are indistinguishable to the
+        // conversation engine — the titles are only what the patient read.
         const text = String(
-          m?.text?.body ?? m?.button?.text ?? m?.interactive?.list_reply?.title ?? m?.interactive?.button_reply?.title ?? ""
+          m?.interactive?.button_reply?.id ??
+            m?.interactive?.list_reply?.id ??
+            m?.text?.body ??
+            m?.button?.text ??
+            m?.interactive?.list_reply?.title ??
+            m?.interactive?.button_reply?.title ??
+            ""
         ).trim();
         if (from && text) out.push({ phoneNumberId, from, text, fromMe: false });
       }

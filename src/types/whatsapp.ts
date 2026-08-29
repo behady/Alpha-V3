@@ -91,6 +91,15 @@ export interface WhatsAppSettingsDocument {
    */
   botAnswerStrangers?: boolean;
   /**
+   * Bot bookings land as Confirmed instead of Unconfirmed.
+   *
+   * Off by default: the desk reviews every request, and the bot cannot fill a calendar
+   * unattended. A clinic that trusts the flow flips this and the booking is final the moment the
+   * patient taps a time — the slot recomputation at write time keeps that safe against
+   * double-booking either way.
+   */
+  botAutoConfirmBookings?: boolean;
+  /**
    * Answer new leads automatically. Separate from `isPatientAutomationEnabled` on purpose: a
    * clinic may happily remind its own patients while wanting no machine to greet strangers,
    * or the reverse. Off until a manager turns it on — nothing messages anybody by surprise.

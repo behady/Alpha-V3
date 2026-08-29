@@ -14,7 +14,8 @@ import { patientSendablePhone, phoneMatchKey, pickPatientPhone } from "@/lib/pat
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { resolveLidToPhone } from "@/lib/whatsapp";
 import { findPatientByLid } from "@/lib/whatsappLid";
-import { resolveWhatsappDeliveryMode, sendPatientWhatsAppAuto } from "@/lib/whatsappDelivery";
+import { resolveWhatsappDeliveryMode, sendPatientWhatsAppRich } from "@/lib/whatsappDelivery";
+import type { MetaInteractive } from "@/lib/metaWhatsapp";
 import { appendOptOutFooter, WHATSAPP_OPT_OUT_FOOTER_AR } from "@/lib/patientMessaging";
 import {
   conversationKey,
@@ -48,6 +49,8 @@ interface BotSettings {
   enabled: boolean;
   /** Answer numbers with no patient record? Off by default — see below. */
   answerStrangers: boolean;
+  /** Write bot bookings as Confirmed instead of leaving them for the desk to review. */
+  autoConfirm: boolean;
 }
 
 async function loadBotSettings(clinicId: string): Promise<BotSettings> {
@@ -56,6 +59,7 @@ async function loadBotSettings(clinicId: string): Promise<BotSettings> {
   return {
     enabled: d.botEnabled === true,
     answerStrangers: d.botAnswerStrangers === true,
+    autoConfirm: d.botAutoConfirmBookings === true,
   };
 }
 
@@ -131,6 +135,26 @@ function renderTimeList(dateKey: string, times: string[]): string {
 }
 
 const RELIST_PREFIX = "معلش مفهمتش 🙏 ابعت رقم من الاختيارات دي:\n\n";
+
+/** The main menu as WhatsApp reply buttons. Ids are the digits the engine already understands. */
+function menuButtons(canOfferBooking: boolean): MetaInteractive["buttons"] {
+  return [
+    { id: "1", title: canOfferBooking ? "حجز موعد 🦷" : "الحجز مع الاستقبال" },
+    { id: "2", title: "مواعيد العمل 🕐" },
+    { id: "3", title: "الاستقبال 💬" },
+  ];
+}
+
+/** A day/time list as a WhatsApp list message, with a walk-back row. */
+function optionList(buttonLabel: string, options: string[], labeler: (v: string) => string, backTitle: string): MetaInteractive["list"] {
+  return {
+    buttonLabel,
+    rows: [
+      ...options.slice(0, 9).map((v, i) => ({ id: String(i + 1), title: labeler(v) })),
+      { id: "0", title: backTitle },
+    ],
+  };
+}
 
 /** The patient behind this number, if the clinic knows them. */
 async function findPatient(
@@ -313,6 +337,8 @@ export async function respondToPatientMessage(args: {
   let reason = decision.reason;
   let handoff = decision.handoff;
   let pending: { days?: string[]; times?: string[]; date?: string } | undefined;
+  /** Buttons/lists for the official channel; the text above is what every other channel sends. */
+  let structure: MetaInteractive | undefined;
 
   if (decision.action && profile) {
     const act = decision.action;
@@ -328,6 +354,10 @@ export async function respondToPatientMessage(args: {
         return;
       }
       replyText = renderDayList(days);
+      structure = {
+        body: "📅 اختار اليوم اللي يناسبك:",
+        list: optionList("اختيار اليوم", days, arabicDayLabel, "رجوع للقائمة"),
+      };
       nextState = "booking_day";
       pending = { days };
     };
@@ -344,6 +374,10 @@ export async function respondToPatientMessage(args: {
       }
       const times = slots.slice(0, 8);
       replyText = renderTimeList(dateKey, times);
+      structure = {
+        body: `⏰ المواعيد المتاحة يوم ${arabicDayLabel(dateKey)}:`,
+        list: optionList("اختيار الميعاد", times, arabicTimeLabel, "رجوع لاختيار اليوم"),
+      };
       nextState = "booking_time";
       pending = { days: conversation.pendingDays, times, date: dateKey };
     };
@@ -353,9 +387,17 @@ export async function respondToPatientMessage(args: {
     } else if (act.type === "relist") {
       if (conversation.state === "booking_time" && conversation.pendingDate && conversation.pendingTimes?.length) {
         replyText = RELIST_PREFIX + renderTimeList(conversation.pendingDate, conversation.pendingTimes);
+        structure = {
+          body: RELIST_PREFIX.trim(),
+          list: optionList("اختيار الميعاد", conversation.pendingTimes, arabicTimeLabel, "رجوع لاختيار اليوم"),
+        };
         pending = { days: conversation.pendingDays, times: conversation.pendingTimes, date: conversation.pendingDate };
       } else if (conversation.pendingDays?.length) {
         replyText = RELIST_PREFIX + renderDayList(conversation.pendingDays);
+        structure = {
+          body: RELIST_PREFIX.trim(),
+          list: optionList("اختيار اليوم", conversation.pendingDays, arabicDayLabel, "رجوع للقائمة"),
+        };
         nextState = "booking_day";
         pending = { days: conversation.pendingDays };
       } else {
@@ -381,14 +423,17 @@ export async function respondToPatientMessage(args: {
           dateKey,
           time,
           source: "whatsapp_bot",
+          autoConfirm: settings.autoConfirm,
         });
         if (booked.ok) {
           replyText = [
-            "✅ تم تسجيل طلب حجزك:",
+            settings.autoConfirm ? "✅ تم تأكيد حجزك:" : "✅ تم تسجيل طلب حجزك:",
             `📅 ${arabicDayLabel(dateKey)}`,
             `⏰ ${arabicTimeLabel(time)}`,
             "",
-            "العيادة هتراجع الطلب وتتواصل معاك للتأكيد. لو حبيت تعدّل، ابعت *3* للتواصل مع الاستقبال.",
+            settings.autoConfirm
+              ? "في انتظارك 🦷 لو حبيت تعدّل، ابعت *3* للتواصل مع الاستقبال."
+              : "العيادة هتراجع الطلب وتتواصل معاك للتأكيد. لو حبيت تعدّل، ابعت *3* للتواصل مع الاستقبال.",
           ].join("\n");
           nextState = "awaiting_choice";
           reason = "booked";
@@ -418,6 +463,12 @@ export async function respondToPatientMessage(args: {
     reason = "no_profile";
   }
 
+  // Menu-shaped replies become tappable buttons on the official channel. Attached here rather
+  // than in the engine because buttons are a channel capability, not a conversation decision.
+  if (!structure && replyText && ["greeted", "reprompt", "back_to_menu", "hours"].includes(reason)) {
+    structure = { body: replyText, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
+  }
+
   if (handoff) {
     await markHandoff(clinicId, conversation.phoneKey, reason);
   }
@@ -444,9 +495,14 @@ export async function respondToPatientMessage(args: {
     conversation.state === "new"
       ? appendOptOutFooter(replyText, WHATSAPP_OPT_OUT_FOOTER_AR)
       : replyText;
+  // A structure that mirrors the text mirrors its footer too — the tapped and typed experiences
+  // must read identically, opt-out line included.
+  if (structure && structure.body === replyText && body !== replyText) {
+    structure = { ...structure, body };
+  }
 
   try {
-    await sendPatientWhatsAppAuto(clinicId, replyTo, body);
+    await sendPatientWhatsAppRich(clinicId, replyTo, body, structure);
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
     console.warn("[bot] reply failed to send:", detail);

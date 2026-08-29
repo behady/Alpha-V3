@@ -6,7 +6,7 @@ import {
   appendOptOutFooter,
 } from "@/lib/patientMessaging";
 import { loadWapilotConfig } from "@/lib/wapilotConfig";
-import { loadMetaWhatsappConfig, sendMetaWhatsappText } from "@/lib/metaWhatsapp";
+import { loadMetaWhatsappConfig, sendMetaWhatsappInteractive, sendMetaWhatsappText, type MetaInteractive } from "@/lib/metaWhatsapp";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { enqueueWhatsapp } from "@/lib/whatsapp/outbox";
 
@@ -183,4 +183,30 @@ export async function applyPatientOptOutFooter(clinicId: string, text: string): 
     // Fall through with the footer on. See above.
   }
   return appendOptOutFooter(text, arabicOnly ? WHATSAPP_OPT_OUT_FOOTER_AR : WHATSAPP_OPT_OUT_FOOTER_BILINGUAL);
+}
+
+/**
+ * Send a message that is buttons/lists on the official API and numbered text elsewhere.
+ *
+ * `textFallback` is composed by the caller and MUST say the same thing the structure does — it is
+ * what the Wapilot channel sends, what the log records, and what an interactive send falls back
+ * to when Meta rejects the structure. Splitting content across two shapes with one meaning is the
+ * caller's contract; this function only picks the richest shape the channel can render.
+ */
+export async function sendPatientWhatsAppRich(
+  clinicId: string,
+  to: string,
+  textFallback: string,
+  structure?: MetaInteractive
+): Promise<void> {
+  const meta = await loadMetaWhatsappConfig(clinicId);
+  if (meta && structure) {
+    const rich = await sendMetaWhatsappInteractive({ config: meta, to, message: structure });
+    if (rich.ok) return;
+    // A rejected structure (length rules, API drift) must degrade to words, not to silence.
+    const plain = await sendMetaWhatsappText({ config: meta, to, text: textFallback });
+    if (!plain.ok) throw new Error(`Meta Cloud API failed: ${plain.error || rich.error || "unknown"}`);
+    return;
+  }
+  await sendPatientWhatsAppAuto(clinicId, to, textFallback);
 }

@@ -268,8 +268,14 @@ export async function createPatientBooking(args: {
   time: string;
   /** Where this came from — "whatsapp_bot" — kept distinct from "online" for the reports. */
   source: string;
+  /**
+   * Write the booking as Confirmed instead of the Unconfirmed default. A clinic choice, not a
+   * code one: some clinics want every bot request reviewed by the desk, others want the calendar
+   * to just fill. The slot recomputation above makes either safe against double-booking.
+   */
+  autoConfirm?: boolean;
 }): Promise<PatientBookingResult> {
-  const { clinicId, profile, patientId, patientName, phone, dateKey, time, source } = args;
+  const { clinicId, profile, patientId, patientName, phone, dateKey, time, source, autoConfirm } = args;
   const appointmentsRef = clinicRef(clinicId).collection("appointments");
 
   const today = normalizeDateKey(new Date().toISOString().split("T")[0]);
@@ -299,7 +305,7 @@ export async function createPatientBooking(args: {
     branchName: branch?.name || null,
     doctor: "Any",
     treatment: "Consultation",
-    status: "Scheduled",
+    status: autoConfirm ? "Confirmed" : "Scheduled",
     source,
     notes: "WhatsApp assistant booking",
     createdAt: FieldValue.serverTimestamp(),

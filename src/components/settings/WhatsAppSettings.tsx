@@ -134,6 +134,7 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     // refused to save — the same trap deliveryMode fell into.
     botEnabled: data?.botEnabled === true,
     botAnswerStrangers: data?.botAnswerStrangers === true,
+    botAutoConfirmBookings: data?.botAutoConfirmBookings === true,
     // Dropping this field here is what made "manual" look unselectable: the click saved it,
     // the listener echoed the document back through this function, and the choice vanished
     // from the screen — while the server was already honouring it. Spread conditionally so an
@@ -296,6 +297,14 @@ export default function WhatsAppSettings() {
         language === "ar"
           ? "ننصح تسيبها مقفولة. الرد على أرقام غريبة معناه الرد على أرقام غلط وإعلانات، وده بالظبط اللي بيخلي الرقم يتبلغ عنه."
           : "Recommended off. Answering unknown numbers means answering wrong numbers and spam — exactly the traffic that gets a number reported.",
+      botAutoConfirm:
+        language === "ar"
+          ? "تأكيد حجوزات البوت تلقائياً"
+          : "Auto-confirm bot bookings",
+      botAutoConfirmHint:
+        language === "ar"
+          ? "مقفولة: الحجز بيوصل «غير مؤكد» والاستقبال بيراجعه — البوت مش هيملى الأجندة لوحده. مفتوحة: الحجز بيتأكد فوراً لحظة ما المريض يختار الميعاد."
+          : "Off: bookings arrive Unconfirmed and the desk reviews them — the bot cannot fill the calendar alone. On: the booking is final the moment the patient picks a time.",
       botLimits:
         language === "ar"
           ? "بحد أقصى ٨ ردود للرقم الواحد في الساعة، وبيوقف ويحوّل لموظف لو المحادثة طالت."
@@ -1139,6 +1148,23 @@ export default function WhatsAppSettings() {
                   />
                 </label>
                 <p className="text-xs text-slate-500 leading-relaxed">{txt.botStrangersHint}</p>
+                <label className="flex items-center justify-between gap-4 cursor-pointer pt-1">
+                  <span className="text-sm font-bold text-indigo-950 leading-relaxed">{txt.botAutoConfirm}</span>
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
+                    checked={state.botAutoConfirmBookings === true}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setState((s) => {
+                        const next = { ...s, botAutoConfirmBookings: checked };
+                        void persist(next, "silent");
+                        return next;
+                      });
+                    }}
+                  />
+                </label>
+                <p className="text-xs text-slate-500 leading-relaxed">{txt.botAutoConfirmHint}</p>
                 <p className="text-xs text-slate-500 leading-relaxed">{txt.botLimits}</p>
               </>
             )}
