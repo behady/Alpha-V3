@@ -152,6 +152,22 @@ export async function answerWithAi(args: {
 
     const result = await withTimeout(model.generateContent({ contents }), TIMEOUT_MS);
     const raw = result.response.text();
+
+    // The flight recorder. A wrong classification in production is invisible from the outside —
+    // the patient just sees a handoff — and the difference between "the model was never shown
+    // the price list" and "the model saw it and refused anyway" decides which fix is real.
+    // One small doc per call, read only by debugging sessions.
+    await adminClinicCollection(clinicId, "ai_debug")
+      .doc(new Date().toISOString().replace(/[:.]/g, "-"))
+      .set({
+        question: question.slice(0, 300),
+        raw: raw.slice(0, 1000),
+        priceLineCount: priceLines ? priceLines.split("\n").length : 0,
+        hoursGiven: Boolean(hoursText?.trim()),
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      .catch(() => {});
+
     const parsed = JSON.parse(raw) as { action?: string; reply?: string };
 
     if (parsed.action === "handoff_medical") return { kind: "handoff", topic: "medical" };
