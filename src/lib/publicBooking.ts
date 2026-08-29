@@ -16,6 +16,7 @@
  */
 
 import { adminDb } from "@/lib/firebaseAdmin";
+import { FieldValue } from "firebase-admin/firestore";
 import { parseClinicBranches, type ClinicBranch } from "@/lib/clinicLocations";
 import { clinicDayBoundsMinutes, parseClinicSchedule, type ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
@@ -59,11 +60,23 @@ function clinicRef(clinicId: string) {
  *
  * Throws if online booking is switched off, so a disabled clinic's hours are not readable either.
  */
-export async function loadPublicClinicProfile(clinicId: string): Promise<PublicClinicProfile> {
+export async function loadPublicClinicProfile(
+  clinicId: string,
+  opts?: {
+    /**
+     * The public page requires the clinic to have switched online booking on — a disabled
+     * clinic's hours must not be readable by strangers. The WhatsApp assistant passes false:
+     * it has its own opt-in (botEnabled), it only talks to people who wrote to the clinic
+     * first, and tying it to the online-booking switch would silently disable the bot for
+     * every clinic that never wanted a public booking page.
+     */
+    requireEnabled?: boolean;
+  }
+): Promise<PublicClinicProfile> {
   const ref = clinicRef(clinicId);
 
   const bookingSnap = await ref.collection("settings").doc("onlineBooking").get();
-  if (!bookingSnap.exists || bookingSnap.data()?.enabled !== true) {
+  if (opts?.requireEnabled !== false && (!bookingSnap.exists || bookingSnap.data()?.enabled !== true)) {
     throw new PublicBookingError("Online booking is not enabled for this clinic.", 404);
   }
   const booking = bookingSnap.data() || {};
@@ -223,4 +236,74 @@ export function normalizeEgyptianMobile(raw: string): string | null {
   // Egyptian mobiles are 10 digits after the country code and start 10/11/12/15.
   if (!/^1[0125]\d{8}$/.test(local)) return null;
   return `+20${local}`;
+}
+
+export type PatientBookingResult =
+  | { ok: true; dateKey: string; time: string }
+  /** The slot went to someone else between listing and choosing. Normal, not an error. */
+  | { ok: false; reason: "slot_taken" }
+  /** The patient already holds several open bookings; a person should untangle it. */
+  | { ok: false; reason: "too_many_open" };
+
+/** Upcoming open bookings one patient may hold — same guard the public page applies per phone. */
+const MAX_OPEN_PER_PATIENT = 3;
+
+/**
+ * Book one slot for a KNOWN patient.
+ *
+ * The assistant's version of what the public /book route does for strangers, sharing the parts
+ * that keep the calendar honest: the slot is recomputed here rather than trusted from the
+ * conversation (the patient chose from a list that may be minutes old), and the appointment is
+ * written in exactly the shape every clinic screen already reads — status "Scheduled", which
+ * renders as Unconfirmed, because a request the clinic has not looked at yet is a request,
+ * not a confirmed visit.
+ */
+export async function createPatientBooking(args: {
+  clinicId: string;
+  profile: PublicClinicProfile;
+  patientId: string;
+  patientName: string;
+  phone: string;
+  dateKey: string;
+  time: string;
+  /** Where this came from — "whatsapp_bot" — kept distinct from "online" for the reports. */
+  source: string;
+}): Promise<PatientBookingResult> {
+  const { clinicId, profile, patientId, patientName, phone, dateKey, time, source } = args;
+  const appointmentsRef = clinicRef(clinicId).collection("appointments");
+
+  const today = normalizeDateKey(new Date().toISOString().split("T")[0]);
+  const openSnap = await appointmentsRef.where("patientId", "==", patientId).get();
+  const open = openSnap.docs.filter((d) => {
+    const a = d.data() || {};
+    if (String(a.date || "") < today) return false;
+    const status = normalizeAppointmentStatus(String(a.status || ""));
+    return status !== "Cancelled" && status !== "No Show";
+  }).length;
+  if (open >= MAX_OPEN_PER_PATIENT) return { ok: false, reason: "too_many_open" };
+
+  // Recomputed at the moment of writing. The list the patient chose from is already stale.
+  const branchId = profile.branches.length === 1 ? profile.branches[0].id : null;
+  const free = await computeAvailableSlots({ clinicId, dateKey, doctorName: null, branchId, profile });
+  if (!free.includes(time)) return { ok: false, reason: "slot_taken" };
+
+  const branch = branchId ? profile.branches[0] : null;
+  await appointmentsRef.add({
+    patientId,
+    patientName,
+    patientPhone: phone,
+    date: dateKey,
+    time,
+    duration: profile.defaultDurationMinutes,
+    branchId: branch?.id || null,
+    branchName: branch?.name || null,
+    doctor: "Any",
+    treatment: "Consultation",
+    status: "Scheduled",
+    source,
+    notes: "WhatsApp assistant booking",
+    createdAt: FieldValue.serverTimestamp(),
+  });
+
+  return { ok: true, dateKey, time };
 }

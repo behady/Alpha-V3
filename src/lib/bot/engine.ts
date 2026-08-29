@@ -21,8 +21,27 @@ export type BotState =
   | "awaiting_choice"
   /** Asked once more after something unrecognised. One retry only. */
   | "reprompted"
+  /** A list of days was sent; waiting for the patient to pick one. */
+  | "booking_day"
+  /** A list of times for the chosen day was sent; waiting for a pick. */
+  | "booking_time"
   /** A human owns this conversation now. The bot stays quiet until it expires. */
   | "handed_off";
+
+/**
+ * Work the engine wants done but cannot do itself — everything that needs Firestore or a clock.
+ *
+ * The engine stays pure: it decides WHAT happens (list the days, book slot 3) and the caller
+ * performs it and composes the visible text. The alternative — the engine returning finished
+ * prose about data it never saw — is how a bot confirms an appointment that was never written.
+ */
+export type BotAction =
+  | { type: "list_days" }
+  /** `index` is 1-based, exactly the number the patient typed. */
+  | { type: "list_times"; index: number }
+  | { type: "book"; index: number }
+  /** The reply was not a valid pick; show the same options again. */
+  | { type: "relist" };
 
 export interface BotContext {
   /** Clinic display name, for the greeting. */
@@ -33,13 +52,20 @@ export interface BotContext {
   hoursText?: string;
   /** Where the clinic is. Empty when unset. */
   addressText?: string;
-  /** Whether the clinic wants the bot to offer booking at all (Step 5 wires the real thing). */
+  /** Whether real booking can be offered: schedule configured AND the sender is a known patient. */
   canOfferBooking?: boolean;
+  /**
+   * How many numbered options the last booking message listed. The options themselves live in
+   * the conversation document; the engine only needs to know whether "4" is a choice or noise.
+   */
+  optionCount?: number;
 }
 
 export interface BotDecision {
-  /** What to send. Empty means say nothing at all. */
+  /** What to send. Empty means say nothing at all — unless `action` asks the caller to compose. */
   reply: string;
+  /** Data work for the caller; when set, the caller builds the reply text. */
+  action?: BotAction;
   next: BotState;
   /**
    * Put this conversation in front of a person.
@@ -112,6 +138,15 @@ const HANDOFF_REPLY = "تمام 👍 الاستقبال هيتواصل معاك 
 const CLINICAL_REPLY =
   "شكراً لتواصلك 🙏\nالرسالة دي محتاجة حد من العيادة يشوفها بنفسه، وهيتواصل معاك في أقرب وقت.\n\nلو الموضوع طارئ، كلمنا على تليفون العيادة على طول.";
 
+/** A bare number 1..99 in any digit script, or null. "٣" and "3." are the same answer. */
+export function numberChoice(text: string): number | null {
+  const n = normalizeReplyText(text)
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
+  if (!/^\d{1,2}$/.test(n)) return null;
+  return parseInt(n, 10);
+}
+
 /** The single word "1", "١", "1." and so on. Patients answer a numbered menu in every shape. */
 function menuChoice(text: string): "1" | "2" | "3" | null {
   const n = normalizeReplyText(text)
@@ -156,10 +191,33 @@ export function decideBotReply(args: {
     return { reply: greeting(ctx), next: "awaiting_choice", handoff: false, reason: "greeted" };
   }
 
+  // Mid-booking, the patient is answering a numbered list the caller stored. Zero always means
+  // "back" — a patient who picked the wrong day must not need a human to undo it.
+  if (state === "booking_day" || state === "booking_time") {
+    const n = numberChoice(text);
+    if (n === 0) {
+      return state === "booking_time"
+        ? { reply: "", action: { type: "list_days" }, next: "booking_day", handoff: false, reason: "booking_back" }
+        : { reply: greeting(ctx), next: "awaiting_choice", handoff: false, reason: "back_to_menu" };
+    }
+    if (n !== null && n >= 1 && n <= (ctx.optionCount ?? 0)) {
+      return state === "booking_day"
+        ? { reply: "", action: { type: "list_times", index: n }, next: "booking_time", handoff: false, reason: "booking_times" }
+        : { reply: "", action: { type: "book", index: n }, next: "awaiting_choice", handoff: false, reason: "booking_book" };
+    }
+    // Not a pick. Same options again rather than a human: mis-typing a digit is not confusion,
+    // and the turn caps in lib/bot/conversation still bound how long this can go on.
+    return { reply: "", action: { type: "relist" }, next: state, handoff: false, reason: "booking_relist" };
+  }
+
   const choice = menuChoice(text);
 
   if (choice === "1") {
-    // Booking itself is Step 5. Until then the honest answer is that a person will do it —
+    if (ctx.canOfferBooking) {
+      // The real thing: the caller lists actual open days from the clinic's own schedule.
+      return { reply: "", action: { type: "list_days" }, next: "booking_day", handoff: false, reason: "booking_days" };
+    }
+    // No configured schedule, or an unidentified sender: the honest answer is a person —
     // never a promise that a slot is held, which is the one lie a clinic cannot afford.
     return { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "booking_request" };
   }

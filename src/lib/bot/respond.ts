@@ -1,6 +1,14 @@
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { FieldValue } from "firebase-admin/firestore";
-import { loadPublicClinicProfile } from "@/lib/publicBooking";
+import {
+  computeAvailableSlots,
+  createPatientBooking,
+  loadPublicClinicProfile,
+  type PublicClinicProfile,
+} from "@/lib/publicBooking";
+import type { ClinicScheduleConfig } from "@/lib/clinicSchedule";
+import { normalizeDateKey } from "@/lib/appointmentTime";
+import { sendClinicPush } from "@/lib/push";
 import { clinicDisplayName } from "@/lib/sms/events";
 import { patientSendablePhone, phoneMatchKey, pickPatientPhone } from "@/lib/patientPhone";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
@@ -51,29 +59,78 @@ async function loadBotSettings(clinicId: string): Promise<BotSettings> {
   };
 }
 
-/** Opening hours as a patient would read them, from the clinic's own booking schedule. */
-function formatHours(schedule: unknown): string {
-  const days: Array<[string, string]> = [
-    ["saturday", "السبت"],
-    ["sunday", "الأحد"],
-    ["monday", "الإثنين"],
-    ["tuesday", "الثلاثاء"],
-    ["wednesday", "الأربعاء"],
-    ["thursday", "الخميس"],
-    ["friday", "الجمعة"],
+/** "14"+"30" -> "2:30 م" — the shape a patient reads, not the shape the calendar stores. */
+function arabicClock(h: number, m: number): string {
+  const twelve = ((h + 11) % 12) + 1;
+  const mm = m ? `:${String(m).padStart(2, "0")}` : ":00";
+  return `${twelve}${mm} ${h < 12 ? "ص" : "م"}`;
+}
+
+const ARABIC_DAYS = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+const DAY_KEYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+/**
+ * Opening hours as a patient would read them.
+ *
+ * Empty when the clinic never configured its schedule — parseClinicSchedule falls back to
+ * 9:00-21:00 seven days a week for anything unset, and repeating that fallback to a patient is
+ * inventing hours, which is worse than admitting a person will answer.
+ */
+function formatHours(schedule: ClinicScheduleConfig): string {
+  if (!schedule.isConfigured) return "";
+  const lines = [
+    `من ${arabicClock(schedule.startHour, schedule.startMinute)} إلى ${arabicClock(schedule.endHour, schedule.endMinute)}`,
   ];
-  const s = (schedule || {}) as Record<string, any>;
-  const lines: string[] = [];
-  for (const [key, label] of days) {
-    const day = s[key];
-    if (!day || day.closed === true || day.enabled === false) continue;
-    const from = String(day.start || day.from || day.open || "").trim();
-    const to = String(day.end || day.to || day.close || "").trim();
-    if (!from || !to) continue;
-    lines.push(`${label}: ${from} - ${to}`);
-  }
+  const off = schedule.offDays.map((d) => ARABIC_DAYS[DAY_KEYS.indexOf(d)]).filter(Boolean);
+  if (off.length) lines.push(`الإجازة: ${off.join(" و")}`);
   return lines.join("\n");
 }
+
+/** "2026-08-30" -> "السبت 30/8". The patient picks by number; this is only what they read. */
+function arabicDayLabel(dateKey: string): string {
+  const d = new Date(`${dateKey}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return dateKey;
+  return `${ARABIC_DAYS[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}`;
+}
+
+/** "02:00 PM" -> "2:00 م". */
+function arabicTimeLabel(time: string): string {
+  return time.replace(/^0/, "").replace("AM", "ص").replace("PM", "م");
+}
+
+/**
+ * The clinic's next open days, from today, as YYYY-MM-DD keys.
+ *
+ * Schedule-only — no slot query per day. Whether a listed day still has free times is answered
+ * when the patient picks it, which costs one read for the day they want instead of six for days
+ * they never will.
+ */
+function upcomingOpenDays(schedule: ClinicScheduleConfig, count = 6, horizonDays = 14): string[] {
+  const out: string[] = [];
+  const d = new Date();
+  for (let i = 0; i < horizonDays && out.length < count; i++) {
+    const key = normalizeDateKey(d.toISOString().split("T")[0]);
+    if (!schedule.offDays.includes(DAY_KEYS[new Date(`${key}T12:00:00`).getDay()])) out.push(key);
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+
+function renderDayList(days: string[]): string {
+  const lines = ["📅 اختار اليوم اللي يناسبك:", ""];
+  days.forEach((day, i) => lines.push(`*${i + 1}* — ${arabicDayLabel(day)}`));
+  lines.push("", "*0* — رجوع للقائمة");
+  return lines.join("\n");
+}
+
+function renderTimeList(dateKey: string, times: string[]): string {
+  const lines = [`⏰ المواعيد المتاحة يوم ${arabicDayLabel(dateKey)}:`, ""];
+  times.forEach((t, i) => lines.push(`*${i + 1}* — ${arabicTimeLabel(t)}`));
+  lines.push("", "*0* — رجوع لاختيار اليوم");
+  return lines.join("\n");
+}
+
+const RELIST_PREFIX = "معلش مفهمتش 🙏 ابعت رقم من الاختيارات دي:\n\n";
 
 /** The patient behind this number, if the clinic knows them. */
 async function findPatient(
@@ -226,46 +283,167 @@ export async function respondToPatientMessage(args: {
   const clinicName = await clinicDisplayName(clinicId);
   const ctx: BotContext = { clinicName };
 
-  let canOfferBooking = false;
+  let profile: PublicClinicProfile | null = null;
   try {
-    const profile = await loadPublicClinicProfile(clinicId);
+    // requireEnabled false: the assistant has its own opt-in and only answers people who wrote
+    // first — tying it to the public-page switch would silently disable booking for every clinic
+    // that never wanted a public booking page.
+    profile = await loadPublicClinicProfile(clinicId, { requireEnabled: false });
     ctx.hoursText = formatHours(profile.schedule);
-    canOfferBooking = true;
   } catch {
-    // Online booking switched off, or no schedule configured. The menu simply offers the
-    // receptionist instead of hours it would have to invent.
+    // No clinic_info at all. The menu offers the receptionist instead of inventing anything.
   }
-  ctx.canOfferBooking = canOfferBooking;
+  // Booking needs a configured schedule (never offer times from the 9-to-9 fallback) and an
+  // identified patient (a booking must belong to somebody).
+  ctx.canOfferBooking = Boolean(profile?.schedule.isConfigured && patient);
   if (patient && typeof patient.data.name === "string") ctx.patientName = patient.data.name;
+  if (conversation.state === "booking_day") ctx.optionCount = conversation.pendingDays?.length ?? 0;
+  if (conversation.state === "booking_time") ctx.optionCount = conversation.pendingTimes?.length ?? 0;
 
   const decision = decideBotReply({ state: conversation.state, text, ctx });
 
-  if (decision.handoff) {
-    await markHandoff(clinicId, conversation.phoneKey, decision.reason);
+  /*
+   * Perform whatever data work the engine asked for and compose the visible text. The engine
+   * stays pure; this block is the only place booking options are fetched, and the options the
+   * patient will answer against are stored on the conversation in the same save as the reply —
+   * a list sent without its stored copy is a question whose answer cannot be understood.
+   */
+  let replyText = decision.reply;
+  let nextState = decision.next;
+  let reason = decision.reason;
+  let handoff = decision.handoff;
+  let pending: { days?: string[]; times?: string[]; date?: string } | undefined;
+
+  if (decision.action && profile) {
+    const act = decision.action;
+    const branchId = profile.branches.length === 1 ? profile.branches[0].id : null;
+
+    const listDays = () => {
+      const days = upcomingOpenDays(profile!.schedule);
+      if (!days.length) {
+        replyText = "تمام 👍 الاستقبال هيتواصل معاك في أقرب وقت لتحديد الميعاد.";
+        nextState = "handed_off";
+        handoff = true;
+        reason = "no_open_days";
+        return;
+      }
+      replyText = renderDayList(days);
+      nextState = "booking_day";
+      pending = { days };
+    };
+
+    const listTimes = async (dateKey: string) => {
+      const slots = await computeAvailableSlots({ clinicId, dateKey, doctorName: null, branchId, profile: profile! });
+      if (!slots.length) {
+        const days = conversation.pendingDays?.length ? conversation.pendingDays : upcomingOpenDays(profile!.schedule);
+        replyText = `اليوم ده كل مواعيده اتحجزت 🙏\n\n${renderDayList(days)}`;
+        nextState = "booking_day";
+        reason = "booking_day_full";
+        pending = { days };
+        return;
+      }
+      const times = slots.slice(0, 8);
+      replyText = renderTimeList(dateKey, times);
+      nextState = "booking_time";
+      pending = { days: conversation.pendingDays, times, date: dateKey };
+    };
+
+    if (act.type === "list_days") {
+      listDays();
+    } else if (act.type === "relist") {
+      if (conversation.state === "booking_time" && conversation.pendingDate && conversation.pendingTimes?.length) {
+        replyText = RELIST_PREFIX + renderTimeList(conversation.pendingDate, conversation.pendingTimes);
+        pending = { days: conversation.pendingDays, times: conversation.pendingTimes, date: conversation.pendingDate };
+      } else if (conversation.pendingDays?.length) {
+        replyText = RELIST_PREFIX + renderDayList(conversation.pendingDays);
+        nextState = "booking_day";
+        pending = { days: conversation.pendingDays };
+      } else {
+        // The stored options are gone — a fresh list beats an apology about lost state.
+        listDays();
+      }
+    } else if (act.type === "list_times") {
+      const dateKey = conversation.pendingDays?.[act.index - 1];
+      if (!dateKey) listDays();
+      else await listTimes(dateKey);
+    } else if (act.type === "book") {
+      const time = conversation.pendingTimes?.[act.index - 1];
+      const dateKey = conversation.pendingDate;
+      if (!time || !dateKey || !patient || !phone) {
+        listDays();
+      } else {
+        const booked = await createPatientBooking({
+          clinicId,
+          profile,
+          patientId: patient.id,
+          patientName: ctx.patientName || "Patient",
+          phone,
+          dateKey,
+          time,
+          source: "whatsapp_bot",
+        });
+        if (booked.ok) {
+          replyText = [
+            "✅ تم تسجيل طلب حجزك:",
+            `📅 ${arabicDayLabel(dateKey)}`,
+            `⏰ ${arabicTimeLabel(time)}`,
+            "",
+            "العيادة هتراجع الطلب وتتواصل معاك للتأكيد. لو حبيت تعدّل، ابعت *3* للتواصل مع الاستقبال.",
+          ].join("\n");
+          nextState = "awaiting_choice";
+          reason = "booked";
+          // The desk hears about it the moment it lands, same as an online booking — the whole
+          // point of a bot is that nobody was at a screen when this arrived.
+          void sendClinicPush(
+            clinicId,
+            { title: "حجز جديد من واتساب 🤖", body: `${ctx.patientName || "Patient"} — ${dateKey} ${time}` },
+            { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
+          );
+        } else if (booked.reason === "slot_taken") {
+          await listTimes(dateKey);
+          replyText = `الميعاد ده اتحجز في نفس اللحظة 🙏\n\n${replyText}`;
+          reason = "slot_taken";
+        } else {
+          replyText = "عندك أكتر من حجز مفتوح بالفعل — ابعت *3* والاستقبال هيظبطهالك.";
+          nextState = "handed_off";
+          handoff = true;
+          reason = "too_many_open";
+        }
+      }
+    }
+  } else if (decision.action && !profile) {
+    replyText = "تمام 👍 الاستقبال هيتواصل معاك في أقرب وقت.";
+    nextState = "handed_off";
+    handoff = true;
+    reason = "no_profile";
   }
 
-  if (!decision.reply.trim()) {
+  if (handoff) {
+    await markHandoff(clinicId, conversation.phoneKey, reason);
+  }
+
+  if (!replyText.trim()) {
     await saveConversation(
       clinicId,
       conversation,
       {
-        state: decision.next,
+        state: nextState,
         replied: false,
-        reason: decision.reason,
+        reason,
         patientId: patient?.id,
         patientName: ctx.patientName,
       },
       now
     );
-    return decision.handoff ? { status: "handoff_only", reason: decision.reason } : skip(decision.reason);
+    return handoff ? { status: "handoff_only", reason } : skip(reason);
   }
 
   // The stop line goes on the opening turn only. The patient started this conversation, so
   // repeating "reply STOP" on every answer reads as a machine that expects to be told to go away.
   const body =
     conversation.state === "new"
-      ? appendOptOutFooter(decision.reply, WHATSAPP_OPT_OUT_FOOTER_AR)
-      : decision.reply;
+      ? appendOptOutFooter(replyText, WHATSAPP_OPT_OUT_FOOTER_AR)
+      : replyText;
 
   try {
     await sendPatientWhatsAppAuto(clinicId, replyTo, body);
@@ -284,7 +462,7 @@ export async function respondToPatientMessage(args: {
 
   await adminClinicCollection(clinicId, "whatsapp_logs").add({
     patientId: patient?.id || null,
-    type: `bot_${decision.reason}`,
+    type: `bot_${reason}`,
     message: body,
     status: "success",
     createdAt: FieldValue.serverTimestamp(),
@@ -294,14 +472,15 @@ export async function respondToPatientMessage(args: {
     clinicId,
     conversation,
     {
-      state: decision.next,
+      state: nextState,
       replied: true,
-      reason: decision.reason,
+      reason,
       patientId: patient?.id,
       patientName: ctx.patientName,
+      pending,
     },
     now
   );
 
-  return { status: "replied", text: body, handoff: decision.handoff, reason: decision.reason };
+  return { status: "replied", text: body, handoff, reason };
 }

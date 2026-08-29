@@ -69,15 +69,54 @@ assert.equal(say("awaiting_choice", "   ").reply, "", "an empty message gets no 
 // Menu choices, in the shapes patients actually send them.
 // ================================================================================================
 for (const one of ["1", "١", "1.", " 1 "]) {
-  assert.equal(say("awaiting_choice", one).reason, "booking_request", `"${one}" is choice 1`);
+  const d = say("awaiting_choice", one);
+  assert.equal(d.action?.type, "list_days", `"${one}" is choice 1 and starts real booking`);
+  assert.equal(d.next, "booking_day");
+  assert.equal(d.handoff, false);
 }
 assert.equal(say("awaiting_choice", "٣").reason, "asked_for_human");
 assert.equal(say("awaiting_choice", "3").handoff, true);
 
-// Booking is not promised until Step 5 wires it. The holding reply must not imply a slot is held.
-const booking = say("awaiting_choice", "1");
-assert.equal(booking.handoff, true, "someone has to actually do the booking");
-assert.ok(!/تم الحجز|confirmed|booked/i.test(booking.reply), "must never claim a booking was made");
+// A clinic that cannot offer booking (no schedule, or unidentified sender) hands to a person —
+// and the holding reply must never imply a slot is held.
+const noBook = decideBotReply({
+  state: "awaiting_choice",
+  text: "1",
+  ctx: { ...ctx, canOfferBooking: false },
+});
+assert.equal(noBook.handoff, true, "someone has to actually do the booking");
+assert.ok(!/تم الحجز|confirmed|booked/i.test(noBook.reply), "must never claim a booking was made");
+
+// ================================================================================================
+// The booking sub-flow: numbered picks against stored option counts.
+// ================================================================================================
+const bctx: BotContext = { ...ctx, optionCount: 4 };
+const pickDay = decideBotReply({ state: "booking_day", text: "٢", ctx: bctx });
+assert.deepEqual(pickDay.action, { type: "list_times", index: 2 }, "an Arabic digit picks the day");
+assert.equal(pickDay.next, "booking_time");
+
+const pickTime = decideBotReply({ state: "booking_time", text: "3", ctx: bctx });
+assert.deepEqual(pickTime.action, { type: "book", index: 3 }, "a digit in the time list books");
+
+// Out-of-range and junk re-list rather than fetching a human — mis-typing is not confusion.
+assert.equal(decideBotReply({ state: "booking_day", text: "9", ctx: bctx }).action?.type, "relist");
+assert.equal(decideBotReply({ state: "booking_day", text: "بكرة", ctx: bctx }).action?.type, "relist");
+
+// Zero always walks back: to the day list from times, to the menu from days.
+const backToDays = decideBotReply({ state: "booking_time", text: "0", ctx: bctx });
+assert.equal(backToDays.action?.type, "list_days");
+assert.equal(backToDays.next, "booking_day");
+const backToMenu = decideBotReply({ state: "booking_day", text: "0", ctx: bctx });
+assert.equal(backToMenu.next, "awaiting_choice");
+assert.ok(backToMenu.reply.includes("Alpha Dental"), "back to the menu means the menu is shown");
+
+// THE ONE THAT MATTERS, again: a patient in pain mid-booking is still a patient in pain.
+const painMidBooking = decideBotReply({ state: "booking_time", text: "سناني بتوجعني", ctx: bctx });
+assert.equal(painMidBooking.reason, "clinical");
+assert.equal(painMidBooking.handoff, true);
+
+// And a stop request mid-booking is silence, not a slot list.
+assert.equal(decideBotReply({ state: "booking_day", text: "إيقاف", ctx: bctx }).reply, "");
 
 // ================================================================================================
 // It gives up rather than nagging. Three identical questions is what gets a number reported.

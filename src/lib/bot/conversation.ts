@@ -53,6 +53,17 @@ export interface BotConversation {
   /** Replies sent inside the current window. */
   repliesInWindow: number;
   /**
+   * The numbered options the last booking message offered, so "2" next turn means something.
+   *
+   * Stored days are YYYY-MM-DD keys and times are the canonical `hh:mm AM/PM` strings the
+   * calendar uses — the exact values the booking write needs, never re-derived from the label
+   * text the patient saw.
+   */
+  pendingDays?: string[];
+  pendingTimes?: string[];
+  /** The day the pending times belong to. */
+  pendingDate?: string;
+  /**
    * This sender said stop, and could not be matched to a patient record to say it there.
    *
    * Exists for `@lid` senders — WhatsApp's anonymised ids, which hide the phone and therefore the
@@ -134,6 +145,11 @@ export async function loadConversation(
     windowStartedAt,
     repliesInWindow,
     optedOut: d.optedOut === true,
+    // Expired options are not carried: a list of "tomorrow's" times from last week books the
+    // wrong day if a stray "1" arrives after the chat lapses.
+    pendingDays: !expired && Array.isArray(d.pendingDays) ? d.pendingDays.map(String) : undefined,
+    pendingTimes: !expired && Array.isArray(d.pendingTimes) ? d.pendingTimes.map(String) : undefined,
+    pendingDate: !expired && typeof d.pendingDate === "string" ? d.pendingDate : undefined,
   };
 }
 
@@ -154,7 +170,15 @@ export function replyAllowance(c: BotConversation): { allowed: boolean; reason?:
 export async function saveConversation(
   clinicId: string,
   c: BotConversation,
-  next: { state: BotState; replied: boolean; reason: string; patientId?: string; patientName?: string },
+  next: {
+    state: BotState;
+    replied: boolean;
+    reason: string;
+    patientId?: string;
+    patientName?: string;
+    /** Booking options offered this turn. Absent = clear them — stale lists must not linger. */
+    pending?: { days?: string[]; times?: string[]; date?: string };
+  },
   now: number
 ): Promise<void> {
   const payload: Record<string, unknown> = {
@@ -165,6 +189,11 @@ export async function saveConversation(
     lastReason: next.reason,
     windowStartedAt: c.windowStartedAt,
     repliesInWindow: c.repliesInWindow + (next.replied ? 1 : 0),
+    // Overwritten every turn, cleared when not re-offered: an old list surviving into a new
+    // context is how a stray digit books the wrong day.
+    pendingDays: next.pending?.days ?? null,
+    pendingTimes: next.pending?.times ?? null,
+    pendingDate: next.pending?.date ?? null,
     updatedAt: FieldValue.serverTimestamp(),
   };
   // Firestore rejects an explicit undefined, and these are optional by nature.
