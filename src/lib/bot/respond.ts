@@ -3,6 +3,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { loadPublicClinicProfile } from "@/lib/publicBooking";
 import { clinicDisplayName } from "@/lib/sms/events";
 import { patientSendablePhone, phoneMatchKey, pickPatientPhone } from "@/lib/patientPhone";
+import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { resolveLidToPhone, sendWhatsApp } from "@/lib/whatsapp";
 import { findPatientByLid } from "@/lib/whatsappLid";
 import { resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
@@ -142,6 +143,36 @@ export async function respondToPatientMessage(args: {
     if (!phone) phone = await resolveLidToPhone(clinicId, chatId);
   }
   if (!patient && phone) patient = await findPatient(clinicId, phone);
+
+  /*
+   * A still-anonymous sender may be introducing themselves.
+   *
+   * The gateway's own in-session autoresponder can deliver a prompt to a lid chat where our API
+   * cannot, so the clinic's welcome message asks unknown senders for the phone number they are
+   * registered under. When a message from an unbound lid IS a phone number that matches a
+   * patient, that is the answer — the lid binds, and the greeting goes out to the number they
+   * named, which is the address that actually delivers.
+   *
+   * Deliberately harmless to abuse: someone typing another person's number causes every reply —
+   * greeting, and later booking details — to go to the REAL owner's phone, never back to the
+   * claimant's chat. The claimant learns nothing and receives nothing. The binding source is
+   * recorded so staff can always see which mappings were self-declared.
+   */
+  if (isLidChat && !phone && !patient) {
+    const claimed = normalizeToE164AssumingCountry(text);
+    if (claimed) {
+      const claimedPatient = await findPatient(clinicId, claimed);
+      if (claimedPatient) {
+        await adminClinicDoc(clinicId, "patients", claimedPatient.id).update({
+          whatsappLid: chatId,
+          whatsappLidLearnedAt: FieldValue.serverTimestamp(),
+          whatsappLidSource: "self_claimed",
+        });
+        patient = claimedPatient;
+        phone = patientSendablePhone(claimedPatient.data);
+      }
+    }
+  }
 
   /*
    * Where the reply must go. Sending to a lid is verified NOT to deliver — Wapilot's worker fails

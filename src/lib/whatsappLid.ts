@@ -113,6 +113,7 @@ export async function learnPatientLid(
   await adminClinicDoc(clinicId, "patients", patientId).update({
     whatsappLid: lid,
     whatsappLidLearnedAt: FieldValue.serverTimestamp(),
+    whatsappLidSource: "echo_learned",
   });
   return { learned: true, patientId, reason: "learned" };
 }
