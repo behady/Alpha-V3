@@ -21,6 +21,8 @@ export type BotState =
   | "awaiting_choice"
   /** Asked once more after something unrecognised. One retry only. */
   | "reprompted"
+  /** Asked an unrecognised sender for their name, to create their patient record. */
+  | "booking_name"
   /** A list of days was sent; waiting for the patient to pick one. */
   | "booking_day"
   /** A list of times for the chosen day was sent; waiting for a pick. */
@@ -44,6 +46,8 @@ export type BotAction =
   | { type: "list_times_date"; dateKey: string }
   /** A tapped time button — date and time both travel in the id. */
   | { type: "book_slot"; dateKey: string; time: string }
+  /** An unrecognised sender told us their name; create the patient, then list the days. */
+  | { type: "register"; name: string }
   /** The reply was not a valid pick; show the same options again. */
   | { type: "relist" };
 
@@ -81,6 +85,11 @@ export interface BotContext {
   addressText?: string;
   /** Whether real booking can be offered: schedule configured AND the sender is a known patient. */
   canOfferBooking?: boolean;
+  /**
+   * Schedule configured, real phone in hand, but nobody on file for it — a NEW patient. Booking
+   * asks their name first and creates the record, exactly as the public booking page does.
+   */
+  canRegister?: boolean;
   /**
    * How many numbered options the last booking message listed. The options themselves live in
    * the conversation document; the engine only needs to know whether "4" is a choice or noise.
@@ -222,9 +231,13 @@ export function decideBotReply(args: {
     switch (tap.kind) {
       case "menu":
         if (tap.choice === "1") {
-          return ctx.canOfferBooking
-            ? { reply: "", action: { type: "list_days" }, next: "booking_day", handoff: false, reason: "booking_days" }
-            : { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "booking_request" };
+          if (ctx.canOfferBooking) {
+            return { reply: "", action: { type: "list_days" }, next: "booking_day", handoff: false, reason: "booking_days" };
+          }
+          if (ctx.canRegister) {
+            return { reply: "أهلاً بيك 🌟 عشان نسجل حجزك، ابعتلنا اسمك الكامل من فضلك.", next: "booking_name", handoff: false, reason: "ask_name" };
+          }
+          return { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "booking_request" };
         }
         if (tap.choice === "2") {
           return { reply: hoursAndAddress(ctx), next: "awaiting_choice", handoff: false, reason: "hours" };
@@ -246,6 +259,20 @@ export function decideBotReply(args: {
 
   if (state === "new") {
     return { reply: greeting(ctx), next: "awaiting_choice", handoff: false, reason: "greeted" };
+  }
+
+  /*
+   * The sender is answering "what is your name". Anything that looks like a name is one — this is
+   * how the public booking page has always worked, and demanding more ceremony from a chat than
+   * from a web form would be backwards. Digits are not names; they are almost certainly a stray
+   * tap at an old list, so the question is asked again rather than a patient called "3".
+   */
+  if (state === "booking_name") {
+    const name = text.replace(/\s+/g, " ").trim();
+    if (numberChoice(name) !== null || name.length < 2 || name.length > 80) {
+      return { reply: "معلش، ابعت اسمك بالحروف (مش أرقام) عشان نكمل الحجز 🙏", next: "booking_name", handoff: false, reason: "ask_name_again" };
+    }
+    return { reply: "", action: { type: "register", name }, next: "booking_day", handoff: false, reason: "registered" };
   }
 
   // Mid-booking, the patient is answering a numbered list the caller stored. Zero always means
@@ -274,7 +301,11 @@ export function decideBotReply(args: {
       // The real thing: the caller lists actual open days from the clinic's own schedule.
       return { reply: "", action: { type: "list_days" }, next: "booking_day", handoff: false, reason: "booking_days" };
     }
-    // No configured schedule, or an unidentified sender: the honest answer is a person —
+    if (ctx.canRegister) {
+      // A real phone with nobody on file: a NEW patient. Their name is the only missing piece.
+      return { reply: "أهلاً بيك 🌟 عشان نسجل حجزك، ابعتلنا اسمك الكامل من فضلك.", next: "booking_name", handoff: false, reason: "ask_name" };
+    }
+    // No configured schedule, or an unidentifiable sender: the honest answer is a person —
     // never a promise that a slot is held, which is the one lie a clinic cannot afford.
     return { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "booking_request" };
   }

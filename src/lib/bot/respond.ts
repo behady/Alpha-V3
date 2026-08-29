@@ -332,8 +332,11 @@ export async function respondToPatientMessage(args: {
     // No clinic_info at all. The menu offers the receptionist instead of inventing anything.
   }
   // Booking needs a configured schedule (never offer times from the 9-to-9 fallback) and an
-  // identified patient (a booking must belong to somebody).
+  // identified patient (a booking must belong to somebody). A real phone with nobody on file is
+  // a NEW patient: the bot may ask their name and create the record, exactly as the public
+  // booking page does for strangers — a lid sender with no phone can register nothing.
   ctx.canOfferBooking = Boolean(profile?.schedule.isConfigured && patient);
+  ctx.canRegister = Boolean(profile?.schedule.isConfigured && !patient && phone);
   if (patient && typeof patient.data.name === "string") ctx.patientName = patient.data.name;
   if (conversation.state === "booking_day") ctx.optionCount = conversation.pendingDays?.length ?? 0;
   if (conversation.state === "booking_time") ctx.optionCount = conversation.pendingTimes?.length ?? 0;
@@ -396,7 +399,25 @@ export async function respondToPatientMessage(args: {
       pending = { days: conversation.pendingDays, times, date: dateKey };
     };
 
-    if (act.type === "list_days") {
+    if (act.type === "register") {
+      /*
+       * The moment a stranger becomes a patient. The same fields the public booking page writes,
+       * so a bot-registered patient is indistinguishable from a web-registered one everywhere
+       * else in the system — and identified by phone from their very next message.
+       */
+      const created = await adminClinicCollection(clinicId, "patients").add({
+        name: act.name,
+        phone,
+        createdAt: FieldValue.serverTimestamp(),
+        lastVisit: null,
+        notes: "Created via WhatsApp assistant",
+        source: "whatsapp_bot",
+      });
+      patient = { id: created.id, data: { name: act.name, phone } };
+      ctx.patientName = act.name;
+      listDays();
+      if (nextState === "booking_day") reason = "registered";
+    } else if (act.type === "list_days") {
       listDays();
     } else if (act.type === "relist") {
       if (conversation.state === "booking_time" && conversation.pendingDate && conversation.pendingTimes?.length) {

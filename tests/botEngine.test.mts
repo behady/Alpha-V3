@@ -206,3 +206,29 @@ assert.deepEqual(staleMenuTap.action, { type: "list_days" }, "a stale menu tap r
 assert.equal(decideBotReply({ state: "awaiting_choice", text: "إيقاف", ctx: bctx }).reply, "");
 
 console.log("✓ tap ids: buttons mean what they say, whenever and wherever they are tapped");
+
+// ================================================================================================
+// A new patient: real phone, nobody on file. The bot asks a name and registers — same contract as
+// the public booking page — instead of bouncing every stranger to reception.
+// ================================================================================================
+const newPatientCtx: BotContext = { clinicName: "Alpha Dental", canOfferBooking: false, canRegister: true };
+const askName = decideBotReply({ state: "awaiting_choice", text: "1", ctx: newPatientCtx });
+assert.equal(askName.next, "booking_name");
+assert.ok(askName.reply.includes("اسمك"), "asks for the name");
+
+const named = decideBotReply({ state: "booking_name", text: "  محمد   صلاح ", ctx: newPatientCtx });
+assert.deepEqual(named.action, { type: "register", name: "محمد صلاح" }, "whitespace folds, name registers");
+assert.equal(named.next, "booking_day");
+
+// Digits are not names — they are stray taps at old lists, and nobody gets registered as "3".
+assert.equal(decideBotReply({ state: "booking_name", text: "3", ctx: newPatientCtx }).next, "booking_name");
+assert.equal(decideBotReply({ state: "booking_name", text: "x", ctx: newPatientCtx }).next, "booking_name");
+
+// Pain outranks the name question like everything else.
+assert.equal(decideBotReply({ state: "booking_name", text: "عندي وجع شديد", ctx: newPatientCtx }).reason, "clinical");
+
+// No phone at all (an unmapped lid): no registration offer — a person, as before.
+const noPhone = decideBotReply({ state: "awaiting_choice", text: "1", ctx: { clinicName: "Alpha Dental" } });
+assert.equal(noPhone.handoff, true);
+
+console.log("✓ new patients: named, registered, and booked — with digits and pain refused as names");
