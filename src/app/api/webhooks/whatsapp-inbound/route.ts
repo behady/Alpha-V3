@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection } from "@/lib/adminClinicDb";
+import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { respondToPatientMessage } from "@/lib/bot/respond";
 import { applyInboundOptOut } from "@/lib/optOutInbound";
 import { reportServerError } from "@/lib/server/reportError";
@@ -185,12 +186,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, ignored: "no_message" });
     }
 
+    /*
+     * One conversion, at the edge, before anything downstream sees the number.
+     *
+     * WhatsApp identifies a sender as `201551552440` — international digits, no plus — and every
+     * sender in this codebase refuses a number that names no country, on purpose. The reply was
+     * therefore composed correctly and then thrown away with "Invalid destination phone". That
+     * same mismatch has now bitten three separate call sites, so the fix belongs here rather than
+     * in each of them: past this line, a phone is E.164 or it does not exist.
+     */
+    const phone = normalizeToE164AssumingCountry(reply.phone);
+    if (!phone) {
+      await recordUnparsed(clinicId, { from: reply.phone }, "unusable_phone");
+      return NextResponse.json({ ok: true, ignored: "unusable_phone" });
+    }
+
     // Opt-out first, always. A patient asking to be left alone must never be answered by the
     // assistant instead — that is the single most effective way to turn a stop request into a
     // spam report, which is the outcome this whole endpoint exists to avoid.
     const result = await applyInboundOptOut({
       clinicId,
-      phone: reply.phone,
+      phone,
       text: reply.text,
       channel: "whatsapp",
     });
@@ -202,7 +218,7 @@ export async function POST(request: NextRequest) {
     // respondToPatientMessage re-checks every gate itself and stays silent by default.
     const bot = await respondToPatientMessage({
       clinicId,
-      phone: reply.phone,
+      phone,
       text: reply.text,
     });
 

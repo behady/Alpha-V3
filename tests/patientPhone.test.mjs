@@ -70,4 +70,21 @@ assert.equal(samePhone("", "201551552440"), false);
 assert.equal(samePhone("abc", "201551552440"), false);
 assert.equal(samePhone("2440", "201551552440"), false, "a fragment must never match a real number");
 
+// --- THE THIRD INSTANCE: the number must be dialable, not merely matchable ---
+// WhatsApp hands us "201551552440" with no plus. Matching it to a patient was fixed first, and
+// sending to stored patients second, but the assistant replies to the raw inbound number — and
+// sendWhatsApp rejected it with "Invalid destination phone" after composing a perfect reply.
+// The webhook now converts once at the edge; this pins that the result is something a sender
+// will actually accept.
+import { normalizeToInternationalDigits } from "../src/lib/whatsapp.ts";
+for (const waId of ["201551552440", "201066037618", "201024348877"]) {
+  const atEdge = normalizeToE164AssumingCountry(waId);
+  assert.ok(atEdge.startsWith("+"), `edge conversion must yield E.164 for ${waId}`);
+  assert.notEqual(
+    normalizeToInternationalDigits(atEdge),
+    "",
+    `sendWhatsApp must accept what the webhook hands it for ${waId}`
+  );
+}
+
 console.log("✓ patientPhone: sending stays strict, stored patients are reachable, matching is spelling-proof");
