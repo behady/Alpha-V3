@@ -71,6 +71,13 @@ export async function loadPublicClinicProfile(
      * every clinic that never wanted a public booking page.
      */
     requireEnabled?: boolean;
+    /**
+     * Load the dentist list regardless of the public page's enableDoctorSelection switch. That
+     * switch governs what strangers on the WEB form see; the assistant offers doctors whenever
+     * the clinic actually has more than one, because a booking that lands in "Unassigned" is a
+     * booking somebody at the desk has to re-file.
+     */
+    loadDoctors?: boolean;
   }
 ): Promise<PublicClinicProfile> {
   const ref = clinicRef(clinicId);
@@ -94,7 +101,7 @@ export async function loadPublicClinicProfile(
 
   const doctors: string[] = [];
   const doctorIdsByName: Record<string, string> = {};
-  if (booking.enableDoctorSelection === true) {
+  if (booking.enableDoctorSelection === true || opts?.loadDoctors === true) {
     // Dentists live in `staff`, not `users` — the page previously queried a `users` subcollection
     // that this app never writes to, so the dentist list came back empty every time.
     const staffSnap = await ref.collection("staff").get();
@@ -301,8 +308,11 @@ export async function createPatientBooking(args: {
    * to just fill. The slot recomputation above makes either safe against double-booking.
    */
   autoConfirm?: boolean;
+  /** Dentist display name, or empty for "any chair". */
+  doctorName?: string;
 }): Promise<PatientBookingResult> {
   const { clinicId, profile, patientId, patientName, phone, dateKey, time, source, autoConfirm } = args;
+  const doctorName = String(args.doctorName || "").trim();
   const appointmentsRef = clinicRef(clinicId).collection("appointments");
 
   const today = clinicNow().dateKey;
@@ -319,9 +329,10 @@ export async function createPatientBooking(args: {
   }).length;
   if (open >= MAX_OPEN_PER_PATIENT) return { ok: false, reason: "too_many_open" };
 
-  // Recomputed at the moment of writing. The list the patient chose from is already stale.
+  // Recomputed at the moment of writing, against the chosen dentist's own calendar. The list the
+  // patient chose from is already stale.
   const branchId = profile.branches.length === 1 ? profile.branches[0].id : null;
-  const free = await computeAvailableSlots({ clinicId, dateKey, doctorName: null, branchId, profile });
+  const free = await computeAvailableSlots({ clinicId, dateKey, doctorName: doctorName || null, branchId, profile });
   if (!free.includes(time)) return { ok: false, reason: "slot_taken" };
 
   const branch = branchId ? profile.branches[0] : null;
@@ -334,7 +345,10 @@ export async function createPatientBooking(args: {
     duration: profile.defaultDurationMinutes,
     branchId: branch?.id || null,
     branchName: branch?.name || null,
-    doctor: "Any",
+    doctor: doctorName || "Any",
+    // The stable id too, when the name resolves to one: conflict checks match renamed dentists
+    // by id, and a booking that only carries a display string ages badly.
+    doctorId: doctorName ? profile.doctorIdsByName[doctorName.toLowerCase()] || null : null,
     treatment: "Consultation",
     status: autoConfirm ? "Confirmed" : "Scheduled",
     source,

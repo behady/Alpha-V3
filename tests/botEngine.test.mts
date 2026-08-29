@@ -183,8 +183,8 @@ console.log("✓ lid mapping: the chat id is read from the echo, and phones are 
 // ================================================================================================
 import { parseTapId } from "../src/lib/bot/engine";
 
-assert.deepEqual(parseTapId("d2026-08-30"), { kind: "day", dateKey: "2026-08-30" });
-assert.deepEqual(parseTapId("t2026-08-30|04:30 PM"), { kind: "time", dateKey: "2026-08-30", time: "04:30 PM" });
+assert.deepEqual(parseTapId("d2026-08-30"), { kind: "day", dateKey: "2026-08-30", doctorName: "" });
+assert.deepEqual(parseTapId("t2026-08-30|04:30 PM"), { kind: "time", dateKey: "2026-08-30", time: "04:30 PM", doctorName: "" });
 assert.deepEqual(parseTapId("m1"), { kind: "menu", choice: "1" });
 assert.equal(parseTapId("1"), null, "typed digits are NOT taps — they stay stateful");
 assert.equal(parseTapId("d2026-13-99x"), null);
@@ -192,10 +192,10 @@ assert.equal(parseTapId("d2026-13-99x"), null);
 // A tapped day means that day from ANY state — even mid-times, even handed off.
 for (const state of ["awaiting_choice", "booking_time", "handed_off", "reprompted"] as const) {
   const d = decideBotReply({ state, text: "d2026-08-30", ctx: bctx });
-  assert.deepEqual(d.action, { type: "list_times_date", dateKey: "2026-08-30" }, `day tap from ${state}`);
+  assert.deepEqual(d.action, { type: "list_times_date", dateKey: "2026-08-30", doctorName: "" }, `day tap from ${state}`);
 }
 const slotTap = decideBotReply({ state: "awaiting_choice", text: "t2026-08-30|04:30 PM", ctx: bctx });
-assert.deepEqual(slotTap.action, { type: "book_slot", dateKey: "2026-08-30", time: "04:30 PM" });
+assert.deepEqual(slotTap.action, { type: "book_slot", dateKey: "2026-08-30", time: "04:30 PM", doctorName: "" });
 
 // The old failure, replayed: menu tap while the conversation sits in booking_day must open the
 // booking flow fresh — never be read as "day number 1".
@@ -232,3 +232,25 @@ const noPhone = decideBotReply({ state: "awaiting_choice", text: "1", ctx: { cli
 assert.equal(noPhone.handoff, true);
 
 console.log("✓ new patients: named, registered, and booked — with digits and pain refused as names");
+
+// ================================================================================================
+// The dentist step: offered only when there is a real choice, and carried inside every later id.
+// ================================================================================================
+const multiDocCtx: BotContext = { ...ctx, doctorCount: 3 };
+assert.equal(decideBotReply({ state: "awaiting_choice", text: "1", ctx: multiDocCtx }).action?.type, "list_doctors");
+assert.equal(decideBotReply({ state: "awaiting_choice", text: "1", ctx: { ...ctx, doctorCount: 1 } }).action?.type, "list_days", "one dentist means no question to ask");
+
+assert.deepEqual(parseTapId("dr|Dr. Gamal"), { kind: "doctor", doctorName: "Dr. Gamal" });
+assert.deepEqual(parseTapId("dr|"), { kind: "doctor", doctorName: "" }, "empty doctor is any-chair");
+assert.deepEqual(parseTapId("d2026-09-01|Dr. Gamal"), { kind: "day", dateKey: "2026-09-01", doctorName: "Dr. Gamal" });
+assert.deepEqual(parseTapId("t2026-09-01|04:30 PM|Dr. Gamal"), { kind: "time", dateKey: "2026-09-01", time: "04:30 PM", doctorName: "Dr. Gamal" });
+
+const docTap = decideBotReply({ state: "awaiting_choice", text: "dr|Dr. Ehab", ctx: multiDocCtx });
+assert.deepEqual(docTap.action, { type: "list_days", doctorName: "Dr. Ehab" });
+const docDayTap = decideBotReply({ state: "handed_off", text: "d2026-09-01|Dr. Ehab", ctx: multiDocCtx });
+assert.deepEqual(docDayTap.action, { type: "list_times_date", dateKey: "2026-09-01", doctorName: "Dr. Ehab" }, "stale doctor-day tap keeps its dentist");
+
+const typedDoc = decideBotReply({ state: "booking_doctor", text: "2", ctx: { ...multiDocCtx, optionCount: 4 } });
+assert.deepEqual(typedDoc.action, { type: "list_days_doctor_index", index: 2 });
+
+console.log("✓ doctor step: dentists offered when real, and every tap remembers whose calendar it belongs to");

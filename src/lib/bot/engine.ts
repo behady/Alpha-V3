@@ -23,6 +23,8 @@ export type BotState =
   | "reprompted"
   /** Asked an unrecognised sender for their name, to create their patient record. */
   | "booking_name"
+  /** A dentist list was sent; waiting for the pick (only clinics with several dentists). */
+  | "booking_doctor"
   /** A list of days was sent; waiting for the patient to pick one. */
   | "booking_day"
   /** A list of times for the chosen day was sent; waiting for a pick. */
@@ -38,15 +40,19 @@ export type BotState =
  * prose about data it never saw — is how a bot confirms an appointment that was never written.
  */
 export type BotAction =
-  | { type: "list_days" }
+  | { type: "list_doctors" }
+  /** Typed pick from the stored dentist list; index 1-based, last row is "any". */
+  | { type: "list_days_doctor_index"; index: number }
+  /** `doctorName` empty means "any chair". Travels inside tap ids so stale taps stay exact. */
+  | { type: "list_days"; doctorName?: string }
   /** `index` is 1-based, exactly the number the patient typed. */
   | { type: "list_times"; index: number }
   | { type: "book"; index: number }
   /** A tapped day button — the date travels IN the id, so the tap is stale-proof. */
-  | { type: "list_times_date"; dateKey: string }
+  | { type: "list_times_date"; dateKey: string; doctorName?: string }
   /** A tapped time button — date and time both travel in the id. */
-  | { type: "book_slot"; dateKey: string; time: string }
-  /** An unrecognised sender told us their name; create the patient, then list the days. */
+  | { type: "book_slot"; dateKey: string; time: string; doctorName?: string }
+  /** An unrecognised sender told us their name; create the patient, then continue booking. */
   | { type: "register"; name: string }
   /** The reply was not a valid pick; show the same options again. */
   | { type: "relist" };
@@ -62,15 +68,23 @@ export type BotAction =
  */
 export function parseTapId(
   text: string
-): { kind: "menu"; choice: "1" | "2" | "3" } | { kind: "day"; dateKey: string } | { kind: "time"; dateKey: string; time: string } | { kind: "back_menu" } | { kind: "back_days" } | null {
+):
+  | { kind: "menu"; choice: "1" | "2" | "3" }
+  | { kind: "doctor"; doctorName: string }
+  | { kind: "day"; dateKey: string; doctorName: string }
+  | { kind: "time"; dateKey: string; time: string; doctorName: string }
+  | { kind: "back_menu" }
+  | { kind: "back_days" }
+  | null {
   const t = text.trim();
   if (t === "m1" || t === "m2" || t === "m3") return { kind: "menu", choice: t[1] as "1" | "2" | "3" };
   if (t === "back_menu") return { kind: "back_menu" };
   if (t === "back_days") return { kind: "back_days" };
-  const day = /^d(\d{4}-\d{2}-\d{2})$/.exec(t);
-  if (day) return { kind: "day", dateKey: day[1] };
-  const time = /^t(\d{4}-\d{2}-\d{2})\|(.+)$/.exec(t);
-  if (time) return { kind: "time", dateKey: time[1], time: time[2].trim() };
+  if (t.startsWith("dr|")) return { kind: "doctor", doctorName: t.slice(3).trim() };
+  const day = /^d(\d{4}-\d{2}-\d{2})(?:\|(.*))?$/.exec(t);
+  if (day) return { kind: "day", dateKey: day[1], doctorName: (day[2] || "").trim() };
+  const time = /^t(\d{4}-\d{2}-\d{2})\|([^|]+)(?:\|(.*))?$/.exec(t);
+  if (time) return { kind: "time", dateKey: time[1], time: time[2].trim(), doctorName: (time[3] || "").trim() };
   return null;
 }
 
@@ -90,6 +104,8 @@ export interface BotContext {
    * asks their name first and creates the record, exactly as the public booking page does.
    */
   canRegister?: boolean;
+  /** How many dentists the clinic has. Two or more and booking starts by choosing one. */
+  doctorCount?: number;
   /**
    * How many numbered options the last booking message listed. The options themselves live in
    * the conversation document; the engine only needs to know whether "4" is a choice or noise.
@@ -232,7 +248,9 @@ export function decideBotReply(args: {
       case "menu":
         if (tap.choice === "1") {
           if (ctx.canOfferBooking) {
-            return { reply: "", action: { type: "list_days" }, next: "booking_day", handoff: false, reason: "booking_days" };
+            return (ctx.doctorCount ?? 0) >= 2
+              ? { reply: "", action: { type: "list_doctors" }, next: "booking_doctor", handoff: false, reason: "booking_doctors" }
+              : { reply: "", action: { type: "list_days" }, next: "booking_day", handoff: false, reason: "booking_days" };
           }
           if (ctx.canRegister) {
             return { reply: "أهلاً بيك 🌟 عشان نسجل حجزك، ابعتلنا اسمك الكامل من فضلك.", next: "booking_name", handoff: false, reason: "ask_name" };
@@ -247,10 +265,12 @@ export function decideBotReply(args: {
         return { reply: greeting(ctx), next: "awaiting_choice", handoff: false, reason: "back_to_menu" };
       case "back_days":
         return { reply: "", action: { type: "list_days" }, next: "booking_day", handoff: false, reason: "booking_back" };
+      case "doctor":
+        return { reply: "", action: { type: "list_days", doctorName: tap.doctorName }, next: "booking_day", handoff: false, reason: "booking_days" };
       case "day":
-        return { reply: "", action: { type: "list_times_date", dateKey: tap.dateKey }, next: "booking_time", handoff: false, reason: "booking_times" };
+        return { reply: "", action: { type: "list_times_date", dateKey: tap.dateKey, doctorName: tap.doctorName }, next: "booking_time", handoff: false, reason: "booking_times" };
       case "time":
-        return { reply: "", action: { type: "book_slot", dateKey: tap.dateKey, time: tap.time }, next: "awaiting_choice", handoff: false, reason: "booking_book" };
+        return { reply: "", action: { type: "book_slot", dateKey: tap.dateKey, time: tap.time, doctorName: tap.doctorName }, next: "awaiting_choice", handoff: false, reason: "booking_book" };
     }
   }
 
@@ -277,14 +297,18 @@ export function decideBotReply(args: {
 
   // Mid-booking, the patient is answering a numbered list the caller stored. Zero always means
   // "back" — a patient who picked the wrong day must not need a human to undo it.
-  if (state === "booking_day" || state === "booking_time") {
+  if (state === "booking_doctor" || state === "booking_day" || state === "booking_time") {
     const n = numberChoice(text);
     if (n === 0) {
-      return state === "booking_time"
-        ? { reply: "", action: { type: "list_days" }, next: "booking_day", handoff: false, reason: "booking_back" }
-        : { reply: greeting(ctx), next: "awaiting_choice", handoff: false, reason: "back_to_menu" };
+      if (state === "booking_time") {
+        return { reply: "", action: { type: "list_days" }, next: "booking_day", handoff: false, reason: "booking_back" };
+      }
+      return { reply: greeting(ctx), next: "awaiting_choice", handoff: false, reason: "back_to_menu" };
     }
     if (n !== null && n >= 1 && n <= (ctx.optionCount ?? 0)) {
+      if (state === "booking_doctor") {
+        return { reply: "", action: { type: "list_days_doctor_index", index: n }, next: "booking_day", handoff: false, reason: "booking_days" };
+      }
       return state === "booking_day"
         ? { reply: "", action: { type: "list_times", index: n }, next: "booking_time", handoff: false, reason: "booking_times" }
         : { reply: "", action: { type: "book", index: n }, next: "awaiting_choice", handoff: false, reason: "booking_book" };
@@ -298,8 +322,10 @@ export function decideBotReply(args: {
 
   if (choice === "1") {
     if (ctx.canOfferBooking) {
-      // The real thing: the caller lists actual open days from the clinic's own schedule.
-      return { reply: "", action: { type: "list_days" }, next: "booking_day", handoff: false, reason: "booking_days" };
+      // The real thing: dentists first when there is a choice to make, else straight to days.
+      return (ctx.doctorCount ?? 0) >= 2
+        ? { reply: "", action: { type: "list_doctors" }, next: "booking_doctor", handoff: false, reason: "booking_doctors" }
+        : { reply: "", action: { type: "list_days" }, next: "booking_day", handoff: false, reason: "booking_days" };
     }
     if (ctx.canRegister) {
       // A real phone with nobody on file: a NEW patient. Their name is the only missing piece.

@@ -67,6 +67,10 @@ export interface BotConversation {
   pendingTimes?: string[];
   /** The day the pending times belong to. */
   pendingDate?: string;
+  /** The dentist list last offered; the final entry "" means "any chair". */
+  pendingDoctors?: string[];
+  /** The dentist the patient chose for this booking; "" or absent means any. */
+  pendingDoctor?: string;
   /**
    * This sender said stop, and could not be matched to a patient record to say it there.
    *
@@ -154,6 +158,8 @@ export async function loadConversation(
     pendingDays: !expired && Array.isArray(d.pendingDays) ? d.pendingDays.map(String) : undefined,
     pendingTimes: !expired && Array.isArray(d.pendingTimes) ? d.pendingTimes.map(String) : undefined,
     pendingDate: !expired && typeof d.pendingDate === "string" ? d.pendingDate : undefined,
+    pendingDoctors: !expired && Array.isArray(d.pendingDoctors) ? d.pendingDoctors.map(String) : undefined,
+    pendingDoctor: !expired && typeof d.pendingDoctor === "string" ? d.pendingDoctor : undefined,
   };
 }
 
@@ -181,7 +187,7 @@ export async function saveConversation(
     patientId?: string;
     patientName?: string;
     /** Booking options offered this turn. Absent = clear them — stale lists must not linger. */
-    pending?: { days?: string[]; times?: string[]; date?: string };
+    pending?: { days?: string[]; times?: string[]; date?: string; doctors?: string[]; doctor?: string };
   },
   now: number
 ): Promise<void> {
@@ -198,6 +204,8 @@ export async function saveConversation(
     pendingDays: next.pending?.days ?? null,
     pendingTimes: next.pending?.times ?? null,
     pendingDate: next.pending?.date ?? null,
+    pendingDoctors: next.pending?.doctors ?? null,
+    pendingDoctor: next.pending?.doctor ?? null,
     updatedAt: FieldValue.serverTimestamp(),
   };
   // Firestore rejects an explicit undefined, and these are optional by nature.

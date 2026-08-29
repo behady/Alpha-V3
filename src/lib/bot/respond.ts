@@ -326,7 +326,7 @@ export async function respondToPatientMessage(args: {
     // requireEnabled false: the assistant has its own opt-in and only answers people who wrote
     // first — tying it to the public-page switch would silently disable booking for every clinic
     // that never wanted a public booking page.
-    profile = await loadPublicClinicProfile(clinicId, { requireEnabled: false });
+    profile = await loadPublicClinicProfile(clinicId, { requireEnabled: false, loadDoctors: true });
     ctx.hoursText = formatHours(profile.schedule);
   } catch {
     // No clinic_info at all. The menu offers the receptionist instead of inventing anything.
@@ -337,7 +337,9 @@ export async function respondToPatientMessage(args: {
   // booking page does for strangers — a lid sender with no phone can register nothing.
   ctx.canOfferBooking = Boolean(profile?.schedule.isConfigured && patient);
   ctx.canRegister = Boolean(profile?.schedule.isConfigured && !patient && phone);
+  ctx.doctorCount = profile?.doctors.length ?? 0;
   if (patient && typeof patient.data.name === "string") ctx.patientName = patient.data.name;
+  if (conversation.state === "booking_doctor") ctx.optionCount = conversation.pendingDoctors?.length ?? 0;
   if (conversation.state === "booking_day") ctx.optionCount = conversation.pendingDays?.length ?? 0;
   if (conversation.state === "booking_time") ctx.optionCount = conversation.pendingTimes?.length ?? 0;
 
@@ -353,7 +355,7 @@ export async function respondToPatientMessage(args: {
   let nextState = decision.next;
   let reason = decision.reason;
   let handoff = decision.handoff;
-  let pending: { days?: string[]; times?: string[]; date?: string } | undefined;
+  let pending: { days?: string[]; times?: string[]; date?: string; doctors?: string[]; doctor?: string } | undefined;
   /** Buttons/lists for the official channel; the text above is what every other channel sends. */
   let structure: MetaInteractive | undefined;
 
@@ -361,7 +363,28 @@ export async function respondToPatientMessage(args: {
     const act = decision.action;
     const branchId = profile.branches.length === 1 ? profile.branches[0].id : null;
 
-    const listDays = () => {
+    const ANY_DOCTOR = "أي دكتور 👌";
+
+    const listDoctors = () => {
+      // The stored list carries "" last, meaning "any chair" — the same convention the ids use.
+      const doctors = [...profile!.doctors, ""];
+      const label = (d: string) => (d ? d : ANY_DOCTOR);
+      replyText = [
+        "👨‍⚕️ تحب تحجز مع مين؟",
+        "",
+        ...doctors.map((d, i) => `*${i + 1}* — ${label(d)}`),
+        "",
+        "*0* — رجوع للقائمة",
+      ].join("\n");
+      structure = {
+        body: "👨‍⚕️ تحب تحجز مع مين؟",
+        list: optionList("اختيار الدكتور", doctors, label, (d) => `dr|${d}`, { id: "back_menu", title: "رجوع للقائمة" }),
+      };
+      nextState = "booking_doctor";
+      pending = { doctors };
+    };
+
+    const listDays = (doctorName = "") => {
       const days = upcomingOpenDays(profile!.schedule);
       if (!days.length) {
         replyText = "تمام 👍 الاستقبال هيتواصل معاك في أقرب وقت لتحديد الميعاد.";
@@ -370,36 +393,50 @@ export async function respondToPatientMessage(args: {
         reason = "no_open_days";
         return;
       }
+      const heading = doctorName ? `📅 اختار اليوم اللي يناسبك مع ${doctorName}:` : "📅 اختار اليوم اللي يناسبك:";
       replyText = renderDayList(days);
       structure = {
-        body: "📅 اختار اليوم اللي يناسبك:",
-        list: optionList("اختيار اليوم", days, arabicDayLabel, (d) => `d${d}`, { id: "back_menu", title: "رجوع للقائمة" }),
+        body: heading,
+        // The chosen dentist rides inside every day id, so even a stale tap keeps its doctor.
+        list: optionList("اختيار اليوم", days, arabicDayLabel, (d) => `d${d}|${doctorName}`, { id: "back_menu", title: "رجوع للقائمة" }),
       };
       nextState = "booking_day";
-      pending = { days };
+      pending = { days, doctor: doctorName };
     };
 
-    const listTimes = async (dateKey: string) => {
-      const slots = await computeAvailableSlots({ clinicId, dateKey, doctorName: null, branchId, profile: profile! });
+    const listTimes = async (dateKey: string, doctorName = "") => {
+      const slots = await computeAvailableSlots({ clinicId, dateKey, doctorName: doctorName || null, branchId, profile: profile! });
       if (!slots.length) {
         const days = conversation.pendingDays?.length ? conversation.pendingDays : upcomingOpenDays(profile!.schedule);
         replyText = `اليوم ده كل مواعيده اتحجزت 🙏\n\n${renderDayList(days)}`;
+        structure = {
+          body: "اليوم ده كل مواعيده اتحجزت 🙏 اختار يوم تاني:",
+          list: optionList("اختيار اليوم", days, arabicDayLabel, (d) => `d${d}|${doctorName}`, { id: "back_menu", title: "رجوع للقائمة" }),
+        };
         nextState = "booking_day";
         reason = "booking_day_full";
-        pending = { days };
+        pending = { days, doctor: doctorName };
         return;
       }
       const times = slots.slice(0, 8);
       replyText = renderTimeList(dateKey, times);
       structure = {
         body: `⏰ المواعيد المتاحة يوم ${arabicDayLabel(dateKey)}:`,
-        list: optionList("اختيار الميعاد", times, arabicTimeLabel, (t) => `t${dateKey}|${t}`, { id: "back_days", title: "رجوع لاختيار اليوم" }),
+        list: optionList("اختيار الميعاد", times, arabicTimeLabel, (t) => `t${dateKey}|${t}|${doctorName}`, { id: "back_days", title: "رجوع لاختيار اليوم" }),
       };
       nextState = "booking_time";
-      pending = { days: conversation.pendingDays, times, date: dateKey };
+      pending = { days: conversation.pendingDays, times, date: dateKey, doctor: doctorName };
     };
 
-    if (act.type === "register") {
+    if (act.type === "list_doctors") {
+      listDoctors();
+    } else if (act.type === "list_days_doctor_index") {
+      const doctors = conversation.pendingDoctors ?? [];
+      const picked = doctors[act.index - 1];
+      // Out of range or the list is gone: offering the dentists again beats guessing a chair.
+      if (picked === undefined) listDoctors();
+      else listDays(picked);
+    } else if (act.type === "register") {
       /*
        * The moment a stranger becomes a patient. The same fields the public booking page writes,
        * so a bot-registered patient is indistinguishable from a web-registered one everywhere
@@ -415,10 +452,11 @@ export async function respondToPatientMessage(args: {
       });
       patient = { id: created.id, data: { name: act.name, phone } };
       ctx.patientName = act.name;
-      listDays();
-      if (nextState === "booking_day") reason = "registered";
+      if ((profile?.doctors.length ?? 0) >= 2) listDoctors();
+      else listDays();
+      reason = "registered";
     } else if (act.type === "list_days") {
-      listDays();
+      listDays(act.doctorName ?? conversation.pendingDoctor ?? "");
     } else if (act.type === "relist") {
       if (conversation.state === "booking_time" && conversation.pendingDate && conversation.pendingTimes?.length) {
         replyText = RELIST_PREFIX + renderTimeList(conversation.pendingDate, conversation.pendingTimes);
@@ -441,16 +479,18 @@ export async function respondToPatientMessage(args: {
       }
     } else if (act.type === "list_times") {
       const dateKey = conversation.pendingDays?.[act.index - 1];
-      if (!dateKey) listDays();
-      else await listTimes(dateKey);
+      if (!dateKey) listDays(conversation.pendingDoctor ?? "");
+      else await listTimes(dateKey, conversation.pendingDoctor ?? "");
     } else if (act.type === "list_times_date") {
-      // A tapped day carries its own date. A stale tap can name a day already gone — fresh days
-      // then, with no scolding: the patient did nothing wrong, the message was just old.
-      if (act.dateKey < clinicNow().dateKey) listDays();
-      else await listTimes(act.dateKey);
+      // A tapped day carries its own date AND dentist. A stale tap can name a day already gone —
+      // fresh days then, with no scolding: the patient did nothing wrong, the message was old.
+      const doctorName = act.doctorName ?? conversation.pendingDoctor ?? "";
+      if (act.dateKey < clinicNow().dateKey) listDays(doctorName);
+      else await listTimes(act.dateKey, doctorName);
     } else if (act.type === "book" || act.type === "book_slot") {
       const time = act.type === "book_slot" ? act.time : conversation.pendingTimes?.[act.index - 1];
       const dateKey = act.type === "book_slot" ? act.dateKey : conversation.pendingDate;
+      const doctorName = (act.type === "book_slot" ? act.doctorName : conversation.pendingDoctor) ?? "";
       if (!time || !dateKey || !patient || !phone) {
         listDays();
       } else {
@@ -464,12 +504,14 @@ export async function respondToPatientMessage(args: {
           time,
           source: "whatsapp_bot",
           autoConfirm: settings.autoConfirm,
+          doctorName,
         });
         if (booked.ok) {
           replyText = [
             settings.autoConfirm ? "✅ تم تأكيد حجزك:" : "✅ تم تسجيل طلب حجزك:",
             `📅 ${arabicDayLabel(dateKey)}`,
             `⏰ ${arabicTimeLabel(time)}`,
+            ...(doctorName ? [`👨‍⚕️ ${doctorName}`] : []),
             "",
             settings.autoConfirm
               ? "في انتظارك 🦷 لو حبيت تعدّل، ابعت *3* للتواصل مع الاستقبال."
@@ -481,11 +523,11 @@ export async function respondToPatientMessage(args: {
           // point of a bot is that nobody was at a screen when this arrived.
           void sendClinicPush(
             clinicId,
-            { title: "حجز جديد من واتساب 🤖", body: `${ctx.patientName || "Patient"} — ${dateKey} ${time}` },
+            { title: "حجز جديد من واتساب 🤖", body: `${ctx.patientName || "Patient"} — ${dateKey} ${time}${doctorName ? ` — ${doctorName}` : ""}` },
             { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
           );
         } else if (booked.reason === "slot_taken") {
-          await listTimes(dateKey);
+          await listTimes(dateKey, doctorName);
           replyText = `الميعاد ده اتحجز في نفس اللحظة 🙏\n\n${replyText}`;
           reason = "slot_taken";
         } else {
