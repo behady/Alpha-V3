@@ -10,7 +10,7 @@ import {
   isTemplatePack,
   resolveWhatsappTemplateForPatient,
 } from "@/lib/whatsappDefaultBodies";
-import { deliverWhatsAppMessage } from "@/lib/whatsappDelivery";
+import { applyPatientOptOutFooter, deliverWhatsAppMessage } from "@/lib/whatsappDelivery";
 import { mergeWhatsAppTemplate } from "@/lib/whatsappTemplateMerge";
 import type { WhatsAppTemplateType } from "@/types/whatsapp";
 
@@ -189,7 +189,13 @@ async function deliverPatientWhatsApp(args: {
   type: string;
   queueKey: string;
 }): Promise<PatientMessageOutcome> {
-  const { clinicId, patientId, patientName, phone, text, type, queueKey } = args;
+  const { clinicId, patientId, patientName, phone, type, queueKey } = args;
+  // The footer is applied here as well as inside delivery (appending is idempotent), so that the
+  // text logged below is byte-for-byte the text the patient receives. The log used to record the
+  // pre-footer body, which meant the patient timeline showed a message nobody was ever sent —
+  // and lid learning (lib/whatsappLid) matches the gateway's echo of the SENT text against this
+  // log, so the two being identical is now load-bearing, not cosmetic.
+  const text = await applyPatientOptOutFooter(clinicId, args.text);
   try {
     const delivery = await deliverWhatsAppMessage({
       clinicId,

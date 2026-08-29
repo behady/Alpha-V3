@@ -3,6 +3,8 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection } from "@/lib/adminClinicDb";
 import { conversationKey, markConversationOptedOut } from "@/lib/bot/conversation";
 import { isOptOutReply } from "@/lib/patientMessaging";
+import { patientSendablePhone } from "@/lib/patientPhone";
+import { findPatientByLid, learnPatientLid, lidChatFromEvent } from "@/lib/whatsappLid";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { respondToPatientMessage } from "@/lib/bot/respond";
 import { applyInboundOptOut } from "@/lib/optOutInbound";
@@ -177,7 +179,31 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => null);
 
-    if (isFromMe(body)) return NextResponse.json({ ok: true, ignored: "outgoing" });
+    if (isFromMe(body)) {
+      /*
+       * The clinic's own outgoing message, echoed back because `message.any` is enabled — and it
+       * is enabled ON PURPOSE: this echo is the only place WhatsApp's lid privacy leaks. The
+       * gateway names the chat it delivered into (a lid), and we know which patient we just sent
+       * that exact text to. Matching the two is how a lid becomes a patient again — see
+       * lib/whatsappLid for why the match must be unambiguous before it binds anything.
+       */
+      const b = obj(body);
+      if (b) {
+        for (const m of candidateMessages(b)) {
+          const lid = lidChatFromEvent(m);
+          const echoText = firstString(
+            typeof m.body === "string" ? m.body : "",
+            typeof m.text === "string" ? m.text : "",
+            obj(m.text)?.body
+          );
+          if (lid && echoText) {
+            const learned = await learnPatientLid(clinicId, lid, echoText);
+            return NextResponse.json({ ok: true, ignored: "outgoing", lid: learned.reason });
+          }
+        }
+      }
+      return NextResponse.json({ ok: true, ignored: "outgoing" });
+    }
 
     const reply = extractReply(body);
     if (!reply) {
@@ -220,9 +246,23 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true, result: result.status });
       }
     } else if (isOptOutReply(reply.text)) {
-      // A stop request from behind a lid. There is no patient record to flag, so it is recorded
-      // on the sender itself — the assistant checks that flag before every reply — and kept in
-      // messaging_opt_outs so a person can see that an unidentifiable number asked for silence.
+      // A stop request from behind a lid. If the lid has already been learned, the request lands
+      // on the real patient record like any other; the conversation flag is the fallback for a
+      // sender nobody has identified yet, and messaging_opt_outs keeps the human-readable trace
+      // either way.
+      const known = await findPatientByLid(clinicId, chatId);
+      if (known) {
+        const knownPhone = patientSendablePhone(known.data);
+        if (knownPhone) {
+          const result = await applyInboundOptOut({
+            clinicId,
+            phone: knownPhone,
+            text: reply.text,
+            channel: "whatsapp",
+          });
+          return NextResponse.json({ ok: true, result: result.status });
+        }
+      }
       await markConversationOptedOut(clinicId, chatId);
       await adminClinicCollection(clinicId, "messaging_opt_outs")
         .doc(conversationKey(chatId))

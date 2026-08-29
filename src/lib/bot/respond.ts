@@ -2,8 +2,9 @@ import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { FieldValue } from "firebase-admin/firestore";
 import { loadPublicClinicProfile } from "@/lib/publicBooking";
 import { clinicDisplayName } from "@/lib/sms/events";
-import { phoneMatchKey, pickPatientPhone } from "@/lib/patientPhone";
+import { patientSendablePhone, phoneMatchKey, pickPatientPhone } from "@/lib/patientPhone";
 import { resolveLidToPhone, sendWhatsApp } from "@/lib/whatsapp";
+import { findPatientByLid } from "@/lib/whatsappLid";
 import { resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
 import { appendOptOutFooter, WHATSAPP_OPT_OUT_FOOTER_AR } from "@/lib/patientMessaging";
 import {
@@ -128,14 +129,33 @@ export async function respondToPatientMessage(args: {
   const mode = await resolveWhatsappDeliveryMode(clinicId);
   if (mode !== "auto") return skip("no_gateway");
 
-  // Behind a lid, ask the gateway who this is. Broken on Wapilot's side today — it fails fast
-  // and quietly — but the day it works, lid senders become patients again with no change here.
+  // Behind a lid, identity comes from what the system has already learned: every outgoing
+  // message binds its lid to its patient (lib/whatsappLid). The gateway's own resolver is asked
+  // as a fallback — broken on their side today, fails fast and quietly, and starts contributing
+  // the day they fix it with no change here.
+  const isLidChat = /@lid$/i.test(chatId);
   let phone = args.phone || "";
-  if (!phone && /@lid$/i.test(chatId)) {
-    phone = await resolveLidToPhone(clinicId, chatId);
+  let patient: Awaited<ReturnType<typeof findPatient>> = null;
+  if (!phone && isLidChat) {
+    patient = await findPatientByLid(clinicId, chatId);
+    if (patient) phone = patientSendablePhone(patient.data);
+    if (!phone) phone = await resolveLidToPhone(clinicId, chatId);
   }
+  if (!patient && phone) patient = await findPatient(clinicId, phone);
 
-  const patient = phone ? await findPatient(clinicId, phone) : null;
+  /*
+   * Where the reply must go. Sending to a lid is verified NOT to deliver — Wapilot's worker fails
+   * it with a 422 after accepting it — so a lid sender the system cannot map to a phone cannot be
+   * answered at all yet. Pretending otherwise would advance the conversation and burn the reply
+   * budget on messages nobody receives, so the honest outcome is a handoff: the message lands in
+   * front of a person, and the very next message the clinic sends this patient (a confirmation, a
+   * receipt) teaches the mapping and unlocks the bot for them.
+   */
+  const replyTo = phone || chatId;
+  if (isLidChat && !phone) {
+    await markHandoff(clinicId, conversationKey(chatId), "lid_unidentified");
+    return skip("lid_unidentified");
+  }
 
   // A patient who asked to be left alone asked to be left alone. This is checked before the
   // engine, so no branch of it can ever talk to someone who opted out.
@@ -217,7 +237,7 @@ export async function respondToPatientMessage(args: {
       : decision.reply;
 
   try {
-    await sendWhatsApp({ clinicId, to: chatId, text: body });
+    await sendWhatsApp({ clinicId, to: replyTo, text: body });
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
     console.warn("[bot] reply failed to send:", detail);

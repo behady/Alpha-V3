@@ -116,3 +116,23 @@ assert.equal(needsHuman(""), false);
 assert.equal(needsHuman("عندي خراج"), true);
 
 console.log("✓ bot engine: remembers the turn before, hands clinical messages to a person, and stops rather than nags");
+
+// ================================================================================================
+// Reading which chat an outgoing echo landed in — the seam the lid mapping hangs on.
+// ================================================================================================
+import { lidChatFromEvent } from "../src/lib/whatsappLid";
+
+// The chat id survives inside the whatsapp-web.js message id even when from/to are unhelpful.
+assert.equal(
+  lidChatFromEvent({ id: "true_172357054414966@lid_AC2E4E7F226C001BAD3B7EE15E23F70A", to: null, from: "me" }),
+  "172357054414966@lid"
+);
+assert.equal(lidChatFromEvent({ id: "false_172357054414966@lid_HASH" }), "172357054414966@lid");
+assert.equal(lidChatFromEvent({ to: "172357054414966@lid" }), "172357054414966@lid");
+assert.equal(lidChatFromEvent({ from: "172357054414966@lid" }), "172357054414966@lid");
+// A phone-identified chat is not a lid, and must not be mistaken for one.
+assert.equal(lidChatFromEvent({ id: "true_201551552440@c.us_HASH", to: "201551552440@c.us" }), "");
+assert.equal(lidChatFromEvent({}), "");
+assert.equal(lidChatFromEvent(null), "");
+
+console.log("✓ lid mapping: the chat id is read from the echo, and phones are never mistaken for lids");
