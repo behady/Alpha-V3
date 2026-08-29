@@ -200,15 +200,15 @@ export default function DiagnosisPage() {
 
   if (loading || !patient) {
     return (
-      <div className="h-screen flex items-center justify-center bg-[#f8fafc]">
-        <Loader2 className="animate-spin text-[#27ae60]" size={32} />
+      <div className="h-screen flex items-center justify-center bg-surface-subtle">
+        <Loader2 className="animate-spin text-accent" size={32} />
       </div>
     );
   }
 
   return (
     <PermissionGuard permission="access.clinical">
-      <div className="min-h-screen bg-[#f8fafc] pb-28 md:pb-12 animate-in fade-in">
+      <div className="min-h-screen bg-surface-subtle pb-28 md:pb-12 animate-in fade-in">
         {/* Header */}
         <header className="bg-white/95 backdrop-blur-md border-b border-slate-200/70 sticky top-0 z-40">
           <div className="max-w-[1600px] mx-auto px-3 md:px-6 py-3 flex items-center gap-3">
@@ -242,7 +242,7 @@ export default function DiagnosisPage() {
                 <button
                   onClick={() => setChartMode("pedo")}
                   className={`px-3 py-1 rounded-full text-[11px] font-bold inline-flex items-center gap-1.5 transition-all ${
-                    chartMode === "pedo" ? "bg-white text-[#27ae60] shadow-sm" : "text-slate-500"
+                    chartMode === "pedo" ? "bg-white text-accent shadow-sm" : "text-slate-500"
                   }`}
                 >
                   <Baby size={12} /> {language === "ar" ? "أطفال" : "Child"}
@@ -253,7 +253,7 @@ export default function DiagnosisPage() {
                 {saving ? (
                   <>
                     <Loader2 size={12} className="animate-spin text-blue-500" />
-                    <span className="text-[#27ae60]">{t("saving") || "Saving…"}</span>
+                    <span className="text-accent">{t("saving") || "Saving…"}</span>
                   </>
                 ) : (
                   <>
@@ -266,7 +266,7 @@ export default function DiagnosisPage() {
               <button
                 onClick={handleExportPdf}
                 disabled={exporting}
-                className="inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-full bg-[#60d297] text-white shadow-sm shadow-blue-600/20 hover:bg-[#4eb37f] transition-colors disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-full bg-accent-soft text-white shadow-sm shadow-blue-600/20 hover:bg-[#4eb37f] transition-colors disabled:opacity-60"
                 title={language === "ar" ? "تنزيل تقرير PDF" : "Download PDF report"}
               >
                 {exporting ? <Loader2 size={13} className="animate-spin" /> : <FileDown size={13} />}

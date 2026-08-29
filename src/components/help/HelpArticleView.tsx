@@ -51,7 +51,7 @@ export default function HelpArticleView({ article, siblings }: Props) {
 
       <header className="mb-10">
         {section ? (
-          <p className="mb-2 text-[11px] font-black uppercase tracking-[0.2em] text-[#27ae60]">
+          <p className="mb-2 text-[11px] font-black uppercase tracking-[0.2em] text-accent">
             {isAr ? section.titleAr : section.titleEn}
           </p>
         ) : null}

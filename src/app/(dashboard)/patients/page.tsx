@@ -121,7 +121,7 @@ export default function PatientsPage() {
 
   const renderSourceBadge = (source?: string) => {
       const s = (source || "").toLowerCase();
-      if (s.includes("facebook") || s.includes("fb")) return <div className="absolute -bottom-0.5 -right-0.5 bg-white p-[1.5px] rounded-full shadow-sm border border-slate-100"><Facebook size={8} className="text-[#27ae60] fill-blue-600" /></div>;
+      if (s.includes("facebook") || s.includes("fb")) return <div className="absolute -bottom-0.5 -right-0.5 bg-white p-[1.5px] rounded-full shadow-sm border border-slate-100"><Facebook size={8} className="text-accent fill-blue-600" /></div>;
       if (s.includes("instagram") || s.includes("insta")) return <div className="absolute -bottom-0.5 -right-0.5 bg-white p-[1.5px] rounded-full shadow-sm border border-slate-100"><Instagram size={8} className="text-pink-600" /></div>;
       if (s.includes("friend") || s.includes("refer") || s.includes("patient")) return <div className="absolute -bottom-0.5 -right-0.5 bg-white p-[1.5px] rounded-full shadow-sm border border-slate-100"><Users size={8} className="text-emerald-600" /></div>;
       return null;
@@ -143,10 +143,10 @@ export default function PatientsPage() {
                  </div>
                  
                  <div className="flex items-center gap-2">
-                    <button onClick={toggleLanguage} className="w-8 h-8 rounded-full bg-slate-50 hover:bg-[#E8F7F0] text-slate-500 hover:text-[#27ae60] flex items-center justify-center font-bold text-[10px] uppercase tracking-widest transition-colors border border-slate-100">
+                    <button onClick={toggleLanguage} className="w-8 h-8 rounded-full bg-slate-50 hover:bg-accent-tint text-slate-500 hover:text-accent flex items-center justify-center font-bold text-[10px] uppercase tracking-widest transition-colors border border-slate-100">
                        {language === 'ar' ? 'EN' : 'ع'}
                     </button>
-                    <button className="w-8 h-8 rounded-full bg-slate-50 hover:bg-[#E8F7F0] text-slate-500 hover:text-[#27ae60] flex items-center justify-center transition-colors relative border border-slate-100">
+                    <button className="w-8 h-8 rounded-full bg-slate-50 hover:bg-accent-tint text-slate-500 hover:text-accent flex items-center justify-center transition-colors relative border border-slate-100">
                         <Bell size={14}/>
                         <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-red-500 rounded-full border border-white"></span>
                     </button>
@@ -157,14 +157,14 @@ export default function PatientsPage() {
               <div className="flex items-center gap-3">
                   <div className="relative w-full flex-1 group shadow-sm">
                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                        <Search size={16} className="text-slate-400 group-focus-within:text-[#60d297] transition-colors" />
+                        <Search size={16} className="text-slate-400 group-focus-within:text-accent-soft transition-colors" />
                      </div>
                      <input 
                         type="text" 
                         placeholder={t.searchPlaceholder} data-tour="patients-search" 
                         value={searchTerm} 
                         onChange={(e) => setSearchTerm(e.target.value)} 
-                        className="block w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200/60 focus:border-primary-400 focus:ring-2 focus:ring-[#60d297]/10 rounded-xl text-sm font-semibold text-slate-900 placeholder-slate-400 transition-all outline-none" 
+                        className="block w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200/60 focus:border-primary-400 focus:ring-2 focus:ring-accent-soft/10 rounded-xl text-sm font-semibold text-slate-900 placeholder-slate-400 transition-all outline-none" 
                      />
                   </div>
 
@@ -215,7 +215,7 @@ export default function PatientsPage() {
                      style={{ animationDelay: `${(index % PAGE_SIZE) * 30}ms`, animationFillMode: 'both' }}
                   >
                     
-                    <div className="absolute left-0 top-3 bottom-3 w-1 bg-[#60d297] rounded-r-full opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                    <div className="absolute left-0 top-3 bottom-3 w-1 bg-accent-soft rounded-r-full opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
 
                     <div className="flex items-center justify-between w-full pl-2 sm:pl-3 gap-4">
                         
@@ -228,7 +228,7 @@ export default function PatientsPage() {
                             </div>
 
                             <div className="flex flex-col min-w-0">
-                                <h3 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight truncate capitalize group-hover:text-[#27ae60] transition-colors">
+                                <h3 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight truncate capitalize group-hover:text-accent transition-colors">
                                     {p.name}
                                 </h3>
                                 <div className="flex items-center gap-1.5 text-[10px] sm:text-xs font-semibold text-slate-400 mt-0.5">
@@ -243,9 +243,9 @@ export default function PatientsPage() {
                                 <span className="text-xs font-bold text-slate-500 tracking-wide" dir="ltr">{p.phone || "---"}</span>
                             </div>
                             
-                            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-50 flex items-center justify-center border border-slate-100 group-hover:bg-[#E8F7F0] group-hover:border-primary-100 transition-colors">
-                                <span className="sm:hidden text-slate-400 group-hover:text-[#27ae60]"><Phone size={14} className="fill-current opacity-20 group-hover:opacity-100 transition-all"/></span>
-                                <span className="hidden sm:block text-slate-300 group-hover:text-[#27ae60] transition-transform group-hover:translate-x-0.5"><ChevronRight size={18}/></span>
+                            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-50 flex items-center justify-center border border-slate-100 group-hover:bg-accent-tint group-hover:border-primary-100 transition-colors">
+                                <span className="sm:hidden text-slate-400 group-hover:text-accent"><Phone size={14} className="fill-current opacity-20 group-hover:opacity-100 transition-all"/></span>
+                                <span className="hidden sm:block text-slate-300 group-hover:text-accent transition-transform group-hover:translate-x-0.5"><ChevronRight size={18}/></span>
                             </div>
                         </div>
 
@@ -261,7 +261,7 @@ export default function PatientsPage() {
                           disabled={loadingMore}
                           className="bg-white border border-slate-200 text-slate-600 hover:text-slate-900 hover:shadow-md px-8 py-3 rounded-full font-bold text-xs uppercase tracking-widest transition-all flex items-center gap-2 disabled:opacity-50 active:scale-95"
                       >
-                          {loadingMore ? <><Loader2 size={14} className="animate-spin text-[#60d297]" /> Loading...</> : t.loadMore}
+                          {loadingMore ? <><Loader2 size={14} className="animate-spin text-accent-soft" /> Loading...</> : t.loadMore}
                       </button>
                   </div>
               )}

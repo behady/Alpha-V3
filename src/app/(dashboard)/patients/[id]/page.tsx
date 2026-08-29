@@ -159,7 +159,7 @@ const getTimelineStyle = (status: string) => {
     if (s.includes('contact') || s.includes('call')) return { color: 'bg-amber-500 ring-amber-100', icon: PhoneForwarded, title: 'Patient Contacted' };
     if (s.includes('hot')) return { color: 'bg-rose-500 ring-rose-100', icon: Activity, title: 'High Priority Lead' };
     if (s.includes('cold') || s.includes('lost')) return { color: 'bg-slate-400 ring-slate-100', icon: UserX, title: 'Lead Cooled / Lost' };
-    if (s.includes('complete') || s.includes('done')) return { color: 'bg-[#60d297] ring-blue-100', icon: CheckCircle2, title: 'Treatment Completed' };
+    if (s.includes('complete') || s.includes('done')) return { color: 'bg-accent-soft ring-blue-100', icon: CheckCircle2, title: 'Treatment Completed' };
     return { color: 'bg-[#E8F7F0]0 ring-blue-100', icon: MessageCircle, title: 'Pipeline Update' };
 };
 
@@ -856,7 +856,7 @@ export default function PatientProfile() {
     return patientMedia.filter((m) => m.category === mediaCategoryFilter);
   }, [patientMedia, mediaCategoryFilter]);
 
-  if (loading || authLoading || activeTab === "") return <div className="h-screen flex items-center justify-center bg-[#f8fafc]"><Loader2 className="animate-spin text-[#27ae60]" size={40}/></div>;
+  if (loading || authLoading || activeTab === "") return <div className="h-screen flex items-center justify-center bg-surface-subtle"><Loader2 className="animate-spin text-accent" size={40}/></div>;
   if (error) return <div className="p-10 text-center text-slate-500 font-bold">{error}</div>;
 
   const displayAge = patient.dateOfBirth ? calculateAge(patient.dateOfBirth) : (patient.age || "N/A");
@@ -896,7 +896,7 @@ export default function PatientProfile() {
 
   return (
     <PermissionGuard permission="access.patients">
-      <div className="min-h-screen bg-[#f8fafc] p-4 md:p-8 animate-in fade-in lg:pb-0">
+      <div className="min-h-screen bg-surface-subtle p-4 md:p-8 animate-in fade-in lg:pb-0">
         
         {/* TOP GRID WIDGETS */}
         <div className="max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-3 lg:gap-6 mb-6">
@@ -908,7 +908,7 @@ export default function PatientProfile() {
                </button>
                <div className="flex flex-col lg:relative lg:w-full lg:aspect-auto lg:h-[220px] xl:h-[250px] lg:rounded-[2rem] lg:overflow-hidden lg:shadow-lg lg:group shrink-0">
                   {/* Mobile Row Layout */}
-                  <div className="flex flex-col gap-3 bg-gradient-to-br from-[#60d297] to-[#4eb37f] text-white p-4 rounded-[2rem] border border-[#60d297]/50 shadow-lg lg:hidden shrink-0">
+                  <div className="flex flex-col gap-3 bg-gradient-to-br from-accent-soft to-[#4eb37f] text-white p-4 rounded-[2rem] border border-accent-soft/50 shadow-lg lg:hidden shrink-0">
                      <div className="flex items-center gap-4">
                          <div className="relative w-[72px] h-[72px] shrink-0 rounded-[1.5rem] overflow-hidden shadow-sm group border-2 border-white/30 bg-white/10">
                              <img 
@@ -1060,7 +1060,7 @@ export default function PatientProfile() {
 
            {/* COL 3: Timeline Summary Dark Card */}
            <div className="hidden lg:flex lg:col-span-3 lg:pt-8 flex-col h-full">
-               <div className="bg-[#1A2130] text-white rounded-[1.5rem] lg:rounded-[2rem] p-4 lg:p-6 shadow-[0_12px_40px_rgba(26,33,48,0.2)] flex-1 flex flex-col relative overflow-hidden">
+               <div className="bg-ink-slab text-white rounded-[1.5rem] lg:rounded-[2rem] p-4 lg:p-6 shadow-[0_12px_40px_rgba(26,33,48,0.2)] flex-1 flex flex-col relative overflow-hidden">
                    <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
                    <div className="flex items-center justify-between mb-4 lg:mb-6 relative z-10">
                       <span className="text-sm font-medium text-slate-400">{language === 'ar' ? 'آخر نشاط' : 'Recent Activity'}</span>
@@ -1148,7 +1148,7 @@ export default function PatientProfile() {
                       active ? 'bg-white text-slate-900 shadow-sm border border-white' : 'text-slate-500 hover:bg-white/50 border border-transparent'
                     }`}
                   >
-                    <Icon size={16} className={active ? 'text-[#27ae60]' : 'text-slate-400'} />
+                    <Icon size={16} className={active ? 'text-accent' : 'text-slate-400'} />
                     {tb.label}
                   </button>
                 );
@@ -1569,7 +1569,7 @@ export default function PatientProfile() {
                       <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2"><Users size={14} className="text-blue-500"/> Connected Family Profile</h3>
                       <div className="flex flex-wrap gap-3">
                          {familyMembers.map((member: any) => (
-                            <button key={member.id} onClick={() => router.push(`/patients/${member.id}`)} className="flex items-center gap-3 px-4 py-2.5 bg-slate-50 hover:bg-[#E8F7F0] border border-slate-100 hover:border-[#A7E2C3] rounded-xl transition-all duration-200 hover:shadow-sm group">
+                            <button key={member.id} onClick={() => router.push(`/patients/${member.id}`)} className="flex items-center gap-3 px-4 py-2.5 bg-slate-50 hover:bg-accent-tint border border-slate-100 hover:border-[#A7E2C3] rounded-xl transition-all duration-200 hover:shadow-sm group">
                                <div className="text-left">
                                   <div className="text-sm font-bold text-slate-900 group-hover:text-[#1E5631] transition-colors">{member.name}</div>
                                   <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mt-0.5">{calculateAge(member.dateOfBirth)} Y · {member.gender}</div>
@@ -1585,7 +1585,7 @@ export default function PatientProfile() {
                    <div className="bg-white rounded-2xl p-5 md:p-6 border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] flex flex-col h-[480px]">
                        <div className="flex items-center justify-between mb-5 shrink-0">
                            <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><Wallet size={14} className="text-emerald-500"/> Financial Snapshot</h3>
-                           <button onClick={() => setActiveTab('finance')} className="text-[10px] font-bold text-[#27ae60] uppercase tracking-widest hover:underline">View Full Ledger</button>
+                           <button onClick={() => setActiveTab('finance')} className="text-[10px] font-bold text-accent uppercase tracking-widest hover:underline">View Full Ledger</button>
                        </div>
 
                        <div className="grid grid-cols-2 gap-3 mb-6 shrink-0">
@@ -1611,7 +1611,7 @@ export default function PatientProfile() {
                                    recentTransactions.map((t: any) => (
                                        <div key={t.id} className="flex justify-between items-center bg-white border border-slate-100 hover:border-slate-200 p-4 rounded-2xl shadow-sm transition-all group">
                                            <div>
-                                               <p className="text-xs font-black text-slate-900 group-hover:text-[#27ae60] transition-colors">{t.description}</p>
+                                               <p className="text-xs font-black text-slate-900 group-hover:text-accent transition-colors">{t.description}</p>
                                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">{t.createdAt ? new Date(t.createdAt.toMillis()).toLocaleDateString() : ''}</p>
                                            </div>
                                            <div className={`text-sm font-black tabular-nums bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100 ${t.type === 'payment' ? 'text-emerald-600' : 'text-slate-900'}`}>
@@ -2064,7 +2064,7 @@ export default function PatientProfile() {
                             <select
                               value={editCountryCode}
                               onChange={e => setEditCountryCode(e.target.value)}
-                              className="w-[45%] px-3 py-3 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:ring-4 focus:ring-[#60d297]/10 focus:border-blue-400 transition-all appearance-none cursor-pointer"
+                              className="w-[45%] px-3 py-3 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all appearance-none cursor-pointer"
                             >
                               {COUNTRY_CODE_OPTIONS.map((opt) => (
                                 <option key={opt.code} value={opt.code}>{opt.label}</option>
@@ -2074,13 +2074,13 @@ export default function PatientProfile() {
                               value={editPhone}
                               onChange={e => setEditPhone(e.target.value)}
                               placeholder="1001234567"
-                              className="w-[55%] px-4 py-3 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:ring-4 focus:ring-[#60d297]/10 focus:border-blue-400 transition-all"
+                              className="w-[55%] px-4 py-3 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all"
                             />
                           </div>
                        </div>
                        <div>
                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{t('age') || "Age"} / {t('dob') || "DOB"}</label>
-                          <input type="date" value={editDob} onChange={e => setEditDob(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:ring-4 focus:ring-[#60d297]/10 focus:border-blue-400 transition-all"/>
+                          <input type="date" value={editDob} onChange={e => setEditDob(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all"/>
                        </div>
                     </div>
                     <Input label={t('address') || "Address"} value={editAddress} onChange={setEditAddress} />
@@ -2088,7 +2088,7 @@ export default function PatientProfile() {
                        <div>
                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{t('gender') || "Gender"}</label>
                           <div className="relative">
-                              <select value={editGender} onChange={e => setEditGender(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none appearance-none focus:bg-white focus:ring-4 focus:ring-[#60d297]/10 focus:border-blue-400 transition-all cursor-pointer">
+                              <select value={editGender} onChange={e => setEditGender(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none appearance-none focus:bg-white focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all cursor-pointer">
                                  <option value="Male">{t('male') || "Male"}</option>
                                  <option value="Female">{t('female') || "Female"}</option>
                               </select>
@@ -2098,7 +2098,7 @@ export default function PatientProfile() {
                        <div>
                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{t('status') || "Status"}</label>
                           <div className="relative">
-                              <select value={editStatus} onChange={e => setEditStatus(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none appearance-none focus:bg-white focus:ring-4 focus:ring-[#60d297]/10 focus:border-blue-400 transition-all cursor-pointer">
+                              <select value={editStatus} onChange={e => setEditStatus(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none appearance-none focus:bg-white focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all cursor-pointer">
                                  <option value="Active">{t('statusActive') || "Active"}</option>
                                  <option value="Archived">{t('statusArchived') || "Archived"}</option>
                               </select>
@@ -2109,7 +2109,7 @@ export default function PatientProfile() {
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{t('referralSource') || "Referral"}</label>
                         <div className="relative">
-                            <select value={editReferral} onChange={e => setEditReferral(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none appearance-none focus:bg-white focus:ring-4 focus:ring-[#60d297]/10 focus:border-blue-400 transition-all cursor-pointer">
+                            <select value={editReferral} onChange={e => setEditReferral(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none appearance-none focus:bg-white focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all cursor-pointer">
                                <option value="">{t('select') || "Select..."}</option>
                                <option value="Walk-in">{t('walkIn') || "Walk-in"}</option>
                                <option value="Social Media">{t('socialMedia') || "Social Media"}</option>
@@ -2154,7 +2154,7 @@ export default function PatientProfile() {
             <div className="w-full max-w-5xl flex items-center justify-between text-white shrink-0 mb-4">
               <div>
                 <h3 className="text-base font-bold flex items-center gap-2">
-                  <Camera size={18} className="text-[#27ae60]" />
+                  <Camera size={18} className="text-accent" />
                   {selectedLightboxMedia.filename || "Radiograph Preview"}
                 </h3>
                 <p className="text-xs text-slate-400">
@@ -2198,6 +2198,6 @@ export default function PatientProfile() {
 const Input = ({ label, value, onChange }: any) => (
   <div>
     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{label}</label>
-    <input value={value} onChange={e => onChange(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:ring-4 focus:ring-[#60d297]/10 focus:border-blue-400 transition-all"/>
+    <input value={value} onChange={e => onChange(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all"/>
   </div>
 );

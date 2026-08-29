@@ -58,7 +58,7 @@ export default function HelpMarkdown({ body, isRTL }: { body: string; isRTL: boo
           ),
           ol: ({ children }) => (
             <ol
-              className={`my-5 space-y-3 ${isRTL ? "mr-5" : "ml-5"} list-decimal marker:font-black marker:text-[#27ae60]`}
+              className={`my-5 space-y-3 ${isRTL ? "mr-5" : "ml-5"} list-decimal marker:font-black marker:text-accent`}
             >
               {children}
             </ol>
@@ -68,7 +68,7 @@ export default function HelpMarkdown({ body, isRTL }: { body: string; isRTL: boo
           a: ({ href, children }) => (
             <a
               href={href}
-              className="font-bold text-[#27ae60] underline decoration-[#27ae60]/30 underline-offset-4 hover:decoration-[#27ae60]"
+              className="font-bold text-accent underline decoration-accent/30 underline-offset-4 hover:decoration-accent"
             >
               {children}
             </a>

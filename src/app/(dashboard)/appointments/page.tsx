@@ -1375,7 +1375,7 @@ export default function AppointmentsPage() {
                                     <div
                                        key={`${slot.h}-${slot.m}`}
                                        style={{ height: `${SLOT_HEIGHT}px` }}
-                                       className={`w-full transition-all ${isDraggedOver ? 'bg-teal-50 border-2 border-dashed border-teal-400 scale-[0.97] rounded-2xl shadow-inner z-10' : (colObj.isOffDay ? 'hover:bg-red-100/50 cursor-pointer border-b border-transparent hover:border-red-200' : 'hover:bg-[#E8F7F0]/30 cursor-pointer border-b border-transparent hover:border-primary-100')}`}
+                                       className={`w-full transition-all ${isDraggedOver ? 'bg-teal-50 border-2 border-dashed border-teal-400 scale-[0.97] rounded-2xl shadow-inner z-10' : (colObj.isOffDay ? 'hover:bg-red-100/50 cursor-pointer border-b border-transparent hover:border-red-200' : 'hover:bg-accent-tint/30 cursor-pointer border-b border-transparent hover:border-primary-100')}`}
                                        onClick={() => { if (canAddAppointment) handleOpenBooking(colObj.dateStr, slot.timeLabel, colDoctor) }}
                                        onDragOver={(e) => e.preventDefault()}
                                        onDragEnter={() => setActiveDragTarget({ colKey: colObj.key, time: slot.timeLabel })}
@@ -1466,7 +1466,7 @@ export default function AppointmentsPage() {
                     showToast("Error updating status", "error");
                   }
                 }}
-                className="w-full bg-[#60d297] hover:bg-[#4eb37f] text-white font-bold py-3 px-4 rounded-xl transition-colors"
+                className="w-full bg-accent-soft hover:bg-[#4eb37f] text-white font-bold py-3 px-4 rounded-xl transition-colors"
               >
                 {language === 'ar' ? 'تحديد موعد جديد' : 'Schedule New Appointment'}
               </button>

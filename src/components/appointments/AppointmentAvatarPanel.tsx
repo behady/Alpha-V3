@@ -849,7 +849,7 @@ export default function AppointmentAvatarPanel({
             {onSwitchToEditor && (
               <button
                 onClick={onSwitchToEditor}
-                className="mt-6 text-xs font-bold text-white bg-[#1A2130] hover:bg-slate-800 px-4 py-2.5 rounded-xl flex items-center gap-1.5 transition-colors shadow-md"
+                className="mt-6 text-xs font-bold text-white bg-ink-slab hover:bg-slate-800 px-4 py-2.5 rounded-xl flex items-center gap-1.5 transition-colors shadow-md"
               >
                 <PencilLine size={14} /> {isAr ? "افتح المحرر" : "Open the editor"}
               </button>
@@ -1057,7 +1057,7 @@ export default function AppointmentAvatarPanel({
               <div
                 className={`max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm ${
                   msg.role === "user"
-                    ? "bg-[#1A2130] text-white rounded-tr-sm whitespace-pre-wrap"
+                    ? "bg-ink-slab text-white rounded-tr-sm whitespace-pre-wrap"
                     : "bg-white text-slate-700 border border-slate-200/60 rounded-tl-sm"
                 }`}
               >

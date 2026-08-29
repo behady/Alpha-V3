@@ -89,7 +89,7 @@ export default function ClinicSwitcher({ expanded = false }: { expanded?: boolea
 
       {/* Tooltip on hover if closed */}
       {!isOpen && !expanded && (
-        <div className={`absolute top-1/2 -translate-y-1/2 z-[200] bg-[#2D3748] text-white text-xs font-bold px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg whitespace-nowrap ${isRTL ? 'right-full mr-4' : 'left-full ml-4'}`}>
+        <div className={`absolute top-1/2 -translate-y-1/2 z-[200] bg-ink-strong text-white text-xs font-bold px-3 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg whitespace-nowrap ${isRTL ? 'right-full mr-4' : 'left-full ml-4'}`}>
           {currentClinicName}
         </div>
       )}

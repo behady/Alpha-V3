@@ -213,7 +213,7 @@ export default function OnboardingPage() {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4" dir={isAr ? "rtl" : "ltr"}>
         <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-10 max-w-md w-full text-center">
-          <div className="w-16 h-16 rounded-2xl bg-[#E8F7F0] text-[#27ae60] flex items-center justify-center mx-auto mb-6">
+          <div className="w-16 h-16 rounded-2xl bg-accent-tint text-accent flex items-center justify-center mx-auto mb-6">
             {slowGrant ? <AlertCircle size={28} /> : <Loader2 size={28} className="animate-spin" />}
           </div>
           <h1 className="text-xl font-black text-slate-900 mb-2">{t.creating}</h1>
@@ -244,7 +244,7 @@ export default function OnboardingPage() {
     <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6" dir={isAr ? "rtl" : "ltr"}>
       <div className="max-w-md mx-auto">
         <div className="text-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-[#E8F7F0] text-[#27ae60] flex items-center justify-center mx-auto mb-4">
+          <div className="w-14 h-14 rounded-2xl bg-accent-tint text-accent flex items-center justify-center mx-auto mb-4">
             <Building2 size={26} />
           </div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">{t.welcome}</h1>
@@ -275,12 +275,12 @@ export default function OnboardingPage() {
               onKeyDown={(e) => e.key === "Enter" && !creating && void handleCreateClinic()}
               placeholder={t.clinicNamePlaceholder}
               disabled={creating}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all disabled:opacity-60"
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all disabled:opacity-60"
             />
             <button
               onClick={() => void handleCreateClinic()}
               disabled={creating || joining}
-              className="mt-4 w-full bg-[#27ae60] hover:bg-[#219150] text-white font-black py-3.5 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              className="mt-4 w-full bg-accent hover:bg-[#219150] text-white font-black py-3.5 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {creating ? <Loader2 size={18} className="animate-spin" /> : null}
               {creating ? t.creating : t.createBtn}
@@ -303,15 +303,15 @@ export default function OnboardingPage() {
             <h2 className="text-base font-black text-slate-900 mb-4">{t.joinTitle}</h2>
 
             {joinSent ? (
-              <div className="rounded-2xl bg-[#E8F7F0] border border-emerald-200 p-5 text-center">
-                <div className="w-11 h-11 rounded-full bg-white text-[#27ae60] flex items-center justify-center mx-auto mb-3">
+              <div className="rounded-2xl bg-accent-tint border border-emerald-200 p-5 text-center">
+                <div className="w-11 h-11 rounded-full bg-white text-accent flex items-center justify-center mx-auto mb-3">
                   <Check size={22} />
                 </div>
                 <p className="font-black text-slate-900 text-sm">{t.joinSentTitle}</p>
                 <p className="text-xs font-medium text-slate-600 mt-1.5 leading-relaxed">{t.joinSentBody}</p>
                 <button
                   onClick={() => setJoinSent(false)}
-                  className="mt-4 text-xs font-bold text-[#27ae60] hover:underline"
+                  className="mt-4 text-xs font-bold text-accent hover:underline"
                 >
                   {t.sendAnother}
                 </button>
@@ -330,7 +330,7 @@ export default function OnboardingPage() {
                   autoComplete="off"
                   spellCheck={false}
                   disabled={joining}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all disabled:opacity-60"
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all disabled:opacity-60"
                 />
                 <p className="mt-2 text-xs font-medium text-slate-400 leading-relaxed">{t.joinIdHelp}</p>
                 <button
@@ -350,7 +350,7 @@ export default function OnboardingPage() {
           {existingClinics.length > 0 && (
             <button
               onClick={() => router.push("/")}
-              className="text-sm font-bold text-[#27ae60] hover:underline flex items-center gap-1.5"
+              className="text-sm font-bold text-accent hover:underline flex items-center gap-1.5"
             >
               <ArrowLeft size={15} className={isAr ? "rotate-180" : ""} />
               {t.backToDashboard}

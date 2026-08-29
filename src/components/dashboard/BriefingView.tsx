@@ -272,7 +272,7 @@ export default function BriefingView({ period }: { period: Period }) {
         <p className="text-[13px] font-bold text-slate-500">{error}</p>
         <button
           onClick={() => void load()}
-          className="mt-4 inline-flex items-center gap-2 rounded-full bg-[#1A2130] px-5 py-2 text-xs font-bold text-white"
+          className="mt-4 inline-flex items-center gap-2 rounded-full bg-ink-slab px-5 py-2 text-xs font-bold text-white"
         >
           <RefreshCw size={13} />
           {isAr ? "إعادة المحاولة" : "Try again"}
@@ -299,7 +299,7 @@ export default function BriefingView({ period }: { period: Period }) {
   return (
     <div className="space-y-4" dir={isRTL ? "rtl" : "ltr"}>
       {/* --- The slab: the one dark surface, carrying the numbers that matter most --- */}
-      <div className="bg-[#1A2130] text-white rounded-[2rem] p-5 md:p-7 shadow-[0_12px_40px_rgba(26,33,48,0.18)]">
+      <div className="bg-ink-slab text-white rounded-[2rem] p-5 md:p-7 shadow-[0_12px_40px_rgba(26,33,48,0.18)]">
         <div className="flex items-start justify-between gap-4 mb-5">
           <div>
             <div className="flex items-center gap-2 text-[#C8A24A]">
@@ -322,7 +322,7 @@ export default function BriefingView({ period }: { period: Period }) {
             </button>
             <button
               onClick={onPrint}
-              className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-bold text-[#1A2130] hover:bg-white/90 transition-colors"
+              className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-bold text-ink-slab hover:bg-white/90 transition-colors"
             >
               <Printer size={14} />
               {isAr ? "طباعة PDF" : "Print PDF"}
@@ -375,7 +375,7 @@ export default function BriefingView({ period }: { period: Period }) {
               return (
                 <div key={d.dateKey} className="flex-1 flex flex-col items-center justify-end h-full">
                   <div
-                    className="w-full rounded-t-md bg-[#1A2130]"
+                    className="w-full rounded-t-md bg-ink-slab"
                     style={{ height: `${Math.max(3, (value / max) * 72)}px` }}
                     title={`${d.dateKey} · ${d.collected !== null ? money(d.collected) : num(d.patientsSeen)}`}
                   />

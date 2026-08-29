@@ -1166,7 +1166,7 @@ export default function AttendancePage() {
     );
   }
 
-  if (loading && !personalLogs.length && !allLogs.length) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-[#60d297]" size={40}/></div>;
+  if (loading && !personalLogs.length && !allLogs.length) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-accent-soft" size={40}/></div>;
 
   return (
     <div className="max-w-[1600px] mx-auto p-4 md:p-8 space-y-8 animate-in fade-in pb-24 font-sans text-slate-800">
@@ -1175,7 +1175,7 @@ export default function AttendancePage() {
       <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
         <div>
             <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
-              <Clock className="text-[#60d297]" size={28}/> {canAdmin && viewMode === 'team' ? 'Team Control Center' : 'My Worksheet'}
+              <Clock className="text-accent-soft" size={28}/> {canAdmin && viewMode === 'team' ? 'Team Control Center' : 'My Worksheet'}
             </h1>
             <p className="text-xs md:text-sm text-slate-500 font-semibold mt-1">Track shifts, log attendance, and run payroll invoices.</p>
         </div>
@@ -1219,7 +1219,7 @@ export default function AttendancePage() {
             {canAdmin ? (
                 <div className="bg-slate-100 p-1 rounded-xl flex items-center shadow-inner border border-slate-200 shrink-0">
                     <button onClick={() => setViewMode('personal')} className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${viewMode === 'personal' ? 'bg-white text-slate-900 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}>{language === 'ar' ? 'تعقبي' : 'My Tracker'}</button>
-                    <button onClick={() => setViewMode('team')} className={`px-5 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${viewMode === 'team' ? 'bg-white text-[#27ae60] shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}><Users size={16}/> {language === 'ar' ? 'نظرة الفريق' : 'Team Overview'}</button>
+                    <button onClick={() => setViewMode('team')} className={`px-5 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${viewMode === 'team' ? 'bg-white text-accent shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}><Users size={16}/> {language === 'ar' ? 'نظرة الفريق' : 'Team Overview'}</button>
                 </div>
             ) : (
                 <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-2 shrink-0">

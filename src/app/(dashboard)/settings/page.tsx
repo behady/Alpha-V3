@@ -281,7 +281,7 @@ export default function SettingsPage() {
       
       {/* HEADER */}
       <div className="flex items-center gap-4 bg-white p-6 rounded-[2rem] border border-slate-200/60 shadow-sm mb-8">
-          <div className="bg-[#E8F7F0] p-3.5 rounded-2xl text-[#27ae60] shrink-0">
+          <div className="bg-accent-tint p-3.5 rounded-2xl text-accent shrink-0">
               <ActiveIcon size={26}/>
           </div>
           <div>
@@ -301,7 +301,7 @@ export default function SettingsPage() {
                   onClick={() => setIsTopMenuOpen(!isTopMenuOpen)} 
                   className="w-full bg-white border border-slate-200 px-5 py-4 rounded-2xl flex items-center justify-between font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm"
               >
-                  <span className="flex items-center gap-2"><ActiveIcon size={18} className="text-[#60d297]"/> {ActiveLabel}</span>
+                  <span className="flex items-center gap-2"><ActiveIcon size={18} className="text-accent-soft"/> {ActiveLabel}</span>
                   <ChevronDown size={18} className={`text-slate-400 transition-transform ${isTopMenuOpen ? 'rotate-180' : ''}`}/>
               </button>
               
@@ -316,9 +316,9 @@ export default function SettingsPage() {
                                       key={tab.id}
                                       onClick={() => { setActiveTab(tab.id); setIsTopMenuOpen(false); }}
                                       data-tour={tab.id === 'clinical' ? 'settings-tab-schedule' : tab.id === 'services' ? 'settings-tab-prices' : undefined}
-                                      className={`w-full flex items-center gap-3 px-5 py-3 text-sm font-bold transition-colors ${isActive ? 'bg-[#E8F7F0] text-[#27ae60]' : 'text-slate-600 hover:bg-slate-50'}`}
+                                      className={`w-full flex items-center gap-3 px-5 py-3 text-sm font-bold transition-colors ${isActive ? 'bg-accent-tint text-accent' : 'text-slate-600 hover:bg-slate-50'}`}
                                   >
-                                      <tab.icon size={18} className={isActive ? 'text-[#27ae60]' : 'text-slate-400'}/> {tab.label}
+                                      <tab.icon size={18} className={isActive ? 'text-accent' : 'text-slate-400'}/> {tab.label}
                                   </button>
                               )
                           })}
@@ -342,9 +342,9 @@ export default function SettingsPage() {
                     <button
                       key={tab.id}
                       onClick={() => setActiveTab(tab.id)}
-                      className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-bold rounded-2xl transition-all ${isActive ? 'bg-white text-[#27ae60] shadow-sm border border-slate-200/60' : 'text-slate-600 hover:bg-white/60 hover:text-slate-900 border border-transparent'}`}
+                      className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-bold rounded-2xl transition-all ${isActive ? 'bg-white text-accent shadow-sm border border-slate-200/60' : 'text-slate-600 hover:bg-white/60 hover:text-slate-900 border border-transparent'}`}
                     >
-                      <tab.icon size={18} className={isActive ? 'text-[#27ae60]' : 'text-slate-400'}/> {tab.label}
+                      <tab.icon size={18} className={isActive ? 'text-accent' : 'text-slate-400'}/> {tab.label}
                     </button>
                   );
                 })}
@@ -383,9 +383,9 @@ export default function SettingsPage() {
                         key={tab.id}
                         data-tour={tab.id === 'clinical' ? 'settings-tab-schedule' : tab.id === 'services' ? 'settings-tab-prices' : undefined}
                         onClick={() => setActiveTab(tab.id)}
-                        className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-bold rounded-2xl transition-all ${isActive ? 'bg-white text-[#27ae60] shadow-sm border border-slate-200/60' : 'text-slate-600 hover:bg-white/60 hover:text-slate-900 border border-transparent'}`}
+                        className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-bold rounded-2xl transition-all ${isActive ? 'bg-white text-accent shadow-sm border border-slate-200/60' : 'text-slate-600 hover:bg-white/60 hover:text-slate-900 border border-transparent'}`}
                       >
-                        <tab.icon size={18} className={isActive ? 'text-[#27ae60]' : 'text-slate-400'}/> {tab.label}
+                        <tab.icon size={18} className={isActive ? 'text-accent' : 'text-slate-400'}/> {tab.label}
                       </button>
                     );
                   })}
@@ -406,9 +406,9 @@ export default function SettingsPage() {
                       <button
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id)}
-                        className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-bold rounded-2xl transition-all ${isActive ? 'bg-white text-[#27ae60] shadow-sm border border-slate-200/60' : 'text-slate-600 hover:bg-white/60 hover:text-slate-900 border border-transparent'}`}
+                        className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-bold rounded-2xl transition-all ${isActive ? 'bg-white text-accent shadow-sm border border-slate-200/60' : 'text-slate-600 hover:bg-white/60 hover:text-slate-900 border border-transparent'}`}
                       >
-                        <tab.icon size={18} className={isActive ? 'text-[#27ae60]' : 'text-slate-400'}/> {tab.label}
+                        <tab.icon size={18} className={isActive ? 'text-accent' : 'text-slate-400'}/> {tab.label}
                       </button>
                     );
                   })}
@@ -474,27 +474,27 @@ export default function SettingsPage() {
                 <button onClick={() => setIsUserModalOpen(false)} className="text-slate-400 hover:text-red-500 bg-slate-50 hover:bg-red-50 p-2 rounded-full transition-colors"><X size={20}/></button>
               </div>
               <form onSubmit={handleSaveUser} className="space-y-5">
-                <div className="space-y-1.5"><label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.userFullName}</label><div className="relative"><User size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`}/><input required value={userForm.name} onChange={e => setUserForm({...userForm, name: e.target.value})} className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}/></div></div>
-                <div className="space-y-1.5"><label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.userEmail}</label><div className="relative"><Mail size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`}/><input required type="email" value={userForm.email} onChange={e => setUserForm({...userForm, email: e.target.value})} className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}/></div></div>
+                <div className="space-y-1.5"><label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.userFullName}</label><div className="relative"><User size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`}/><input required value={userForm.name} onChange={e => setUserForm({...userForm, name: e.target.value})} className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}/></div></div>
+                <div className="space-y-1.5"><label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.userEmail}</label><div className="relative"><Mail size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`}/><input required type="email" value={userForm.email} onChange={e => setUserForm({...userForm, email: e.target.value})} className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}/></div></div>
                 
                 {!editingUser && (
                   <div className="space-y-1.5">
                     <label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.userPassword}</label>
                     <div className="relative">
                       <Lock size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`}/>
-                      <input required type="password" value={userForm.password} onChange={e => setUserForm({...userForm, password: e.target.value})} placeholder={txt.userPasswordHint} className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}/>
+                      <input required type="password" value={userForm.password} onChange={e => setUserForm({...userForm, password: e.target.value})} placeholder={txt.userPasswordHint} className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}/>
                     </div>
                   </div>
                 )}
 
-                <div className="space-y-1.5"><label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.userRole}</label><div className="relative"><Badge size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`}/><select value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value, isDentist: isFullAccessRole(e.target.value) ? userForm.isDentist : false})} className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-[#60d297] transition-all appearance-none cursor-pointer ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}><option value="Dentist">{txt.roleDentist}</option><option value="Assistant">{txt.roleAssistant}</option><option value="Receptionist">{txt.roleReceptionist}</option><option value="Admin">{txt.roleAdmin}</option></select></div></div>
+                <div className="space-y-1.5"><label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.userRole}</label><div className="relative"><Badge size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`}/><select value={userForm.role} onChange={e => setUserForm({...userForm, role: e.target.value, isDentist: isFullAccessRole(e.target.value) ? userForm.isDentist : false})} className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all appearance-none cursor-pointer ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}><option value="Dentist">{txt.roleDentist}</option><option value="Assistant">{txt.roleAssistant}</option><option value="Receptionist">{txt.roleReceptionist}</option><option value="Admin">{txt.roleAdmin}</option></select></div></div>
                 {isFullAccessRole(userForm.role) && (
                   <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <input
                       type="checkbox"
                       checked={userForm.isDentist}
                       onChange={(e) => setUserForm({ ...userForm, isDentist: e.target.checked })}
-                      className="mt-0.5 w-4 h-4 rounded border-slate-300 text-[#27ae60]"
+                      className="mt-0.5 w-4 h-4 rounded border-slate-300 text-accent"
                     />
                     <span className="text-sm font-semibold text-slate-700 leading-snug">
                       {language === "ar"

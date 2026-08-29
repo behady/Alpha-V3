@@ -1455,7 +1455,7 @@ export default function PatientTreatmentPlanTab({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
-            <ClipboardList size={20} className="text-[#27ae60]" /> {txt.tabTitle}
+            <ClipboardList size={20} className="text-accent" /> {txt.tabTitle}
           </h3>
           <p className="text-sm font-medium text-slate-500 mt-1">{txt.subtitle}</p>
         </div>
@@ -1474,7 +1474,7 @@ export default function PatientTreatmentPlanTab({
           </button>
           <button
             onClick={openNewEditor}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#27ae60] text-white text-sm font-bold hover:bg-[#219653] transition-colors shadow-sm"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent text-white text-sm font-bold hover:bg-[#219653] transition-colors shadow-sm"
           >
             <Plus size={16} /> {txt.newPlan}
           </button>
@@ -1483,7 +1483,7 @@ export default function PatientTreatmentPlanTab({
 
       {/* Plans list */}
       {plansLoading ? (
-        <div className="flex justify-center py-16"><Loader2 className="animate-spin text-[#27ae60]" size={28} /></div>
+        <div className="flex justify-center py-16"><Loader2 className="animate-spin text-accent" size={28} /></div>
       ) : plans.length === 0 ? (
         <div className="bg-white rounded-2xl border border-dashed border-slate-200 p-12 text-center">
           <ClipboardList size={36} className="mx-auto text-slate-300 mb-3" />
@@ -1579,7 +1579,7 @@ export default function PatientTreatmentPlanTab({
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <h3 className="font-black text-slate-800 flex items-center gap-2">
-                <ClipboardList size={18} className="text-[#27ae60]" />
+                <ClipboardList size={18} className="text-accent" />
                 {editingPlanId ? (ar ? "تعديل خطة العلاج" : "Edit Treatment Plan") : (ar ? "خطة علاج جديدة" : "New Treatment Plan")}
               </h3>
               <button onClick={() => setEditorOpen(false)} className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 transition-colors"><X size={18} /></button>
@@ -1593,7 +1593,7 @@ export default function PatientTreatmentPlanTab({
                     value={formTitle}
                     onChange={(e) => setFormTitle(e.target.value)}
                     placeholder={txt.planTitlePh}
-                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-[#27ae60] focus:ring-2 focus:ring-emerald-100 transition-all"
+                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-accent focus:ring-2 focus:ring-emerald-100 transition-all"
                   />
                 </div>
                 <div>
@@ -1602,7 +1602,7 @@ export default function PatientTreatmentPlanTab({
                     value={formDescription}
                     onChange={(e) => setFormDescription(e.target.value)}
                     placeholder={txt.descriptionPh}
-                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-[#27ae60] focus:ring-2 focus:ring-emerald-100 transition-all"
+                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-accent focus:ring-2 focus:ring-emerald-100 transition-all"
                   />
                 </div>
               </div>
@@ -1612,12 +1612,12 @@ export default function PatientTreatmentPlanTab({
                 {formVisits.map((visit, vIdx) => (
                   <div key={visit.id} className="border border-slate-200 rounded-2xl overflow-hidden">
                     <div className="bg-slate-50 px-4 py-3 flex flex-wrap items-center gap-2 border-b border-slate-100">
-                      <span className="w-7 h-7 shrink-0 rounded-full bg-[#27ae60] text-white text-xs font-black flex items-center justify-center">{vIdx + 1}</span>
+                      <span className="w-7 h-7 shrink-0 rounded-full bg-accent text-white text-xs font-black flex items-center justify-center">{vIdx + 1}</span>
                       <input
                         value={visit.label}
                         onChange={(e) => updateVisit(visit.id, { label: e.target.value })}
                         placeholder={txt.visitLabelPh}
-                        className="flex-1 min-w-[160px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 outline-none focus:border-[#27ae60] transition-all"
+                        className="flex-1 min-w-[160px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 outline-none focus:border-accent transition-all"
                       />
                       {stepsMinutes(visit.steps) > 0 && (
                         <span className="text-[10px] font-black text-slate-500 bg-white border border-slate-200 rounded-full px-2 py-1 whitespace-nowrap">
@@ -1628,19 +1628,19 @@ export default function PatientTreatmentPlanTab({
                         type="date"
                         value={visit.date}
                         onChange={(e) => updateVisit(visit.id, { date: e.target.value })}
-                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-700 outline-none focus:border-[#27ae60] transition-all"
+                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-700 outline-none focus:border-accent transition-all"
                       />
                       <input
                         value={visit.time}
                         onChange={(e) => updateVisit(visit.id, { time: e.target.value })}
                         placeholder={ar ? "الوقت" : "Time"}
-                        className="w-24 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-700 outline-none focus:border-[#27ae60] transition-all"
+                        className="w-24 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-700 outline-none focus:border-accent transition-all"
                       />
                       <button
                         onClick={() => openSlotPicker(visit)}
                         className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${
                           slotPickerVisitId === visit.id
-                            ? "bg-[#27ae60] text-white border-[#27ae60]"
+                            ? "bg-accent text-white border-accent"
                             : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
                         }`}
                       >
@@ -1722,7 +1722,7 @@ export default function PatientTreatmentPlanTab({
                                 value={step.teeth}
                                 onChange={(e) => updateStep(visit.id, step.id, { teeth: e.target.value })}
                                 placeholder={txt.teethPh}
-                                className="md:col-span-3 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-[#27ae60] transition-all"
+                                className="md:col-span-3 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-accent transition-all"
                               />
                               <input
                                 type="number"
@@ -1730,7 +1730,7 @@ export default function PatientTreatmentPlanTab({
                                 value={step.quantity}
                                 onChange={(e) => updateStep(visit.id, step.id, { quantity: Math.max(1, Math.round(Number(e.target.value) || 1)) })}
                                 title={txt.qty}
-                                className="md:col-span-2 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-[#27ae60] transition-all"
+                                className="md:col-span-2 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-accent transition-all"
                               />
                               <input
                                 type="number"
@@ -1738,13 +1738,13 @@ export default function PatientTreatmentPlanTab({
                                 value={step.unitPrice}
                                 onChange={(e) => updateStep(visit.id, step.id, { unitPrice: Math.max(0, Number(e.target.value) || 0) })}
                                 title={txt.unitPrice}
-                                className="md:col-span-2 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-[#27ae60] transition-all"
+                                className="md:col-span-2 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-accent transition-all"
                               />
                               <input
                                 value={step.note}
                                 onChange={(e) => updateStep(visit.id, step.id, { note: e.target.value })}
                                 placeholder={txt.notePh}
-                                className="md:col-span-9 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 outline-none focus:border-[#27ae60] transition-all"
+                                className="md:col-span-9 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 outline-none focus:border-accent transition-all"
                               />
                               <div className="md:col-span-3 relative">
                                 <input
@@ -1754,7 +1754,7 @@ export default function PatientTreatmentPlanTab({
                                   onChange={(e) => updateStep(visit.id, step.id, { estimatedMinutes: Math.max(0, Math.round(Number(e.target.value) || 0)) })}
                                   placeholder={txt.minutesPh}
                                   title={txt.minutesTitle}
-                                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 pe-12 text-xs font-semibold text-slate-700 outline-none focus:border-[#27ae60] transition-all"
+                                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 pe-12 text-xs font-semibold text-slate-700 outline-none focus:border-accent transition-all"
                                 />
                                 <span className="absolute end-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 pointer-events-none">{txt.minutesPh}</span>
                               </div>
@@ -1784,7 +1784,7 @@ export default function PatientTreatmentPlanTab({
 
                 <button
                   onClick={() => setFormVisits((prev) => [...prev, blankVisit(prev.length + 1)])}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-sm font-bold border-2 border-dashed border-slate-200 text-slate-500 hover:border-[#27ae60] hover:text-[#27ae60] transition-colors"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-sm font-bold border-2 border-dashed border-slate-200 text-slate-500 hover:border-accent hover:text-accent transition-colors"
                 >
                   <Plus size={16} /> {txt.addVisit}
                 </button>
@@ -1793,7 +1793,7 @@ export default function PatientTreatmentPlanTab({
 
             <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50/60 rounded-b-3xl">
               <div className="text-sm font-black text-slate-700">
-                {txt.total}: <span className="text-[#27ae60]">{money(formTotal)} {currency}</span>
+                {txt.total}: <span className="text-accent">{money(formTotal)} {currency}</span>
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => setEditorOpen(false)} className="px-4 py-2.5 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-100 transition-colors">
@@ -1802,7 +1802,7 @@ export default function PatientTreatmentPlanTab({
                 <button
                   onClick={handleSavePlan}
                   disabled={saving}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#27ae60] text-white text-sm font-bold hover:bg-[#219653] transition-colors disabled:opacity-60"
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent text-white text-sm font-bold hover:bg-[#219653] transition-colors disabled:opacity-60"
                 >
                   {saving ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} {txt.save}
                 </button>

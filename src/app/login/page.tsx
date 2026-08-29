@@ -368,7 +368,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-[#27ae60] text-white py-4 rounded-2xl font-black text-sm shadow-xl shadow-emerald-900/20 hover:bg-[#219150] hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-2 mt-2 disabled:opacity-60"
+              className="w-full bg-accent text-white py-4 rounded-2xl font-black text-sm shadow-xl shadow-emerald-900/20 hover:bg-[#219150] hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-2 mt-2 disabled:opacity-60"
             >
               {loading ? <Loader2 size={20} className="animate-spin" /> : <>{txt.signUpBtn} {isRTL ? <ArrowRight size={18} className="rotate-180" /> : <ArrowRight size={18} />}</>}
             </button>
@@ -516,7 +516,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => switchMode("signup")}
-                className="font-black text-[#27ae60] hover:underline"
+                className="font-black text-accent hover:underline"
               >
                 {txt.createOne}
               </button>

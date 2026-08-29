@@ -80,7 +80,7 @@ export const PersonalWorksheet = ({
                         )}
 
                         {myProfile && !myProfile.registeredDeviceId && !activeSession && (
-                            <div className="mt-4 flex items-start gap-2 text-left bg-[#E8F7F0] text-[#1E5631] p-3 rounded-xl border border-[#A7E2C3] text-xs font-semibold leading-relaxed">
+                            <div className="mt-4 flex items-start gap-2 text-left bg-accent-tint text-[#1E5631] p-3 rounded-xl border border-[#A7E2C3] text-xs font-semibold leading-relaxed">
                                 <ShieldAlert size={16} className="shrink-0 mt-0.5"/> This device will be registered as your clock-in device when you punch in.
                             </div>
                         )}
@@ -90,7 +90,7 @@ export const PersonalWorksheet = ({
 
             {myCalculatedStats && (
                 <div className="bg-slate-900 rounded-[2rem] p-6 shadow-xl border border-slate-800 text-white relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-[#60d297] rounded-full blur-[50px] opacity-20 pointer-events-none"></div>
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-accent-soft rounded-full blur-[50px] opacity-20 pointer-events-none"></div>
                     <div className="flex items-center justify-between mb-6 relative z-10">
                         <h3 className="font-bold text-slate-300 uppercase tracking-widest text-xs flex items-center gap-2"><DollarSign size={16}/> This Month's Earnings</h3>
                     </div>
@@ -154,7 +154,7 @@ export const TeamOverview = ({
     <div className="space-y-8 animate-in slide-in-from-bottom-4">
         {/* ADMIN FILTER BAR */}
         <div className="bg-white p-5 rounded-[2rem] border border-slate-200 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-            <div className="flex items-center gap-2"><Filter size={20} className="text-[#27ae60]" /><h3 className="font-black text-slate-900">Payroll Engine</h3></div>
+            <div className="flex items-center gap-2"><Filter size={20} className="text-accent" /><h3 className="font-black text-slate-900">Payroll Engine</h3></div>
                 <div className="flex flex-col xl:flex-row items-center gap-3 w-full lg:w-auto">
                 <select value={filterRole} onChange={e => setFilterRole(e.target.value)} className="w-full sm:w-auto bg-slate-50 border border-slate-200 text-slate-700 px-4 py-2.5 rounded-xl text-xs font-bold outline-none cursor-pointer">
                     <option value="all">All Roles</option><option value="Dentist">Dentists</option><option value="Assistant">Assistants</option><option value="Receptionist">Receptionists</option>
@@ -172,7 +172,7 @@ export const TeamOverview = ({
         <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-50/50">
                 <div><h3 className="font-black text-slate-900 text-lg">Final Payroll Report</h3><p className="text-xs font-semibold text-slate-500">Automatically combines Base Salary (hours) + Ledger Commissions.</p></div>
-                <button onClick={handleGeneratePayrollPDF} className="bg-[#60d297] text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-md hover:bg-[#4eb37f] transition-all shrink-0 active:scale-95">
+                <button onClick={handleGeneratePayrollPDF} className="bg-accent-soft text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-md hover:bg-[#4eb37f] transition-all shrink-0 active:scale-95">
                     <FileText size={16}/> Generate Payroll PDF
                 </button>
             </div>
@@ -213,11 +213,11 @@ export const TeamOverview = ({
                                     </td>
                                     <td className="p-4">
                                         <div className="flex items-center justify-center gap-2">
-                                            <button onClick={() => openSettingsModal(staff)} className={`flex items-center justify-center gap-1.5 bg-white border px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm ${staff.registeredDeviceId ? 'border-slate-200 text-slate-600 hover:text-[#27ae60] hover:border-[#A7E2C3]' : 'border-orange-200 text-orange-600 hover:bg-orange-50'}`}>
+                                            <button onClick={() => openSettingsModal(staff)} className={`flex items-center justify-center gap-1.5 bg-white border px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm ${staff.registeredDeviceId ? 'border-slate-200 text-slate-600 hover:text-accent hover:border-[#A7E2C3]' : 'border-orange-200 text-orange-600 hover:bg-orange-50'}`}>
                                                 <Settings2 size={14}/> {Math.floor(staff.expectedMonthlyHours)}h | {staff.commissionPercentage}%
                                             </button>
                                             {/* NEW: VIEW LOGS BUTTON */}
-                                            <button onClick={() => openLogsModal(staff)} className="flex items-center justify-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:text-[#27ae60] hover:border-[#A7E2C3] transition-all shadow-sm">
+                                            <button onClick={() => openLogsModal(staff)} className="flex items-center justify-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:text-accent hover:border-[#A7E2C3] transition-all shadow-sm">
                                                 <History size={14}/> Logs
                                             </button>
                                         </div>
@@ -227,12 +227,12 @@ export const TeamOverview = ({
                                         {staff.missingMinutes > 0 && <p className="text-[10px] font-bold text-red-500">-{formatDuration(staff.missingMinutes)}</p>}
                                     </td>
                                     <td className="p-4 text-right">
-                                        <p className="font-black text-[#27ae60]">{formatDuration(staff.approvedOvertimeMinutes)}</p>
+                                        <p className="font-black text-accent">{formatDuration(staff.approvedOvertimeMinutes)}</p>
                                         {staff.pendingOvertimeMinutes > 0 && <p className="text-[10px] font-bold text-amber-500">Pend: {formatDuration(staff.pendingOvertimeMinutes)}</p>}
                                     </td>
                                     <td className="p-4 text-right font-bold text-slate-500">{Math.floor(staff.estimatedBasePay).toLocaleString()}</td>
                                     <td className="p-4 text-right">
-                                        {staff.earnedCommissions > 0 ? <span className="text-[#27ae60] font-bold flex items-center justify-end gap-1"><TrendingUp size={14}/> {Math.floor(staff.earnedCommissions).toLocaleString()}</span> : <span className="text-slate-300">-</span>}
+                                        {staff.earnedCommissions > 0 ? <span className="text-accent font-bold flex items-center justify-end gap-1"><TrendingUp size={14}/> {Math.floor(staff.earnedCommissions).toLocaleString()}</span> : <span className="text-slate-300">-</span>}
                                     </td>
                                     <td className="p-4 pr-6 text-right font-black text-emerald-600 text-lg tracking-tight">{Math.floor(staff.finalTotalPay).toLocaleString()}</td>
                                 </tr>
@@ -253,7 +253,7 @@ export const TeamOverview = ({
                     </p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <span className="text-[11px] font-black uppercase tracking-widest text-[#27ae60] bg-[#E8F7F0] border border-[#A7E2C3] px-3 py-1.5 rounded-xl">
+                    <span className="text-[11px] font-black uppercase tracking-widest text-accent bg-accent-tint border border-[#A7E2C3] px-3 py-1.5 rounded-xl">
                         {commissionBreakdownRows.length} entries
                     </span>
                     <button onClick={handleGenerateCommissionPDF} className="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 shadow-md hover:bg-indigo-700 transition-all shrink-0 active:scale-95">
@@ -274,7 +274,7 @@ export const TeamOverview = ({
                             <th className="p-4 whitespace-nowrap text-right">Lab Fee</th>
                             <th className="p-4 whitespace-nowrap text-right">Net</th>
                             <th className="p-4 whitespace-nowrap text-center">% Split</th>
-                            <th className="p-4 whitespace-nowrap text-right text-[#27ae60]">Doctor Comm.</th>
+                            <th className="p-4 whitespace-nowrap text-right text-accent">Doctor Comm.</th>
                             <th className="p-4 pr-6 whitespace-nowrap text-right text-emerald-600">Clinic Profit</th>
                         </tr>
                     </thead>
@@ -330,7 +330,7 @@ export const TeamOverview = ({
                                             <span className="text-xs font-black text-slate-500">%</span>
                                         </div>
                                     </td>
-                                    <td className="p-4 text-right font-black text-[#27ae60] tabular-nums">
+                                    <td className="p-4 text-right font-black text-accent tabular-nums">
                                         {Math.floor(Number(row.doctorCommissionAmount || 0)).toLocaleString()}
                                     </td>
                                     <td className="p-4 pr-6 text-right font-black text-emerald-600 tabular-nums">
@@ -388,11 +388,11 @@ export const StaffLogsModal = ({ isOpen, onClose, staffName, logs, handleUpdateL
                                     <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
                                         <div>
                                             <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Check In</label>
-                                            <input type="datetime-local" value={editIn} onChange={e=>setEditIn(e.target.value)} className="w-full text-xs font-bold p-2 border rounded-lg focus:border-[#60d297] outline-none bg-slate-50" />
+                                            <input type="datetime-local" value={editIn} onChange={e=>setEditIn(e.target.value)} className="w-full text-xs font-bold p-2 border rounded-lg focus:border-accent-soft outline-none bg-slate-50" />
                                         </div>
                                         <div>
                                             <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Check Out (Leave blank if Active)</label>
-                                            <input type="datetime-local" value={editOut} onChange={e=>setEditOut(e.target.value)} className="w-full text-xs font-bold p-2 border rounded-lg focus:border-[#60d297] outline-none bg-slate-50" />
+                                            <input type="datetime-local" value={editOut} onChange={e=>setEditOut(e.target.value)} className="w-full text-xs font-bold p-2 border rounded-lg focus:border-accent-soft outline-none bg-slate-50" />
                                         </div>
                                     </div>
                                 ) : (
@@ -433,7 +433,7 @@ export const StaffLogsModal = ({ isOpen, onClose, staffName, logs, handleUpdateL
                                         </>
                                     ) : (
                                         <>
-                                            <button onClick={() => startEdit(log)} className="bg-white border border-slate-200 text-slate-600 hover:text-[#27ae60] p-2 rounded-lg font-bold text-xs flex items-center gap-1 shadow-sm"><Edit2 size={14}/> Edit</button>
+                                            <button onClick={() => startEdit(log)} className="bg-white border border-slate-200 text-slate-600 hover:text-accent p-2 rounded-lg font-bold text-xs flex items-center gap-1 shadow-sm"><Edit2 size={14}/> Edit</button>
                                             <button onClick={() => handleDeleteLog(log.id)} className="bg-white border border-slate-200 text-slate-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg shadow-sm"><Trash2 size={14}/></button>
                                         </>
                                     )}
@@ -474,9 +474,9 @@ export const StaffSettingsModal = ({ settingsModal, setSettingsModal, handleUpda
 
                 <form onSubmit={handleUpdateStaffSettings} className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60"><label className="text-[11px] font-bold text-slate-500 uppercase block mb-2">Monthly Base Salary (EGP)</label><input type="number" required value={settingsModal.baseSalary} onChange={e => setSettingsModal({...settingsModal, baseSalary: Number(e.target.value)})} className="w-full px-4 py-3 bg-white rounded-xl border border-slate-200 font-black outline-none focus:border-[#60d297]"/></div>
-                        <div className="bg-[#E8F7F0] p-4 rounded-2xl border border-[#A7E2C3]"><label className="text-[11px] font-bold text-[#27ae60] uppercase block mb-2">Commission (%)</label><input type="number" required value={settingsModal.commissionPercentage} onChange={e => setSettingsModal({...settingsModal, commissionPercentage: Number(e.target.value)})} className="w-full px-4 py-3 bg-white rounded-xl border border-[#A7E2C3] font-black text-[#1E5631] outline-none focus:border-[#60d297]"/></div>
-                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60"><label className="text-[11px] font-bold text-slate-500 uppercase block mb-2">Overtime Multiplier</label><input type="number" step="0.1" required value={settingsModal.overtimeMultiplier} onChange={e => setSettingsModal({...settingsModal, overtimeMultiplier: Number(e.target.value)})} className="w-full px-4 py-3 bg-white rounded-xl border border-slate-200 font-black outline-none focus:border-[#60d297]"/></div>
+                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60"><label className="text-[11px] font-bold text-slate-500 uppercase block mb-2">Monthly Base Salary (EGP)</label><input type="number" required value={settingsModal.baseSalary} onChange={e => setSettingsModal({...settingsModal, baseSalary: Number(e.target.value)})} className="w-full px-4 py-3 bg-white rounded-xl border border-slate-200 font-black outline-none focus:border-accent-soft"/></div>
+                        <div className="bg-accent-tint p-4 rounded-2xl border border-[#A7E2C3]"><label className="text-[11px] font-bold text-accent uppercase block mb-2">Commission (%)</label><input type="number" required value={settingsModal.commissionPercentage} onChange={e => setSettingsModal({...settingsModal, commissionPercentage: Number(e.target.value)})} className="w-full px-4 py-3 bg-white rounded-xl border border-[#A7E2C3] font-black text-[#1E5631] outline-none focus:border-accent-soft"/></div>
+                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60"><label className="text-[11px] font-bold text-slate-500 uppercase block mb-2">Overtime Multiplier</label><input type="number" step="0.1" required value={settingsModal.overtimeMultiplier} onChange={e => setSettingsModal({...settingsModal, overtimeMultiplier: Number(e.target.value)})} className="w-full px-4 py-3 bg-white rounded-xl border border-slate-200 font-black outline-none focus:border-accent-soft"/></div>
                     </div>
                     <div>
                         <label className="text-[11px] font-bold text-slate-500 uppercase mb-3 block">Weekly Shift Roster</label>

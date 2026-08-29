@@ -139,7 +139,7 @@ export default function DesktopSidebar({
   const iconSize = `size-5 ${SHORT}:size-[18px]`;
   const rowGap = `gap-2 ${SHORT}:gap-1`;
 
-  const activeClass = "bg-[#2D3748] text-white shadow-[0_4px_12px_rgba(45,55,72,0.2)]";
+  const activeClass = "bg-ink-strong text-white shadow-[0_4px_12px_rgba(45,55,72,0.2)]";
   const idleClass =
     "bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 shadow-sm border border-slate-100";
 
@@ -213,7 +213,7 @@ export default function DesktopSidebar({
         {/* The tooltip is the only label when collapsed, and pure noise when expanded. */}
         {!expanded && (
           <div
-            className={`pointer-events-none absolute top-1/2 z-[200] hidden -translate-y-1/2 whitespace-nowrap rounded-lg bg-[#2D3748] px-3 py-1.5 text-xs font-bold text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 lg:block ${tooltipSide}`}
+            className={`pointer-events-none absolute top-1/2 z-[200] hidden -translate-y-1/2 whitespace-nowrap rounded-lg bg-ink-strong px-3 py-1.5 text-xs font-bold text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 lg:block ${tooltipSide}`}
           >
             {label}
           </div>

@@ -143,7 +143,7 @@ export default function UserAccessModal({
         {/* Header */}
         <div className="flex justify-between items-center px-6 py-5 border-b border-slate-100 bg-white z-10 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${targetIsOwner ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-[#60d297]"}`}>
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${targetIsOwner ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-accent-soft"}`}>
               {targetIsOwner ? <Crown size={20} /> : <Shield size={20} />}
             </div>
             <div className="min-w-0">
@@ -182,7 +182,7 @@ export default function UserAccessModal({
                   value={user.role || "Assistant"}
                   disabled={isUpdating}
                   onChange={(e) => handleRoleChange(user.id, e.target.value, user)}
-                  className="w-full py-3 px-4 rounded-xl border border-slate-200 text-sm font-bold text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-[#60d297]/20 focus:border-[#60d297] transition-all cursor-pointer"
+                  className="w-full py-3 px-4 rounded-xl border border-slate-200 text-sm font-bold text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-accent-soft/20 focus:border-accent-soft transition-all cursor-pointer"
                 >
                   {ASSIGNABLE_ROLES.map((r) => (
                     <option key={r} value={r}>{r}</option>
@@ -192,7 +192,7 @@ export default function UserAccessModal({
 
               {bypassesEverything && (
                 <label className="flex items-center gap-3 cursor-pointer group p-3 rounded-xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100">
-                  <div className={`relative w-11 h-6 rounded-full transition-colors duration-300 flex items-center ${user.isDentist ? 'bg-[#60d297]' : 'bg-slate-200'} shrink-0`}>
+                  <div className={`relative w-11 h-6 rounded-full transition-colors duration-300 flex items-center ${user.isDentist ? 'bg-accent-soft' : 'bg-slate-200'} shrink-0`}>
                     <div className={`w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform duration-300 mx-0.5 ${user.isDentist ? (isRTL ? '-translate-x-5' : 'translate-x-5') : 'translate-x-0'}`}></div>
                     <input
                       type="checkbox"
@@ -294,7 +294,7 @@ export default function UserAccessModal({
                 value={permissionSearch}
                 onChange={(e) => setPermissionSearch(e.target.value)}
                 placeholder={txt.searchPlaceholder}
-                className={`w-full py-3.5 rounded-[1.25rem] border border-slate-200/60 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-[#60d297]/20 focus:border-[#60d297] bg-white shadow-sm transition-all ${
+                className={`w-full py-3.5 rounded-[1.25rem] border border-slate-200/60 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-accent-soft/20 focus:border-accent-soft bg-white shadow-sm transition-all ${
                   isRTL ? "pr-12 pl-4" : "pl-12 pr-4"
                 }`}
               />
@@ -318,7 +318,7 @@ export default function UserAccessModal({
                       }}
                     >
                       <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors ${!collapsed ? 'bg-[#E8F7F0] text-[#60d297]' : 'bg-slate-100 text-slate-400'}`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors ${!collapsed ? 'bg-accent-tint text-accent-soft' : 'bg-slate-100 text-slate-400'}`}>
                           {collapsed ? (isRTL ? <ChevronRight size={16}/> : <ChevronDown size={16}/>) : <ChevronDown size={16}/>}
                         </div>
                         <div className="min-w-0">
@@ -362,13 +362,13 @@ export default function UserAccessModal({
                                 bypassesEverything
                                   ? 'bg-slate-50 cursor-default'
                                   : isSet
-                                    ? 'bg-[#E8F7F0]/40 cursor-pointer'
+                                    ? 'bg-accent-tint/40 cursor-pointer'
                                     : 'hover:bg-slate-50 cursor-pointer'
                               }`}
                             >
                               <div className="flex items-center gap-4 min-w-0 pr-4">
                                 <div className={`relative w-11 h-6 rounded-full transition-colors duration-300 flex items-center shrink-0 ${
-                                  bypassesEverything ? 'bg-slate-300' : isSet ? 'bg-[#60d297]' : 'bg-slate-200'
+                                  bypassesEverything ? 'bg-slate-300' : isSet ? 'bg-accent-soft' : 'bg-slate-200'
                                 }`}>
                                   <div className={`w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform duration-300 mx-0.5 ${isSet ? (isRTL ? '-translate-x-5' : 'translate-x-5') : 'translate-x-0'}`}></div>
                                   <input
