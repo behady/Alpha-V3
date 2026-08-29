@@ -129,7 +129,7 @@ export default function PatientsPage() {
 
   return (
     <PermissionGuard permission="access.patients">
-      <div className="min-h-screen bg-slate-50/50 pb-24 lg:pb-10 font-sans text-slate-800 selection:bg-[#A7E2C3] selection:text-primary-900"> 
+      <div className="min-h-screen bg-slate-50/50 pb-24 lg:pb-10 font-sans text-slate-800 selection:bg-accent-soft selection:text-primary-900"> 
         
         {/* UNIFIED GLASSMORPHISM HEADER */}
         <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 shadow-sm transition-all">
@@ -211,7 +211,7 @@ export default function PatientsPage() {
                   <Link 
                      key={p.id} 
                      href={`/patients/${p.id}`} data-tour="patient-row" 
-                     className="group relative flex items-center bg-white p-3 sm:p-4 rounded-[1.25rem] border border-slate-200/60 shadow-sm hover:shadow-md hover:border-[#A7E2C3] hover:-translate-y-0.5 transition-all duration-300 outline-none w-full"
+                     className="group relative flex items-center bg-white p-3 sm:p-4 rounded-[1.25rem] border border-slate-200/60 shadow-sm hover:shadow-md hover:border-accent-soft hover:-translate-y-0.5 transition-all duration-300 outline-none w-full"
                      style={{ animationDelay: `${(index % PAGE_SIZE) * 30}ms`, animationFillMode: 'both' }}
                   >
                     

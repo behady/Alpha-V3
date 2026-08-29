@@ -908,7 +908,7 @@ export default function PatientProfile() {
                </button>
                <div className="flex flex-col lg:relative lg:w-full lg:aspect-auto lg:h-[220px] xl:h-[250px] lg:rounded-[2rem] lg:overflow-hidden lg:shadow-lg lg:group shrink-0">
                   {/* Mobile Row Layout */}
-                  <div className="flex flex-col gap-3 bg-gradient-to-br from-accent-soft to-[#4eb37f] text-white p-4 rounded-[2rem] border border-accent-soft/50 shadow-lg lg:hidden shrink-0">
+                  <div className="flex flex-col gap-3 bg-gradient-to-br from-accent-soft to-accent text-white p-4 rounded-[2rem] border border-accent-soft/50 shadow-lg lg:hidden shrink-0">
                      <div className="flex items-center gap-4">
                          <div className="relative w-[72px] h-[72px] shrink-0 rounded-[1.5rem] overflow-hidden shadow-sm group border-2 border-white/30 bg-white/10">
                              <img 
@@ -1569,9 +1569,9 @@ export default function PatientProfile() {
                       <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2"><Users size={14} className="text-blue-500"/> Connected Family Profile</h3>
                       <div className="flex flex-wrap gap-3">
                          {familyMembers.map((member: any) => (
-                            <button key={member.id} onClick={() => router.push(`/patients/${member.id}`)} className="flex items-center gap-3 px-4 py-2.5 bg-slate-50 hover:bg-accent-tint border border-slate-100 hover:border-[#A7E2C3] rounded-xl transition-all duration-200 hover:shadow-sm group">
+                            <button key={member.id} onClick={() => router.push(`/patients/${member.id}`)} className="flex items-center gap-3 px-4 py-2.5 bg-slate-50 hover:bg-accent-tint border border-slate-100 hover:border-accent-soft rounded-xl transition-all duration-200 hover:shadow-sm group">
                                <div className="text-left">
-                                  <div className="text-sm font-bold text-slate-900 group-hover:text-[#1E5631] transition-colors">{member.name}</div>
+                                  <div className="text-sm font-bold text-slate-900 group-hover:text-accent-strong transition-colors">{member.name}</div>
                                   <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mt-0.5">{calculateAge(member.dateOfBirth)} Y · {member.gender}</div>
                                </div>
                             </button>

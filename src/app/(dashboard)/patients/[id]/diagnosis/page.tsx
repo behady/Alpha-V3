@@ -266,7 +266,7 @@ export default function DiagnosisPage() {
               <button
                 onClick={handleExportPdf}
                 disabled={exporting}
-                className="inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-full bg-accent-soft text-white shadow-sm shadow-blue-600/20 hover:bg-[#4eb37f] transition-colors disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-full bg-accent-soft text-white shadow-sm shadow-blue-600/20 hover:bg-accent transition-colors disabled:opacity-60"
                 title={language === "ar" ? "تنزيل تقرير PDF" : "Download PDF report"}
               >
                 {exporting ? <Loader2 size={13} className="animate-spin" /> : <FileDown size={13} />}
@@ -502,7 +502,7 @@ function DiagnosisRow({
   const { language } = useLanguage();
 
   return (
-    <div className="group relative bg-white rounded-xl border border-slate-100 hover:border-[#A7E2C3] hover:shadow-sm transition-all p-3 flex gap-3">
+    <div className="group relative bg-white rounded-xl border border-slate-100 hover:border-accent-soft hover:shadow-sm transition-all p-3 flex gap-3">
       <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200 flex items-center justify-center font-bold text-slate-700 shrink-0 tabular-nums shadow-inner">
         {row.id}
       </div>

@@ -768,7 +768,7 @@ export default function InventoryPage() {
                                 <button onClick={() => void handleQuickAdjust(item, item.isPercentage ? -10 : -1)} className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-red-600 hover:border-red-200 shadow-sm flex items-center justify-center font-bold text-xs transition-colors">-1</button>
                                 <button onClick={() => void handleQuickAdjust(item, item.isPercentage ? 10 : 1)} className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-emerald-600 hover:border-emerald-200 shadow-sm flex items-center justify-center font-bold text-xs transition-colors">+1</button>
                                 <div className="w-2" />
-                                <button onClick={() => openForEdit(item)} className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-accent hover:border-[#A7E2C3] shadow-sm transition-colors">
+                                <button onClick={() => openForEdit(item)} className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-accent hover:border-accent-soft shadow-sm transition-colors">
                                   <Edit2 size={16} />
                                 </button>
                              </Protect>
@@ -880,7 +880,7 @@ export default function InventoryPage() {
               
               <div className="flex gap-2">
                 <input value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder={language === "ar" ? "تصنيف رئيسي جديد" : "New top-level category"} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
-                <button onClick={() => void handleAddCategory()} className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-accent hover:border-[#A7E2C3] transition-colors">
+                <button onClick={() => void handleAddCategory()} className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-accent hover:border-accent-soft transition-colors">
                   <Plus size={18} />
                 </button>
               </div>
@@ -892,7 +892,7 @@ export default function InventoryPage() {
                 </select>
                 <div className="flex gap-2 w-full sm:w-1/2">
                   <input value={newSubCategoryName} onChange={(e) => setNewSubCategoryName(e.target.value)} placeholder={language === "ar" ? "تصنيف فرعي" : "Sub-category"} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
-                  <button onClick={() => void handleAddSubCategory()} className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-accent hover:border-[#A7E2C3] transition-colors shrink-0">
+                  <button onClick={() => void handleAddSubCategory()} className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-accent hover:border-accent-soft transition-colors shrink-0">
                     <Plus size={18} />
                   </button>
                 </div>
