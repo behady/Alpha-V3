@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection } from "@/lib/adminClinicDb";
+import { adminDb } from "@/lib/firebaseAdmin";
 import { respondToPatientMessage } from "@/lib/bot/respond";
 import { applyInboundOptOut } from "@/lib/optOutInbound";
 import { isOptOutReply } from "@/lib/patientMessaging";
@@ -26,6 +27,26 @@ export const dynamic = "force-dynamic";
  * is ever consulted, so "إيقاف" can never be answered with a menu.
  */
 
+/**
+ * The verify token Meta must present in its handshake.
+ *
+ * Environment variable when set; otherwise the same server-only Meta config document the leads
+ * integration already keeps its secrets in. The fallback exists so activating this webhook does
+ * not require anyone to touch the Vercel dashboard — the deploy pipeline is `git push`, and a
+ * setup step that lives outside it is a setup step that gets missed.
+ */
+async function expectedVerifyToken(): Promise<string> {
+  const fromEnv = process.env.META_WA_VERIFY_TOKEN?.trim();
+  if (fromEnv) return fromEnv;
+  try {
+    const snap = await adminDb().doc("meta_integrations/config").get();
+    const v = snap.exists ? snap.data()?.waVerifyToken : "";
+    return typeof v === "string" ? v.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
 /** Meta verifies a webhook once with a GET carrying a challenge to echo back. */
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
@@ -33,7 +54,7 @@ export async function GET(request: NextRequest) {
   const token = params.get("hub.verify_token");
   const challenge = params.get("hub.challenge");
 
-  const expected = process.env.META_WA_VERIFY_TOKEN?.trim() || "";
+  const expected = await expectedVerifyToken();
   if (mode === "subscribe" && expected && token === expected) {
     return new Response(challenge || "", { status: 200, headers: { "Content-Type": "text/plain" } });
   }

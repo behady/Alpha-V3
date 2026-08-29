@@ -117,6 +117,23 @@ export async function POST(request: Request) {
     await indexMetaPhoneNumber(clinicId, phoneNumberId);
     clearMetaWhatsappConfigCache(clinicId);
 
+    // Subscribe the app to the WABA's webhooks, when a WABA id was given. Without this call the
+    // callback URL verifies and then never receives a message — a silence indistinguishable from
+    // everything else being broken. Best-effort and reported, never fatal to the save.
+    let subscribed: { attempted: boolean; ok?: boolean; error?: string } = { attempted: false };
+    if (wabaId) {
+      try {
+        const res = await fetch(`https://graph.facebook.com/v21.0/${wabaId}/subscribed_apps`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = (await res.json().catch(() => ({}))) as Record<string, any>;
+        subscribed = { attempted: true, ok: res.ok && data?.success !== false, error: data?.error?.message };
+      } catch (e) {
+        subscribed = { attempted: true, ok: false, error: e instanceof Error ? e.message : "failed" };
+      }
+    }
+
     // Optional proof: one real send through the saved credentials, so "saved" and "working" are
     // not different discoveries made days apart.
     let test: { attempted: boolean; ok?: boolean; error?: string } = { attempted: false };
@@ -133,7 +150,7 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ ok: true, configured: true, phoneNumberId, wabaId, tokenSet: true, test });
+    return NextResponse.json({ ok: true, configured: true, phoneNumberId, wabaId, tokenSet: true, test, subscribed });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to save Meta WhatsApp connection";
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
