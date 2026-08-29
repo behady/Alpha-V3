@@ -112,8 +112,30 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => null);
     const messages = extractMessages(body);
 
-    // No messages is normal: most calls are delivery/read status updates. Nothing to do.
+    // No messages is normal: most calls are delivery/read status updates. But a status carrying
+    // an error is a message Meta ACCEPTED and then refused to deliver — the free-form-outside-
+    // the-window case — and without recording it, "the API said ok" and "the patient got it"
+    // look identical. That exact gap cost a live debugging round.
     if (messages.length === 0) {
+      const entries = (body as any)?.entry;
+      if (Array.isArray(entries)) {
+        for (const entry of entries) {
+          for (const change of entry?.changes || []) {
+            const value = change?.value;
+            const pid = String(value?.metadata?.phone_number_id || "").trim();
+            for (const st of value?.statuses || []) {
+              if (st?.status === "failed" && Array.isArray(st?.errors) && st.errors.length) {
+                const cid = await clinicIdForPhoneNumberId(pid);
+                await recordUnparsed(
+                  cid,
+                  { to: st.recipient_id, errors: st.errors },
+                  `delivery_failed_${st.errors[0]?.code ?? "unknown"}`
+                );
+              }
+            }
+          }
+        }
+      }
       return NextResponse.json({ ok: true, ignored: "no_message" });
     }
 

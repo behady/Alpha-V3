@@ -141,12 +141,44 @@ export async function POST(request: Request) {
     if (testTo) {
       const config = await loadMetaWhatsappConfig(clinicId, true);
       if (config) {
-        const result = await sendMetaWhatsappText({
-          config,
-          to: testTo,
-          text: "✅ تم ربط الواتساب الرسمي بنجاح — Alpha Dental official WhatsApp connected.",
-        });
-        test = { attempted: true, ok: result.ok, error: result.error };
+        /*
+         * A template, not free text. WhatsApp only delivers free-form text inside the 24-hour
+         * window a customer's own message opens — outside it, the API answers "accepted" and the
+         * message silently never arrives, which made the first live connection test read as
+         * broken credentials when the credentials were fine. hello_world ships pre-approved on
+         * test numbers; a real number without it falls back to text, and that fallback arriving
+         * proves the window was open anyway.
+         */
+        const digits = testTo.replace(/\D/g, "");
+        let ok = false;
+        let error: string | undefined;
+        try {
+          const res = await fetch(`https://graph.facebook.com/v21.0/${config.phoneNumberId}/messages`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              messaging_product: "whatsapp",
+              to: digits,
+              type: "template",
+              template: { name: "hello_world", language: { code: "en_US" } },
+            }),
+          });
+          const data = (await res.json().catch(() => ({}))) as Record<string, any>;
+          ok = res.ok;
+          error = data?.error?.message;
+        } catch (e) {
+          error = e instanceof Error ? e.message : "failed";
+        }
+        if (!ok) {
+          const result = await sendMetaWhatsappText({
+            config,
+            to: testTo,
+            text: "✅ تم ربط الواتساب الرسمي بنجاح — Alpha Dental official WhatsApp connected.",
+          });
+          ok = result.ok;
+          error = result.error || error;
+        }
+        test = { attempted: true, ok, error };
       }
     }
 
