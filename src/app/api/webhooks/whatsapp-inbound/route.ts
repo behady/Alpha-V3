@@ -109,9 +109,11 @@ function extractReply(body: unknown): { phone: string; text: string } | null {
   }
 
   for (const m of candidateMessages(b)) {
-    const phone = cleanPhone(
-      firstString(m.from, m.chat_id, m.chatId, m.author, m.sender, m.participant, m.number)
-    );
+    const rawSender = firstString(m.from, m.chat_id, m.chatId, m.author, m.sender, m.participant, m.number);
+    // A lid keeps its suffix — `172357054414966@lid` stripped to bare digits is indistinguishable
+    // from a (malformed) phone number, and stripping it here is exactly what silently disabled
+    // the entire lid path on real traffic while every synthetic test passed.
+    const phone = /@lid$/i.test(rawSender) ? rawSender : cleanPhone(rawSender);
     const text = firstString(
       typeof m.body === "string" ? m.body : "",
       typeof m.text === "string" ? m.text : "",
@@ -137,6 +139,9 @@ function isFromMe(body: unknown): boolean {
   if (!b) return false;
   for (const m of candidateMessages(b)) {
     if (m.fromMe === true || m.fromMe === "true" || m.from_me === true || m.from_me === "true") return true;
+    // whatsapp-web.js encodes direction in the message id itself (`true_<chat>_<hash>` = ours),
+    // which survives even when a gateway's echo forgets to carry a fromMe flag.
+    if (typeof m.id === "string" && m.id.startsWith("true_")) return true;
   }
   return false;
 }
