@@ -71,6 +71,10 @@ export interface BotConversation {
   pendingDoctors?: string[];
   /** The dentist the patient chose for this booking; "" or absent means any. */
   pendingDoctor?: string;
+  /** AI answers already spent in this conversation. The cap lives in the caller. */
+  aiReplies?: number;
+  /** Prior AI exchanges, oldest first, for continuity. Dies with the conversation. */
+  aiHistory?: Array<{ q: string; a: string }>;
   /**
    * This sender said stop, and could not be matched to a patient record to say it there.
    *
@@ -160,6 +164,13 @@ export async function loadConversation(
     pendingDate: !expired && typeof d.pendingDate === "string" ? d.pendingDate : undefined,
     pendingDoctors: !expired && Array.isArray(d.pendingDoctors) ? d.pendingDoctors.map(String) : undefined,
     pendingDoctor: !expired && typeof d.pendingDoctor === "string" ? d.pendingDoctor : undefined,
+    aiReplies: !expired ? Number(d.aiReplies) || 0 : 0,
+    aiHistory:
+      !expired && Array.isArray(d.aiHistory)
+        ? d.aiHistory
+            .filter((h: unknown) => h && typeof h === "object")
+            .map((h: any) => ({ q: String(h.q || ""), a: String(h.a || "") }))
+        : undefined,
   };
 }
 
@@ -188,6 +199,11 @@ export async function saveConversation(
     patientName?: string;
     /** Booking options offered this turn. Absent = clear them — stale lists must not linger. */
     pending?: { days?: string[]; times?: string[]; date?: string; doctors?: string[]; doctor?: string };
+    /**
+     * A spent AI exchange. Unlike pending options, absence PRESERVES what is stored: the AI
+     * budget survives menu turns — a patient cannot refill it by pressing a button.
+     */
+    aiExchange?: { q: string; a: string };
   },
   now: number
 ): Promise<void> {
@@ -206,6 +222,11 @@ export async function saveConversation(
     pendingDate: next.pending?.date ?? null,
     pendingDoctors: next.pending?.doctors ?? null,
     pendingDoctor: next.pending?.doctor ?? null,
+    aiReplies: (c.aiReplies ?? 0) + (next.aiExchange ? 1 : 0),
+    // Trimmed hard: this is continuity for a three-answer conversation, not an archive.
+    aiHistory: next.aiExchange
+      ? [...(c.aiHistory ?? []), { q: next.aiExchange.q.slice(0, 300), a: next.aiExchange.a.slice(0, 300) }].slice(-3)
+      : (c.aiHistory ?? []),
     updatedAt: FieldValue.serverTimestamp(),
   };
   // Firestore rejects an explicit undefined, and these are optional by nature.

@@ -135,6 +135,7 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     botEnabled: data?.botEnabled === true,
     botAnswerStrangers: data?.botAnswerStrangers === true,
     botAutoConfirmBookings: data?.botAutoConfirmBookings === true,
+    botAiEnabled: data?.botAiEnabled === true,
     // Dropping this field here is what made "manual" look unselectable: the click saved it,
     // the listener echoed the document back through this function, and the choice vanished
     // from the screen — while the server was already honouring it. Spread conditionally so an
@@ -305,6 +306,11 @@ export default function WhatsAppSettings() {
         language === "ar"
           ? "مقفولة: الحجز بيوصل «غير مؤكد» والاستقبال بيراجعه — البوت مش هيملى الأجندة لوحده. مفتوحة: الحجز بيتأكد فوراً لحظة ما المريض يختار الميعاد."
           : "Off: bookings arrive Unconfirmed and the desk reviews them — the bot cannot fill the calendar alone. On: the booking is final the moment the patient picks a time.",
+      botAi: language === "ar" ? "الرد الذكي على الأسئلة الحرة" : "AI answers for free-text questions",
+      botAiHint:
+        language === "ar"
+          ? "لما المريض يكتب سؤال مش من الأزرار (زي «بتركبوا تقويم؟»)، الذكاء الاصطناعي يرد عليه رد قصير. بحد أقصى ٣ ردود في المحادثة، وكل رد بياخد ١ كريدت من رصيد الذكاء الاصطناعي الشهري. الأسعار بتتقال كنطاق فقط مع تأكيد الاستقبال، والشكاوى والأسئلة الطبية بتتحول لموظف فوراً."
+          : "When a patient types a question the buttons don't cover (like \"do you do braces?\"), the AI answers briefly. Max 3 answers per conversation, 1 credit each from the monthly AI pool. Prices are quoted as ranges only; complaints and medical questions go straight to a person.",
       botLimits:
         language === "ar"
           ? "بحد أقصى ٨ ردود للرقم الواحد في الساعة، وبيوقف ويحوّل لموظف لو المحادثة طالت."
@@ -1165,6 +1171,23 @@ export default function WhatsAppSettings() {
                   />
                 </label>
                 <p className="text-xs text-slate-500 leading-relaxed">{txt.botAutoConfirmHint}</p>
+                <label className="flex items-center justify-between gap-4 cursor-pointer pt-1">
+                  <span className="text-sm font-bold text-indigo-950 leading-relaxed">{txt.botAi}</span>
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
+                    checked={state.botAiEnabled === true}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setState((s) => {
+                        const next = { ...s, botAiEnabled: checked };
+                        void persist(next, "silent");
+                        return next;
+                      });
+                    }}
+                  />
+                </label>
+                <p className="text-xs text-slate-500 leading-relaxed">{txt.botAiHint}</p>
                 <p className="text-xs text-slate-500 leading-relaxed">{txt.botLimits}</p>
               </>
             )}

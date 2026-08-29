@@ -55,7 +55,13 @@ export type BotAction =
   /** An unrecognised sender told us their name; create the patient, then continue booking. */
   | { type: "register"; name: string }
   /** The reply was not a valid pick; show the same options again. */
-  | { type: "relist" };
+  | { type: "relist" }
+  /**
+   * Free text nobody understood, on a clinic that switched the AI fallback on. The caller runs
+   * the model; the engine only decides that this message has earned the expensive path — which
+   * is exactly the clinic's cost model: buttons free, AI only for what buttons cannot do.
+   */
+  | { type: "ai"; question: string };
 
 /**
  * A button tap, decoded from the id the button carried.
@@ -106,6 +112,11 @@ export interface BotContext {
   canRegister?: boolean;
   /** How many dentists the clinic has. Two or more and booking starts by choosing one. */
   doctorCount?: number;
+  /**
+   * Whether the AI fallback may run for THIS message: the clinic switched it on AND this
+   * conversation still has AI answers left in its budget. The caller owns both facts.
+   */
+  aiAvailable?: boolean;
   /**
    * How many numbered options the last booking message listed. The options themselves live in
    * the conversation document; the engine only needs to know whether "4" is a choice or noise.
@@ -342,8 +353,16 @@ export function decideBotReply(args: {
     return { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "asked_for_human" };
   }
 
-  // Not a menu choice. One re-prompt, then a person — a bot that asks the same question three
-  // times has already failed, and the third ask is what makes someone report the number.
+  /*
+   * Free text that matched nothing. With the AI fallback on, this is the one moment it runs —
+   * after every free check failed, never instead of them. Without it (or with its budget spent),
+   * the old ladder stands: one re-prompt, then a person — a bot that asks the same question
+   * three times has already failed, and the third ask is what makes someone report the number.
+   */
+  if (ctx.aiAvailable) {
+    return { reply: "", action: { type: "ai", question: text }, next: "awaiting_choice", handoff: false, reason: "ai" };
+  }
+
   if (state === "awaiting_choice") {
     return {
       reply: `معلش مفهمتش 🙏\n\n${greeting(ctx)}`,

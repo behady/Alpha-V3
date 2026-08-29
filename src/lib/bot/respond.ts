@@ -25,6 +25,7 @@ import {
   replyAllowance,
   saveConversation,
 } from "./conversation";
+import { answerWithAi } from "./aiReply";
 import { decideBotReply, type BotContext } from "./engine";
 
 /**
@@ -52,6 +53,8 @@ interface BotSettings {
   answerStrangers: boolean;
   /** Write bot bookings as Confirmed instead of leaving them for the desk to review. */
   autoConfirm: boolean;
+  /** Let the model answer free text the buttons could not. Off by default; costs credits. */
+  aiEnabled: boolean;
 }
 
 async function loadBotSettings(clinicId: string): Promise<BotSettings> {
@@ -61,6 +64,7 @@ async function loadBotSettings(clinicId: string): Promise<BotSettings> {
     enabled: d.botEnabled === true,
     answerStrangers: d.botAnswerStrangers === true,
     autoConfirm: d.botAutoConfirmBookings === true,
+    aiEnabled: d.botAiEnabled === true,
   };
 }
 
@@ -339,6 +343,7 @@ export async function respondToPatientMessage(args: {
   ctx.canRegister = Boolean(profile?.schedule.isConfigured && !patient && phone);
   ctx.doctorCount = profile?.doctors.length ?? 0;
   if (patient && typeof patient.data.name === "string") ctx.patientName = patient.data.name;
+  ctx.aiAvailable = settings.aiEnabled && (conversation.aiReplies ?? 0) < 3;
   if (conversation.state === "booking_doctor") ctx.optionCount = conversation.pendingDoctors?.length ?? 0;
   if (conversation.state === "booking_day") ctx.optionCount = conversation.pendingDays?.length ?? 0;
   if (conversation.state === "booking_time") ctx.optionCount = conversation.pendingTimes?.length ?? 0;
@@ -356,6 +361,7 @@ export async function respondToPatientMessage(args: {
   let reason = decision.reason;
   let handoff = decision.handoff;
   let pending: { days?: string[]; times?: string[]; date?: string; doctors?: string[]; doctor?: string } | undefined;
+  let aiExchange: { q: string; a: string } | undefined;
   /** Buttons/lists for the official channel; the text above is what every other channel sends. */
   let structure: MetaInteractive | undefined;
 
@@ -428,7 +434,49 @@ export async function respondToPatientMessage(args: {
       pending = { days: conversation.pendingDays, times, date: dateKey, doctor: doctorName };
     };
 
-    if (act.type === "list_doctors") {
+    if (act.type === "ai") {
+      const ai = await answerWithAi({
+        clinicId,
+        clinicName,
+        question: act.question,
+        patientName: ctx.patientName,
+        hoursText: ctx.hoursText,
+        history: conversation.aiHistory ?? [],
+      });
+      if (ai.kind === "answer") {
+        replyText = ai.text;
+        structure = { body: ai.text, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
+        aiExchange = { q: act.question, a: ai.text };
+        reason = "ai_answer";
+      } else if (ai.kind === "handoff") {
+        // The model recognised a person's job — a complaint, a named dentist, something medical,
+        // or a question it has no facts for. Same promise as every other handoff: the patient is
+        // told someone is coming, and the conversation is flagged so someone actually comes.
+        replyText =
+          ai.topic === "medical"
+            ? "شكراً لتواصلك 🙏\nالرسالة دي محتاجة حد من العيادة يشوفها بنفسه، وهيتواصل معاك في أقرب وقت."
+            : ai.topic === "complaint"
+              ? "وصلتنا رسالتك 🙏 حد من إدارة العيادة هيتواصل معاك في أقرب وقت."
+              : "تمام 👍 الاستقبال هيتواصل معاك في أقرب وقت.";
+        nextState = "handed_off";
+        handoff = true;
+        reason = `ai_handoff_${ai.topic}`;
+      } else {
+        // No key, no credits, model down — the ladder the AI replaced stands back up, so the
+        // patient experience degrades to yesterday's, never to silence.
+        if (conversation.state === "awaiting_choice" || conversation.state === "new") {
+          replyText = `معلش مفهمتش 🙏\n\nأهلاً${ctx.patientName ? ` ${ctx.patientName}` : ""} 👋 اختار من الأزرار تحت أو ابعت رقم الاختيار.`;
+          structure = { body: replyText, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
+          nextState = "reprompted";
+          reason = "reprompt";
+        } else {
+          replyText = "تمام 👍 الاستقبال هيتواصل معاك في أقرب وقت.";
+          nextState = "handed_off";
+          handoff = true;
+          reason = "gave_up";
+        }
+      }
+    } else if (act.type === "list_doctors") {
       listDoctors();
     } else if (act.type === "list_days_doctor_index") {
       const doctors = conversation.pendingDoctors ?? [];
@@ -627,6 +675,7 @@ export async function respondToPatientMessage(args: {
       patientId: patient?.id,
       patientName: ctx.patientName,
       pending,
+      aiExchange,
     },
     now
   );

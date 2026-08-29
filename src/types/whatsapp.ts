@@ -100,6 +100,13 @@ export interface WhatsAppSettingsDocument {
    */
   botAutoConfirmBookings?: boolean;
   /**
+   * Let the model answer free-text questions the buttons could not. Runs ONLY after every free
+   * path failed (menu, digits, taps), at most three answers per conversation, one credit each
+   * from the clinic's monthly AI pool. Prices are quoted as ranges with "reception confirms";
+   * complaints, named-staff questions and anything medical hand to a person.
+   */
+  botAiEnabled?: boolean;
+  /**
    * Answer new leads automatically. Separate from `isPatientAutomationEnabled` on purpose: a
    * clinic may happily remind its own patients while wanting no machine to greet strangers,
    * or the reverse. Off until a manager turns it on — nothing messages anybody by surprise.

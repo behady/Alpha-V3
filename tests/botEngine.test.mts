@@ -254,3 +254,27 @@ const typedDoc = decideBotReply({ state: "booking_doctor", text: "2", ctx: { ...
 assert.deepEqual(typedDoc.action, { type: "list_days_doctor_index", index: 2 });
 
 console.log("✓ doctor step: dentists offered when real, and every tap remembers whose calendar it belongs to");
+
+// ================================================================================================
+// The AI fallback: runs ONLY when every free path failed, and never outranks the refusals.
+// ================================================================================================
+const aiCtx: BotContext = { ...ctx, aiAvailable: true };
+
+const aiFires = decideBotReply({ state: "awaiting_choice", text: "بتركبوا تقويم؟", ctx: aiCtx });
+assert.deepEqual(aiFires.action, { type: "ai", question: "بتركبوا تقويم؟" });
+assert.equal(aiFires.next, "awaiting_choice");
+
+// Everything cheap still wins first — a menu digit, a tap, the clinical rule, the stop word.
+assert.equal(decideBotReply({ state: "awaiting_choice", text: "2", ctx: aiCtx }).reason, "hours", "digits never reach the AI");
+assert.equal(decideBotReply({ state: "awaiting_choice", text: "m1", ctx: aiCtx }).action?.type, "list_days", "taps never reach the AI");
+assert.equal(decideBotReply({ state: "awaiting_choice", text: "سناني بتوجعني", ctx: aiCtx }).reason, "clinical", "pain never reaches the AI");
+assert.equal(decideBotReply({ state: "awaiting_choice", text: "إيقاف", ctx: aiCtx }).reply, "", "a stop request never reaches the AI");
+
+// Budget spent (aiAvailable false): yesterday's ladder, unchanged.
+assert.equal(decideBotReply({ state: "awaiting_choice", text: "بتركبوا تقويم؟", ctx }).reason, "reprompt");
+assert.equal(decideBotReply({ state: "reprompted", text: "طب وبعدين", ctx }).reason, "gave_up");
+
+// Mid-booking lists still relist rather than burning credits on a mistyped digit.
+assert.equal(decideBotReply({ state: "booking_day", text: "بكرة ينفع؟", ctx: { ...aiCtx, optionCount: 4 } }).action?.type, "relist");
+
+console.log("✓ ai fallback: last in line, never above the refusals, and the old ladder stands when it cannot run");
