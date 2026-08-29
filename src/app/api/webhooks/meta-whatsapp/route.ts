@@ -58,7 +58,13 @@ export async function GET(request: NextRequest) {
   if (mode === "subscribe" && expected && token === expected) {
     return new Response(challenge || "", { status: 200, headers: { "Content-Type": "text/plain" } });
   }
-  return new Response("Forbidden", { status: 403 });
+  // The deploy marker: which build is actually serving. Guessing at Vercel's rollout timing
+  // has burned real debugging hours — a probe that "still fails" against a stale deploy reads
+  // exactly like a broken fix. Poll this until it changes, then trust the next probe.
+  return new Response("Forbidden", {
+    status: 403,
+    headers: { "x-build": process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || "unknown" },
+  });
 }
 
 interface InboundMessage {
