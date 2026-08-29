@@ -2,10 +2,112 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-@import "tailwindcss";
+/* ===========================================================================
+   THEME TOKENS
 
-@custom-variant dark (&:where(.dark, .dark *));
+   The one place a colour decision is made. Everything below, and everything in
+   the components, should resolve to a token, so that a clinic picking a theme
+   repaints the whole product rather than a few buttons.
 
+   Named by ROLE, never by hue. The palette underneath this file is the warning
+   about why: it remaps --color-amber-500 to a pink and --color-blue-500 to a
+   mint, so a component asking for "amber" gets pink and nobody reading the
+   code can tell. Roles survive a theme change; hues do not.
+
+   These values reproduce the current look exactly, so installing this layer
+   changes nothing on screen. That is deliberate: it makes the migration that
+   follows reviewable, because any visual difference is then a mistake rather
+   than an expected side effect.
+   =========================================================================== */
+:root {
+  /* Surfaces, page backdrop up to a raised card */
+  --surface-page:     #E8F0ED;
+  --surface:          #FFFFFF;
+  --surface-subtle:   #F8FAFC;
+  --surface-muted:    #F1F5F9;
+  --surface-accent:   #E8F7F0;
+
+  /* Hairlines and dividers */
+  --line:             #E2E8F0;
+  --line-strong:      #CBD5E1;
+
+  /* Ink, strongest to faintest. --ink-slab is the near-black used for solid
+     dark elements; --ink is for type that has to carry weight. */
+  --ink:              #0F172A;
+  --ink-slab:         #1A2130;
+  --ink-strong:       #2D3748;
+  --ink-body:         #475569;
+  --ink-muted:        #64748B;
+  --ink-faint:        #94A3B8;
+  --ink-on-accent:    #FFFFFF;
+
+  /* Accent. The product has drifted into two greens, #27AE60 across 131 usages
+     and #60D297 across 105, neither of which appears in the palette below.
+     Both are kept so the migration can be literal; a theme can collapse them
+     deliberately later rather than by accident now. */
+  --accent:           #27AE60;
+  --accent-strong:    #059669;
+  --accent-soft:      #60D297;
+  --accent-tint:      #E8F7F0;
+
+  /* Status. Deliberately separate from the accent: "this succeeded" and "this
+     is the brand" must not be one colour, or a theme change silently restyles
+     every confirmation in the product. */
+  --ok:               #059669;
+  --ok-tint:          #ECFDF5;
+  --warn:             #EA580C;
+  --warn-tint:        #FFF7ED;
+  --danger:           #DC2626;
+  --danger-tint:      #FEF2F2;
+  --info:             #2563EB;
+  --info-tint:        #EFF6FF;
+}
+
+/* `inline` matters: it makes the generated utilities reference --surface and
+   friends directly, so overriding a token at runtime on :root repaints the UI.
+   Without it Tailwind bakes the value in at build time and a theme swap has no
+   effect, which is exactly the bug the current theme picker has. */
+@theme inline {
+  --color-surface-page:   var(--surface-page);
+  --color-surface:        var(--surface);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-surface-muted:  var(--surface-muted);
+  --color-surface-accent: var(--surface-accent);
+
+  --color-line:           var(--line);
+  --color-line-strong:    var(--line-strong);
+
+  --color-ink:            var(--ink);
+  --color-ink-slab:       var(--ink-slab);
+  --color-ink-strong:     var(--ink-strong);
+  --color-ink-body:       var(--ink-body);
+  --color-ink-muted:      var(--ink-muted);
+  --color-ink-faint:      var(--ink-faint);
+  --color-ink-on-accent:  var(--ink-on-accent);
+
+  --color-accent:         var(--accent);
+  --color-accent-strong:  var(--accent-strong);
+  --color-accent-soft:    var(--accent-soft);
+  --color-accent-tint:    var(--accent-tint);
+
+  --color-ok:             var(--ok);
+  --color-ok-tint:        var(--ok-tint);
+  --color-warn:           var(--warn);
+  --color-warn-tint:      var(--warn-tint);
+  --color-danger:         var(--danger);
+  --color-danger-tint:    var(--danger-tint);
+  --color-info:           var(--info);
+  --color-info-tint:      var(--info-tint);
+}
+
+/* --------------------------------------------------------------------------
+   LEGACY PALETTE (being retired)
+
+   Kept verbatim because hundreds of components still call these names. Do not
+   add to it; point new work at the tokens above. Phase 2 migrates the callers
+   off it, after which this block can go and the semantic names can mean what
+   they say again.
+   -------------------------------------------------------------------------- */
 @theme {
   /* Pastel Mint Theme Palette */
   --color-mint-light: #E8F0ED;
@@ -35,9 +137,16 @@
   /* Primary mapped to Charcoal/Black elements */
   --color-primary-50: #F4F7F6;
   --color-primary-100: #E8F0ED;
+  /* 200-400 and 800-900 were used by 14 elements but never defined, so those
+     utilities were never generated and the classes did nothing at all. */
+  --color-primary-200: #DBEFE8;
+  --color-primary-300: #C8E5DA;
+  --color-primary-400: #4A5568;
   --color-primary-500: #2D3748;
   --color-primary-600: #1A202C;
   --color-primary-700: #111827;
+  --color-primary-800: #0D1117;
+  --color-primary-900: #06080B;
   
   /* Greens mapped to Mint tags */
   --color-green-50: #E8F0ED;
@@ -65,8 +174,8 @@
 }
 
 :root {
-  --background: #E8F0ED;
-  --foreground: #2D3748;
+  --background: var(--surface-page);
+  --foreground: var(--ink-strong);
 }
 
 body {
