@@ -145,6 +145,11 @@ export function ClinicProvider({ children }: { children: React.ReactNode }) {
       console.warn(`Refused to switch to clinic "${id}": current user has no role in it.`);
       return;
     }
+    // Persist the choice. This context already READS preferredClinicId when picking a
+    // clinic and already clears it on sign-out, but nothing ever wrote it -- so switching
+    // clinic and reloading silently dropped you back into defaultClinicId. It is also what
+    // lets the theme boot script paint the right clinic on the next load.
+    try { sessionStorage.setItem("preferredClinicId", id); } catch { /* private mode */ }
     setClinicIdState(id);
   };
 
