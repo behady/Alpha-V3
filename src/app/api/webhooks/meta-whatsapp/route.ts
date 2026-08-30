@@ -72,7 +72,19 @@ interface InboundMessage {
   from: string;
   text: string;
   fromMe: boolean;
+  /**
+   * The message carried a photo, video, voice note or document instead of text.
+   *
+   * These used to be dropped on the floor: no text meant no reply AND no flag, so a photo of a
+   * swollen face at 1am reached nobody and left no trace anyone would see. A caption is used as
+   * the text when there is one; without a caption the assistant cannot read the message, which is
+   * exactly why a person has to.
+   */
+  media?: "image" | "video" | "audio" | "document" | "sticker" | "location" | "contacts";
 }
+
+/** WhatsApp message types that carry no words the assistant can act on. */
+const MEDIA_TYPES = ["image", "video", "audio", "document", "sticker", "location", "contacts"] as const;
 
 /** Pull the messages out of Meta's nested change payload. Statuses and other changes yield none. */
 function extractMessages(body: unknown): InboundMessage[] {
@@ -93,6 +105,10 @@ function extractMessages(body: unknown): InboundMessage[] {
         // Interactive reply IDS before anything else: our buttons and list rows carry the same
         // digits a typed answer would be, so a tap and a keystroke are indistinguishable to the
         // conversation engine — the titles are only what the patient read.
+        const type = String(m?.type || "");
+        const media = MEDIA_TYPES.includes(type as (typeof MEDIA_TYPES)[number])
+          ? (type as InboundMessage["media"])
+          : undefined;
         const text = String(
           m?.interactive?.button_reply?.id ??
             m?.interactive?.list_reply?.id ??
@@ -100,9 +116,15 @@ function extractMessages(body: unknown): InboundMessage[] {
             m?.button?.text ??
             m?.interactive?.list_reply?.title ??
             m?.interactive?.button_reply?.title ??
+            // A captioned photo is a message with words in it, wherever WhatsApp puts them.
+            m?.image?.caption ??
+            m?.video?.caption ??
+            m?.document?.caption ??
             ""
         ).trim();
-        if (from && text) out.push({ phoneNumberId, from, text, fromMe: false });
+        // Media with no caption still counts as a message: it needs an answer and a person, and
+        // dropping it here is why photos of swollen faces reached nobody.
+        if (from && (text || media)) out.push({ phoneNumberId, from, text, fromMe: false, media });
       }
     }
   }
@@ -175,7 +197,13 @@ export async function POST(request: NextRequest) {
       // Otherwise it may be a conversation. respondToPatientMessage re-checks every gate and is
       // silent unless the clinic enabled the assistant. chatId and phone are the same here — the
       // real number — which is exactly the simplification the official API buys.
-      lastBot = await respondToPatientMessage({ clinicId, chatId: msg.from, phone: msg.from, text: msg.text });
+      lastBot = await respondToPatientMessage({
+        clinicId,
+        chatId: msg.from,
+        phone: msg.from,
+        text: msg.text,
+        media: msg.media,
+      });
     }
 
     // The outcome rides on the response, as the Wapilot webhook's does. Its absence here meant a

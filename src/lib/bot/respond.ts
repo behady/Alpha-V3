@@ -174,6 +174,62 @@ function optionList(
   };
 }
 
+/**
+ * The patient's next appointment from today onwards, or null.
+ *
+ * The bot could write an appointment and never read one — not even the one it had just created —
+ * so "ميعادي امتى" was handed to a receptionist to answer from the same database the bot was
+ * already connected to. Cancelled and no-show rows are skipped: telling someone their cancelled
+ * appointment is still on is worse than telling them nothing.
+ */
+async function findNextAppointment(
+  clinicId: string,
+  patientId: string
+): Promise<{ id: string; date: string; time: string; doctor: string; status: string } | null> {
+  const today = clinicNow().dateKey;
+  const snap = await adminClinicCollection(clinicId, "appointments")
+    .where("patientId", "==", patientId)
+    .get();
+
+  const upcoming = snap.docs
+    .map((d) => {
+      const a = (d.data() || {}) as Record<string, unknown>;
+      return {
+        id: d.id,
+        date: String(a.date || ""),
+        time: String(a.time || ""),
+        doctor: String(a.doctor || ""),
+        status: String(a.status || ""),
+      };
+    })
+    .filter((a) => a.date >= today && !/cancel|no.?show/i.test(a.status))
+    .sort((a, b) => (a.date === b.date ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date)));
+
+  return upcoming[0] ?? null;
+}
+
+/** How an appointment reads in a chat message. */
+function appointmentLine(a: { date: string; time: string; doctor: string }): string {
+  const parts = [`📅 ${arabicDayLabel(a.date)}`, `⏰ ${arabicTimeLabel(a.time)}`];
+  if (a.doctor && a.doctor.toLowerCase() !== "any") parts.push(`👨‍⚕️ ${a.doctor}`);
+  return parts.join("\n");
+}
+
+/**
+ * Is the clinic open at this exact moment, in Cairo?
+ *
+ * The assistant had the opening hours and no clock, so asked "are you open now" it recited
+ * "3pm to 11pm" in a confident voice — at 1pm, and on the Friday it is closed.
+ */
+function openRightNow(schedule: ClinicScheduleConfig): { open: boolean; opensLaterToday: boolean } {
+  const now = clinicNow();
+  const closedToday = schedule.offDays.includes(DAY_KEYS[new Date(`${now.dateKey}T12:00:00`).getDay()]);
+  if (closedToday) return { open: false, opensLaterToday: false };
+  const start = schedule.startHour * 60 + schedule.startMinute;
+  const end = schedule.endHour * 60 + schedule.endMinute;
+  return { open: now.minutes >= start && now.minutes < end, opensLaterToday: now.minutes < start };
+}
+
 /** The patient behind this number, if the clinic knows them. */
 async function findPatient(
   clinicId: string,
@@ -214,6 +270,13 @@ export async function respondToPatientMessage(args: {
   /** The sender's phone when the payload revealed one; empty behind a lid. */
   phone?: string;
   text: string;
+  /**
+   * Set when the message carried a photo, voice note, video or document.
+   *
+   * The assistant cannot read any of it, and that is the point: an uncaptioned photo is the one
+   * message shape where "I don't understand" and "this needs a person" are the same sentence.
+   */
+  media?: "image" | "video" | "audio" | "document" | "sticker" | "location" | "contacts";
   /** Injectable so tests and the webhook agree on "now" rather than racing the clock. */
   now?: number;
 }): Promise<BotOutcome> {
@@ -353,7 +416,27 @@ export async function respondToPatientMessage(args: {
   if (conversation.state === "booking_day") ctx.optionCount = conversation.pendingDays?.length ?? 0;
   if (conversation.state === "booking_time") ctx.optionCount = conversation.pendingTimes?.length ?? 0;
 
-  const decision = decideBotReply({ state: conversation.state, text, ctx });
+  /*
+   * A photo, a voice note, a video: acknowledged and handed straight to a person.
+   *
+   * Stickers and reactions are the exception — they are punctuation, not a message, and answering
+   * every thumbs-up sticker with "someone will look at this" is how a helpful bot becomes noise.
+   * Everything else gets a person, because the clinic cannot know what it did not see, and the
+   * worst thing this branch can do is be slightly over-eager on a photo of a parking spot.
+   */
+  const decision =
+    args.media && args.media !== "sticker" && !text.trim()
+      ? {
+          reply:
+            args.media === "audio"
+              ? "وصلتنا الرسالة الصوتية 🎙️ حد من العيادة هيسمعها ويرد عليك حالاً."
+              : "وصلتنا الصورة 📷 حد من العيادة هيشوفها ويرد عليك حالاً.\n\nلو الموضوع طارئ كلمنا على طول." +
+                (ctx.clinicPhone ? ` على ${ctx.clinicPhone}` : ""),
+          next: "handed_off" as const,
+          handoff: true,
+          reason: `media_${args.media}`,
+        }
+      : decideBotReply({ state: conversation.state, text, ctx });
 
   /*
    * Perform whatever data work the engine asked for and compose the visible text. The engine
@@ -439,7 +522,77 @@ export async function respondToPatientMessage(args: {
       pending = { days: conversation.pendingDays, times, date: dateKey, doctor: doctorName };
     };
 
-    if (act.type === "ai") {
+    if (act.type === "my_appointment") {
+      const appt = patient ? await findNextAppointment(clinicId, patient.id) : null;
+      if (appt) {
+        replyText = [`ميعادك الجاي 👇`, "", appointmentLine(appt), "", "لو حابب تعدله أو تلغيه ابعتلنا وهنظبطهولك."].join("\n");
+        structure = { body: replyText, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
+        reason = "appointment_told";
+      } else {
+        // Nothing on the calendar. Offering to make one beats a receptionist confirming a blank.
+        replyText = "مالقيتش ليك ميعاد محجوز حالياً 🙏 تحب نحجزلك؟";
+        structure = { body: replyText, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
+        reason = "no_appointment";
+      }
+    } else if (act.type === "appointment_change") {
+      /*
+       * A cancellation, a move, or "I'm running late".
+       *
+       * The bot does not touch the calendar here on purpose — a keyword match is not enough
+       * evidence to move somebody's slot. What it does is stop the message evaporating: it finds
+       * the appointment, tells a person with the details in hand, and confirms to the patient that
+       * a human now has it. Before this the reply was the booking menu and nobody was told at all.
+       */
+      const appt = patient ? await findNextAppointment(clinicId, patient.id) : null;
+      const label = act.kind === "cancel" ? "إلغاء" : act.kind === "reschedule" ? "تعديل" : "تأخير";
+      replyText = appt
+        ? [`وصلتنا رسالتك بخصوص ${label} الميعاد 👍`, "", appointmentLine(appt), "", "الاستقبال هيتواصل معاك حالاً يأكدلك."].join("\n")
+        : `وصلتنا رسالتك بخصوص ${label} الميعاد 👍 الاستقبال هيتواصل معاك حالاً.`;
+      reason = `appointment_${act.kind}`;
+      // The desk hears about it now. A running-late message has a shelf life measured in minutes,
+      // and a passive flag on a document nobody has open is not a notification.
+      void sendClinicPush(
+        clinicId,
+        {
+          title:
+            act.kind === "cancel" ? "طلب إلغاء ميعاد ❌" : act.kind === "reschedule" ? "طلب تعديل ميعاد 🔁" : "مريض هيتأخر ⏳",
+          body: `${ctx.patientName || phone} — ${appt ? `${appt.date} ${appt.time}` : "من غير ميعاد محجوز"}`,
+        },
+        { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
+      );
+    } else if (act.type === "open_now") {
+      const state = openRightNow(profile.schedule);
+      const hours = ctx.hoursText?.trim() ? `\n\n🕐 مواعيدنا:\n${ctx.hoursText.trim()}` : "";
+      replyText = state.open
+        ? `أيوه احنا فاتحين دلوقتي ✅${hours}`
+        : state.opensLaterToday
+          ? `لسه مافتحناش، بنفتح النهارده الساعة ${arabicClock(profile.schedule.startHour, profile.schedule.startMinute)} 🕐${hours}`
+          : `احنا مقفولين دلوقتي 🙏${hours}`;
+      structure = { body: replyText, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
+      reason = "open_now";
+    } else if (act.type === "price_list") {
+      const servicesSnap = await adminClinicCollection(clinicId, "services").limit(200).get();
+      const lines = servicesSnap.docs
+        .map((d) => {
+          const s = (d.data() || {}) as Record<string, unknown>;
+          const name = String(s.name || "").trim();
+          const price = Number(s.price) || 0;
+          if (!name || price <= 0) return "";
+          const perTooth = s.pricingMode === "per_tooth" ? " للسن" : "";
+          return `• ${name}: يبدأ من ${price.toLocaleString("en-US")} ج.م${perTooth}`;
+        })
+        .filter(Boolean)
+        .slice(0, 25);
+      if (lines.length) {
+        replyText = ["💰 *أسعارنا تبدأ من:*", "", ...lines, "", "الأسعار دي بداية السعر، والاستقبال بيأكد السعر النهائي بعد الكشف."].join("\n");
+        reason = "price_list";
+      } else {
+        replyText = "الاستقبال هيبعتلك قائمة الأسعار حالاً 🙏";
+        nextState = "handed_off";
+        handoff = true;
+        reason = "no_price_list";
+      }
+    } else if (act.type === "ai") {
       const ai = await answerWithAi({
         clinicId,
         clinicName,
@@ -637,10 +790,18 @@ export async function respondToPatientMessage(args: {
     return handoff ? { status: "handoff_only", reason } : skip(reason);
   }
 
-  // The stop line goes on the opening turn only. The patient started this conversation, so
-  // repeating "reply STOP" on every answer reads as a machine that expects to be told to go away.
+  /*
+   * The stop line goes on the opening turn only. The patient started this conversation, so
+   * repeating "reply STOP" on every answer reads as a machine that expects to be told to go away.
+   *
+   * And never under a one-word courtesy. "تمام" is overwhelmingly a patient confirming they will
+   * attend, sent in reply to the clinic's own reminder — which arrives as the first turn of a
+   * fresh conversation, so it qualified. Answering "yes I'll be there" with instructions for
+   * unsubscribing is the one place this footer makes the ban risk worse rather than better.
+   */
+  const courtesy = reason === "ack" || reason === "thanks";
   const body =
-    conversation.state === "new"
+    conversation.state === "new" && !courtesy
       ? appendOptOutFooter(replyText, WHATSAPP_OPT_OUT_FOOTER_AR)
       : replyText;
   // A structure that mirrors the text mirrors its footer too — the tapped and typed experiences

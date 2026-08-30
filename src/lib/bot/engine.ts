@@ -56,6 +56,21 @@ export type BotAction =
   | { type: "register"; name: string }
   /** The reply was not a valid pick; show the same options again. */
   | { type: "relist" }
+  /** Read this patient's next appointment out of the calendar and tell them about it. */
+  | { type: "my_appointment" }
+  /**
+   * A cancellation, a reschedule request, or "I am running late".
+   *
+   * The bot deliberately does not act on any of these itself. Moving somebody's slot on a keyword
+   * match is the kind of confident wrong that a clinic pays for twice, so the appointment is
+   * looked up, a person is alerted with it in hand, and the patient is told that happened. What
+   * changes versus before is only that the message stops being thrown away.
+   */
+  | { type: "appointment_change"; kind: "cancel" | "reschedule" | "late" }
+  /** Is the clinic open at this exact moment? Needs the clock, which the engine does not have. */
+  | { type: "open_now" }
+  /** The clinic's own service list, rendered from Firestore. */
+  | { type: "price_list" }
   /**
    * Free text nobody understood, on a clinic that switched the AI fallback on. The caller runs
    * the model; the engine only decides that this message has earned the expensive path — which
@@ -154,6 +169,7 @@ const SILENT = (next: BotState, reason: string): BotDecision => ({ reply: "", ne
  */
 export { needsHuman, triageMessage } from "./clinicalTriage";
 import { needsHuman } from "./clinicalTriage";
+import { quickIntent, type QuickIntent } from "./quickAnswers";
 
 function greeting(ctx: BotContext): string {
   const who = ctx.patientName?.trim() ? ` ${ctx.patientName.trim()}` : "";
@@ -223,6 +239,95 @@ function menuChoice(text: string): "1" | "2" | "3" | null {
 }
 
 /**
+ * Opening the booking flow — from the button, the digit, or the words "عايز احجز".
+ *
+ * One function because there are now three doors into it and they must behave identically. The
+ * typed door is the one that was missing: a patient who writes the word instead of tapping the
+ * button reached the model, which is the single path in the system that cannot book anything.
+ */
+function startBooking(ctx: BotContext): BotDecision {
+  if (ctx.canOfferBooking) {
+    // Dentists first when there is a choice to make, else straight to days.
+    return (ctx.doctorCount ?? 0) >= 2
+      ? { reply: "", action: { type: "list_doctors" }, next: "booking_doctor", handoff: false, reason: "booking_doctors" }
+      : { reply: "", action: { type: "list_days" }, next: "booking_day", handoff: false, reason: "booking_days" };
+  }
+  if (ctx.canRegister) {
+    // A real phone with nobody on file: a NEW patient. Their name is the only missing piece.
+    return { reply: "أهلاً بيك 🌟 عشان نسجل حجزك، ابعتلنا اسمك الكامل من فضلك.", next: "booking_name", handoff: false, reason: "ask_name" };
+  }
+  // No configured schedule, or an unidentifiable sender: the honest answer is a person — never a
+  // promise that a slot is held, which is the one lie a clinic cannot afford.
+  return { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "booking_request" };
+}
+
+/** Just the address, for someone who asked where the clinic is rather than when it opens. */
+function locationReply(ctx: BotContext): string {
+  if (!ctx.addressText?.trim()) return "";
+  const lines = ["📍 *العنوان:*", ctx.addressText.trim()];
+  if (ctx.clinicPhone?.trim()) lines.push("", `📞 ${ctx.clinicPhone.trim()}`);
+  return lines.join("\n");
+}
+
+/**
+ * Turn a recognised intent into a turn, or return null to let the chain carry on.
+ *
+ * Returning null matters as much as returning an answer: when the clinic has not configured an
+ * address there is nothing honest to say, so the message falls through to the model or to a
+ * person rather than being answered with an empty heading.
+ */
+function answerIntent(intent: QuickIntent, ctx: BotContext): BotDecision | null {
+  switch (intent) {
+    case "human":
+      return { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "asked_for_human" };
+
+    case "booking":
+      return startBooking(ctx);
+
+    case "my_appointment":
+      return { reply: "", action: { type: "my_appointment" }, next: "awaiting_choice", handoff: false, reason: "my_appointment" };
+
+    case "cancel":
+      return { reply: "", action: { type: "appointment_change", kind: "cancel" }, next: "handed_off", handoff: true, reason: "cancel_request" };
+    case "reschedule":
+      return { reply: "", action: { type: "appointment_change", kind: "reschedule" }, next: "handed_off", handoff: true, reason: "reschedule_request" };
+    case "late":
+      return { reply: "", action: { type: "appointment_change", kind: "late" }, next: "handed_off", handoff: true, reason: "late_notice" };
+
+    case "open_now":
+      return { reply: "", action: { type: "open_now" }, next: "awaiting_choice", handoff: false, reason: "open_now" };
+
+    case "hours": {
+      const reply = hoursAndAddress(ctx);
+      return reply ? { reply, next: "awaiting_choice", handoff: false, reason: "hours" } : null;
+    }
+
+    case "location": {
+      const reply = locationReply(ctx);
+      return reply ? { reply, next: "awaiting_choice", handoff: false, reason: "location" } : null;
+    }
+
+    case "price_list":
+      return { reply: "", action: { type: "price_list" }, next: "awaiting_choice", handoff: false, reason: "price_list" };
+
+    /*
+     * Courtesy, answered in one line and never with the menu.
+     *
+     * A patient replying "تمام" to their own appointment reminder used to receive the full booking
+     * menu with the unsubscribe footer under it — the clinic answering someone confirming
+     * attendance by teaching them how to opt out.
+     */
+    case "ack":
+      return { reply: "تمام 👍 لو محتاج أي حاجة تانية إحنا هنا.", next: "awaiting_choice", handoff: false, reason: "ack" };
+    case "thanks":
+      return { reply: "العفو 🌟 تحت أمرك في أي وقت.", next: "awaiting_choice", handoff: false, reason: "thanks" };
+    case "greeting":
+      return { reply: greeting(ctx), next: "awaiting_choice", handoff: false, reason: "greeted" };
+  }
+  return null;
+}
+
+/**
  * Decide the next turn.
  *
  * `state` is what the previous turn stored. A conversation that has gone quiet for long enough is
@@ -288,17 +393,29 @@ export function decideBotReply(args: {
   // A person is already dealing with this. Two voices in one thread is worse than one slow voice.
   if (state === "handed_off") return SILENT("handed_off", "already_with_a_human");
 
-  if (state === "new") {
-    return { reply: greeting(ctx), next: "awaiting_choice", handoff: false, reason: "greeted" };
+  /*
+   * What the patient meant, when they typed instead of tapping.
+   *
+   * Everything recognised here is answered from data the clinic already has, for free. Before it
+   * existed the only free doors were a tapped button and a typed digit, so "where are you",
+   * "thanks", "I want to book" and a thumbs-up each cost one of a conversation's three AI answers
+   * — and the real question then arrived with the budget gone.
+   */
+  const intent = quickIntent(text);
+
+  // Asking for a person works from anywhere, including out of a booking loop. A patient who has
+  // given up on the menu must never have to find the right digit to escape it.
+  if (intent === "human") {
+    return { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "asked_for_human" };
   }
 
-  /*
-   * The sender is answering "what is your name". Anything that looks like a name is one — this is
-   * how the public booking page has always worked, and demanding more ceremony from a chat than
-   * from a web form would be backwards. Digits are not names; they are almost certainly a stray
-   * tap at an old list, so the question is asked again rather than a patient called "3".
-   */
   if (state === "booking_name") {
+    /*
+     * The sender is answering "what is your name". Anything that looks like a name is one — this
+     * is how the public booking page has always worked, and demanding more ceremony from a chat
+     * than from a web form would be backwards. Digits are not names; they are almost certainly a
+     * stray tap at an old list, so the question is asked again rather than a patient called "3".
+     */
     const name = text.replace(/\s+/g, " ").trim();
     if (numberChoice(name) !== null || name.length < 2 || name.length > 80) {
       return { reply: "معلش، ابعت اسمك بالحروف (مش أرقام) عشان نكمل الحجز 🙏", next: "booking_name", handoff: false, reason: "ask_name_again" };
@@ -306,9 +423,35 @@ export function decideBotReply(args: {
     return { reply: "", action: { type: "register", name }, next: "booking_day", handoff: false, reason: "registered" };
   }
 
+  const inBooking = state === "booking_doctor" || state === "booking_day" || state === "booking_time";
+
+  // Mid-booking the digits own the conversation, but abandoning it is still allowed: relisting the
+  // same days at someone who just said "cancel" is the loop that has no exit.
+  if (inBooking && intent === "cancel") {
+    return { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "booking_abandoned" };
+  }
+
+  if (!inBooking && intent) {
+    const answered = answerIntent(intent, ctx);
+    if (answered) return answered;
+  }
+
+  if (state === "new") {
+    /*
+     * No intent we could read. Before, the greeting was returned here no matter what the message
+     * said, so "التنظيف بكام" as an opening line was answered with a menu and the question was
+     * discarded — while the identical message one turn later was answered correctly. With the
+     * model available it now gets a real answer on the first try; without it, the greeting.
+     */
+    if (ctx.aiAvailable) {
+      return { reply: "", action: { type: "ai", question: text }, next: "awaiting_choice", handoff: false, reason: "ai" };
+    }
+    return { reply: greeting(ctx), next: "awaiting_choice", handoff: false, reason: "greeted" };
+  }
+
   // Mid-booking, the patient is answering a numbered list the caller stored. Zero always means
   // "back" — a patient who picked the wrong day must not need a human to undo it.
-  if (state === "booking_doctor" || state === "booking_day" || state === "booking_time") {
+  if (inBooking) {
     const n = numberChoice(text);
     if (n === 0) {
       if (state === "booking_time") {
@@ -331,21 +474,7 @@ export function decideBotReply(args: {
 
   const choice = menuChoice(text);
 
-  if (choice === "1") {
-    if (ctx.canOfferBooking) {
-      // The real thing: dentists first when there is a choice to make, else straight to days.
-      return (ctx.doctorCount ?? 0) >= 2
-        ? { reply: "", action: { type: "list_doctors" }, next: "booking_doctor", handoff: false, reason: "booking_doctors" }
-        : { reply: "", action: { type: "list_days" }, next: "booking_day", handoff: false, reason: "booking_days" };
-    }
-    if (ctx.canRegister) {
-      // A real phone with nobody on file: a NEW patient. Their name is the only missing piece.
-      return { reply: "أهلاً بيك 🌟 عشان نسجل حجزك، ابعتلنا اسمك الكامل من فضلك.", next: "booking_name", handoff: false, reason: "ask_name" };
-    }
-    // No configured schedule, or an unidentifiable sender: the honest answer is a person —
-    // never a promise that a slot is held, which is the one lie a clinic cannot afford.
-    return { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "booking_request" };
-  }
+  if (choice === "1") return startBooking(ctx);
   if (choice === "2") {
     return { reply: hoursAndAddress(ctx), next: "awaiting_choice", handoff: false, reason: "hours" };
   }

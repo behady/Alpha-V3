@@ -23,6 +23,7 @@
   "_comment_test_bot": "The WhatsApp assistant's decisions, as a pure function. The assertions that matter are the refusals: never answer a clinical message, never talk over a human who has taken the thread, never answer a stop request, and never ask the same question three times.",
   "test:bot": "npx tsx tests/botEngine.test.mts",
   "test:triage": "npx tsx tests/clinicalTriage.test.mts",
+  "test:quick": "npx tsx tests/quickAnswers.test.mts",
   "test:phone": "npx tsx tests/patientPhone.test.mjs",
   "test:optout": "npx tsx tests/patientMessaging.test.mjs",
     "test:attendance": "npx tsx tests/attendanceGeofence.test.mjs",
