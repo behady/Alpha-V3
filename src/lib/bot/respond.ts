@@ -17,6 +17,7 @@ import { resolveLidToPhone } from "@/lib/whatsapp";
 import { findPatientByLid } from "@/lib/whatsappLid";
 import { resolveWhatsappDeliveryMode, sendPatientWhatsAppRich } from "@/lib/whatsappDelivery";
 import type { MetaInteractive } from "@/lib/metaWhatsapp";
+import type { BotFacts } from "@/types/whatsapp";
 import { appendOptOutFooter, WHATSAPP_OPT_OUT_FOOTER_AR } from "@/lib/patientMessaging";
 import {
   conversationKey,
@@ -55,6 +56,8 @@ interface BotSettings {
   autoConfirm: boolean;
   /** Let the model answer free text the buttons could not. Off by default; costs credits. */
   aiEnabled: boolean;
+  /** The clinic's own answers to the questions its data cannot supply. */
+  facts: BotFacts;
 }
 
 async function loadBotSettings(clinicId: string): Promise<BotSettings> {
@@ -65,6 +68,7 @@ async function loadBotSettings(clinicId: string): Promise<BotSettings> {
     answerStrangers: d.botAnswerStrangers === true,
     autoConfirm: d.botAutoConfirmBookings === true,
     aiEnabled: d.botAiEnabled === true,
+    facts: (d.botFacts && typeof d.botFacts === "object" ? d.botFacts : {}) as BotFacts,
   };
 }
 
@@ -386,7 +390,7 @@ export async function respondToPatientMessage(args: {
   }
 
   const clinicName = await clinicDisplayName(clinicId);
-  const ctx: BotContext = { clinicName };
+  const ctx: BotContext = { clinicName, facts: settings.facts };
 
   let profile: PublicClinicProfile | null = null;
   try {
@@ -599,6 +603,9 @@ export async function respondToPatientMessage(args: {
         question: act.question,
         patientName: ctx.patientName,
         hoursText: ctx.hoursText,
+        addressText: ctx.addressText,
+        clinicPhone: ctx.clinicPhone,
+        facts: settings.facts,
         history: conversation.aiHistory ?? [],
       });
       if (ai.kind === "answer") {

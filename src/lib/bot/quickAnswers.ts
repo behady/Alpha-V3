@@ -39,6 +39,21 @@ export type QuickIntent =
   | "location"
   /** Wants the price list, with no service named. */
   | "price_list"
+  /*
+   * The questions no part of the system stored an answer to, until the clinic wrote one.
+   *
+   * Each of these reached a receptionist every single time — or reached the model, which had no
+   * data and either handed off after charging a credit or answered from general dentistry
+   * knowledge in the clinic's voice. With the matching fact filled in they are free and instant;
+   * with it empty they still hand off, so an unconfigured clinic is no worse off than before.
+   */
+  | "walk_in"
+  | "installments"
+  | "offers"
+  | "parking"
+  | "insurance"
+  | "duration"
+  | "aftercare"
   /** "OK", "sure", a thumbs-up. Confirmation of something the clinic said. */
   | "ack"
   /** Thanks, praise, a closing. */
@@ -55,10 +70,19 @@ function normalize(raw: string): string {
     .trim();
 }
 
-/** Whole-word or whole-phrase containment, with a leading و split off so `وعايز` still matches. */
+/**
+ * Whole-word or whole-phrase containment, with a leading و split off so `وعايز` still matches.
+ *
+ * Both sides go through the same normaliser. That is not a detail: the normaliser folds ى→ي and
+ * ة→ه, so a keyword written the correct way — `على مرات` — could never match the folded text
+ * `علي مرات`, and the intent silently never fired. Normalising the needle here means the lists
+ * can be written in ordinary Arabic and still work.
+ */
 function has(text: string, needles: string[]): boolean {
   const loose = text.replace(/(^|\s)و(?=\S{2,})/g, "$1و ");
-  for (const n of needles) {
+  for (const raw of needles) {
+    const n = normalize(raw);
+    if (!n) continue;
     if (` ${text} `.includes(` ${n} `)) return true;
     if (` ${loose} `.includes(` ${n} `)) return true;
   }
@@ -122,6 +146,36 @@ const PRICE_LIST = [
   "قايمه الاسعار", "قائمة الاسعار", "الاسعار", "اسعاركم", "قائمه الاسعار", "ابعتلي الاسعار",
   "عايز الاسعار", "الاسعار عندكم", "price list", "your prices",
 ];
+const WALK_IN = [
+  "من غير ميعاد", "من غير حجز", "من غير معاد", "لازم ميعاد", "لازم حجز", "لازم معاد",
+  "اجي على طول", "اجي مباشره", "ينفع اجي دلوقتي", "من غير ما احجز", "walk in", "walkin",
+  "without appointment", "without booking",
+];
+const INSTALLMENTS = [
+  "تقسيط", "بالتقسيط", "على مرات", "على دفعات", "دفعات", "اقساط", "قسط", "بالاقساط",
+  "ادفع على مرتين", "instalment", "installment", "instalments", "installments", "payment plan",
+];
+const OFFERS = [
+  "خصم", "خصومات", "تخفيض", "تخفيضات", "عرض", "عروض", "في عرض", "في خصم", "اوفر",
+  "discount", "offer", "offers", "promotion",
+];
+const PARKING = [
+  "باركن", "باركنج", "ركنه", "اركن", "مكان للعربيه", "جراج", "جراچ", "parking", "park my car",
+];
+const INSURANCE = [
+  "تامين", "تأمين", "التامين", "بتتعاملوا مع تامين", "شركة تامين", "تامين طبي", "كارت طبي",
+  "insurance", "insured", "medical card",
+];
+const DURATION = [
+  "بياخد قد ايه", "بتاخد قد ايه", "بياخد وقت", "بتاخد وقت", "قد ايه وقت", "الجلسه قد ايه",
+  "هقعد قد ايه", "بياخد كام ساعه", "المده", "مده الجلسه", "كام جلسه", "كام جلسات",
+  "how long does it take", "how long", "how many sessions",
+];
+const AFTERCARE = [
+  "بعد الحشو", "بعد التنظيف", "بعد التركيب", "بعد الجلسه", "ينفع اكل بعد", "اكل ايه بعد",
+  "اشرب بعد", "اغسل سناني بعد", "تعليمات بعد", "after the filling", "after treatment",
+];
+
 const ACK = [
   "تمام", "اوك", "ok", "okay", "ماشي", "حاضر", "اكيد", "ايوه", "ايوة", "اه", "هحضر",
   "هاجي", "هجي", "ان شاء الله", "انشاءالله", "تمام شكرا", "اوك ماشي", "تمام يا فندم",
@@ -166,13 +220,29 @@ export function quickIntent(raw: string): QuickIntent | null {
    * as a booking request would offer a patient who already has a slot a second one.
    */
   if (has(text, MY_APPOINTMENT)) return "my_appointment";
+
+  /*
+   * Walking in before booking, because "من غير حجز" and "لازم ميعاد" contain the booking words
+   * and mean the opposite of booking. Reading them as a booking request opens the day list at a
+   * patient who was asking whether they need one at all.
+   */
+  if (has(text, WALK_IN)) return "walk_in";
   if (has(text, BOOKING)) return "booking";
 
   // "Now" before "hours": they share every word, and only one of them needs a clock.
   if (has(text, OPEN_NOW)) return "open_now";
   if (has(text, HOURS)) return "hours";
   if (has(text, LOCATION)) return "location";
+  if (has(text, PARKING)) return "parking";
+
+  // Money questions before the generic price list: "في تقسيط" is not a request for prices.
+  if (has(text, INSTALLMENTS)) return "installments";
+  if (has(text, OFFERS)) return "offers";
+  if (has(text, INSURANCE)) return "insurance";
   if (has(text, PRICE_LIST)) return "price_list";
+
+  if (has(text, AFTERCARE)) return "aftercare";
+  if (has(text, DURATION)) return "duration";
 
   /*
    * Courtesy last, and only when it is the whole message. "شكرا" alone is a closing; "شكرا، التقويم

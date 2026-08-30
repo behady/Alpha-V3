@@ -5,6 +5,7 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { logAiCreditUsage } from "@/lib/aiCreditLog";
 import { getAiCreditLimit, hasFeature } from "@/lib/subscriptions";
 import type { Clinic } from "@/types/saas";
+import type { BotFacts } from "@/types/whatsapp";
 
 /**
  * The AI fallback for the WhatsApp assistant — the receptionist's voice for the questions the
@@ -34,6 +35,33 @@ export type AiReplyResult =
   /** No key, no plan, no credits, timeout, or model error — caller falls back to the old path. */
   | { kind: "unavailable"; reason: string };
 
+/**
+ * The clinic's own written answers, as context lines.
+ *
+ * Only the fields that were filled in appear. An absent field is not a gap to be filled by the
+ * model — the prompt's standing rule is to hand off anything not written below, and `notOffered`
+ * exists specifically to stop the "a near-enough service counts as yes" instruction quoting an
+ * implant price at a clinic that does no implants.
+ */
+function factLines(facts?: BotFacts): string {
+  if (!facts) return "";
+  const rows: Array<[string, string | undefined]> = [
+    ["الحضور من غير ميعاد", facts.walkIn],
+    ["التقسيط", facts.installments],
+    ["العروض والخصومات", facts.offers],
+    ["الباركن", facts.parking],
+    ["التأمين", facts.insurance],
+    ["مدة الجلسات", facts.durations],
+    ["عدد الجلسات", facts.sessions],
+    ["تعليمات بعد العلاج", facts.aftercare],
+    ["خدمات إحنا مش بنعملها", facts.notOffered],
+  ];
+  const lines = rows
+    .filter(([, v]) => v && v.trim())
+    .map(([label, v]) => `- ${label}: ${v!.trim()}`);
+  return lines.length ? `\nمعلومات كتبتها العيادة بنفسها:\n${lines.join("\n")}` : "";
+}
+
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
     p,
@@ -47,10 +75,15 @@ export async function answerWithAi(args: {
   question: string;
   patientName?: string;
   hoursText?: string;
+  /** Where the clinic is, and how to ring it. Withheld before, so it handed off on "فين العيادة". */
+  addressText?: string;
+  clinicPhone?: string;
+  /** The clinic's own answers to the questions its data cannot supply. */
+  facts?: BotFacts;
   /** Prior AI exchanges in this conversation, oldest first, for continuity. */
   history: Array<{ q: string; a: string }>;
 }): Promise<AiReplyResult> {
-  const { clinicId, clinicName, question, patientName, hoursText, history } = args;
+  const { clinicId, clinicName, question, patientName, hoursText, addressText, clinicPhone, facts, history } = args;
 
   const apiKey = process.env.GEMINI_API_KEY || "";
   if (!apiKey) return { kind: "unavailable", reason: "no_api_key" };
@@ -104,14 +137,28 @@ export async function answerWithAi(args: {
     "- أي سؤال عن طبيب معيّن بالاسم (شطارته، مواعيده الشخصية، رأيك فيه): اختار handoff_staff.",
     "- الأسعار: جاوب من القايمة تحت بصيغة \"يبدأ من\"، ودايماً اختم بأن الاستقبال بيأكد السعر النهائي. لو المريض سأل عن حاجة ليها خدمة مشابهة أو قريبة في القايمة (مثلاً سأل عن التقويم والقايمة فيها \"تقويم معدن\") اعتبرها موجودة وجاوب بسعرها. بس لو مفيش أي خدمة قريبة منها خالص: handoff_other.",
     "- أسئلة \"بتعملوا كذا؟\": لو الخدمة أو حاجة قريبة منها في القايمة، الإجابة أيوه مع السعر. متحوّلش سؤال تقدر تجاوبه.",
+    "- أي خدمة مكتوبة في \"خدمات إحنا مش بنعملها\" الإجابة عنها لأ بوضوح، وممنوع تديله سعر خدمة قريبة منها.",
+    "- مدة العلاج، عدد الجلسات، الضمان، مدة ما العلاج بيفضل: جاوب بس لو مكتوبة تحت حرفياً. لو مش مكتوبة اختار handoff_other — ممنوع تقول رقم من معلوماتك العامة عن طب الأسنان.",
     "- متقولش انك انسان. متوعدش بحاجة. متحددش مواعيد — الحجز بيتم من الأزرار.",
     "- الرد قصير: جملتين لتلاتة بالكتير.",
     "",
     "معلومات العيادة:",
     hoursText?.trim() ? `مواعيد العمل:\n${hoursText.trim()}` : "مواعيد العمل: غير متوفرة هنا (حوّل لو اتسألت).",
+    // The address was deliberately withheld before, so the model handed off on "فين العيادة"
+    // while the menu two taps away had the answer.
+    addressText?.trim() ? `العنوان: ${addressText.trim()}` : "",
+    clinicPhone?.trim() ? `تليفون العيادة: ${clinicPhone.trim()}` : "",
     priceLines ? `\nقائمة الخدمات والأسعار:\n${priceLines}` : "\nقائمة الأسعار: غير متوفرة (حوّل أي سؤال سعر).",
+    /*
+     * What the clinic itself wrote. Anything missing here stays missing: these are exactly the
+     * questions — treatment length, session counts, instalments — where a model reaches for
+     * textbook dentistry and delivers it in the clinic's voice on the clinic's number.
+     */
+    factLines(facts),
     patientName ? `\nاسم المريض: ${patientName}` : "",
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   try {
     const genAI = new GoogleGenerativeAI(apiKey);

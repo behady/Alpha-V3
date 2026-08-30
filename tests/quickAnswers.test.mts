@@ -81,16 +81,19 @@ run("'open now' beats 'opening hours' — only one of them needs a clock", () =>
 });
 
 run("courtesy only counts when it is the whole message", () => {
-  // A polite hat on a real question must not be answered instead of the question.
-  assert.equal(quickIntent("شكرا، التقويم بكام وبياخد قد ايه بالظبط"), null);
+  // A polite hat on a real question must never be answered INSTEAD of the question. Here the
+  // question underneath is about how long it takes, so that is what wins — not the "شكرا".
+  assert.equal(quickIntent("شكرا، التقويم بكام وبياخد قد ايه بالظبط"), "duration");
+  // Nothing else matches this one, so it falls through to the model with the whole sentence
+  // rather than being answered "وعليكم السلام" and losing the rest.
   assert.equal(quickIntent("السلام عليكم عايز اعرف سعر التنظيف وكمان التبييض"), null);
   // But the greeting plus a booking word is still a booking.
   assert.equal(quickIntent("السلام عليكم عايز احجز"), "booking");
 });
 
 run("nothing recognised returns null rather than guessing", () => {
-  assert.equal(quickIntent("التقويم بياخد قد ايه"), null);
   assert.equal(quickIntent("في بديل ارخص من الزيركون"), null);
+  assert.equal(quickIntent("ايه الفرق بين التقويم المعدن والشفاف"), null);
   assert.equal(quickIntent(""), null);
 });
 
@@ -153,6 +156,62 @@ run("the address is answered from the clinic record, not handed to a person", ()
   // With no address configured there is nothing honest to say, so it falls through instead.
   const empty = decideBotReply({ state: "awaiting_choice", text: "ابعتلي اللوكيشن", ctx: { ...ctx, addressText: "" } });
   assert.notEqual(empty.reason, "location");
+});
+
+run("the clinic-fact questions are recognised and routed by priority", () => {
+  assert.equal(quickIntent("لازم ميعاد ولا اجي على طول"), "walk_in");
+  assert.equal(quickIntent("ينفع اجي دلوقتي من غير حجز"), "walk_in");
+  assert.equal(quickIntent("في تقسيط"), "installments");
+  assert.equal(quickIntent("التقويم بيتدفع على مرات ولا مره واحده"), "installments");
+  assert.equal(quickIntent("مفيش تخفيض شويه"), "offers");
+  assert.equal(quickIntent("في باركن قدام العياده"), "parking");
+  assert.equal(quickIntent("بتتعاملوا مع تامين"), "insurance");
+  assert.equal(quickIntent("التنضيف بياخد وقت اد ايه"), "duration");
+  assert.equal(quickIntent("علاج العصب كام جلسه"), "duration");
+  assert.equal(quickIntent("ينفع اكل بعد الحشو"), "aftercare");
+});
+
+run("an unwritten fact fetches a person; it is never guessed and never sent to the model", () => {
+  // This is the safety property of the whole feature: these are exactly the questions a model
+  // answers confidently from textbook dentistry, in the clinic's voice, on the clinic's number.
+  const blank = decideBotReply({ state: "awaiting_choice", text: "في تقسيط", ctx });
+  assert.equal(blank.handoff, true);
+  assert.equal(blank.reason, "installments_unknown");
+  assert.equal(blank.action, undefined, "an unknown fact must never reach the AI action");
+
+  // Written by the clinic: answered verbatim, free, no handoff.
+  const withFact = decideBotReply({
+    state: "awaiting_choice",
+    text: "في تقسيط",
+    ctx: { ...ctx, facts: { installments: "التقويم بيتقسط على 3 دفعات." } },
+  });
+  assert.equal(withFact.reason, "installments");
+  assert.equal(withFact.handoff, false);
+  assert.equal(withFact.reply, "التقويم بيتقسط على 3 دفعات.");
+});
+
+run("aftercare answers and still fetches a person", () => {
+  // The clinic's general note is a useful start and is never the whole answer for the patient
+  // who is actually asking.
+  const d = decideBotReply({
+    state: "awaiting_choice",
+    text: "ينفع اكل بعد الحشو",
+    ctx: { ...ctx, facts: { aftercare: "استنى ساعة قبل الأكل." } },
+  });
+  assert.equal(d.reason, "aftercare");
+  assert.equal(d.handoff, true);
+  assert.ok(d.reply.startsWith("استنى ساعة قبل الأكل."));
+});
+
+run("the map link rides along with the address", () => {
+  const d = decideBotReply({
+    state: "awaiting_choice",
+    text: "ابعتلي اللوكيشن",
+    ctx: { ...ctx, facts: { mapsUrl: "https://maps.app.goo.gl/abc" } },
+  });
+  assert.equal(d.reason, "location");
+  assert.ok(d.reply.includes("https://maps.app.goo.gl/abc"));
+  assert.ok(d.reply.includes("شارع الرحمة"));
 });
 
 console.log("\nquickAnswers: all suites passed");

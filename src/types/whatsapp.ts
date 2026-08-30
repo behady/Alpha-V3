@@ -106,6 +106,8 @@ export interface WhatsAppSettingsDocument {
    * complaints, named-staff questions and anything medical hand to a person.
    */
   botAiEnabled?: boolean;
+  /** Answers to the questions the clinic's data cannot supply. See BotFacts. */
+  botFacts?: BotFacts;
   /**
    * Answer new leads automatically. Separate from `isPatientAutomationEnabled` on purpose: a
    * clinic may happily remind its own patients while wanting no machine to greet strangers,
@@ -113,6 +115,50 @@ export interface WhatsAppSettingsDocument {
    */
   isLeadAutoReplyEnabled?: boolean;
   updatedAt?: string;
+}
+
+/**
+ * The answers to the questions patients ask that no other part of the system stores.
+ *
+ * Every field here was found by tracing real patient messages through the assistant and watching
+ * it hand them to a receptionist — or, worse, answer them from the model's general knowledge of
+ * dentistry in the clinic's own voice. "How long do braces take", "do you take instalments", "is
+ * there parking", "can I just walk in": the clinic knows all of it, and nothing had ever asked.
+ *
+ * Every field is optional and empty means the same thing everywhere: the bot says a person will
+ * confirm, and never guesses. Filling one in converts that question from a staffed interruption
+ * into a free instant answer — so these are worth money, but no field is ever required.
+ *
+ * Written by the clinic in its own words and sent verbatim. The bot does not rephrase them, which
+ * is what makes them safe to quote: a sentence the clinic wrote is a sentence the clinic meant.
+ */
+export interface BotFacts {
+  /** Can a patient turn up without an appointment, and what happens if they do. */
+  walkIn?: string;
+  /** Instalments and payment plans. */
+  installments?: string;
+  /** Current offers or the discount policy — including "we don't discount", which is an answer. */
+  offers?: string;
+  /** A Google Maps link. "ابعتلي اللوكيشن" wants a pin, and a street address is not one. */
+  mapsUrl?: string;
+  /** Parking, and how to find the entrance. */
+  parking?: string;
+  /** Which insurers or corporate schemes are accepted, if any. */
+  insurance?: string;
+  /**
+   * Treatments the clinic does NOT do.
+   *
+   * The one field here that prevents an invention rather than enabling an answer: the model is
+   * told to treat a near-enough service in the price list as a yes, so an implant enquiry at a
+   * clinic that does no implants can be answered with the price of something adjacent.
+   */
+  notOffered?: string;
+  /** How long appointments take. The per-service durationMinutes field is empty on every clinic. */
+  durations?: string;
+  /** Typical number of sessions for the longer treatments. */
+  sessions?: string;
+  /** Standard aftercare — eating, rinsing, painkillers — as the clinic words it. */
+  aftercare?: string;
 }
 
 /** Firestore path helper */

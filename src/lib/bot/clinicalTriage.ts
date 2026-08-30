@@ -25,6 +25,17 @@ import { normalizeReplyText } from "@/lib/patientMessaging";
  * clinic cannot have. When the two readings are close, the person wins.
  */
 
+/** Digits, spacing and orthography folded; the shared normaliser plus Arabic-Indic numerals. */
+function normalize(raw: string): string {
+  return normalizeReplyText(raw)
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    // Dashes and slashes join words that are separate; underscores arrive from copied text.
+    .replace(/[-_/\\|]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Leading particles that fuse onto an Arabic word. Every stripped form is also tested. */
 const PREFIXES = ["وبال", "فبال", "وال", "بال", "فال", "كال", "لل", "ال", "و", "ف", "ب", "ل", "ك"];
 
@@ -41,14 +52,14 @@ const SUFFIXES = ["", "ي", "ه", "ها", "هم", "هما", "ك", "كي", "كم"
  *
  * Nouns and adjectives only — verbs conjugate too far for stemming and are listed whole below.
  */
-const SYMPTOM_STEMS = [
+const SYMPTOM_STEMS = ([
   "الم", "الام", "وجع", "وجعان", "موجوع",
   "ورم", "وارم", "متورم", "تورم", "منتفخ", "انتفاخ",
   "نزيف", "صديد", "خراج", "التهاب", "ملتهب",
   "حراره", "سخونه", "سخونيه", "مسخن",
   "مكسور", "مكسوره", "متكسر", "كسر",
   "حساسيه", "مخدر", "خدر",
-];
+] as string[]).map(normalize);
 
 /**
  * Everything matched as a complete word only.
@@ -58,7 +69,7 @@ const SYMPTOM_STEMS = [
  * endings are allowed here); `حمل` is pregnancy and also `احمل` = "I upload". Whole-word matching
  * is what makes each of them safe to keep.
  */
-const EXACT_WORDS = new Set([
+const EXACT_WORDS = new Set(([
   // Blood and bleeding, in the forms people write.
   "دم", "دمي", "نزف", "بينزف", "بتنزف", "ينزف", "تنزف", "بنزف", "نازف", "بيندف",
   /*
@@ -92,7 +103,9 @@ const EXACT_WORDS = new Set([
   "wagaa", "alam", "warm", "waram", "warem", "mowaram", "mowarram",
   "nazif", "nazeef", "dam", "kasr", "maksour", "maksoor", "maksoura",
   "sokhoneya", "so5oneya", "7arara", "harara", "mesaken", "moskin", "khoraag",
-]);
+  // Normalised on the way in, for the same reason phrases are: a word written with ء, ة or ى
+  // would otherwise never equal the folded token it is meant to catch.
+] as string[]).map(normalize));
 
 /**
  * Phrases that only mean something medical together.
@@ -149,25 +162,15 @@ const DISTRESS_WORDS = [
  * price or a booking it is a customer naming a treatment, and answering that with the emergency
  * script loses the enquiry AND writes a false clinical flag on the record.
  */
-const PROCEDURE_WORDS = new Set([
-  "خلع", "الخلع", "خلعه", "اخلع", "نخلع", "خلعت", "بيتخلع", "تخلع", "خلع3", "khal3", "khale3",
-]);
+const PROCEDURE_WORDS = new Set(([
+  "خلع", "الخلع", "خلعه", "اخلع", "نخلع", "خلعت", "بيتخلع", "تخلع", "khal3", "khale3",
+] as string[]).map(normalize));
 const COMMERCE_WORDS = [
   "بكام", "كام", "سعر", "السعر", "اسعار", "الاسعار", "تمن", "التمن", "تكلفه", "التكلفه",
   "احجز", "حجز", "الحجز", "ميعاد", "موعد", "مواعيد", "احجزلي", "عايز احجز", "تقسيط",
   "price", "cost", "how much", "book", "booking", "appointment",
 ];
 
-/** Digits, spacing and orthography folded; the shared normaliser plus Arabic-Indic numerals. */
-function normalize(raw: string): string {
-  return normalizeReplyText(raw)
-    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
-    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
-    // Dashes and slashes join words that are separate; underscores arrive from copied text.
-    .replace(/[-_/\\|]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 /** A token plus every form left after removing one leading particle. */
 function candidates(token: string): string[] {
@@ -200,23 +203,37 @@ function matchesStem(candidate: string): boolean {
 /**
  * Does the normalised text contain this phrase as whole words?
  *
+ * The phrase is normalised too. The normaliser folds ى→ي and ة→ه, so a phrase written the correct
+ * way — `ريحة وحشة` — would never match the folded text `ريحه وحشه`, and would sit in the list
+ * looking like protection that was never once applied.
+ *
  * Also tested against a copy where a leading `و` ("and") is split off each token: Egyptians write
  * `ومش عارف انام` as one word, and the phrase `مش عارف انام` would otherwise slide straight past
  * the very message it exists to catch.
  */
-function hasPhrase(text: string, phrase: string): boolean {
+function hasPhrase(text: string, rawPhrase: string): boolean {
+  const phrase = normalize(rawPhrase);
+  if (!phrase) return false;
   if (` ${text} `.includes(` ${phrase} `)) return true;
   const split = text.replace(/(^|\s)و(?=\S{2,})/g, "$1و ");
   return ` ${split} `.includes(` ${phrase} `);
 }
 
+/** Needles are normalised here too — see hasPhrase for why that is not optional. */
 function hasAnyWord(tokens: string[], words: string[]): boolean {
   const set = new Set(tokens);
-  return words.some((w) => (w.includes(" ") ? false : set.has(w)));
+  return words.some((w) => {
+    const n = normalize(w);
+    return n && !n.includes(" ") && set.has(n);
+  });
 }
 
 function hasAny(text: string, tokens: string[], words: string[]): boolean {
-  return words.some((w) => (w.includes(" ") ? hasPhrase(text, w) : tokens.includes(w)));
+  return words.some((w) => {
+    const n = normalize(w);
+    if (!n) return false;
+    return n.includes(" ") ? hasPhrase(text, n) : tokens.includes(n);
+  });
 }
 
 export interface TriageResult {

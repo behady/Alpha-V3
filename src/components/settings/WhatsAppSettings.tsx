@@ -136,6 +136,10 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     botAnswerStrangers: data?.botAnswerStrangers === true,
     botAutoConfirmBookings: data?.botAutoConfirmBookings === true,
     botAiEnabled: data?.botAiEnabled === true,
+    // Same rule as deliveryMode below: spread conditionally so an absent map stays absent. A key
+    // holding `undefined` is rejected by Firestore on the next write, which reads on screen as a
+    // save that silently did nothing.
+    ...(data?.botFacts && typeof data.botFacts === "object" ? { botFacts: data.botFacts } : {}),
     // Dropping this field here is what made "manual" look unselectable: the click saved it,
     // the listener echoed the document back through this function, and the choice vanished
     // from the screen — while the server was already honouring it. Spread conditionally so an
@@ -313,8 +317,42 @@ export default function WhatsAppSettings() {
           : "When a patient types a question the buttons don't cover (like \"do you do braces?\"), the AI answers briefly. Max 3 answers per conversation, 1 credit each from the monthly AI pool. Prices are quoted as ranges only; complaints and medical questions go straight to a person.",
       botLimits:
         language === "ar"
-          ? "بحد أقصى ٨ ردود للرقم الواحد في الساعة، وبيوقف ويحوّل لموظف لو المحادثة طالت."
-          : "At most 8 replies to one number per hour, and it stops and hands over if a conversation drags on.",
+          ? "بحد أقصى ١٥ رد للرقم الواحد في الساعة، وبيوقف ويحوّل لموظف لو المحادثة طالت."
+          : "At most 15 replies to one number per hour, and it stops and hands over if a conversation drags on.",
+      factsTitle: language === "ar" ? "ردود جاهزة على أسئلة المرضى" : "Ready answers for common questions",
+      factsHint:
+        language === "ar"
+          ? "دي الأسئلة اللي المرضى بيسألوها والنظام معندوش إجابتها. أي خانة تسيبها فاضية، البوت هيقول «الاستقبال هيتواصل معاك» ومش هيخمّن أبداً. أي خانة تملاها، البوت هيرد بيها فوراً وببلاش — من غير ما تدفع كريدت ومن غير ما موظف يرد."
+          : "The questions patients ask that the system has no answer for. Leave a box empty and the bot says a person will follow up — it never guesses. Fill one in and the bot answers instantly and free, with no AI credit and no staff time.",
+      factWalkIn: language === "ar" ? "الحضور من غير ميعاد" : "Walk-ins",
+      factWalkInPh:
+        language === "ar" ? "مثال: ينفع تيجي من غير ميعاد بس الأولوية للحجوزات، والانتظار ممكن يوصل ساعة." : "e.g. Walk-ins welcome, but booked patients come first.",
+      factInstallments: language === "ar" ? "التقسيط" : "Instalments",
+      factInstallmentsPh:
+        language === "ar" ? "مثال: التقويم والتركيبات بتتقسط على 3 دفعات من غير فوايد." : "e.g. Braces and crowns can be paid over 3 instalments.",
+      factOffers: language === "ar" ? "العروض والخصومات" : "Offers and discounts",
+      factOffersPh:
+        language === "ar" ? "مثال: مفيش خصومات حالياً، والأسعار ثابتة للجميع." : "e.g. No current offers; prices are the same for everyone.",
+      factMaps: language === "ar" ? "لينك اللوكيشن على الخريطة" : "Map link",
+      factMapsPh: "https://maps.app.goo.gl/...",
+      factParking: language === "ar" ? "الباركن والدخول" : "Parking and entrance",
+      factParkingPh:
+        language === "ar" ? "مثال: في باركن مجاني قدام العمارة، والعيادة في الدور الأول وفيه أسانسير." : "e.g. Free parking outside; first floor, lift available.",
+      factInsurance: language === "ar" ? "التأمين الطبي" : "Insurance",
+      factInsurancePh:
+        language === "ar" ? "مثال: مابنتعاملش مع شركات تأمين، بس بنديك فاتورة تقدر تقدمها." : "e.g. We don't bill insurers, but we provide an invoice you can claim with.",
+      factNotOffered: language === "ar" ? "خدمات إحنا مش بنعملها" : "Treatments you don't offer",
+      factNotOfferedPh:
+        language === "ar" ? "مثال: مابنعملش زراعة أسنان ولا جراحات الوجه والفكين." : "e.g. We don't do implants or oral surgery.",
+      factDurations: language === "ar" ? "الجلسة بتاخد قد ايه" : "How long appointments take",
+      factDurationsPh:
+        language === "ar" ? "مثال: الكشف ١٥ دقيقة، التنظيف نص ساعة، الحشو من ٣٠ لـ ٤٥ دقيقة." : "e.g. Check-up 15 min, cleaning 30 min, filling 30–45 min.",
+      factSessions: language === "ar" ? "عدد الجلسات" : "Number of sessions",
+      factSessionsPh:
+        language === "ar" ? "مثال: علاج العصب من جلستين لتلاتة، والتقويم زيارة كل شهر." : "e.g. Root canal 2–3 sessions; braces one visit a month.",
+      factAftercare: language === "ar" ? "تعليمات بعد العلاج" : "Aftercare",
+      factAftercarePh:
+        language === "ar" ? "مثال: بعد الخلع، عض على الشاش نص ساعة ومتشربش بشفاطة ومتاكلش سخن النهاردة." : "e.g. After an extraction: bite on gauze for 30 min, no straws, nothing hot today.",
       templateType: language === "ar" ? "نوع القالب" : "Template type",
       templateHint:
         language === "ar"
@@ -1189,6 +1227,51 @@ export default function WhatsAppSettings() {
                 </label>
                 <p className="text-xs text-slate-500 leading-relaxed">{txt.botAiHint}</p>
                 <p className="text-xs text-slate-500 leading-relaxed">{txt.botLimits}</p>
+
+                {/*
+                  The answers the system does not otherwise hold.
+                  Every one of these questions reached a receptionist every single time, or reached
+                  the model with no data and came back as general dentistry in the clinic's voice.
+                  Empty stays safe — the bot says a person will follow up rather than guessing.
+                */}
+                <div className="pt-4 mt-2 border-t border-indigo-200 space-y-3">
+                  <p className="text-[11px] font-black uppercase tracking-widest text-indigo-800">{txt.factsTitle}</p>
+                  <p className="text-xs text-slate-600 leading-relaxed">{txt.factsHint}</p>
+                  <div className="grid gap-3">
+                    {(
+                      [
+                        { key: "walkIn" as const, label: txt.factWalkIn, ph: txt.factWalkInPh },
+                        { key: "durations" as const, label: txt.factDurations, ph: txt.factDurationsPh },
+                        { key: "sessions" as const, label: txt.factSessions, ph: txt.factSessionsPh },
+                        { key: "installments" as const, label: txt.factInstallments, ph: txt.factInstallmentsPh },
+                        { key: "offers" as const, label: txt.factOffers, ph: txt.factOffersPh },
+                        { key: "insurance" as const, label: txt.factInsurance, ph: txt.factInsurancePh },
+                        { key: "notOffered" as const, label: txt.factNotOffered, ph: txt.factNotOfferedPh },
+                        { key: "aftercare" as const, label: txt.factAftercare, ph: txt.factAftercarePh },
+                        { key: "parking" as const, label: txt.factParking, ph: txt.factParkingPh },
+                        { key: "mapsUrl" as const, label: txt.factMaps, ph: txt.factMapsPh },
+                      ]
+                    ).map(({ key, label, ph }) => (
+                      <label key={key} className="block space-y-1">
+                        <span className="text-xs font-bold text-indigo-950">{label}</span>
+                        <textarea
+                          rows={key === "mapsUrl" ? 1 : 2}
+                          dir="auto"
+                          className="w-full rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 resize-y"
+                          placeholder={ph}
+                          value={state.botFacts?.[key] ?? ""}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setState((s) => ({ ...s, botFacts: { ...(s.botFacts ?? {}), [key]: value } }));
+                          }}
+                          // Saved on blur rather than per keystroke: these are sentences, and a
+                          // write per character is a write per character.
+                          onBlur={() => void persist(state, "silent")}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
               </>
             )}
           </div>

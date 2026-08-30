@@ -1,4 +1,5 @@
 import { isOptOutReply, normalizeReplyText } from "@/lib/patientMessaging";
+import type { BotFacts } from "@/types/whatsapp";
 
 /**
  * What the bot says next, given what it said last.
@@ -120,6 +121,8 @@ export interface BotContext {
   addressText?: string;
   /** The clinic's phone, for the one message that tells a patient to ring it. */
   clinicPhone?: string;
+  /** Answers the clinic wrote for the questions its data cannot supply. Any field may be absent. */
+  facts?: BotFacts;
   /** Whether real booking can be offered: schedule configured AND the sender is a known patient. */
   canOfferBooking?: boolean;
   /**
@@ -265,8 +268,29 @@ function startBooking(ctx: BotContext): BotDecision {
 function locationReply(ctx: BotContext): string {
   if (!ctx.addressText?.trim()) return "";
   const lines = ["📍 *العنوان:*", ctx.addressText.trim()];
+  // "ابعتلي اللوكيشن" asks for a pin. A street address answers a different question, so the map
+  // link goes out alongside it whenever the clinic has saved one.
+  if (ctx.facts?.mapsUrl?.trim()) lines.push("", ctx.facts.mapsUrl.trim());
   if (ctx.clinicPhone?.trim()) lines.push("", `📞 ${ctx.clinicPhone.trim()}`);
   return lines.join("\n");
+}
+
+/**
+ * Answer from something the clinic wrote, or fetch a person.
+ *
+ * The empty case is the important one. These questions — instalments, parking, how long braces
+ * take — are exactly the ones a model will answer confidently from general knowledge, so an
+ * unfilled field must route to a human rather than fall through to the model. That is the whole
+ * safety property: the bot states a fact only when a human at this clinic typed it.
+ */
+function factReply(fact: string | undefined, reason: string, alsoHandoff = false): BotDecision {
+  const text = fact?.trim();
+  if (!text) {
+    return { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: `${reason}_unknown` };
+  }
+  return alsoHandoff
+    ? { reply: `${text}\n\nولو محتاج تفاصيل أكتر، الاستقبال هيتواصل معاك.`, next: "handed_off", handoff: true, reason }
+    : { reply: text, next: "awaiting_choice", handoff: false, reason };
 }
 
 /**
@@ -309,6 +333,30 @@ function answerIntent(intent: QuickIntent, ctx: BotContext): BotDecision | null 
 
     case "price_list":
       return { reply: "", action: { type: "price_list" }, next: "awaiting_choice", handoff: false, reason: "price_list" };
+
+    /*
+     * The clinic's own words, sent verbatim.
+     *
+     * A fact the clinic wrote is a fact the clinic meant, so none of these is rephrased. When the
+     * field is empty the answer is a person — never the model, which has no data for any of this
+     * and would fill the gap with textbook dentistry in the clinic's voice.
+     */
+    case "walk_in":
+      return factReply(ctx.facts?.walkIn, "walk_in");
+    case "installments":
+      return factReply(ctx.facts?.installments, "installments");
+    case "offers":
+      return factReply(ctx.facts?.offers, "offers");
+    case "parking":
+      return factReply(ctx.facts?.parking, "parking");
+    case "insurance":
+      return factReply(ctx.facts?.insurance, "insurance");
+    case "duration":
+      return factReply(ctx.facts?.durations, "duration");
+    case "aftercare":
+      // Aftercare always flags a person as well: the clinic's general note is a useful start and
+      // is never the whole answer for the patient who is actually asking.
+      return factReply(ctx.facts?.aftercare, "aftercare", true);
 
     /*
      * Courtesy, answered in one line and never with the menu.
