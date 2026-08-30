@@ -3,7 +3,8 @@ import { Montserrat, Open_Sans } from "next/font/google";
 import "./globals.css";
 import { UIProvider } from "@/context/UIContext";
 import { LanguageProvider } from "@/context/LanguageContext";
-import { ThemeProvider } from "@/context/ThemeContext"; 
+import { ThemeProvider } from "@/context/ThemeContext";
+import { THEME_BOOT_SCRIPT } from "@/lib/theme/bootScript"; 
 import { AuthProvider } from "@/context/AuthContext"; 
 import { ClinicProvider } from "@/context/ClinicContext";
 
@@ -40,9 +41,20 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    // suppressHydrationWarning on <html> because the boot script below sets inline
+    // custom properties on this element before React hydrates. The existing one on
+    // <body> does not cover it: the attribute is single-level.
+    <html lang="en" suppressHydrationWarning>
       {/* FIX: Added suppressHydrationWarning to ignore Grammarly/Extension attributes */}
       <body className={`${body.className} ${body.variable} ${figures.variable}`} suppressHydrationWarning={true}>
+        {/*
+          Paints the clinic's cached theme before the first frame.
+
+          Must be the first child of <body>, not placed before it: React 19 does not hoist a
+          classic inline script, so one emitted outside <body> is relocated into <head> by the
+          parser, leaving <html> with children React never rendered.
+        */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
         <AuthProvider>
           <ClinicProvider>
             <ThemeProvider>

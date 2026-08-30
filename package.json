@@ -61,6 +61,8 @@
     "test:briefing": "npx tsx tests/briefing.test.mts",
     "test:migration": "npx tsx tests/migration.test.mts",
     "_comment_test_modeltext": "Markdown/bidi/injection cases for the model-text renderer used by the printed treatment plan. No network, no emulator.",
+    "_comment_test_theme": "Preset completeness, mint-matches-globals.css, token guards, and the boot script executed against a fake DOM. The boot script is a string the compiler never sees.",
+    "test:theme": "npx tsx tests/theme.test.mts",
     "test:modeltext": "npx tsx tests/modelTextHtml.test.mts",
     "_comment_test_tokens": "The AI token meter: one credit spans several API rounds, and the counts must survive a response that carries no usage block. No network, no emulator.",
     "test:tokens": "npx tsx tests/aiTokenUsage.test.mts",
