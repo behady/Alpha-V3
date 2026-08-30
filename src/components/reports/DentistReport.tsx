@@ -335,7 +335,7 @@ export default function DentistReport({ procedures, payments, rangeLabel, isAr }
             onClick={() => setSelectedDentist(s.name)}
             className={`text-start p-4 rounded-2xl border transition-all ${
               activeDentist?.name === s.name
-                ? "bg-[#2D3748] border-[#2D3748] text-white shadow-xl"
+                ? "bg-ink-strong border-ink-strong text-white shadow-xl"
                 : "bg-white border-slate-200 hover:border-slate-300 shadow-sm"
             }`}
           >

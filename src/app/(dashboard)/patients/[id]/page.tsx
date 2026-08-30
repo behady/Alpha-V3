@@ -160,7 +160,7 @@ const getTimelineStyle = (status: string) => {
     if (s.includes('hot')) return { color: 'bg-rose-500 ring-rose-100', icon: Activity, title: 'High Priority Lead' };
     if (s.includes('cold') || s.includes('lost')) return { color: 'bg-slate-400 ring-slate-100', icon: UserX, title: 'Lead Cooled / Lost' };
     if (s.includes('complete') || s.includes('done')) return { color: 'bg-accent-soft ring-blue-100', icon: CheckCircle2, title: 'Treatment Completed' };
-    return { color: 'bg-[#E8F7F0]0 ring-blue-100', icon: MessageCircle, title: 'Pipeline Update' };
+    return { color: 'bg-accent-tint0 ring-blue-100', icon: MessageCircle, title: 'Pipeline Update' };
 };
 
 export default function PatientProfile() {

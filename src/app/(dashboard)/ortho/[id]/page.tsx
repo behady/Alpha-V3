@@ -257,7 +257,7 @@ export default function IsolatedOrthoWorkspace() {
 
   return (
     <PermissionGuard permission="access.ortho" allowedRoles={["Dentist"]}>
-      <div className="min-h-screen bg-[#f7f7fb] pb-20 animate-in fade-in">
+      <div className="min-h-screen bg-surface-subtle pb-20 animate-in fade-in">
         <style dangerouslySetInnerHTML={{__html: `
           @media print {
           body * { visibility: hidden; }

@@ -984,7 +984,7 @@ export default function AppointmentsPage() {
 
   return (
     <PermissionGuard permission="access.appointments">
-      <div className="flex flex-col lg:flex-row h-full w-full gap-4 md:gap-5 lg:gap-5 p-4 lg:p-4 xl:p-5 bg-[#EEF2F6] min-h-0 overflow-hidden">
+      <div className="flex flex-col lg:flex-row h-full w-full gap-4 md:gap-5 lg:gap-5 p-4 lg:p-4 xl:p-5 bg-surface-muted min-h-0 overflow-hidden">
          
          {/* --- LEFT PANEL --- */}
          <div id="left-panel-container" className={`w-full ${(selectedAppt || isBookingModalOpen) ? 'lg:w-[400px] xl:w-[450px]' : 'lg:w-[260px]'} shrink-0 flex flex-col gap-4 md:gap-5 overflow-y-auto no-scrollbar pt-2 ${!selectedAppt ? 'order-2 lg:order-1' : 'order-1'} transition-all duration-300`}>

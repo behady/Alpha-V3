@@ -309,7 +309,7 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
                 ))}
               </tbody>
               <tfoot>
-                <tr className="bg-[#2D3748] text-white text-xs font-black">
+                <tr className="bg-ink-strong text-white text-xs font-black">
                   <td className="py-3 px-4">{isAr ? "الإجمالي" : "TOTAL"}</td>
                   <td className="py-3 px-3 text-center">{totalCount}</td>
                   <td className="py-3 px-4 text-end tabular-nums">{totalIncome.toLocaleString()}</td>

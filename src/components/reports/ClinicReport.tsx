@@ -409,7 +409,7 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
               ))}
             </tbody>
             <tfoot>
-              <tr className="bg-[#2D3748] text-white text-xs font-black">
+              <tr className="bg-ink-strong text-white text-xs font-black">
                 <td className="py-3 px-4">{isAr ? "الإجمالي" : "TOTAL"}</td>
                 <td className="py-3 px-4 text-center">{totalProcs}</td>
                 <td className="py-3 px-4 text-end tabular-nums">{totalIncome.toLocaleString()}</td>

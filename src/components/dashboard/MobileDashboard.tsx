@@ -874,7 +874,7 @@ export default function MobileDashboard() {
   }, [scheduleViewDate, language]);
 
   return (
-    <div className={`min-h-screen lg:min-h-0 lg:h-full relative overflow-hidden pb-24 lg:pb-0 font-sans text-[#1E293B] lg:text-white bg-gradient-to-br from-[#E2F2E2]/60 to-[#F0FAF0] lg:from-transparent lg:to-transparent ${isRTL ? 'text-right' : 'text-left'}`}>
+    <div className={`min-h-screen lg:min-h-0 lg:h-full relative overflow-hidden pb-24 lg:pb-0 font-sans text-ink-slab lg:text-white bg-gradient-to-br from-accent-tint/60 to-accent-tint lg:from-transparent lg:to-transparent ${isRTL ? 'text-right' : 'text-left'}`}>
       <div className="relative z-10 w-full max-w-[1920px] mx-auto p-4 md:p-6 md:pt-8 lg:p-4 lg:pt-3 space-y-3 md:space-y-4 lg:space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:h-full lg:flex lg:flex-col">
 
         {/* === DESKTOP: High Contrast Greeting Bar === */}
@@ -977,7 +977,7 @@ export default function MobileDashboard() {
              
              <div className="grid grid-cols-2 gap-2">
                 {/* Income Card (Spans half) */}
-                <div className="bg-[#0a0a0a] rounded-[1.5rem] p-4 text-white shadow-lg flex flex-col relative overflow-hidden">
+                <div className="bg-ink-slab rounded-[1.5rem] p-4 text-white shadow-lg flex flex-col relative overflow-hidden">
                     <div className="flex justify-between items-start w-full relative z-10">
                        <span className="text-[10px] font-bold text-white uppercase tracking-widest">{language === 'ar' ? 'دخل اليوم' : 'Today\'s Income'}</span>
                        <Wallet size={14} className="text-white" />

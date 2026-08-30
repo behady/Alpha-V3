@@ -873,7 +873,7 @@ export default function DesktopDashboard() {
   }, [scheduleViewDate, language]);
 
   return (
-    <div className={`min-h-screen lg:min-h-0 lg:h-full relative overflow-hidden pb-24 lg:pb-0 font-sans text-[#1E293B] lg:text-white ${isRTL ? 'text-right' : 'text-left'}`}>
+    <div className={`min-h-screen lg:min-h-0 lg:h-full relative overflow-hidden pb-24 lg:pb-0 font-sans text-ink-slab lg:text-white ${isRTL ? 'text-right' : 'text-left'}`}>
       <div className="relative z-10 w-full max-w-[1920px] mx-auto p-4 md:p-6 md:pt-8 lg:p-4 lg:pt-3 space-y-3 md:space-y-4 lg:space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:h-full lg:flex lg:flex-col">
         
         {/* === DESKTOP: Compact Command Bar (greeting + stats + actions in one strip) === */}
@@ -1036,7 +1036,7 @@ export default function DesktopDashboard() {
                         <span className="text-[10px] md:text-xs lg:text-sm font-extrabold text-slate-600 lg:text-slate-700">{language === 'ar' ? 'دفع' : 'Pay'}</span>
                     </button>
                     <div className="flex flex-col items-center justify-center gap-1.5 lg:gap-2 hover:scale-[1.05] transition-transform group relative">
-                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-[#fff4e6] text-[#f39c12] flex items-center justify-center group-hover:bg-[#f39c12] group-hover:text-white transition-colors shadow-sm relative z-10">
+                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-warn-tint text-warn flex items-center justify-center group-hover:bg-warn group-hover:text-white transition-colors shadow-sm relative z-10">
                             <div className="opacity-0 absolute inset-0"><ReceptionSummonPanel /></div>
                             <Bell size={28} className="scale-75 lg:scale-100" strokeWidth={2.5} />
                         </div>
@@ -1067,7 +1067,7 @@ export default function DesktopDashboard() {
             </div>
 
             {/* 4. QUICK SUMMARY WIDGET (1x1, Middle Right) */}
-            <div className="col-span-1 row-span-1 bg-[#E8F1FA] text-[#4A90E2] rounded-2xl p-4 shadow-[0_8px_20px_rgb(0,0,0,0.08)] flex items-center">
+            <div className="col-span-1 row-span-1 bg-info-tint text-info rounded-2xl p-4 shadow-[0_8px_20px_rgb(0,0,0,0.08)] flex items-center">
                 <div className="w-full flex flex-col gap-3 justify-center h-full">
                     <div className="flex items-center justify-between w-full">
                         <div className="flex items-center gap-3">
@@ -1225,7 +1225,7 @@ export default function DesktopDashboard() {
                       <button
                         type="button"
                         onClick={() => setPrescriptionFinderOpen(true)}
-                        className="flex items-center gap-1.5 rounded-full bg-ink-strong px-5 py-2 text-xs font-bold text-white transition hover:bg-[#1A202C] shadow-sm hover:shadow-md"
+                        className="flex items-center gap-1.5 rounded-full bg-ink-strong px-5 py-2 text-xs font-bold text-white transition hover:bg-ink-slab shadow-sm hover:shadow-md"
                       >
                         <Pill size={14} />
                         {language === "ar" ? "طباعة وصفة" : "Print Rx"}

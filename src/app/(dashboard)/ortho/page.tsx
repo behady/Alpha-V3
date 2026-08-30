@@ -109,7 +109,7 @@ export default function OrthoDashboard() {
 
   return (
     <PermissionGuard permission="access.ortho" allowedRoles={["Dentist"]}>
-      <div className="min-h-screen bg-[#f7f7fb] pb-24 lg:pb-10">
+      <div className="min-h-screen bg-surface-subtle pb-24 lg:pb-10">
       <div className="max-w-7xl mx-auto p-4 md:p-8 animate-in fade-in">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">

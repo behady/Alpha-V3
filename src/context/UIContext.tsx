@@ -365,14 +365,21 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
           <div
             key={toast.id}
             className={`pointer-events-auto flex items-center gap-3 px-5 py-4 rounded-2xl shadow-xl min-w-[300px] max-w-[400px] animate-in slide-in-from-right-10 fade-in duration-300 border-l-4 ${
-              toast.type === "success" ? "bg-[#AFDDE5] border-[#0FA4AF] text-[#003135]" :
-              toast.type === "error" ? "bg-[#AFDDE5] border-[#964734] text-[#003135]" :
-              "bg-[#003135] border-[#003135] text-[#AFDDE5]"
+              /*
+                 Success and error used to share a background AND a text colour, differing only by
+                 a four-pixel border stripe -- so "Saved" and "Failed to save" looked the same at a
+                 glance, which in a clinic is the difference between a payment recorded and a
+                 payment lost. They are now the status tokens, which are distinct by hue and follow
+                 the clinic's theme.
+              */
+              toast.type === "success" ? "bg-ok-tint border-ok text-ok" :
+              toast.type === "error" ? "bg-danger-tint border-danger text-danger" :
+              "bg-info-tint border-info text-info"
             }`}
           >
-            {toast.type === "success" && <CheckCircle2 className="text-[#0FA4AF] shrink-0" size={20} />}
-            {toast.type === "error" && <AlertCircle className="text-[#964734] shrink-0" size={20} />}
-            {toast.type === "info" && <Info className="text-[#0FA4AF] shrink-0" size={20} />}
+            {toast.type === "success" && <CheckCircle2 className="text-ok shrink-0" size={20} />}
+            {toast.type === "error" && <AlertCircle className="text-danger shrink-0" size={20} />}
+            {toast.type === "info" && <Info className="text-info shrink-0" size={20} />}
             <p className="text-sm font-bold flex-1">{toast.message}</p>
             <button onClick={() => removeToast(toast.id)} className="opacity-50 hover:opacity-100"><X size={16}/></button>
           </div>
