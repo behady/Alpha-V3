@@ -40,6 +40,16 @@ export type PublicClinicProfile = {
   schedule: ClinicScheduleConfig;
   /** Configured branches. Empty for single-location clinics — the page then never mentions branches. */
   branches: ClinicBranch[];
+  /** Street address as the clinic wrote it. Empty when unset. */
+  address: string;
+  /**
+   * The clinic's own phone number.
+   *
+   * Carried so the assistant can put it in the message that tells a patient to ring: the emergency
+   * reply said "call the clinic straight away" and then gave them nothing to call, which is the
+   * one message where that omission is not a cosmetic problem.
+   */
+  phone: string;
 };
 
 export class PublicBookingError extends Error {
@@ -135,6 +145,8 @@ export async function loadPublicClinicProfile(
     doctorIdsByName,
     schedule,
     branches,
+    address: String(info.address || "").trim(),
+    phone: String(info.phone || "").trim(),
   };
 }
 

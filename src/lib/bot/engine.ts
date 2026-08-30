@@ -103,6 +103,8 @@ export interface BotContext {
   hoursText?: string;
   /** Where the clinic is. Empty when unset. */
   addressText?: string;
+  /** The clinic's phone, for the one message that tells a patient to ring it. */
+  clinicPhone?: string;
   /** Whether real booking can be offered: schedule configured AND the sender is a known patient. */
   canOfferBooking?: boolean;
   /**
@@ -146,26 +148,12 @@ const SILENT = (next: BotState, reason: string): BotDecision => ({ reply: "", ne
 /**
  * Things a patient sends that must never be answered by a machine.
  *
- * Deliberately broad and deliberately erring towards handing over. A swollen face at 1am is the
- * message where being unhelpful is free and being wrong is not — the bot's job here is to stop
- * talking and fetch a person, not to reassure.
+ * The judgement lives in lib/bot/clinicalTriage, which matches whole words rather than fragments —
+ * see the note there for why a substring scan turned "the appointments" into a medical emergency
+ * and let a knocked-out tooth through. Re-exported so callers keep one import.
  */
-const CLINICAL_WORDS = [
-  // Arabic, in the spellings people actually type
-  "الم", "وجع", "وجعني", "بيوجعني", "ورم", "وارم", "منتفخ", "انتفاخ", "نزيف", "بينزف",
-  "دم", "صديد", "خراج", "حراره", "سخونه", "التهاب", "مسكن", "مضاد حيوي", "حساسيه",
-  "كسر", "اتكسر", "خلع", "طوارئ", "اسعاف", "حامل", "حمل", "سكر", "ضغط",
-  // English
-  "pain", "hurts", "hurting", "swollen", "swelling", "bleeding", "blood", "pus", "abscess",
-  "fever", "infection", "emergency", "broke", "broken", "pregnant", "allergic", "allergy",
-];
-
-/** Does this message need a human clinician rather than a menu? */
-export function needsHuman(text: string): boolean {
-  const n = normalizeReplyText(text);
-  if (!n) return false;
-  return CLINICAL_WORDS.some((w) => n.includes(normalizeReplyText(w)));
-}
+export { needsHuman, triageMessage } from "./clinicalTriage";
+import { needsHuman } from "./clinicalTriage";
 
 function greeting(ctx: BotContext): string {
   const who = ctx.patientName?.trim() ? ` ${ctx.patientName.trim()}` : "";
@@ -198,8 +186,20 @@ function hoursAndAddress(ctx: BotContext): string {
 }
 
 const HANDOFF_REPLY = "تمام 👍 الاستقبال هيتواصل معاك في أقرب وقت.";
-const CLINICAL_REPLY =
-  "شكراً لتواصلك 🙏\nالرسالة دي محتاجة حد من العيادة يشوفها بنفسه، وهيتواصل معاك في أقرب وقت.\n\nلو الموضوع طارئ، كلمنا على تليفون العيادة على طول.";
+
+/**
+ * The reply to a message that needs a clinician.
+ *
+ * It tells the patient to ring if it is urgent, so it has to hand them the number to ring. The
+ * fixed version of this string did not: a swollen face at 1am was told to phone the clinic and
+ * given nothing to phone, on a channel where looking the number up means leaving the conversation.
+ */
+export function clinicalReplyText(clinicPhone?: string): string {
+  const urgent = clinicPhone?.trim()
+    ? `لو الموضوع طارئ، كلمنا على طول على ${clinicPhone.trim()}`
+    : "لو الموضوع طارئ، كلمنا على تليفون العيادة على طول.";
+  return `شكراً لتواصلك 🙏\nالرسالة دي محتاجة حد من العيادة يشوفها بنفسه، وهيتواصل معاك في أقرب وقت.\n\n${urgent}`;
+}
 
 /** A bare number 1..99 in any digit script, or null. "٣" and "3." are the same answer. */
 export function numberChoice(text: string): number | null {
@@ -244,7 +244,7 @@ export function decideBotReply(args: {
   // Checked before everything, including the menu: a patient in pain who happens to type "2"
   // is still a patient in pain.
   if (needsHuman(text)) {
-    return { reply: CLINICAL_REPLY, next: "handed_off", handoff: true, reason: "clinical" };
+    return { reply: clinicalReplyText(ctx.clinicPhone), next: "handed_off", handoff: true, reason: "clinical" };
   }
 
   /*

@@ -26,7 +26,7 @@ import {
   saveConversation,
 } from "./conversation";
 import { answerWithAi } from "./aiReply";
-import { decideBotReply, type BotContext } from "./engine";
+import { clinicalReplyText, decideBotReply, type BotContext } from "./engine";
 
 /**
  * Answering a patient's WhatsApp message, if the clinic has asked for that.
@@ -332,6 +332,11 @@ export async function respondToPatientMessage(args: {
     // that never wanted a public booking page.
     profile = await loadPublicClinicProfile(clinicId, { requireEnabled: false, loadDoctors: true });
     ctx.hoursText = formatHours(profile.schedule);
+    // Both of these were declared on the context and never assigned: the menu promised "hours and
+    // address" and printed hours alone, and the emergency reply told patients to ring a number it
+    // did not include. The data has been sitting in clinic_info the whole time.
+    ctx.addressText = profile.address;
+    ctx.clinicPhone = profile.phone;
   } catch {
     // No clinic_info at all. The menu offers the receptionist instead of inventing anything.
   }
@@ -452,9 +457,11 @@ export async function respondToPatientMessage(args: {
         // The model recognised a person's job — a complaint, a named dentist, something medical,
         // or a question it has no facts for. Same promise as every other handoff: the patient is
         // told someone is coming, and the conversation is flagged so someone actually comes.
+        // The medical wording is the engine's, phone number included. Two paths reaching the same
+        // conclusion must not give the patient two different amounts of help getting there.
         replyText =
           ai.topic === "medical"
-            ? "شكراً لتواصلك 🙏\nالرسالة دي محتاجة حد من العيادة يشوفها بنفسه، وهيتواصل معاك في أقرب وقت."
+            ? clinicalReplyText(ctx.clinicPhone)
             : ai.topic === "complaint"
               ? "وصلتنا رسالتك 🙏 حد من إدارة العيادة هيتواصل معاك في أقرب وقت."
               : "تمام 👍 الاستقبال هيتواصل معاك في أقرب وقت.";
