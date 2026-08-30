@@ -25,8 +25,19 @@ import type { BotFacts } from "@/types/whatsapp";
 const MODEL = "gemini-flash-latest";
 /** One WhatsApp answer costs one credit — same unit the in-app assistant charges. */
 const CREDITS_PER_ANSWER = 1;
-/** A stuck model call must degrade to the old reprompt, not hold the webhook hostage. */
-const TIMEOUT_MS = 9000;
+/**
+ * How long to wait for the model before giving the patient the old re-prompt instead.
+ *
+ * Measured, not guessed: the same question answered in 2.9s, 8.2s and 12.2s on three consecutive
+ * calls, so latency here has a long tail that has nothing to do with the prompt. At 9s roughly a
+ * third of answers were being thrown away and the patient got "معلش مفهمتش" for a question the
+ * model had answered perfectly — which reads, correctly, as a broken bot.
+ *
+ * Waiting this long is only safe because a redelivered webhook is now refused by message id (see
+ * the meta-whatsapp route): without that guard, a slow turn Meta retries becomes two identical
+ * replies on the patient's phone.
+ */
+const TIMEOUT_MS = 14000;
 
 export type AiReplyResult =
   | { kind: "answer"; text: string }
@@ -242,6 +253,23 @@ export async function answerWithAi(args: {
 
     return { kind: "answer", text };
   } catch (e) {
-    return { kind: "unavailable", reason: e instanceof Error ? e.message : "model_error" };
+    const reason = e instanceof Error ? e.message : "model_error";
+    /*
+     * Failures get a flight-recorder entry too.
+     *
+     * Only successful calls were recorded before, so a timed-out answer looked from the outside
+     * exactly like a model that had refused — the patient saw "معلش مفهمتش" and nothing said why.
+     * Finding that the timeout was firing on a third of calls took a live probe and a stopwatch;
+     * this line is so the next one takes a query.
+     */
+    await adminClinicCollection(clinicId, "ai_debug")
+      .doc(new Date().toISOString().replace(/[:.]/g, "-"))
+      .set({
+        question: question.slice(0, 300),
+        failed: reason,
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      .catch(() => {});
+    return { kind: "unavailable", reason };
   }
 }

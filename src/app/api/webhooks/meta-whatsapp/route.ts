@@ -67,11 +67,36 @@ export async function GET(request: NextRequest) {
   });
 }
 
+/**
+ * Has this exact WhatsApp message already been handled?
+ *
+ * Meta redelivers a webhook it did not get a prompt 200 for, and a redelivery carries the SAME
+ * message id — so without this, one slow turn becomes two identical replies on the patient's
+ * phone. The AI path can legitimately take ten seconds, which puts the whole webhook near Meta's
+ * patience, so the guard is what makes waiting for a good answer safe.
+ *
+ * `create()` rather than `set()`: it fails if the document exists, which makes the check and the
+ * claim one atomic operation. Two concurrent deliveries cannot both win.
+ */
+async function claimMessage(clinicId: string, messageId: string): Promise<boolean> {
+  if (!messageId) return true; // nothing to dedupe on; better to answer than to drop
+  try {
+    await adminClinicCollection(clinicId, "whatsapp_seen")
+      .doc(messageId.replace(/[/\\]/g, "_").slice(0, 200))
+      .create({ at: FieldValue.serverTimestamp() });
+    return true;
+  } catch {
+    return false; // already claimed by an earlier delivery of the same message
+  }
+}
+
 interface InboundMessage {
   phoneNumberId: string;
   from: string;
   text: string;
   fromMe: boolean;
+  /** WhatsApp's own id for this message, used to refuse a redelivery. */
+  messageId: string;
   /**
    * The message carried a photo, video, voice note or document instead of text.
    *
@@ -124,7 +149,8 @@ function extractMessages(body: unknown): InboundMessage[] {
         ).trim();
         // Media with no caption still counts as a message: it needs an answer and a person, and
         // dropping it here is why photos of swollen faces reached nobody.
-        if (from && (text || media)) out.push({ phoneNumberId, from, text, fromMe: false, media });
+        const messageId = String(m?.id || "");
+        if (from && (text || media)) out.push({ phoneNumberId, from, text, fromMe: false, media, messageId });
       }
     }
   }
@@ -191,6 +217,13 @@ export async function POST(request: NextRequest) {
       // this reaches the patient's actual record with no lid fallback needed.
       if (isOptOutReply(msg.text)) {
         await applyInboundOptOut({ clinicId, phone: msg.from, text: msg.text, channel: "whatsapp" });
+        continue;
+      }
+
+      // A redelivery of something already answered. Claimed after the opt-out check so a repeated
+      // "stop" is always honoured, and before the assistant so it can never answer twice.
+      if (!(await claimMessage(clinicId, msg.messageId))) {
+        lastBot = { status: "skipped", reason: "duplicate_delivery" };
         continue;
       }
 
