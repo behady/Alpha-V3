@@ -70,6 +70,154 @@ function parseFieldData(fieldData) {
   return out;
 }
 
+/**
+ * Folds the spelling a campaign name happens to use down to something matchable.
+ *
+ * Arabic ad names are written every which way — with tashkeel, with tatweel, أ/إ/ا mixed, ة for ه —
+ * and both sides of a comparison must come through here. A keyword that skips it sits in the list
+ * looking like coverage it has never once provided.
+ */
+function normalizeForMatch(raw) {
+  return String(raw || "")
+    .toLowerCase()
+    .replace(/[\u064B-\u0652\u0640]/g, "") // tashkeel and tatweel
+    .replace(/[أإآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/[^\p{L}\p{N}]+/gu, " ") // separators, emoji, the "|" and "–" every ad name is full of
+    .trim();
+}
+
+/** Arabic glues its article and conjunctions onto the noun; strip them before comparing. */
+const AR_PREFIXES = ["وال", "بال", "فال", "كال", "لل", "ال", "و"];
+
+function stripArabicPrefix(token) {
+  for (const p of AR_PREFIXES) {
+    if (token.startsWith(p) && token.length > p.length + 2) return token.slice(p.length);
+  }
+  return token;
+}
+
+/**
+ * Whole-token keyword matching.
+ *
+ * Deliberately not `haystack.includes(keyword)`: Arabic's definite article turns substring
+ * matching into a false-positive machine, because ال + a noun re-creates other words wholesale.
+ * Hence two rules — compare against tokens (and their article-stripped form) rather than the
+ * raw string, and let a stem shorter than four characters match only a whole token, never the
+ * start of one, since a short stem plus an ordinary suffix is usually a different word.
+ */
+function matchesKeyword(haystack, keyword) {
+  const needle = normalizeForMatch(keyword);
+  if (!needle) return false;
+  const tokens = normalizeForMatch(haystack).split(" ").filter(Boolean);
+  if (tokens.length === 0) return false;
+
+  if (needle.includes(" ")) {
+    // A phrase has to appear as a run of whole tokens, written either way.
+    const written = ` ${tokens.join(" ")} `;
+    const stripped = ` ${tokens.map(stripArabicPrefix).join(" ")} `;
+    return written.includes(` ${needle} `) || stripped.includes(` ${needle} `);
+  }
+
+  return tokens.some((token) => {
+    for (const form of new Set([token, stripArabicPrefix(token)])) {
+      if (needle.length >= 4 ? form.startsWith(needle) : form === needle) return true;
+    }
+    return false;
+  });
+}
+
+/**
+ * What a dental ad is usually selling, and the words campaigns name it with.
+ *
+ * The fallback vocabulary only — a clinic that wrote its own service list gets its own wording
+ * back instead, so a lead the webhook wrote and a lead reception typed land on the same row of
+ * the marketing funnel rather than on two rows spelled differently.
+ *
+ * Each entry answers in the language the ad was written in, because that is the language the
+ * person read before they filled the form, and the answer is quoted back to them on WhatsApp.
+ */
+const SERVICE_KEYWORDS = [
+  // Most specific first: "Hollywood smile veneers" is a hollywood-smile campaign.
+  { en: "Hollywood smile", ar: "ابتسامة هوليوود", enWords: ["hollywood"], arWords: ["هوليوود"] },
+  { en: "Veneers", ar: "فينير", enWords: ["veneer", "lumineer", "emax"], arWords: ["فينير", "عدسات"] },
+  { en: "Orthodontics", ar: "تقويم الأسنان", enWords: ["ortho", "braces", "invisalign", "aligner"], arWords: ["تقويم", "براكت"] },
+  { en: "Dental implants", ar: "زراعة الأسنان", enWords: ["implant"], arWords: ["زراعه", "زرع"] },
+  { en: "Teeth whitening", ar: "تبييض الأسنان", enWords: ["whitening", "bleaching"], arWords: ["تبييض", "تبيض"] },
+  { en: "Crowns & bridges", ar: "تلبيسات وجسور", enWords: ["crown", "bridge", "zirconia"], arWords: ["تلبيس", "طربوش", "جسور", "زيركون"] },
+  { en: "Root canal", ar: "علاج العصب", enWords: ["root canal", "endodontic"], arWords: ["عصب"] },
+  { en: "Fillings", ar: "حشو الأسنان", enWords: ["filling", "composite"], arWords: ["حشو", "حشوات"] },
+  { en: "Extraction", ar: "خلع الأسنان", enWords: ["extraction", "wisdom tooth"], arWords: ["خلع", "ضرس العقل"] },
+  { en: "Dentures", ar: "تركيبات متحركة", enWords: ["denture"], arWords: ["طقم"] },
+  { en: "Gum treatment", ar: "علاج اللثة", enWords: ["periodontal", "gum"], arWords: ["لثه"] },
+  { en: "Kids dentistry", ar: "أسنان الأطفال", enWords: ["kids", "children", "pediatric", "pedodontic"], arWords: ["اطفال"] },
+  { en: "Teeth cleaning", ar: "تنظيف الأسنان", enWords: ["cleaning", "scaling", "hygiene"], arWords: ["تنظيف", "تنضيف", "جير"] },
+];
+
+/** Field names a lead form uses when it asks which treatment the person came for. */
+const SERVICE_QUESTION_HINTS = ["service", "treatment", "interested", "procedure", "خدمه", "علاج", "تهتم"];
+
+/** The clinic's own service names first, then the built-in table. "" when nothing is recognised. */
+function matchService(text, clinicServices) {
+  if (!normalizeForMatch(text)) return "";
+
+  // Longest first, so "Zirconia crown" wins over "Crown" on a campaign that says both.
+  const own = [...(clinicServices || [])].sort((a, b) => b.length - a.length);
+  for (const name of own) {
+    if (matchesKeyword(text, name)) return name;
+  }
+  for (const entry of SERVICE_KEYWORDS) {
+    if (entry.arWords.some((w) => matchesKeyword(text, w))) return entry.ar;
+    if (entry.enWords.some((w) => matchesKeyword(text, w))) return entry.en;
+  }
+  return "";
+}
+
+/**
+ * What this lead actually wants, in the clinic's own words wherever possible.
+ *
+ * Strictest evidence first: what the person picked on the form beats what the campaign was
+ * called, and the clinic's own service names beat our built-in guesses.
+ *
+ * When nothing is recognised the answer is deliberately empty rather than the campaign name.
+ * `interest` is read back out into the WhatsApp greeting, and "you asked about
+ * Veneers-Sep26-Cairo-Broad-v2" is worse for the clinic than the generic sentence it already
+ * sends. The campaign is still on the lead — in its notes, and in `meta.campaignName` where
+ * the marketing funnel reads it.
+ */
+function detectInterest({ fieldData, campaignName, adName, clinicServices }) {
+  for (const field of Array.isArray(fieldData) ? fieldData : []) {
+    const answer = (Array.isArray(field.values) ? field.values.filter(Boolean).join(", ") : "").trim();
+    if (!answer) continue;
+    if (!SERVICE_QUESTION_HINTS.some((hint) => matchesKeyword(field.name, hint))) continue;
+    // Their own answer to "which service?" — trustworthy enough to quote even unrecognised,
+    // unlike an ad name, as long as it is short enough to be a service and not an essay.
+    const picked = matchService(answer, clinicServices) || (answer.length <= 40 ? answer : "");
+    // A paragraph in a free-text box tells us nothing, but the campaign that carried it still
+    // might — so an unreadable answer falls through rather than ending the search.
+    if (picked) return picked;
+  }
+
+  return matchService(campaignName, clinicServices) || matchService(adName, clinicServices) || "";
+}
+
+/**
+ * The clinic's own service names — the first vocabulary a campaign name is read against.
+ * A lookup failure costs a label, never the lead.
+ */
+async function loadClinicServices(db, clinicId) {
+  try {
+    const snap = await db.collection(`clinics/${clinicId}/services`).limit(200).get();
+    return snap.docs
+      .map((d) => String(d.data().name || "").trim())
+      .filter(Boolean);
+  } catch (e) {
+    console.warn("loadClinicServices failed:", e);
+    return [];
+  }
+}
+
 /** Constant-time check of Meta's X-Hub-Signature-256 header against the raw body. */
 function verifyMetaSignature(rawBody, signatureHeader, appSecret) {
   if (!appSecret) return false;
@@ -264,7 +412,16 @@ async function processLeadEvent(db, event, todayStr) {
     noteLines.push(...parsed.extra);
 
     parsedName = parsed.name;
-    const matches = await findLeadMatches(db, clinicId, parsed.phone, `meta_${leadgenId}`);
+    const [clinicServices, matches] = await Promise.all([
+      loadClinicServices(db, clinicId),
+      findLeadMatches(db, clinicId, parsed.phone, `meta_${leadgenId}`),
+    ]);
+    parsedInterest = detectInterest({
+      fieldData: graphLead.field_data,
+      campaignName: graphLead.campaign_name,
+      adName: graphLead.ad_name,
+      clinicServices,
+    });
     leadResult = await writeLeadToClinic(
       db,
       clinicId,
@@ -272,7 +429,7 @@ async function processLeadEvent(db, event, todayStr) {
         docId: `meta_${leadgenId}`,
         name: parsed.name,
         phone: parsed.phone,
-        interest: "",
+        interest: parsedInterest,
         source: "Meta ads",
         notes: noteLines.join("\n"),
         createdBy: "meta-webhook",
@@ -281,7 +438,6 @@ async function processLeadEvent(db, event, todayStr) {
       },
       todayStr
     );
-    parsedInterest = graphLead.campaign_name || "";
   } else {
     leadResult = await writeLeadToClinic(
       db,
@@ -332,7 +488,9 @@ async function processLeadEvent(db, event, todayStr) {
   // in a way that could fail the delivery above.
   if (leadResult === "created" || leadResult === "stub") {
     const who = graphLead ? parsedName || "New lead" : "Facebook lead (details pending)";
-    const detail = parsedInterest ? `${who} — ${parsedInterest}` : who;
+    // Staff see the campaign when no service was recognised — internally that name is useful.
+    const topic = parsedInterest || graphLead?.campaign_name || "";
+    const detail = topic ? `${who} — ${topic}` : who;
     await sendClinicPush(
       db,
       clinicId,
@@ -494,6 +652,8 @@ module.exports = {
   processLeadEvent,
   writeLeadToClinic,
   parseFieldData,
+  detectInterest,
+  matchesKeyword,
   normalizeMetaPhone,
   verifyMetaSignature,
 };

@@ -131,7 +131,10 @@ export default function LeadsPage() {
       if (branchFilter && !l.branchId) return false;
       if (searchText) {
         const q = searchText.toLowerCase().trim();
-        if (!l.name?.toLowerCase().includes(q) && !l.phone?.includes(q)) return false;
+        // Interest and notes carry the Facebook campaign and ad name, so typing "veneer"
+        // pulls up that campaign's leads without needing a filter of its own.
+        const haystack = [l.name, l.phone, l.interest, l.notes].filter(Boolean).join(" ").toLowerCase();
+        if (!haystack.includes(q)) return false;
       }
       return true;
     });
@@ -425,7 +428,7 @@ export default function LeadsPage() {
               <input
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
-                placeholder={isAr ? "دور بالاسم أو الرقم…" : "Search name or phone…"}
+                placeholder={isAr ? "دور بالاسم أو الرقم أو الحملة…" : "Search name, phone or campaign…"}
                 className="w-full ps-9 pe-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-teal-500"
               />
             </div>
