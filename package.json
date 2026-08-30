@@ -14,6 +14,8 @@
     "test:rules": "npx firebase-tools@13 emulators:exec --only firestore \"node tests/firestore.rules.test.mjs\"",
     "_comment_test_permissions": "Catalogue hygiene (ids are storage keys), a drift check that every permission the code enforces is one an admin can actually grant, and a check that firestore.rules has not lost a collection from its blanket-write exclusion chain. No emulator needed.",
     "test:permissions": "npx tsx tests/permissions.test.mts",
+    "_comment_test_settings": "The settings registry against firestore.rules. Every section declares what it writes and who may save; each claim is re-derived from the rules text, so a screen cannot offer a control the database will reject. Written after Prices was gated on access.settings, which the rules accept for nothing that screen writes — the tab opened and every save failed. Also freezes what the rebuild may not break: the ?tab= ids, the tutorial anchors, the assistant's routes, and every settings document name the server routes and the Android app read directly.",
+    "test:settings": "npx tsx tests/settingsRegistry.test.mts",
     "test:recovery": "npx tsx tests/revenueRecovery.test.mjs",
     "test:dues": "npx tsx tests/paymentRecovery.test.mjs",
     "test:ledgercash": "npx tsx tests/ledgerCashValue.test.mjs",
