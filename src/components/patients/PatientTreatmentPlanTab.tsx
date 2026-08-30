@@ -1474,7 +1474,7 @@ export default function PatientTreatmentPlanTab({
           </button>
           <button
             onClick={openNewEditor}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent text-white text-sm font-bold hover:bg-[#219653] transition-colors shadow-sm"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent text-white text-sm font-bold hover:bg-accent-strong transition-colors shadow-sm"
           >
             <Plus size={16} /> {txt.newPlan}
           </button>
@@ -1802,7 +1802,7 @@ export default function PatientTreatmentPlanTab({
                 <button
                   onClick={handleSavePlan}
                   disabled={saving}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent text-white text-sm font-bold hover:bg-[#219653] transition-colors disabled:opacity-60"
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent text-white text-sm font-bold hover:bg-accent-strong transition-colors disabled:opacity-60"
                 >
                   {saving ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} {txt.save}
                 </button>

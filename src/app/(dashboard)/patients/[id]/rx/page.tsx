@@ -278,7 +278,7 @@ function PrescriptionStudio() {
                 type="button"
                 onClick={() => void handleSave()} data-tour="rx-save"
                 disabled={isSaving || rxItems.length === 0}
-                className="flex-1 md:flex-none bg-accent text-white hover:bg-[#4eb37f] px-5 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:opacity-50"
+                className="flex-1 md:flex-none bg-accent text-white hover:bg-accent px-5 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:opacity-50"
              >
                 {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
                 Save

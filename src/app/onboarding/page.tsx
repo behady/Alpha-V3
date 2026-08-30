@@ -280,7 +280,7 @@ export default function OnboardingPage() {
             <button
               onClick={() => void handleCreateClinic()}
               disabled={creating || joining}
-              className="mt-4 w-full bg-accent hover:bg-[#219150] text-white font-black py-3.5 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              className="mt-4 w-full bg-accent hover:bg-accent-strong text-white font-black py-3.5 rounded-xl transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {creating ? <Loader2 size={18} className="animate-spin" /> : null}
               {creating ? t.creating : t.createBtn}

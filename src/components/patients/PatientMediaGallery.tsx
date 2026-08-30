@@ -610,7 +610,7 @@ export default function PatientMediaGallery({
           </div>
           <button
             type="button"
-            className="inline-flex items-center gap-2 bg-accent hover:bg-[#219653] text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-md shadow-emerald-600/20 transition-all pointer-events-auto active:scale-95"
+            className="inline-flex items-center gap-2 bg-accent hover:bg-accent-strong text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-md shadow-emerald-600/20 transition-all pointer-events-auto active:scale-95"
           >
             <PlusCircle size={16} />
             <span>
@@ -868,7 +868,7 @@ export default function PatientMediaGallery({
               <button
                 onClick={executeUploadStagedFiles}
                 disabled={isUploading}
-                className="bg-accent hover:bg-[#219653] text-white text-xs font-extrabold px-6 py-2.5 rounded-xl shadow-md shadow-emerald-600/20 transition-all flex items-center gap-2"
+                className="bg-accent hover:bg-accent-strong text-white text-xs font-extrabold px-6 py-2.5 rounded-xl shadow-md shadow-emerald-600/20 transition-all flex items-center gap-2"
               >
                 {isUploading ? (
                   <>
@@ -1017,7 +1017,7 @@ export default function PatientMediaGallery({
                 target="_blank"
                 rel="noreferrer"
                 download
-                className="bg-accent hover:bg-[#219653] text-white text-xs font-bold px-3.5 py-1.5 rounded-xl shadow-md transition-all flex items-center gap-1.5"
+                className="bg-accent hover:bg-accent-strong text-white text-xs font-bold px-3.5 py-1.5 rounded-xl shadow-md transition-all flex items-center gap-1.5"
               >
                 <Download size={15} />
                 <span className="hidden sm:inline">{language === "ar" ? "تحميل" : "Download"}</span>

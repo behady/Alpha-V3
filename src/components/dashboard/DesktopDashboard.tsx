@@ -1048,7 +1048,7 @@ export default function DesktopDashboard() {
             </div>
 
             {/* 3. DAILY INCOME WIDGET (1x2, Middle Left) */}
-            <div className="col-span-1 row-span-2 bg-gradient-to-br from-accent-soft to-[#4eb37f] text-white rounded-2xl p-5 shadow-lg flex flex-col justify-between relative overflow-hidden">
+            <div className="col-span-1 row-span-2 bg-gradient-to-br from-accent-soft to-accent text-white rounded-2xl p-5 shadow-lg flex flex-col justify-between relative overflow-hidden">
                 <div className="absolute -top-10 -right-10 w-32 h-32 bg-white/20 rounded-full blur-[20px]"></div>
                 
                 <div className="flex flex-col h-full z-10 relative">
@@ -1716,7 +1716,7 @@ export default function DesktopDashboard() {
                     setInlineSaving(false);
                   }
                 }}
-                className="w-full bg-accent-soft hover:bg-[#4eb37f] text-white font-black py-3 rounded-xl transition-colors text-sm shadow-sm shadow-accent-soft/30"
+                className="w-full bg-accent-soft hover:bg-accent text-white font-black py-3 rounded-xl transition-colors text-sm shadow-sm shadow-accent-soft/30"
               >
                 {language === 'ar' ? 'جدولة موعد جديد' : 'Schedule New Appointment'}
               </button>

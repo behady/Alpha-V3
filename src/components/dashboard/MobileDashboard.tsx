@@ -1348,7 +1348,7 @@ export default function MobileDashboard() {
                                 }}
                               >
                                 {labelText && (
-                                  <div className="absolute left-4 top-0 -translate-y-1/2 text-[10px] font-bold text-[#4eb37f] select-none z-10 bg-white/40 px-1 rounded">
+                                  <div className="absolute left-4 top-0 -translate-y-1/2 text-[10px] font-bold text-accent select-none z-10 bg-white/40 px-1 rounded">
                                     {labelText}
                                   </div>
                                 )}
@@ -1618,7 +1618,7 @@ export default function MobileDashboard() {
                     setInlineSaving(false);
                   }
                 }}
-                className="w-full bg-accent-soft hover:bg-[#4eb37f] text-white font-black py-3 rounded-xl transition-colors text-sm shadow-sm shadow-accent-soft/30"
+                className="w-full bg-accent-soft hover:bg-accent text-white font-black py-3 rounded-xl transition-colors text-sm shadow-sm shadow-accent-soft/30"
               >
                 {language === 'ar' ? 'جدولة موعد جديد' : 'Schedule New Appointment'}
               </button>
