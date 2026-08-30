@@ -59,7 +59,16 @@ export type QuickIntent =
   /** Thanks, praise, a closing. */
   | "thanks"
   /** A bare greeting with no question attached. */
-  | "greeting";
+  | "greeting"
+  /**
+   * An unhappy patient.
+   *
+   * Complaints are handed to a person under every circumstance — that is the clinic's rule and it
+   * is not negotiable — so routing them through the model was paying a credit to arrive somewhere
+   * the free path reaches instantly. It also cost a turn: the model only saw the message on the
+   * SECOND send, so an angry patient's first message was answered with the cheerful booking menu.
+   */
+  | "complaint";
 
 function normalize(raw: string): string {
   return normalizeReplyText(raw)
@@ -186,6 +195,17 @@ const THANKS = [
   "ربنا يخليك", "ربنا يكرمك", "جزاكم الله خيرا", "الله يكرمكم", "شكرا جزيلا", "شكرا ليكم",
   "thanks", "thank you", "thx", "appreciated",
 ];
+const COMPLAINT = [
+  "مش نظام", "ده مش نظام", "اسلوب وحش", "معامله وحشه", "المعامله وحشه", "زعلان", "زعلانه",
+  "متضايق", "متضايقه", "مستني ساعه", "مستني كتير", "قعدت مستني", "تاخير", "التاخير",
+  "محدش رد", "مفيش حد رد", "بعتلكوا ومحدش رد", "هشتكي", "هعمل شكوي", "شكوى", "شكوي",
+  "تجربه سيئه", "مش هرجع تاني", "ندمت", "فلوسي", "ضيعتوا وقتي", "وحش اوي", "زفت",
+  "complaint", "unacceptable", "terrible service", "very disappointed", "waste of time",
+];
+const COURTESY_OPENER = [
+  "لو سمحت", "لو سمحتوا", "من فضلك", "من فضلكم", "ممكن سؤال", "عندي سؤال", "عندي استفسار",
+  "ممكن استفسار", "ممكن اسأل", "ممكن اساله", "excuse me", "quick question", "a question",
+];
 const GREETING = [
   "السلام عليكم", "سلام عليكم", "سلام", "صباح الخير", "مساء الخير", "صباح النور", "اهلا",
   "اهلين", "هاي", "هلا", "مرحبا", "ازيك", "ازيكم", "عامل ايه", "الو", "السلام",
@@ -210,6 +230,8 @@ export function quickIntent(raw: string): QuickIntent | null {
   if (ACK_EMOJI.test(raw.trim()) && ACK_EMOJI_ALLOWED.some((e) => raw.includes(e))) return "ack";
 
   if (has(text, HUMAN)) return "human";
+  // Beside asking for a person, because it means the same thing and is never said as calmly.
+  if (has(text, COMPLAINT)) return "complaint";
   if (has(text, CANCEL)) return "cancel";
   if (has(text, LATE)) return "late";
   if (has(text, RESCHEDULE)) return "reschedule";
@@ -253,6 +275,12 @@ export function quickIntent(raw: string): QuickIntent | null {
     if (has(text, ACK)) return "ack";
     if (has(text, THANKS)) return "thanks";
     if (has(text, GREETING)) return "greeting";
+    /*
+     * "لو سمحت" on its own — the doorknock. Egyptian WhatsApp is multi-message by default: the
+     * courtesy arrives, then the greeting, then the real question. Each of those used to be a
+     * paid answer, so the budget was gone before the patient had asked anything.
+     */
+    if (has(text, COURTESY_OPENER)) return "greeting";
   }
   // A greeting with a long tail is a greeting plus a question we could not read: let the model see
   // it whole rather than answering the "hello" and dropping the rest.

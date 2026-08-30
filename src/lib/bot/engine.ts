@@ -305,6 +305,17 @@ function answerIntent(intent: QuickIntent, ctx: BotContext): BotDecision | null 
     case "human":
       return { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "asked_for_human" };
 
+    case "complaint":
+      // Never answered by a machine, so never paid for either. The wording is the management one
+      // the AI path already used — an unhappy patient should not be able to tell which route
+      // their message took.
+      return {
+        reply: "وصلتنا رسالتك 🙏 حد من إدارة العيادة هيتواصل معاك في أقرب وقت.",
+        next: "handed_off",
+        handoff: true,
+        reason: "complaint",
+      };
+
     case "booking":
       return startBooking(ctx);
 

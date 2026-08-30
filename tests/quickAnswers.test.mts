@@ -214,4 +214,21 @@ run("the map link rides along with the address", () => {
   assert.ok(d.reply.includes("شارع الرحمة"));
 });
 
+
+run("complaints and courtesy openers never reach the paid path", () => {
+  // A complaint is handed to a person under every circumstance, so paying a model call to arrive
+  // there was pure waste — and it cost a turn, because the model only saw the message on the
+  // second send while the first got the cheerful booking menu.
+  assert.equal(quickIntent("قعدت مستني ساعه ونص وانا حاجز ده مش نظام خالص"), "complaint");
+  assert.equal(quickIntent("بعتلكوا امبارح ومحدش رد"), "complaint");
+  const d = decideBotReply({ state: "awaiting_choice", text: "ده مش نظام خالص", ctx });
+  assert.equal(d.reason, "complaint");
+  assert.equal(d.handoff, true);
+  assert.equal(d.action, undefined, "a complaint must never reach the AI action");
+
+  // The doorknock Egyptians send before the real question.
+  assert.equal(quickIntent("لو سمحت"), "greeting");
+  assert.equal(quickIntent("عندي استفسار"), "greeting");
+});
+
 console.log("\nquickAnswers: all suites passed");
