@@ -29,15 +29,16 @@ const CREDITS_PER_ANSWER = 1;
  * How long to wait for the model before giving the patient the old re-prompt instead.
  *
  * Measured, not guessed: the same question answered in 2.9s, 8.2s and 12.2s on three consecutive
- * calls, so latency here has a long tail that has nothing to do with the prompt. At 9s roughly a
- * third of answers were being thrown away and the patient got "معلش مفهمتش" for a question the
- * model had answered perfectly — which reads, correctly, as a broken bot.
+ * calls, so latency here has a long tail that has nothing to do with the prompt. At 9s a third of
+ * answers were thrown away and the patient got "معلش مفهمتش" for a question the model had answered
+ * perfectly — which reads, correctly, as a broken bot.
  *
- * Waiting this long is only safe because a redelivered webhook is now refused by message id (see
- * the meta-whatsapp route): without that guard, a slow turn Meta retries becomes two identical
- * replies on the patient's phone.
+ * Nobody waits on this any more: the webhook returns to Meta immediately and the reply is composed
+ * afterwards (see the meta-whatsapp route). So the budget is set by what a patient will tolerate
+ * between sending a question and hearing back, not by an HTTP deadline. Past this it is better to
+ * show the menu than to leave them watching an empty chat.
  */
-const TIMEOUT_MS = 14000;
+const TIMEOUT_MS = 25000;
 
 export type AiReplyResult =
   | { kind: "answer"; text: string }

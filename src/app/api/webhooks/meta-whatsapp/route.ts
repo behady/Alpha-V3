@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection } from "@/lib/adminClinicDb";
 import { adminDb } from "@/lib/firebaseAdmin";
@@ -10,6 +10,14 @@ import { reportServerError } from "@/lib/server/reportError";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/*
+ * Room for the reply to finish AFTER the response has gone back to Meta.
+ *
+ * The webhook answers in milliseconds; the work scheduled with after() is what needs the budget,
+ * and the model's slow tail is what it is spent on. Without this the platform default cuts the
+ * background work off mid-turn and the patient gets nothing at all.
+ */
+export const maxDuration = 60;
 
 /**
  * The official WhatsApp Cloud API inbound webhook.
@@ -174,6 +182,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => null);
     const messages = extractMessages(body);
+    let queued = 0;
     let lastBot: Awaited<ReturnType<typeof respondToPatientMessage>> | null = null;
 
     // No messages is normal: most calls are delivery/read status updates. But a status carrying
@@ -222,29 +231,57 @@ export async function POST(request: NextRequest) {
 
       // A redelivery of something already answered. Claimed after the opt-out check so a repeated
       // "stop" is always honoured, and before the assistant so it can never answer twice.
+      // Claimed BEFORE the response goes out, so a retry arriving while the first turn is still
+      // being composed is refused rather than racing it.
       if (!(await claimMessage(clinicId, msg.messageId))) {
         lastBot = { status: "skipped", reason: "duplicate_delivery" };
         continue;
       }
 
-      // Otherwise it may be a conversation. respondToPatientMessage re-checks every gate and is
-      // silent unless the clinic enabled the assistant. chatId and phone are the same here — the
-      // real number — which is exactly the simplification the official API buys.
-      lastBot = await respondToPatientMessage({
-        clinicId,
-        chatId: msg.from,
-        phone: msg.from,
-        text: msg.text,
-        media: msg.media,
+      /*
+       * Answering happens after the response, not before it.
+       *
+       * Meta is owed a prompt 200 and the assistant is not always quick: the model's latency has a
+       * long tail (measured at 2.9s, 8.2s and 12.2s for the same question), and making the
+       * webhook wait for it meant either discarding good answers at the timeout or holding Meta
+       * long enough to be redelivered. Neither is necessary — the reply is sent through the Cloud
+       * API as its own outbound call, so nothing about it needs to be in this response. Meta gets
+       * its 200 immediately and the patient gets a real answer a few seconds later, which is what
+       * a WhatsApp conversation looks like anyway.
+       *
+       * Safe only because the message id above is already claimed: a retry cannot start a second
+       * copy of this work.
+       */
+      queued += 1;
+      after(async () => {
+        try {
+          await respondToPatientMessage({
+            clinicId,
+            chatId: msg.from,
+            phone: msg.from,
+            text: msg.text,
+            media: msg.media,
+          });
+        } catch (e) {
+          // Nothing is waiting on this promise any more, so an error here would otherwise vanish.
+          reportServerError("[meta-whatsapp] Background reply failed:", e);
+          await recordUnparsed(clinicId, { from: msg.from, text: msg.text.slice(0, 200) }, "reply_failed");
+        }
       });
     }
 
-    // The outcome rides on the response, as the Wapilot webhook's does. Its absence here meant a
-    // test could only poll blind — and a blind poll that POSTs is a message flood, which is not a
-    // hypothetical: thirteen duplicate day-lists reached a real phone finding this out.
+    /*
+     * The reply is no longer composed by the time this returns, so the outcome cannot ride on the
+     * response any more. It is written to the conversation document instead — `lastReason` on
+     * whatsapp_conversations/{phoneKey} — which is where a probe should read it from.
+     *
+     * `duplicate_delivery` is still reported here, because that decision IS made synchronously
+     * and is the one a retry needs to see.
+     */
     return NextResponse.json({
       ok: true,
       handled: messages.length,
+      queued,
       ...(lastBot ? { bot: lastBot.status, why: lastBot.reason } : {}),
     });
   } catch (error) {
