@@ -129,6 +129,88 @@ const poisoned = JSON.stringify({
 out = runBoot({ "alpha.theme.v1": poisoned }, {});
 ok("boot refuses a non-colour value", out["--accent"] === undefined && out["--ink"] === "#112233");
 
+/* ------------------------------------------------------------- contrast
+
+   Contrast is arithmetic, so it belongs in a test rather than in someone's judgement. The default
+   theme shipped with eight failures for a long time -- including white button labels at 2.87 -- and
+   nothing caught it, because nobody re-measures a colour once it is chosen.
+*/
+
+function srgbToLinear(c: number): number {
+  const v = c / 255;
+  return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+}
+function luminance(hex: string): number {
+  const h = hex.replace("#", "");
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+  return 0.2126 * srgbToLinear(r) + 0.7152 * srgbToLinear(g) + 0.0722 * srgbToLinear(b);
+}
+function contrast(a: string, b: string): number {
+  const [x, y] = [luminance(a), luminance(b)];
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+
+function hueDistance(a: string, b: string): number {
+  const hue = (hex: string) => {
+    const h = hex.replace("#", "");
+    const [r, g, bl] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+    const mx = Math.max(r, g, bl), mn = Math.min(r, g, bl), d = mx - mn;
+    if (d === 0) return 0;
+    const deg = mx === r ? ((g - bl) / d) % 6 : mx === g ? (bl - r) / d + 2 : (r - g) / d + 4;
+    return (deg * 60 + 360) % 360;
+  };
+  const d = Math.abs(hue(a) - hue(b));
+  return Math.min(d, 360 - d);
+}
+
+/** [label, foreground token, background token, minimum ratio] */
+const PAIRS: [string, string, string, number][] = [
+  ["body text",           "ink",           "surface",       4.5],
+  ["body on backdrop",    "ink",           "surface-page",  4.5],
+  ["secondary text",      "ink-body",      "surface",       4.5],
+  ["muted text",          "ink-muted",     "surface",       4.5],
+  ["faint text",          "ink-faint",     "surface",       3.0],
+  ["faint on muted card", "ink-faint",     "surface-muted", 3.0],
+  ["button label",        "ink-on-accent", "accent",        4.5],
+  ["accent as icon",      "accent",        "surface",       3.0],
+  ["ok text",             "ok",            "surface",       3.0],
+  ["warn text",           "warn",          "surface",       3.0],
+  ["danger text",         "danger",        "surface",       3.0],
+  ["info text",           "info",          "surface",       3.0],
+  ["ok on its tint",      "ok",            "ok-tint",       4.5],
+  ["warn on its tint",    "warn",          "warn-tint",     4.5],
+  ["danger on its tint",  "danger",        "danger-tint",   4.5],
+  ["accent on its tint",  "accent",        "accent-tint",   4.5],
+  ["hairline on card",    "line",          "surface",       1.2],
+];
+
+for (const preset of THEME_PRESETS) {
+  for (const [label, fg, bg, need] of PAIRS) {
+    const got = contrast(preset.tokens[fg], preset.tokens[bg]);
+    ok(
+      `${preset.id}: ${label} clears ${need}`,
+      got >= need,
+      `${preset.tokens[fg]} on ${preset.tokens[bg]} = ${got.toFixed(2)}`,
+    );
+  }
+  /**
+   * The brand and "this succeeded" must not read as one colour.
+   *
+   * Two ways to be distinguishable, and a colour needs only one: a different hue, or a different
+   * weight. Checking contrast alone was wrong and this test failed damson for it -- a plum accent
+   * and a green tick are 157 degrees apart and could not be confused by anyone, yet they sit at a
+   * contrast ratio of 1.25 because they happen to share a lightness. Only the default theme, where
+   * both really are green, has to earn its separation by weight.
+   */
+  const dHue = hueDistance(preset.tokens["accent"], preset.tokens["ok"]);
+  const sep = contrast(preset.tokens["accent"], preset.tokens["ok"]);
+  ok(
+    `${preset.id}: accent is distinguishable from ok`,
+    dHue >= 30 || sep >= 1.4,
+    `hue apart ${dHue.toFixed(0)}deg, contrast ${sep.toFixed(2)}`,
+  );
+}
+
 /* --------------------------------------------------------------- report */
 
 console.log(`\n  ${pass} passed, ${fail.length} failed\n`);
