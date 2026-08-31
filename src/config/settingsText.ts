@@ -231,6 +231,8 @@ export const SETTINGS_TEXT = {
     readOnly: { en: "This clinic's subscription has ended — you can look, but not save.", ar: "اشتراك العيادة منتهي — يمكنك الاطلاع دون حفظ." },
   },
   sms: {
+    queueShowOlder: { en: "Show older messages", ar: "عرض رسائل أقدم" },
+    queueLoadingOlder: { en: "Loading...", ar: "جارٍ التحميل..." },
     railOffBadge: { en: "Off", ar: "مطفأ" },
     railNoPhoneBadge: { en: "No phone", ar: "بلا هاتف" },
     railStalledBadge: { en: "Stalled", ar: "متوقف" },

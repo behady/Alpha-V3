@@ -76,6 +76,11 @@ export default function SmsSettings() {
   const [saving, setSaving] = useState(false);
   const [devices, setDevices] = useState<Device[]>([]);
   const [messages, setMessages] = useState<QueueMessage[]>([]);
+  /** Cursor for the next page of older messages. Null once there are none left. */
+  const [olderCursor, setOlderCursor] = useState<string | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  /** How many are actually waiting, counted by the server — not the length of the page on screen. */
+  const [queuedCount, setQueuedCount] = useState(0);
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [pairingBusy, setPairingBusy] = useState(false);
 
@@ -112,10 +117,36 @@ export default function SmsSettings() {
       const data = await authedFetch(`/api/sms/devices?clinicId=${encodeURIComponent(clinicId || "")}`);
       setDevices(data.devices || []);
       setMessages(data.messages || []);
+      setOlderCursor(data.nextCursor ?? null);
+      setQueuedCount(Number(data.queued) || 0);
     } catch (e) {
       console.error("Could not load paired phones", e);
     }
   }, [authedFetch, clinicId]);
+
+  /**
+   * Fetch the next page and append it.
+   *
+   * Only older messages are ever fetched this way: the newest page arrives with the screen, and
+   * a clinic opening this page is asking "did today's reminders go out", not "show me everything
+   * since we started". Reading the whole outbox to answer the first question is what this
+   * replaced.
+   */
+  const loadOlder = useCallback(async () => {
+    if (!olderCursor || loadingOlder) return;
+    setLoadingOlder(true);
+    try {
+      const data = await authedFetch(
+        `/api/sms/devices?clinicId=${encodeURIComponent(clinicId || "")}&cursor=${encodeURIComponent(olderCursor)}`
+      );
+      setMessages((prev) => [...prev, ...(data.messages || [])]);
+      setOlderCursor(data.nextCursor ?? null);
+    } catch (e) {
+      console.error("Could not load older messages", e);
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [authedFetch, clinicId, olderCursor, loadingOlder]);
 
   useEffect(() => {
     if (!clinicId) return;
@@ -360,9 +391,9 @@ export default function SmsSettings() {
               <span className={`h-1.5 w-1.5 rounded-full ${line.live ? "bg-emerald-400" : "bg-amber-400"}`} />
               {line.badge}
             </span>
-            {messages.length > 0 && (
+            {queuedCount > 0 && (
               <span className="text-[11px] font-semibold text-white/45">
-                <span className="font-figure text-[15px] text-white/80">{messages.length}</span>{" "}
+                <span className="font-figure text-[15px] text-white/80">{queuedCount}</span>{" "}
                 {txt.railWaiting}
               </span>
             )}
@@ -723,6 +754,17 @@ export default function SmsSettings() {
                 {message.status === "sent" && <CheckCircle2 size={15} className="text-emerald-500 shrink-0" />}
               </div>
             ))
+          )}
+
+          {olderCursor && (
+            <button
+              type="button"
+              onClick={() => void loadOlder()}
+              disabled={loadingOlder}
+              className="w-full rounded-xl border border-line py-3 text-[13px] font-bold text-ink-body transition-colors hover:bg-surface-subtle hover:text-ink disabled:opacity-50"
+            >
+              {loadingOlder ? txt.queueLoadingOlder : txt.queueShowOlder}
+            </button>
           )}
         </div>
       </section>

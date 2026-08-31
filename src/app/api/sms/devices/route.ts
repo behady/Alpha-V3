@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdminUser } from "@/lib/apiStaffAuth";
 import { resolveUserClinicId } from "@/lib/adminClinicDb";
 import { isDeviceAlive, listClinicDevices, revokeDevice } from "@/lib/sms/devices";
-import { recentSms } from "@/lib/sms/outbox";
+import { queuedSmsCount, recentSms } from "@/lib/sms/outbox";
 
 /**
  * Which phones are sending the clinic's reminders.
@@ -26,7 +26,18 @@ export async function GET(request: Request) {
 
   try {
     const clinicId = requested || (await resolveUserClinicId(admin.uid));
-    const [devices, messages] = await Promise.all([listClinicDevices(clinicId), recentSms(clinicId)]);
+
+    // A page, not the whole outbox. This endpoint used to hand back thirty messages having read
+    // every message the clinic had ever sent to find them.
+    const params = new URL(request.url).searchParams;
+    const cursor = params.get("cursor")?.trim() || undefined;
+    const pageSize = Math.min(Math.max(Number(params.get("pageSize")) || 30, 1), 100);
+
+    const [devices, page, queued] = await Promise.all([
+      listClinicDevices(clinicId),
+      recentSms(clinicId, pageSize, cursor),
+      queuedSmsCount(clinicId),
+    ]);
 
     // Liveness is computed here rather than in the browser so the screen cannot disagree with the
     // nightly job about whether a phone counts as available.
@@ -42,7 +53,11 @@ export async function GET(request: Request) {
         alive: isDeviceAlive(d, now),
         instant: Boolean(fcmToken),
       })),
-      messages,
+      messages: page.messages,
+      /** Null when there is nothing older to fetch, which is what hides the "show older" button. */
+      nextCursor: page.nextCursor,
+      /** The real number waiting, not the length of the page above. */
+      queued,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Unknown error";
