@@ -615,6 +615,26 @@ export const FDI_Q3 = [31, 32, 33, 34, 35, 36, 37, 38];
 export const FDI_UPPER = [...FDI_Q1, ...FDI_Q2];
 export const FDI_LOWER = [...FDI_Q4, ...FDI_Q3];
 
+/**
+ * The primary dentition, laid out the same way.
+ *
+ * A child's crown is as much a lab case as an adult's, and a chart that can only show permanent
+ * teeth quietly cannot represent one — the tooth would appear in the written line and nowhere on
+ * the diagram, which is the disagreement a technician has no way to resolve.
+ */
+export const FDI_PRIMARY_Q5 = [55, 54, 53, 52, 51];
+export const FDI_PRIMARY_Q6 = [61, 62, 63, 64, 65];
+export const FDI_PRIMARY_Q8 = [85, 84, 83, 82, 81];
+export const FDI_PRIMARY_Q7 = [71, 72, 73, 74, 75];
+
+export const FDI_PRIMARY_UPPER = [...FDI_PRIMARY_Q5, ...FDI_PRIMARY_Q6];
+export const FDI_PRIMARY_LOWER = [...FDI_PRIMARY_Q8, ...FDI_PRIMARY_Q7];
+
+/** Whether any of these teeth are primary — the test for showing the second grid. */
+export function hasPrimaryTeeth(teeth: number[] | undefined): boolean {
+  return (teeth || []).some((t) => t >= 51 && t <= 85);
+}
+
 // ---------------------------------------------------------------------------
 // Palmer notation
 // ---------------------------------------------------------------------------

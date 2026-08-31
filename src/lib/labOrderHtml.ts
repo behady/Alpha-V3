@@ -25,10 +25,13 @@
 import {
   ABUTMENT_OPTIONS,
   FDI_LOWER,
+  FDI_PRIMARY_LOWER,
+  FDI_PRIMARY_UPPER,
   FDI_UPPER,
   GUIDE_TYPE_OPTIONS,
   RETENTION_OPTIONS,
   formatPalmer,
+  hasPrimaryTeeth,
   optionLabel,
   toPalmer,
   workTypeFor,
@@ -121,10 +124,23 @@ function toothChartHtml(teeth: number[]): string {
       .map((id, i) => cell(id, (i === right.length - 1 ? MID : "") + (lower ? "" : OCCLUSAL)))
       .join("")}${left.map((id) => cell(id, lower ? "" : OCCLUSAL)).join("")}</tr>`;
 
-  return `<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
-    ${row(FDI_UPPER.slice(0, 8), FDI_UPPER.slice(8), false)}
-    ${row(FDI_LOWER.slice(0, 8), FDI_LOWER.slice(8), true)}
-  </table>`;
+  const grid = (upper: number[], lower: number[]) => {
+    const half = upper.length / 2;
+    return `<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+      ${row(upper.slice(0, half), upper.slice(half), false)}
+      ${row(lower.slice(0, half), lower.slice(half), true)}
+    </table>`;
+  };
+
+  // The child's grid is printed only when the case actually involves one, and it is a SECOND grid
+  // rather than a replacement: mixed dentition is ordinary, and a chart that could show only one
+  // set would leave the other appearing in the written line and nowhere on the diagram — the one
+  // disagreement a technician has no way to resolve.
+  const primary = hasPrimaryTeeth(teeth)
+    ? `<div style="margin-top:4px;">${grid(FDI_PRIMARY_UPPER, FDI_PRIMARY_LOWER)}</div>`
+    : "";
+
+  return grid(FDI_UPPER, FDI_LOWER) + primary;
 }
 
 /** One order, laid out to fill whatever box it is given. */
