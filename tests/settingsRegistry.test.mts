@@ -470,17 +470,94 @@ ok(
     `frozen — something was dropped`
 );
 
-// Phase 2 collapses these two into one document. Until it does, both must stay declared, because
-// the profile screen writes both and ~30 readers consult clinic_info.
 const docIds = settingsDocIds();
-if (docIds.includes("clinicProfile") && docIds.includes("clinic_info")) {
-  const profile = SETTINGS_SECTIONS.find((s) => s.id === "clinic_profile") as SettingsSection;
+
+// --- 11. Phase 2: one clinic document, and the field Android cannot lose --------------------------
+
+const profileSection = SETTINGS_SECTIONS.find((s) => s.id === "clinic_profile") as SettingsSection;
+const profileDocs = profileSection.writes.filter((t) => t.kind === "settingsDoc");
+assert.deepEqual(
+  profileDocs.map((t) => (t as { docId: string }).docId),
+  ["clinic_info"],
+  "the clinic profile screen must write exactly one document. Writing two by hand is what let " +
+    "the clinic's name, phone and address drift apart in the first place."
+);
+
+const profileLib = readFileSync(join(REPO, "src/lib/clinicProfile.ts"), "utf8");
+ok(
+  /CLINIC_PROFILE_DOC\s*=\s*\{[^}]*docId:\s*"clinic_info"/.test(profileLib),
+  "CLINIC_PROFILE_DOC must point at clinic_info — the merged document"
+);
+
+/**
+ * The Android app reads `snap.getString("name")` with no fallback to `clinicName`, so a save that
+ * writes only the latter prints a blank letterhead on every prescription issued from a phone. The
+ * write payload is the single place that decides, so it is the single place worth pinning.
+ */
+ok(
+  /name:\s*profile\.clinicName/.test(profileLib) && /clinicName:\s*profile\.clinicName/.test(profileLib),
+  "clinicProfileWritePayload must write BOTH `name` and `clinicName`. Android reads `name` only."
+);
+
+const androidRepo = readFileSync(
+  join(REPO, "android/app/src/main/java/com/alphadental/clinic/data/Repository.kt"),
+  "utf8"
+);
+ok(
+  androidRepo.includes('getString("name")'),
+  "Android no longer reads `name` from clinic_info — if that changed, the reason for writing " +
+    "both spellings has gone and this pair of checks should be revisited, not deleted"
+);
+
+// A new clinic must start with that document, or its settings screens read defaults from code and
+// cannot tell "never configured" from "set to exactly the default".
+const onboarding = readFileSync(join(REPO, "src/app/api/onboarding/create-clinic/route.ts"), "utf8");
+ok(
+  onboarding.includes('doc("clinic_info")'),
+  "signup creates a clinic with no settings document at all — every screen then reads from " +
+    "nothing and falls back to code defaults"
+);
+ok(
+  // Comments stripped first: the route explains why it does NOT seed these, and the explanation
+  // names them.
+  !/configuredAt|doc\("price_lists"\)|slotDuration/.test(stripComments(onboarding)),
+  "signup must NOT seed opening hours or price lists: that makes 'never configured' " +
+    "indistinguishable from 'deliberately set to the default', which is what configuredAt is for"
+);
+
+// The two settings that were printed everywhere and editable nowhere.
+const profileScreen = readFileSync(join(REPO, "src/app/(dashboard)/settings/clinic/page.tsx"), "utf8");
+for (const field of ["currency", "rxHeader"]) {
   ok(
-    profile.writes.filter((t) => t.kind === "settingsDoc").length === 2,
-    "the clinic profile section must declare BOTH documents while the duplication exists — " +
-      "declaring one hides the fact that a save writes the other too"
+    profileScreen.includes(`f, ${field}:`),
+    `${field} is printed on prescriptions, price lists and PDFs but has no input on the clinic ` +
+      `profile screen — which is the state it was in for the whole life of the app`
   );
 }
+
+// The fallback to the retired document, and the script that makes it removable.
+ok(
+  profileLib.includes("LEGACY_CLINIC_PROFILE_DOC"),
+  "reads must still fall back to settings/clinicProfile until the backfill has run everywhere — " +
+    "otherwise a clinic that has not re-saved loses its logo and Google links"
+);
+ok(
+  existsSync(join(REPO, "scripts/backfill-clinic-profile.mjs")),
+  "the fallback needs a backfill script, or it becomes permanent by default"
+);
+
+// Nothing may write the retired document any more. One writer is all it takes to restart the drift.
+const writersOfLegacy = sourceFiles(join(REPO, "src")).filter((file) => {
+  const text = readFileSync(file, "utf8");
+  if (!text.includes("clinicProfile")) return false;
+  return /setDoc\(\s*[^)]*LEGACY_CLINIC_PROFILE_DOC|"clinicProfile"\s*\)[^;]*\)\s*,\s*\{[^}]*\}\s*,\s*\{\s*merge/.test(text);
+});
+assert.deepEqual(
+  writersOfLegacy.map((f) => f.replace(REPO, "")),
+  [],
+  "something still writes settings/clinicProfile — the merge only holds while exactly one " +
+    "document is written"
+);
 
 // --- 8. Phase 1 wiring: every section resolves to a real screen ---------------------------------
 //

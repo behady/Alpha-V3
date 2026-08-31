@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { getDoc } from "firebase/firestore";
 import {
   AlertCircle,
   ArrowUpRight,
@@ -21,7 +20,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { auth } from "@/lib/firebase";
-import { getClinicDoc } from "@/lib/db-utils";
+import { getClinicProfile } from "@/lib/clinicProfile";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { printBriefing } from "@/lib/briefingPdfHtml";
@@ -212,20 +211,15 @@ export default function BriefingView({ period }: { period: Period }) {
     let cancelled = false;
     (async () => {
       try {
-        const [infoSnap, profileSnap] = await Promise.all([
-          getDoc(getClinicDoc("settings", "clinic_info")),
-          getDoc(getClinicDoc("settings", "clinicProfile")),
-        ]);
+        // One read through the shared helper, which knows where the clinic's details live and
+        // still falls back to the retired `clinicProfile` document for a clinic that has not
+        // saved its profile since the two were merged.
+        const profile = await getClinicProfile();
         if (cancelled) return;
-        const info = (infoSnap.exists() ? infoSnap.data() : {}) as Record<string, unknown>;
-        const profile = (profileSnap.exists() ? profileSnap.data() : {}) as Record<string, unknown>;
         setClinicInfo({
-          name:
-            (typeof info.name === "string" && info.name.trim()) ||
-            (typeof profile.clinicName === "string" && profile.clinicName.trim()) ||
-            "Alpha Dental",
-          logoUrl: typeof profile.logoUrl === "string" ? profile.logoUrl : "",
-          currency: typeof info.currency === "string" && info.currency.trim() ? info.currency.trim() : "EGP",
+          name: profile?.clinicName?.trim() || "Alpha Dental",
+          logoUrl: profile?.logoUrl || "",
+          currency: profile?.currency?.trim() || "EGP",
         });
       } catch {
         /* keeps the defaults */

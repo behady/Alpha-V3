@@ -150,12 +150,16 @@ export default function MarketingPage() {
     if (!user || !designUnlocked) return;
     getDocs(query(getClinicCollection("settings")))
       .then((snap) => {
-        const doc_ = snap.docs.find((d) => d.id === "clinicProfile");
-        const d = (doc_?.data() || {}) as Record<string, unknown>;
+        // clinic_info first, then the retired `clinicProfile` document for a clinic that has not
+        // saved its profile since the two were merged. The logo is the field that still lives
+        // only on the old one for those clinics, and a marketing post without it looks broken.
+        const current = (snap.docs.find((d) => d.id === "clinic_info")?.data() || {}) as Record<string, unknown>;
+        const legacy = (snap.docs.find((d) => d.id === "clinicProfile")?.data() || {}) as Record<string, unknown>;
+        const pick = (field: string) => String(current[field] || legacy[field] || "");
         setProfileLite({
-          clinicName: String(d.clinicName || clinic?.name || ""),
-          phone: String(d.phone || ""),
-          logoUrl: String(d.logoUrl || ""),
+          clinicName: String(current.name || current.clinicName || legacy.clinicName || clinic?.name || ""),
+          phone: pick("phone"),
+          logoUrl: pick("logoUrl"),
         });
       })
       .catch(() => setProfileLite({ clinicName: clinic?.name || "", phone: "", logoUrl: "" }));

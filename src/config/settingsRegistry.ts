@@ -149,14 +149,12 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     group: "clinic",
     labelEn: "Clinic profile",
     labelAr: "ملف العيادة",
-    // Two documents holding the same clinic. The page writes both by hand: `clinicProfile` owns
-    // the logo and the Google links, `clinic_info` is what ~30 readers actually consult, every
-    // printed header among them. Phase 2 collapses these into one; until it does, both are listed
-    // here so the test refuses a rename of either.
-    writes: [
-      { kind: "settingsDoc", docId: "clinicProfile" },
-      { kind: "settingsDoc", docId: "clinic_info" },
-    ],
+    // One document since Phase 2. It used to write two — `clinicProfile` for the logo and the
+    // Google links, `clinic_info` for everything ~30 other readers consult — and hand-copied the
+    // shared fields between them on every save, which is exactly how they drifted apart.
+    // src/lib/clinicProfile.ts holds the merge and the fallback for clinics that have not saved
+    // since; scripts/backfill-clinic-profile.mjs retires the old document for good.
+    writes: [{ kind: "settingsDoc", docId: "clinic_info" }],
     view: ADMIN,
     edit: ADMIN,
   },

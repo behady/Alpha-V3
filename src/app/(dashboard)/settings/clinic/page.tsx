@@ -4,6 +4,8 @@ import { clinicLogoPath } from "@/lib/storagePaths";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Building2,
+  Coins,
+  FileText,
   Phone,
   MapPin,
   Link2,
@@ -12,9 +14,9 @@ import {
   Save,
   ImagePlus,
 } from "lucide-react";
-import { doc, setDoc } from "firebase/firestore";
+import { setDoc } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { auth, db, storage } from "@/lib/firebase";
+import { auth, storage } from "@/lib/firebase";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext";
@@ -26,12 +28,13 @@ import { logActivity } from "@/lib/logger";
 import {
   CLINIC_PROFILE_DOC,
   EMPTY_CLINIC_PROFILE,
+  clinicProfileWritePayload,
   getClinicProfile,
   sanitizeClinicProfile,
 } from "@/lib/clinicProfile";
 import { clearClinicLogoCache } from "@/lib/clinicLogo";
 import type { ClinicProfile } from "@/types/clinicProfile";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { getClinicDoc } from "@/lib/db-utils";
 
 export default function ClinicProfileSettingsPage() {
   const { language, isRTL } = useLanguage();
@@ -90,6 +93,18 @@ export default function ClinicProfileSettingsPage() {
       language === "ar"
         ? "رابط يفتح صفحة ترك تقييم (مثلاً من ملف النشاط التجاري أو g.page). يُستخدم في واتساب {{google_link}}."
         : "URL that opens Google’s review form for your clinic (Business Profile or short link). Used for WhatsApp {{google_link}}.",
+    currency: language === "ar" ? "العملة" : "Currency",
+    currencyHint:
+      language === "ar"
+        ? "تظهر بجانب كل سعر وعلى خطط العلاج والتقارير. مثال: EGP أو SAR."
+        : "Shown beside every price, and on treatment plans and reports. For example EGP or SAR.",
+    rxHeader: language === "ar" ? "ترويسة الروشتة" : "Prescription header",
+    rxHeaderPlaceholder:
+      language === "ar" ? "د. أحمد محمود — أخصائي تجميل الأسنان" : "Dr. Sarah Ahmed — Prosthodontist",
+    rxHeaderHint:
+      language === "ar"
+        ? "السطر أسفل اسم العيادة في كل روشتة. اتركه فارغاً ليظهر اسم الطبيب المعالج."
+        : "The line under the clinic name on every prescription. Leave it blank to print the treating dentist's name.",
     logo: language === "ar" ? "الشعار" : "Logo",
     logoHint:
       language === "ar" ? "PNG أو JPG — يُرفع إلى التخزين السحابي." : "PNG or JPG — stored in Firebase Storage.",
@@ -104,7 +119,7 @@ export default function ClinicProfileSettingsPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const data = await getClinicProfile(db);
+        const data = await getClinicProfile();
         if (!cancelled && data) {
           setForm(data);
           setSaved(data);
@@ -164,32 +179,18 @@ export default function ClinicProfileSettingsPage() {
         return;
       }
 
-      const payload: ClinicProfile & { updatedAt: string } = {
-        ...form,
-        logoUrl,
-        updatedAt: new Date().toISOString(),
-      };
-
-      await setDoc(getClinicDoc(CLINIC_PROFILE_DOC.collection, CLINIC_PROFILE_DOC.docId), payload, {
-        merge: true,
-      });
-
+      // One document, one write. This used to save the profile document and then hand-copy three
+      // fields into clinic_info, which is how the two drifted apart in the first place.
       await setDoc(
-        getClinicDoc("settings", "clinic_info"),
-        {
-          clinicName: form.clinicName,
-          name: form.clinicName,
-          phone: form.phone,
-          address: form.address,
-          updatedAt: new Date().toISOString(),
-        },
+        getClinicDoc(CLINIC_PROFILE_DOC.collection, CLINIC_PROFILE_DOC.docId),
+        clinicProfileWritePayload({ ...form, logoUrl }),
         { merge: true }
       );
 
       await logActivity(
         { uid: user?.uid, name: user?.name, role: user?.role },
         "Clinic profile updated",
-        "settings/clinicProfile"
+        "settings/clinic_info"
       );
 
       // The logo is cached per clinic for the session so receipts/prescriptions don't refetch it
@@ -285,6 +286,38 @@ export default function ClinicProfileSettingsPage() {
                 className="w-full resize-none rounded-2xl border border-slate-200 bg-slate-50/50 px-5 py-3.5 text-sm font-medium text-slate-900 outline-none transition-all focus:border-slate-900 focus:bg-white focus:ring-4 focus:ring-slate-900/5"
               />
             </label>
+
+            {/* Printed on every prescription, shown on every price. Read from this document
+                since the beginning, and until now editable nowhere in the app. */}
+            <div className="grid gap-6 sm:grid-cols-2">
+              <label className="block space-y-2">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
+                  <Coins size={12} className="opacity-60" /> {txt.currency}
+                </span>
+                <input
+                  value={form.currency ?? ""}
+                  onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
+                  maxLength={8}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50/50 px-5 py-3.5 text-sm font-medium text-slate-900 outline-none transition-all focus:border-slate-900 focus:bg-white focus:ring-4 focus:ring-slate-900/5"
+                  placeholder="EGP"
+                />
+                <p className="text-xs text-slate-400 leading-relaxed">{txt.currencyHint}</p>
+              </label>
+
+              <label className="block space-y-2">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
+                  <FileText size={12} className="opacity-60" /> {txt.rxHeader}
+                </span>
+                <textarea
+                  value={form.rxHeader ?? ""}
+                  onChange={(e) => setForm((f) => ({ ...f, rxHeader: e.target.value }))}
+                  rows={2}
+                  className="w-full resize-none rounded-2xl border border-slate-200 bg-slate-50/50 px-5 py-3.5 text-sm font-medium text-slate-900 outline-none transition-all focus:border-slate-900 focus:bg-white focus:ring-4 focus:ring-slate-900/5"
+                  placeholder={txt.rxHeaderPlaceholder}
+                />
+                <p className="text-xs text-slate-400 leading-relaxed">{txt.rxHeaderHint}</p>
+              </label>
+            </div>
 
             <label className="block space-y-2">
               <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">

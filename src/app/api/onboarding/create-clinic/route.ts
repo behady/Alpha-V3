@@ -80,6 +80,28 @@ export async function POST(request: Request) {
         },
         { merge: true }
       );
+
+      /**
+       * The clinic's own details, seeded with the two facts signup already knows.
+       *
+       * Nothing used to create this document at all, so a brand-new clinic's settings screens read
+       * from a document that did not exist and fell back to defaults buried in code — which is why
+       * lib/clinicSchedule.ts and lib/priceLists.ts both carry warnings about clinics that never
+       * opened the Schedule screen.
+       *
+       * Deliberately only the name and the currency. Seeding opening hours or a price list would
+       * make "never configured" indistinguishable from "deliberately set to this", which is the
+       * distinction `schedule.configuredAt` exists to preserve — the settings screens need to be
+       * able to say what is still untouched.
+       *
+       * `name` AND `clinicName`: Android reads `snap.getString("name")` with no fallback.
+       */
+      tx.set(clinicRef.collection("settings").doc("clinic_info"), {
+        name: clinicName,
+        clinicName,
+        currency: "EGP",
+        createdAt: new Date().toISOString(),
+      });
     });
 
     return NextResponse.json({ ok: true, clinicId });
