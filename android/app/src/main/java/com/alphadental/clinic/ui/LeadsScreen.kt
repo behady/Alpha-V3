@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -89,6 +90,8 @@ fun LeadsScreen(
     BackHandler { onClose() }
 
     var stageFilter by rememberSaveable { mutableStateOf("inbox") }
+    /** Blank means every source. Survives rotation, like the stage above it. */
+    var sourceFilter by rememberSaveable { mutableStateOf("") }
     var losing by remember { mutableStateOf<Lead?>(null) }
 
     losing?.let { lead ->
@@ -139,6 +142,17 @@ fun LeadsScreen(
     }
 
     val today = AppViewModel.today()
+    // Every source the clinic actually has leads from, commonest first — read off
+    // the leads rather than from a fixed list, because a clinic adds its own
+    // sources on the website and a hardcoded set here would go stale the day it did.
+    val sources = leads
+        .mapNotNull { it.source.trim().takeIf(String::isNotBlank) }
+        .groupingBy { it }
+        .eachCount()
+        .entries
+        .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+        .map { it.key }
+
     val shown = leads
         .filter { lead ->
             when (stageFilter) {
@@ -146,6 +160,9 @@ fun LeadsScreen(
                 else -> lead.stage == stageFilter
             }
         }
+        // Narrowed together: "Facebook leads still in the inbox" is one question,
+        // not two screens.
+        .filter { lead -> sourceFilter.isBlank() || lead.source.trim() == sourceFilter }
         .sortedWith(
             // Due follow-ups first, then the newest arrivals.
             compareByDescending<Lead> { it.followUpDate.isNotBlank() && it.followUpDate <= today && it.stage !in setOf("won", "lost") }
@@ -227,6 +244,33 @@ fun LeadsScreen(
                 }
             }
 
+            // Where they came from. Hidden entirely with one source or none — a row
+            // of filters offering a single choice is furniture, not a control.
+            if (sources.size > 1) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 8.dp),
+                ) {
+                    item {
+                        SourceChip(
+                            label = if (arabic) "كل المصادر" else "All sources",
+                            selected = sourceFilter.isBlank(),
+                        ) { sourceFilter = "" }
+                    }
+                    items(sources) { source ->
+                        val count = leads.count { it.source.trim() == source }
+                        SourceChip(
+                            label = "$source · $count",
+                            selected = sourceFilter == source,
+                        ) {
+                            // Tapping the chosen one again clears it, so getting back
+                            // to everything does not mean hunting for "All sources".
+                            sourceFilter = if (sourceFilter == source) "" else source
+                        }
+                    }
+                }
+            }
+
             when {
                 loading && leads.isEmpty() -> Box(
                     Modifier.fillMaxSize().padding(32.dp),
@@ -236,9 +280,18 @@ fun LeadsScreen(
                 }
 
                 shown.isEmpty() -> Box(Modifier.fillMaxSize().padding(24.dp)) {
+                    // An empty list because of a filter is a different fact from an
+                    // empty list because nobody has enquired, and only one of them
+                    // is fixed by tapping something.
                     EmptyState(
-                        if (arabic) "لا يوجد عملاء محتملون هنا."
-                        else "Nothing here — new leads land in the inbox the moment they arrive.",
+                        when {
+                            sourceFilter.isNotBlank() && arabic ->
+                                "لا يوجد عملاء من \"$sourceFilter\" في هذا القسم."
+                            sourceFilter.isNotBlank() ->
+                                "No leads from \"$sourceFilter\" here. Tap the source again to see them all."
+                            arabic -> "لا يوجد عملاء محتملون هنا."
+                            else -> "Nothing here — new leads land in the inbox the moment they arrive."
+                        }
                     )
                 }
 
@@ -463,6 +516,28 @@ private fun ContactChip(
 }
 
 /** The channel's colour and initial — sources are free text, so this fuzzy-matches. */
+/** One source filter. Outlined rather than filled, so it sits under the stage
+ *  pills as a refinement of them rather than as a second set of tabs. */
+@Composable
+private fun SourceChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = Alpha.PillShape,
+        color = if (selected) Alpha.GreenSoft else Alpha.Card,
+        border = BorderStroke(1.dp, if (selected) Alpha.Green else Alpha.Slate200),
+    ) {
+        Text(
+            label,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (selected) Alpha.Green else Alpha.Slate600,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+        )
+    }
+}
+
 @Composable
 private fun SourceBadge(source: String) {
     val lower = source.lowercase()
