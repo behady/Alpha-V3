@@ -26,7 +26,7 @@
 
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   SETTINGS_GROUP_ORDER,
@@ -883,6 +883,49 @@ for (const file of CONVERTED) {
     inline.length === 0,
     `${file} has ${inline.length} label(s) spliced inline again. Put them in ` +
       `src/config/settingsText.ts so all the Arabic stays readable in one place.`
+  );
+}
+
+// --- 15. Nothing writes to the audit trail without a time on it --------------------------------
+//
+// The Activity Logs screen orders by `timestamp`, and Firestore excludes documents that do not
+// carry the field being ordered on. An entry written without one is not last in the list — it is
+// absent, with nothing on screen to say so. Three real "Payment Received" entries were invisible
+// that way until scripts/find-undated-logs.mjs found and stamped them.
+//
+// Every writer sets it today. This is what keeps that true, because the failure is silent at
+// every layer: the write succeeds, the rules allow it, and the screen simply never shows it.
+
+const LOG_WRITERS = [
+  "src/lib/logger.ts",
+  "src/lib/serverLogger.ts",
+  "src/lib/server/systemLog.ts",
+];
+
+for (const file of LOG_WRITERS) {
+  const text = stripComments(readFileSync(join(REPO, file), "utf8"));
+  ok(
+    /system_logs|collectionName/.test(text),
+    `${file} is listed as an audit-trail writer but does not mention the collection`
+  );
+  ok(
+    /timestamp:\s*(?:FieldValue\.)?serverTimestamp\(\)/.test(text),
+    `${file} writes to system_logs without setting \`timestamp: serverTimestamp()\`. The entry ` +
+      `would be accepted by the database and then never appear on the Activity Logs screen, ` +
+      `because that screen orders by the field the row does not have.`
+  );
+}
+
+// Any OTHER file that adds to system_logs has to set it too.
+for (const file of sourceFiles(join(REPO, "src"))) {
+  const text = stripComments(readFileSync(file, "utf8"));
+  const rel = file.replace(REPO, "").split(sep).join("/");
+  if (!/adminClinicCollection\([^)]*"system_logs"\)\s*\.add\(|getClinicCollection\("system_logs"\)/.test(text)) continue;
+  if (LOG_WRITERS.some((w) => rel.endsWith(w.replace("src/", "")))) continue;
+  ok(
+    /timestamp:\s*(?:FieldValue\.)?serverTimestamp\(\)/.test(text) || !/\.add\(|addDoc\(/.test(text),
+    `${rel} writes an audit entry without a timestamp — it would never appear on the Activity ` +
+      `Logs screen. Add \`timestamp: serverTimestamp()\`, or route it through lib/logger.ts.`
   );
 }
 
