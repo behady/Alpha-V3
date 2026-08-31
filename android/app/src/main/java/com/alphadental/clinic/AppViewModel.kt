@@ -188,6 +188,8 @@ data class AppState(
     /** The appointment the assistant is acting on — its id and a human label for the chip. */
     val aiAppointmentId: String? = null,
     val aiAppointmentLabel: String = "",
+    /** The lead being turned into a patient, so its button alone shows a spinner. */
+    val convertingLeadId: String = "",
     /** The "what Alpha has learned" screen, and the rules it is showing. */
     val aiMemoryOpen: Boolean = false,
     val aiFacts: List<String> = emptyList(),
@@ -629,6 +631,45 @@ class AppViewModel : ViewModel() {
 
     fun closeLeads() {
         _state.value = _state.value.copy(leadsOpen = false, leadAddOpen = false)
+    }
+
+    /**
+     * Turn a lead into a patient file, which is what winning one means.
+     *
+     * Not optimistic, unlike the stage pills: this creates a record and mints a
+     * file number, and showing "won" before the write lands would be claiming a
+     * patient exists who might not. The reply says which of the two happened — a
+     * new file, or a link to one already there — because "we already knew this
+     * person" is the answer that changes what reception says next.
+     */
+    fun convertLead(lead: com.alphadental.clinic.data.Lead) {
+        val session = _state.value.session ?: return
+        if (_state.value.convertingLeadId.isNotBlank()) return
+
+        _state.value = _state.value.copy(convertingLeadId = lead.id)
+        viewModelScope.launch {
+            Repository.convertLeadToPatient(session.clinicId, lead)
+                .onSuccess { (patientId, existed) ->
+                    _state.value = _state.value.copy(
+                        convertingLeadId = "",
+                        leads = _state.value.leads.map {
+                            if (it.id == lead.id) it.copy(stage = "won", patientId = patientId, hasFirstContact = true)
+                            else it
+                        },
+                        message = if (existed) {
+                            "That number was already on file — the lead is linked to it."
+                        } else {
+                            "Patient file created for " + lead.name.ifBlank { "the lead" } + "."
+                        },
+                    )
+                }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(
+                        convertingLeadId = "",
+                        message = error.message ?: "The lead could not be converted.",
+                    )
+                }
+        }
     }
 
     fun setLeadStage(lead: com.alphadental.clinic.data.Lead, stage: String, lostReason: String? = null) {

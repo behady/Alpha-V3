@@ -650,6 +650,13 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     loading = state.loadingLeads,
                     arabic = state.arabic,
                     onSetStage = viewModel::setLeadStage,
+                    // Creating a patient file, so the same roles the register lets
+                    // add one. The rules would refuse the write anyway; offering a
+                    // button that fails is worse than not offering it.
+                    onConvert = if (session.isAdmin || session.isDentist || session.role == "Receptionist") {
+                        viewModel::convertLead
+                    } else null,
+                    convertingLeadId = state.convertingLeadId,
                     onAdd = viewModel::openLeadAdd,
                     onClose = viewModel::closeLeads,
                 )
@@ -1002,6 +1009,29 @@ private fun MoreScreen(
                 Text(email, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Alpha.Slate500)
                 Spacer(Modifier.height(6.dp))
                 Text(role, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = Alpha.Green)
+
+                // A role the app does not recognise passes every gate as "no", so the
+                // dashboard quietly arrives with its tools stripped out and nothing
+                // says why. Naming it here is the difference between a five-minute
+                // fix in Settings and an afternoon of guessing.
+                if (role !in RECOGNISED_ROLES) {
+                    Spacer(Modifier.height(10.dp))
+                    Surface(shape = Alpha.CardShape, color = Alpha.WarnBg, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            if (arabic) {
+                                "الدور \"$role\" غير معروف للتطبيق، لذلك أغلبية الأدوات مخفية. " +
+                                    "صحّح الدور من إعدادات المستخدمين على الموقع."
+                            } else {
+                                "The app does not recognise the role \"$role\", so most tools are " +
+                                    "hidden. Fix this account's role in Settings → Users on the website."
+                            },
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Alpha.WarnText,
+                            modifier = Modifier.padding(12.dp),
+                        )
+                    }
+                }
             }
         }
 
@@ -1113,6 +1143,9 @@ private fun MoreScreen(
         )
     }
 }
+
+/** The roles every gate in the app is written against. */
+private val RECOGNISED_ROLES = setOf("Owner", "Admin", "Dentist", "Receptionist", "Assistant")
 
 private class ToolSpec(
     val icon: ImageVector,

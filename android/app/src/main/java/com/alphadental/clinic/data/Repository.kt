@@ -118,7 +118,20 @@ object Repository {
             ?: roles.keys.firstOrNull()
             ?: error("This account is not linked to any clinic.")
 
-        val role = roles[clinicId] ?: snap.getString("role") ?: "Assistant"
+        // A platform super admin is an Admin everywhere, which is how the website
+        // has always read it — and the phone did not read it at all. An owner whose
+        // reach comes from this flag rather than from a clinicRoles entry therefore
+        // signed in to a dashboard with every gated tool removed: same email, same
+        // password, a fraction of the app. Tolerates the string form for the same
+        // reason the rules file does.
+        val superAdmin = snap.getBoolean("isSuperAdmin") == true ||
+            snap.getString("isSuperAdmin") == "true"
+
+        val stored = roles[clinicId] ?: snap.getString("role")
+        val role = when {
+            superAdmin -> "Admin"
+            else -> canonicalRole(stored) ?: "Assistant"
+        }
         if (role == "Patient") error("This app is for clinic staff.")
 
         Session(
@@ -129,6 +142,24 @@ object Repository {
             role = role,
         )
     }
+
+    /**
+     * The stored role, spelled the way the rest of the app tests for it.
+     *
+     * Every role check on the phone is an exact string comparison, so "owner" with
+     * a small o matched nothing, fell through every branch, and produced an
+     * owner's dashboard with all of its tools gated off. Unknown values are
+     * returned as they were rather than forced into a default: being shown a role
+     * you do not recognise on the More tab is how this gets diagnosed, and quietly
+     * calling it "Assistant" is how it stayed hidden.
+     */
+    private fun canonicalRole(stored: String?): String? {
+        val trimmed = stored?.trim().orEmpty()
+        if (trimmed.isEmpty()) return null
+        return KNOWN_ROLES.firstOrNull { it.equals(trimmed, ignoreCase = true) } ?: trimmed
+    }
+
+    private val KNOWN_ROLES = listOf("Owner", "Admin", "Dentist", "Receptionist", "Assistant", "Patient")
 
     fun signOut() = Firebase.auth().signOut()
 
@@ -1851,7 +1882,10 @@ object Repository {
      * lives on the website.
      */
     suspend fun setLeadStage(clinicId: String, lead: Lead, stage: String, lostReason: String?): Result<Unit> = runCatching {
-        require(stage != "won") { "Converting a lead is done on the website." }
+        // "won" is reached by converting, which creates or links a patient file —
+        // see convertLeadToPatient. Setting the stage alone would mark the lead
+        // won with nothing on the other end of it.
+        require(stage != "won") { "Use Convert to patient to win a lead." }
         val patch = mutableMapOf<String, Any?>(
             "stage" to stage,
             "updatedAt" to FieldValue.serverTimestamp(),
@@ -1860,6 +1894,73 @@ object Repository {
         if (stage != "new" && !lead.hasFirstContact) patch["firstContactedAt"] = FieldValue.serverTimestamp()
         leads(clinicId).document(lead.id).update(patch).await()
         Unit
+    }
+
+    /**
+     * Turn a lead into a patient, the way the website's Convert button does.
+     *
+     * Mirrors findOrCreatePatientForLead: an existing file with the same phone is
+     * linked rather than duplicated, and only a genuinely new person mints a file
+     * number. `isReturningPatient` records which of the two happened, because the
+     * funnel counts a returning patient's money in its own column and a lead that
+     * silently reused a file would otherwise read as new business.
+     *
+     * The file number comes from the same settings/counters transaction the
+     * website and the booking flow use, so two people converting at once cannot
+     * both be handed PT-1042.
+     *
+     * Returns the patient id and whether the file already existed.
+     */
+    suspend fun convertLeadToPatient(clinicId: String, lead: Lead): Result<Pair<String, Boolean>> = runCatching {
+        val phone = lead.phone.trim()
+        require(phone.isNotBlank()) { "This lead has no phone number to match a file to." }
+
+        val existing = patientsCollection(clinicId).whereEqualTo("phone", phone).limit(1).get().await()
+        val patientId = if (!existing.isEmpty) {
+            existing.documents.first().id
+        } else {
+            val counterRef = Firebase.db().collection("clinics").document(clinicId)
+                .collection("settings").document("counters")
+            val fileNumber = Firebase.db().runTransaction { tx ->
+                val snap = tx.get(counterRef)
+                val next = ((snap.get("patientId") as? Number)?.toLong() ?: 999L) + 1L
+                tx.set(counterRef, mapOf("patientId" to next), com.google.firebase.firestore.SetOptions.merge())
+                next
+            }.await()
+
+            patientsCollection(clinicId).add(
+                mapOf(
+                    "fileId" to "PT-$fileNumber",
+                    "name" to lead.name.trim(),
+                    "phone" to phone,
+                    "address" to "",
+                    "dateOfBirth" to "",
+                    "gender" to "Male",
+                    "referral" to lead.source,
+                    "source" to lead.source,
+                    "medicalHistory" to "",
+                    "status" to "New",
+                    // Balance is derived from the ledger, never stored on the patient.
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "searchableName" to lead.name.trim().lowercase(),
+                    "searchablePhone" to phone.filter { it.isDigit() },
+                    "teethData" to emptyMap<String, Any>(),
+                )
+            ).await().id
+        }
+        val existed = !existing.isEmpty
+
+        val patch = mutableMapOf<String, Any?>(
+            "stage" to "won",
+            "patientId" to patientId,
+            "isReturningPatient" to existed,
+            "updatedAt" to FieldValue.serverTimestamp(),
+            "stageChangedAt" to FieldValue.serverTimestamp(),
+        )
+        if (!lead.hasFirstContact) patch["firstContactedAt"] = FieldValue.serverTimestamp()
+        leads(clinicId).document(lead.id).update(patch).await()
+
+        patientId to existed
     }
 
     /** A lead typed in at the desk — a walk-in, a phone call. Same shape the website writes. */
