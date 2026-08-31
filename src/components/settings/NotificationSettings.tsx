@@ -64,7 +64,7 @@ export default function NotificationSettings({ clinicData, setClinicData, handle
   return (
     <form
       onSubmit={handleSaveClinic}
-      className="space-y-8 animate-in fade-in max-w-3xl mx-auto bg-surface p-8 rounded-3xl shadow-sm border border-slate-200/50"
+      className="space-y-8 animate-in fade-in max-w-3xl"
     >
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 border-b border-slate-100 pb-6">
         <div className="flex items-center gap-4">

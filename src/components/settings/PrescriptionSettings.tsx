@@ -51,23 +51,23 @@ export default function PrescriptionSettings() {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in max-w-6xl mx-auto bg-surface p-8 rounded-3xl shadow-sm border border-slate-200/50">
+    <div className="space-y-6 animate-in fade-in max-w-3xl">
         <div className="flex items-center justify-between mb-6 border-b border-slate-100 pb-6">
             <div className="flex items-center gap-4">
-                <div className="w-14 h-14 bg-purple-50 text-purple-600 rounded-2xl flex items-center justify-center"><Pill size={28}/></div>
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-tint text-accent"><Pill size={28}/></div>
                 <div>
                     <h3 className="text-xl font-bold text-ink">{txt.drugDbTitle}</h3>
                     <p className="text-sm font-semibold text-ink-muted mt-1">{txt.drugDbSub}</p>
                 </div>
             </div>
-            <button onClick={openDrugModal} className="bg-purple-50 text-purple-700 px-6 py-3.5 rounded-2xl font-bold text-sm flex items-center gap-2 hover:bg-purple-100 transition-colors shadow-sm active:scale-95">
+            <button onClick={openDrugModal} className="flex items-center gap-2 rounded-2xl bg-ink-slab px-5 py-3 text-sm font-bold text-white transition-all active:scale-95">
                 <Plus size={20}/> {txt.addDrug}
             </button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
             {drugList.map(drug => (
-                <div key={drug.id} className="flex justify-between items-center p-6 bg-surface-subtle rounded-3xl border border-slate-200/60 shadow-sm hover:border-purple-200 hover:bg-surface transition-all group">
+                <div key={drug.id} className="flex justify-between items-center p-6 bg-surface-subtle rounded-3xl border border-slate-200/60 shadow-sm hover:border-line-strong hover:bg-surface transition-all group">
                     <div>
                         <p className="font-bold text-ink text-base">{drug.name}</p>
                         <p className="text-sm font-medium text-ink-muted mt-1">{drug.dose}</p>

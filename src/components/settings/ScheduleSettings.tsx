@@ -19,16 +19,16 @@ export default function ScheduleSettings({ schedule, setSchedule, handleSaveClin
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in max-w-5xl mx-auto bg-surface p-8 rounded-3xl shadow-sm border border-slate-200/50">
+    <div className="space-y-8 animate-in fade-in max-w-3xl">
         <div className="flex items-center gap-4 mb-6 border-b border-slate-100 pb-6">
-            <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center"><Clock size={28}/></div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-tint text-accent"><Clock size={28}/></div>
             <div>
                 <h3 className="text-xl font-bold text-ink">{txt.scheduleTitle}</h3>
                 <p className="text-sm font-semibold text-ink-muted mt-1">{txt.scheduleSub}</p>
             </div>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-surface-subtle p-6 rounded-3xl border border-slate-100">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 rounded-2xl border border-line bg-surface-subtle p-6">
             <div className="space-y-2">
                 <label className={`text-[11px] font-bold text-ink-muted uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.openTime}</label>
                 <input data-tour="schedule-open-time" type="time" value={schedule.start} onChange={e => setSchedule({...schedule, start: e.target.value})} className="w-full px-5 py-4 rounded-2xl border border-slate-200/60 font-bold text-base bg-surface outline-none focus:ring-2 focus:ring-primary-500 transition-all"/>

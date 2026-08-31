@@ -28,7 +28,7 @@ export default function AttendanceSettings({ clinicData, setClinicData, handleSa
   };
 
   return (
-    <form onSubmit={handleSaveClinic} className="space-y-8 animate-in fade-in max-w-5xl mx-auto bg-surface p-8 rounded-3xl shadow-sm border border-slate-200/50">
+    <form onSubmit={handleSaveClinic} className="space-y-8 animate-in fade-in max-w-3xl">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 border-b border-slate-100 pb-6">
           <div className="flex items-center gap-4">
               <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center"><MapPin size={28}/></div>
@@ -42,7 +42,7 @@ export default function AttendanceSettings({ clinicData, setClinicData, handleSa
           </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-surface-subtle p-6 rounded-3xl border border-slate-100">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 rounded-2xl border border-line bg-surface-subtle p-6">
           <div className="space-y-2">
             <label className={`text-[11px] font-bold text-ink-muted uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.lat}</label>
             <input value={clinicData.attendanceLat} onChange={e => setClinicData({...clinicData, attendanceLat: e.target.value})} placeholder="e.g. 30.0444" className="w-full px-5 py-4 bg-surface border border-slate-200/60 rounded-2xl focus:ring-2 focus:ring-primary-500 transition-all outline-none font-bold text-ink"/>

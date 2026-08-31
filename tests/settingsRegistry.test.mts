@@ -692,10 +692,18 @@ function sectionSource(sectionId: string): string {
   ok(existsSync(file), `panels.tsx points "${sectionId}" at ${importPath}, which does not exist`);
 
   let text = readFileSync(file, "utf8");
-  // A host that only wraps another component (the clinic_info trio) carries the guard there.
-  for (const local of [...text.matchAll(/from "\.\/([A-Za-z]+)"/g)].map((m) => m[1])) {
-    const sibling = join(file, "..", `${local}.tsx`);
-    if (existsSync(sibling)) text += readFileSync(sibling, "utf8");
+
+  // A screen that is a thin wrapper carries its guard in the component it wraps — the clinic_info
+  // trio through their shared host, and the two list screens through NamedList. Both spellings of
+  // that import count, or a screen looks unguarded purely because the work was shared.
+  const wrapped = [
+    ...[...text.matchAll(/from "\.\/([A-Za-z]+)"/g)].map((m) => join(file, "..", `${m[1]}.tsx`)),
+    ...[...text.matchAll(/from "@\/components\/settings\/([A-Za-z/]+)"/g)].map((m) =>
+      join(REPO, "src/components/settings", `${m[1]}.tsx`)
+    ),
+  ];
+  for (const path of wrapped) {
+    if (existsSync(path)) text += readFileSync(path, "utf8");
   }
   return text;
 }

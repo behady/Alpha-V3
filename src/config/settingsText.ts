@@ -12,6 +12,36 @@
  */
 
 export const SETTINGS_TEXT = {
+  visitReasons: {
+    title: { en: "Reasons for visit", ar: "أسباب الزيارة" },
+    hint: { en: "The list reception picks from when booking an appointment.", ar: "القائمة التي يختار منها الاستقبال عند حجز موعد." },
+    addPlaceholder: { en: "Add a reason...", ar: "أضف سبباً..." },
+    add: { en: "Add reason", ar: "أضف سبباً" },
+    empty: { en: "No reasons yet. Add the first one above.", ar: "لا توجد أسباب بعد. أضف الأول بالأعلى." },
+    duplicate: { en: "That reason is already on the list.", ar: "هذا السبب موجود بالفعل." },
+    saved: { en: "Reasons saved", ar: "تم حفظ الأسباب" },
+    failed: { en: "Could not save. Try again.", ar: "تعذر الحفظ. حاول مرة أخرى." },
+    save: { en: "Save", ar: "حفظ" },
+    discard: { en: "Discard", ar: "تجاهل" },
+    remove: { en: "Remove", ar: "حذف" },
+    countOne: { en: "reason", ar: "سبب" },
+    countMany: { en: "reasons", ar: "أسباب" },
+  },
+  patientSources: {
+    title: { en: "Patient sources", ar: "مصادر المرضى" },
+    hint: { en: "How a patient found the clinic. Asked when their file is created, and what every marketing report counts.", ar: "كيف عرف المريض العيادة. يُسأل عند إنشاء ملفه، وعليه تُبنى تقارير التسويق." },
+    addPlaceholder: { en: "Add a source...", ar: "أضف مصدراً..." },
+    add: { en: "Add source", ar: "أضف مصدراً" },
+    empty: { en: "No sources yet. Add the first one above.", ar: "لا توجد مصادر بعد. أضف الأول بالأعلى." },
+    duplicate: { en: "That source is already on the list.", ar: "هذا المصدر موجود بالفعل." },
+    saved: { en: "Sources saved", ar: "تم حفظ المصادر" },
+    failed: { en: "Could not save. Try again.", ar: "تعذر الحفظ. حاول مرة أخرى." },
+    save: { en: "Save", ar: "حفظ" },
+    discard: { en: "Discard", ar: "تجاهل" },
+    remove: { en: "Remove", ar: "حذف" },
+    countOne: { en: "source", ar: "مصدر" },
+    countMany: { en: "sources", ar: "مصادر" },
+  },
   aiCredits: {
     title: { en: "AI Credits", ar: "رصيد الذكاء الاصطناعي" },
     subtitle: { en: "Every AI action is logged here — who used what, for which patient, and what it cost.", ar: "كل استخدام للذكاء الاصطناعي بيتسجل هنا — مين استخدم إيه، ولمين، وكلّف كام." },
