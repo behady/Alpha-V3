@@ -10,6 +10,8 @@ import {
   CLASSICAL_SHADES,
   DEFAULT_LAB_PAPER,
   TOOTH_SHADES,
+  FDI_UPPER,
+  FDI_LOWER,
   addDays,
   branchCodeFor,
   daysUntil,
@@ -23,6 +25,9 @@ import {
   statusFor,
   summarise,
   workTypeFor,
+  formatPalmer,
+  parseToothInput,
+  toPalmer,
   optionLabel,
   RETENTION_OPTIONS,
 } from "../src/lib/labCases.ts";
@@ -121,8 +126,8 @@ assert.deepEqual(parseTeeth("14, 15, 14"), [14, 15]);
 
 // A surgical guide has no shade of any kind. An order form that prints one is printing a blank.
 const guide = workTypeFor("surgical_guide");
-assert.equal(guide.toothShade, false);
-assert.equal(guide.stumpShade, false);
+assert.equal(guide.bodyShade, false);
+assert.equal(guide.cervicalShade, false);
 assert.equal(guide.gumShade, false);
 assert.equal(guide.implant, true);
 // Nothing physical leaves the clinic for a guide — a scan and a CBCT go out as files.
@@ -130,7 +135,7 @@ assert.equal(guide.digitalByDefault, true);
 
 // An implant crown without the system named is scrap metal to a technician.
 assert.equal(workTypeFor("implant_crown").implant, true);
-assert.equal(workTypeFor("implant_crown").toothShade, true);
+assert.equal(workTypeFor("implant_crown").bodyShade, true);
 
 // Dentures try in by default; a crown does not.
 assert.equal(workTypeFor("full_denture").tryInByDefault, true);
@@ -142,6 +147,80 @@ assert.equal(workTypeFor("zirconia").gumShade, false);
 // An unknown id (an older record, a hand-edited document) must not crash a board that renders it.
 assert.equal(workTypeFor("nonsense_type").id, "zirconia");
 assert.equal(workTypeFor(undefined).id, "zirconia");
+
+// --- Palmer notation ------------------------------------------------------------------------------
+//
+// Teeth are STORED as FDI and READ as Palmer. Egyptian dental schools teach Palmer and this clinic
+// works in it, and a lab order is read by a technician rather than a database — so getting the
+// quadrant bracket wrong here does not produce a cosmetic bug, it produces the wrong tooth.
+//
+// The bracket is the corner of the chart's cross, drawn as seen FACING the patient: their upper
+// right sits on the left of the page and takes the corner made by the midline on its right and the
+// occlusal line below it.
+assert.equal(toPalmer(16).label, "6┘", "upper right takes the down-left corner, number first");
+assert.equal(toPalmer(26).label, "└6", "upper left takes the up-right corner, number after");
+assert.equal(toPalmer(36).label, "┌6", "lower left");
+assert.equal(toPalmer(46).label, "6┐", "lower right");
+
+assert.equal(toPalmer(16).quadrant, "UR");
+assert.equal(toPalmer(26).quadrant, "UL");
+assert.equal(toPalmer(36).quadrant, "LL");
+assert.equal(toPalmer(46).quadrant, "LR");
+
+// Position counts outward from the midline, so FDI's second digit IS the Palmer number.
+assert.equal(toPalmer(11).position, "1");
+assert.equal(toPalmer(18).position, "8");
+assert.equal(toPalmer(28).position, "8");
+
+// Primary teeth are letters, not numbers. A paediatric crown is a real lab case.
+assert.equal(toPalmer(51).position, "A");
+assert.equal(toPalmer(55).position, "E");
+assert.equal(toPalmer(51).label, "A┘");
+assert.equal(toPalmer(61).label, "└A");
+assert.equal(toPalmer(75).label, "┌E");
+assert.equal(toPalmer(85).label, "E┐");
+
+// Nonsense stays nonsense rather than rendering a confident wrong tooth.
+assert.equal(toPalmer(19), null, "there is no ninth tooth in a quadrant");
+assert.equal(toPalmer(56), null, "there is no sixth primary tooth");
+assert.equal(toPalmer(99), null);
+assert.equal(toPalmer(0), null);
+assert.equal(toPalmer(NaN), null);
+
+assert.equal(formatPalmer([15, 14]), "5┘ 4┘");
+assert.equal(formatPalmer([]), "Not specified");
+assert.equal(formatPalmer(undefined), "Not specified");
+
+// The input box takes either notation. A case raised from a treatment arrives prefilled in FDI
+// from the chart; one typed by hand arrives in the Palmer shorthand people actually write.
+assert.deepEqual(parseToothInput("15, 14"), [15, 14], "FDI still works");
+assert.deepEqual(parseToothInput("UR5, UR4"), [15, 14], "written Palmer");
+assert.deepEqual(parseToothInput("ur5 ur4"), [15, 14], "case and separators do not matter");
+assert.deepEqual(parseToothInput("UL6"), [26]);
+assert.deepEqual(parseToothInput("LL7"), [37]);
+assert.deepEqual(parseToothInput("LR8"), [48]);
+assert.deepEqual(parseToothInput("URA"), [51], "primary shorthand");
+assert.deepEqual(parseToothInput("LLE"), [75]);
+// And the bracket itself, if somebody pastes it back in.
+assert.deepEqual(parseToothInput("5┘ 4┘"), [15, 14]);
+assert.deepEqual(parseToothInput("└6"), [26]);
+// Mixed notations in one box resolve to the same list.
+assert.deepEqual(parseToothInput("UR5, 14"), [15, 14]);
+// Duplicates collapse, order is as entered, and junk is dropped rather than guessed at.
+assert.deepEqual(parseToothInput("UR5, UR5, 15"), [15]);
+assert.deepEqual(parseToothInput("hello"), []);
+assert.deepEqual(parseToothInput(""), []);
+assert.deepEqual(parseToothInput("UR9"), [], "no ninth tooth, so nothing rather than a wrong one");
+assert.deepEqual(parseToothInput("XX5"), []);
+
+// Every FDI tooth the app can chart round-trips through Palmer and back unchanged. This is the
+// assertion that would catch a quadrant being mapped to the wrong bracket.
+for (const fdi of [...FDI_UPPER, ...FDI_LOWER, 51, 52, 53, 54, 55, 61, 65, 71, 75, 81, 85]) {
+  const palmer = toPalmer(fdi);
+  assert.ok(palmer, `no Palmer for FDI ${fdi}`);
+  assert.deepEqual(parseToothInput(palmer.label), [fdi], `FDI ${fdi} did not survive ${palmer.label}`);
+  assert.deepEqual(parseToothInput(`${palmer.quadrant}${palmer.position}`), [fdi]);
+}
 
 // --- shades --------------------------------------------------------------------------------------
 
@@ -394,8 +473,8 @@ const crown = {
   workDescription: "2 x full crown",
   units: 2,
   teeth: [15, 14],
-  toothShade: "A2",
-  stumpShade: "ND3",
+  bodyShade: "A2",
+  cervicalShade: "A3",
   agreedPrice: 1400,
   sentVia: "driver",
   status: "at_lab",
@@ -412,9 +491,12 @@ assert.ok(crownHtml.includes("data:image/png;base64,AAA"));
 // The whole point of this feature: the first name goes, the full name stays in the building.
 assert.ok(crownHtml.includes("Ahmed"));
 assert.ok(!crownHtml.includes("Ahmed Fathy Mahmoud"));
-// The fields a crown has.
+// The fields a crown has. Two shades off the same VITA guide, not one flat colour: the cervical
+// third is darker on a natural tooth, and a crown built to a single shade reads as a crown.
+assert.ok(crownHtml.includes("Body shade"));
 assert.ok(crownHtml.includes("A2"));
-assert.ok(crownHtml.includes("ND3"));
+assert.ok(crownHtml.includes("Cervical shade"));
+assert.ok(crownHtml.includes("A3"));
 assert.ok(crownHtml.includes("1,400 EGP"));
 // A driver signs for it.
 assert.ok(crownHtml.includes("Driver signature"));
@@ -422,17 +504,20 @@ assert.ok(crownHtml.includes("Driver signature"));
 assert.equal((crownHtml.match(/MAD-0142/g) || []).length >= 4, true);
 assert.ok(crownHtml.includes("size: A4 portrait"));
 assert.ok(crownHtml.includes("cut here"));
-// The chart marks the ordered teeth and shows the rest for context.
-assert.ok(crownHtml.includes(">15<"));
-assert.ok(crownHtml.includes(">28<"));
+// The chart is the Palmer grid: positions counting outward from the midline with the quadrant
+// cross drawn through it, NOT FDI codes. The ordered teeth are marked, the rest shown for context.
+assert.ok(crownHtml.includes("5┘ 4┘"), "the teeth line reads in Palmer");
+assert.ok(crownHtml.includes("FDI 15, 14"), "FDI kept small underneath, for a lab that works in it");
+assert.ok(!crownHtml.includes(">15<"), "no FDI codes in the chart cells");
+assert.ok(!crownHtml.includes(">28<"));
 
 // A guide is a different piece of paper entirely.
 const guideCase = {
   ...crown,
   code: "MAD-0143",
   workType: "surgical_guide",
-  toothShade: "A2",
-  stumpShade: "ND3",
+  bodyShade: "A2",
+  cervicalShade: "A3",
   guideType: "Fully guided",
   implantSystem: "Dentium",
   sentVia: "digital",
@@ -440,8 +525,9 @@ const guideCase = {
 };
 const guideHtml = buildLabOrderSrcDoc(guideCase, clinic, "", noLogo, "en", "a4_full");
 
-// Even though a shade is stored on the record, a guide never prints one — the work type decides.
-assert.ok(!guideHtml.includes("ND3"));
+// Even though BOTH shades are stored on the record, a guide prints neither — the work type decides.
+assert.ok(!guideHtml.includes("Body shade"));
+assert.ok(!guideHtml.includes("Cervical shade"));
 assert.ok(guideHtml.includes("Dentium"));
 assert.ok(guideHtml.includes("Fully guided"));
 // Nothing was handed to anybody, so there is no line for anybody to sign. A signature box nobody

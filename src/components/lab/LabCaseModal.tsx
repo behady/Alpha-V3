@@ -18,8 +18,10 @@ import {
   GUM_SHADE_SUGGESTIONS,
   LAB_WORK_TYPES,
   RETENTION_OPTIONS,
-  STUMP_SHADES,
   TOOTH_SHADES,
+  CERVICAL_SHADES,
+  formatPalmer,
+  parseToothInput,
   addDays,
   workTypeFor,
   type LabCase,
@@ -84,8 +86,8 @@ export default function LabCaseModal({
   const [workDescription, setWorkDescription] = useState("");
   const [units, setUnits] = useState("");
   const [teethText, setTeethText] = useState("");
-  const [toothShade, setToothShade] = useState("");
-  const [stumpShade, setStumpShade] = useState("");
+  const [bodyShade, setBodyShade] = useState("");
+  const [cervicalShade, setCervicalShade] = useState("");
   const [gumShade, setGumShade] = useState("");
   const [material, setMaterial] = useState("");
   const [implantSystem, setImplantSystem] = useState("");
@@ -230,8 +232,8 @@ export default function LabCaseModal({
     setWorkDescription(src?.workDescription || seed?.workDescription || "");
     setUnits(src?.units != null ? String(src.units) : seed?.units != null ? String(seed.units) : "");
     setTeethText((src?.teeth?.length ? src.teeth : seed?.teeth || []).join(", "));
-    setToothShade(src?.toothShade || "");
-    setStumpShade(src?.stumpShade || "");
+    setBodyShade(src?.bodyShade || "");
+    setCervicalShade(src?.cervicalShade || "");
     setGumShade(src?.gumShade || "");
     setMaterial(src?.material || "");
     setImplantSystem(src?.implantSystem || "");
@@ -436,8 +438,8 @@ export default function LabCaseModal({
         teeth,
         // Cleared per work type rather than kept: a case switched from a crown to a surgical guide
         // must not carry a shade the printed order would then hide but the record still claims.
-        toothShade: wt.toothShade ? toothShade : "",
-        stumpShade: wt.stumpShade ? stumpShade : "",
+        bodyShade: wt.bodyShade ? bodyShade : "",
+        cervicalShade: wt.cervicalShade ? cervicalShade : "",
         gumShade: wt.gumShade ? gumShade : "",
         material: material.trim(),
         implantSystem: wt.implant ? implantSystem.trim() : "",
@@ -466,7 +468,7 @@ export default function LabCaseModal({
         // because detaching a patient or a dentist from a case is a real edit and "" is how it is
         // expressed. `units` is not here: it is written as a number (0 when cleared) above.
         const clearable = [
-          "toothShade", "stumpShade", "gumShade", "material", "implantSystem", "implantPlatform",
+          "bodyShade", "cervicalShade", "gumShade", "material", "implantSystem", "implantPlatform",
           "abutmentType", "retention", "guideType", "sleeveSystem", "notes", "workDescription",
           "dueDate", "patientPhone", "doctorName", "patientName", "patientFirstName",
           "patientId", "doctorId",
@@ -702,17 +704,25 @@ export default function LabCaseModal({
               />
             </div>
             <div>
-              <label className={LABEL}>{isAr ? "الأسنان (FDI)" : "Teeth (FDI)"}</label>
+              <label className={LABEL}>{isAr ? "الأسنان" : "Teeth"}</label>
               <input
                 value={teethText}
                 onChange={(e) => setTeethText(e.target.value)}
-                placeholder="15, 14"
+                placeholder="UR5, UR4"
                 dir="ltr"
                 className={INPUT}
               />
+              {/* Palmer is what gets confirmed back, because Palmer is what goes on the order and
+                  what the technician reads. The box itself takes either notation: a case raised
+                  from a treatment arrives prefilled in FDI from the chart. */}
+              <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">
+                {isAr
+                  ? "اكتب بالمر (UR5) أو FDI (15) — الاتنين شغالين."
+                  : "Type Palmer (UR5) or FDI (15) — both work."}
+              </p>
               {teeth.length > 0 && (
-                <p className="text-[10px] font-bold text-sky-700 mt-1" dir="ltr">
-                  {teeth.length} {isAr ? "سنة" : teeth.length === 1 ? "tooth" : "teeth"}: {teeth.join(", ")}
+                <p className="text-xs font-black text-sky-700 mt-1 tracking-wider" dir="ltr">
+                  {formatPalmer(teeth)}
                 </p>
               )}
             </div>
@@ -737,11 +747,11 @@ export default function LabCaseModal({
                   />
                 </div>
               )}
-              {wt.toothShade && (
+              {wt.bodyShade && (
                 <div>
-                  <label className={LABEL}>{isAr ? "لون السنة" : "Tooth shade"}</label>
-                  <select value={toothShade} onChange={(e) => setToothShade(e.target.value)} className={INPUT}>
-                    <option value="">{isAr ? "—" : "—"}</option>
+                  <label className={LABEL}>{isAr ? "لون الجسم" : "Body shade"}</label>
+                  <select value={bodyShade} onChange={(e) => setBodyShade(e.target.value)} className={INPUT}>
+                    <option value="">—</option>
                     {TOOTH_SHADES.map((s) => (
                       <option key={s} value={s}>
                         {s}
@@ -750,17 +760,24 @@ export default function LabCaseModal({
                   </select>
                 </div>
               )}
-              {wt.stumpShade && (
+              {wt.cervicalShade && (
                 <div>
-                  <label className={LABEL}>{isAr ? "لون اللب" : "Stump shade"}</label>
-                  <select value={stumpShade} onChange={(e) => setStumpShade(e.target.value)} className={INPUT}>
+                  <label className={LABEL}>{isAr ? "لون العنق" : "Cervical shade"}</label>
+                  <select value={cervicalShade} onChange={(e) => setCervicalShade(e.target.value)} className={INPUT}>
                     <option value="">—</option>
-                    {STUMP_SHADES.map((s) => (
+                    {CERVICAL_SHADES.map((s) => (
                       <option key={s} value={s}>
                         {s}
                       </option>
                     ))}
                   </select>
+                  {/* The whole point of a second shade: a crown built to one flat colour reads as
+                      a crown. Natural teeth are darker at the gum. */}
+                  <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">
+                    {isAr
+                      ? "أغمق من لون الجسم عادةً، عشان التاج يبان زي جيرانه."
+                      : "Usually a step darker than the body, so the crown reads like its neighbours."}
+                  </p>
                 </div>
               )}
               {wt.gumShade && (
@@ -779,7 +796,7 @@ export default function LabCaseModal({
                   </datalist>
                 </div>
               )}
-              <div className={wt.units || wt.toothShade ? "" : "sm:col-span-2"}>
+              <div className={wt.units || wt.bodyShade ? "" : "sm:col-span-2"}>
                 <label className={LABEL}>{isAr ? "الخامة / تفاصيل" : "Material / detail"}</label>
                 <input
                   value={material}

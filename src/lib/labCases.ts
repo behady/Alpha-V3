@@ -115,10 +115,18 @@ export type LabWorkType = {
   id: LabWorkTypeId;
   en: string;
   ar: string;
-  /** Tooth shade — the patient-facing colour. Absent on metal frameworks, guards and guides. */
-  toothShade: boolean;
-  /** Stump/die shade, which decides how much the ceramic has to mask. */
-  stumpShade: boolean;
+  /** Body shade — the VITA shade for most of the crown. Absent on metal, guards and guides. */
+  bodyShade: boolean;
+  /**
+   * A separate VITA shade for the cervical third.
+   *
+   * Not a refinement: a crown built to one flat shade reads as a crown. Natural teeth are darker
+   * at the gum, so matching the neighbours means asking for A3 at the cervical and A2 through the
+   * body — two shades, on the same guide, for the same tooth.
+   *
+   * This replaced a stump-shade field, which was in the way: the clinic does not use one.
+   */
+  cervicalShade: boolean;
   /** Gum shade. A denture with perfect teeth and the wrong pink still looks wrong in the mouth. */
   gumShade: boolean;
   /** Implant system, platform, abutment and retention. */
@@ -134,18 +142,18 @@ export type LabWorkType = {
 };
 
 export const LAB_WORK_TYPES: LabWorkType[] = [
-  { id: "zirconia",        en: "Zirconia",              ar: "زيركون",              toothShade: true,  stumpShade: true,  gumShade: false, implant: false, guide: false, units: true,  digitalByDefault: false, tryInByDefault: false },
-  { id: "emax",            en: "E.max",                 ar: "إي ماكس",             toothShade: true,  stumpShade: true,  gumShade: false, implant: false, guide: false, units: true,  digitalByDefault: false, tryInByDefault: false },
-  { id: "pfm",             en: "PFM",                   ar: "بورسلين على معدن",    toothShade: true,  stumpShade: false, gumShade: false, implant: false, guide: false, units: true,  digitalByDefault: false, tryInByDefault: false },
-  { id: "pmma",            en: "PMMA temporary",        ar: "مؤقت PMMA",           toothShade: true,  stumpShade: false, gumShade: false, implant: false, guide: false, units: true,  digitalByDefault: false, tryInByDefault: false },
-  { id: "implant_crown",   en: "Implant crown",         ar: "تاج زرعة",            toothShade: true,  stumpShade: true,  gumShade: false, implant: true,  guide: false, units: true,  digitalByDefault: false, tryInByDefault: false },
-  { id: "surgical_guide",  en: "Surgical guide",        ar: "دليل جراحي",          toothShade: false, stumpShade: false, gumShade: false, implant: true,  guide: true,  units: false, digitalByDefault: true,  tryInByDefault: false },
-  { id: "cobalt_chrome",   en: "Cobalt-chrome frame",   ar: "هيكل كروم كوبالت",    toothShade: false, stumpShade: false, gumShade: false, implant: false, guide: false, units: false, digitalByDefault: false, tryInByDefault: true  },
-  { id: "full_denture",    en: "Full denture",          ar: "طقم كامل",            toothShade: true,  stumpShade: false, gumShade: true,  implant: false, guide: false, units: false, digitalByDefault: false, tryInByDefault: true  },
-  { id: "partial_denture", en: "Partial denture",       ar: "طقم جزئي",            toothShade: true,  stumpShade: false, gumShade: true,  implant: false, guide: false, units: false, digitalByDefault: false, tryInByDefault: true  },
-  { id: "acrylic_repair",  en: "Acrylic repair / reline", ar: "إصلاح أو تبطين",    toothShade: true,  stumpShade: false, gumShade: true,  implant: false, guide: false, units: false, digitalByDefault: false, tryInByDefault: false },
-  { id: "night_guard",     en: "Night guard",           ar: "واقي ليلي",           toothShade: false, stumpShade: false, gumShade: false, implant: false, guide: false, units: false, digitalByDefault: false, tryInByDefault: false },
-  { id: "aligner",         en: "Clear aligner",         ar: "تقويم شفاف",          toothShade: false, stumpShade: false, gumShade: false, implant: false, guide: false, units: false, digitalByDefault: true,  tryInByDefault: false },
+  { id: "zirconia",        en: "Zirconia",              ar: "زيركون",              bodyShade: true,  cervicalShade: true ,  gumShade: false, implant: false, guide: false, units: true,  digitalByDefault: false, tryInByDefault: false },
+  { id: "emax",            en: "E.max",                 ar: "إي ماكس",             bodyShade: true,  cervicalShade: true ,  gumShade: false, implant: false, guide: false, units: true,  digitalByDefault: false, tryInByDefault: false },
+  { id: "pfm",             en: "PFM",                   ar: "بورسلين على معدن",    bodyShade: true,  cervicalShade: true , gumShade: false, implant: false, guide: false, units: true,  digitalByDefault: false, tryInByDefault: false },
+  { id: "pmma",            en: "PMMA temporary",        ar: "مؤقت PMMA",           bodyShade: true,  cervicalShade: false, gumShade: false, implant: false, guide: false, units: true,  digitalByDefault: false, tryInByDefault: false },
+  { id: "implant_crown",   en: "Implant crown",         ar: "تاج زرعة",            bodyShade: true,  cervicalShade: true ,  gumShade: false, implant: true,  guide: false, units: true,  digitalByDefault: false, tryInByDefault: false },
+  { id: "surgical_guide",  en: "Surgical guide",        ar: "دليل جراحي",          bodyShade: false, cervicalShade: false, gumShade: false, implant: true,  guide: true,  units: false, digitalByDefault: true,  tryInByDefault: false },
+  { id: "cobalt_chrome",   en: "Cobalt-chrome frame",   ar: "هيكل كروم كوبالت",    bodyShade: false, cervicalShade: false, gumShade: false, implant: false, guide: false, units: false, digitalByDefault: false, tryInByDefault: true  },
+  { id: "full_denture",    en: "Full denture",          ar: "طقم كامل",            bodyShade: true,  cervicalShade: false, gumShade: true,  implant: false, guide: false, units: false, digitalByDefault: false, tryInByDefault: true  },
+  { id: "partial_denture", en: "Partial denture",       ar: "طقم جزئي",            bodyShade: true,  cervicalShade: false, gumShade: true,  implant: false, guide: false, units: false, digitalByDefault: false, tryInByDefault: true  },
+  { id: "acrylic_repair",  en: "Acrylic repair / reline", ar: "إصلاح أو تبطين",    bodyShade: true,  cervicalShade: false, gumShade: true,  implant: false, guide: false, units: false, digitalByDefault: false, tryInByDefault: false },
+  { id: "night_guard",     en: "Night guard",           ar: "واقي ليلي",           bodyShade: false, cervicalShade: false, gumShade: false, implant: false, guide: false, units: false, digitalByDefault: false, tryInByDefault: false },
+  { id: "aligner",         en: "Clear aligner",         ar: "تقويم شفاف",          bodyShade: false, cervicalShade: false, gumShade: false, implant: false, guide: false, units: false, digitalByDefault: true,  tryInByDefault: false },
 ];
 
 const WORK_TYPE_BY_ID = new Map(LAB_WORK_TYPES.map((w) => [w.id, w]));
@@ -180,8 +188,14 @@ export const CLASSICAL_SHADES = [
 ];
 export const TOOTH_SHADES = [...BLEACH_SHADES, ...CLASSICAL_SHADES];
 
-/** Die/stump shades. */
-export const STUMP_SHADES = ["ND1", "ND2", "ND3", "ND4", "ND5", "ND6", "ND7", "ND8", "ND9"];
+/**
+ * Body and cervical shades come from the SAME guide.
+ *
+ * There is no second scale: asking for A3 at the cervical and A2 through the body is two readings
+ * off one VITA guide, which is why both fields offer this identical list rather than one of them
+ * getting a die-shade range the clinic never uses.
+ */
+export const CERVICAL_SHADES = TOOTH_SHADES;
 
 /**
  * Gum shades are offered as suggestions rather than a closed list.
@@ -355,8 +369,10 @@ export type LabCase = {
   /** FDI numbers. Stored as an array because the clinical note only ever keeps a joined string. */
   teeth: number[];
 
-  toothShade?: string;
-  stumpShade?: string;
+  /** The VITA shade for most of the crown. Read with a `toothShade` fallback for early records. */
+  bodyShade?: string;
+  /** The VITA shade for the gingival third, so a crown matches its neighbours rather than itself. */
+  cervicalShade?: string;
   gumShade?: string;
   material?: string;
 
@@ -599,6 +615,145 @@ export const FDI_Q3 = [31, 32, 33, 34, 35, 36, 37, 38];
 export const FDI_UPPER = [...FDI_Q1, ...FDI_Q2];
 export const FDI_LOWER = [...FDI_Q4, ...FDI_Q3];
 
+// ---------------------------------------------------------------------------
+// Palmer notation
+// ---------------------------------------------------------------------------
+
+/**
+ * Teeth are STORED as FDI and READ as Palmer.
+ *
+ * FDI stays the storage because the rest of the app speaks it: the odontogram, the clinical note
+ * a case is seeded from, the Android chart. Changing that would break the link between a lab case
+ * and the treatment that raised it.
+ *
+ * But Palmer is what Egyptian dental schools teach and what this clinic works in, and a lab order
+ * is read by a technician, not by a database. "15" and "5┘" are the same tooth; only one of them
+ * is the one anybody here says out loud. So every screen and every printed page renders Palmer.
+ *
+ * The bracket is a quadrant, drawn as the corner of the chart's cross as seen facing the patient —
+ * so the patient's upper right sits on the LEFT of the page and takes `┘`, the corner made by the
+ * midline on its right and the occlusal line below it.
+ */
+export type PalmerQuadrant = "UR" | "UL" | "LL" | "LR";
+
+const PALMER_BY_FDI_QUADRANT: Record<number, { quadrant: PalmerQuadrant; symbol: string; symbolFirst: boolean; primary: boolean }> = {
+  1: { quadrant: "UR", symbol: "┘", symbolFirst: false, primary: false },
+  2: { quadrant: "UL", symbol: "└", symbolFirst: true, primary: false },
+  3: { quadrant: "LL", symbol: "┌", symbolFirst: true, primary: false },
+  4: { quadrant: "LR", symbol: "┐", symbolFirst: false, primary: false },
+  5: { quadrant: "UR", symbol: "┘", symbolFirst: false, primary: true },
+  6: { quadrant: "UL", symbol: "└", symbolFirst: true, primary: true },
+  7: { quadrant: "LL", symbol: "┌", symbolFirst: true, primary: true },
+  8: { quadrant: "LR", symbol: "┐", symbolFirst: false, primary: true },
+};
+
+const PRIMARY_LETTERS = ["A", "B", "C", "D", "E"];
+
+export type PalmerTooth = {
+  fdi: number;
+  quadrant: PalmerQuadrant;
+  /** `6` for a permanent tooth, `A`-`E` for a primary one. */
+  position: string;
+  symbol: string;
+  /** `6┘` — what goes on the page. */
+  label: string;
+};
+
+export function toPalmer(fdi: number): PalmerTooth | null {
+  const n = Number(fdi);
+  if (!Number.isFinite(n)) return null;
+  const q = Math.floor(n / 10);
+  const idx = n % 10;
+  const meta = PALMER_BY_FDI_QUADRANT[q];
+  if (!meta || idx < 1) return null;
+  if (meta.primary && idx > 5) return null;
+  if (!meta.primary && idx > 8) return null;
+
+  const position = meta.primary ? PRIMARY_LETTERS[idx - 1] : String(idx);
+  return {
+    fdi: n,
+    quadrant: meta.quadrant,
+    position,
+    symbol: meta.symbol,
+    label: meta.symbolFirst ? `${meta.symbol}${position}` : `${position}${meta.symbol}`,
+  };
+}
+
+/** `5┘ 4┘` — the order the teeth were chosen, so it reads as the dentist entered it. */
+export function formatPalmer(teeth: number[] | undefined, language: "en" | "ar" = "en"): string {
+  if (!teeth || teeth.length === 0) return language === "ar" ? "غير محدد" : "Not specified";
+  return teeth
+    .map((t) => toPalmer(t)?.label)
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * Read a typed tooth list, in whichever notation came to hand.
+ *
+ * Accepts FDI (`15`), the written Palmer shorthand every clinic uses on paper (`UR5`, `LL7`,
+ * `URA`), and the bracket form itself if somebody pastes it (`5┘`). All of it comes back as FDI,
+ * because that is what everything downstream stores.
+ *
+ * Deliberately permissive: this box is prefilled from the chart in FDI when a case is raised from
+ * a treatment, and typed by hand in Palmer when it is not. Refusing one of the two would make the
+ * field wrong half the time.
+ */
+const SYMBOL_TO_QUADRANT: Record<string, PalmerQuadrant> = { "┘": "UR", "└": "UL", "┌": "LL", "┐": "LR" };
+const QUADRANT_TO_FDI: Record<PalmerQuadrant, { permanent: number; primary: number }> = {
+  UR: { permanent: 10, primary: 50 },
+  UL: { permanent: 20, primary: 60 },
+  LL: { permanent: 30, primary: 70 },
+  LR: { permanent: 40, primary: 80 },
+};
+
+export function parseToothInput(raw: string): number[] {
+  const out: number[] = [];
+  const push = (n: number) => {
+    if (toPalmer(n) && !out.includes(n)) out.push(n);
+  };
+
+  const text = String(raw || "").toUpperCase();
+  // Split on anything that is not part of a token: commas, spaces, slashes, semicolons.
+  for (const token of text.split(/[\s,;/|]+/)) {
+    if (!token) continue;
+
+    // Palmer with a bracket, either side of the position: "5┘" or "└5".
+    const symbol = [...token].find((ch) => SYMBOL_TO_QUADRANT[ch]);
+    if (symbol) {
+      const quadrant = SYMBOL_TO_QUADRANT[symbol];
+      const position = token.replace(symbol, "").trim();
+      pushPalmer(quadrant, position, push);
+      continue;
+    }
+
+    // Written Palmer shorthand: UR6, LL7, URA.
+    const written = /^(UR|UL|LL|LR)\s*([1-8A-E])$/.exec(token);
+    if (written) {
+      pushPalmer(written[1] as PalmerQuadrant, written[2], push);
+      continue;
+    }
+
+    // Bare FDI.
+    const digits = token.replace(/\D/g, "");
+    if (digits.length === 2) push(Number(digits));
+  }
+
+  return out;
+}
+
+function pushPalmer(quadrant: PalmerQuadrant, position: string, push: (n: number) => void): void {
+  const base = QUADRANT_TO_FDI[quadrant];
+  if (!base) return;
+  const letter = PRIMARY_LETTERS.indexOf(position);
+  if (letter >= 0) {
+    push(base.primary + letter + 1);
+    return;
+  }
+  const n = Number(position);
+  if (Number.isFinite(n) && n >= 1 && n <= 8) push(base.permanent + n);
+}
+
 /**
  * Read a clinical note's `tooth` string into FDI numbers.
  *
@@ -685,8 +840,10 @@ export function toLabCase(id: string, data: Record<string, unknown>): LabCase {
     workDescription: str(data.workDescription) || undefined,
     units: data.units == null ? undefined : num(data.units),
     teeth,
-    toothShade: str(data.toothShade) || undefined,
-    stumpShade: str(data.stumpShade) || undefined,
+    // `toothShade` is what the first version wrote, before the shade was split into body and
+    // cervical. Read as a fallback so those cases still print a shade rather than a blank.
+    bodyShade: str(data.bodyShade) || str(data.toothShade) || undefined,
+    cervicalShade: str(data.cervicalShade) || undefined,
     gumShade: str(data.gumShade) || undefined,
     material: str(data.material) || undefined,
     implantSystem: str(data.implantSystem) || undefined,
