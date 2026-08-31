@@ -151,6 +151,33 @@ export default function SmsSettings() {
     storedSettings !== null && JSON.stringify(settings) !== JSON.stringify(storedSettings)
   );
 
+  /**
+   * What the rail says.
+   *
+   * Four states, not two. A phone that is paired but has not checked in is the one worth naming:
+   * the clinic believes SMS is working, the queue quietly stops moving, and the first anyone hears
+   * about it is a patient who was never reminded.
+   */
+  const line = (() => {
+    const usable = devices.filter((d) => d.enabled);
+    const alive = usable.find((d) => d.alive);
+    if (!settings.enabled) {
+      return { live: false, badge: txt.railOffBadge, headline: txt.railOff, detail: txt.railOffDetail };
+    }
+    if (usable.length === 0) {
+      return { live: false, badge: txt.railNoPhoneBadge, headline: txt.railNoPhone, detail: txt.railNoPhoneDetail };
+    }
+    if (!alive) {
+      return { live: false, badge: txt.railStalledBadge, headline: txt.railStalled, detail: txt.railStalledDetail };
+    }
+    return {
+      live: true,
+      badge: txt.railLiveBadge,
+      headline: txt.railLive.replace("{phone}", alive.name || ""),
+      detail: txt.railLiveDetail,
+    };
+  })();
+
   const save = async (next: SmsSettingsShape) => {
     setSaving(true);
     try {
@@ -309,49 +336,77 @@ export default function SmsSettings() {
   return (
     <div className="space-y-6 animate-in fade-in max-w-5xl mx-auto">
       {/* What this is */}
-      <div className="bg-surface p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
-        <h3 className="text-xl font-black text-ink flex items-center gap-3">
-          <MessagesSquare className="text-primary-500" /> {txt.title}
-        </h3>
-        <p className="text-sm font-medium text-ink-muted mt-2 leading-relaxed">{txt.intro}</p>
+      {/* SMS leaves through a phone sitting in the clinic, and that phone can be paired and
+          still not be checking in. When it stops, the queue stops with it and nothing says so
+          until a patient does not turn up. So it is the first thing on the page, not a pill
+          three cards down. */}
+      <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 space-y-2">
+            <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
+              <MessagesSquare size={12} />
+              {txt.title}
+            </p>
+            <p className="text-lg font-bold leading-snug text-white sm:text-xl">{line.headline}</p>
+            <p className="max-w-md text-[13px] leading-relaxed text-white/55">{line.detail}</p>
+          </div>
 
-        {/* The costs, stated before the switch rather than after the phone bill. */}
-        <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-          <p className="text-xs font-black uppercase tracking-widest text-amber-700 flex items-center gap-2">
-            <AlertTriangle size={14} /> {txt.costWarnTitle}
-          </p>
-          <ul className="mt-2.5 space-y-1.5">
-            {[txt.costWarn1, txt.costWarn2, txt.costWarn3, txt.costWarn4].map((line) => (
-              <li key={line} className="text-xs font-bold text-amber-900 leading-relaxed flex gap-2">
-                <span className="text-amber-500 shrink-0">•</span>
-                {line}
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <label className="mt-5 flex items-center justify-between gap-4 cursor-pointer rounded-2xl border border-line bg-slate-50/80 px-4 py-3.5">
-          <span className="text-sm font-black text-slate-800 flex items-center gap-2">
-            <Smartphone size={16} className="text-slate-400" /> {txt.enable}
-          </span>
-          <button
-            type="button"
-            onClick={() => void save({ ...settings, enabled: !settings.enabled })}
-            className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors shrink-0 ${
-              settings.enabled ? "bg-primary-500" : "bg-slate-200"
-            }`}
-          >
+          <div className="flex items-center gap-4 sm:flex-col sm:items-end sm:gap-2">
             <span
-              className={`inline-block h-6 w-6 transform rounded-full bg-surface transition-transform ${
-                settings.enabled ? "translate-x-7" : "translate-x-1"
+              className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] ${
+                line.live ? "bg-white/12 text-white" : "bg-amber-400/20 text-amber-200"
               }`}
-            />
-          </button>
-        </label>
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${line.live ? "bg-emerald-400" : "bg-amber-400"}`} />
+              {line.badge}
+            </span>
+            {messages.length > 0 && (
+              <span className="text-[11px] font-semibold text-white/45">
+                <span className="font-figure text-[15px] text-white/80">{messages.length}</span>{" "}
+                {txt.railWaiting}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
 
+      {/* Cost, stated before the switch rather than after the phone bill. Amber means the same
+          thing here as on the WhatsApp page: a consequence that costs you. */}
+      <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+        <p className="text-xs font-black uppercase tracking-widest text-amber-700 flex items-center gap-2">
+          <AlertTriangle size={14} /> {txt.costWarnTitle}
+        </p>
+        <ul className="mt-2.5 space-y-1.5">
+          {[txt.costWarn1, txt.costWarn2, txt.costWarn3, txt.costWarn4].map((line) => (
+            <li key={line} className="text-xs font-bold text-amber-900 leading-relaxed flex gap-2">
+              <span className="text-amber-500 shrink-0">•</span>
+              {line}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <label className="mt-5 flex items-center justify-between gap-4 cursor-pointer rounded-2xl border border-line bg-slate-50/80 px-4 py-3.5">
+        <span className="text-sm font-black text-slate-800 flex items-center gap-2">
+          <Smartphone size={16} className="text-slate-400" /> {txt.enable}
+        </span>
+        <button
+          type="button"
+          onClick={() => void save({ ...settings, enabled: !settings.enabled })}
+          className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors shrink-0 ${
+            settings.enabled ? "bg-primary-500" : "bg-slate-200"
+          }`}
+        >
+          <span
+            className={`inline-block h-6 w-6 transform rounded-full bg-surface transition-transform ${
+              settings.enabled ? "translate-x-7" : "translate-x-1"
+            }`}
+          />
+        </button>
+      </label>
+
       {/* Channel */}
-      <div className="bg-surface p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
+      <section className="space-y-1">
         <h3 className="text-lg font-black text-ink flex items-center gap-3">
           <MessageCircle className="text-primary-500" size={20} /> {txt.channelTitle}
         </h3>
@@ -396,10 +451,10 @@ export default function SmsSettings() {
             {txt.noDevices}
           </p>
         )}
-      </div>
+      </section>
 
       {/* When the reminder goes out */}
-      <div className="bg-surface p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
+      <section className="space-y-1">
         <h3 className="text-lg font-black text-ink flex items-center gap-3">
           <Clock className="text-primary-500" size={20} /> {txt.hourTitle}
         </h3>
@@ -419,10 +474,10 @@ export default function SmsSettings() {
           </select>
           <span className="text-xs font-bold text-slate-400 flex-1 min-w-[14rem] leading-relaxed">{txt.hourLate}</span>
         </div>
-      </div>
+      </section>
 
       {/* Which messages, and what they say */}
-      <div className="bg-surface p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
+      <section className="space-y-1">
         <h3 className="text-lg font-black text-ink flex items-center gap-3">
           <Wallet className="text-primary-500" size={20} /> {txt.templateTitle}
         </h3>
@@ -538,10 +593,10 @@ export default function SmsSettings() {
         >
           {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} {txt.save}
         </button>
-      </div>
+      </section>
 
       {/* Devices */}
-      <div className="bg-surface p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
+      <section className="space-y-1">
         <h3 className="text-lg font-black text-ink flex items-center gap-3">
           <Smartphone className="text-primary-500" size={20} /> {txt.devicesTitle}
         </h3>
@@ -637,10 +692,10 @@ export default function SmsSettings() {
             ))
           )}
         </div>
-      </div>
+      </section>
 
       {/* Queue */}
-      <div className="bg-surface p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
+      <section className="space-y-1">
         <h3 className="text-lg font-black text-ink flex items-center gap-3">
           <Clock className="text-primary-500" size={20} /> {txt.queueTitle}
         </h3>
@@ -670,7 +725,7 @@ export default function SmsSettings() {
             ))
           )}
         </div>
-      </div>
+      </section>
     </div>
   );
 }
