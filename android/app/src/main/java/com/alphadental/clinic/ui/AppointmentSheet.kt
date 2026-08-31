@@ -29,6 +29,10 @@ import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -61,6 +65,8 @@ fun AppointmentSheet(
     onSetStatus: (String) -> Unit,
     onReschedule: () -> Unit,
     onOpenPatient: () -> Unit,
+    /** Null for roles that may not take money, and for a walk-in with no file yet. */
+    onTakePayment: (() -> Unit)?,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -163,6 +169,49 @@ fun AppointmentSheet(
             }
 
             Spacer(Modifier.height(20.dp))
+
+            // The two things a visit ends in: money changing hands, and the file it
+            // is recorded on. The sheet used to offer neither, so collecting a fee
+            // meant closing it and hunting the patient down in the register while
+            // they stood at the desk waiting.
+            if (onTakePayment != null) {
+                Button(
+                    onClick = onTakePayment,
+                    shape = Alpha.CardShape,
+                    colors = ButtonDefaults.buttonColors(containerColor = Alpha.Ink),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                ) {
+                    Icon(Icons.Filled.Payments, null, tint = Color.White, modifier = Modifier.size(17.dp))
+                    Spacer(Modifier.size(8.dp))
+                    Text(
+                        if (arabic) "تحصيل دفعة" else "Take a payment",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.White,
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+            }
+
+            if (appointment.patientId.isNotBlank()) {
+                OutlinedButton(
+                    onClick = onOpenPatient,
+                    shape = Alpha.CardShape,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Filled.FolderOpen, null, tint = Alpha.Slate700, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.size(8.dp))
+                    Text(
+                        if (arabic) "ملف المريض" else "Open patient file",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Alpha.Slate700,
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+            }
 
             if (canEdit) {
                 OutlinedButton(

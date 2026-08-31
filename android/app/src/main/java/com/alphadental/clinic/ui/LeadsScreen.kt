@@ -299,7 +299,6 @@ private fun LeadCard(
                     Text(
                         listOfNotNull(
                             lead.phone.takeIf { it.isNotBlank() },
-                            lead.source.takeIf { it.isNotBlank() },
                             prettyLeadDate(lead.createdAtMillis, arabic),
                         ).joinToString("  ·  "),
                         fontSize = 11.5.sp,
@@ -308,6 +307,23 @@ private fun LeadCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    // Where the lead came from, in words. It was a coloured initial
+                    // and a word buried in the middle of a grey run — and which ad
+                    // or which friend sent someone decides how you answer them.
+                    if (lead.source.isNotBlank()) {
+                        Spacer(Modifier.height(3.dp))
+                        Surface(shape = Alpha.PillShape, color = Alpha.Slate100) {
+                            Text(
+                                lead.source,
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Alpha.Slate700,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.5.dp),
+                            )
+                        }
+                    }
                 }
                 Spacer(Modifier.width(8.dp))
                 StagePill(lead.stage, arabic)
@@ -341,6 +357,18 @@ private fun LeadCard(
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = Alpha.WarnText,
+                        )
+                    }
+                    // Whatever reception wrote down when they last spoke to this
+                    // person. It is on the website's card and was simply absent here.
+                    if (lead.notes.isNotBlank()) {
+                        Text(
+                            lead.notes,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Alpha.Slate500,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                     if (lead.stage == "lost" && lead.lostReason.isNotBlank()) {
