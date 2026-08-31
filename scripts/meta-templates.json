@@ -1,0 +1,101 @@
+[
+  {
+    "name": "alpha_payment_ar",
+    "language": "ar",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "استلمنا دفعتك {{1}} ج.م في {{2}}. المتبقي: {{3}} ج.م. شكراً لثقتك.",
+        "example": {
+          "body_text": [
+            [
+              "500",
+              "Alpha Dental",
+              "1500"
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "alpha_appt_reminder_ar",
+    "language": "ar",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "تذكير: موعدك في {{1}} غداً {{2}} الساعة {{3}}. في انتظارك.",
+        "example": {
+          "body_text": [
+            [
+              "Alpha Dental",
+              "2026-09-01",
+              "4:30 م"
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "alpha_appt_cancel_ar",
+    "language": "ar",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "تم إلغاء موعدك في {{1}} يوم {{2}}. لو حابب تحجز ميعاد تاني، رد على الرسالة دي.",
+        "example": {
+          "body_text": [
+            [
+              "Alpha Dental",
+              "2026-09-01"
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "alpha_appt_edit_ar",
+    "language": "ar",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "تم تغيير موعدك في {{1}} إلى يوم {{2}} الساعة {{3}}. لو الميعاد مش مناسب كلمنا.",
+        "example": {
+          "body_text": [
+            [
+              "Alpha Dental",
+              "2026-09-01",
+              "4:30 م"
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "name": "alpha_appt_new_ar",
+    "language": "ar",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "تم تسجيل حجزك في {{1}} يوم {{2}} الساعة {{3}}. في انتظارك 🦷",
+        "example": {
+          "body_text": [
+            [
+              "Alpha Dental",
+              "2026-09-01",
+              "4:30 م"
+            ]
+          ]
+        }
+      }
+    ]
+  }
+]

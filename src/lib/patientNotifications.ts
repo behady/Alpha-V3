@@ -13,6 +13,7 @@ import {
 import { applyPatientOptOutFooter, deliverWhatsAppMessage } from "@/lib/whatsappDelivery";
 import { mergeWhatsAppTemplate } from "@/lib/whatsappTemplateMerge";
 import type { WhatsAppTemplateType } from "@/types/whatsapp";
+import { arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
 
 /**
  * Telling the patient what just happened to them — booked, moved, cancelled, paid.
@@ -343,9 +344,17 @@ export async function sendAppointmentPatientMessage(args: {
     text: merged,
     type: `appointment_${template}`,
     queueKey: outboxKey(patientId, template, date, time),
+    /*
+     * The approved template's placeholders, filled the way a patient reads — "الثلاثاء 1/9" and
+     * "6:30 م", not "2026-09-02" and "06:30 PM". The stored values are the canonical ones the
+     * calendar needs; this is only how they are spoken.
+     */
     metaTemplate: {
       kind: template,
-      params: template === "cancel" ? [clinicName, date || "—"] : [clinicName, date || "—", time || "—"],
+      params:
+        template === "cancel"
+          ? [clinicName, arabicDayLabel(date) || "—"]
+          : [clinicName, arabicDayLabel(date) || "—", arabicTimeLabel(time) || "—"],
     },
   });
 }

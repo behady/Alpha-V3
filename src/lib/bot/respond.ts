@@ -18,6 +18,7 @@ import { findPatientByLid } from "@/lib/whatsappLid";
 import { resolveWhatsappDeliveryMode, sendPatientWhatsAppRich } from "@/lib/whatsappDelivery";
 import type { MetaInteractive } from "@/lib/metaWhatsapp";
 import type { BotFacts } from "@/types/whatsapp";
+import { arabicClock, arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
 import { appendOptOutFooter, WHATSAPP_OPT_OUT_FOOTER_AR } from "@/lib/patientMessaging";
 import {
   conversationKey,
@@ -72,13 +73,6 @@ async function loadBotSettings(clinicId: string): Promise<BotSettings> {
   };
 }
 
-/** "14"+"30" -> "2:30 م" — the shape a patient reads, not the shape the calendar stores. */
-function arabicClock(h: number, m: number): string {
-  const twelve = ((h + 11) % 12) + 1;
-  const mm = m ? `:${String(m).padStart(2, "0")}` : ":00";
-  return `${twelve}${mm} ${h < 12 ? "ص" : "م"}`;
-}
-
 const ARABIC_DAYS = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
 const DAY_KEYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 
@@ -99,17 +93,7 @@ function formatHours(schedule: ClinicScheduleConfig): string {
   return lines.join("\n");
 }
 
-/** "2026-08-30" -> "السبت 30/8". The patient picks by number; this is only what they read. */
-function arabicDayLabel(dateKey: string): string {
-  const d = new Date(`${dateKey}T12:00:00`);
-  if (Number.isNaN(d.getTime())) return dateKey;
-  return `${ARABIC_DAYS[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}`;
-}
 
-/** "02:00 PM" -> "2:00 م". */
-function arabicTimeLabel(time: string): string {
-  return time.replace(/^0/, "").replace("AM", "ص").replace("PM", "م");
-}
 
 /**
  * The clinic's next open days, from today, as YYYY-MM-DD keys.

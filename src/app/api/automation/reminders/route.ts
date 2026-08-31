@@ -16,6 +16,7 @@ import { loadSmsSettings } from "@/lib/sms/serverConfig";
 import { queuePatientSms } from "@/lib/sms/events";
 import { sendClinicPush } from "@/lib/push";
 import { wakeSenderPhones } from "@/lib/sms/devices";
+import { arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
 
 /**
  * The nightly run walks every active clinic and sends one message per patient booked tomorrow, so
@@ -217,9 +218,15 @@ async function sendWhatsAppLeg(args: {
     },
     // A reminder is the canonical out-of-window message: nobody wrote to the clinic today. On
     // the official channel it goes as the approved template or it does not arrive at all.
+    // Read the way a patient reads: "الثلاثاء 1/9" and "6:30 م", not the stored ISO date and
+    // "06:30 PM". This is the one message that goes out unprompted to everybody.
     metaTemplate: {
       kind: "reminder24h",
-      params: [clinicName, appointment.date || "—", appointment.time || "—"],
+      params: [
+        clinicName,
+        arabicDayLabel(appointment.date ?? "") || "—",
+        arabicTimeLabel(appointment.time ?? "") || "—",
+      ],
     },
   });
 
