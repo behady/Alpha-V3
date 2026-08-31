@@ -60,6 +60,22 @@ export interface Lead {
     error?: string;
   } | null;
 
+  /**
+   * Stamped by the Meta webhook: which page, form, ad and campaign this lead arrived through.
+   * `adName`/`campaignName` stay null unless the connected token carries an ads permission —
+   * Meta simply omits those fields otherwise, rather than erroring.
+   */
+  meta?: {
+    leadgenId?: string;
+    pageId?: string;
+    pageName?: string | null;
+    formId?: string;
+    adName?: string | null;
+    campaignName?: string | null;
+    createdTime?: string | null;
+    fetchFailed?: boolean;
+  } | null;
+
   /** First moment this lead stopped being untouched — the clock behind time-to-contact. */
   firstContactedAt?: { seconds: number } | null;
   /** Last stage movement, so a lead nobody has touched in a month can say so. */

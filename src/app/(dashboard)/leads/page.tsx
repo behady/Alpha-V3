@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import {
   Plus, Phone, MessageCircle, Search, ChevronDown, X, Loader2,
   UserPlus, Building2, CalendarClock, Trash2, Inbox, Check, UserCheck, Copy, Hourglass, Timer,
+  Clock, Megaphone,
 } from "lucide-react";
 import { onSnapshot, orderBy, query, addDoc, updateDoc, deleteDoc, serverTimestamp, getDoc } from "firebase/firestore";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
@@ -60,6 +61,17 @@ export default function LeadsPage() {
     const h = Math.floor(m / 60);
     if (h < 24) return isAr ? `${h} س` : `${h}h`;
     return isAr ? `${Math.floor(h / 24)} يوم` : `${Math.floor(h / 24)}d`;
+  };
+  /**
+   * When the lead actually landed. "waiting 6h" answers how stale it is; reception also has to
+   * answer "when did this come in?" — to a patient asking why nobody called, and to themselves
+   * when a night's leads all need working through in the morning.
+   */
+  const arrivedLabel = (seconds?: number) => {
+    if (!seconds) return "";
+    return new Date(seconds * 1000).toLocaleString(isAr ? "ar-EG" : "en-GB", {
+      day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit",
+    });
   };
   const [branches, setBranches] = useState<ClinicBranch[]>([]);
   const [sources, setSources] = useState<string[]>(DEFAULT_LEAD_SOURCES);
@@ -540,6 +552,20 @@ export default function LeadsPage() {
                         {lead.source && <SourceIcon source={lead.source} size={14} />}
                         <span className="truncate">{[lead.interest, lead.source, lead.branchName].filter(Boolean).join(" · ")}</span>
                       </p>
+                      {(lead.createdAt?.seconds || lead.meta?.campaignName) && (
+                        <p className="text-[11px] text-slate-400 font-semibold mt-1 flex items-center gap-x-3 gap-y-1 flex-wrap">
+                          {lead.createdAt?.seconds ? (
+                            <span className="flex items-center gap-1">
+                              <Clock size={11} /> {arrivedLabel(lead.createdAt.seconds)}
+                            </span>
+                          ) : null}
+                          {lead.meta?.campaignName ? (
+                            <span className="flex items-center gap-1 text-slate-500">
+                              <Megaphone size={11} /> {lead.meta.campaignName}
+                            </span>
+                          ) : null}
+                        </p>
+                      )}
                       {lead.notes && <p className="text-[11px] text-slate-400 font-medium mt-1 line-clamp-2">{lead.notes}</p>}
                       {lead.stage === "lost" && lead.lostReason && (
                         <p className="text-[11px] text-rose-500 font-bold mt-1">{isAr ? "السبب:" : "Reason:"} {lead.lostReason}</p>
