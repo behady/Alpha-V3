@@ -21,7 +21,7 @@ import {
   RETENTION_OPTIONS,
   TOOTH_SHADES,
   CERVICAL_SHADES,
-  formatPalmer,
+  formatPalmerShorthand,
   hasPrimaryTeeth,
   parseToothInput,
   addDays,
@@ -239,7 +239,7 @@ export default function LabCaseModal({
     setUnits(src?.units != null ? String(src.units) : seed?.units != null ? String(seed.units) : "");
     const seededTeeth = src?.teeth?.length ? src.teeth : seed?.teeth || [];
     setTeeth(seededTeeth);
-    setTeethText(seededTeeth.length ? formatPalmer(seededTeeth) : "");
+    setTeethText(formatPalmerShorthand(seededTeeth));
     // A paediatric case opens on the grid that can actually show it.
     setShowPrimaryTeeth(hasPrimaryTeeth(seededTeeth));
     setBodyShade(src?.bodyShade || "");
@@ -422,7 +422,9 @@ export default function LabCaseModal({
    */
   const setTeethBoth = (next: number[]) => {
     setTeeth(next);
-    setTeethText(next.length ? formatPalmer(next) : "");
+    // Shorthand, not the bracket glyphs: this is a box somebody edits, and `UR3` can be
+    // typed on any keyboard while `3┘` cannot. The drawn brackets live in the picker.
+    setTeethText(formatPalmerShorthand(next));
   };
 
   const setTeethFromText = (value: string) => {

@@ -533,8 +533,18 @@ assert.ok(crownHtml.includes("size: A4 portrait"));
 assert.ok(crownHtml.includes("cut here"));
 // The chart is the Palmer grid: positions counting outward from the midline with the quadrant
 // cross drawn through it, NOT FDI codes. The ordered teeth are marked, the rest shown for context.
-assert.ok(crownHtml.includes("5┘ 4┘"), "the teeth line reads in Palmer");
+// The bracket is DRAWN around the number, not set beside it as a box-drawing glyph. An upper-right
+// tooth takes the midline on its right and the occlusal line below it, so its mark carries exactly
+// those two borders — get the pair wrong and the paper names a different quadrant.
+assert.ok(
+  /border-bottom:[^;]+;border-right:[^;]+;">5</.test(crownHtml),
+  "upper-right 5 is drawn with its bottom and right lines"
+);
+assert.ok(/border-bottom:[^;]+;border-right:[^;]+;">4</.test(crownHtml));
+assert.ok(!crownHtml.includes("5┘"), "no box-drawing glyphs on the page");
 assert.ok(crownHtml.includes("FDI 15, 14"), "FDI kept small underneath, for a lab that works in it");
+// The technician is told which half is which, because a chart faces the patient.
+assert.ok(crownHtml.includes("Patient&#039;s right") || crownHtml.includes("Patient's right"));
 assert.ok(!crownHtml.includes(">15<"), "no FDI codes in the chart cells");
 assert.ok(!crownHtml.includes(">28<"));
 
@@ -569,7 +579,10 @@ assert.ok(guideHtml.includes("size: A4 portrait"));
 // replacement — mixed dentition is ordinary.
 const childCase = { ...crown, code: "MAD-0150", teeth: [55, 54] };
 const childHtml = buildLabOrderSrcDoc(childCase, clinic, "", noLogo, "en", "a4_full");
-assert.ok(childHtml.includes("E┘ D┘"), "the written line reads in primary Palmer");
+assert.ok(
+  /border-bottom:[^;]+;border-right:[^;]+;">E</.test(childHtml),
+  "a primary upper-right tooth is drawn the same way, its letter inside the bracket"
+);
 assert.equal((childHtml.match(/border-collapse:collapse;/g) || []).length, 2, "both grids print");
 assert.equal(
   (buildLabOrderSrcDoc(crown, clinic, "", noLogo, "en", "a4_full").match(/border-collapse:collapse;/g) || []).length,
@@ -578,8 +591,19 @@ assert.equal(
 );
 // Mixed dentition prints both and names both.
 const mixedHtml = buildLabOrderSrcDoc({ ...crown, teeth: [16, 55] }, clinic, "", noLogo, "en", "a4_full");
-assert.ok(mixedHtml.includes("6┘ E┘"));
+// An upper-right permanent 6 and a primary E, each drawn inside its own bracket.
+assert.ok(/border-bottom:[^;]+;border-right:[^;]+;">6</.test(mixedHtml), "upper right 6");
+assert.ok(/border-bottom:[^;]+;border-right:[^;]+;">E</.test(mixedHtml), "primary E");
 assert.equal((mixedHtml.match(/border-collapse:collapse;/g) || []).length, 2);
+
+// An upper-LEFT tooth mirrors it: the same two lines, but the midline on the other side. This is
+// the pair that decides which half of the mouth the paper is talking about.
+const upperLeftHtml = buildLabOrderSrcDoc({ ...crown, teeth: [26] }, clinic, "", noLogo, "en", "a4_full");
+assert.ok(/border-bottom:[^;]+;border-left:[^;]+;">6</.test(upperLeftHtml), "upper LEFT 6 brackets left");
+assert.ok(!/border-bottom:[^;]+;border-right:[^;]+;">6</.test(upperLeftHtml), "and not right");
+// A lower tooth takes the occlusal line ABOVE it instead of below.
+const lowerHtml = buildLabOrderSrcDoc({ ...crown, teeth: [46] }, clinic, "", noLogo, "en", "a4_full");
+assert.ok(/border-top:[^;]+;border-right:[^;]+;">6</.test(lowerHtml), "lower right 6 brackets above");
 
 // A5 is its own sheet size.
 assert.ok(buildLabOrderSrcDoc(crown, clinic, "", noLogo, "en", "a5").includes("size: A5 portrait"));

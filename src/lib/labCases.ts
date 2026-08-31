@@ -675,8 +675,19 @@ export type PalmerTooth = {
   /** `6` for a permanent tooth, `A`-`E` for a primary one. */
   position: string;
   symbol: string;
-  /** `6┘` — what goes on the page. */
+  /** `6┘` — the plain-text form, for a search box or a log line. */
   label: string;
+  /** `UR6` — typeable, unambiguous, and what goes in an input somebody edits by hand. */
+  shorthand: string;
+  /**
+   * Which sides of the number the bracket is drawn on.
+   *
+   * Palmer's bracket is not a character sitting beside the digit — it is the corner of the chart's
+   * cross, and the number belongs INSIDE it. Rendered as a box-drawing glyph it reads as two
+   * separate marks; rendered as borders on the number itself it reads as the notation. Both the
+   * screen and the printed order use these.
+   */
+  sides: { top: boolean; bottom: boolean; left: boolean; right: boolean };
 };
 
 export function toPalmer(fdi: number): PalmerTooth | null {
@@ -690,13 +701,35 @@ export function toPalmer(fdi: number): PalmerTooth | null {
   if (!meta.primary && idx > 8) return null;
 
   const position = meta.primary ? PRIMARY_LETTERS[idx - 1] : String(idx);
+
+  // Drawn facing the patient: an upper-right tooth sits in the top-left of the cross, so its two
+  // lines are the midline on its RIGHT and the occlusal line BELOW it.
+  const upper = meta.quadrant === "UR" || meta.quadrant === "UL";
+  const patientRight = meta.quadrant === "UR" || meta.quadrant === "LR";
+
   return {
     fdi: n,
     quadrant: meta.quadrant,
     position,
     symbol: meta.symbol,
     label: meta.symbolFirst ? `${meta.symbol}${position}` : `${position}${meta.symbol}`,
+    shorthand: `${meta.quadrant}${position}`,
+    sides: {
+      top: !upper,
+      bottom: upper,
+      right: patientRight,
+      left: !patientRight,
+    },
   };
+}
+
+/** `UR3, UL3` — the form that goes in a box somebody types into. */
+export function formatPalmerShorthand(teeth: number[] | undefined): string {
+  if (!teeth || teeth.length === 0) return "";
+  return teeth
+    .map((t) => toPalmer(t)?.shorthand)
+    .filter(Boolean)
+    .join(", ");
 }
 
 /** `5┘ 4┘` — the order the teeth were chosen, so it reads as the dentist entered it. */

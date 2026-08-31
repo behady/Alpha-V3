@@ -94,6 +94,34 @@ function specRow(label: string, value: string): string {
 }
 
 /**
+ * A tooth written the way Palmer is written: the number INSIDE its bracket.
+ *
+ * Borders on the number itself rather than a box-drawing character beside it. Set as a glyph the
+ * bracket reads as a separate mark and a technician has to reassemble the two; drawn as lines it
+ * reads as the notation, because it is the notation. Same `sides` the picker uses, so the screen
+ * and the paper cannot drift apart.
+ */
+function palmerMarkHtml(fdi: number): string {
+  const palmer = toPalmer(fdi);
+  if (!palmer) return "";
+  const { sides, position } = palmer;
+  const line = `1.4px solid ${INK}`;
+  const style = [
+    sides.top ? `border-top:${line}` : "",
+    sides.bottom ? `border-bottom:${line}` : "",
+    sides.left ? `border-left:${line}` : "",
+    sides.right ? `border-right:${line}` : "",
+  ]
+    .filter(Boolean)
+    .join(";");
+  return `<span style="display:inline-block;padding:0 2px;margin:0 4px 0 0;${style};">${esc(position)}</span>`;
+}
+
+function palmerListHtml(teeth: number[]): string {
+  return teeth.map(palmerMarkHtml).join("");
+}
+
+/**
  * The tooth chart.
  *
  * Plain table cells, not the app's `ToothSVG`: that component renders through `next/image` with
@@ -124,9 +152,16 @@ function toothChartHtml(teeth: number[]): string {
       .map((id, i) => cell(id, (i === right.length - 1 ? MID : "") + (lower ? "" : OCCLUSAL)))
       .join("")}${left.map((id) => cell(id, lower ? "" : OCCLUSAL)).join("")}</tr>`;
 
+  const sideLabel = (text: string, span: number) =>
+    `<td colspan="${span}" style="padding:0 0 2px;text-align:center;font-size:5.5pt;letter-spacing:0.1em;text-transform:uppercase;color:${MUTED};">${esc(text)}</td>`;
+
   const grid = (upper: number[], lower: number[]) => {
     const half = upper.length / 2;
+    // Which half is which. A chart is drawn facing the patient, so the left of the page is their
+    // RIGHT — the one thing about a dental chart everybody is told once and nobody should have to
+    // recall correctly while holding a bag of crowns.
     return `<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+      <tr>${sideLabel("Patient's right · يمين", half)}${sideLabel("Patient's left · شمال", half)}</tr>
       ${row(upper.slice(0, half), upper.slice(half), false)}
       ${row(lower.slice(0, half), lower.slice(half), true)}
     </table>`;
@@ -186,7 +221,7 @@ function orderBodyHtml(
     ? `<div>
         <div style="font-size:6.5pt;letter-spacing:0.09em;text-transform:uppercase;color:${MUTED};margin-bottom:3px;">${esc(bi("Teeth", "الأسنان"))}</div>
         ${toothChartHtml(labCase.teeth)}
-        <div style="font-size:9pt;font-weight:700;color:${INK};margin-top:4px;letter-spacing:0.06em;" dir="ltr">${esc(formatPalmer(labCase.teeth))}</div>
+        <div style="font-size:10pt;font-weight:700;color:${INK};margin-top:5px;" dir="ltr">${palmerListHtml(labCase.teeth)}</div>
         <div style="font-size:6.5pt;color:${MUTED};margin-top:1px;" dir="ltr">FDI ${esc(labCase.teeth.join(", "))}</div>
       </div>`
     : `<div style="font-size:8pt;color:${MUTED};">${esc(bi("No specific teeth", "من غير أسنان محددة"))}</div>`;

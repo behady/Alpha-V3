@@ -19,6 +19,7 @@
 import { useMemo } from "react";
 import { Baby, Eraser } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
+import { PalmerList } from "@/components/lab/PalmerMark";
 import {
   FDI_LOWER,
   FDI_PRIMARY_LOWER,
@@ -41,11 +42,13 @@ function PalmerGrid({
   lower,
   selected,
   onToggle,
+  labels,
 }: {
   upper: number[];
   lower: number[];
   selected: Set<number>;
   onToggle: (id: number) => void;
+  labels: { right: string; left: string };
 }) {
   const half = upper.length / 2;
 
@@ -69,6 +72,13 @@ function PalmerGrid({
 
   return (
     <div className="inline-block" dir="ltr">
+      {/* Which side is which. The chart is drawn FACING the patient, so the left half of the page
+          is the patient's right — the single thing about a dental chart that everyone has to be
+          told once and nobody should have to remember. */}
+      <div className="flex text-[9px] font-black uppercase tracking-widest text-slate-400 pb-1">
+        <div className="flex-1 text-center">{labels.right}</div>
+        <div className="flex-1 text-center">{labels.left}</div>
+      </div>
       <div className="flex">{upper.map((id, i) => cell(id, i === half - 1, true))}</div>
       <div className="flex">{lower.map((id, i) => cell(id, i === half - 1, false))}</div>
     </div>
@@ -89,6 +99,10 @@ export default function LabTeethPicker({
   const { language } = useLanguage();
   const isAr = language === "ar";
   const selected = useMemo(() => new Set(teeth), [teeth]);
+
+  const sideLabels = isAr
+    ? { right: "يمين المريض", left: "شمال المريض" }
+    : { right: "Patient's right", left: "Patient's left" };
 
   const toggle = (id: number) => {
     // Order is preserved on add rather than sorted, so the list reads back in the order the
@@ -126,16 +140,24 @@ export default function LabTeethPicker({
         </div>
       </div>
 
-      {/* Scrolls on its own rather than widening the modal — sixteen teeth do not fit a phone. */}
+      {/* Scrolls on its own rather than widening the modal — sixteen teeth do not fit a phone —
+          and centres within whatever room it has. */}
       <div className="overflow-x-auto -mx-1 px-1">
-        <div className="flex flex-col gap-3 w-max">
-          <PalmerGrid upper={FDI_UPPER} lower={FDI_LOWER} selected={selected} onToggle={toggle} />
+        <div className="flex flex-col items-center gap-3 w-max mx-auto">
+          <PalmerGrid
+            upper={FDI_UPPER}
+            lower={FDI_LOWER}
+            selected={selected}
+            onToggle={toggle}
+            labels={sideLabels}
+          />
           {showPrimary && (
             <PalmerGrid
               upper={FDI_PRIMARY_UPPER}
               lower={FDI_PRIMARY_LOWER}
               selected={selected}
               onToggle={toggle}
+              labels={sideLabels}
             />
           )}
         </div>
@@ -145,9 +167,11 @@ export default function LabTeethPicker({
         <span className="text-[10px] font-black uppercase tracking-wider text-slate-400">
           {isAr ? "المختار" : "Selected"}
         </span>
-        <span className="text-sm font-black text-sky-800 tracking-wider" dir="ltr">
-          {teeth.length ? formatPalmer(teeth) : isAr ? "لا شيء" : "none"}
-        </span>
+        {teeth.length ? (
+          <PalmerList teeth={teeth} className="text-sm font-black text-sky-800" />
+        ) : (
+          <span className="text-sm font-bold text-slate-400">{isAr ? "لا شيء" : "none"}</span>
+        )}
         {hasPrimaryTeeth(teeth) && !showPrimary && (
           // The selection contains a child's tooth the visible grid cannot show. Saying so beats
           // leaving somebody to wonder why the count and the diagram disagree.
