@@ -47,6 +47,7 @@ import {
   LAB_CASES_COLLECTION,
   LAB_CASE_STATUSES,
   dueStateFor,
+  formatPalmer,
   matchesLabCode,
   nextStatuses,
   statusFor,
@@ -584,7 +585,8 @@ function CaseRow({
   const workLine = [
     workTypeLabel(labCase.workType, language),
     labCase.workDescription,
-    labCase.teeth.length ? `FDI ${labCase.teeth.join(", ")}` : "",
+    // Palmer, not FDI: the board is read by the same people who read the printed order.
+    formatPalmer(labCase.teeth),
   ]
     .filter(Boolean)
     .join(" · ");
