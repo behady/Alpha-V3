@@ -76,6 +76,19 @@ export interface Lead {
     fetchFailed?: boolean;
   } | null;
 
+  /**
+   * Who is chasing this lead. Null is a real state and is shown as such: a lead that belongs to
+   * everyone is the one nobody calls, which is what an inbox of eight untouched ad leads looks
+   * like from the inside. The name is denormalised so the row reads without a second lookup.
+   */
+  assignedToUid?: string | null;
+  assignedToName?: string | null;
+
+  /** Set once the 15-minute nudge has gone out, so it is a nudge and not a drip. */
+  speedAlertAt?: { seconds: number } | null;
+  /** Set once the lead was escalated over the floor's head. See leadSpeedAlerts. */
+  escalatedAt?: { seconds: number } | null;
+
   /** First moment this lead stopped being untouched — the clock behind time-to-contact. */
   firstContactedAt?: { seconds: number } | null;
   /** Last stage movement, so a lead nobody has touched in a month can say so. */
