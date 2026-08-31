@@ -6,6 +6,7 @@ import { Loader2, Search, X, FlaskConical, Info } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import Protect from "@/components/Protect";
+import LabTeethPicker from "@/components/lab/LabTeethPicker";
 import { MoneyApiError, setProcedureLabFee } from "@/lib/moneyApi";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { localYmd } from "@/lib/clinicDate";
@@ -21,6 +22,7 @@ import {
   TOOTH_SHADES,
   CERVICAL_SHADES,
   formatPalmer,
+  hasPrimaryTeeth,
   parseToothInput,
   addDays,
   workTypeFor,
@@ -86,6 +88,10 @@ export default function LabCaseModal({
   const [workDescription, setWorkDescription] = useState("");
   const [units, setUnits] = useState("");
   const [teethText, setTeethText] = useState("");
+  /** FDI numbers. The picker and the text box are both views onto this. */
+  const [teeth, setTeeth] = useState<number[]>([]);
+  /** Whether the child's grid is showing. Opens itself when a case already has primary teeth. */
+  const [showPrimaryTeeth, setShowPrimaryTeeth] = useState(false);
   const [bodyShade, setBodyShade] = useState("");
   const [cervicalShade, setCervicalShade] = useState("");
   const [gumShade, setGumShade] = useState("");
@@ -231,7 +237,11 @@ export default function LabCaseModal({
     setWorkType((src?.workType as LabWorkTypeId) || "zirconia");
     setWorkDescription(src?.workDescription || seed?.workDescription || "");
     setUnits(src?.units != null ? String(src.units) : seed?.units != null ? String(seed.units) : "");
-    setTeethText((src?.teeth?.length ? src.teeth : seed?.teeth || []).join(", "));
+    const seededTeeth = src?.teeth?.length ? src.teeth : seed?.teeth || [];
+    setTeeth(seededTeeth);
+    setTeethText(seededTeeth.length ? formatPalmer(seededTeeth) : "");
+    // A paediatric case opens on the grid that can actually show it.
+    setShowPrimaryTeeth(hasPrimaryTeeth(seededTeeth));
     setBodyShade(src?.bodyShade || "");
     setCervicalShade(src?.cervicalShade || "");
     setGumShade(src?.gumShade || "");
@@ -402,14 +412,23 @@ export default function LabCaseModal({
       .slice(0, 8);
   }, [patientQuery, patients]);
 
-  const teeth = useMemo(
-    () =>
-      teethText
-        .split(/[^0-9]+/)
-        .map((t) => parseInt(t, 10))
-        .filter((n) => !Number.isNaN(n) && n >= 11 && n <= 85),
-    [teethText]
-  );
+  /**
+   * The chart and the text box are two views of one selection, kept in step in both directions.
+   *
+   * `teeth` is the truth. Clicking the chart rewrites the box in Palmer; typing in the box
+   * re-reads the selection, in whichever notation was typed. Deriving one from the other with a
+   * memo would have made the chart read-only, and storing them independently would have let them
+   * disagree — which on a lab order means the diagram and the written line name different teeth.
+   */
+  const setTeethBoth = (next: number[]) => {
+    setTeeth(next);
+    setTeethText(next.length ? formatPalmer(next) : "");
+  };
+
+  const setTeethFromText = (value: string) => {
+    setTeethText(value);
+    setTeeth(parseToothInput(value));
+  };
 
   const branch = branches.find((b) => b.id === branchId) || null;
   const branchIndex = branch ? branches.indexOf(branch) : 0;
@@ -704,29 +723,33 @@ export default function LabCaseModal({
               />
             </div>
             <div>
-              <label className={LABEL}>{isAr ? "الأسنان" : "Teeth"}</label>
+              <label className={LABEL}>{isAr ? "الأسنان — اكتبها" : "Teeth — or type them"}</label>
               <input
                 value={teethText}
-                onChange={(e) => setTeethText(e.target.value)}
+                onChange={(e) => setTeethFromText(e.target.value)}
                 placeholder="UR5, UR4"
                 dir="ltr"
                 className={INPUT}
               />
-              {/* Palmer is what gets confirmed back, because Palmer is what goes on the order and
-                  what the technician reads. The box itself takes either notation: a case raised
-                  from a treatment arrives prefilled in FDI from the chart. */}
+              {/* The box takes either notation: a case raised from a treatment arrives prefilled in
+                  FDI from the odontogram, while one typed by hand comes in the Palmer shorthand
+                  people actually write. Clicking the chart rewrites this in Palmer. */}
               <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">
                 {isAr
-                  ? "اكتب بالمر (UR5) أو FDI (15) — الاتنين شغالين."
-                  : "Type Palmer (UR5) or FDI (15) — both work."}
+                  ? "بالمر (UR5) أو FDI (15) — الاتنين شغالين، والرسم فوق بيتحدث معاهم."
+                  : "Palmer (UR5) or FDI (15) — both work, and the chart stays in step."}
               </p>
-              {teeth.length > 0 && (
-                <p className="text-xs font-black text-sky-700 mt-1 tracking-wider" dir="ltr">
-                  {formatPalmer(teeth)}
-                </p>
-              )}
             </div>
           </div>
+
+          {/* The chart. Same grid the printed order draws, so what is clicked here is what the
+              technician receives — no translation step in anybody's head. */}
+          <LabTeethPicker
+            teeth={teeth}
+            onChange={setTeethBoth}
+            showPrimary={showPrimaryTeeth}
+            onShowPrimaryChange={setShowPrimaryTeeth}
+          />
 
           {/* Per-work-type technical fields */}
           <div className="rounded-2xl border border-line bg-slate-50/60 p-4 space-y-4">

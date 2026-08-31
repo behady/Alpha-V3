@@ -12,6 +12,9 @@ import {
   TOOTH_SHADES,
   FDI_UPPER,
   FDI_LOWER,
+  FDI_PRIMARY_UPPER,
+  FDI_PRIMARY_LOWER,
+  hasPrimaryTeeth,
   addDays,
   branchCodeFor,
   daysUntil,
@@ -221,6 +224,30 @@ for (const fdi of [...FDI_UPPER, ...FDI_LOWER, 51, 52, 53, 54, 55, 61, 65, 71, 7
   assert.deepEqual(parseToothInput(palmer.label), [fdi], `FDI ${fdi} did not survive ${palmer.label}`);
   assert.deepEqual(parseToothInput(`${palmer.quadrant}${palmer.position}`), [fdi]);
 }
+
+// A child's crown is as much a lab case as an adult's. The picker and the printed chart both have
+// to be able to SHOW one, or the tooth appears in the written line and nowhere on the diagram —
+// the single disagreement a technician cannot resolve.
+assert.equal(hasPrimaryTeeth([15, 14]), false);
+assert.equal(hasPrimaryTeeth([55]), true);
+assert.equal(hasPrimaryTeeth([15, 55]), true, "mixed dentition counts");
+assert.equal(hasPrimaryTeeth([]), false);
+assert.equal(hasPrimaryTeeth(undefined), false);
+
+// Both grids are laid out facing the patient, so each row splits evenly at the midline and every
+// cell maps to a real tooth. A grid holding a null would print a blank box the eye reads as a gap.
+for (const [upper, lower, size] of [[FDI_UPPER, FDI_LOWER, 16], [FDI_PRIMARY_UPPER, FDI_PRIMARY_LOWER, 10]]) {
+  assert.equal(upper.length, size);
+  assert.equal(lower.length, size);
+  for (const id of [...upper, ...lower]) assert.ok(toPalmer(id), `no Palmer for ${id}`);
+}
+// The row starts at the patient's own right, counting IN toward the midline.
+assert.equal(toPalmer(FDI_UPPER[0]).quadrant, "UR");
+assert.equal(toPalmer(FDI_UPPER[0]).position, "8");
+assert.equal(toPalmer(FDI_UPPER[7]).position, "1", "the eighth cell is the midline");
+assert.equal(toPalmer(FDI_UPPER[8]).quadrant, "UL");
+assert.equal(toPalmer(FDI_PRIMARY_UPPER[0]).position, "E");
+assert.equal(toPalmer(FDI_PRIMARY_UPPER[4]).position, "A", "the fifth cell is the midline");
 
 // --- shades --------------------------------------------------------------------------------------
 
@@ -537,6 +564,22 @@ assert.ok(guideHtml.includes("Sent as digital files"));
 // A price of zero is not printed as "0 EGP".
 assert.ok(!guideHtml.includes("EGP"));
 assert.ok(guideHtml.includes("size: A4 portrait"));
+
+// The primary grid is printed ONLY when the case involves one, and as a SECOND grid rather than a
+// replacement — mixed dentition is ordinary.
+const childCase = { ...crown, code: "MAD-0150", teeth: [55, 54] };
+const childHtml = buildLabOrderSrcDoc(childCase, clinic, "", noLogo, "en", "a4_full");
+assert.ok(childHtml.includes("E┘ D┘"), "the written line reads in primary Palmer");
+assert.equal((childHtml.match(/border-collapse:collapse;/g) || []).length, 2, "both grids print");
+assert.equal(
+  (buildLabOrderSrcDoc(crown, clinic, "", noLogo, "en", "a4_full").match(/border-collapse:collapse;/g) || []).length,
+  1,
+  "an adult case prints one grid, not an empty child's chart"
+);
+// Mixed dentition prints both and names both.
+const mixedHtml = buildLabOrderSrcDoc({ ...crown, teeth: [16, 55] }, clinic, "", noLogo, "en", "a4_full");
+assert.ok(mixedHtml.includes("6┘ E┘"));
+assert.equal((mixedHtml.match(/border-collapse:collapse;/g) || []).length, 2);
 
 // A5 is its own sheet size.
 assert.ok(buildLabOrderSrcDoc(crown, clinic, "", noLogo, "en", "a5").includes("size: A5 portrait"));
