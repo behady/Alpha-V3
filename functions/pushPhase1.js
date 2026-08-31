@@ -7,6 +7,7 @@
  *    clinic's shape.
  *  - 10:00: reception is told how many lead follow-ups are due today.
  *  - 21:00: owners get the day's money and attendance in one line.
+ *  - 11:00: owners are told when messages to patients have stopped going out.
  *
  * All of it flows through sendClinicPush's targeting: roles, single uids, a
  * notification channel the phone can mute per-category, and a `screen` hint the
@@ -32,10 +33,76 @@ const isCheckedIn = (status) => status === "Checked In" || status === "Arrived";
 
 const FINISHED = new Set(["Completed", "Cancelled", "No Show"]);
 
+/** A message still waiting this long is not "about to be sent", it is stuck. */
+const STUCK_MESSAGE_HOURS = 3;
+
 async function allClinicIds() {
   const snap = await db().collection("clinics").get();
   return snap.docs.map((doc) => doc.id);
 }
+
+/**
+ * The outbox writes `createdAt` as an ISO string from the server and as a Timestamp from other
+ * paths. Read both rather than trusting either — a row whose age cannot be read is treated as
+ * new, so an unparseable date can never manufacture an alert.
+ */
+function ageHours(createdAt) {
+  let ms = 0;
+  if (createdAt && typeof createdAt.toMillis === "function") ms = createdAt.toMillis();
+  else if (typeof createdAt === "string") ms = Date.parse(createdAt);
+  if (!ms || Number.isNaN(ms)) return 0;
+  return (Date.now() - ms) / 3600000;
+}
+
+// ---------------------------------------------------------------------------
+// 11:00 — messages that never left the building.
+//
+// A clinic whose gateway has died does not find out from the gateway. It finds out weeks later,
+// from a patient who says nobody ever confirmed their appointment. Every send path here already
+// falls back to "queued for a human" rather than losing the message, which is the right failure —
+// but the queue is silent, and a silent queue is indistinguishable from a working one.
+//
+// Found the hard way: one clinic had 22 messages waiting, the oldest four days old, its Wapilot
+// instance returning INSTANCE_NOT_FOUND on every send, and nothing anywhere said so.
+// ---------------------------------------------------------------------------
+
+exports.stuckMessagesAlert = onSchedule(
+  { schedule: "0 11 * * *", timeZone: TIMEZONE, timeoutSeconds: 300, memory: "256MiB" },
+  async () => {
+    for (const clinicId of await allClinicIds()) {
+      try {
+        const snap = await db()
+          .collection(`clinics/${clinicId}/whatsapp_outbox`)
+          .where("status", "==", "queued")
+          .get();
+        if (snap.empty) continue;
+
+        const ages = snap.docs.map((d) => ageHours(d.data()?.createdAt));
+        const stuck = ages.filter((h) => h >= STUCK_MESSAGE_HOURS);
+        if (stuck.length === 0) continue; // a normal manual queue being worked through today
+
+        const oldest = Math.max(...stuck);
+        const days = Math.floor(oldest / 24);
+        const oldestLabel = days >= 1 ? `${days} day${days === 1 ? "" : "s"}` : `${Math.round(oldest)} hours`;
+
+        await sendClinicPush(
+          db(),
+          clinicId,
+          {
+            title: `📵 ${stuck.length} message${stuck.length === 1 ? "" : "s"} to patients never sent`,
+            body:
+              `The oldest has been waiting ${oldestLabel}. If nobody is sending them by hand, ` +
+              `WhatsApp sending is switched off or the connection is broken — check Settings → WhatsApp.`,
+          },
+          // The people who can actually fix a dead gateway, not the ones staring at the queue.
+          { roles: ["Owner", "Admin"], channel: "alpha_leads", data: { screen: "settings" } }
+        );
+      } catch (e) {
+        console.error(`stuckMessagesAlert failed for ${clinicId}:`, e);
+      }
+    }
+  }
+);
 
 // ---------------------------------------------------------------------------
 // Patient arrived → the treating dentist's pocket.
