@@ -7,8 +7,24 @@ import { getDoc, setDoc } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { storage } from "@/lib/firebase";
 import { getClinicDoc, getGlobalClinicId } from "@/lib/db-utils";
+import { useSettingsDraft } from "@/lib/settingsDraft";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
+
+type BookingSettings = {
+  enabled: boolean;
+  enableDoctorSelection: boolean;
+  defaultDurationMinutes: string;
+  heroImage: string;
+};
+
+/** Module-level so the fallback keeps its identity between renders. */
+const EMPTY_BOOKING_SETTINGS: BookingSettings = {
+  enabled: false,
+  enableDoctorSelection: false,
+  defaultDurationMinutes: "30",
+  heroImage: "",
+};
 
 export default function OnlineBookingSettings() {
   const { language } = useLanguage();
@@ -20,12 +36,14 @@ export default function OnlineBookingSettings() {
   const [uploadingImage, setUploadingImage] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   
-  const [settings, setSettings] = useState({
-    enabled: false,
-    enableDoctorSelection: false,
-    defaultDurationMinutes: "30",
-    heroImage: ""
-  });
+  const [stored, setStored] = useState<BookingSettings | null>(null);
+
+  // Edits sit on top of what is stored, so leaving mid-change asks first. See lib/settingsDraft.ts.
+  const { value: settings, setValue: setSettings, markSaved } = useSettingsDraft<BookingSettings>(
+    "online_booking",
+    stored,
+    EMPTY_BOOKING_SETTINGS
+  );
 
   const clinicId = getGlobalClinicId();
   const bookingUrl = typeof window !== 'undefined' 
@@ -35,7 +53,7 @@ export default function OnlineBookingSettings() {
   useEffect(() => {
     getDoc(getClinicDoc("settings", "onlineBooking")).then(snap => {
       if (snap.exists()) {
-        setSettings({
+        setStored({
           enabled: snap.data().enabled ?? false,
           enableDoctorSelection: snap.data().enableDoctorSelection ?? false,
           defaultDurationMinutes: snap.data().defaultDurationMinutes ?? "30",
@@ -89,6 +107,8 @@ export default function OnlineBookingSettings() {
     setSaving(true);
     try {
       await setDoc(getClinicDoc("settings", "onlineBooking"), settings, { merge: true });
+      setStored(settings);
+      markSaved();
       showToast(language === 'ar' ? "تم حفظ إعدادات الحجز الإلكتروني" : "Online Booking settings saved", "success");
     } catch (error) {
       console.error(error);

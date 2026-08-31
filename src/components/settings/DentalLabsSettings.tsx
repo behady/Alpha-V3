@@ -20,6 +20,7 @@ import {
 import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { getClinicDoc } from "@/lib/db-utils";
+import { useSettingsDraft } from "@/lib/settingsDraft";
 import {
   LABS_SETTINGS_DOC,
   labPricedCount,
@@ -43,25 +44,44 @@ import {
  * on demand rather than per keystroke, so a half-typed lab name never appears in the picker an
  * assistant is using to raise an order in the next room.
  */
+/** The labs screen edits two values that live in one document, so they travel together. */
+type LabsDraft = { labs: DentalLab[]; paper: LabOrderPaper };
+
+/** Module-level so the fallback keeps its identity between renders. */
+const EMPTY_LABS_DRAFT: LabsDraft = { labs: [], paper: DEFAULT_LAB_PAPER };
+
 export default function DentalLabsSettings() {
   const { showToast, confirm } = useUI();
   const { language } = useLanguage();
   const isAr = language === "ar";
 
-  const [labs, setLabs] = useState<DentalLab[]>([]);
-  const [paper, setPaper] = useState<LabOrderPaper>(DEFAULT_LAB_PAPER);
+  const [stored, setStored] = useState<LabsDraft | null>(null);
   const [newLabName, setNewLabName] = useState("");
   /** Which labs have their price list expanded. Per lab, so two can be compared side by side. */
   const [openPrices, setOpenPrices] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [fetched, setFetched] = useState(false);
 
+  // The labs and the paper size share one document, so they share one draft: an edit to either is
+  // unsaved work, and one Save writes both. See lib/settingsDraft.ts.
+  const { value: draft, setValue: setDraft, markSaved } = useSettingsDraft<LabsDraft>(
+    "labs",
+    stored,
+    EMPTY_LABS_DRAFT
+  );
+  const { labs, paper } = draft;
+  const setLabs = (next: DentalLab[] | ((current: DentalLab[]) => DentalLab[])) =>
+    setDraft((current) => ({
+      ...current,
+      labs: typeof next === "function" ? next(current.labs) : next,
+    }));
+  const setPaper = (next: LabOrderPaper) => setDraft((current) => ({ ...current, paper: next }));
+
   useEffect(() => {
     getDoc(getClinicDoc("settings", LABS_SETTINGS_DOC))
       .then((snap) => {
         const data = snap.exists() ? snap.data() : null;
-        setLabs(parseDentalLabs(data));
-        setPaper(parseLabPaper(data));
+        setStored({ labs: parseDentalLabs(data), paper: parseLabPaper(data) });
       })
       .catch(() => {
         // An empty screen an admin can start typing into beats a spinner that never stops.
@@ -81,6 +101,8 @@ export default function DentalLabsSettings() {
         { labs: serializeDentalLabs(labs), paper, updatedAt: new Date().toISOString() },
         { merge: true }
       );
+      setStored({ labs, paper });
+      markSaved();
       showToast(isAr ? "تم الحفظ!" : "Labs saved!", "success");
     } catch {
       showToast(isAr ? "فشل الحفظ" : "Save failed", "error");

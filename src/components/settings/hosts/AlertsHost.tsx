@@ -7,6 +7,7 @@ import ClinicInfoHost from "./ClinicInfoHost";
 export default function AlertsHost({ canEdit }: { canEdit: boolean }) {
   return (
     <ClinicInfoHost
+      sectionId="notifications"
       canEdit={canEdit}
       fields={["alertPreferences"]}
       activityLabel="Alert preferences were updated from settings."

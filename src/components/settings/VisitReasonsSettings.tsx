@@ -7,6 +7,7 @@ import { Plus, Trash2, Save, Stethoscope, GripVertical } from "lucide-react";
 import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { useSettingsDraft } from "@/lib/settingsDraft";
 
 const DEFAULT_REASONS = [
   "كشف"
@@ -19,16 +20,23 @@ export default function VisitReasonsSettings() {
   const { language } = useLanguage();
   const isAr = language === "ar";
 
-  const [reasons, setReasons] = useState<string[]>(DEFAULT_REASONS);
+  const [stored, setStored] = useState<string[] | null>(null);
   const [newReason, setNewReason] = useState("");
   const [loading, setLoading] = useState(false);
   const [fetched, setFetched] = useState(false);
 
+  // Edits sit on top of what is stored, so switching away with a reason half-typed asks first
+  // instead of discarding it. See lib/settingsDraft.ts.
+  const { value: reasons, setValue: setReasons, markSaved } = useSettingsDraft<string[]>(
+    "visit_reasons",
+    stored,
+    DEFAULT_REASONS
+  );
+
   useEffect(() => {
     getDoc(getClinicDoc("settings", VISIT_REASONS_DOC)).then((snap) => {
-      if (snap.exists() && Array.isArray(snap.data().reasons)) {
-        setReasons(snap.data().reasons);
-      }
+      const saved = snap.exists() ? snap.data().reasons : null;
+      setStored(Array.isArray(saved) ? saved : DEFAULT_REASONS);
       setFetched(true);
     });
   }, []);
@@ -41,6 +49,8 @@ export default function VisitReasonsSettings() {
         { reasons },
         { merge: true }
       );
+      setStored(reasons);
+      markSaved();
       showToast(isAr ? "تم الحفظ!" : "Reasons saved!", "success");
     } catch {
       showToast(isAr ? "فشل الحفظ" : "Save failed", "error");

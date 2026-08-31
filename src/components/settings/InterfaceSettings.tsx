@@ -3,6 +3,7 @@
 import {
   Monitor, SquareTerminal, PanelRight, Calendar, AlertTriangle, PencilLine, Sparkles,
   ListOrdered, ArrowDownWideNarrow, ArrowUpNarrowWide, MoveVertical, Rows3, CalendarDays, AlignJustify, LayoutList,
+  UserCircle,
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
@@ -51,6 +52,9 @@ export default function InterfaceSettings() {
 
   const txt = {
     title: language === 'ar' ? "واجهة الاستخدام" : "Interface Settings",
+    followsYou: language === 'ar'
+      ? "هذه الاختيارات محفوظة على حسابك، فتنتقل معك لأي جهاز تسجّل الدخول منه — الكمبيوتر، التابلت، أو الموبايل."
+      : "These choices are saved to your account, so they follow you to any device you sign in on — desktop, tablet or phone.",
     clinicalEditorLabel: language === 'ar' ? "محرر الإجراءات السريرية" : "Clinical Editor Mode",
     // The third option is the layout desktop has been using all along. It was not on this screen,
     // and the Clinical tab ignored this setting entirely above 1024px — so choosing a mode on a
@@ -88,6 +92,14 @@ export default function InterfaceSettings() {
 
   return (
     <div className="space-y-8 animate-in fade-in max-w-5xl mx-auto">
+      {/* Worth stating plainly, because it was not true until these moved off the browser: every
+          choice below used to live in localStorage and nowhere else, so setting the app up on the
+          desk computer got you the defaults on a tablet with nothing explaining why. */}
+      <p className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm font-semibold text-slate-600">
+        <UserCircle size={16} className="mt-0.5 shrink-0 text-slate-400" />
+        {txt.followsYou}
+      </p>
+
       {/* CLINICAL EDITOR SETTINGS */}
       <div className="bg-white p-8 md:p-10 rounded-3xl border border-slate-200/50 shadow-sm">
         <div className="mb-8">

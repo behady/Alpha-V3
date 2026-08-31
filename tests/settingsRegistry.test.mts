@@ -667,5 +667,134 @@ for (const file of shellFiles) {
   );
 }
 
+// --- 12. Phase 3: unsaved work is reported, and preferences follow the person -------------------
+//
+// Every panel used to keep its edits in its own state and be thrown away the moment another
+// section was opened. Nothing warned, and nothing anywhere in the app tracked unsaved work.
+//
+// A section is "guarded" when its panel goes through lib/settingsDraft.ts (or reports directly
+// with useDirtyFlag). The two lists below are what stops the remaining work being forgotten:
+// removing a guard fails, and so does leaving a converted panel off the list.
+
+/** Resolve the source a section actually renders, following one level of local host import. */
+function sectionSource(sectionId: string): string {
+  const entry = panelEntries.find((e) => e.id === sectionId);
+  if (!entry) {
+    // Sections with their own route (clinic_profile) name a page file instead.
+    const section = SETTINGS_SECTIONS.find((x) => x.id === sectionId)!;
+    const segment = section.route.replace("/settings/", "");
+    return readFileSync(join(REPO, "src/app/(dashboard)/settings", segment, "page.tsx"), "utf8");
+  }
+  const importPath = entry.loader.match(/import\("([^"]+)"\)/)?.[1];
+  ok(importPath, `could not read the import for panel "${sectionId}"`);
+  const file = join(REPO, importPath!.replace("@/", "src/") + ".tsx");
+  ok(existsSync(file), `panels.tsx points "${sectionId}" at ${importPath}, which does not exist`);
+
+  let text = readFileSync(file, "utf8");
+  // A host that only wraps another component (the clinic_info trio) carries the guard there.
+  for (const local of [...text.matchAll(/from "\.\/([A-Za-z]+)"/g)].map((m) => m[1])) {
+    const sibling = join(file, "..", `${local}.tsx`);
+    if (existsSync(sibling)) text += readFileSync(sibling, "utf8");
+  }
+  return text;
+}
+
+const isGuarded = (sectionId: string) =>
+  /useSettingsDraft|useDirtyFlag/.test(sectionSource(sectionId));
+
+/**
+ * Correctly unguarded: nothing on these screens is ever half-finished. They either only read, or
+ * they act the moment you click — there is no pending state that could be lost.
+ */
+const NO_PENDING_EDITS = new Set([
+  "logs", "ai_credits", "recently_deleted", // read-only
+  "appearance", "interface",                 // save on click, nothing pending
+  "join_requests", "users",                  // act through server routes on a button press
+  "prescriptions",                           // a drug is added or removed immediately
+  "services",                                // edits happen inside a modal that saves on submit
+]);
+
+/**
+ * Still to convert. Each has a Save button and real pending state, so leaving one of these mid-edit
+ * still loses it silently. Both are large panels with several independent save buttons, which is
+ * why they were left rather than rushed — WhatsAppSettings alone is over 1,500 lines with six.
+ * Delete an entry from this list when it is converted; the check below then requires it.
+ */
+const AWAITING_CONVERSION = new Set(["whatsapp", "sms", "general"]);
+
+for (const section of SETTINGS_SECTIONS) {
+  const guarded = isGuarded(section.id);
+
+  if (NO_PENDING_EDITS.has(section.id)) {
+    ok(
+      !guarded,
+      `"${section.id}" is listed as having nothing to lose, but its panel now tracks unsaved ` +
+        `work. If that is right, take it off NO_PENDING_EDITS — the list has to stay honest.`
+    );
+    continue;
+  }
+
+  if (AWAITING_CONVERSION.has(section.id)) {
+    ok(
+      !guarded,
+      `"${section.id}" now tracks unsaved work — remove it from AWAITING_CONVERSION so this ` +
+        `check starts holding it there.`
+    );
+    continue;
+  }
+
+  ok(
+    guarded,
+    `"${section.id}" has a Save button and does not report unsaved work, so leaving it mid-edit ` +
+      `discards it silently. Convert it with useSettingsDraft, or say why not by adding it to ` +
+      `NO_PENDING_EDITS.`
+  );
+}
+
+// --- 13. Interface preferences live on the person, not in one browser ---------------------------
+
+const uiContext = readFileSync(join(REPO, "src/context/UIContext.tsx"), "utf8");
+ok(
+  !/localStorage/.test(stripComments(uiContext)),
+  "UIContext writes localStorage directly again. Preferences go through lib/uiPreferences.ts so " +
+    "they reach the person's record too — otherwise they are lost on the next device, silently."
+);
+
+const uiPrefs = readFileSync(join(REPO, "src/lib/uiPreferences.ts"), "utf8");
+ok(
+  /doc\(db, "users", uid\)/.test(uiPrefs),
+  "preferences must be stored on users/{uid}: firestore.rules already allows a person to write " +
+    "their own record, whereas the staff row's self-edit carve-out names six fields and would " +
+    "have to be widened"
+);
+
+/**
+ * The users rule is what makes that legal, and it is legal only because the three fields it
+ * refuses are refused. A member who could clear clinicPermissions would land back on the
+ * no-record-yet fallback that allows everything.
+ */
+const usersBlock = matchBlock("users/{userId}");
+ok(usersBlock, "firestore.rules has no match block for users/{userId}");
+for (const field of ["isSuperAdmin", "clinicRoles", "clinicPermissions"]) {
+  ok(
+    stripComments(usersBlock!).includes(`'${field}'`),
+    `users/{userId} no longer refuses self-edits to ${field}. Storing preferences on that ` +
+      `document is only safe while it does.`
+  );
+}
+
+/** The mode list is declared in both files; they have to agree or a stored value stops loading. */
+const editorModes = (text: string) =>
+  [...text.matchAll(/'(modal|drawer|inline)'|"(modal|drawer|inline)"/g)]
+    .map((m) => m[1] ?? m[2])
+    .filter((v, i, all) => all.indexOf(v) === i)
+    .sort();
+assert.deepEqual(
+  editorModes(uiContext.slice(uiContext.indexOf("export type ClinicalEditorMode"), uiContext.indexOf("export type ClinicalEditorMode") + 200)),
+  editorModes(uiPrefs.slice(uiPrefs.indexOf("export type ClinicalEditorMode"), uiPrefs.indexOf("export type ClinicalEditorMode") + 200)),
+  "ClinicalEditorMode is declared in UIContext and again in lib/uiPreferences. They must list the " +
+    "same modes, or a stored preference silently fails validation and resets to the default."
+);
+
 console.log(`settingsRegistry: ${checks} checks passed across ${SETTINGS_SECTIONS.length} sections`);
 console.log(`  settings documents guarded: ${docIds.join(", ")}`);

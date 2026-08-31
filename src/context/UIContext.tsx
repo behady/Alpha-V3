@@ -4,13 +4,18 @@ import React, { createContext, useContext, useState, useCallback, useRef, useEff
 import { X, CheckCircle2, AlertCircle, Info, AlertTriangle, HelpCircle, PenLine } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { openWhatsAppWithText, registerWhatsAppManualHandler } from "@/lib/whatsappManual";
+import { auth } from "@/lib/firebase";
+import {
+  loadRemotePreferences,
+  readLocalPreferences,
+  saveRemotePreferences,
+  writeLocalPreference,
+  type UiPreferences,
+} from "@/lib/uiPreferences";
 import {
   ClinicalNoteDensity,
   ClinicalNoteGrouping,
   ClinicalNoteSort,
-  isClinicalNoteDensity,
-  isClinicalNoteGrouping,
-  isClinicalNoteSort,
 } from "@/components/clinical-notes/ordering";
 
 // --- TYPES ---
@@ -66,11 +71,9 @@ interface PromptOptions extends PromptDialogOptions {
  */
 export type ClinicalEditorMode = 'modal' | 'drawer' | 'inline';
 
-const CLINICAL_EDITOR_MODES: ClinicalEditorMode[] = ['modal', 'drawer', 'inline'];
-
-function isClinicalEditorMode(value: unknown): value is ClinicalEditorMode {
-  return typeof value === 'string' && (CLINICAL_EDITOR_MODES as string[]).includes(value);
-}
+// Validation of every stored preference — including this one — now lives in lib/uiPreferences.ts,
+// beside the two stores it has to defend against. Both are editable by hand, and an unrecognised
+// value used to flow straight into the clinical timeline and render nothing at all.
 
 interface UIContextType {
   showToast: (message: string, type?: ToastType) => void;
@@ -145,106 +148,115 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const [clinicalNoteGrouping, setClinicalNoteGroupingState] = useState<ClinicalNoteGrouping>('flat');
   const [clinicalNoteDensity, setClinicalNoteDensityState] = useState<ClinicalNoteDensity>('detailed');
 
-  // Load editor mode from localStorage
-  useEffect(() => {
-    try {
-      if (typeof window !== "undefined") {
-        const savedMode = localStorage.getItem("alpha_clinical_editor_mode");
-        if (isClinicalEditorMode(savedMode)) {
-          setClinicalEditorModeState(savedMode);
-          setClinicalEditorModeChosen(true);
-        }
-      }
-
-      const savedClinicalMode = localStorage.getItem("clinicalEditorMode");
-      if (isClinicalEditorMode(savedClinicalMode)) {
-        setClinicalEditorModeState(savedClinicalMode);
-        setClinicalEditorModeChosen(true);
-      }
-      
-      const savedApptMode = localStorage.getItem("appointmentEditorMode") as 'modal' | 'drawer';
-      if (savedApptMode) setAppointmentEditorModeState(savedApptMode);
-
-      const savedPanelMode = localStorage.getItem("appointmentPanelMode");
-      if (savedPanelMode === "avatar" || savedPanelMode === "editor") setAppointmentPanelModeState(savedPanelMode);
-
-      const savedApptsVis = localStorage.getItem("appointmentsVisibility") as 'all' | 'desktop' | 'hidden';
-      if (savedApptsVis) setAppointmentsVisibilityState(savedApptsVis);
-
-      const savedTracker = localStorage.getItem("latePatientTrackerEnabled");
-      if (savedTracker !== null) setLatePatientTrackerEnabledState(savedTracker === "true");
-
-      // Validated on read rather than cast: these come from a store the user can edit, and an
-      // unrecognised value would otherwise flow into the timeline and render nothing at all.
-      const savedNoteSort = localStorage.getItem("clinicalNoteSort");
-      if (isClinicalNoteSort(savedNoteSort)) setClinicalNoteSortState(savedNoteSort);
-
-      const savedNoteGrouping = localStorage.getItem("clinicalNoteGrouping");
-      if (isClinicalNoteGrouping(savedNoteGrouping)) setClinicalNoteGroupingState(savedNoteGrouping);
-
-      const savedNoteDensity = localStorage.getItem("clinicalNoteDensity");
-      if (isClinicalNoteDensity(savedNoteDensity)) setClinicalNoteDensityState(savedNoteDensity);
-    } catch (e) {
-      console.error("Could not load UI settings", e);
+  /**
+   * Apply a set of preferences to the eight pieces of state that hold them.
+   *
+   * One place rather than eight, because both stores load through it: the browser cache on mount,
+   * and the person's own record once their session resolves.
+   */
+  const applyPreferences = useCallback((prefs: Partial<UiPreferences>) => {
+    if (prefs.clinicalEditorMode !== undefined) {
+      setClinicalEditorModeState(prefs.clinicalEditorMode);
+      setClinicalEditorModeChosen(true);
     }
+    if (prefs.appointmentEditorMode !== undefined) setAppointmentEditorModeState(prefs.appointmentEditorMode);
+    if (prefs.appointmentPanelMode !== undefined) setAppointmentPanelModeState(prefs.appointmentPanelMode);
+    if (prefs.appointmentsVisibility !== undefined) setAppointmentsVisibilityState(prefs.appointmentsVisibility);
+    if (prefs.latePatientTrackerEnabled !== undefined) setLatePatientTrackerEnabledState(prefs.latePatientTrackerEnabled);
+    if (prefs.clinicalNoteSort !== undefined) setClinicalNoteSortState(prefs.clinicalNoteSort);
+    if (prefs.clinicalNoteGrouping !== undefined) setClinicalNoteGroupingState(prefs.clinicalNoteGrouping);
+    if (prefs.clinicalNoteDensity !== undefined) setClinicalNoteDensityState(prefs.clinicalNoteDensity);
   }, []);
+
+  // The browser's cache first, so the screen paints the layout this person chose rather than the
+  // default and then rearranging itself once the network answers.
+  useEffect(() => {
+    applyPreferences(readLocalPreferences());
+  }, [applyPreferences]);
+
+  /**
+   * Then their own record, which is the truth and follows them between devices.
+   *
+   * Someone who has always used this one browser has preferences here and none stored: the first
+   * load after signing in uploads what it finds, once, so nobody loses a setting to the move and
+   * there is no migration script for anyone to remember.
+   */
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged(async (user) => {
+      if (!user) return;
+      try {
+        const remote = await loadRemotePreferences(user.uid);
+        if (remote && Object.keys(remote).length > 0) {
+          applyPreferences(remote);
+          return;
+        }
+        const local = readLocalPreferences();
+        if (Object.keys(local).length > 0) await saveRemotePreferences(user.uid, local);
+      } catch {
+        /* Offline, or the record is not readable yet. The cached values are already on screen. */
+      }
+    });
+    return () => unsub();
+  }, [applyPreferences]);
+
+  /**
+   * Remember one preference: cached locally for the next load on this machine, and stored on the
+   * person's record so it reaches every other one.
+   *
+   * The stored write is deliberately not awaited. A preference toggle has to feel instant, and a
+   * write that fails leaves the local cache correct until the next sign-in reconciles it.
+   */
+  const rememberPreference = useCallback(
+    <K extends keyof UiPreferences>(key: K, value: UiPreferences[K]) => {
+      writeLocalPreference(key, value);
+      const uid = auth.currentUser?.uid;
+      if (uid) {
+        void saveRemotePreferences(uid, { [key]: value } as Partial<UiPreferences>).catch(() => {});
+      }
+    },
+    []
+  );
 
   const setClinicalEditorMode = useCallback((mode: ClinicalEditorMode) => {
     setClinicalEditorModeState(mode);
     setClinicalEditorModeChosen(true);
-    try {
-      localStorage.setItem("clinicalEditorMode", mode);
-    } catch (e) {}
-  }, []);
+    rememberPreference("clinicalEditorMode", mode);
+  }, [rememberPreference]);
 
   const setAppointmentEditorMode = useCallback((mode: 'modal' | 'drawer') => {
     setAppointmentEditorModeState(mode);
-    try {
-      localStorage.setItem("appointmentEditorMode", mode);
-    } catch (e) {}
-  }, []);
+    rememberPreference("appointmentEditorMode", mode);
+  }, [rememberPreference]);
 
   const setAppointmentPanelMode = useCallback((mode: 'editor' | 'avatar') => {
     setAppointmentPanelModeState(mode);
-    try {
-      localStorage.setItem("appointmentPanelMode", mode);
-    } catch (e) {}
-  }, []);
+    rememberPreference("appointmentPanelMode", mode);
+  }, [rememberPreference]);
 
   const setAppointmentsVisibility = useCallback((visibility: 'all' | 'desktop' | 'hidden') => {
     setAppointmentsVisibilityState(visibility);
-    try {
-      localStorage.setItem("appointmentsVisibility", visibility);
-    } catch (e) {}
-  }, []);
+    rememberPreference("appointmentsVisibility", visibility);
+  }, [rememberPreference]);
 
   const setLatePatientTrackerEnabled = useCallback((enabled: boolean) => {
     setLatePatientTrackerEnabledState(enabled);
-    try {
-      localStorage.setItem("latePatientTrackerEnabled", String(enabled));
-    } catch (e) {}
-  }, []);
+    rememberPreference("latePatientTrackerEnabled", enabled);
+  }, [rememberPreference]);
 
   const setClinicalNoteSort = useCallback((sort: ClinicalNoteSort) => {
     setClinicalNoteSortState(sort);
-    try {
-      localStorage.setItem("clinicalNoteSort", sort);
-    } catch (e) {}
-  }, []);
+    rememberPreference("clinicalNoteSort", sort);
+  }, [rememberPreference]);
 
   const setClinicalNoteGrouping = useCallback((grouping: ClinicalNoteGrouping) => {
     setClinicalNoteGroupingState(grouping);
-    try {
-      localStorage.setItem("clinicalNoteGrouping", grouping);
-    } catch (e) {}
-  }, []);
+    rememberPreference("clinicalNoteGrouping", grouping);
+  }, [rememberPreference]);
 
   const setClinicalNoteDensity = useCallback((density: ClinicalNoteDensity) => {
     setClinicalNoteDensityState(density);
-    try {
-      localStorage.setItem("clinicalNoteDensity", density);
-    } catch (e) {}
-  }, []);
+    rememberPreference("clinicalNoteDensity", density);
+  }, [rememberPreference]);
 
   // --- TOAST LOGIC ---
   const showToast = useCallback((message: string, type: ToastType = "success") => {

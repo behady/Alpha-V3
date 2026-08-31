@@ -26,6 +26,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { getClinicDoc } from "@/lib/db-utils";
 import { logActivity } from "@/lib/logger";
+import { useSettingsDraft } from "@/lib/settingsDraft";
 
 export type ClinicInfoState = Record<string, unknown>;
 
@@ -44,6 +45,8 @@ const EMPTY: ClinicInfoState = {
 };
 
 interface Props {
+  /** Registry id of the section, so unsaved work can be named when someone tries to leave. */
+  sectionId: string;
   /** The only keys this screen may write. Everything else in the document is left alone. */
   fields: string[];
   /** What the activity log should say. */
@@ -62,14 +65,16 @@ interface Props {
      */
     save: (overrides?: Record<string, unknown>) => Promise<void>;
     saving: boolean;
+    /** True while there are edits the person has not saved. */
+    isDirty: boolean;
   }) => React.ReactNode;
 }
 
-export default function ClinicInfoHost({ fields, activityLabel, canEdit, children }: Props) {
+export default function ClinicInfoHost({ sectionId, fields, activityLabel, canEdit, children }: Props) {
   const { language } = useLanguage();
   const { showToast } = useUI();
   const { user } = useAuth();
-  const [clinicData, setClinicData] = useState<ClinicInfoState>(EMPTY);
+  const [stored, setStored] = useState<ClinicInfoState | null>(null);
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -77,16 +82,30 @@ export default function ClinicInfoHost({ fields, activityLabel, canEdit, childre
     const unsub = onSnapshot(
       getClinicDoc("settings", "clinic_info"),
       (snap) => {
-        // Merged over EMPTY rather than replacing state: a document that has never been written
-        // carries none of these keys, and a form bound to `undefined` flips from uncontrolled to
+        // Merged over EMPTY rather than replacing: a document that has never been written carries
+        // none of these keys, and a form bound to `undefined` flips from uncontrolled to
         // controlled on first keystroke and loses what was typed.
-        setClinicData({ ...EMPTY, ...(snap.exists() ? snap.data() : {}) });
+        setStored({ ...EMPTY, ...(snap.exists() ? snap.data() : {}) });
         setLoaded(true);
       },
       () => setLoaded(true)
     );
     return () => unsub();
   }, []);
+
+  /**
+   * Edits live on top of the stored document rather than replacing it.
+   *
+   * The listener above is live, so without this a colleague saving anything on another screen
+   * would overwrite a half-filled form here mid-typing. Until the first keystroke there is no
+   * draft and their change flows straight through, which is what should happen.
+   */
+  const {
+    value: clinicData,
+    setValue: setClinicData,
+    isDirty,
+    markSaved,
+  } = useSettingsDraft<ClinicInfoState>(sectionId, stored, EMPTY);
 
   const save = useCallback(
     async (overrides?: Record<string, unknown>) => {
@@ -107,6 +126,7 @@ export default function ClinicInfoHost({ fields, activityLabel, canEdit, childre
           "Settings Updated",
           activityLabel
         );
+        markSaved();
         showToast(language === "ar" ? "تم الحفظ" : "Saved", "success");
       } catch {
         showToast(language === "ar" ? "فشل الحفظ" : "Save failed", "error");
@@ -114,7 +134,7 @@ export default function ClinicInfoHost({ fields, activityLabel, canEdit, childre
         setSaving(false);
       }
     },
-    [activityLabel, canEdit, clinicData, fields, language, showToast, user]
+    [activityLabel, canEdit, clinicData, fields, language, markSaved, showToast, user]
   );
 
   const handleSaveClinic = useCallback(
@@ -129,7 +149,7 @@ export default function ClinicInfoHost({ fields, activityLabel, canEdit, childre
     return <div className="h-40 rounded-3xl bg-slate-100 animate-pulse" aria-hidden="true" />;
   }
 
-  return <>{children({ clinicData, setClinicData, handleSaveClinic, save, saving })}</>;
+  return <>{children({ clinicData, setClinicData, handleSaveClinic, save, saving, isDirty })}</>;
 }
 
 /**

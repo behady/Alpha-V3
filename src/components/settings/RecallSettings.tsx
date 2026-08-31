@@ -8,6 +8,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { useAuth } from "@/context/AuthContext";
 import { logActivity } from "@/lib/logger";
+import { useSettingsDraft } from "@/lib/settingsDraft";
 
 /**
  * Recall and reactivation intervals.
@@ -21,30 +22,57 @@ import { logActivity } from "@/lib/logger";
 const RECALL_DOC = { collection: "settings", docId: "recall" };
 const REACTIVATION_DOC = { collection: "settings", docId: "reactivation" };
 
+/** Both intervals are edited together and saved together, so they share one draft. */
+type RecallDraft = { recallMonths: string; reactivationMonths: string };
+
+/** Module-level so the fallback keeps its identity between renders. */
+const EMPTY_RECALL_DRAFT: RecallDraft = { recallMonths: "", reactivationMonths: "" };
+
 export default function RecallSettings() {
   const { language } = useLanguage();
   const { showToast } = useUI();
   const { user } = useAuth();
   const isAr = language === "ar";
 
-  const [recallMonths, setRecallMonths] = useState("");
-  const [reactivationMonths, setReactivationMonths] = useState("");
+  const [stored, setStored] = useState<RecallDraft | null>(null);
   const [configured, setConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // Two documents, one screen, one Save — so one draft. Both listeners are live, and without this
+  // an update to either would overwrite a half-typed interval. See lib/settingsDraft.ts.
+  const { value: draft, setValue: setDraft, markSaved } = useSettingsDraft<RecallDraft>(
+    "recall",
+    stored,
+    EMPTY_RECALL_DRAFT
+  );
+  const { recallMonths, reactivationMonths } = draft;
+  const setRecallMonths = (value: string) => setDraft((current) => ({ ...current, recallMonths: value }));
+  const setReactivationMonths = (value: string) =>
+    setDraft((current) => ({ ...current, reactivationMonths: value }));
 
   useEffect(() => {
     const unsubRecall = onSnapshot(getClinicDoc(RECALL_DOC.collection, RECALL_DOC.docId), (snap) => {
       const d = snap.exists() ? snap.data() : null;
       if (d?.intervalMonths) {
-        setRecallMonths(String(d.intervalMonths));
+        setStored((current) => ({
+          ...(current ?? EMPTY_RECALL_DRAFT),
+          recallMonths: String(d.intervalMonths),
+        }));
         setConfigured(true);
+      } else {
+        setStored((current) => current ?? EMPTY_RECALL_DRAFT);
       }
       setLoading(false);
     });
     const unsubReact = onSnapshot(getClinicDoc(REACTIVATION_DOC.collection, REACTIVATION_DOC.docId), (snap) => {
       const d = snap.exists() ? snap.data() : null;
-      if (d?.thresholdDays) setReactivationMonths(String(Math.round(Number(d.thresholdDays) / 30)));
+      if (d?.thresholdDays) {
+        setStored((current) => ({
+          ...(current ?? EMPTY_RECALL_DRAFT),
+          reactivationMonths: String(Math.round(Number(d.thresholdDays) / 30)),
+        }));
+      }
     });
     return () => {
       unsubRecall();
@@ -85,6 +113,7 @@ export default function RecallSettings() {
         `Recall interval set to ${recall} months; reactivation threshold ${reactivation} months.`
       );
       setConfigured(true);
+      markSaved();
       showToast(isAr ? "تم الحفظ" : "Saved", "success");
     } catch {
       showToast(isAr ? "فشل الحفظ" : "Save failed", "error");

@@ -16,6 +16,7 @@ import {
 import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { getClinicDoc } from "@/lib/db-utils";
+import { useSettingsDraft } from "@/lib/settingsDraft";
 import {
   LOCATIONS_DOC,
   makeLocationId,
@@ -30,20 +31,31 @@ import { branchCodeFor, deriveBranchCode } from "@/lib/labCases";
  * The whole layout is saved as one document on demand (the Save button) rather than per keystroke,
  * so half-typed branch names never leak into the booking pickers other staff are using.
  */
+/** Module-level so the fallback keeps its identity between renders. */
+const EMPTY_BRANCHES: ClinicBranch[] = [];
+
 export default function LocationsSettings() {
   const { showToast, confirm } = useUI();
   const { language } = useLanguage();
   const isAr = language === "ar";
 
-  const [branches, setBranches] = useState<ClinicBranch[]>([]);
+  const [stored, setStored] = useState<ClinicBranch[] | null>(null);
   const [newBranchName, setNewBranchName] = useState("");
   const [newRoomNames, setNewRoomNames] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [fetched, setFetched] = useState(false);
 
+  // Branches and rooms are built up over several edits before anyone presses Save, so this is the
+  // screen where losing the lot to a stray click hurt most. See lib/settingsDraft.ts.
+  const { value: branches, setValue: setBranches, markSaved } = useSettingsDraft<ClinicBranch[]>(
+    "locations",
+    stored,
+    EMPTY_BRANCHES
+  );
+
   useEffect(() => {
     getDoc(getClinicDoc("settings", LOCATIONS_DOC)).then((snap) => {
-      setBranches(parseClinicBranches(snap.exists() ? snap.data() : null));
+      setStored(parseClinicBranches(snap.exists() ? snap.data() : null));
       setFetched(true);
     });
   }, []);
@@ -56,6 +68,8 @@ export default function LocationsSettings() {
         { branches, updatedAt: new Date().toISOString() },
         { merge: true }
       );
+      setStored(branches);
+      markSaved();
       showToast(isAr ? "تم الحفظ!" : "Branches saved!", "success");
     } catch {
       showToast(isAr ? "فشل الحفظ" : "Save failed", "error");

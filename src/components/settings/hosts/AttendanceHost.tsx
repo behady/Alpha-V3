@@ -7,6 +7,7 @@ import ClinicInfoHost from "./ClinicInfoHost";
 export default function AttendanceHost({ canEdit }: { canEdit: boolean }) {
   return (
     <ClinicInfoHost
+      sectionId="attendance"
       canEdit={canEdit}
       fields={["attendanceLat", "attendanceLng", "attendanceRadius"]}
       activityLabel="Attendance location was updated from settings."

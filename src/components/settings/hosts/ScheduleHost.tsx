@@ -19,6 +19,7 @@ import ClinicInfoHost, { readSchedule, type ClinicInfoState } from "./ClinicInfo
 export default function ScheduleHost({ canEdit }: { canEdit: boolean }) {
   return (
     <ClinicInfoHost
+      sectionId="clinical"
       canEdit={canEdit}
       fields={["schedule"]}
       activityLabel="Clinic schedule was updated from settings."

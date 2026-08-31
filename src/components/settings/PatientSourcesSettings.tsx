@@ -7,6 +7,7 @@ import { Plus, Trash2, Save, Network, GripVertical } from "lucide-react";
 import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { useSettingsDraft } from "@/lib/settingsDraft";
 
 const DEFAULT_SOURCES = [
   "Walk-in",
@@ -25,16 +26,23 @@ export default function PatientSourcesSettings() {
   const { language } = useLanguage();
   const isAr = language === "ar";
 
-  const [sources, setSources] = useState<string[]>(DEFAULT_SOURCES);
+  const [stored, setStored] = useState<string[] | null>(null);
   const [newSource, setNewSource] = useState("");
   const [loading, setLoading] = useState(false);
   const [fetched, setFetched] = useState(false);
 
+  // Edits sit on top of what is stored, so leaving with a source half-typed asks first instead of
+  // discarding it. See lib/settingsDraft.ts.
+  const { value: sources, setValue: setSources, markSaved } = useSettingsDraft<string[]>(
+    "sources",
+    stored,
+    DEFAULT_SOURCES
+  );
+
   useEffect(() => {
     getDoc(getClinicDoc("settings", PATIENT_SOURCES_DOC)).then((snap) => {
-      if (snap.exists() && Array.isArray(snap.data().sources)) {
-        setSources(snap.data().sources);
-      }
+      const saved = snap.exists() ? snap.data().sources : null;
+      setStored(Array.isArray(saved) ? saved : DEFAULT_SOURCES);
       setFetched(true);
     });
   }, []);
@@ -47,6 +55,8 @@ export default function PatientSourcesSettings() {
         { sources },
         { merge: true }
       );
+      setStored(sources);
+      markSaved();
       showToast(isAr ? "تم الحفظ!" : "Sources saved!", "success");
     } catch {
       showToast(isAr ? "فشل الحفظ" : "Save failed", "error");

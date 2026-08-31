@@ -67,6 +67,13 @@ export type SettingsTarget =
    */
   | { kind: "rootCollection"; name: string }
   | { kind: "selfStaffRow" }
+  /**
+   * One field on the signed-in person's own `users/{uid}` document. firestore.rules lets someone
+   * write their own record apart from `isSuperAdmin`, `clinicRoles` and `clinicPermissions`, so
+   * this needs no rules change — unlike the staff row, whose self-edit carve-out names six fields
+   * and would have to be widened.
+   */
+  | { kind: "userRecord"; field: string }
   | { kind: "server"; route: string; guardedBy: string }
   | { kind: "device"; note: string }
   | { kind: "readOnly"; reads: string };
@@ -129,15 +136,11 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     group: "personal",
     labelEn: "Interface",
     labelAr: "واجهة الاستخدام",
-    writes: [
-      {
-        kind: "device",
-        note:
-          "All nine preferences live in localStorage (context/UIContext.tsx). They do not follow " +
-          "the person to another browser or phone, and nothing on screen says so. Phase 3 decides " +
-          "which of these are genuinely per-device and moves the rest onto the staff record.",
-      },
-    ],
+    // Stored on the person's own record since Phase 3, not in the browser. They lived in
+    // localStorage and nowhere else, so setting the app up the way you like it on the desk
+    // computer got you the defaults on a tablet, with nothing on screen to explain why. The
+    // browser copy is kept as a cache so the first paint is not the default layout.
+    writes: [{ kind: "userRecord", field: "uiPreferences" }],
     view: MEMBER,
     edit: MEMBER,
   },
