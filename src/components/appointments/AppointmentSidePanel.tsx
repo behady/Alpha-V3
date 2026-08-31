@@ -784,7 +784,7 @@ export default function AppointmentSidePanel({
                                     <button
                                       disabled={inlinePayLoading || !selectedProcedure || !inlinePayAmount}
                                       onClick={handleInlinePayment}
-                                      className="bg-ink-slab hover:bg-slate-800 text-white font-bold h-[38px] px-4 rounded-lg flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+                                      className="bg-accent hover:bg-accent-strong text-ink-on-accent font-bold h-[38px] px-4 rounded-lg flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
                                     >
                                     {inlinePayLoading ? <Loader2 size={16} className="animate-spin"/> : <Check size={16}/>}
                                     {language === 'ar' ? 'تأكيد' : 'Confirm'}

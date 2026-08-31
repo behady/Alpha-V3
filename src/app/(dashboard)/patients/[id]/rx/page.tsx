@@ -296,7 +296,7 @@ function PrescriptionStudio() {
                 type="button"
                 onClick={handlePrint}
                 disabled={isPrinting || rxItems.length === 0}
-                className="flex-1 md:flex-none bg-slate-900 text-white hover:bg-slate-800 px-5 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:opacity-50"
+                className="flex-1 md:flex-none bg-accent text-ink-on-accent hover:bg-accent-strong px-5 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:opacity-50"
              >
                 {isPrinting ? <Loader2 size={18} className="animate-spin"/> : <Printer size={18}/>}
                 Print
@@ -374,7 +374,7 @@ function PrescriptionStudio() {
                   </div>
                </div>
 
-               <button data-tour="rx-add-drug" onClick={addDrugToRx} disabled={!customDrugName.trim()} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black text-sm shadow-md mt-2 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:active:scale-100">
+               <button data-tour="rx-add-drug" onClick={addDrugToRx} disabled={!customDrugName.trim()} className="w-full bg-accent text-ink-on-accent py-4 rounded-xl font-black text-sm shadow-md mt-2 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:active:scale-100">
                   <Plus size={18}/> Add to Prescription
                </button>
             </div>

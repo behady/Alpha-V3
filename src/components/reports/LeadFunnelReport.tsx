@@ -416,7 +416,7 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
             <button
               onClick={handlePdfExport}
               disabled={exporting}
-              className="px-4 py-2 bg-slate-800 text-white text-sm font-bold rounded-xl hover:bg-slate-900 transition-colors flex items-center gap-2 disabled:opacity-50"
+              className="px-4 py-2 bg-slate-800 text-ink-on-accent text-sm font-bold rounded-xl hover:bg-accent transition-colors flex items-center gap-2 disabled:opacity-50"
             >
               <Download size={16} />
               {exporting ? (isAr ? "جاري التصدير..." : "Exporting...") : "PDF"}

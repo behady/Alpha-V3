@@ -341,7 +341,7 @@ export default function ClinicProfileSettingsPage() {
             <button
               type="submit"
               disabled={saving || uploadingLogo}
-              className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-8 py-3.5 text-xs font-semibold uppercase tracking-[0.15em] text-white shadow-lg shadow-slate-900/15 transition hover:bg-black disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-2xl bg-accent px-8 py-3.5 text-xs font-semibold uppercase tracking-[0.15em] text-ink-on-accent shadow-lg shadow-accent/15 transition hover:bg-black disabled:opacity-50"
             >
               {saving || uploadingLogo ? (
                 <Loader2 size={16} className="animate-spin" />

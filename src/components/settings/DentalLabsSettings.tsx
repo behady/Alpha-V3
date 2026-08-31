@@ -167,7 +167,7 @@ export default function DentalLabsSettings() {
         <button
           onClick={handleSave}
           disabled={saving}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-black uppercase tracking-wide shadow-md hover:bg-slate-700 disabled:opacity-50 transition-all shrink-0"
+          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-accent text-ink-on-accent text-xs font-black uppercase tracking-wide shadow-md hover:bg-accent-strong disabled:opacity-50 transition-all shrink-0"
         >
           {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
           {isAr ? "حفظ" : "Save"}

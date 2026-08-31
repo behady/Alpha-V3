@@ -314,7 +314,7 @@ export default function LoginPage() {
             <button 
               type="submit"
               disabled={loading}
-              className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:bg-slate-800 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-2"
+              className="w-full bg-accent text-ink-on-accent py-4 rounded-2xl font-black text-sm shadow-xl shadow-accent/20 hover:bg-accent-strong hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-2"
             >
               {loading ? <Loader2 size={20} className="animate-spin" /> : <KeyRound size={18} />}
               {txt.resetBtn}
@@ -460,7 +460,7 @@ export default function LoginPage() {
             <button 
               type="submit"
               disabled={loading}
-              className="w-full bg-slate-900 text-white py-4 rounded-2xl font-black text-sm shadow-xl shadow-slate-900/20 hover:bg-slate-800 hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-2 mt-2"
+              className="w-full bg-accent text-ink-on-accent py-4 rounded-2xl font-black text-sm shadow-xl shadow-accent/20 hover:bg-accent-strong hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-2 mt-2"
             >
               {loading ? <Loader2 size={20} className="animate-spin" /> : <>{txt.loginBtn} {isRTL ? <ArrowRight size={18} className="rotate-180" /> : <ArrowRight size={18} />}</>}
             </button>

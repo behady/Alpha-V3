@@ -412,7 +412,7 @@ export default function DesignStudio({
             <button
               onClick={download}
               disabled={exporting || !headline.trim()}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-slate-900 hover:bg-emerald-600 text-white font-black text-sm transition-colors disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-accent hover:bg-emerald-600 text-ink-on-accent font-black text-sm transition-colors disabled:opacity-50"
             >
               {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
               {exporting ? (isAr ? "جارٍ التصدير…" : "Exporting…") : isAr ? "تحميل الصورة (PNG)" : "Download image (PNG)"}

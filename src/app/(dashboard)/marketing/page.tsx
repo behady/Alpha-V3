@@ -1693,7 +1693,7 @@ export default function MarketingPage() {
               <button
                 onClick={runGenerate}
                 disabled={generating}
-                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-slate-900 hover:bg-emerald-600 text-white font-black text-sm transition-colors disabled:opacity-60"
+                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-accent hover:bg-emerald-600 text-ink-on-accent font-black text-sm transition-colors disabled:opacity-60"
               >
                 {generating ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
                 {generating
@@ -1822,7 +1822,7 @@ export default function MarketingPage() {
                     <button
                       onClick={writeCampaignMessage}
                       disabled={campAiBusy}
-                      className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-emerald-600 text-white text-xs font-black transition-colors disabled:opacity-60"
+                      className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-accent hover:bg-emerald-600 text-ink-on-accent text-xs font-black transition-colors disabled:opacity-60"
                     >
                       {campAiBusy ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
                       {isAr ? `اكتبها بالذكاء الاصطناعي (${MARKETING_CREDIT_COST.single} رصيد)` : `AI write it (${MARKETING_CREDIT_COST.single} credit)`}
@@ -2432,7 +2432,7 @@ export default function MarketingPage() {
                           </button>
                           <button
                             onClick={printReferralCard}
-                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-700 text-white text-xs font-black transition-colors"
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-accent hover:bg-accent-strong text-ink-on-accent text-xs font-black transition-colors"
                           >
                             <Printer size={13} /> {isAr ? "طباعة الكارت" : "Print card"}
                           </button>

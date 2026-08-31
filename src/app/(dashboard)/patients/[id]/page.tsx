@@ -2140,7 +2140,7 @@ export default function PatientProfile() {
                              {isDeleting ? <Loader2 size={20} className="animate-spin" /> : <Trash2 size={20} />}
                          </button>
                        </Protect>
-                       <button type="submit" className="flex-1 bg-slate-900 text-white py-4 rounded-2xl font-black text-sm shadow-lg hover:shadow-xl hover:-translate-y-0.5 active:scale-95 transition-all hover:bg-slate-800">
+                       <button type="submit" className="flex-1 bg-accent text-ink-on-accent py-4 rounded-2xl font-black text-sm shadow-lg hover:shadow-xl hover:-translate-y-0.5 active:scale-95 transition-all hover:bg-accent-strong">
                           {t('updateProfile') || "Save Changes"}
                        </button>
                     </div>

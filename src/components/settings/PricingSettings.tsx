@@ -251,7 +251,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
           </div>
           <button
             data-tour="price-add-service" onClick={openAdd}
-            className="bg-slate-900 text-white px-6 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-slate-800 transition-all shadow-md shrink-0 active:scale-95"
+            className="bg-accent text-ink-on-accent px-6 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-accent-strong transition-all shadow-md shrink-0 active:scale-95"
           >
             <Plus size={18} /> {txt.addTreatment}
           </button>
@@ -573,7 +573,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
 
               <button
                 type="submit" data-tour="price-service-save"
-                className="w-full bg-slate-900 text-white py-3.5 rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all flex items-center justify-center gap-2"
+                className="w-full bg-accent text-ink-on-accent py-3.5 rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all flex items-center justify-center gap-2"
               >
                 <Save size={16} /> {editingService ? txt.update : txt.save}
               </button>

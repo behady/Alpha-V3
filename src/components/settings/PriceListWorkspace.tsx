@@ -283,7 +283,7 @@ export default function PriceListWorkspace({
               type="button"
               onClick={save}
               disabled={saving || changed.length === 0}
-              className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-bold text-white shadow-md transition hover:bg-slate-800 disabled:opacity-40"
+              className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-bold text-ink-on-accent shadow-md transition hover:bg-accent-strong disabled:opacity-40"
             >
               {saving ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
               {changed.length > 0 ? txt.saveCount(changed.length) : txt.noChanges}

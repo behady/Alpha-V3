@@ -78,7 +78,7 @@ export default function NotificationSettings({ clinicData, setClinicData, handle
         </div>
         <button
           type="submit"
-          className="bg-slate-900 text-white px-8 py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:bg-slate-800 transition-all shadow-lg active:scale-95 shrink-0"
+          className="bg-accent text-ink-on-accent px-8 py-3.5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 hover:bg-accent-strong transition-all shadow-lg active:scale-95 shrink-0"
         >
           <Save size={18} /> {txt.save}
         </button>

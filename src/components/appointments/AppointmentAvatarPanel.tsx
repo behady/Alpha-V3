@@ -849,7 +849,7 @@ export default function AppointmentAvatarPanel({
             {onSwitchToEditor && (
               <button
                 onClick={onSwitchToEditor}
-                className="mt-6 text-xs font-bold text-white bg-ink-slab hover:bg-slate-800 px-4 py-2.5 rounded-xl flex items-center gap-1.5 transition-colors shadow-md"
+                className="mt-6 text-xs font-bold text-ink-on-accent bg-accent hover:bg-accent-strong px-4 py-2.5 rounded-xl flex items-center gap-1.5 transition-colors shadow-md"
               >
                 <PencilLine size={14} /> {isAr ? "افتح المحرر" : "Open the editor"}
               </button>

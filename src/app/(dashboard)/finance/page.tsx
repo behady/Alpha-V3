@@ -905,7 +905,7 @@ export default function FinancePage() {
                     type="button"
                     onClick={openPdfModal}
                     disabled={isLoading}
-                    className="flex-1 sm:flex-none inline-flex justify-center items-center gap-2 bg-slate-900 text-white hover:bg-slate-700 px-4 py-2.5 rounded-xl font-bold text-xs border border-slate-800 disabled:opacity-50 transition-colors shadow-md"
+                    className="flex-1 sm:flex-none inline-flex justify-center items-center gap-2 bg-accent text-ink-on-accent hover:bg-accent-strong px-4 py-2.5 rounded-xl font-bold text-xs border border-slate-800 disabled:opacity-50 transition-colors shadow-md"
                   >
                     <FileText size={16} />
                     {language === "ar" ? "تقرير PDF" : "PDF Report"}
@@ -1350,7 +1350,7 @@ export default function FinancePage() {
                           </select>
                        </div>
                     </div>
-                    <button data-tour="finance-expense-save" type="submit" className="w-full py-3 bg-slate-900 text-white rounded-lg font-bold text-xs hover:bg-slate-800 active:scale-95 shadow-sm mt-2 flex justify-center items-center gap-1.5"><Save size={14}/> {t('save')}</button>
+                    <button data-tour="finance-expense-save" type="submit" className="w-full py-3 bg-accent text-ink-on-accent rounded-lg font-bold text-xs hover:bg-accent-strong active:scale-95 shadow-sm mt-2 flex justify-center items-center gap-1.5"><Save size={14}/> {t('save')}</button>
                  </form>
               </div>
             </div>

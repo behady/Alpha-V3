@@ -60,7 +60,7 @@ export default function PrescriptionSettings() {
                     <p className="text-sm font-semibold text-ink-muted mt-1">{txt.drugDbSub}</p>
                 </div>
             </div>
-            <button onClick={openDrugModal} className="flex items-center gap-2 rounded-2xl bg-ink-slab px-5 py-3 text-sm font-bold text-white transition-all active:scale-95">
+            <button onClick={openDrugModal} className="flex items-center gap-2 rounded-2xl bg-accent px-5 py-3 text-sm font-bold text-ink-on-accent transition-all active:scale-95">
                 <Plus size={20}/> {txt.addDrug}
             </button>
         </div>
@@ -98,7 +98,7 @@ export default function PrescriptionSettings() {
                     </div>
 
                     <div className="flex gap-3 pt-4">
-                      <button type="submit" className="w-full bg-slate-900 text-white py-3.5 rounded-xl font-bold text-sm shadow-md hover:bg-slate-800 active:scale-95 transition-all flex items-center justify-center gap-2"><Save size={16} /> {language === 'ar' ? "حفظ كاختصار" : "Save Shortcut"}</button>
+                      <button type="submit" className="w-full bg-accent text-ink-on-accent py-3.5 rounded-xl font-bold text-sm shadow-md hover:bg-accent-strong active:scale-95 transition-all flex items-center justify-center gap-2"><Save size={16} /> {language === 'ar' ? "حفظ كاختصار" : "Save Shortcut"}</button>
                     </div>
                 </form>
               </div>

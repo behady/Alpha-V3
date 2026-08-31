@@ -427,7 +427,7 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
         <button
           type="button"
           onClick={openAddUser}
-          className="w-full sm:w-auto bg-slate-900 text-white px-6 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg hover:bg-slate-800 active:scale-95 transition-all shrink-0"
+          className="w-full sm:w-auto bg-accent text-ink-on-accent px-6 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg hover:bg-accent-strong active:scale-95 transition-all shrink-0"
         >
           <Plus size={18} /> {txt.addBtn}
         </button>
@@ -656,7 +656,7 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
               <button
                 type="submit"
                 disabled={isResetting || newPassword.length < 6}
-                className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold text-sm shadow-md mt-6 active:scale-95 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+                className="w-full bg-accent text-ink-on-accent py-4 rounded-xl font-bold text-sm shadow-md mt-6 active:scale-95 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
               >
                 {isResetting ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
                 {isAr ? "حفظ وتحديث النظام" : "Force Update System"}

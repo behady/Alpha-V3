@@ -1437,7 +1437,7 @@ export default function WhatsAppSettings() {
             type="button"
             onClick={handleSaveTemplate}
             disabled={saving}
-            className="inline-flex items-center justify-center gap-2 w-full sm:w-auto px-5 py-3 rounded-xl bg-slate-900 text-white text-xs font-black uppercase tracking-widest hover:bg-slate-800 disabled:opacity-50 transition-all"
+            className="inline-flex items-center justify-center gap-2 w-full sm:w-auto px-5 py-3 rounded-xl bg-accent text-ink-on-accent text-xs font-black uppercase tracking-widest hover:bg-accent-strong disabled:opacity-50 transition-all"
           >
             <Save size={16} />
             {txt.saveTemplate}

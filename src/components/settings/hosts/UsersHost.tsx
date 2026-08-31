@@ -240,7 +240,7 @@ export default function UsersHost() {
               <button
                 type="submit"
                 disabled={saving}
-                className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold text-sm shadow-md mt-6 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+                className="w-full bg-accent text-ink-on-accent py-4 rounded-xl font-bold text-sm shadow-md mt-6 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-60"
               >
                 <Save size={18} /> {txt.submit}
               </button>

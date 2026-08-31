@@ -367,7 +367,7 @@ export default function OnlineBookingPage() {
                 <button
                   type="submit"
                   disabled={!selectedTime}
-                  className="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 rounded-xl mt-6 flex justify-center items-center gap-2 disabled:opacity-50 transition-all"
+                  className="w-full bg-accent hover:bg-accent-strong text-ink-on-accent font-bold py-4 rounded-xl mt-6 flex justify-center items-center gap-2 disabled:opacity-50 transition-all"
                 >
                   <ChevronLeft size={18} /> الخطوة الجاية
                 </button>

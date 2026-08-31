@@ -729,7 +729,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                 type="button"
                 onClick={addList}
                 disabled={saving || !newListName.trim()}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3.5 text-sm font-bold text-white shadow-md transition-all active:scale-95 disabled:opacity-40"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-3.5 text-sm font-bold text-ink-on-accent shadow-md transition-all active:scale-95 disabled:opacity-40"
               >
                 {saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} {txt.create}
               </button>

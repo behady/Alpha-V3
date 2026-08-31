@@ -289,7 +289,7 @@ export default function LabTrackingPage() {
                 <button
                   onClick={openNew}
                   data-tour="lab-new-order"
-                  className="inline-flex justify-center items-center gap-2 bg-slate-900 text-white hover:bg-slate-700 px-5 py-3 rounded-xl font-black text-xs uppercase tracking-wide shadow-md transition-colors"
+                  className="inline-flex justify-center items-center gap-2 bg-accent text-ink-on-accent hover:bg-accent-strong px-5 py-3 rounded-xl font-black text-xs uppercase tracking-wide shadow-md transition-colors"
                 >
                   <Plus size={16} /> {isAr ? "أمر معمل جديد" : "New lab order"}
                 </button>

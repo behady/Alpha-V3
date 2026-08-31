@@ -58,7 +58,7 @@ export default function AttendanceSettings({ clinicData, setClinicData, handleSa
       </div>
       
       <div className={`flex ${isRTL ? 'justify-start' : 'justify-end'} pt-4`}>
-          <button type="submit" className="bg-slate-900 text-white px-10 py-4 rounded-2xl font-bold text-sm flex items-center gap-2 hover:bg-slate-800 transition-all shadow-lg active:scale-95"><Save size={20}/> {txt.saveGeofence}</button>
+          <button type="submit" className="bg-accent text-ink-on-accent px-10 py-4 rounded-2xl font-bold text-sm flex items-center gap-2 hover:bg-accent-strong transition-all shadow-lg active:scale-95"><Save size={20}/> {txt.saveGeofence}</button>
       </div>
     </form>
   );
