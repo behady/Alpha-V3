@@ -362,23 +362,18 @@ for (const tab of FROZEN_TAB_IDS) {
   );
 }
 
-// (b) While the old page still exists, it must not grow a tab the registry has not heard of.
-//     This retires itself when Phase 1 deletes the file.
-const legacyPage = join(REPO, "src/app/(dashboard)/settings/page.tsx");
-if (existsSync(legacyPage)) {
-  const source = readFileSync(legacyPage, "utf8");
-  const tabsArray = source.slice(source.indexOf("const tabs = ["));
-  const live = [...tabsArray.slice(0, tabsArray.indexOf("\n  ];")).matchAll(/\{\s*id:\s*"([a-z_]+)"/g)]
-    .map((m) => m[1]);
-  ok(live.length > 0, "could not read the tabs array out of the legacy settings page");
-  for (const tab of live) {
-    ok(
-      SETTINGS_SECTIONS.some((s) => s.id === tab),
-      `the legacy settings page has a tab "${tab}" that is not in the registry — it will be ` +
-        `dropped by the rebuild without anyone noticing`
-    );
-  }
-}
+// (b) /settings must keep translating those ids, now that it is a redirect rather than the screen
+//     itself. Without this, the frozen list above still passes while every old link dead-ends.
+const indexPage = readFileSync(join(REPO, "src/app/(dashboard)/settings/page.tsx"), "utf8");
+ok(
+  /location\.search|useSearchParams/.test(indexPage) && /"tab"/.test(indexPage),
+  "/settings no longer reads ?tab= — every link that used it is now a dead end"
+);
+ok(
+  /router\.replace\(/.test(indexPage),
+  "/settings should redirect with replace(), not push(): with push() the back button lands the " +
+    "visitor on the redirect again and they cannot get out"
+);
 
 // (c) The tutorial's pulsing ring attaches to these exact strings. Renaming one leaves the
 //     walkthrough highlighting nothing, mid-lesson, with no error.
@@ -484,6 +479,114 @@ if (docIds.includes("clinicProfile") && docIds.includes("clinic_info")) {
     profile.writes.filter((t) => t.kind === "settingsDoc").length === 2,
     "the clinic profile section must declare BOTH documents while the duplication exists — " +
       "declaring one hides the fact that a save writes the other too"
+  );
+}
+
+// --- 8. Phase 1 wiring: every section resolves to a real screen ---------------------------------
+//
+// The shell renders whatever the registry lists, so a section with no panel is a blank page and a
+// panel with no section is dead code nobody can reach. Read as text rather than imported: panels
+// pulls in next/dynamic and an icon library, neither of which loads under a plain node test.
+
+const panelsSource = readFileSync(join(REPO, "src/components/settings/panels.tsx"), "utf8");
+const panelBlock = panelsSource.slice(
+  panelsSource.indexOf("SETTINGS_PANELS"),
+  panelsSource.indexOf("SECTIONS_WITHOUT_PANELS")
+);
+const panelEntries = [...panelBlock.matchAll(/^\s{2}([a-z_]+):\s*(.+)$/gm)].map((m) => ({
+  id: m[1],
+  loader: m[2],
+}));
+const panelIds = new Set(panelEntries.map((entry) => entry.id));
+ok(panelIds.size > 0, "could not read SETTINGS_PANELS out of panels.tsx");
+
+// Sections that deliberately have no panel because they own a route of their own.
+const standalone = new Set(
+  [...panelsSource
+    .slice(panelsSource.indexOf("SECTIONS_WITHOUT_PANELS"))
+    .matchAll(/"([a-z_]+)"/g)].map((m) => m[1])
+);
+
+for (const section of SETTINGS_SECTIONS) {
+  if (standalone.has(section.id)) {
+    // It must then actually have a page file, or the sidebar links into nothing.
+    const segment = section.route.replace("/settings/", "");
+    ok(
+      existsSync(join(REPO, "src/app/(dashboard)/settings", segment, "page.tsx")),
+      `"${section.id}" is listed as having its own route, but ` +
+        `src/app/(dashboard)/settings/${segment}/page.tsx does not exist`
+    );
+  } else {
+    ok(
+      panelIds.has(section.id),
+      `"${section.id}" is in the registry with no panel in panels.tsx — the sidebar would link ` +
+        `to a blank screen`
+    );
+  }
+}
+
+for (const id of panelIds) {
+  ok(
+    SETTINGS_SECTIONS.some((s) => s.id === id),
+    `panels.tsx renders "${id}", which is in no group and no menu — nobody can reach it`
+  );
+}
+
+// Every panel must be lazily loaded. One eager import re-creates finding 10: opening Theme used
+// to download the WhatsApp panel, the SMS panel and the whole price-list editor to change a colour.
+for (const entry of panelEntries) {
+  if (!entry.loader.startsWith("panel(")) {
+    assert.fail(
+      `panels.tsx loads "${entry.id}" eagerly. Every entry must go through panel(), or its code ` +
+        `ships to everyone who opens any settings screen — which is the whole of finding 10.`
+    );
+  }
+}
+
+// --- 9. The shell's own files ------------------------------------------------------------------
+
+for (const file of [
+  "src/app/(dashboard)/settings/layout.tsx",
+  "src/app/(dashboard)/settings/page.tsx",
+  "src/app/(dashboard)/settings/[section]/page.tsx",
+  "src/lib/settingsAccess.ts",
+  "src/context/UnsavedChangesContext.tsx",
+]) {
+  ok(existsSync(join(REPO, file)), `Phase 1 shell is missing ${file}`);
+}
+
+// The dynamic route handles ONE segment, so a two-segment route would 404 with no warning.
+for (const section of SETTINGS_SECTIONS) {
+  const segment = section.route.replace("/settings/", "");
+  ok(
+    segment.length > 0 && !segment.includes("/"),
+    `"${section.id}" has route "${section.route}"; the shell serves a single segment under ` +
+      `/settings/, so this would never resolve`
+  );
+}
+
+// --- 10. Access decisions run through one function ----------------------------------------------
+//
+// The old screen re-implemented its gate inline in four places and they disagreed. Anything under
+// the settings tree that reaches for a raw role check instead of settingsAccess is that starting
+// again.
+
+const shellFiles = [
+  "src/app/(dashboard)/settings/layout.tsx",
+  "src/app/(dashboard)/settings/[section]/page.tsx",
+  "src/app/(dashboard)/settings/clinic/page.tsx",
+];
+for (const file of shellFiles) {
+  const text = readFileSync(join(REPO, file), "utf8");
+  ok(
+    /settingsAccess/.test(text),
+    `${file} decides what to show without asking settingsAccess — that is how the sidebar and ` +
+      `the database drifted apart the first time`
+  );
+  ok(
+    !/permissions\?\.includes\(/.test(text),
+    `${file} checks a permission array by hand. Use canViewSection / canEditSection so every ` +
+      `screen answers the question the same way.`
   );
 }
 

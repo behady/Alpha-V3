@@ -1,11 +1,8 @@
 "use client";
-import { useClinic } from "@/context/ClinicContext";
 import { clinicLogoPath } from "@/lib/storagePaths";
 
-import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ArrowLeft,
   Building2,
   Phone,
   MapPin,
@@ -21,7 +18,10 @@ import { auth, db, storage } from "@/lib/firebase";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext";
-import PermissionGuard from "@/components/PermissionGuard";
+import { useClinic } from "@/context/ClinicContext";
+import { useDirtyFlag } from "@/context/UnsavedChangesContext";
+import { getSection } from "@/config/settingsRegistry";
+import { canEditSection, canViewSection, denialMessage } from "@/lib/settingsAccess";
 import { logActivity } from "@/lib/logger";
 import {
   CLINIC_PROFILE_DOC,
@@ -37,13 +37,38 @@ export default function ClinicProfileSettingsPage() {
   const { language, isRTL } = useLanguage();
   const { user } = useAuth();
   const { showToast } = useUI();
-  const { clinicId } = useClinic();
+  const { clinicId, isAdmin, isReadOnly } = useClinic();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [form, setForm] = useState<ClinicProfile>(() => EMPTY_CLINIC_PROFILE);
   const [logoFile, setLogoFile] = useState<File | null>(null);
+  /** What is currently stored. Anything that differs from it is unsaved work. */
+  const [saved, setSaved] = useState<ClinicProfile>(() => EMPTY_CLINIC_PROFILE);
+
+  /**
+   * The same access decision the sidebar and every other section use.
+   *
+   * This page used to guard on `access.settings`, which firestore.rules accepts for nothing it
+   * writes — `settings/clinicProfile` and `settings/clinic_info` are both settings documents, and
+   * those are Admin-only. So a non-admin granted that permission could open this form, fill it
+   * in, upload a logo, and have the save rejected. It reads and saves as an admin decision now,
+   * which is what the database has enforced all along.
+   */
+  const section = getSection("clinic_profile")!;
+  const viewer = useMemo(
+    () => ({ isAdmin, isReadOnly, role: user?.role, permissions: user?.permissions }),
+    [isAdmin, isReadOnly, user?.role, user?.permissions]
+  );
+  const view = canViewSection(section, viewer);
+  const edit = canEditSection(section, viewer);
+
+  // Unsaved logo counts too: the file is picked here and only uploaded on save.
+  useDirtyFlag(
+    "clinic_profile",
+    !loading && (logoFile !== null || JSON.stringify(form) !== JSON.stringify(saved))
+  );
 
   const txt = {
     back: language === "ar" ? "الإعدادات" : "Settings",
@@ -80,7 +105,10 @@ export default function ClinicProfileSettingsPage() {
     void (async () => {
       try {
         const data = await getClinicProfile(db);
-        if (!cancelled && data) setForm(data);
+        if (!cancelled && data) {
+          setForm(data);
+          setSaved(data);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -168,7 +196,9 @@ export default function ClinicProfileSettingsPage() {
       // on every print — drop it here so a replaced logo shows up without a page reload.
       clearClinicLogoCache();
 
-      setForm((prev) => sanitizeClinicProfile({ ...prev, logoUrl }));
+      const stored = sanitizeClinicProfile({ ...form, logoUrl });
+      setForm(stored);
+      setSaved(stored);
       setLogoFile(null);
       showToast(txt.saved, "success");
     } catch (err) {
@@ -187,31 +217,34 @@ export default function ClinicProfileSettingsPage() {
     );
   }
 
-  return (
-    <PermissionGuard permission="access.settings">
-      <div
-        className="max-w-3xl mx-auto px-4 md:px-8 py-10 animate-in fade-in duration-300"
-        dir={isRTL ? "rtl" : "ltr"}
-      >
-        <Link
-          href="/settings"
-          className="inline-flex items-center gap-2 text-xs font-bold text-slate-500 hover:text-slate-900 mb-8 transition-colors"
-        >
-          <ArrowLeft size={14} className={isRTL ? "rotate-180" : ""} />
-          {txt.back}
-        </Link>
+  if (!view.allowed) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center animate-in fade-in">
+        <span className="mb-6 flex h-20 w-20 items-center justify-center rounded-[1.75rem] bg-slate-100 text-slate-400">
+          <Building2 size={34} strokeWidth={1.5} />
+        </span>
+        <h2 className="mb-2 text-2xl font-black tracking-tight text-slate-900">
+          {language === "ar" ? "هذا القسم مقفل" : "This section is locked"}
+        </h2>
+        <p className="max-w-md text-sm font-semibold text-slate-500">
+          {denialMessage(view, language)}
+        </p>
+      </div>
+    );
+  }
 
-        <header className="mb-10 space-y-2">
-          <div className="flex items-center gap-3">
-            <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-900 text-white shadow-lg shadow-slate-900/10">
-              <Building2 size={22} strokeWidth={1.5} />
-            </span>
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{txt.title}</h1>
-              <p className="text-sm text-slate-500 mt-1 font-medium leading-relaxed">{txt.subtitle}</p>
-            </div>
-          </div>
-        </header>
+  return (
+    <>
+      <div className="max-w-3xl animate-in fade-in duration-300" dir={isRTL ? "rtl" : "ltr"}>
+        <p className="mb-8 max-w-xl text-sm font-medium leading-relaxed text-slate-500">
+          {txt.subtitle}
+        </p>
+
+        {!edit.allowed && (
+          <p className="mb-8 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm font-semibold text-slate-600">
+            {denialMessage(edit, language)}
+          </p>
+        )}
 
         <form onSubmit={(e) => void handleSubmit(e)} className="space-y-8">
           <div className="rounded-3xl border border-slate-200/80 bg-white p-8 shadow-[0_2px_40px_-12px_rgba(15,23,42,0.08)] space-y-6">
@@ -325,6 +358,6 @@ export default function ClinicProfileSettingsPage() {
           </div>
         </form>
       </div>
-    </PermissionGuard>
+    </>
   );
 }
