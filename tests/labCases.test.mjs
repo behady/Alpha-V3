@@ -34,6 +34,13 @@ import {
   serializeDentalLabs,
 } from "../src/lib/dentalLabs.ts";
 import { buildLabOrderSrcDoc } from "../src/lib/labOrderHtml.ts";
+import { buildLabStatementSrcDoc } from "../src/lib/labStatementHtml.ts";
+import {
+  buildStatement,
+  isBillable,
+  labAccountFor,
+  labAccountsTotal,
+} from "../src/lib/labAccounts.ts";
 import { parseClinicBranches } from "../src/lib/clinicLocations.ts";
 
 // --- branch codes --------------------------------------------------------------------------------
@@ -469,3 +476,112 @@ assert.ok(buildLabOrderSrcDoc(general, clinic, "", noLogo, "en", "a4_full").incl
 console.log(
   "✓ lab cases: codes, bag-number search, teeth, 12 work types, 20 VITA shades, stages, due dates, board counts, labs directory, per-lab price lists, and the printed order in 3 paper sizes"
 );
+
+// --- lab accounts: what the clinic owes ----------------------------------------------------------
+//
+// The single rule this section exists to protect: a lab payment is NOT a new expense. The lab fee
+// was booked against profit the moment the treatment was saved, so paying the lab settles a debt
+// already recorded. Nothing here touches the ledger, and if that ever changes these totals will be
+// the only place the double-count is visible.
+
+const acctCases = [
+  // Delivered: you have the work, so you owe for it.
+  { id: "1", labId: "L1", status: "back", agreedPrice: 600 },
+  { id: "2", labId: "L1", status: "fitted", agreedPrice: 750 },
+  // Still out: committed, not yet a debt.
+  { id: "3", labId: "L1", status: "at_lab", agreedPrice: 400 },
+  { id: "4", labId: "L1", status: "returned_to_lab", agreedPrice: 300 },
+  { id: "5", labId: "L1", status: "tryin_back", agreedPrice: 200 },
+  // Never left, or called off. Owed nothing either way.
+  { id: "6", labId: "L1", status: "draft", agreedPrice: 900 },
+  { id: "7", labId: "L1", status: "cancelled", agreedPrice: 900 },
+  // Another lab entirely.
+  { id: "8", labId: "L2", status: "fitted", agreedPrice: 1000 },
+  // Delivered with no price agreed — deliberately NOT counted, and surfaced separately.
+  { id: "9", labId: "L1", status: "back", agreedPrice: 0 },
+  // A remake the lab owned: real work, no charge.
+  { id: "10", labId: "L1", status: "fitted", agreedPrice: 0, remakeOfId: "1", remakeFault: "lab" },
+];
+const acctPayments = [
+  { id: "p1", labId: "L1", amount: 500, date: "2026-08-10", method: "cash" },
+  { id: "p2", labId: "L1", amount: 200, date: "2026-08-20", method: "transfer" },
+  { id: "p3", labId: "L2", amount: 1000, date: "2026-08-21", method: "cash" },
+];
+
+const l1 = labAccountFor("L1", "Cairo Lab", acctCases, acctPayments);
+assert.equal(l1.delivered, 1350, "only back + fitted count as owed");
+assert.equal(l1.deliveredCount, 4, "two priced, one unpriced, one free remake");
+assert.equal(l1.committed, 900, "at_lab + returned_to_lab + tryin_back");
+assert.equal(l1.committedCount, 3);
+assert.equal(l1.paid, 700);
+assert.equal(l1.outstanding, 650);
+assert.equal(l1.remakesTotal, 1);
+assert.equal(l1.remakesAtLabCost, 1);
+
+// One lab's cases never total against another lab's payments.
+const l2 = labAccountFor("L2", "Nile Lab", acctCases, acctPayments);
+assert.equal(l2.delivered, 1000);
+assert.equal(l2.paid, 1000);
+assert.equal(l2.outstanding, 0);
+
+// Paying ahead reads as a negative balance rather than being clamped to zero — the clinic is owed.
+assert.equal(
+  labAccountFor("L2", "Nile Lab", acctCases, [...acctPayments, { id: "p4", labId: "L2", amount: 250, date: "2026-08-22", method: "cash" }]).outstanding,
+  -250
+);
+
+assert.equal(isBillable({ status: "back" }), true);
+assert.equal(isBillable({ status: "fitted" }), true);
+assert.equal(isBillable({ status: "at_lab" }), false);
+assert.equal(isBillable({ status: "cancelled" }), false);
+assert.equal(isBillable({ status: "draft" }), false);
+
+// The count that explains why a total and a lab's invoice disagree, before anyone assumes a bug.
+const totals = labAccountsTotal([l1, l2], acctCases);
+assert.equal(totals.delivered, 2350);
+assert.equal(totals.outstanding, 650);
+assert.equal(totals.unpriced, 2, "the unpriced delivery and the free remake both lack a price");
+
+// --- the statement -------------------------------------------------------------------------------
+
+// Deliveries and payments interleave by date with a running balance, because that is how a lab
+// reads its own book — not two columns neither side can reconcile.
+const stmt = buildStatement(
+  "L1",
+  [
+    { id: "1", labId: "L1", status: "back", agreedPrice: 600, code: "MAD-0001", receivedAt: "2026-08-05", patientFirstName: "Ahmed", workType: "zirconia", teeth: [] },
+    { id: "2", labId: "L1", status: "fitted", agreedPrice: 750, code: "MAD-0002", receivedAt: "2026-08-15", patientFirstName: "Mona", workType: "emax", teeth: [] },
+  ],
+  [{ id: "p1", labId: "L1", amount: 500, date: "2026-08-10", method: "cash" }],
+  () => "work"
+);
+assert.equal(stmt.lines.length, 3);
+assert.deepEqual(stmt.lines.map((l) => l.balance), [600, 100, 850]);
+assert.equal(stmt.closing, 850);
+assert.equal(stmt.closing, 1350 - 500, "closing balance is delivered minus paid");
+
+// The printed sheet carries the figures and says out loud what is missing from them.
+const sheet = buildLabStatementSrcDoc({
+  clinicName: "Alpha Dental",
+  clinicPhone: "0100",
+  account: l1,
+  lines: stmt.lines,
+  closing: stmt.closing,
+  unpricedCount: 2,
+  generatedOn: "2026-08-27",
+  language: "en",
+});
+assert.ok(sheet.includes("Cairo Lab"));
+assert.ok(sheet.includes("850"));
+assert.ok(sheet.includes("MAD-0001"));
+assert.ok(sheet.includes("size: A4 portrait"));
+assert.ok(sheet.includes("2 delivered case(s) carry no agreed price"), "the disagreement is explained on the page");
+// Nothing a human typed reaches the page unescaped.
+assert.ok(
+  !buildLabStatementSrcDoc({
+    clinicName: '<script>x</script>', clinicPhone: "", account: l1, lines: [], closing: 0,
+    unpricedCount: 0, generatedOn: "2026-08-27", language: "en",
+  }).includes("<script>")
+);
+
+console.log("✓ lab accounts: what is owed vs merely committed, per-lab isolation, and a statement that reconciles");

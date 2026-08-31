@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getDocs, limit, orderBy, query } from "firebase/firestore";
+import { getDoc, getDocs, limit, orderBy, query } from "firebase/firestore";
 import { Loader2, Search, X, FlaskConical, Info } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
-import { getClinicCollection } from "@/lib/db-utils";
+import Protect from "@/components/Protect";
+import { MoneyApiError, setProcedureLabFee } from "@/lib/moneyApi";
+import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { localYmd } from "@/lib/clinicDate";
 import { matchesTokenizedSubstring, patientMatchesSearch } from "@/lib/flexibleSearch";
 import { findLab, labPriceFor, type DentalLab } from "@/lib/dentalLabs";
@@ -285,6 +287,72 @@ export default function LabCaseModal({
     if (!open || labId || labs.length !== 1) return;
     setLabId(labs[0].id);
   }, [open, labId, labs]);
+
+  /**
+   * What this treatment was actually charged for its lab work.
+   *
+   * Read on demand for the one case being looked at, rather than swept across the whole board:
+   * the person who can judge whether a correction is right is the person with the case open in
+   * front of them, and a batch screen of "17 treatments disagree" invites clicking Apply on all of
+   * them without reading any.
+   */
+  const [bookedLabFee, setBookedLabFee] = useState<number | null>(null);
+  const [correcting, setCorrecting] = useState(false);
+
+  useEffect(() => {
+    if (!open || !existing?.ledgerId) {
+      setBookedLabFee(null);
+      return;
+    }
+    let cancelled = false;
+    getDoc(getClinicDoc("ledger", existing.ledgerId))
+      .then((snap) => {
+        if (cancelled) return;
+        setBookedLabFee(snap.exists() ? Number(snap.data()?.labFee) || 0 : null);
+      })
+      .catch(() => {
+        // A charge that cannot be read is one this screen simply will not offer to correct.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, existing?.ledgerId]);
+
+  const agreedNumber = Number(agreedPrice) || 0;
+  // A piastre of rounding is not a correction worth offering anybody.
+  const feeDrift =
+    bookedLabFee !== null && agreedNumber > 0 && Math.abs(agreedNumber - bookedLabFee) >= 1
+      ? Number((agreedNumber - bookedLabFee).toFixed(2))
+      : 0;
+
+  const applyFeeCorrection = async () => {
+    if (!existing?.ledgerId || !feeDrift) return;
+    setCorrecting(true);
+    try {
+      await setProcedureLabFee(
+        existing.ledgerId,
+        agreedNumber,
+        `Agreed with ${existing.labName || "the lab"} on case ${existing.code}`
+      );
+      setBookedLabFee(agreedNumber);
+      showToast(
+        isAr
+          ? "اتعدلت تكلفة المعمل، والعمولة اتحسبت من جديد"
+          : "Lab cost corrected, and the commission recalculated",
+        "success"
+      );
+    } catch (err) {
+      console.error("Lab fee correction failed", err);
+      showToast(
+        err instanceof MoneyApiError
+          ? err.message
+          : isAr ? "فشل التعديل" : "Could not correct it",
+        "error"
+      );
+    } finally {
+      setCorrecting(false);
+    }
+  };
 
   const selectedLab = findLab(labs, labId);
 
@@ -845,6 +913,36 @@ export default function LabCaseModal({
                 placeholder="EGP"
                 className={INPUT}
               />
+              {/* The estimate the treatment was actually booked at, when it disagrees.
+                  Offered here rather than applied automatically: it moves money between the
+                  dentist and the clinic on every payment already taken, so it is a decision
+                  somebody makes, with both numbers in front of them. */}
+              {feeDrift !== 0 && (
+                <div className="mt-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200">
+                  <p className="text-[11px] font-bold text-amber-900 leading-relaxed">
+                    {isAr
+                      ? `العلاج اتحسب بـ ${Math.round(bookedLabFee || 0)} تكلفة معمل، وانت متفق على ${Math.round(agreedNumber)}.`
+                      : `The treatment was booked at ${Math.round(bookedLabFee || 0)} for lab work; you agreed ${Math.round(agreedNumber)}.`}
+                  </p>
+                  <Protect permission="finance.edit">
+                    <button
+                      type="button"
+                      onClick={() => void applyFeeCorrection()}
+                      disabled={correcting}
+                      className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                    >
+                      {correcting && <Loader2 size={12} className="animate-spin" />}
+                      {isAr ? "صحّح الحسابات" : "Correct the books"}
+                    </button>
+                  </Protect>
+                  <p className="text-[10px] font-semibold text-amber-700 mt-1.5 leading-relaxed">
+                    {isAr
+                      ? "هيعيد حساب عمولة الطبيب وربح العيادة على التكلفة الحقيقية، وهيتسجل مين عمل كده."
+                      : "Recalculates the dentist's commission and the clinic's profit on the true cost, and records who did it."}
+                  </p>
+                </div>
+              )}
+
               {/* Where the number came from. A price that appears on its own is a price nobody
                   checks — saying which lab's rate it is makes it worth glancing at, and makes an
                   out-of-date rate visible instead of silently agreed. */}

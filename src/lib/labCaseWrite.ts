@@ -16,10 +16,11 @@
  *     `MAD-0142`.
  */
 
-import { runTransaction, addDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { runTransaction, addDoc, updateDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { localYmd } from "@/lib/clinicDate";
+import { LAB_PAYMENTS_COLLECTION } from "@/lib/labAccounts";
 import {
   DEFAULT_BRANCH_CODE,
   LAB_CASES_COLLECTION,
@@ -90,6 +91,52 @@ export async function mintLabCaseNumber(branchCode: string): Promise<number> {
     }
     return next;
   });
+}
+
+/**
+ * Record a payment to a lab.
+ *
+ * Writes to `lab_payments` and NOTHING else. It must never post to `ledger`: the lab fee was
+ * already booked as a cost when the treatment was saved, so a second entry here would charge the
+ * same lab work against profit twice — invisibly, because both entries look perfectly reasonable
+ * on their own. This settles a debt recorded months ago; it does not create one.
+ */
+export async function recordLabPayment(input: {
+  labId: string;
+  labName: string;
+  amount: number;
+  date: string;
+  method: string;
+  reference?: string;
+  note?: string;
+  createdBy?: string;
+}): Promise<string> {
+  const amount = Number(input.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error("A lab payment needs an amount greater than zero.");
+  }
+  if (!input.labId) throw new Error("A lab payment needs a lab.");
+
+  const ref = await addDoc(getClinicCollection(LAB_PAYMENTS_COLLECTION), {
+    ...compact({
+      labId: input.labId,
+      labName: input.labName,
+      method: input.method || "cash",
+      reference: input.reference,
+      note: input.note,
+      createdBy: input.createdBy,
+    }),
+    amount: Math.round(amount * 100) / 100,
+    date: input.date || today(),
+    createdAt: nowIso(),
+    createdAtServer: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+/** Remove a lab payment — a mistyped amount, a duplicate entry. */
+export async function deleteLabPayment(id: string): Promise<void> {
+  await deleteDoc(getClinicDoc(LAB_PAYMENTS_COLLECTION, id));
 }
 
 export type NewLabCaseInput = Omit<

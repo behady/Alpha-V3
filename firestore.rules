@@ -124,6 +124,7 @@ service cloud.firestore {
         'ortho_cases': 'clinical.edit',
         'ortho_sessions': 'clinical.edit',
         'lab_cases': 'access.lab',
+        'lab_payments': 'finance.add',
         'services': 'access.settings',
         'categories': 'access.settings',
         'drugs': 'access.settings',
@@ -150,6 +151,7 @@ service cloud.firestore {
         'ortho_cases': 'clinical.edit',
         'ortho_sessions': 'clinical.edit',
         'lab_cases': 'access.lab',
+        'lab_payments': 'finance.edit',
         'services': 'access.settings',
         'categories': 'access.settings',
         'drugs': 'access.settings',
@@ -180,6 +182,7 @@ service cloud.firestore {
         // deletes that reach here are an admin clearing a mistyped case, and an admin passes
         // holdsPermission unconditionally anyway.
         'lab_cases': 'access.lab',
+        'lab_payments': 'finance.delete',
         'services': 'access.settings',
         'categories': 'access.settings',
         'drugs': 'access.settings',

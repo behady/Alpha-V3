@@ -32,6 +32,8 @@ import {
 } from "lucide-react";
 import PermissionGuard from "@/components/PermissionGuard";
 import LabCaseModal from "@/components/lab/LabCaseModal";
+import LabAccountsPanel from "@/components/lab/LabAccountsPanel";
+import LabRemakeModal from "@/components/lab/LabRemakeModal";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext";
@@ -58,6 +60,7 @@ import {
   type LabOrderPaper,
 } from "@/lib/labCases";
 import { advanceLabCase, createRemake } from "@/lib/labCaseWrite";
+import { LAB_PAYMENTS_COLLECTION, type LabPayment } from "@/lib/labAccounts";
 import { loadLabOrderClinic, printLabOrder } from "@/lib/labOrderPrint";
 
 /**
@@ -107,6 +110,10 @@ export default function LabTrackingPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<LabCase | null>(null);
   const [busyId, setBusyId] = useState("");
+  /** Cases, or what the clinic owes. Two different questions, so two views rather than one page. */
+  const [view, setView] = useState<"cases" | "money">("cases");
+  const [payments, setPayments] = useState<LabPayment[]>([]);
+  const [remaking, setRemaking] = useState<LabCase | null>(null);
 
   const today = localYmd();
 
@@ -213,36 +220,27 @@ export default function LabTrackingPage() {
     [user, showToast, isAr, language]
   );
 
-  const handleRemake = useCallback(
-    async (labCase: LabCase) => {
-      const ok = await confirm(
-        isAr
-          ? `إعادة عمل ${labCase.code}؟ هيتعمل أمر جديد بنفس التفاصيل ورقم جديد، والأمر القديم هيفضل زي ما هو في السجل.`
-          : `Remake ${labCase.code}? A new order is raised with the same details and its own number. The original stays on the record exactly as it is.`,
-        { confirmLabel: isAr ? "إعادة عمل" : "Raise remake" }
-      );
-      if (!ok) return;
+  /** Opens the dialog. The work happens in `confirmRemake` once fault and price are answered. */
+  const handleRemake = useCallback((labCase: LabCase) => {
+    setRemaking(labCase);
+  }, []);
 
-      setBusyId(labCase.id);
+  const confirmRemake = useCallback(
+    async (args: { reason: string; fault: NonNullable<LabCase["remakeFault"]>; agreedPrice: number }) => {
+      if (!remaking) return;
       try {
-        const created = await createRemake(labCase, {
-          reason: "",
-          fault: "unknown",
-          agreedPrice: 0,
-          by: user?.name,
-        });
+        const created = await createRemake(remaking, { ...args, by: user?.name });
         showToast(
           isAr ? `اتعمل أمر إعادة ${created.code}` : `Remake ${created.code} raised`,
           "success"
         );
+        setRemaking(null);
       } catch (err) {
         console.error("Remake failed", err);
         showToast(isAr ? "فشل إنشاء الإعادة" : "Could not raise the remake", "error");
-      } finally {
-        setBusyId("");
       }
     },
-    [confirm, isAr, showToast, user]
+    [remaking, isAr, showToast, user]
   );
 
   return (
@@ -267,14 +265,49 @@ export default function LabTrackingPage() {
                   : "Every case out at a lab: where it is, and when it is due back"}
               </p>
             </div>
-            <button
-              onClick={openNew}
-              data-tour="lab-new-order"
-              className="inline-flex justify-center items-center gap-2 bg-slate-900 text-white hover:bg-slate-700 px-5 py-3 rounded-xl font-black text-xs uppercase tracking-wide shadow-md transition-colors shrink-0"
-            >
-              <Plus size={16} /> {isAr ? "أمر معمل جديد" : "New lab order"}
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Two questions, not one screen: "where is the crown" and "what do we owe them" are
+                  asked by different people on different days. */}
+              <div className="flex rounded-xl bg-slate-100 p-1">
+                {([
+                  ["cases", isAr ? "الحالات" : "Cases"],
+                  ["money", isAr ? "الحسابات" : "Money"],
+                ] as const).map(([id, label]) => (
+                  <button
+                    key={id}
+                    onClick={() => setView(id)}
+                    className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wide transition-colors ${
+                      view === id ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {view === "cases" && (
+                <button
+                  onClick={openNew}
+                  data-tour="lab-new-order"
+                  className="inline-flex justify-center items-center gap-2 bg-slate-900 text-white hover:bg-slate-700 px-5 py-3 rounded-xl font-black text-xs uppercase tracking-wide shadow-md transition-colors"
+                >
+                  <Plus size={16} /> {isAr ? "أمر معمل جديد" : "New lab order"}
+                </button>
+              )}
+            </div>
           </div>
+
+          {view === "money" && (
+            <LabAccountsPanel
+              labs={labs}
+              cases={branchScoped}
+              payments={payments}
+              currentUserName={user?.name}
+            />
+          )}
+
+          {view === "cases" && (
+          <>
+
 
           {/* Hero + counts */}
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 xl:gap-6 shrink-0">
@@ -450,8 +483,17 @@ export default function LabTrackingPage() {
               </div>
             )}
           </div>
+          </>
+          )}
         </div>
       </div>
+
+      <LabRemakeModal
+        open={Boolean(remaking)}
+        labCase={remaking}
+        onClose={() => setRemaking(null)}
+        onConfirm={confirmRemake}
+      />
 
       <LabCaseModal
         open={modalOpen}
