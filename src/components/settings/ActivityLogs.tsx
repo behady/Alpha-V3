@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { db } from "@/lib/firebase";
-import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
+import { limit, onSnapshot, orderBy, query } from "firebase/firestore";
 import { ClipboardList, Search, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { getClinicCollection } from "@/lib/db-utils";
 
 type ActivityLog = {
   id: string;
@@ -34,18 +34,39 @@ export default function ActivityLogs() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 50;
 
+  /**
+   * How many entries are subscribed to.
+   *
+   * This used to be every entry the clinic had ever written: an orderBy with no limit, on a
+   * collection `logActivity` appends to on essentially every action. The page then paged through
+   * them in the browser, so the whole audit trail was downloaded to show fifty rows.
+   *
+   * A growing window rather than a cursor because the list is live and the filters run in the
+   * browser: raising it re-delivers a larger window, and new entries still arrive on their own.
+   */
+  const [windowSize, setWindowSize] = useState(200);
+  /** True while the window is smaller than what the server holds, so there is more to show. */
+  const [hasOlder, setHasOlder] = useState(false);
+
   useEffect(() => {
-    const q = query(getClinicCollection("system_logs"), orderBy("timestamp", "desc"));
+    // One more than the window, purely to learn whether older entries exist.
+    const q = query(
+      getClinicCollection("system_logs"),
+      orderBy("timestamp", "desc"),
+      limit(windowSize + 1)
+    );
     const unsub = onSnapshot(
       q,
       (snap) => {
-        setLogs(snap.docs.map((d) => ({ id: d.id, ...d.data() } as ActivityLog)));
+        const docs = snap.docs.slice(0, windowSize);
+        setLogs(docs.map((d) => ({ id: d.id, ...d.data() } as ActivityLog)));
+        setHasOlder(snap.docs.length > windowSize);
         setLoading(false);
       },
       () => setLoading(false)
     );
     return () => unsub();
-  }, []);
+  }, [windowSize]);
 
   const filteredLogs = useMemo(() => {
     const term = queryText.trim().toLowerCase();
@@ -220,6 +241,25 @@ export default function ActivityLogs() {
             </tbody>
           </table>
         </div>
+
+        {/* What is actually loaded. Filtering a list that is not all there, and saying nothing
+            about it, is how someone concludes an entry is missing from the audit trail. */}
+        {hasOlder && (
+          <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-line bg-surface-subtle p-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-[13px] font-semibold text-ink-body">
+              {language === "ar"
+                ? `يعرض آخر ${logs.length} إجراء. البحث والفلاتر تعمل على المعروض فقط.`
+                : `Showing the most recent ${logs.length} actions. Search and filters apply to these.`}
+            </p>
+            <button
+              type="button"
+              onClick={() => setWindowSize((n) => n + 200)}
+              className="shrink-0 rounded-xl border border-line bg-surface px-4 py-2 text-[13px] font-bold text-ink-body transition-colors hover:text-ink"
+            >
+              {language === "ar" ? "حمّل أقدم" : "Load older"}
+            </button>
+          </div>
+        )}
 
         {totalPages > 1 && (
           <div className="flex items-center justify-between mt-4 bg-surface-subtle border border-slate-200/60 p-3 rounded-2xl">
