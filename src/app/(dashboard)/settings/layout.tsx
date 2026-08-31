@@ -17,10 +17,10 @@
  * A section can no longer exist and be unreachable, because there is only one list to be on.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useSettingsText } from "@/lib/useSettingsText";
 import { usePathname, useRouter } from "next/navigation";
-import { ChevronDown, Search, Settings2, X } from "lucide-react";
+import { Search, Settings2, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -32,6 +32,7 @@ import {
   SETTINGS_GROUP_LABELS,
   SETTINGS_GROUP_ORDER,
   SETTINGS_SECTIONS,
+  type SettingsGroup,
   type SettingsSection,
 } from "@/config/settingsRegistry";
 import { SETTINGS_ICONS } from "@/components/settings/panels";
@@ -55,8 +56,11 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   const [query, setQuery] = useState("");
-  const [isPickerOpen, setIsPickerOpen] = useState(false);
-  const pickerRef = useRef<HTMLDivElement>(null);
+  /**
+   * Which group's sections are listed. Null means "follow the section you are on", which is the
+   * normal case — picking a group is only for looking around without leaving where you are.
+   */
+  const [browsingGroup, setBrowsingGroup] = useState<SettingsGroup | null>(null);
 
   const viewer = useMemo(
     () => ({
@@ -97,23 +101,12 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
 
   const results = useMemo(() => sections.filter(matches), [sections, matches]);
 
-  useEffect(() => {
-    function onClickOutside(event: MouseEvent) {
-      if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) {
-        setIsPickerOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
-  }, []);
-
   /**
    * Every move between sections goes through here, so unsaved work gets a question rather than a
    * silent discard. The old screen swapped panels on click and whatever was typed went with them.
    */
   const go = useCallback(
     async (route: string) => {
-      setIsPickerOpen(false);
       if (route === pathname) return;
       if (!(await confirmLeave())) return;
       router.push(route);
@@ -131,22 +124,107 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
       : active.labelEn
     : txt.title;
 
+  // The group whose sections are listed: whatever you are browsing, else the one you are in.
+  const shownGroup: SettingsGroup = browsingGroup ?? active?.group ?? SETTINGS_GROUP_ORDER[0];
+  const searching = query.trim().length > 0;
+  const listed = searching ? results : sections.filter((s) => s.group === shownGroup);
+
   return (
     <div
-      className="max-w-[1600px] w-full mx-auto p-4 md:p-8 pb-24 md:pb-10 font-sans text-slate-800 animate-in fade-in"
+      className="max-w-[1600px] w-full mx-auto p-4 md:p-8 pb-24 md:pb-10 font-sans animate-in fade-in"
       dir={isRTL ? "rtl" : "ltr"}
     >
-      <header className="flex items-center gap-4 bg-surface p-6 rounded-[2rem] border border-slate-200/60 shadow-sm mb-6">
-        <div className="bg-accent-tint p-3.5 rounded-2xl text-accent shrink-0">
-          <ActiveIcon size={26} />
+      <div className="mb-6 rounded-[2rem] border border-line bg-surface shadow-sm">
+        <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between md:p-6">
+          <div className="flex min-w-0 items-center gap-3.5">
+            <span className="shrink-0 rounded-2xl bg-accent-tint p-3 text-accent">
+              <ActiveIcon size={22} />
+            </span>
+            <div className="min-w-0">
+              <h1 className="truncate text-xl font-black tracking-tight text-ink md:text-2xl">
+                {activeLabel}
+              </h1>
+              <p className="mt-0.5 text-[13px] font-medium text-ink-muted">{txt.subtitle}</p>
+            </div>
+          </div>
+
+          {/* Search spans every group: "where do I change X" is not a question you can answer by
+              picking a group first. */}
+          <div className="relative w-full shrink-0 sm:w-64">
+            <Search
+              size={15}
+              className={`absolute top-1/2 -translate-y-1/2 text-ink-faint ${isRTL ? "right-3.5" : "left-3.5"}`}
+            />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={txt.search}
+              aria-label={txt.search}
+              className={`w-full rounded-xl border border-line bg-surface-subtle py-2.5 text-[13px] font-semibold text-ink outline-none transition-colors focus:border-accent-soft focus:bg-surface ${
+                isRTL ? "pr-9 pl-8" : "pl-9 pr-8"
+              }`}
+            />
+            {query && (
+              <button
+                onClick={() => setQuery("")}
+                aria-label={txt.clear}
+                className={`absolute top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink ${isRTL ? "left-2.5" : "right-2.5"}`}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
         </div>
-        <div className="min-w-0">
-          <h1 className="text-2xl font-black text-ink tracking-tight truncate">
-            {activeLabel}
-          </h1>
-          <p className="text-sm text-ink-muted font-medium mt-1">{txt.subtitle}</p>
+
+        {/* Groups. Hidden while searching, because a search already crosses all of them. */}
+        {!searching && (
+          <div className="border-t border-line px-5 md:px-6">
+            <div className="-mb-px flex gap-5 overflow-x-auto no-scrollbar">
+              {SETTINGS_GROUP_ORDER.filter((g) => sections.some((s) => s.group === g)).map((group) => (
+                <button
+                  key={group}
+                  onClick={() => setBrowsingGroup(group)}
+                  aria-current={group === shownGroup ? "true" : undefined}
+                  className={`whitespace-nowrap border-b-2 pb-2.5 pt-3 text-[13px] font-bold transition-colors ${
+                    group === shownGroup
+                      ? "border-accent text-ink"
+                      : "border-transparent text-ink-muted hover:text-ink-body"
+                  }`}
+                >
+                  {SETTINGS_GROUP_LABELS[group][language === "ar" ? "ar" : "en"]}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Sections in the open group, or everything the search matched. */}
+        <div className="flex flex-wrap gap-1.5 border-t border-line bg-surface-subtle/60 p-3 md:px-6">
+          {listed.length === 0 && (
+            <p className="px-2 py-1.5 text-[13px] font-semibold text-ink-muted">{txt.noResults}</p>
+          )}
+          {listed.map((section) => {
+            const Icon = SETTINGS_ICONS[section.id] ?? Settings2;
+            const isActive = active?.id === section.id;
+            return (
+              <button
+                key={section.id}
+                onClick={() => void go(section.route)}
+                data-tour={section.tourAnchor}
+                aria-current={isActive ? "page" : undefined}
+                className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-bold transition-all ${
+                  isActive
+                    ? "bg-surface text-accent shadow-sm ring-1 ring-line"
+                    : "text-ink-body hover:bg-surface hover:text-ink"
+                }`}
+              >
+                <Icon size={15} className={isActive ? "text-accent" : "text-ink-faint"} />
+                {language === "ar" ? section.labelAr : section.labelEn}
+              </button>
+            );
+          })}
         </div>
-      </header>
+      </div>
 
       {isReadOnly && (
         <p className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-bold text-amber-900">
@@ -154,130 +232,8 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
         </p>
       )}
 
-      <div className="flex flex-col lg:flex-row gap-6">
-        <div className="w-full lg:w-72 shrink-0">
-          {/* Mobile section picker */}
-          <div className="lg:hidden relative mb-6" ref={pickerRef}>
-            <button
-              onClick={() => setIsPickerOpen((open) => !open)}
-              aria-expanded={isPickerOpen}
-              className="w-full bg-surface border border-line px-5 py-4 rounded-2xl flex items-center justify-between font-bold text-slate-700 hover:bg-surface-subtle transition-all shadow-sm"
-            >
-              <span className="flex items-center gap-2 min-w-0">
-                <ActiveIcon size={18} className="text-accent-soft shrink-0" />
-                <span className="truncate">{activeLabel}</span>
-              </span>
-              <ChevronDown
-                size={18}
-                className={`text-slate-400 transition-transform shrink-0 ${isPickerOpen ? "rotate-180" : ""}`}
-              />
-            </button>
-
-            {isPickerOpen && (
-              <div
-                className={`absolute top-[calc(100%+8px)] ${isRTL ? "left-0" : "right-0"} w-full bg-surface border border-line rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95`}
-              >
-                <div className="max-h-[60vh] overflow-y-auto py-2 custom-scrollbar">
-                  {sections.map((section) => {
-                    const Icon = SETTINGS_ICONS[section.id] ?? Settings2;
-                    const isActive = active?.id === section.id;
-                    return (
-                      <button
-                        key={section.id}
-                        onClick={() => void go(section.route)}
-                        data-tour={section.tourAnchor}
-                        className={`w-full flex items-center gap-3 px-5 py-3 text-sm font-bold transition-colors ${
-                          isActive ? "bg-accent-tint text-accent" : "text-ink-body hover:bg-surface-subtle"
-                        }`}
-                      >
-                        <Icon size={18} className={isActive ? "text-accent" : "text-slate-400"} />
-                        {language === "ar" ? section.labelAr : section.labelEn}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Desktop sidebar */}
-          <nav
-            aria-label={txt.title}
-            className="hidden lg:flex flex-col gap-6 bg-slate-50/50 p-6 rounded-[2.5rem] border border-slate-200/60 shadow-sm sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto custom-scrollbar"
-          >
-            <div className="relative">
-              <Search
-                size={16}
-                className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? "right-4" : "left-4"}`}
-              />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={txt.search}
-                aria-label={txt.search}
-                className={`w-full py-3 bg-surface rounded-2xl border border-slate-200/60 text-sm font-semibold text-ink outline-none focus:border-accent-soft transition-all ${
-                  isRTL ? "pr-10 pl-9" : "pl-10 pr-9"
-                }`}
-              />
-              {query && (
-                <button
-                  onClick={() => setQuery("")}
-                  aria-label={txt.clear}
-                  className={`absolute top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 ${isRTL ? "left-3" : "right-3"}`}
-                >
-                  <X size={15} />
-                </button>
-              )}
-            </div>
-
-            {results.length === 0 && (
-              <p className="px-3 text-sm font-semibold text-slate-400">{txt.noResults}</p>
-            )}
-
-            {SETTINGS_GROUP_ORDER.map((group) => {
-              const inGroup = results.filter((section) => section.group === group);
-              if (inGroup.length === 0) return null;
-              return (
-                <div key={group}>
-                  <h2 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 px-3">
-                    {SETTINGS_GROUP_LABELS[group][language === "ar" ? "ar" : "en"]}
-                  </h2>
-                  <div className="flex flex-col gap-1">
-                    {inGroup.map((section) => {
-                      const Icon = SETTINGS_ICONS[section.id] ?? Settings2;
-                      const isActive = active?.id === section.id;
-                      return (
-                        <button
-                          key={section.id}
-                          onClick={() => void go(section.route)}
-                          data-tour={section.tourAnchor}
-                          aria-current={isActive ? "page" : undefined}
-                          className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-bold rounded-2xl transition-all text-start ${
-                            isActive
-                              ? "bg-surface text-accent shadow-sm border border-slate-200/60"
-                              : "text-ink-body hover:bg-white/60 hover:text-ink border border-transparent"
-                          }`}
-                        >
-                          <Icon
-                            size={18}
-                            className={`shrink-0 ${isActive ? "text-accent" : "text-slate-400"}`}
-                          />
-                          <span className="truncate">
-                            {language === "ar" ? section.labelAr : section.labelEn}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </nav>
-        </div>
-
-        <div className="flex-1 min-w-0 bg-surface rounded-[2.5rem] border border-slate-200/60 shadow-sm p-4 md:p-8 min-h-[600px]">
-          {children}
-        </div>
+      <div className="min-h-[600px] rounded-[2.5rem] border border-line bg-surface p-4 shadow-sm md:p-8">
+        {children}
       </div>
     </div>
   );
