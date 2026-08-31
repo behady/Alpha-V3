@@ -8,7 +8,7 @@ import {
   ImagePlus, Images, Palette,
 } from "lucide-react";
 import CaseComposer from "@/components/marketing/CaseComposer";
-import { onSnapshot, orderBy, query, getDocs } from "firebase/firestore";
+import { getDocs, limit, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { auth } from "@/lib/firebase";
 import { getClinicCollection } from "@/lib/db-utils";
 
@@ -111,7 +111,8 @@ export default function CasesTab({
     const unsub2 = onSnapshot(q2, (snap) =>
       setCases(snap.docs.map((d) => ({ id: d.id, ...d.data() } as MarketingCase)))
     );
-    getDocs(getClinicCollection("patients"))
+    // Backs a name picker, so it takes the same cap as the patients screen's name search.
+    getDocs(query(getClinicCollection("patients"), orderBy("name"), limit(2500)))
       .then((snap) =>
         setPatients(
           snap.docs.map((d) => ({

@@ -16,10 +16,7 @@ import LeadFunnelReport from "@/components/reports/LeadFunnelReport";
 import { DEFAULT_LEAD_SOURCES } from "@/lib/leads";
 import DesignStudio, { type DesignInput } from "@/components/marketing/DesignStudio";
 import CasesTab from "@/components/marketing/CasesTab";
-import {
-  onSnapshot, orderBy, query, addDoc, updateDoc, deleteDoc, serverTimestamp,
-  getDocs, setDoc, where,
-} from "firebase/firestore";
+import { addDoc, deleteDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { auth } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { useLanguage } from "@/context/LanguageContext";
@@ -1007,10 +1004,27 @@ export default function MarketingPage() {
   useEffect(() => {
     if (tab !== "results" || resRaw || resLoading || !user || !unlocked) return;
     setResLoading(true);
+    // The month on screen, asked for as the month on screen. This read the ENTIRE ledger, every
+    // lead and every patient, then filtered to one month in the browser — so a clinic three years
+    // in paid for three years of rows to look at April. `date` is uniformly "YYYY-MM-DD" on
+    // ledger rows and `createdAt` is uniformly a Timestamp on leads (checked with
+    // scripts/probe-date-fields.mjs), so neither range can quietly drop a row.
+    const monthStart = `${resMonth.y}-${pad(resMonth.m + 1)}-01`;
+    const monthEnd = toYmd(new Date(resMonth.y, resMonth.m + 1, 0));
     Promise.all([
-      getDocs(getClinicCollection("ledger")),
-      getDocs(getClinicCollection("leads")),
-      getDocs(getClinicCollection("patients")),
+      getDocs(query(
+        getClinicCollection("ledger"),
+        where("date", ">=", monthStart),
+        where("date", "<=", monthEnd),
+      )),
+      getDocs(query(
+        getClinicCollection("leads"),
+        where("createdAt", ">=", new Date(`${monthStart}T00:00:00`)),
+        where("createdAt", "<=", new Date(`${monthEnd}T23:59:59.999`)),
+      )),
+      // Not date-filtered: this list backs the referral search box, which looks patients up by
+      // name. Capped instead, the same way the patients screen caps its own name search.
+      getDocs(query(getClinicCollection("patients"), orderBy("name"), limit(2500))),
     ])
       .then(([ledgerSnap, leadsSnap, patientsSnap]) => {
         setResRaw({

@@ -1742,7 +1742,13 @@ export async function POST(req: Request) {
              };
           } else if (call.name === "find_patient") {
              const searchQuery = (call.args as any).searchQuery;
-             const snap = await adminClinicCollection(clinicId, "patients").get();
+             // Every `find_patient` call read the clinic's entire patient book and filtered it
+             // in JS. Bounded to the same slice the patients screen searches; the filter below is
+             // unchanged, so what it finds within that slice is exactly what it found before.
+             const snap = await adminClinicCollection(clinicId, "patients")
+               .orderBy("name")
+               .limit(2500)
+               .get();
              const q = (searchQuery || "").trim().toLowerCase();
              
              const matches = snap.docs

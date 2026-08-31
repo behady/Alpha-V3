@@ -442,7 +442,9 @@ export default function DesktopDashboard() {
   // 2. Live lists (patients, doctors, services) so dashboard actions sync without refresh.
   useEffect(() => {
     const unsubPatients = onSnapshot(
-      query(getClinicCollection("patients"), orderBy("name")),
+      // Feeds the booking picker, which filters by name in the browser. Capped like the
+      // patients screen's own name search, so it cannot grow into an unbounded read.
+      query(getClinicCollection("patients"), orderBy("name"), limit(2500)),
       (snap) => setPatientsList(snap.docs.map((d) => ({ id: d.id, name: d.data().name, phone: d.data().phone })))
     );
     const unsubDoctors = onSnapshot(getClinicCollection("staff"), (snap) => {

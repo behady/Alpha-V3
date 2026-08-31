@@ -10,7 +10,7 @@ import {
   UserPlus, Building2, CalendarClock, Trash2, Inbox, Check, UserCheck, Copy, Hourglass, Timer,
   Clock, Megaphone, UserCog, ShieldAlert,
 } from "lucide-react";
-import { onSnapshot, orderBy, query, addDoc, updateDoc, deleteDoc, serverTimestamp, getDoc } from "firebase/firestore";
+import { addDoc, deleteDoc, getDoc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
@@ -106,7 +106,9 @@ export default function LeadsPage() {
 
   useEffect(() => {
     if (!user) return;
-    const q = query(getClinicCollection("leads"), orderBy("createdAt", "desc"));
+    // Newest first and bounded. Leads accumulate for as long as the clinic advertises, and this
+    // subscribed to all of them; a board showing the newest few hundred is what the screen is for.
+    const q = query(getClinicCollection("leads"), orderBy("createdAt", "desc"), limit(400));
     const unsub = onSnapshot(q, (snap) => {
       setLeads(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Lead)));
       setLoading(false);

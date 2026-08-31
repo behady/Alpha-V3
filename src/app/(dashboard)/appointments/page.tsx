@@ -238,7 +238,10 @@ export default function AppointmentsPage() {
   // Fetch Patients, Doctors, Services for BookingModal
   useEffect(() => {
     if (!user) return;
-    const unsubPatients = onSnapshot(getClinicCollection("patients"), (snap) => {
+    // Feeds BookingModal's patient picker, which filters by name in the browser.
+    const unsubPatients = onSnapshot(
+      query(getClinicCollection("patients"), orderBy("name"), limit(2500)),
+      (snap) => {
       setPatientsList(snap.docs.map((d) => ({ id: d.id, name: d.data().name, phone: d.data().phone })));
     });
     const unsubDoctors = onSnapshot(getClinicCollection("staff"), (snap) => {
