@@ -21,12 +21,12 @@ const PENDING_PREFIX = "pending/";
 
 function ScreenshotSlot({ caption }: { caption: string }) {
   return (
-    <span className="my-6 flex flex-col items-center gap-2 rounded-2xl border border-dashed border-slate-300 bg-slate-50/70 px-6 py-8 text-center">
+    <span className="my-6 flex flex-col items-center gap-2 rounded-2xl border border-dashed border-line-strong bg-slate-50/70 px-6 py-8 text-center">
       <Camera size={22} className="text-slate-300" />
       <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">
         Screenshot
       </span>
-      <span className="text-xs font-semibold leading-relaxed text-slate-500">{caption}</span>
+      <span className="text-xs font-semibold leading-relaxed text-ink-muted">{caption}</span>
     </span>
   );
 }
@@ -41,12 +41,12 @@ export default function HelpMarkdown({ body, isRTL }: { body: string; isRTL: boo
         remarkPlugins={[remarkGfm]}
         components={{
           h2: ({ children }) => (
-            <h2 className="mt-12 mb-4 text-xl font-black tracking-tight text-slate-900 first:mt-0">
+            <h2 className="mt-12 mb-4 text-xl font-black tracking-tight text-ink first:mt-0">
               {children}
             </h2>
           ),
           h3: ({ children }) => (
-            <h3 className="mt-8 mb-3 text-base font-black tracking-tight text-slate-900">
+            <h3 className="mt-8 mb-3 text-base font-black tracking-tight text-ink">
               {children}
             </h3>
           ),
@@ -64,7 +64,7 @@ export default function HelpMarkdown({ body, isRTL }: { body: string; isRTL: boo
             </ol>
           ),
           li: ({ children }) => <li className="pl-1.5">{children}</li>,
-          strong: ({ children }) => <strong className="font-black text-slate-900">{children}</strong>,
+          strong: ({ children }) => <strong className="font-black text-ink">{children}</strong>,
           a: ({ href, children }) => (
             <a
               href={href}
@@ -74,7 +74,7 @@ export default function HelpMarkdown({ body, isRTL }: { body: string; isRTL: boo
             </a>
           ),
           code: ({ children }) => (
-            <code className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[13px] font-semibold text-slate-800">
+            <code className="rounded-md border border-line bg-surface-subtle px-1.5 py-0.5 font-mono text-[13px] font-semibold text-slate-800">
               {children}
             </code>
           ),
@@ -84,18 +84,18 @@ export default function HelpMarkdown({ body, isRTL }: { body: string; isRTL: boo
             </blockquote>
           ),
           table: ({ children }) => (
-            <div className="my-6 overflow-x-auto rounded-2xl border border-slate-200">
+            <div className="my-6 overflow-x-auto rounded-2xl border border-line">
               <table className="w-full border-collapse text-left text-sm">{children}</table>
             </div>
           ),
-          thead: ({ children }) => <thead className="bg-slate-50">{children}</thead>,
+          thead: ({ children }) => <thead className="bg-surface-subtle">{children}</thead>,
           th: ({ children }) => (
-            <th className="border-b border-slate-200 px-4 py-3 text-[11px] font-black uppercase tracking-wider text-slate-500">
+            <th className="border-b border-line px-4 py-3 text-[11px] font-black uppercase tracking-wider text-ink-muted">
               {children}
             </th>
           ),
           td: ({ children }) => (
-            <td className="border-b border-slate-100 px-4 py-3 align-top font-semibold text-slate-600">
+            <td className="border-b border-slate-100 px-4 py-3 align-top font-semibold text-ink-body">
               {children}
             </td>
           ),
@@ -111,7 +111,7 @@ export default function HelpMarkdown({ body, isRTL }: { body: string; isRTL: boo
                 <img
                   src={url}
                   alt={alt || ""}
-                  className="w-full rounded-2xl border border-slate-200 shadow-sm"
+                  className="w-full rounded-2xl border border-line shadow-sm"
                 />
                 {alt ? (
                   <span className="text-center text-xs font-semibold text-slate-400">{alt}</span>

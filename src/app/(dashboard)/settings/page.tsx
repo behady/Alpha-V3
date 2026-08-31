@@ -35,7 +35,7 @@ import { visibleSections } from "@/lib/settingsAccess";
 import { hasFeature } from "@/lib/subscriptions";
 
 const Skeleton = () => (
-  <div className="h-40 rounded-3xl bg-slate-100 animate-pulse" aria-hidden="true" />
+  <div className="h-40 rounded-3xl bg-surface-muted animate-pulse" aria-hidden="true" />
 );
 
 export default function SettingsIndexPage() {
@@ -80,7 +80,7 @@ function SettingsIndex() {
 
   return (
     <div className="space-y-10 animate-in fade-in">
-      <p className="max-w-xl text-sm font-semibold text-slate-500">
+      <p className="max-w-xl text-sm font-semibold text-ink-muted">
         {language === "ar"
           ? "اختر قسماً للبدء. ما تراه هنا هو ما تسمح لك صلاحياتك بفتحه."
           : "Pick a section to get started. You are seeing everything your access lets you open."}
@@ -101,9 +101,9 @@ function SettingsIndex() {
                   <Link
                     key={section.id}
                     href={section.route}
-                    className="group flex items-center gap-4 rounded-3xl border border-slate-200/60 bg-slate-50/50 p-5 transition-all hover:border-slate-300 hover:bg-white hover:shadow-sm"
+                    className="group flex items-center gap-4 rounded-3xl border border-slate-200/60 bg-slate-50/50 p-5 transition-all hover:border-line-strong hover:bg-surface hover:shadow-sm"
                   >
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-slate-400 shadow-sm transition-colors group-hover:text-accent">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-slate-400 shadow-sm transition-colors group-hover:text-accent">
                       <Icon size={20} />
                     </span>
                     <span className="min-w-0 flex-1 truncate text-sm font-bold text-slate-800">

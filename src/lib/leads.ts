@@ -102,7 +102,7 @@ export function leadStageStyles(stage: string): { pill: string; dot: string } {
     case "lost":
       return { pill: "bg-rose-100 text-rose-600", dot: "bg-rose-400" };
     default:
-      return { pill: "bg-slate-100 text-slate-600", dot: "bg-slate-400" };
+      return { pill: "bg-surface-muted text-ink-body", dot: "bg-slate-400" };
   }
 }
 

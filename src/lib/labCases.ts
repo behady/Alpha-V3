@@ -257,7 +257,7 @@ export type LabCaseStatusMeta = {
 };
 
 export const LAB_CASE_STATUSES: LabCaseStatusMeta[] = [
-  { id: "draft",           en: "Draft",             ar: "مسودة",             atLab: false, closed: false, pill: "bg-slate-100 text-slate-600",     dot: "bg-slate-400" },
+  { id: "draft",           en: "Draft",             ar: "مسودة",             atLab: false, closed: false, pill: "bg-surface-muted text-ink-body",     dot: "bg-slate-400" },
   { id: "at_lab",          en: "At lab",            ar: "في المعمل",         atLab: true,  closed: false, pill: "bg-sky-50 text-sky-700",          dot: "bg-sky-500" },
   { id: "tryin_back",      en: "Try-in back",       ar: "بروفة وصلت",        atLab: false, closed: false, pill: "bg-violet-50 text-violet-700",    dot: "bg-violet-500" },
   { id: "returned_to_lab", en: "Back to lab",       ar: "رجعت للمعمل",       atLab: true,  closed: false, pill: "bg-sky-50 text-sky-700",          dot: "bg-sky-500" },

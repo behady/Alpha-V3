@@ -221,13 +221,13 @@ export default function ClinicProfileSettingsPage() {
   if (!view.allowed) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center animate-in fade-in">
-        <span className="mb-6 flex h-20 w-20 items-center justify-center rounded-[1.75rem] bg-slate-100 text-slate-400">
+        <span className="mb-6 flex h-20 w-20 items-center justify-center rounded-[1.75rem] bg-surface-muted text-slate-400">
           <Building2 size={34} strokeWidth={1.5} />
         </span>
-        <h2 className="mb-2 text-2xl font-black tracking-tight text-slate-900">
+        <h2 className="mb-2 text-2xl font-black tracking-tight text-ink">
           {language === "ar" ? "هذا القسم مقفل" : "This section is locked"}
         </h2>
-        <p className="max-w-md text-sm font-semibold text-slate-500">
+        <p className="max-w-md text-sm font-semibold text-ink-muted">
           {denialMessage(view, language)}
         </p>
       </div>
@@ -237,18 +237,18 @@ export default function ClinicProfileSettingsPage() {
   return (
     <>
       <div className="max-w-3xl animate-in fade-in duration-300" dir={isRTL ? "rtl" : "ltr"}>
-        <p className="mb-8 max-w-xl text-sm font-medium leading-relaxed text-slate-500">
+        <p className="mb-8 max-w-xl text-sm font-medium leading-relaxed text-ink-muted">
           {txt.subtitle}
         </p>
 
         {!edit.allowed && (
-          <p className="mb-8 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm font-semibold text-slate-600">
+          <p className="mb-8 rounded-2xl border border-line bg-surface-subtle px-5 py-4 text-sm font-semibold text-ink-body">
             {denialMessage(edit, language)}
           </p>
         )}
 
         <form onSubmit={(e) => void handleSubmit(e)} className="space-y-8">
-          <div className="rounded-3xl border border-slate-200/80 bg-white p-8 shadow-[0_2px_40px_-12px_rgba(15,23,42,0.08)] space-y-6">
+          <div className="rounded-3xl border border-slate-200/80 bg-surface p-8 shadow-[0_2px_40px_-12px_rgba(15,23,42,0.08)] space-y-6">
             <label className="block space-y-2">
               <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">
                 {txt.name}
@@ -257,7 +257,7 @@ export default function ClinicProfileSettingsPage() {
                 required
                 value={form.clinicName ?? ""}
                 onChange={(e) => setForm((f) => ({ ...f, clinicName: e.target.value }))}
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50/50 px-5 py-3.5 text-sm font-medium text-slate-900 outline-none transition-all focus:border-slate-900 focus:bg-white focus:ring-4 focus:ring-slate-900/5"
+                className="w-full rounded-2xl border border-line bg-slate-50/50 px-5 py-3.5 text-sm font-medium text-ink outline-none transition-all focus:border-slate-900 focus:bg-surface focus:ring-4 focus:ring-slate-900/5"
                 placeholder="Alpha Dental"
               />
             </label>
@@ -270,7 +270,7 @@ export default function ClinicProfileSettingsPage() {
                 type="tel"
                 value={form.phone ?? ""}
                 onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50/50 px-5 py-3.5 text-sm font-medium text-slate-900 outline-none transition-all focus:border-slate-900 focus:bg-white focus:ring-4 focus:ring-slate-900/5"
+                className="w-full rounded-2xl border border-line bg-slate-50/50 px-5 py-3.5 text-sm font-medium text-ink outline-none transition-all focus:border-slate-900 focus:bg-surface focus:ring-4 focus:ring-slate-900/5"
                 placeholder="+20 …"
               />
             </label>
@@ -283,7 +283,7 @@ export default function ClinicProfileSettingsPage() {
                 value={form.address ?? ""}
                 onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
                 rows={3}
-                className="w-full resize-none rounded-2xl border border-slate-200 bg-slate-50/50 px-5 py-3.5 text-sm font-medium text-slate-900 outline-none transition-all focus:border-slate-900 focus:bg-white focus:ring-4 focus:ring-slate-900/5"
+                className="w-full resize-none rounded-2xl border border-line bg-slate-50/50 px-5 py-3.5 text-sm font-medium text-ink outline-none transition-all focus:border-slate-900 focus:bg-surface focus:ring-4 focus:ring-slate-900/5"
               />
             </label>
 
@@ -298,7 +298,7 @@ export default function ClinicProfileSettingsPage() {
                   value={form.currency ?? ""}
                   onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
                   maxLength={8}
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50/50 px-5 py-3.5 text-sm font-medium text-slate-900 outline-none transition-all focus:border-slate-900 focus:bg-white focus:ring-4 focus:ring-slate-900/5"
+                  className="w-full rounded-2xl border border-line bg-slate-50/50 px-5 py-3.5 text-sm font-medium text-ink outline-none transition-all focus:border-slate-900 focus:bg-surface focus:ring-4 focus:ring-slate-900/5"
                   placeholder="EGP"
                 />
                 <p className="text-xs text-slate-400 leading-relaxed">{txt.currencyHint}</p>
@@ -312,7 +312,7 @@ export default function ClinicProfileSettingsPage() {
                   value={form.rxHeader ?? ""}
                   onChange={(e) => setForm((f) => ({ ...f, rxHeader: e.target.value }))}
                   rows={2}
-                  className="w-full resize-none rounded-2xl border border-slate-200 bg-slate-50/50 px-5 py-3.5 text-sm font-medium text-slate-900 outline-none transition-all focus:border-slate-900 focus:bg-white focus:ring-4 focus:ring-slate-900/5"
+                  className="w-full resize-none rounded-2xl border border-line bg-slate-50/50 px-5 py-3.5 text-sm font-medium text-ink outline-none transition-all focus:border-slate-900 focus:bg-surface focus:ring-4 focus:ring-slate-900/5"
                   placeholder={txt.rxHeaderPlaceholder}
                 />
                 <p className="text-xs text-slate-400 leading-relaxed">{txt.rxHeaderHint}</p>
@@ -327,7 +327,7 @@ export default function ClinicProfileSettingsPage() {
                 type="url"
                 value={form.googleMapsUrl ?? ""}
                 onChange={(e) => setForm((f) => ({ ...f, googleMapsUrl: e.target.value }))}
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50/50 px-5 py-3.5 text-sm font-medium text-slate-900 outline-none transition-all focus:border-slate-900 focus:bg-white focus:ring-4 focus:ring-slate-900/5"
+                className="w-full rounded-2xl border border-line bg-slate-50/50 px-5 py-3.5 text-sm font-medium text-ink outline-none transition-all focus:border-slate-900 focus:bg-surface focus:ring-4 focus:ring-slate-900/5"
                 placeholder="https://maps.google.com/…"
               />
               <p className="text-xs text-slate-400 leading-relaxed">{txt.mapsHint}</p>
@@ -341,7 +341,7 @@ export default function ClinicProfileSettingsPage() {
                 type="url"
                 value={form.googleReviewUrl ?? ""}
                 onChange={(e) => setForm((f) => ({ ...f, googleReviewUrl: e.target.value }))}
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50/50 px-5 py-3.5 text-sm font-medium text-slate-900 outline-none transition-all focus:border-slate-900 focus:bg-white focus:ring-4 focus:ring-slate-900/5"
+                className="w-full rounded-2xl border border-line bg-slate-50/50 px-5 py-3.5 text-sm font-medium text-ink outline-none transition-all focus:border-slate-900 focus:bg-surface focus:ring-4 focus:ring-slate-900/5"
                 placeholder="https://g.page/r/… or Google review URL"
               />
               <p className="text-xs text-slate-400 leading-relaxed">{txt.reviewHint}</p>
@@ -351,9 +351,9 @@ export default function ClinicProfileSettingsPage() {
               <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
                 <ImagePlus size={12} className="opacity-60" /> {txt.logo}
               </span>
-              <div className="flex flex-col sm:flex-row sm:items-center gap-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50/40 px-5 py-6">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-4 rounded-2xl border border-dashed border-line bg-slate-50/40 px-5 py-6">
                 {(logoFile || form.logoUrl) && (
-                  <div className="h-20 w-20 rounded-2xl border border-slate-100 bg-white overflow-hidden shrink-0 shadow-inner flex items-center justify-center">
+                  <div className="h-20 w-20 rounded-2xl border border-slate-100 bg-surface overflow-hidden shrink-0 shadow-inner flex items-center justify-center">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={logoFile ? URL.createObjectURL(logoFile) : form.logoUrl}

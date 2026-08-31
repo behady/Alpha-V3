@@ -166,16 +166,16 @@ export default function PrescriptionPrintFinderModal({
       >
         <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-slate-50/80 px-5 py-4">
           <div className="min-w-0">
-            <h2 className="flex items-center gap-2 text-lg font-black text-slate-900">
+            <h2 className="flex items-center gap-2 text-lg font-black text-ink">
               <Pill className="shrink-0 text-primary-500" size={20} />
               {txt.title}
             </h2>
-            <p className="mt-0.5 text-xs font-medium text-slate-500">{txt.subtitle}</p>
+            <p className="mt-0.5 text-xs font-medium text-ink-muted">{txt.subtitle}</p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="shrink-0 rounded-full border border-slate-200 bg-white p-2 text-slate-400 transition hover:text-rose-500"
+            className="shrink-0 rounded-full border border-line bg-surface p-2 text-slate-400 transition hover:text-rose-500"
             aria-label={isAr ? "إغلاق" : "Close"}
           >
             <X size={18} />
@@ -195,7 +195,7 @@ export default function PrescriptionPrintFinderModal({
               </button>
               <div className="mb-3 flex items-center gap-2 rounded-xl border border-primary-100 bg-primary-50/60 px-3 py-2">
                 <User size={16} className="shrink-0 text-primary-600" />
-                <span className="truncate font-bold text-slate-900">{selectedPatient.name}</span>
+                <span className="truncate font-bold text-ink">{selectedPatient.name}</span>
               </div>
             </>
           ) : (
@@ -207,7 +207,7 @@ export default function PrescriptionPrintFinderModal({
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={txt.search}
                 autoFocus
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 ps-9 pe-3 text-sm font-bold text-slate-900 outline-none focus:border-primary-500 focus:bg-white"
+                className="w-full rounded-xl border border-line bg-surface-subtle py-3 ps-9 pe-3 text-sm font-bold text-ink outline-none focus:border-primary-500 focus:bg-surface"
               />
             </div>
           )}
@@ -223,15 +223,15 @@ export default function PrescriptionPrintFinderModal({
                       key={p.id}
                       type="button"
                       onClick={() => setSelectedPatient(p)}
-                      className="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-3 text-start transition hover:border-slate-200 hover:bg-slate-50"
+                      className="flex w-full items-center gap-3 rounded-xl border border-transparent px-3 py-3 text-start transition hover:border-line hover:bg-surface-subtle"
                     >
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-sm font-black text-slate-600">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-surface-muted text-sm font-black text-ink-body">
                         {p.name?.charAt(0)?.toUpperCase() || "P"}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <p className="truncate font-bold text-slate-900">{p.name}</p>
+                        <p className="truncate font-bold text-ink">{p.name}</p>
                         {p.phone ? (
-                          <p className="truncate text-xs font-medium text-slate-500" dir="ltr">
+                          <p className="truncate text-xs font-medium text-ink-muted" dir="ltr">
                             {p.phone}
                           </p>
                         ) : null}
@@ -258,19 +258,19 @@ export default function PrescriptionPrintFinderModal({
                   return (
                     <li
                       key={rx.id}
-                      className="rounded-2xl border border-slate-200 bg-slate-50/50 p-3 transition hover:border-primary-200 hover:bg-white"
+                      className="rounded-2xl border border-line bg-slate-50/50 p-3 transition hover:border-primary-200 hover:bg-surface"
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-black text-slate-900">
+                          <p className="text-sm font-black text-ink">
                             {formatPrescriptionCardDate(rx)}
                           </p>
                           {typeof rx.doctor === "string" && rx.doctor.trim() ? (
-                            <p className="mt-0.5 text-xs font-semibold text-slate-500">
+                            <p className="mt-0.5 text-xs font-semibold text-ink-muted">
                               {rx.doctor}
                             </p>
                           ) : null}
-                          <p className="mt-1 line-clamp-2 text-xs font-medium text-slate-600">
+                          <p className="mt-1 line-clamp-2 text-xs font-medium text-ink-body">
                             {prescriptionPreviewText(rx)}
                           </p>
                           <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">

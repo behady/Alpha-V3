@@ -46,8 +46,8 @@ type Props = {
 };
 
 const INPUT =
-  "w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 transition-all";
-const LABEL = "block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-1.5";
+  "w-full px-3 py-2.5 bg-surface border border-line rounded-xl text-sm font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 transition-all";
+const LABEL = "block text-[11px] font-black uppercase tracking-wider text-ink-muted mb-1.5";
 
 
 
@@ -450,7 +450,7 @@ export default function LabCaseModal({
               <FlaskConical size={20} className="text-sky-600" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-base font-black text-slate-900 tracking-tight truncate">
+              <h2 className="text-base font-black text-ink tracking-tight truncate">
                 {isEdit
                   ? isAr ? `تعديل ${existing?.code}` : `Edit ${existing?.code}`
                   : isAr ? "أمر معمل جديد" : "New lab order"}
@@ -464,7 +464,7 @@ export default function LabCaseModal({
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors shrink-0"
+            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-surface-muted rounded-xl transition-colors shrink-0"
             aria-label={isAr ? "إغلاق" : "Close"}
           >
             <X size={18} />
@@ -527,7 +527,7 @@ export default function LabCaseModal({
           <div>
             <label className={LABEL}>{isAr ? "المريض" : "Patient"}</label>
             {patientName ? (
-              <div className="flex items-center justify-between gap-3 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl">
+              <div className="flex items-center justify-between gap-3 px-4 py-3 bg-surface-subtle border border-line rounded-xl">
                 <div className="min-w-0">
                   <p className="text-sm font-black text-slate-800 truncate">{patientName}</p>
                   <p className="text-[11px] font-bold text-slate-400 truncate" dir="ltr">
@@ -557,7 +557,7 @@ export default function LabCaseModal({
                   className={`${INPUT} ps-9`}
                 />
                 {patientMatches.length > 0 && (
-                  <div className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden max-h-56 overflow-y-auto">
+                  <div className="absolute z-10 mt-1 w-full bg-surface border border-line rounded-xl shadow-xl overflow-hidden max-h-56 overflow-y-auto">
                     {patientMatches.map((p) => (
                       <button
                         key={p.id}
@@ -567,7 +567,7 @@ export default function LabCaseModal({
                           setPatientPhone(p.phone || "");
                           setPatientQuery("");
                         }}
-                        className="w-full text-start px-4 py-2.5 hover:bg-slate-50 transition-colors"
+                        className="w-full text-start px-4 py-2.5 hover:bg-surface-subtle transition-colors"
                       >
                         <span className="block text-sm font-bold text-slate-700">{p.name}</span>
                         <span className="block text-[11px] font-semibold text-slate-400" dir="ltr">
@@ -651,7 +651,7 @@ export default function LabCaseModal({
           </div>
 
           {/* Per-work-type technical fields */}
-          <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4 space-y-4">
+          <div className="rounded-2xl border border-line bg-slate-50/60 p-4 space-y-4">
             <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">
               {isAr ? "تفاصيل فنية" : "Technical details"}
             </p>
@@ -723,7 +723,7 @@ export default function LabCaseModal({
             </div>
 
             {wt.implant && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-slate-200">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-line">
                 <div>
                   <label className={LABEL}>{isAr ? "نظام الزرعة" : "Implant system"}</label>
                   <input
@@ -784,7 +784,7 @@ export default function LabCaseModal({
             )}
 
             {wt.guide && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-slate-200">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-line">
                 <div>
                   <label className={LABEL}>{isAr ? "نوع الدليل" : "Guide type"}</label>
                   <select value={guideType} onChange={(e) => setGuideType(e.target.value)} className={INPUT}>
@@ -879,7 +879,7 @@ export default function LabCaseModal({
 
           {/* Try-in + send now */}
           <div className="space-y-2">
-            <label className="flex items-start gap-3 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
+            <label className="flex items-start gap-3 p-3 bg-surface border border-line rounded-xl cursor-pointer hover:bg-surface-subtle transition-colors">
               <input
                 type="checkbox"
                 checked={needsTryIn}
@@ -899,7 +899,7 @@ export default function LabCaseModal({
             </label>
 
             {!isEdit && (
-              <label className="flex items-start gap-3 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
+              <label className="flex items-start gap-3 p-3 bg-surface border border-line rounded-xl cursor-pointer hover:bg-surface-subtle transition-colors">
                 <input
                   type="checkbox"
                   checked={sendNow}
@@ -925,7 +925,7 @@ export default function LabCaseModal({
         <div className="flex items-center justify-end gap-2 px-5 sm:px-7 py-4 border-t border-slate-100 bg-slate-50/60 shrink-0">
           <button
             onClick={onClose}
-            className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wide text-slate-500 hover:bg-slate-200/60 transition-colors"
+            className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wide text-ink-muted hover:bg-slate-200/60 transition-colors"
           >
             {isAr ? "إلغاء" : "Cancel"}
           </button>

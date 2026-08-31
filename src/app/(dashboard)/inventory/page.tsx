@@ -467,7 +467,7 @@ export default function InventoryPage() {
   }, [categories]);
 
   if (loading && inventory.length === 0) {
-    return <div className="h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-accent" size={40} /></div>;
+    return <div className="h-screen flex items-center justify-center bg-surface-subtle"><Loader2 className="animate-spin text-accent" size={40} /></div>;
   }
 
   const formatCurrency = (val: number) => val.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US');
@@ -481,11 +481,11 @@ export default function InventoryPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between shrink-0">
             <div>
               <p className="text-[11px] font-black uppercase tracking-[0.2em] text-accent">Alpha</p>
-              <h1 className="text-2xl xl:text-3xl font-black text-slate-900 tracking-tight mt-1">{language === "ar" ? "إدارة المخزون" : "Inventory"}</h1>
-              <p className="text-slate-500 font-semibold text-sm mt-1">{language === "ar" ? "نظرة عامة على الأرصدة والقيمة الإجمالية" : "Overview of stock levels and total value"}</p>
+              <h1 className="text-2xl xl:text-3xl font-black text-ink tracking-tight mt-1">{language === "ar" ? "إدارة المخزون" : "Inventory"}</h1>
+              <p className="text-ink-muted font-semibold text-sm mt-1">{language === "ar" ? "نظرة عامة على الأرصدة والقيمة الإجمالية" : "Overview of stock levels and total value"}</p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-               <button onClick={exportToCSV} className="flex-1 sm:flex-none inline-flex justify-center items-center gap-2 bg-slate-100 text-slate-700 hover:bg-slate-200 px-4 py-2.5 rounded-xl font-bold text-xs border border-slate-200 transition-colors">
+               <button onClick={exportToCSV} className="flex-1 sm:flex-none inline-flex justify-center items-center gap-2 bg-surface-muted text-slate-700 hover:bg-slate-200 px-4 py-2.5 rounded-xl font-bold text-xs border border-line transition-colors">
                   <Download size={16} /> CSV
                </button>
             </div>
@@ -531,11 +531,11 @@ export default function InventoryPage() {
 
             {/* Metric Tiles */}
             <div className="xl:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
+              <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "أصناف مطابقة" : "Total items"}</p>
-                    <p className="text-xs text-slate-500 mt-1 font-medium">{language === "ar" ? "حسب الفلاتر" : "Matching filters"}</p>
+                    <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "حسب الفلاتر" : "Matching filters"}</p>
                   </div>
                   <div className="w-11 h-11 rounded-2xl bg-accent-tint text-accent flex items-center justify-center shrink-0">
                     <Layers size={22} />
@@ -546,11 +546,11 @@ export default function InventoryPage() {
                 </p>
               </div>
 
-              <div className="rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
+              <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "أصناف منخفضة" : "Low stock"}</p>
-                    <p className="text-xs text-slate-500 mt-1 font-medium">{language === "ar" ? "تتطلب إعادة طلب" : "Requires reorder"}</p>
+                    <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "تتطلب إعادة طلب" : "Requires reorder"}</p>
                   </div>
                   <div className="w-11 h-11 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
                     <AlertTriangle size={22} />
@@ -572,11 +572,11 @@ export default function InventoryPage() {
                 )}
               </div>
 
-              <div className="rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
+              <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "مشتريات" : "Purchased qty"}</p>
-                    <p className="text-xs text-slate-500 mt-1 font-medium">{language === "ar" ? "للفترة المحددة" : "Selected period"}</p>
+                    <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "للفترة المحددة" : "Selected period"}</p>
                   </div>
                   <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
                     <TrendingUp size={22} />
@@ -587,11 +587,11 @@ export default function InventoryPage() {
                 </p>
               </div>
 
-              <div className="rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
+              <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "استهلاك" : "Consumed qty"}</p>
-                    <p className="text-xs text-slate-500 mt-1 font-medium">{language === "ar" ? "للفترة المحددة" : "Selected period"}</p>
+                    <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "للفترة المحددة" : "Selected period"}</p>
                   </div>
                   <div className="w-11 h-11 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
                     <TrendingDown size={22} />
@@ -607,14 +607,14 @@ export default function InventoryPage() {
           {/* Toolbar */}
           <div className="rounded-2xl xl:rounded-3xl bg-white/95 backdrop-blur border border-slate-200/80 shadow-sm p-4 xl:p-5 flex flex-col gap-4 shrink-0 sticky top-0 z-20">
              <div className="flex flex-wrap items-center gap-3">
-               <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/60 shrink-0">
+               <div className="flex bg-surface-muted p-1 rounded-xl border border-slate-200/60 shrink-0">
                  {(["all", "low", "ok"] as const).map((type) => (
                    <button
                      key={type}
                      type="button"
                      onClick={() => setStockStatusFilter(type)}
                      className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${
-                       stockStatusFilter === type ? "bg-white text-accent shadow-sm border border-slate-200/50" : "text-slate-500"
+                       stockStatusFilter === type ? "bg-surface text-accent shadow-sm border border-slate-200/50" : "text-ink-muted"
                      }`}
                    >
                      {language === "ar" ? (type === "all" ? "الكل" : type === "low" ? "منخفض" : "جيد") : type}
@@ -626,14 +626,14 @@ export default function InventoryPage() {
                  type="date"
                  value={startDate}
                  onChange={(e) => setStartDate(e.target.value)}
-                 className="bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[140px] cursor-pointer focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 transition-all"
+                 className="bg-surface-subtle border border-line rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[140px] cursor-pointer focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 transition-all"
                />
                <span className="text-slate-400 font-bold">-</span>
                <input
                  type="date"
                  value={endDate}
                  onChange={(e) => setEndDate(e.target.value)}
-                 className="bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[140px] cursor-pointer focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 transition-all"
+                 className="bg-surface-subtle border border-line rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[140px] cursor-pointer focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 transition-all"
                />
 
                <div className="flex-1 min-w-[40px]" />
@@ -669,7 +669,7 @@ export default function InventoryPage() {
                   <select
                     value={selectedCategory}
                     onChange={(e) => setSelectedCategory(e.target.value)}
-                    className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none w-full sm:max-w-[180px] cursor-pointer focus:border-accent-soft"
+                    className="bg-surface-subtle border border-line rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none w-full sm:max-w-[180px] cursor-pointer focus:border-accent-soft"
                   >
                     {categoryOptions.map((c) => <option key={c} value={c}>{c === "All" ? (language === "ar" ? "كل التصنيفات" : "All Categories") : c}</option>)}
                   </select>
@@ -677,7 +677,7 @@ export default function InventoryPage() {
                   <select
                     value={selectedSubCategory}
                     onChange={(e) => setSelectedSubCategory(e.target.value)}
-                    className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none w-full sm:max-w-[180px] cursor-pointer focus:border-accent-soft"
+                    className="bg-surface-subtle border border-line rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none w-full sm:max-w-[180px] cursor-pointer focus:border-accent-soft"
                   >
                     {subCategoryOptions.map((c) => <option key={c} value={c}>{c === "All" ? (language === "ar" ? "كل الفروع" : "All Sub-cats") : c}</option>)}
                   </select>
@@ -689,7 +689,7 @@ export default function InventoryPage() {
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       placeholder={language === "ar" ? "بحث بالاسم..." : "Search items..."}
-                      className="bg-slate-50 border border-slate-200 rounded-xl ps-10 pe-4 py-2.5 text-sm font-semibold text-slate-800 outline-none w-full focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/15"
+                      className="bg-surface-subtle border border-line rounded-xl ps-10 pe-4 py-2.5 text-sm font-semibold text-slate-800 outline-none w-full focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/15"
                     />
                   </div>
                 </div>
@@ -698,7 +698,7 @@ export default function InventoryPage() {
                    <button
                      type="button"
                      onClick={resetFilters}
-                     className="inline-flex justify-center items-center gap-2 bg-slate-100 text-slate-700 hover:bg-slate-200 px-4 py-2.5 rounded-xl font-bold text-xs border border-slate-200 transition-colors"
+                     className="inline-flex justify-center items-center gap-2 bg-surface-muted text-slate-700 hover:bg-slate-200 px-4 py-2.5 rounded-xl font-bold text-xs border border-line transition-colors"
                    >
                      <RotateCcw size={16} />
                      {language === "ar" ? "إعادة ضبط" : "Reset"}
@@ -708,11 +708,11 @@ export default function InventoryPage() {
           </div>
 
           {/* Ledger Table */}
-          <div className="bg-white rounded-2xl xl:rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden flex flex-col flex-1 min-h-[420px] ring-1 ring-slate-100">
+          <div className="bg-surface rounded-2xl xl:rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden flex flex-col flex-1 min-h-[420px] ring-1 ring-slate-100">
              <div className="overflow-x-auto flex-1">
                <table className="w-full text-sm">
                  <thead>
-                   <tr className="bg-slate-50/90 border-b border-slate-200 text-[11px] font-black uppercase tracking-wider text-slate-500">
+                   <tr className="bg-slate-50/90 border-b border-line text-[11px] font-black uppercase tracking-wider text-ink-muted">
                      <th className="text-start py-4 px-6">{language === "ar" ? "الصنف" : "Item"}</th>
                      <th className="text-start py-4 px-4">{language === "ar" ? "التصنيف" : "Category"}</th>
                      <th className="text-center py-4 px-4">{language === "ar" ? "المخزون" : "Stock"}</th>
@@ -729,7 +729,7 @@ export default function InventoryPage() {
                      return (
                        <tr key={item.id} className="hover:bg-slate-50/80 transition-colors group">
                          <td className="py-4 px-6 align-top min-w-[200px]">
-                           <div className="font-bold text-slate-900 leading-snug">{item.name}</div>
+                           <div className="font-bold text-ink leading-snug">{item.name}</div>
                            <div className="text-[11px] font-semibold text-slate-400 mt-1 uppercase tracking-wider">{item.unit}</div>
                          </td>
                          <td className="py-4 px-4 align-top">
@@ -747,7 +747,7 @@ export default function InventoryPage() {
                            </span>
                          </td>
                          <td className="py-4 px-4 align-top text-end">
-                           <span className="font-bold text-slate-600 tabular-nums text-xs">
+                           <span className="font-bold text-ink-body tabular-nums text-xs">
                              {formatCurrency(item.costPerUnit)}
                            </span>
                          </td>
@@ -765,15 +765,15 @@ export default function InventoryPage() {
                          <td className="py-4 px-4 align-top text-center">
                            <div className="inline-flex items-center gap-1 justify-center">
                              <Protect permission="inventory.edit">
-                                <button onClick={() => void handleQuickAdjust(item, item.isPercentage ? -10 : -1)} className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-red-600 hover:border-red-200 shadow-sm flex items-center justify-center font-bold text-xs transition-colors">-1</button>
-                                <button onClick={() => void handleQuickAdjust(item, item.isPercentage ? 10 : 1)} className="w-8 h-8 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-emerald-600 hover:border-emerald-200 shadow-sm flex items-center justify-center font-bold text-xs transition-colors">+1</button>
+                                <button onClick={() => void handleQuickAdjust(item, item.isPercentage ? -10 : -1)} className="w-8 h-8 rounded-lg bg-surface border border-line text-ink-muted hover:text-red-600 hover:border-red-200 shadow-sm flex items-center justify-center font-bold text-xs transition-colors">-1</button>
+                                <button onClick={() => void handleQuickAdjust(item, item.isPercentage ? 10 : 1)} className="w-8 h-8 rounded-lg bg-surface border border-line text-ink-muted hover:text-emerald-600 hover:border-emerald-200 shadow-sm flex items-center justify-center font-bold text-xs transition-colors">+1</button>
                                 <div className="w-2" />
-                                <button onClick={() => openForEdit(item)} className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-accent hover:border-accent-soft shadow-sm transition-colors">
+                                <button onClick={() => openForEdit(item)} className="p-2 rounded-lg bg-surface border border-line text-ink-muted hover:text-accent hover:border-accent-soft shadow-sm transition-colors">
                                   <Edit2 size={16} />
                                 </button>
                              </Protect>
                              <Protect permission="inventory.delete">
-                                <button onClick={() => void handleDelete(item)} className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-red-600 hover:bg-red-50 shadow-sm transition-colors">
+                                <button onClick={() => void handleDelete(item)} className="p-2 rounded-lg bg-surface border border-line text-ink-muted hover:text-red-600 hover:bg-red-50 shadow-sm transition-colors">
                                   <Trash2 size={16} />
                                 </button>
                              </Protect>
@@ -786,10 +786,10 @@ export default function InventoryPage() {
                      <tr>
                        <td className="px-6 py-12 text-center" colSpan={8}>
                          <div className="flex flex-col items-center justify-center text-slate-400">
-                           <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
+                           <div className="w-16 h-16 rounded-2xl bg-surface-muted flex items-center justify-center mb-4">
                              <Package className="w-8 h-8 text-slate-300" />
                            </div>
-                           <p className="font-bold text-slate-600">{language === "ar" ? "لا توجد نتائج مطابقة" : "No matching items"}</p>
+                           <p className="font-bold text-ink-body">{language === "ar" ? "لا توجد نتائج مطابقة" : "No matching items"}</p>
                          </div>
                        </td>
                      </tr>
@@ -800,14 +800,14 @@ export default function InventoryPage() {
              
              {totalPages > 1 && (
                <div className="p-4 border-t border-slate-100 bg-slate-50/80 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
-                 <span className="text-xs font-bold text-slate-500">
+                 <span className="text-xs font-bold text-ink-muted">
                    {(page - 1) * ROWS_PER_PAGE + 1}–{Math.min(page * ROWS_PER_PAGE, filteredInventory.length)} / {filteredInventory.length}
                  </span>
                  <div className="flex items-center gap-2">
-                   <button disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 text-xs font-bold transition-colors">
+                   <button disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="px-4 py-2 rounded-xl bg-surface border border-line text-ink-body hover:bg-surface-subtle disabled:opacity-40 text-xs font-bold transition-colors">
                      {language === "ar" ? "السابق" : "Previous"}
                    </button>
-                   <button disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))} className="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 text-xs font-bold transition-colors">
+                   <button disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))} className="px-4 py-2 rounded-xl bg-surface border border-line text-ink-body hover:bg-surface-subtle disabled:opacity-40 text-xs font-bold transition-colors">
                      {language === "ar" ? "التالي" : "Next"}
                    </button>
                  </div>
@@ -819,37 +819,37 @@ export default function InventoryPage() {
           {showInventoryForm && (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-5" id="inventory-form">
               {/* Add / Edit Form */}
-            <div className="rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 p-5 xl:p-6 shadow-sm ring-1 ring-slate-100 space-y-4">
-              <h3 className="text-lg font-black text-slate-900 tracking-tight">{editingItem ? (language === "ar" ? "تعديل صنف" : "Edit item") : language === "ar" ? "إضافة صنف" : "Add item"}</h3>
+            <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm ring-1 ring-slate-100 space-y-4">
+              <h3 className="text-lg font-black text-ink tracking-tight">{editingItem ? (language === "ar" ? "تعديل صنف" : "Edit item") : language === "ar" ? "إضافة صنف" : "Add item"}</h3>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">{language === "ar" ? "اسم الصنف" : "Item name"}</label>
-                  <input data-tour="inventory-item-name" value={formName} onChange={(e) => setFormName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
+                  <label className="text-[10px] font-bold text-ink-muted uppercase tracking-wider pl-1">{language === "ar" ? "اسم الصنف" : "Item name"}</label>
+                  <input data-tour="inventory-item-name" value={formName} onChange={(e) => setFormName(e.target.value)} className="w-full bg-surface-subtle border border-line rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">{language === "ar" ? "التصنيف" : "Category"}</label>
-                  <input value={formCategory} onChange={(e) => setFormCategory(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
+                  <label className="text-[10px] font-bold text-ink-muted uppercase tracking-wider pl-1">{language === "ar" ? "التصنيف" : "Category"}</label>
+                  <input value={formCategory} onChange={(e) => setFormCategory(e.target.value)} className="w-full bg-surface-subtle border border-line rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">{language === "ar" ? "التصنيف الفرعي" : "Sub-category"}</label>
-                  <input value={formSubCategory} onChange={(e) => setFormSubCategory(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
+                  <label className="text-[10px] font-bold text-ink-muted uppercase tracking-wider pl-1">{language === "ar" ? "التصنيف الفرعي" : "Sub-category"}</label>
+                  <input value={formSubCategory} onChange={(e) => setFormSubCategory(e.target.value)} className="w-full bg-surface-subtle border border-line rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">{language === "ar" ? "الوحدة" : "Unit"}</label>
-                  <input value={formUnit} onChange={(e) => setFormUnit(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
+                  <label className="text-[10px] font-bold text-ink-muted uppercase tracking-wider pl-1">{language === "ar" ? "الوحدة" : "Unit"}</label>
+                  <input value={formUnit} onChange={(e) => setFormUnit(e.target.value)} className="w-full bg-surface-subtle border border-line rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">{language === "ar" ? "المخزون" : "Stock"}</label>
-                  <input type="number" value={formStock} onChange={(e) => setFormStock(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
+                  <label className="text-[10px] font-bold text-ink-muted uppercase tracking-wider pl-1">{language === "ar" ? "المخزون" : "Stock"}</label>
+                  <input type="number" value={formStock} onChange={(e) => setFormStock(e.target.value)} className="w-full bg-surface-subtle border border-line rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">{language === "ar" ? "الحد الأدنى" : "Min stock"}</label>
-                  <input type="number" value={formMinStock} onChange={(e) => setFormMinStock(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
+                  <label className="text-[10px] font-bold text-ink-muted uppercase tracking-wider pl-1">{language === "ar" ? "الحد الأدنى" : "Min stock"}</label>
+                  <input type="number" value={formMinStock} onChange={(e) => setFormMinStock(e.target.value)} className="w-full bg-surface-subtle border border-line rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-1">{language === "ar" ? "تكلفة الوحدة" : "Cost per unit"}</label>
-                  <input type="number" value={formCost} onChange={(e) => setFormCost(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
+                  <label className="text-[10px] font-bold text-ink-muted uppercase tracking-wider pl-1">{language === "ar" ? "تكلفة الوحدة" : "Cost per unit"}</label>
+                  <input type="number" value={formCost} onChange={(e) => setFormCost(e.target.value)} className="w-full bg-surface-subtle border border-line rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
                 </div>
                 <div className="flex items-center pt-5 pl-2">
                   <label className="flex items-center gap-2 cursor-pointer group">
@@ -875,36 +875,36 @@ export default function InventoryPage() {
             </div>
 
             {/* Categories Management */}
-            <div className="rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 p-5 xl:p-6 shadow-sm ring-1 ring-slate-100 space-y-5">
-              <h3 className="text-lg font-black text-slate-900 tracking-tight">{language === "ar" ? "التصنيفات" : "Categories"}</h3>
+            <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm ring-1 ring-slate-100 space-y-5">
+              <h3 className="text-lg font-black text-ink tracking-tight">{language === "ar" ? "التصنيفات" : "Categories"}</h3>
               
               <div className="flex gap-2">
-                <input value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder={language === "ar" ? "تصنيف رئيسي جديد" : "New top-level category"} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
-                <button onClick={() => void handleAddCategory()} className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-accent hover:border-accent-soft transition-colors">
+                <input value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder={language === "ar" ? "تصنيف رئيسي جديد" : "New top-level category"} className="w-full bg-surface-subtle border border-line rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
+                <button onClick={() => void handleAddCategory()} className="px-4 py-2.5 rounded-xl bg-surface border border-line text-slate-700 hover:text-accent hover:border-accent-soft transition-colors">
                   <Plus size={18} />
                 </button>
               </div>
               
               <div className="flex flex-col sm:flex-row gap-2">
-                <select value={subCategoryParent} onChange={(e) => setSubCategoryParent(e.target.value)} className="w-full sm:w-1/2 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft cursor-pointer">
+                <select value={subCategoryParent} onChange={(e) => setSubCategoryParent(e.target.value)} className="w-full sm:w-1/2 bg-surface-subtle border border-line rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft cursor-pointer">
                   <option value="">{language === "ar" ? "اختر تصنيفًا رئيسيًا" : "Select parent"}</option>
                   {topCategories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
                 <div className="flex gap-2 w-full sm:w-1/2">
-                  <input value={newSubCategoryName} onChange={(e) => setNewSubCategoryName(e.target.value)} placeholder={language === "ar" ? "تصنيف فرعي" : "Sub-category"} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
-                  <button onClick={() => void handleAddSubCategory()} className="px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 hover:text-accent hover:border-accent-soft transition-colors shrink-0">
+                  <input value={newSubCategoryName} onChange={(e) => setNewSubCategoryName(e.target.value)} placeholder={language === "ar" ? "تصنيف فرعي" : "Sub-category"} className="w-full bg-surface-subtle border border-line rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
+                  <button onClick={() => void handleAddSubCategory()} className="px-4 py-2.5 rounded-xl bg-surface border border-line text-slate-700 hover:text-accent hover:border-accent-soft transition-colors shrink-0">
                     <Plus size={18} />
                   </button>
                 </div>
               </div>
               
-              <div className="max-h-64 overflow-auto custom-scrollbar border border-slate-200 rounded-2xl p-4 bg-slate-50/50 space-y-3">
+              <div className="max-h-64 overflow-auto custom-scrollbar border border-line rounded-2xl p-4 bg-slate-50/50 space-y-3">
                 {topCategories.map((cat) => (
-                  <div key={cat.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                    <p className="font-bold text-slate-900 text-sm">{cat.name}</p>
+                  <div key={cat.id} className="rounded-xl border border-line bg-surface p-3 shadow-sm">
+                    <p className="font-bold text-ink text-sm">{cat.name}</p>
                     <div className="mt-2 space-y-1.5 ps-3 border-s-2 border-slate-100">
                       {(subCategoriesByParent.get(cat.id) ?? []).map((sub) => (
-                        <p key={sub.id} className="text-xs font-semibold text-slate-500">{sub.name}</p>
+                        <p key={sub.id} className="text-xs font-semibold text-ink-muted">{sub.name}</p>
                       ))}
                     </div>
                   </div>

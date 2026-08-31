@@ -10,16 +10,16 @@ interface UpgradeRequiredProps {
 
 export function UpgradeRequired({ featureName, minTier }: UpgradeRequiredProps) {
   return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] p-8 text-center bg-white rounded-3xl border border-slate-200/60 shadow-sm">
+    <div className="flex flex-col items-center justify-center min-h-[60vh] p-8 text-center bg-surface rounded-3xl border border-slate-200/60 shadow-sm">
       <div className="w-20 h-20 bg-indigo-50 text-indigo-500 rounded-3xl flex items-center justify-center mb-6 shadow-sm border border-indigo-100/50">
         <Lock size={32} />
       </div>
       
-      <h2 className="text-2xl font-black text-slate-900 mb-3 tracking-tight">
+      <h2 className="text-2xl font-black text-ink mb-3 tracking-tight">
         {featureName} is locked
       </h2>
       
-      <p className="text-slate-500 max-w-md mb-8 text-lg">
+      <p className="text-ink-muted max-w-md mb-8 text-lg">
         Your current plan does not include access to this feature. Upgrade to the <strong className="text-slate-800">{minTier}</strong> plan to unlock it and supercharge your clinic.
       </p>
       

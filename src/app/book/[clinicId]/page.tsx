@@ -189,7 +189,7 @@ export default function OnlineBookingPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500 font-bold" dir="rtl">
+      <div className="min-h-screen flex items-center justify-center bg-surface-subtle text-ink-muted font-bold" dir="rtl">
         بنحمل النظام...
       </div>
     );
@@ -197,8 +197,8 @@ export default function OnlineBookingPage() {
 
   if (error || !clinic) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4" dir="rtl">
-        <div className="bg-white p-8 rounded-3xl shadow-xl text-center max-w-md w-full border border-slate-100">
+      <div className="min-h-screen flex items-center justify-center bg-surface-subtle p-4" dir="rtl">
+        <div className="bg-surface p-8 rounded-3xl shadow-xl text-center max-w-md w-full border border-slate-100">
           <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
             <span className="text-3xl">!</span>
           </div>
@@ -210,13 +210,13 @@ export default function OnlineBookingPage() {
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4" dir="rtl">
-        <div className="bg-white p-10 rounded-3xl shadow-xl text-center max-w-md w-full border border-slate-100">
+      <div className="min-h-screen flex items-center justify-center bg-surface-subtle p-4" dir="rtl">
+        <div className="bg-surface p-10 rounded-3xl shadow-xl text-center max-w-md w-full border border-slate-100">
           <div className="w-20 h-20 bg-emerald-100 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6">
             <CheckCircle size={40} />
           </div>
           <h1 className="text-2xl font-black text-slate-800 mb-2">طلبك وصل!</h1>
-          <p className="text-slate-500 font-medium">
+          <p className="text-ink-muted font-medium">
             وصلنا طلب الحجز بتاعك ليوم {toArDigits(selectedDate)} الساعة {formatSlotAr(selectedTime)}
             {selectedBranch ? ` في ${selectedBranch.name}` : ""}. هنتواصل معاك قريب عشان نأكد.
           </p>
@@ -230,15 +230,15 @@ export default function OnlineBookingPage() {
   maxDate.setDate(maxDate.getDate() + 90);
 
   return (
-    <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8 font-sans" dir="rtl">
+    <div className="min-h-screen bg-surface-subtle py-12 px-4 sm:px-6 lg:px-8 font-sans" dir="rtl">
       <div className="max-w-xl mx-auto">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-black text-slate-900">{clinic.clinicName}</h1>
-          <p className="text-slate-500 font-medium mt-1">احجز ميعادك</p>
+          <h1 className="text-3xl font-black text-ink">{clinic.clinicName}</h1>
+          <p className="text-ink-muted font-medium mt-1">احجز ميعادك</p>
         </div>
 
-        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in">
-          <div className="flex bg-slate-50 border-b border-slate-200">
+        <div className="bg-surface rounded-3xl shadow-sm border border-line overflow-hidden animate-in fade-in">
+          <div className="flex bg-surface-subtle border-b border-line">
             <div
               className={`flex-1 text-center py-4 font-bold text-sm ${step === 1 ? "text-indigo-600 border-b-2 border-indigo-600" : "text-slate-400"}`}
             >
@@ -300,7 +300,7 @@ export default function OnlineBookingPage() {
                     <select
                       value={selectedDoctor}
                       onChange={(e) => setSelectedDoctor(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-700 font-medium outline-none focus:border-indigo-500 text-right"
+                      className="w-full bg-surface-subtle border border-line rounded-xl px-4 py-3 text-slate-700 font-medium outline-none focus:border-indigo-500 text-right"
                     >
                       <option value="">أي دكتور متاح</option>
                       {clinic.doctors.map((name) => (
@@ -325,7 +325,7 @@ export default function OnlineBookingPage() {
                     max={maxDate.toISOString().split("T")[0]}
                     value={selectedDate}
                     onChange={(e) => setSelectedDate(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-700 font-bold outline-none focus:border-indigo-500 text-right"
+                    className="w-full bg-surface-subtle border border-line rounded-xl px-4 py-3 text-slate-700 font-bold outline-none focus:border-indigo-500 text-right"
                     style={{ textAlign: "right" }}
                   />
                 </div>
@@ -334,7 +334,7 @@ export default function OnlineBookingPage() {
                   <div className="space-y-2">
                     <label className="block text-sm font-bold text-slate-700">المواعيد المتاحة</label>
                     {loadingSlots ? (
-                      <div className="text-slate-500 text-sm py-4 text-center">بندور على مواعيد...</div>
+                      <div className="text-ink-muted text-sm py-4 text-center">بندور على مواعيد...</div>
                     ) : closedThatDay ? (
                       <div className="text-amber-700 text-sm py-4 text-center font-bold bg-amber-50 rounded-xl">
                         العيادة مقفولة في اليوم ده.
@@ -408,7 +408,7 @@ export default function OnlineBookingPage() {
                       value={patientName}
                       onChange={(e) => setPatientName(e.target.value)}
                       placeholder="الاسم هنا"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-10 pl-4 py-3 text-slate-700 font-bold outline-none focus:border-indigo-500"
+                      className="w-full bg-surface-subtle border border-line rounded-xl pr-10 pl-4 py-3 text-slate-700 font-bold outline-none focus:border-indigo-500"
                     />
                   </div>
                 </div>
@@ -423,7 +423,7 @@ export default function OnlineBookingPage() {
                       value={patientPhone}
                       onChange={(e) => setPatientPhone(e.target.value)}
                       placeholder="010XXXXXXXX"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl pr-10 pl-4 py-3 text-slate-700 font-bold outline-none focus:border-indigo-500"
+                      className="w-full bg-surface-subtle border border-line rounded-xl pr-10 pl-4 py-3 text-slate-700 font-bold outline-none focus:border-indigo-500"
                       dir="ltr"
                       style={{ textAlign: "right" }}
                     />
@@ -436,7 +436,7 @@ export default function OnlineBookingPage() {
                     required
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-700 font-bold outline-none focus:border-indigo-500"
+                    className="w-full bg-surface-subtle border border-line rounded-xl px-4 py-3 text-slate-700 font-bold outline-none focus:border-indigo-500"
                   >
                     <option value="" disabled>
                       اختار السبب...

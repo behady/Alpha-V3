@@ -262,12 +262,12 @@ export default function PricingSettings({ currency }: { currency: string }) {
   }, [services]);
 
   return (
-    <div className="space-y-6 animate-in fade-in max-w-6xl mx-auto bg-white p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200/50">
+    <div className="space-y-6 animate-in fade-in max-w-6xl mx-auto bg-surface p-6 md:p-8 rounded-3xl shadow-sm border border-slate-200/50">
       {/* Header */}
       <div className="flex flex-col gap-4 border-b border-slate-100 pb-5">
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="flex-1">
-            <h2 className="text-xl font-black text-slate-900 tracking-tight">{txt.title}</h2>
+            <h2 className="text-xl font-black text-ink tracking-tight">{txt.title}</h2>
             <p className="text-sm font-medium text-slate-500 mt-0.5">{txt.subtitle}</p>
           </div>
           <button
@@ -284,7 +284,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
             value={serviceSearch}
             onChange={(e) => setServiceSearch(e.target.value)}
             placeholder={txt.searchTreatments}
-            className={`w-full py-3.5 bg-slate-50 rounded-2xl border border-slate-200/60 font-semibold text-slate-900 text-sm outline-none focus:bg-white focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10 transition-all ${isRTL ? "pr-12 pl-4" : "pl-12 pr-4"}`}
+            className={`w-full py-3.5 bg-surface-subtle rounded-2xl border border-slate-200/60 font-semibold text-ink text-sm outline-none focus:bg-surface focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10 transition-all ${isRTL ? "pr-12 pl-4" : "pl-12 pr-4"}`}
           />
         </div>
 
@@ -315,7 +315,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
 
       {/* Grouped services */}
       {grouped.length === 0 ? (
-        <div className="py-16 text-center text-slate-400 font-bold text-base bg-slate-50 rounded-3xl border border-dashed border-slate-200">
+        <div className="py-16 text-center text-slate-400 font-bold text-base bg-surface-subtle rounded-3xl border border-dashed border-line">
           {txt.noTreatments}
         </div>
       ) : (
@@ -330,20 +330,20 @@ export default function PricingSettings({ currency }: { currency: string }) {
                   {ar ? category.ar : category.en}
                 </h3>
                 <span className="text-xs font-bold text-slate-400">{items.length}</span>
-                <div className="flex-1 h-px bg-slate-100" />
+                <div className="flex-1 h-px bg-surface-muted" />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                 {items.map((s) => (
                   <div
                     key={s.id}
-                    className="p-4 bg-slate-50/70 rounded-2xl flex items-center gap-3.5 border border-slate-200/60 hover:border-primary-300 hover:bg-white hover:shadow-sm transition-all group"
+                    className="p-4 bg-slate-50/70 rounded-2xl flex items-center gap-3.5 border border-slate-200/60 hover:border-primary-300 hover:bg-surface hover:shadow-sm transition-all group"
                   >
-                    <span className="w-11 h-11 shrink-0 rounded-xl bg-white border border-slate-200/70 text-slate-600 group-hover:text-primary-600 group-hover:border-primary-200 flex items-center justify-center transition-colors">
+                    <span className="w-11 h-11 shrink-0 rounded-xl bg-surface border border-slate-200/70 text-ink-body group-hover:text-primary-600 group-hover:border-primary-200 flex items-center justify-center transition-colors">
                       <DentalIcon id={iconForService(s)} size={24} />
                     </span>
                     <div className="flex-1 min-w-0">
-                      <p className="font-bold text-slate-900 text-sm leading-snug truncate">{s.name}</p>
+                      <p className="font-bold text-ink text-sm leading-snug truncate">{s.name}</p>
                       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-1">
                         <span className="text-sm font-black text-primary-600">
                           {s.price} <span className="text-[10px] font-bold text-slate-400 uppercase">{currency}</span>
@@ -360,7 +360,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
                         )}
                         {/* Only worth showing when it is not the obvious default. */}
                         {isPricingMode(s.pricingMode) && s.pricingMode !== "per_tooth" && (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500 bg-slate-200/70 px-1.5 py-0.5 rounded">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-ink-muted bg-slate-200/70 px-1.5 py-0.5 rounded">
                             {txt.billingModes[s.pricingMode]}
                           </span>
                         )}
@@ -403,7 +403,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
               </h2>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="text-slate-400 hover:text-red-500 bg-slate-50 hover:bg-red-50 p-2 rounded-full transition-colors"
+                className="text-slate-400 hover:text-red-500 bg-surface-subtle hover:bg-red-50 p-2 rounded-full transition-colors"
               >
                 <X size={18} />
               </button>
@@ -412,18 +412,18 @@ export default function PricingSettings({ currency }: { currency: string }) {
             <form onSubmit={handleSave} className="px-7 py-5 space-y-5 overflow-y-auto custom-scrollbar">
               <div className="grid grid-cols-3 gap-3">
                 <div className="col-span-2 space-y-1.5">
-                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.name}</label>
+                  <label className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.name}</label>
                   <input
                     autoFocus
                     required
                     value={form.name}
                     onChange={(e) => handleNameChange(e.target.value)}
                     placeholder={ar ? "مثال: تاج زيركون" : "e.g. Zircon Crown"} data-tour="price-service-name"
-                    className="w-full py-3 px-4 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 text-sm outline-none focus:bg-white focus:border-primary-500 transition-all"
+                    className="w-full py-3 px-4 bg-surface-subtle rounded-xl border border-slate-200/60 font-semibold text-ink text-sm outline-none focus:bg-surface focus:border-primary-500 transition-all"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  <label className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">
                     {txt.price} ({currency})
                   </label>
                   <input
@@ -432,7 +432,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
                     value={form.price}
                     onChange={(e) => setForm({ ...form, price: e.target.value })}
                     placeholder="0"
-                    className="w-full py-3 px-4 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 text-sm outline-none focus:bg-white focus:border-primary-500 transition-all"
+                    className="w-full py-3 px-4 bg-surface-subtle rounded-xl border border-slate-200/60 font-semibold text-ink text-sm outline-none focus:bg-surface focus:border-primary-500 transition-all"
                   />
                 </div>
               </div>
@@ -441,7 +441,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
                   fills these in for the treatments it genuinely charges differently. */}
               {priceLists.filter((l) => l.active && l.id !== STANDARD_LIST_ID).length > 0 && (
                 <div className="space-y-2 rounded-xl border border-slate-200/70 bg-slate-50/50 p-3">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">
                     {ar ? "أسعار القوائم الأخرى" : "Other price lists"}
                   </p>
                   <p className="text-[11px] font-medium text-slate-400">
@@ -452,7 +452,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
                       .filter((l) => l.active && l.id !== STANDARD_LIST_ID)
                       .map((list) => (
                         <label key={list.id} className="space-y-1">
-                          <span className="text-[11px] font-bold text-slate-500">
+                          <span className="text-[11px] font-bold text-ink-muted">
                             {ar && list.nameAr ? list.nameAr : list.name}
                           </span>
                           <input
@@ -461,7 +461,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
                             value={listPrices[list.id] ?? ""}
                             onChange={(e) => setListPrices({ ...listPrices, [list.id]: e.target.value })}
                             placeholder={form.price || "0"}
-                            className="w-full rounded-xl border border-slate-200/60 bg-white px-3 py-2.5 text-sm font-semibold tabular-nums text-slate-900 outline-none transition-all focus:border-primary-500"
+                            className="w-full rounded-xl border border-slate-200/60 bg-surface px-3 py-2.5 text-sm font-semibold tabular-nums text-ink outline-none transition-all focus:border-primary-500"
                           />
                         </label>
                       ))}
@@ -471,7 +471,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
 
               {/* Category */}
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.category}</label>
+                <label className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.category}</label>
                 <div className="flex flex-wrap gap-1.5">
                   {DENTAL_CATEGORIES.map((c) => (
                     <button
@@ -496,13 +496,13 @@ export default function PricingSettings({ currency }: { currency: string }) {
 
               {/* Icon picker */}
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                <label className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">
                   {txt.icon}
                   {!iconTouched && form.name && suggestIcon(form.name) === form.icon && (
                     <span className={`text-primary-500 lowercase font-bold ${ar ? "mr-2" : "ml-2"}`}>· {txt.suggested}</span>
                   )}
                 </label>
-                <div className="grid grid-cols-8 sm:grid-cols-10 gap-1.5 p-3 bg-slate-50 rounded-2xl border border-slate-200/60 max-h-44 overflow-y-auto custom-scrollbar">
+                <div className="grid grid-cols-8 sm:grid-cols-10 gap-1.5 p-3 bg-surface-subtle rounded-2xl border border-slate-200/60 max-h-44 overflow-y-auto custom-scrollbar">
                   {DENTAL_ICONS.map((icon) => (
                     <button
                       type="button"
@@ -525,7 +525,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.duration}</label>
+                <label className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.duration}</label>
                 <div className="relative">
                   <Clock size={16} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? "right-4" : "left-4"}`} />
                   <input
@@ -535,7 +535,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
                     value={form.durationMinutes}
                     onChange={(e) => setForm({ ...form, durationMinutes: e.target.value })}
                     placeholder="45"
-                    className={`w-full py-3 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 text-sm outline-none focus:bg-white focus:border-primary-500 transition-all ${isRTL ? "pr-10 pl-4" : "pl-10 pr-4"}`}
+                    className={`w-full py-3 bg-surface-subtle rounded-xl border border-slate-200/60 font-semibold text-ink text-sm outline-none focus:bg-surface focus:border-primary-500 transition-all ${isRTL ? "pr-10 pl-4" : "pl-10 pr-4"}`}
                   />
                 </div>
                 <p className="text-[11px] font-medium text-slate-400">{txt.durationHint}</p>
@@ -546,7 +546,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
                 Sits next to the price because it is part of what the price means.
               */}
               <div className="space-y-1.5 pt-3 border-t border-slate-100">
-                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.billing}</label>
+                <label className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.billing}</label>
                 <div className="grid grid-cols-3 gap-2">
                   {(["per_tooth", "flat", "per_arch"] as PricingMode[]).map((mode) => (
                     <button
@@ -556,7 +556,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
                       className={`px-3 py-2.5 rounded-xl border text-xs font-bold transition-all ${
                         form.pricingMode === mode
                           ? "border-primary-500 bg-primary-50 text-primary-700 shadow-sm"
-                          : "border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300"
+                          : "border-line bg-surface-subtle text-ink-muted hover:border-line-strong"
                       }`}
                     >
                       {txt.billingModes[mode]}
@@ -578,7 +578,7 @@ export default function PricingSettings({ currency }: { currency: string }) {
 
               {form.requiresLab && (
                 <div className="space-y-1.5 animate-in slide-in-from-top-2">
-                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  <label className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">
                     {txt.labFee} ({currency})
                   </label>
                   <input

@@ -25,38 +25,38 @@ export default function ScheduleSettings({ schedule, setSchedule, handleSaveClin
   };
 
   return (
-    <div className="space-y-8 animate-in fade-in max-w-5xl mx-auto bg-white p-8 rounded-3xl shadow-sm border border-slate-200/50">
+    <div className="space-y-8 animate-in fade-in max-w-5xl mx-auto bg-surface p-8 rounded-3xl shadow-sm border border-slate-200/50">
         <div className="flex items-center gap-4 mb-6 border-b border-slate-100 pb-6">
             <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center"><Clock size={28}/></div>
             <div>
-                <h3 className="text-xl font-bold text-slate-900">{txt.scheduleTitle}</h3>
-                <p className="text-sm font-semibold text-slate-500 mt-1">{txt.scheduleSub}</p>
+                <h3 className="text-xl font-bold text-ink">{txt.scheduleTitle}</h3>
+                <p className="text-sm font-semibold text-ink-muted mt-1">{txt.scheduleSub}</p>
             </div>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-slate-50 p-6 rounded-3xl border border-slate-100">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-surface-subtle p-6 rounded-3xl border border-slate-100">
             <div className="space-y-2">
-                <label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.openTime}</label>
-                <input data-tour="schedule-open-time" type="time" value={schedule.start} onChange={e => setSchedule({...schedule, start: e.target.value})} className="w-full px-5 py-4 rounded-2xl border border-slate-200/60 font-bold text-base bg-white outline-none focus:ring-2 focus:ring-primary-500 transition-all"/>
+                <label className={`text-[11px] font-bold text-ink-muted uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.openTime}</label>
+                <input data-tour="schedule-open-time" type="time" value={schedule.start} onChange={e => setSchedule({...schedule, start: e.target.value})} className="w-full px-5 py-4 rounded-2xl border border-slate-200/60 font-bold text-base bg-surface outline-none focus:ring-2 focus:ring-primary-500 transition-all"/>
             </div>
             <div className="space-y-2">
-                <label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.closeTime}</label>
-                <input type="time" value={schedule.end} onChange={e => setSchedule({...schedule, end: e.target.value})} className="w-full px-5 py-4 rounded-2xl border border-slate-200/60 font-bold text-base bg-white outline-none focus:ring-2 focus:ring-primary-500 transition-all"/>
+                <label className={`text-[11px] font-bold text-ink-muted uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.closeTime}</label>
+                <input type="time" value={schedule.end} onChange={e => setSchedule({...schedule, end: e.target.value})} className="w-full px-5 py-4 rounded-2xl border border-slate-200/60 font-bold text-base bg-surface outline-none focus:ring-2 focus:ring-primary-500 transition-all"/>
             </div>
             <div className="space-y-2">
-                <label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.slotDuration}</label>
-                <select data-tour="schedule-slot-duration" value={schedule.slotDuration} onChange={e => setSchedule({...schedule, slotDuration: e.target.value})} className="w-full px-5 py-4 rounded-2xl border border-slate-200/60 font-bold text-base bg-white outline-none focus:ring-2 focus:ring-primary-500 transition-all cursor-pointer">
+                <label className={`text-[11px] font-bold text-ink-muted uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.slotDuration}</label>
+                <select data-tour="schedule-slot-duration" value={schedule.slotDuration} onChange={e => setSchedule({...schedule, slotDuration: e.target.value})} className="w-full px-5 py-4 rounded-2xl border border-slate-200/60 font-bold text-base bg-surface outline-none focus:ring-2 focus:ring-primary-500 transition-all cursor-pointer">
                     <option value="15">15 Minutes</option><option value="30">30 Minutes</option><option value="45">45 Minutes</option><option value="60">1 Hour</option>
                 </select>
             </div>
             
             <div className="space-y-3 md:col-span-3 pt-6 border-t border-slate-200/60">
-                <label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.weekend}</label>
+                <label className={`text-[11px] font-bold text-ink-muted uppercase tracking-wider ${isRTL ? 'pr-1' : 'pl-1'}`}>{txt.weekend}</label>
                 <div data-tour="schedule-days-off" className="flex flex-wrap gap-3">
                     {DAYS_OF_WEEK.map(day => {
                         const isOff = schedule.offDays.includes(day);
                         return (
-                            <button key={day} onClick={(e) => { e.preventDefault(); toggleOffDay(day); }} className={`px-6 py-3 rounded-2xl text-sm font-bold transition-all border shadow-sm ${isOff ? 'bg-red-50 border-red-200 text-red-600 scale-105' : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'}`}>
+                            <button key={day} onClick={(e) => { e.preventDefault(); toggleOffDay(day); }} className={`px-6 py-3 rounded-2xl text-sm font-bold transition-all border shadow-sm ${isOff ? 'bg-red-50 border-red-200 text-red-600 scale-105' : 'bg-surface border-line text-ink-muted hover:border-line-strong'}`}>
                                 {day}
                             </button>
                         );

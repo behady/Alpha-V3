@@ -23,14 +23,14 @@ export function UsersTab({ users, onToggleSuperAdmin }: UsersTabProps) {
   return (
     <div className="space-y-6">
       {/* Toolbar */}
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm">
+      <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-surface p-4 rounded-2xl border border-slate-200/60 shadow-sm">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-indigo-50 text-indigo-600 flex items-center justify-center rounded-xl">
             <Users size={20} />
           </div>
           <div>
-            <h3 className="font-bold text-slate-900">SaaS Users</h3>
-            <p className="text-xs text-slate-500">Manage all registered accounts ({users.length})</p>
+            <h3 className="font-bold text-ink">SaaS Users</h3>
+            <p className="text-xs text-ink-muted">Manage all registered accounts ({users.length})</p>
           </div>
         </div>
         <div className="w-full md:w-96 relative">
@@ -40,26 +40,26 @@ export function UsersTab({ users, onToggleSuperAdmin }: UsersTabProps) {
             placeholder="Search users by name, email, or ID..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-11 pr-4 text-sm font-bold text-slate-800 outline-none focus:border-indigo-500 transition-all"
+            className="w-full bg-surface-subtle border border-line rounded-xl py-2.5 pl-11 pr-4 text-sm font-bold text-slate-800 outline-none focus:border-indigo-500 transition-all"
           />
         </div>
       </div>
 
       {/* Users Table */}
-      <div className="bg-white rounded-[2rem] border border-slate-200/60 shadow-sm overflow-hidden">
+      <div className="bg-surface rounded-[2rem] border border-slate-200/60 shadow-sm overflow-hidden">
         {filteredUsers.length === 0 ? (
           <div className="p-16 text-center">
-            <div className="w-20 h-20 bg-slate-100 text-slate-300 rounded-3xl flex items-center justify-center mx-auto mb-4">
+            <div className="w-20 h-20 bg-surface-muted text-slate-300 rounded-3xl flex items-center justify-center mx-auto mb-4">
               <Users size={32} />
             </div>
             <h3 className="text-lg font-bold text-slate-700">No users found</h3>
-            <p className="text-slate-500 text-sm mt-1">Try adjusting your search query.</p>
+            <p className="text-ink-muted text-sm mt-1">Try adjusting your search query.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-100 text-xs font-black text-slate-400 uppercase tracking-widest">
+                <tr className="bg-surface-subtle border-b border-slate-100 text-xs font-black text-slate-400 uppercase tracking-widest">
                   <th className="px-6 py-4">User</th>
                   <th className="px-6 py-4">Created At</th>
                   <th className="px-6 py-4 text-center">Clinics</th>
@@ -75,19 +75,19 @@ export function UsersTab({ users, onToggleSuperAdmin }: UsersTabProps) {
                     <tr key={user.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center font-bold text-slate-500 shrink-0">
+                          <div className="w-10 h-10 rounded-xl bg-surface-muted flex items-center justify-center font-bold text-ink-muted shrink-0">
                             {(user.name || "U").charAt(0).toUpperCase()}
                           </div>
                           <div>
-                            <p className="font-bold text-slate-900">{user.name || "No Name"}</p>
-                            <p className="text-xs text-slate-500">{user.email || "No Email"}</p>
+                            <p className="font-bold text-ink">{user.name || "No Name"}</p>
+                            <p className="text-xs text-ink-muted">{user.email || "No Email"}</p>
                             <p className="text-xs font-mono text-slate-400 mt-0.5" title={user.id}>ID: {user.id.slice(0, 8)}...</p>
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4">
                         {user.createdAt ? (
-                          <span className="text-sm text-slate-600 font-medium">
+                          <span className="text-sm text-ink-body font-medium">
                             {new Date(user.createdAt.toDate ? user.createdAt.toDate() : user.createdAt).toLocaleDateString()}
                           </span>
                         ) : (
@@ -95,7 +95,7 @@ export function UsersTab({ users, onToggleSuperAdmin }: UsersTabProps) {
                         )}
                       </td>
                       <td className="px-6 py-4 text-center">
-                        <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-slate-100 text-slate-700 font-bold text-sm">
+                        <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-surface-muted text-slate-700 font-bold text-sm">
                           {clinicCount}
                         </span>
                       </td>
@@ -112,7 +112,7 @@ export function UsersTab({ users, onToggleSuperAdmin }: UsersTabProps) {
                               isSuperAdmin ? 'bg-indigo-500' : 'bg-slate-200 hover:bg-slate-300'
                             }`}
                           >
-                            <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 shadow transition-transform ${
+                            <div className={`w-5 h-5 bg-surface rounded-full absolute top-0.5 shadow transition-transform ${
                               isSuperAdmin ? 'translate-x-5' : 'translate-x-0.5'
                             }`} />
                           </button>

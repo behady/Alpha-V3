@@ -95,18 +95,18 @@ export default function InterfaceSettings() {
       {/* Worth stating plainly, because it was not true until these moved off the browser: every
           choice below used to live in localStorage and nowhere else, so setting the app up on the
           desk computer got you the defaults on a tablet with nothing explaining why. */}
-      <p className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm font-semibold text-slate-600">
+      <p className="flex items-start gap-3 rounded-2xl border border-line bg-surface-subtle px-5 py-4 text-sm font-semibold text-ink-body">
         <UserCircle size={16} className="mt-0.5 shrink-0 text-slate-400" />
         {txt.followsYou}
       </p>
 
       {/* CLINICAL EDITOR SETTINGS */}
-      <div className="bg-white p-8 md:p-10 rounded-3xl border border-slate-200/50 shadow-sm">
+      <div className="bg-surface p-8 md:p-10 rounded-3xl border border-slate-200/50 shadow-sm">
         <div className="mb-8">
-          <h3 className="text-xl font-black text-slate-900 flex items-center gap-3">
+          <h3 className="text-xl font-black text-ink flex items-center gap-3">
             <Monitor className="text-primary-500" /> {txt.clinicalEditorLabel}
           </h3>
-          <p className="text-sm font-medium text-slate-500 mt-2">{txt.clinicalEditorDesc}</p>
+          <p className="text-sm font-medium text-ink-muted mt-2">{txt.clinicalEditorDesc}</p>
         </div>
         
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
@@ -164,12 +164,12 @@ export default function InterfaceSettings() {
       </div>
 
       {/* CLINICAL NOTE — HOW SERVICES ARE ARRANGED */}
-      <div className="bg-white p-8 md:p-10 rounded-3xl border border-slate-200/50 shadow-sm">
+      <div className="bg-surface p-8 md:p-10 rounded-3xl border border-slate-200/50 shadow-sm">
         <div className="mb-8">
-          <h3 className="text-xl font-black text-slate-900 flex items-center gap-3">
+          <h3 className="text-xl font-black text-ink flex items-center gap-3">
             <ListOrdered className="text-primary-500" /> {isAr ? 'ترتيب الإجراءات في الملف السريري' : 'Services in the Clinical Note'}
           </h3>
-          <p className="text-sm font-medium text-slate-500 mt-2">
+          <p className="text-sm font-medium text-ink-muted mt-2">
             {isAr
               ? 'اختر كيف تُعرض الإجراءات داخل ملف المريض: ترتيبها، وتجميعها حسب الزيارة، وحجم عرضها.'
               : 'Choose how procedures are laid out inside a patient file: their order, whether they cluster by visit, and how much detail each one shows.'}
@@ -263,12 +263,12 @@ export default function InterfaceSettings() {
       </div>
 
       {/* APPOINTMENT EDITOR SETTINGS */}
-      <div className="bg-white p-8 md:p-10 rounded-3xl border border-slate-200/50 shadow-sm">
+      <div className="bg-surface p-8 md:p-10 rounded-3xl border border-slate-200/50 shadow-sm">
         <div className="mb-8">
-          <h3 className="text-xl font-black text-slate-900 flex items-center gap-3">
+          <h3 className="text-xl font-black text-ink flex items-center gap-3">
             <Calendar className="text-primary-500" /> {txt.appointmentEditorLabel}
           </h3>
-          <p className="text-sm font-medium text-slate-500 mt-2">{txt.appointmentEditorDesc}</p>
+          <p className="text-sm font-medium text-ink-muted mt-2">{txt.appointmentEditorDesc}</p>
         </div>
         
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -307,12 +307,12 @@ export default function InterfaceSettings() {
       </div>
 
       {/* SELECTED-APPOINTMENT PANEL: EDITOR OR AI RECEPTIONIST */}
-      <div className="bg-white p-8 md:p-10 rounded-3xl border border-slate-200/50 shadow-sm">
+      <div className="bg-surface p-8 md:p-10 rounded-3xl border border-slate-200/50 shadow-sm">
         <div className="mb-8">
-          <h3 className="text-xl font-black text-slate-900 flex items-center gap-3">
+          <h3 className="text-xl font-black text-ink flex items-center gap-3">
             <PanelRight className="text-primary-500" /> {txt.panelModeLabel}
           </h3>
-          <p className="text-sm font-medium text-slate-500 mt-2">{txt.panelModeDesc}</p>
+          <p className="text-sm font-medium text-ink-muted mt-2">{txt.panelModeDesc}</p>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -353,12 +353,12 @@ export default function InterfaceSettings() {
       </div>
 
       {/* APPOINTMENT NAVIGATION VISIBILITY SETTINGS */}
-      <div className="bg-white p-8 md:p-10 rounded-3xl border border-slate-200/50 shadow-sm">
+      <div className="bg-surface p-8 md:p-10 rounded-3xl border border-slate-200/50 shadow-sm">
         <div className="mb-8">
-          <h3 className="text-xl font-black text-slate-900 flex items-center gap-3">
+          <h3 className="text-xl font-black text-ink flex items-center gap-3">
             <Calendar className="text-primary-500" /> {language === 'ar' ? 'ظهور صفحة المواعيد' : 'Appointments Page Visibility'}
           </h3>
-          <p className="text-sm font-medium text-slate-500 mt-2">
+          <p className="text-sm font-medium text-ink-muted mt-2">
             {language === 'ar' ? 'اختر أين تريد عرض صفحة المواعيد في القائمة.' : 'Choose where you want the Appointments page to be visible in the navigation.'}
           </p>
         </div>
@@ -415,13 +415,13 @@ export default function InterfaceSettings() {
       </div>
 
       {/* LATE PATIENT TRACKER SETTINGS */}
-      <div className="bg-white p-8 md:p-10 rounded-3xl border border-slate-200/50 shadow-sm">
+      <div className="bg-surface p-8 md:p-10 rounded-3xl border border-slate-200/50 shadow-sm">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h3 className="text-xl font-black text-slate-900 flex items-center gap-3">
+            <h3 className="text-xl font-black text-ink flex items-center gap-3">
               <AlertTriangle className="text-primary-500" /> {language === 'ar' ? 'تنبيه المرضى المتأخرين' : 'Late Patient Alert'}
             </h3>
-            <p className="text-sm font-medium text-slate-500 mt-2">
+            <p className="text-sm font-medium text-ink-muted mt-2">
               {language === 'ar' ? 'إظهار بطاقة وامضة عندما يتأخر المريض عن موعده بـ 15 دقيقة، مع خيارات للتعامل مع التأخير.' : 'Show a flashing card when a patient is 15 minutes late, giving options to handle the delay.'}
             </p>
           </div>
@@ -429,7 +429,7 @@ export default function InterfaceSettings() {
             onClick={() => setLatePatientTrackerEnabled(!latePatientTrackerEnabled)}
             className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors ${latePatientTrackerEnabled ? 'bg-primary-500' : 'bg-slate-200'}`}
           >
-            <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${latePatientTrackerEnabled ? 'translate-x-7' : 'translate-x-1'}`} />
+            <span className={`inline-block h-6 w-6 transform rounded-full bg-surface transition-transform ${latePatientTrackerEnabled ? 'translate-x-7' : 'translate-x-1'}`} />
           </button>
         </div>
       </div>

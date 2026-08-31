@@ -259,28 +259,28 @@ export default function PriceListWorkspace({
   return (
     <div className="space-y-5" dir={ar ? "rtl" : "ltr"}>
       {/* --- header --- */}
-      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="rounded-3xl border border-line bg-surface p-5 shadow-sm">
         <button
           type="button"
           onClick={handleBack}
-          className="mb-3 inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 transition hover:text-slate-800"
+          className="mb-3 inline-flex items-center gap-1.5 text-xs font-bold text-ink-muted transition hover:text-slate-800"
         >
           <ArrowLeft size={14} className={isRTL ? "rotate-180" : ""} /> {txt.back}
         </button>
 
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="truncate font-serif text-2xl font-bold tracking-tight text-slate-900">
+            <h3 className="truncate font-serif text-2xl font-bold tracking-tight text-ink">
               {ar && list.nameAr ? list.nameAr : list.name}
             </h3>
-            <p className="mt-1 max-w-prose text-xs font-medium text-slate-500">{txt.sub}</p>
+            <p className="mt-1 max-w-prose text-xs font-medium text-ink-muted">{txt.sub}</p>
             {list.generalDiscountPercent > 0 && (
               <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-800">
                 <Percent size={11} /> {txt.blanketNote(list.generalDiscountPercent)}
               </p>
             )}
             {isStandard && (
-              <p className="mt-2 text-[11px] font-bold text-slate-500">{txt.standardWarning}</p>
+              <p className="mt-2 text-[11px] font-bold text-ink-muted">{txt.standardWarning}</p>
             )}
           </div>
 
@@ -290,7 +290,7 @@ export default function PriceListWorkspace({
                 type="button"
                 onClick={() => setDrafts({})}
                 disabled={saving}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2.5 text-xs font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-line px-3 py-2.5 text-xs font-bold text-ink-body transition hover:bg-surface-subtle disabled:opacity-50"
               >
                 <RotateCcw size={14} /> {txt.discard}
               </button>
@@ -310,11 +310,11 @@ export default function PriceListWorkspace({
 
       {/* --- quick fill --- */}
       {!isStandard && (
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-3xl border border-line bg-surface p-5 shadow-sm">
           <h4 className="flex items-center gap-2 text-sm font-black text-slate-800">
             <Wand2 size={15} className="text-primary-600" /> {txt.bulkTitle}
           </h4>
-          <p className="mt-1 max-w-prose text-xs font-medium text-slate-500">{txt.bulkBody}</p>
+          <p className="mt-1 max-w-prose text-xs font-medium text-ink-muted">{txt.bulkBody}</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <span className="relative">
               <input
@@ -325,7 +325,7 @@ export default function PriceListWorkspace({
                 onChange={(e) => setBulkPercent(e.target.value)}
                 placeholder="10"
                 disabled={saving}
-                className="w-24 rounded-xl border border-slate-200 bg-slate-50/50 py-2 pl-3 pr-7 text-sm font-bold tabular-nums text-slate-700 outline-none focus:border-primary-500 focus:bg-white disabled:opacity-50"
+                className="w-24 rounded-xl border border-line bg-slate-50/50 py-2 pl-3 pr-7 text-sm font-bold tabular-nums text-slate-700 outline-none focus:border-primary-500 focus:bg-surface disabled:opacity-50"
               />
               <Percent size={12} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? "left-2.5" : "right-2.5"}`} />
             </span>
@@ -341,7 +341,7 @@ export default function PriceListWorkspace({
               type="button"
               onClick={clearAll}
               disabled={saving}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+              className="rounded-xl border border-line px-4 py-2 text-sm font-bold text-ink-body transition hover:bg-surface-subtle disabled:opacity-50"
             >
               {txt.bulkClear}
             </button>
@@ -350,14 +350,14 @@ export default function PriceListWorkspace({
       )}
 
       {/* --- the list itself --- */}
-      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="rounded-3xl border border-line bg-surface p-5 shadow-sm">
         <div className="relative">
           <Search size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? "right-4" : "left-4"}`} />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={txt.search}
-            className={`w-full rounded-2xl border border-slate-200/60 bg-slate-50 py-3 text-sm font-semibold text-slate-900 outline-none transition-all focus:border-primary-500 focus:bg-white ${isRTL ? "pr-12 pl-4" : "pl-12 pr-4"}`}
+            className={`w-full rounded-2xl border border-slate-200/60 bg-surface-subtle py-3 text-sm font-semibold text-ink outline-none transition-all focus:border-primary-500 focus:bg-surface ${isRTL ? "pr-12 pl-4" : "pl-12 pr-4"}`}
           />
         </div>
 
@@ -391,7 +391,7 @@ export default function PriceListWorkspace({
             <Loader2 size={22} className="animate-spin" />
           </div>
         ) : grouped.length === 0 ? (
-          <div className="mt-4 rounded-3xl border border-dashed border-slate-200 bg-slate-50 py-16 text-center text-base font-bold text-slate-400">
+          <div className="mt-4 rounded-3xl border border-dashed border-line bg-surface-subtle py-16 text-center text-base font-bold text-slate-400">
             {txt.none}
           </div>
         ) : (
@@ -404,7 +404,7 @@ export default function PriceListWorkspace({
                   </span>
                   <h4 className="text-sm font-black tracking-tight text-slate-800">{ar ? category.ar : category.en}</h4>
                   <span className="text-xs font-bold text-slate-400">{items.length}</span>
-                  <div className="h-px flex-1 bg-slate-100" />
+                  <div className="h-px flex-1 bg-surface-muted" />
                 </div>
 
                 {/* Column headings, shown once per group so the numbers never lose their labels. */}
@@ -431,7 +431,7 @@ export default function PriceListWorkspace({
                         }`}
                       >
                         <div className="flex min-w-0 items-center gap-2.5">
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200/70 bg-white text-slate-500">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200/70 bg-surface text-ink-muted">
                             <DentalIcon id={iconForService(s)} size={18} />
                           </span>
                           <span className="truncate text-sm font-bold text-slate-800">{s.name}</span>
@@ -450,7 +450,7 @@ export default function PriceListWorkspace({
                             disabled={saving}
                             onChange={(e) => setDrafts({ ...drafts, [s.id]: e.target.value })}
                             placeholder={isStandard ? "0" : `${base} · ${txt.sameAsStandard}`}
-                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-end font-serif text-sm font-semibold tabular-nums text-slate-900 outline-none transition focus:border-primary-500 disabled:opacity-60"
+                            className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-end font-serif text-sm font-semibold tabular-nums text-ink outline-none transition focus:border-primary-500 disabled:opacity-60"
                           />
                         </span>
 
@@ -491,7 +491,7 @@ export default function PriceListWorkspace({
               type="button"
               onClick={save}
               disabled={saving}
-              className="inline-flex items-center gap-2 rounded-xl bg-white px-5 py-2 text-sm font-bold text-slate-900 transition hover:bg-slate-100 disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-xl bg-surface px-5 py-2 text-sm font-bold text-ink transition hover:bg-surface-muted disabled:opacity-50"
             >
               {saving ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} {txt.save}
             </button>

@@ -146,7 +146,7 @@ export default function DiscountEditor({
               value={selectedList?.id ?? ""}
               disabled={disabled}
               onChange={(e) => set({ priceListId: e.target.value })}
-              className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-slate-700 outline-none transition focus:border-primary-500 focus:bg-white disabled:opacity-60"
+              className="w-full rounded-xl border border-line bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-slate-700 outline-none transition focus:border-primary-500 focus:bg-surface disabled:opacity-60"
             >
               {activeLists.map((list) => (
                 <option key={list.id} value={list.id}>
@@ -156,7 +156,7 @@ export default function DiscountEditor({
               ))}
             </select>
           ) : (
-            <p className="rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-slate-600">
+            <p className="rounded-xl border border-line bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-ink-body">
               {ar && activeLists[0].nameAr ? activeLists[0].nameAr : activeLists[0].name}
             </p>
           )}
@@ -181,7 +181,7 @@ export default function DiscountEditor({
               const mode = e.target.value as DiscountMode;
               set({ mode, value: mode === "none" ? "" : value.value, reason: mode === "none" ? "" : value.reason });
             }}
-            className="w-32 rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-slate-700 outline-none transition focus:border-primary-500 focus:bg-white disabled:opacity-60"
+            className="w-32 rounded-xl border border-line bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-slate-700 outline-none transition focus:border-primary-500 focus:bg-surface disabled:opacity-60"
           >
             <option value="none">{txt.none}</option>
             <option value="percent">{txt.percent}</option>
@@ -198,8 +198,8 @@ export default function DiscountEditor({
               value={value.value}
               onChange={(e) => set({ value: e.target.value === "" ? "" : Number(e.target.value) })}
               placeholder={value.mode === "percent" ? "10" : "100"}
-              className={`flex-1 rounded-xl border bg-slate-50/50 px-3 py-2.5 text-sm font-bold tabular-nums text-slate-700 outline-none transition focus:bg-white disabled:opacity-60 ${
-                overCeiling ? "border-rose-300 focus:border-rose-500" : "border-slate-200 focus:border-primary-500"
+              className={`flex-1 rounded-xl border bg-slate-50/50 px-3 py-2.5 text-sm font-bold tabular-nums text-slate-700 outline-none transition focus:bg-surface disabled:opacity-60 ${
+                overCeiling ? "border-rose-300 focus:border-rose-500" : "border-line focus:border-primary-500"
               }`}
             />
           )}
@@ -225,8 +225,8 @@ export default function DiscountEditor({
             value={value.reason}
             disabled={disabled}
             onChange={(e) => set({ reason: e.target.value })}
-            className={`w-full rounded-xl border bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-slate-700 outline-none transition focus:bg-white disabled:opacity-60 ${
-              needsReason ? "border-amber-300 focus:border-amber-500" : "border-slate-200 focus:border-primary-500"
+            className={`w-full rounded-xl border bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-slate-700 outline-none transition focus:bg-surface disabled:opacity-60 ${
+              needsReason ? "border-amber-300 focus:border-amber-500" : "border-line focus:border-primary-500"
             }`}
           >
             <option value="">{txt.pickReason}</option>
@@ -243,7 +243,7 @@ export default function DiscountEditor({
       {/* The whole point: what came off is visible, not folded into a smaller number. */}
       {applied.discountAmount > 0 && (
         <div className="flex items-center justify-between gap-2 rounded-xl bg-primary-50/70 px-3 py-2.5 text-sm">
-          <span className="font-medium text-slate-500 line-through tabular-nums">
+          <span className="font-medium text-ink-muted line-through tabular-nums">
             {applied.listPrice.toLocaleString()}
           </span>
           <span className="font-bold text-rose-600 tabular-nums">

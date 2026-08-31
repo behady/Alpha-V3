@@ -86,7 +86,7 @@ export default function AppointmentDetailsModal({
           </h3>
           <button
             onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            className="p-2 rounded-xl text-slate-400 hover:text-ink-body hover:bg-surface-muted transition-colors"
           >
             <X size={20} />
           </button>
@@ -102,7 +102,7 @@ export default function AppointmentDetailsModal({
                 <span className="font-extrabold text-slate-800 text-base">{appointment.patientName}</span>
               </div>
               {appointment.patientPhone && (
-                <div className="flex items-center gap-2 text-sm text-slate-500">
+                <div className="flex items-center gap-2 text-sm text-ink-muted">
                   <Phone size={14} className="text-slate-400" />
                   <span>{appointment.patientPhone}</span>
                 </div>
@@ -121,7 +121,7 @@ export default function AppointmentDetailsModal({
 
           {/* Date / Time */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="p-3 bg-slate-50 rounded-2xl space-y-1">
+            <div className="p-3 bg-surface-subtle rounded-2xl space-y-1">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
                 {isAr ? "التاريخ" : "Date"}
               </span>
@@ -131,7 +131,7 @@ export default function AppointmentDetailsModal({
               </div>
             </div>
 
-            <div className="p-3 bg-slate-50 rounded-2xl space-y-1">
+            <div className="p-3 bg-surface-subtle rounded-2xl space-y-1">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
                 {isAr ? "الوقت" : "Time"}
               </span>
@@ -142,7 +142,7 @@ export default function AppointmentDetailsModal({
             </div>
           </div>
 
-          <div className="p-3 bg-slate-50 rounded-2xl space-y-1">
+          <div className="p-3 bg-surface-subtle rounded-2xl space-y-1">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
               {isAr ? "الطبيب المعالج" : "Assigned Dentist"}
             </span>
@@ -153,11 +153,11 @@ export default function AppointmentDetailsModal({
 
           {/* Treatment Notes */}
           {appointment.treatment && (
-            <div className="p-3 bg-slate-50 rounded-2xl space-y-1">
+            <div className="p-3 bg-surface-subtle rounded-2xl space-y-1">
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
                 {isAr ? "سبب الزيارة" : "Reason for Visit"}
               </span>
-              <p className="text-sm text-slate-600 font-semibold">{appointment.treatment}</p>
+              <p className="text-sm text-ink-body font-semibold">{appointment.treatment}</p>
             </div>
           )}
 
@@ -178,7 +178,7 @@ export default function AppointmentDetailsModal({
                     className={`text-xs font-bold px-3 py-2 rounded-xl border transition-all ${
                       isSelected
                         ? `${stageStyles.pill} border-current ring-2 ring-offset-1`
-                        : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                        : "bg-surface border-line text-ink-body hover:bg-surface-subtle"
                     }`}
                   >
                     {getAppointmentStageLabel(stage.value, language as any)}
@@ -197,7 +197,7 @@ export default function AppointmentDetailsModal({
               <div className="grid grid-cols-4 gap-2">
                 {[
                   { value: "happy", label: isAr ? "سعيد" : "Happy", color: "text-green-500 bg-green-50 border-green-200" },
-                  { value: "neutral", label: isAr ? "عادي" : "Neutral", color: "text-slate-500 bg-slate-50 border-slate-200" },
+                  { value: "neutral", label: isAr ? "عادي" : "Neutral", color: "text-ink-muted bg-surface-subtle border-line" },
                   { value: "anxious", label: isAr ? "قلق" : "Anxious", color: "text-amber-500 bg-amber-50 border-amber-200" },
                   { value: "pain", label: isAr ? "متألم" : "In Pain", color: "text-red-500 bg-red-50 border-red-200" },
                 ].map((mood) => {
@@ -210,7 +210,7 @@ export default function AppointmentDetailsModal({
                       className={`text-xs font-bold py-2 rounded-xl border transition-all flex flex-col items-center justify-center gap-1 ${
                         isSelected
                           ? `${mood.color} ring-2 ring-offset-1`
-                          : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                          : "bg-surface border-line text-ink-body hover:bg-surface-subtle"
                       }`}
                     >
                       <Smile size={18} />
@@ -229,7 +229,7 @@ export default function AppointmentDetailsModal({
             <button
               disabled={updating}
               onClick={onEdit}
-              className="flex-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 font-bold py-3 px-4 rounded-2xl transition-all flex items-center justify-center gap-2 text-sm shadow-sm"
+              className="flex-1 bg-surface hover:bg-surface-subtle border border-line text-slate-700 font-bold py-3 px-4 rounded-2xl transition-all flex items-center justify-center gap-2 text-sm shadow-sm"
             >
               <Edit size={16} />
               <span>{isAr ? "تعديل" : "Edit"}</span>

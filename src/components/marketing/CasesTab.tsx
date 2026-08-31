@@ -267,12 +267,12 @@ export default function CasesTab({
   return (
     <div className="space-y-5">
       {/* Patient + consent */}
-      <div className="bg-white rounded-3xl border border-slate-200 p-5">
+      <div className="bg-surface rounded-3xl border border-line p-5">
         <div className="flex items-center gap-2 mb-1">
           <div className="w-8 h-8 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
             <ShieldCheck size={15} />
           </div>
-          <h3 className="text-sm font-black text-slate-900">{isAr ? "الموافقة أولاً — ثم الصور" : "Consent first — then photos"}</h3>
+          <h3 className="text-sm font-black text-ink">{isAr ? "الموافقة أولاً — ثم الصور" : "Consent first — then photos"}</h3>
         </div>
         <p className="text-[11px] font-bold text-slate-400 mb-4">
           {isAr
@@ -290,7 +290,7 @@ export default function CasesTab({
             }}
             dir="auto"
             placeholder={isAr ? "ابحث عن المريض بالاسم أو الرقم…" : "Search patient by name or phone…"}
-            className="w-full ps-9 pe-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-emerald-400"
+            className="w-full ps-9 pe-3 py-2.5 bg-surface-subtle border border-line rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-emerald-400"
           />
         </div>
         {!selected && matches.length > 0 && (
@@ -324,7 +324,7 @@ export default function CasesTab({
           <div className="border border-slate-100 rounded-2xl p-4">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div>
-                <p dir="auto" className="text-sm font-black text-slate-900">{selected.name}</p>
+                <p dir="auto" className="text-sm font-black text-ink">{selected.name}</p>
                 {consentGranted ? (
                   <p className="text-[11px] font-black text-emerald-600 flex items-center gap-1 mt-0.5">
                     <ShieldCheck size={12} />
@@ -345,7 +345,7 @@ export default function CasesTab({
                 {consentGranted ? (
                   <button
                     onClick={() => void revokeConsent()}
-                    className="px-3 py-2 rounded-xl bg-white border border-rose-100 hover:bg-rose-50 text-rose-500 text-xs font-black transition-colors"
+                    className="px-3 py-2 rounded-xl bg-surface border border-rose-100 hover:bg-rose-50 text-rose-500 text-xs font-black transition-colors"
                   >
                     {isAr ? "سحب الموافقة" : "Revoke consent"}
                   </button>
@@ -374,7 +374,7 @@ export default function CasesTab({
                   <select
                     value={procedure}
                     onChange={(e) => setProcedure(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400"
+                    className="w-full bg-surface border border-line rounded-xl px-3 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400"
                   >
                     <option value="">{isAr ? "— نوع الإجراء —" : "— procedure —"}</option>
                     {services.map((s) => (
@@ -388,7 +388,7 @@ export default function CasesTab({
                     dir="auto"
                     maxLength={600}
                     placeholder={isAr ? "وصف قصير للحالة (اختياري)" : "Short case description (optional)"}
-                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400"
+                    className="w-full bg-surface border border-line rounded-xl px-3 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400"
                   />
                 </div>
                 <button
@@ -406,12 +406,12 @@ export default function CasesTab({
       </div>
 
       {/* Case library */}
-      <div className="bg-white rounded-3xl border border-slate-200 p-5">
+      <div className="bg-surface rounded-3xl border border-line p-5">
         <div className="flex items-center gap-2 mb-4">
           <div className="w-8 h-8 bg-violet-50 text-violet-600 rounded-xl flex items-center justify-center">
             <Images size={15} />
           </div>
-          <h3 className="text-sm font-black text-slate-900">
+          <h3 className="text-sm font-black text-ink">
             {isAr ? `مكتبة الحالات (${cases.length})` : `Case library (${cases.length})`}
           </h3>
         </div>
@@ -424,7 +424,7 @@ export default function CasesTab({
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {cases.map((c) => (
-              <div key={c.id} className="border border-slate-200 rounded-2xl overflow-hidden">
+              <div key={c.id} className="border border-line rounded-2xl overflow-hidden">
                 <div className="grid grid-cols-2">
                   <div className="relative">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -469,7 +469,7 @@ export default function CasesTab({
                     {c.faceAllowed ? "" : isAr ? " · بدون وجه" : " · no face"}
                   </p>
                   {c.description && (
-                    <p dir="auto" className="text-[11px] text-slate-500 mt-1 line-clamp-2">{c.description}</p>
+                    <p dir="auto" className="text-[11px] text-ink-muted mt-1 line-clamp-2">{c.description}</p>
                   )}
                 </div>
               </div>
@@ -499,28 +499,28 @@ export default function CasesTab({
                 <h3 className="text-base font-black text-slate-900">
                   {isAr ? "موافقة استخدام الصور" : "Photo usage consent"}
                 </h3>
-                <button onClick={() => setConsentOpen(false)} className="p-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500">
+                <button onClick={() => setConsentOpen(false)} className="p-1.5 rounded-full bg-surface-muted hover:bg-slate-200 text-ink-muted">
                   <X size={16} />
                 </button>
               </div>
 
               <div className="p-5 overflow-y-auto space-y-4">
                 {/* The consent text the patient reads before signing — hand them the device. */}
-                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-start">
+                <div className="bg-surface-subtle border border-line rounded-2xl p-4 text-start">
                   <p dir="rtl" className="text-sm font-bold text-slate-800 leading-relaxed">
                     أوافق أنا <span className="font-black">{selected.name}</span> على استخدام صور أسناني
                     (قبل وبعد العلاج) في المواد التعريفية والدعائية للعيادة، بما يشمل وسائل التواصل
                     الاجتماعي والإعلانات. أعلم أنه يمكنني سحب هذه الموافقة في أي وقت بإبلاغ العيادة،
                     فتتوقف الاستخدامات الجديدة لصوري.
                   </p>
-                  <p dir="ltr" className="text-[11px] font-bold text-slate-500 leading-relaxed mt-2">
+                  <p dir="ltr" className="text-[11px] font-bold text-ink-muted leading-relaxed mt-2">
                     I, {selected.name}, consent to the use of my dental photos (before and after
                     treatment) in the clinic&apos;s promotional materials, including social media and ads.
                     I may withdraw this consent at any time by informing the clinic.
                   </p>
                 </div>
 
-                <div className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
+                <div className="flex items-center justify-between gap-3 bg-surface border border-line rounded-2xl px-4 py-3">
                   <div>
                     <p className="text-xs font-black text-slate-800">{isAr ? "ظهور الوجه في الصور" : "Face visible in photos"}</p>
                     <p className="text-[11px] font-bold text-slate-400">
@@ -532,7 +532,7 @@ export default function CasesTab({
                     className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${faceAllowed ? "bg-emerald-500" : "bg-slate-200"}`}
                   >
                     <div
-                      className={`w-5 h-5 bg-white rounded-full absolute top-0.5 shadow transition-transform ${
+                      className={`w-5 h-5 bg-surface rounded-full absolute top-0.5 shadow transition-transform ${
                         faceAllowed ? "translate-x-5 rtl:-translate-x-5" : "translate-x-0.5 rtl:-translate-x-0.5"
                       }`}
                     />
@@ -541,17 +541,17 @@ export default function CasesTab({
 
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-black text-slate-500">
+                    <label className="text-xs font-black text-ink-muted">
                       {isAr ? "توقيع المريض (اختياري — اتركه فارغاً للموافقة الشفهية)" : "Patient signature (optional — leave empty for verbal consent)"}
                     </label>
                     <button
                       onClick={() => sigRef.current?.clear()}
-                      className="flex items-center gap-1 text-[11px] font-black text-slate-400 hover:text-slate-600"
+                      className="flex items-center gap-1 text-[11px] font-black text-slate-400 hover:text-ink-body"
                     >
                       <Eraser size={12} /> {isAr ? "مسح" : "Clear"}
                     </button>
                   </div>
-                  <div className="border-2 border-dashed border-slate-300 rounded-2xl overflow-hidden bg-white">
+                  <div className="border-2 border-dashed border-line-strong rounded-2xl overflow-hidden bg-surface">
                     <SignatureCanvas
                       ref={sigRef}
                       penColor="#0f172a"

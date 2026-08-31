@@ -135,7 +135,7 @@ export default function LateAppointmentPrompt({ isOpen, appointment, onClose, on
                 ? (language === 'ar' ? 'تأجيل الموعد' : 'Delay Appointment')
                 : (language === 'ar' ? 'تأخر المريض عن الموعد!' : 'Patient is Late!')}
           </h2>
-          <p className="text-slate-500 font-medium text-sm mt-2">
+          <p className="text-ink-muted font-medium text-sm mt-2">
             {!isDelaying && (language === 'ar' 
               ? `لقد تأخر ${appointment.patientName} عن موعده المقرر في ${appointment.time?.replace('AM', 'ص').replace('PM', 'م')}. هل وصل المريض أم تود اتخاذ إجراء آخر؟` 
               : `${appointment.patientName} is late for their appointment at ${appointment.time}. Did the patient arrive, or would you like to take another action?`)}
@@ -195,7 +195,7 @@ export default function LateAppointmentPrompt({ isOpen, appointment, onClose, on
                  max={getMaxDate()}
                  value={delayDate}
                  onChange={(e) => setDelayDate(e.target.value)}
-                 className="w-full rounded-xl border-2 border-slate-100 px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-indigo-500"
+                 className="w-full rounded-xl border-2 border-slate-100 px-3 py-2.5 text-sm font-bold text-ink outline-none focus:border-indigo-500"
                />
             </div>
             <div>
@@ -207,7 +207,7 @@ export default function LateAppointmentPrompt({ isOpen, appointment, onClose, on
                  value={delayTime}
                  onChange={(e) => setDelayTime(e.target.value)}
                  disabled={isLoadingSlots || availableTimes.length === 0}
-                 className="w-full rounded-xl border-2 border-slate-100 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-indigo-500 disabled:opacity-50"
+                 className="w-full rounded-xl border-2 border-slate-100 bg-surface px-3 py-2.5 text-sm font-bold text-ink outline-none focus:border-indigo-500 disabled:opacity-50"
                >
                  <option value="" disabled>{language === 'ar' ? 'اختر الوقت' : 'Select Time'}</option>
                  {availableTimes.length === 0 && <option value="" disabled>No times available</option>}
@@ -218,7 +218,7 @@ export default function LateAppointmentPrompt({ isOpen, appointment, onClose, on
                     const isConflict = bookedSlots.some(b => startMins < b.end && endMins > b.start);
                     
                     return (
-                      <option key={t} value={t} disabled={isConflict} className={isConflict ? "text-slate-300 bg-slate-50" : ""}>
+                      <option key={t} value={t} disabled={isConflict} className={isConflict ? "text-slate-300 bg-surface-subtle" : ""}>
                         {t} {isConflict ? (language === 'ar' ? '(محجوز)' : '(Booked)') : ''}
                       </option>
                     );
@@ -229,7 +229,7 @@ export default function LateAppointmentPrompt({ isOpen, appointment, onClose, on
                <button
                  onClick={() => setIsDelaying(false)}
                  disabled={loadingAction !== null}
-                 className="flex-1 py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-50"
+                 className="flex-1 py-3 rounded-xl font-bold text-ink-muted hover:bg-surface-muted transition-colors disabled:opacity-50"
                >
                  {language === 'ar' ? 'رجوع' : 'Back'}
                </button>
@@ -248,7 +248,7 @@ export default function LateAppointmentPrompt({ isOpen, appointment, onClose, on
           <button 
             onClick={onClose}
             disabled={loadingAction !== null}
-            className="mt-4 w-full py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-100 transition-colors disabled:opacity-50"
+            className="mt-4 w-full py-3 rounded-xl font-bold text-ink-muted hover:bg-surface-muted transition-colors disabled:opacity-50"
           >
             {language === 'ar' ? 'تجاهل الآن' : 'Dismiss for now'}
           </button>

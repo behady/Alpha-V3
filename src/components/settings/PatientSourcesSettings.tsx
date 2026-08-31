@@ -89,10 +89,10 @@ export default function PatientSourcesSettings() {
             <Network size={20} className="text-primary-600" />
           </div>
           <div>
-            <h2 className="text-base font-black text-slate-900 tracking-tight">
+            <h2 className="text-base font-black text-ink tracking-tight">
               {isAr ? "مصادر المرضى" : "Patient Sources"}
             </h2>
-            <p className="text-xs text-slate-500 font-medium mt-0.5">
+            <p className="text-xs text-ink-muted font-medium mt-0.5">
               {isAr
                 ? "أدر قائمة المصادر التي يصل منها المرضى للعيادة."
                 : "Manage how patients find your clinic. These appear in patient files and reports."}
@@ -117,7 +117,7 @@ export default function PatientSourcesSettings() {
           onChange={(e) => setNewSource(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && addSource()}
           placeholder={isAr ? "أضف مصدراً جديداً..." : "Add a new source..."}
-          className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15 transition-all"
+          className="flex-1 px-4 py-2.5 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15 transition-all"
         />
         <button
           type="button"
@@ -140,7 +140,7 @@ export default function PatientSourcesSettings() {
         {sources.map((source, i) => (
           <div
             key={i}
-            className="flex items-center gap-3 px-4 py-3 bg-white border border-slate-200 rounded-xl group hover:border-slate-300 transition-all"
+            className="flex items-center gap-3 px-4 py-3 bg-surface border border-line rounded-xl group hover:border-line-strong transition-all"
           >
             <GripVertical size={15} className="text-slate-300 shrink-0" />
             <div className="flex-1 flex items-center gap-2">

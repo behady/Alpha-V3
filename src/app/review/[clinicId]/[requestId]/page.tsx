@@ -80,7 +80,7 @@ export default function PublicReviewPage() {
 
   return (
     <div dir="rtl" className="min-h-[100dvh] bg-gradient-to-b from-emerald-50 via-white to-white flex items-center justify-center p-5">
-      <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200 shadow-xl shadow-emerald-100/40 p-7 text-center">
+      <div className="w-full max-w-md bg-surface rounded-3xl border border-line shadow-xl shadow-emerald-100/40 p-7 text-center">
         {phase === "loading" && <Loader2 className="w-8 h-8 text-emerald-500 animate-spin mx-auto my-12" />}
 
         {phase === "invalid" && (
@@ -101,7 +101,7 @@ export default function PublicReviewPage() {
         {(phase === "rate" || phase === "feedback") && (
           <>
             <p className="text-xs font-black tracking-wide text-emerald-600 mb-2">{clinicName}</p>
-            <h1 className="text-xl font-black text-slate-900 mb-1">كيف كانت زيارتك لنا؟</h1>
+            <h1 className="text-xl font-black text-ink mb-1">كيف كانت زيارتك لنا؟</h1>
             <p className="text-xs text-slate-400 font-bold mb-6">How was your visit?</p>
 
             <div className="flex justify-center gap-2 mb-2" dir="ltr">
@@ -143,7 +143,7 @@ export default function PublicReviewPage() {
                   maxLength={1000}
                   dir="auto"
                   placeholder="اكتب هنا…"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3.5 text-sm text-slate-800 outline-none focus:border-emerald-400 resize-none"
+                  className="w-full bg-surface-subtle border border-line rounded-2xl p-3.5 text-sm text-slate-800 outline-none focus:border-emerald-400 resize-none"
                 />
                 <button
                   onClick={() => void submit(rating, feedback)}
@@ -155,7 +155,7 @@ export default function PublicReviewPage() {
                 <button
                   onClick={() => void submit(rating, "")}
                   disabled={busy}
-                  className="w-full py-2 text-xs font-bold text-slate-400 hover:text-slate-600"
+                  className="w-full py-2 text-xs font-bold text-slate-400 hover:text-ink-body"
                 >
                   إرسال بدون تفاصيل
                 </button>
@@ -176,7 +176,7 @@ export default function PublicReviewPage() {
           <div className="py-10">
             <HeartHandshake size={40} className="mx-auto text-emerald-500 mb-4" />
             <p className="text-lg font-black text-slate-800 mb-1">وصلت رسالتك لإدارة العيادة</p>
-            <p className="text-sm text-slate-500 font-bold leading-relaxed">
+            <p className="text-sm text-ink-muted font-bold leading-relaxed">
               شكراً لصراحتك — سنتواصل معك لنصحح الأمر 💚
             </p>
             <p className="text-xs text-slate-400 font-bold mt-2">Your message went straight to the clinic&apos;s management — thank you.</p>

@@ -835,7 +835,7 @@ export default function AppointmentAvatarPanel({
       <div className="w-full h-full shrink-0 flex flex-col gap-4 z-20">
         <div className={shellClass}>
           <div className="flex-1 flex flex-col items-center justify-center text-center px-8 py-10">
-            <div className="w-14 h-14 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-4">
+            <div className="w-14 h-14 rounded-2xl bg-surface-muted text-slate-400 flex items-center justify-center mb-4">
               <Lock size={26} />
             </div>
             <h3 className="font-black text-slate-700 text-sm">
@@ -897,7 +897,7 @@ export default function AppointmentAvatarPanel({
       className={`text-[11px] font-black px-1.5 py-1 rounded-full flex items-center gap-0.5 border shrink-0 me-1 ${
         remainingCredits < creditLimit * 0.1
           ? "bg-rose-50 text-rose-600 border-rose-200"
-          : "bg-slate-50 text-slate-500 border-slate-200"
+          : "bg-surface-subtle text-ink-muted border-line"
       }`}
     >
       <Zap size={10} /> {remainingCredits}
@@ -906,7 +906,7 @@ export default function AppointmentAvatarPanel({
 
   const statusChips = selectedAppointment ? (
     <>
-      <span className="text-[11px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 shrink-0">
+      <span className="text-[11px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full bg-surface-muted text-ink-body shrink-0">
         {stageLabel}
       </span>
       {selectedAppointment.treatment && (
@@ -946,7 +946,7 @@ export default function AppointmentAvatarPanel({
                 <h2 title={selectedAppointment.patientName} className="font-extrabold text-slate-800 text-lg leading-tight truncate group-hover:text-teal-700 transition-colors">
                   {selectedAppointment.patientName}
                 </h2>
-                <p className="text-sm font-medium text-slate-500 mt-0.5 truncate">
+                <p className="text-sm font-medium text-ink-muted mt-0.5 truncate">
                   {isAr ? selectedAppointment.time?.replace("AM", "ص").replace("PM", "م") : selectedAppointment.time}
                   {" • "}
                   {selectedAppointment.date}
@@ -962,7 +962,7 @@ export default function AppointmentAvatarPanel({
                 <h2 className="font-extrabold text-slate-800 text-lg leading-tight truncate">
                   {receptionistName}
                 </h2>
-                <p className="text-sm font-medium text-slate-500 mt-0.5 truncate">
+                <p className="text-sm font-medium text-ink-muted mt-0.5 truncate">
                   {isAr ? "لا يوجد موعد مفتوح" : "No appointment open"}
                 </p>
               </div>
@@ -975,7 +975,7 @@ export default function AppointmentAvatarPanel({
             {handsFreeButton}
             {voiceReplyButton}
             {flipButton}
-            <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors">
+            <button onClick={onClose} className="p-2 text-slate-400 hover:text-ink-body hover:bg-surface-muted rounded-full transition-colors">
               <X size={18} />
             </button>
           </div>
@@ -1030,7 +1030,7 @@ export default function AppointmentAvatarPanel({
         {/* Conversation */}
         <div className="flex-1 overflow-y-auto custom-scrollbar px-5 py-4 space-y-3">
           {messages.length === 0 && (
-            <div className="rounded-2xl rounded-tl-sm bg-white border border-slate-200/60 px-4 py-3 shadow-sm">
+            <div className="rounded-2xl rounded-tl-sm bg-surface border border-slate-200/60 px-4 py-3 shadow-sm">
               <p className="text-sm leading-relaxed text-slate-700">
                 {selectedAppointment
                   ? (isAr
@@ -1079,7 +1079,7 @@ export default function AppointmentAvatarPanel({
 
           {isLoading && (
             <div className="flex justify-start">
-              <div className="bg-white border border-slate-200/60 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
+              <div className="bg-surface border border-slate-200/60 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
                 <Loader2 className="animate-spin text-teal-500" size={16} />
               </div>
             </div>
@@ -1094,7 +1094,7 @@ export default function AppointmentAvatarPanel({
               key={chip.label}
               disabled={isLoading}
               onClick={() => sendMessage(chip.prompt)}
-              className="text-xs font-bold text-slate-600 bg-white border border-slate-200 hover:border-teal-300 hover:text-teal-700 hover:bg-teal-50/50 disabled:opacity-50 px-3 py-2 rounded-full flex items-center gap-1.5 transition-all shadow-sm shrink-0 whitespace-nowrap"
+              className="text-xs font-bold text-ink-body bg-surface border border-line hover:border-teal-300 hover:text-teal-700 hover:bg-teal-50/50 disabled:opacity-50 px-3 py-2 rounded-full flex items-center gap-1.5 transition-all shadow-sm shrink-0 whitespace-nowrap"
             >
               <chip.icon size={14} className="shrink-0" /> {chip.label}
             </button>
@@ -1116,7 +1116,7 @@ export default function AppointmentAvatarPanel({
 
           <form
             onSubmit={(e) => { e.preventDefault(); sendMessage(input); }}
-            className="relative flex items-center bg-slate-50 border border-slate-200 rounded-xl focus-within:border-teal-400 focus-within:ring-4 focus-within:ring-teal-500/10 transition-all"
+            className="relative flex items-center bg-surface-subtle border border-line rounded-xl focus-within:border-teal-400 focus-within:ring-4 focus-within:ring-teal-500/10 transition-all"
           >
             {speechInputSupported && (
               <button

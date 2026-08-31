@@ -183,7 +183,7 @@ export default function ReactivationPage() {
             <h1 className="text-xl font-black text-slate-900">
               {isAr ? "إعادة تفعيل المرضى" : "Patient Reactivation"}
             </h1>
-            <p className="text-sm font-medium text-slate-500 mt-3 leading-relaxed">
+            <p className="text-sm font-medium text-ink-muted mt-3 leading-relaxed">
               {isAr
                 ? "يجد المرضى الذين لم تتم رؤيتهم منذ فترة ويجهّز رسالة لكل منهم لمراجعتها. متاح في باقة Premium."
                 : "Finds patients you have not seen in a while and drafts a message to each for your review. Available on the Premium plan."}
@@ -210,10 +210,10 @@ export default function ReactivationPage() {
                   {isAr ? "ذكاء ألفا · بريميوم" : "Alpha Intelligence · Premium"}
                 </span>
               </div>
-              <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight mt-1">
+              <h1 className="text-2xl md:text-3xl font-black text-ink tracking-tight mt-1">
                 {isAr ? "إعادة تفعيل المرضى" : "Patient Reactivation"}
               </h1>
-              <p className="text-sm font-medium text-slate-500 mt-1 max-w-2xl">
+              <p className="text-sm font-medium text-ink-muted mt-1 max-w-2xl">
                 {isAr
                   ? "يجد المرضى الذين لم يحضروا منذ فترة. لا تُرسل أي رسالة قبل موافقتك عليها."
                   : "Finds patients who have not been in for a while. Nothing is sent until you approve it."}
@@ -224,7 +224,7 @@ export default function ReactivationPage() {
               <button
                 onClick={() => void runScan(false)}
                 disabled={scanning}
-                className="inline-flex items-center gap-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 px-5 py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-sm active:scale-[0.98] disabled:opacity-50 transition-all"
+                className="inline-flex items-center gap-2 bg-surface hover:bg-surface-subtle text-slate-700 border border-line px-5 py-3 rounded-xl font-black text-xs uppercase tracking-widest shadow-sm active:scale-[0.98] disabled:opacity-50 transition-all"
               >
                 {scanning ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
                 {isAr ? "فحص فقط" : "Scan only"}
@@ -242,11 +242,11 @@ export default function ReactivationPage() {
 
           {/* Review queue first — it is the part with pending work attached to it. */}
           {(drafts.length > 0 || loadingDrafts) && (
-            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="bg-surface rounded-3xl border border-line shadow-sm overflow-hidden">
               <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <MessageSquare size={16} className="text-violet-600" />
-                  <h2 className="text-sm font-black text-slate-900 uppercase tracking-widest">
+                  <h2 className="text-sm font-black text-ink uppercase tracking-widest">
                     {isAr ? "بانتظار مراجعتك" : "Waiting for your review"}
                   </h2>
                 </div>
@@ -264,7 +264,7 @@ export default function ReactivationPage() {
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <Link
                           href={`/patients/${draft.patientId}`}
-                          className="inline-flex items-center gap-1.5 font-black text-slate-900 hover:text-violet-600 transition-colors"
+                          className="inline-flex items-center gap-1.5 font-black text-ink hover:text-violet-600 transition-colors"
                         >
                           {draft.patientName}
                           <ArrowUpRight size={13} />
@@ -287,7 +287,7 @@ export default function ReactivationPage() {
                         value={editing[draft.id] ?? draft.body}
                         onChange={(e) => setEditing((prev) => ({ ...prev, [draft.id]: e.target.value }))}
                         rows={5}
-                        className="w-full text-[13px] leading-relaxed bg-slate-50 border border-slate-200 rounded-xl p-3 font-medium text-slate-700 outline-none focus:bg-white focus:border-violet-400 focus:ring-4 focus:ring-violet-500/10 transition-all resize-y"
+                        className="w-full text-[13px] leading-relaxed bg-surface-subtle border border-line rounded-xl p-3 font-medium text-slate-700 outline-none focus:bg-surface focus:border-violet-400 focus:ring-4 focus:ring-violet-500/10 transition-all resize-y"
                         dir="auto"
                       />
 
@@ -303,7 +303,7 @@ export default function ReactivationPage() {
                         <button
                           onClick={() => void resolveDraft(draft, "reject")}
                           disabled={busyDraft === draft.id}
-                          className="inline-flex items-center gap-2 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-600 border border-slate-200 px-4 py-2.5 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.98]"
+                          className="inline-flex items-center gap-2 bg-surface hover:bg-surface-subtle disabled:opacity-50 text-ink-body border border-line px-4 py-2.5 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.98]"
                         >
                           <X size={13} />
                           {isAr ? "تجاهل" : "Dismiss"}
@@ -317,14 +317,14 @@ export default function ReactivationPage() {
           )}
 
           {!report && !scanning && (
-            <div className="bg-white rounded-3xl border border-slate-200 border-dashed p-12 text-center">
-              <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center mx-auto mb-4">
+            <div className="bg-surface rounded-3xl border border-line border-dashed p-12 text-center">
+              <div className="w-14 h-14 rounded-2xl bg-surface-subtle border border-slate-100 flex items-center justify-center mx-auto mb-4">
                 <UserX size={26} className="text-slate-400" />
               </div>
-              <p className="text-base font-black text-slate-900">
+              <p className="text-base font-black text-ink">
                 {isAr ? "لم يتم إجراء فحص بعد" : "No scan run yet"}
               </p>
-              <p className="text-sm font-medium text-slate-500 mt-2 max-w-md mx-auto leading-relaxed">
+              <p className="text-sm font-medium text-ink-muted mt-2 max-w-md mx-auto leading-relaxed">
                 {isAr
                   ? "يعتمد الفحص على الزيارات الفعلية: موعد حضره المريض أو ملاحظة سريرية. المواعيد الملغاة أو التي لم يحضرها لا تُحتسب زيارة."
                   : "The scan counts real visits only: an appointment the patient attended, or a clinical note. Cancelled and no-show appointments do not count."}
@@ -333,9 +333,9 @@ export default function ReactivationPage() {
           )}
 
           {scanning && (
-            <div className="bg-white rounded-3xl border border-slate-200 p-12 flex flex-col items-center">
+            <div className="bg-surface rounded-3xl border border-line p-12 flex flex-col items-center">
               <Loader2 size={26} className="animate-spin text-slate-300" />
-              <p className="text-sm font-bold text-slate-500 mt-4">
+              <p className="text-sm font-bold text-ink-muted mt-4">
                 {isAr ? "جارٍ فحص سجلات المرضى..." : "Checking patient records..."}
               </p>
             </div>
@@ -397,9 +397,9 @@ export default function ReactivationPage() {
               )}
 
               {/* List */}
-              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="bg-surface rounded-3xl border border-line shadow-sm overflow-hidden">
                 <div className="px-6 py-4 border-b border-slate-100">
-                  <h2 className="text-sm font-black text-slate-900 uppercase tracking-widest">
+                  <h2 className="text-sm font-black text-ink uppercase tracking-widest">
                     {isAr ? "المرضى" : "Patients"}
                   </h2>
                 </div>
@@ -407,7 +407,7 @@ export default function ReactivationPage() {
                 {report.patients.length === 0 ? (
                   <div className="p-12 text-center">
                     <Check size={26} className="text-emerald-500 mx-auto mb-3" />
-                    <p className="text-sm font-bold text-slate-600">
+                    <p className="text-sm font-bold text-ink-body">
                       {isAr ? "لا يوجد مرضى متوقفين. عمل جيد." : "No lapsed patients. Nice work."}
                     </p>
                   </div>
@@ -418,12 +418,12 @@ export default function ReactivationPage() {
                         <div className="min-w-0">
                           <Link
                             href={`/patients/${p.patientId}`}
-                            className="inline-flex items-center gap-1.5 font-bold text-slate-900 hover:text-violet-600 transition-colors"
+                            className="inline-flex items-center gap-1.5 font-bold text-ink hover:text-violet-600 transition-colors"
                           >
                             {p.patientName}
                             <ArrowUpRight size={13} />
                           </Link>
-                          <p className="text-[12px] font-medium text-slate-500 mt-0.5">
+                          <p className="text-[12px] font-medium text-ink-muted mt-0.5">
                             {p.reason === "never_visited"
                               ? isAr
                                 ? "مسجّل ولم تتم رؤيته مطلقاً"
@@ -442,7 +442,7 @@ export default function ReactivationPage() {
                           <span
                             className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded-lg border ${
                               p.reason === "never_visited"
-                                ? "text-slate-600 bg-slate-50 border-slate-200"
+                                ? "text-ink-body bg-surface-subtle border-line"
                                 : "text-violet-700 bg-violet-50 border-violet-200"
                             }`}
                           >

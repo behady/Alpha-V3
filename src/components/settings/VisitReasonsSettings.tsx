@@ -83,10 +83,10 @@ export default function VisitReasonsSettings() {
             <Stethoscope size={20} className="text-indigo-600" />
           </div>
           <div>
-            <h2 className="text-base font-black text-slate-900 tracking-tight">
+            <h2 className="text-base font-black text-ink tracking-tight">
               {isAr ? "أسباب الزيارة" : "Reasons for Visit"}
             </h2>
-            <p className="text-xs text-slate-500 font-medium mt-0.5">
+            <p className="text-xs text-ink-muted font-medium mt-0.5">
               {isAr
                 ? "أدر قائمة أسباب الزيارة التي تظهر أثناء حجز موعد."
                 : "Manage the list of reasons for visit that appear when booking an appointment."}
@@ -116,7 +116,7 @@ export default function VisitReasonsSettings() {
             }
           }}
           placeholder={isAr ? "إضافة سبب جديد..." : "Add new reason..."}
-          className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all"
+          className="flex-1 px-4 py-3 bg-surface border border-line rounded-xl text-sm font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all"
         />
         <button
           onClick={addReason}
@@ -128,7 +128,7 @@ export default function VisitReasonsSettings() {
       </div>
 
       {/* List */}
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+      <div className="bg-surface border border-line rounded-2xl overflow-hidden shadow-sm">
         {reasons.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-sm font-medium">
             {isAr ? "لم يتم إضافة أسباب بعد" : "No reasons added yet"}
@@ -138,7 +138,7 @@ export default function VisitReasonsSettings() {
             {reasons.map((reason, idx) => (
               <div
                 key={idx}
-                className="flex items-center gap-3 p-3 hover:bg-slate-50 transition-colors group"
+                className="flex items-center gap-3 p-3 hover:bg-surface-subtle transition-colors group"
               >
                 <div className="text-slate-300 cursor-grab active:cursor-grabbing">
                   <GripVertical size={16} />

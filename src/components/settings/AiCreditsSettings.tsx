@@ -168,12 +168,12 @@ export default function AiCreditsSettings() {
           <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
             <Sparkles size={20} className="text-violet-500" /> {txt.title}
           </h3>
-          <p className="text-sm font-medium text-slate-500 mt-1">{txt.subtitle}</p>
+          <p className="text-sm font-medium text-ink-muted mt-1">{txt.subtitle}</p>
         </div>
         <select
           value={selectedMonth}
           onChange={(e) => setSelectedMonth(e.target.value)}
-          className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-violet-400 cursor-pointer shrink-0"
+          className="rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-violet-400 cursor-pointer shrink-0"
         >
           {monthOptions.map((k) => (
             <option key={k} value={k}>{monthLabel(k)}</option>
@@ -193,7 +193,7 @@ export default function AiCreditsSettings() {
             {creditLimit > 0 ? creditLimit.toLocaleString("en-US") : txt.unlimited}
           </p>
         </div>
-        <div className="bg-white border border-slate-100 rounded-2xl p-5">
+        <div className="bg-surface border border-slate-100 rounded-2xl p-5">
           <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{txt.remaining}</p>
           <p className={`text-3xl font-black ${creditLimit > 0 && creditLimit - selected.creditsUsed <= creditLimit * 0.1 ? "text-rose-500" : "text-emerald-600"}`}>
             {creditLimit > 0 ? Math.max(0, creditLimit - selected.creditsUsed).toLocaleString("en-US") : "∞"}
@@ -203,7 +203,7 @@ export default function AiCreditsSettings() {
 
       {creditLimit > 0 && (
         <div>
-          <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+          <div className="h-3 bg-surface-muted rounded-full overflow-hidden">
             <div
               className={`h-full rounded-full transition-all ${pct >= 90 ? "bg-rose-500" : pct >= 70 ? "bg-amber-400" : "bg-violet-500"}`}
               style={{ width: `${pct}%` }}
@@ -214,8 +214,8 @@ export default function AiCreditsSettings() {
       )}
 
       {/* Per-feature breakdown */}
-      <div className="bg-white border border-slate-100 rounded-2xl p-5">
-        <h4 className="text-[11px] font-black text-slate-500 uppercase tracking-widest mb-4">{txt.breakdown}</h4>
+      <div className="bg-surface border border-slate-100 rounded-2xl p-5">
+        <h4 className="text-[11px] font-black text-ink-muted uppercase tracking-widest mb-4">{txt.breakdown}</h4>
         {breakdown.length === 0 ? (
           <p className="text-sm font-semibold text-slate-400">{txt.empty}</p>
         ) : (
@@ -237,7 +237,7 @@ export default function AiCreditsSettings() {
                       {value.toLocaleString("en-US")} <span className="text-[10px] font-bold text-slate-400">({share}%)</span>
                     </span>
                   </div>
-                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-2 bg-surface-muted rounded-full overflow-hidden">
                     <div className={`h-full rounded-full ${meta.color}`} style={{ width: `${share}%` }} />
                   </div>
                 </div>
@@ -248,8 +248,8 @@ export default function AiCreditsSettings() {
       </div>
 
       {/* Event log */}
-      <div className="bg-white border border-slate-100 rounded-2xl p-5">
-        <h4 className="text-[11px] font-black text-slate-500 uppercase tracking-widest mb-1">{txt.log}</h4>
+      <div className="bg-surface border border-slate-100 rounded-2xl p-5">
+        <h4 className="text-[11px] font-black text-ink-muted uppercase tracking-widest mb-1">{txt.log}</h4>
         <p className="text-xs font-medium text-slate-400 mb-4">{txt.logNote}</p>
         {monthRows.length === 0 ? (
           <p className="text-sm font-semibold text-slate-400 py-4 text-center">{txt.empty}</p>
@@ -257,7 +257,7 @@ export default function AiCreditsSettings() {
           <div className="overflow-x-auto rounded-xl border border-slate-100">
             <table className="w-full text-sm min-w-[620px]">
               <thead>
-                <tr className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                <tr className="bg-surface-subtle text-[10px] font-bold text-ink-muted uppercase tracking-widest">
                   <th className="px-3 py-2.5 text-start">{txt.when}</th>
                   <th className="px-3 py-2.5 text-start">{txt.feature}</th>
                   <th className="px-3 py-2.5 text-start">{txt.patient}</th>
@@ -271,7 +271,7 @@ export default function AiCreditsSettings() {
                   const Icon = meta.icon;
                   return (
                     <tr key={r.id} className="border-t border-slate-100">
-                      <td className="px-3 py-2.5 font-semibold text-slate-500 whitespace-nowrap">
+                      <td className="px-3 py-2.5 font-semibold text-ink-muted whitespace-nowrap">
                         {r.createdMs
                           ? new Date(r.createdMs).toLocaleString(ar ? "ar-EG" : "en-GB", {
                               day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
@@ -284,8 +284,8 @@ export default function AiCreditsSettings() {
                         </span>
                         {r.detail && <span className="block text-[11px] font-semibold text-slate-400 ps-5">{r.detail}</span>}
                       </td>
-                      <td className="px-3 py-2.5 font-semibold text-slate-600">{r.patientName || "—"}</td>
-                      <td className="px-3 py-2.5 font-semibold text-slate-600">{r.userName || "—"}</td>
+                      <td className="px-3 py-2.5 font-semibold text-ink-body">{r.patientName || "—"}</td>
+                      <td className="px-3 py-2.5 font-semibold text-ink-body">{r.userName || "—"}</td>
                       <td className="px-3 py-2.5 text-end font-black text-slate-800 whitespace-nowrap">
                         {r.credits} {r.credits === 1 ? txt.credit : txt.credits}
                       </td>

@@ -75,9 +75,9 @@ export interface SettingsPanelProps {
 
 const loading = () => (
   <div className="space-y-4" aria-hidden="true">
-    <div className="h-8 w-48 rounded-xl bg-slate-100 animate-pulse" />
-    <div className="h-40 rounded-3xl bg-slate-100 animate-pulse" />
-    <div className="h-24 rounded-3xl bg-slate-100 animate-pulse" />
+    <div className="h-8 w-48 rounded-xl bg-surface-muted animate-pulse" />
+    <div className="h-40 rounded-3xl bg-surface-muted animate-pulse" />
+    <div className="h-24 rounded-3xl bg-surface-muted animate-pulse" />
   </div>
 );
 

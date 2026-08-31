@@ -367,7 +367,7 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
     return (
       <div className="flex flex-col items-center justify-center py-16 text-slate-400">
         <Megaphone size={40} className="mb-3 opacity-30" />
-        <p className="font-bold text-slate-500">
+        <p className="font-bold text-ink-muted">
           {isAr ? "لا يوجد عملاء محتملين في هذه الفترة" : "No leads recorded in this period"}
         </p>
         <p className="text-xs font-semibold mt-1">
@@ -382,7 +382,7 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
       {/* KPI Strip */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         {[
-          { l: headers.leadsIn, v: totals.total.toString(), c: "text-slate-900", note: "" },
+          { l: headers.leadsIn, v: totals.total.toString(), c: "text-ink", note: "" },
           { l: headers.won, v: totals.won.toString(), c: "text-emerald-600", note: "" },
           { l: headers.conversion, v: `${totalConversion}%`, c: "text-violet-600", note: "" },
           {
@@ -400,8 +400,8 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
               : "",
           },
         ].map((k) => (
-          <div key={k.l} className="bg-white border border-slate-200 shadow-sm rounded-2xl p-4">
-            <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">{k.l}</p>
+          <div key={k.l} className="bg-surface border border-line shadow-sm rounded-2xl p-4">
+            <p className="text-[10px] font-black text-ink-muted uppercase tracking-wider">{k.l}</p>
             <p className={`text-xl font-black tabular-nums mt-1 ${k.c}`}>{k.v}</p>
             {k.note && <p className="text-[10px] font-bold text-slate-400 mt-0.5">{k.note}</p>}
           </div>
@@ -409,9 +409,9 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
       </div>
 
       {/* Channels table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-surface rounded-2xl border border-line shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center gap-2 flex-wrap">
-          <h3 className="text-sm font-black text-slate-900">{isAr ? "القنوات التسويقية" : "Channels"}</h3>
+          <h3 className="text-sm font-black text-ink">{isAr ? "القنوات التسويقية" : "Channels"}</h3>
           <div className="flex items-center gap-2">
             <button
               onClick={handlePdfExport}
@@ -435,7 +435,7 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
         <div className="overflow-x-auto">
           <table className="w-full text-xs min-w-[640px]">
             <thead>
-              <tr className="bg-slate-50 text-[9px] font-black text-slate-500 uppercase">
+              <tr className="bg-surface-subtle text-[9px] font-black text-ink-muted uppercase">
                 <th className="text-start py-2.5 px-4">{headers.source}</th>
                 <th className="text-center py-2.5 px-3">{headers.leadsIn}</th>
                 <th className="text-center py-2.5 px-3">{headers.open}</th>
@@ -463,7 +463,7 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
                           </span>
                         )}
                       </div>
-                      <div className="mt-1.5 h-1.5 rounded-full bg-slate-100 overflow-hidden max-w-[160px]">
+                      <div className="mt-1.5 h-1.5 rounded-full bg-surface-muted overflow-hidden max-w-[160px]">
                         <div
                           className="h-full rounded-full"
                           style={{ width: `${Math.max(6, Math.round((s.total / maxTotal) * 100))}%`, background: CHART_COLORS[i % CHART_COLORS.length] }}
@@ -495,7 +495,7 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
                     s.campaigns.map((c) => (
                       <tr key={`${s.name}::${c.name}`} className="bg-indigo-50/30">
                         <td className="py-2 px-4">
-                          <span className="flex items-center gap-1.5 ps-6 text-xs font-bold text-slate-600">
+                          <span className="flex items-center gap-1.5 ps-6 text-xs font-bold text-ink-body">
                             <span className="w-1.5 h-1.5 rounded-full bg-indigo-300 shrink-0" />
                             {c.name}
                           </span>
@@ -512,7 +512,7 @@ export default function LeadFunnelReport({ leads, payments, rangeLabel, isAr }: 
               ))}
             </tbody>
             <tfoot>
-              <tr className="bg-slate-50 font-black text-slate-800">
+              <tr className="bg-surface-subtle font-black text-slate-800">
                 <td className="py-3 px-4">{isAr ? "الإجمالي" : "TOTAL"}</td>
                 <td className="py-3 px-3 text-center tabular-nums">{totals.total}</td>
                 <td className="py-3 px-3 text-center tabular-nums text-sky-600">

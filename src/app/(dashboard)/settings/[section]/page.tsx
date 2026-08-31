@@ -37,7 +37,7 @@ export default function SettingsSectionPage() {
   // Auth arrives asynchronously. Deciding before it does rejects the clinic's own admin, which is
   // why the old screen recomputed its gate on every render rather than once on mount.
   if (loading) {
-    return <div className="h-40 rounded-3xl bg-slate-100 animate-pulse" aria-hidden="true" />;
+    return <div className="h-40 rounded-3xl bg-surface-muted animate-pulse" aria-hidden="true" />;
   }
 
   if (!section) return <NotFound />;
@@ -65,7 +65,7 @@ export default function SettingsSectionPage() {
   return (
     <>
       {!edit.allowed && (
-        <p className="mb-6 flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm font-semibold text-slate-600">
+        <p className="mb-6 flex items-start gap-3 rounded-2xl border border-line bg-surface-subtle px-5 py-4 text-sm font-semibold text-ink-body">
           <Lock size={16} className="mt-0.5 shrink-0 text-slate-400" />
           {denialMessage(edit, language)}
         </p>
@@ -78,11 +78,11 @@ export default function SettingsSectionPage() {
 function Blocked({ title, message }: { title: string; message: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center animate-in fade-in">
-      <div className="w-20 h-20 bg-slate-100 text-slate-400 rounded-[1.75rem] flex items-center justify-center mb-6">
+      <div className="w-20 h-20 bg-surface-muted text-slate-400 rounded-[1.75rem] flex items-center justify-center mb-6">
         <ShieldAlert size={34} />
       </div>
-      <h2 className="text-2xl font-black text-slate-900 mb-2 tracking-tight">{title}</h2>
-      <p className="max-w-md text-sm font-semibold text-slate-500">{message}</p>
+      <h2 className="text-2xl font-black text-ink mb-2 tracking-tight">{title}</h2>
+      <p className="max-w-md text-sm font-semibold text-ink-muted">{message}</p>
     </div>
   );
 }
@@ -91,13 +91,13 @@ function NotFound() {
   const { language } = useLanguage();
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center animate-in fade-in">
-      <div className="w-20 h-20 bg-slate-100 text-slate-400 rounded-[1.75rem] flex items-center justify-center mb-6">
+      <div className="w-20 h-20 bg-surface-muted text-slate-400 rounded-[1.75rem] flex items-center justify-center mb-6">
         <SearchX size={34} />
       </div>
-      <h2 className="text-2xl font-black text-slate-900 mb-2 tracking-tight">
+      <h2 className="text-2xl font-black text-ink mb-2 tracking-tight">
         {language === "ar" ? "لا يوجد قسم هنا" : "No settings section here"}
       </h2>
-      <p className="max-w-md text-sm font-semibold text-slate-500 mb-6">
+      <p className="max-w-md text-sm font-semibold text-ink-muted mb-6">
         {language === "ar"
           ? "الرابط قد يكون قديماً. اختر قسماً من القائمة."
           : "That link may be out of date. Pick a section from the list."}

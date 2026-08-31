@@ -606,7 +606,7 @@ export default function AiChatWidget() {
             </button>
             <button
               onClick={() => setIsOpen(false)}
-              className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors shrink-0"
+              className="p-2 text-slate-400 hover:text-slate-700 hover:bg-surface-muted rounded-full transition-colors shrink-0"
             >
               <X size={16} />
             </button>
@@ -645,7 +645,7 @@ export default function AiChatWidget() {
                   <h4 className="font-black text-slate-800 text-sm tracking-tight">
                     {isAr ? `أنا ${alphaName} — تحت أمرك.` : `I'm ${alphaName} — at your service.`}
                   </h4>
-                  <p className="text-[11px] font-medium text-slate-500 leading-relaxed">
+                  <p className="text-[11px] font-medium text-ink-muted leading-relaxed">
                     {assistantMode === "trainer"
                       ? (isAr
                           ? "وضع التدريب — اختار درس من تحت، أو اسألني «ازاي أعمل...» وأنا أوريك على الشاشة نفسها."
@@ -665,14 +665,14 @@ export default function AiChatWidget() {
                   <div className="flex flex-col gap-1.5">
                     <button
                       onClick={() => void handleSendMessage(undefined, isAr ? "عايز أبلغ عن مشكلة في النظام" : "I want to report a bug in the system")}
-                      className="text-start text-[11px] font-bold text-slate-600 bg-white border border-slate-200 hover:border-rose-300 hover:text-rose-700 hover:bg-rose-50/50 px-3 py-2 rounded-xl transition-colors flex items-center gap-2"
+                      className="text-start text-[11px] font-bold text-ink-body bg-surface border border-line hover:border-rose-300 hover:text-rose-700 hover:bg-rose-50/50 px-3 py-2 rounded-xl transition-colors flex items-center gap-2"
                     >
                       <span className="w-5 h-5 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center shrink-0"><Bug size={11} /></span>
                       {isAr ? "أبلغ عن مشكلة" : "Report a bug"}
                     </button>
                     <button
                       onClick={() => void handleSendMessage(undefined, isAr ? "عندي اقتراح لميزة جديدة في النظام" : "I have an idea for a new feature")}
-                      className="text-start text-[11px] font-bold text-slate-600 bg-white border border-slate-200 hover:border-indigo-300 hover:text-indigo-700 hover:bg-indigo-50/50 px-3 py-2 rounded-xl transition-colors flex items-center gap-2"
+                      className="text-start text-[11px] font-bold text-ink-body bg-surface border border-line hover:border-indigo-300 hover:text-indigo-700 hover:bg-indigo-50/50 px-3 py-2 rounded-xl transition-colors flex items-center gap-2"
                     >
                       <span className="w-5 h-5 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0"><Lightbulb size={11} /></span>
                       {isAr ? "اقترح ميزة جديدة" : "Request a feature"}
@@ -695,7 +695,7 @@ export default function AiChatWidget() {
                           if (s.prompt.endsWith(" ")) setInputMessage(s.prompt);
                           else void handleSendMessage(undefined, s.prompt);
                         }}
-                        className="text-[11px] font-bold text-slate-600 bg-white border border-slate-200 hover:border-teal-300 hover:text-teal-700 hover:bg-teal-50/50 px-3 py-1.5 rounded-full transition-colors"
+                        className="text-[11px] font-bold text-ink-body bg-surface border border-line hover:border-teal-300 hover:text-teal-700 hover:bg-teal-50/50 px-3 py-1.5 rounded-full transition-colors"
                       >
                         {s.label}
                       </button>
@@ -715,7 +715,7 @@ export default function AiChatWidget() {
                       <button
                         key={t.id}
                         onClick={() => handleStartLesson(t.id)}
-                        className="text-start text-[11px] font-bold text-slate-600 bg-white border border-slate-200 hover:border-teal-300 hover:text-teal-700 hover:bg-teal-50/50 px-3 py-2 rounded-xl transition-colors flex items-center gap-2"
+                        className="text-start text-[11px] font-bold text-ink-body bg-surface border border-line hover:border-teal-300 hover:text-teal-700 hover:bg-teal-50/50 px-3 py-2 rounded-xl transition-colors flex items-center gap-2"
                       >
                         <span className="w-5 h-5 rounded-full bg-teal-50 text-teal-600 flex items-center justify-center shrink-0">
                           <GraduationCap size={11} />
@@ -747,7 +747,7 @@ export default function AiChatWidget() {
             ))}
             {pendingAction && (
               <div className="flex justify-start">
-                <div className="max-w-[90%] bg-white border border-rose-200 rounded-2xl rounded-tl-sm shadow-sm overflow-hidden">
+                <div className="max-w-[90%] bg-surface border border-rose-200 rounded-2xl rounded-tl-sm shadow-sm overflow-hidden">
                   <div className="px-4 py-2.5 bg-rose-50 border-b border-rose-100 flex items-center gap-2">
                     <AlertTriangle size={13} className="text-rose-600 shrink-0" />
                     <p className="text-[11px] font-black uppercase tracking-widest text-rose-600">
@@ -755,17 +755,17 @@ export default function AiChatWidget() {
                     </p>
                   </div>
                   <div className="px-4 py-3 space-y-2">
-                    <p className="text-[12px] text-slate-600 leading-relaxed">
+                    <p className="text-[12px] text-ink-body leading-relaxed">
                       {isAr
                         ? "سيتم حذف هذا السجل نهائياً. راجع التفاصيل قبل التأكيد:"
                         : "This record will be permanently deleted. Check the details before confirming:"}
                     </p>
-                    <div className="rounded-xl bg-slate-50 border border-slate-200/60 px-3 py-2 space-y-1">
+                    <div className="rounded-xl bg-surface-subtle border border-slate-200/60 px-3 py-2 space-y-1">
                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                         {pendingAction.collection}
                       </p>
                       {Object.entries(pendingAction.summary).length === 0 ? (
-                        <p className="text-[12px] font-mono text-slate-500">{pendingAction.documentId}</p>
+                        <p className="text-[12px] font-mono text-ink-muted">{pendingAction.documentId}</p>
                       ) : (
                         Object.entries(pendingAction.summary).map(([key, value]) => (
                           <div key={key} className="flex gap-2 text-[12px]">
@@ -788,7 +788,7 @@ export default function AiChatWidget() {
                       <button
                         onClick={() => handleResolveAction("reject")}
                         disabled={resolvingAction}
-                        className="flex-1 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-700 border border-slate-200 px-3 py-2 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.98]"
+                        className="flex-1 bg-surface hover:bg-surface-subtle disabled:opacity-50 text-slate-700 border border-line px-3 py-2 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.98]"
                       >
                         {isAr ? "إلغاء" : "Cancel"}
                       </button>
@@ -800,7 +800,7 @@ export default function AiChatWidget() {
             {/* A composed support ticket. Everything on this card is what actually gets sent. */}
             {ticketDraft && (
               <div className="flex justify-start">
-                <div className={`max-w-[92%] bg-white border rounded-2xl rounded-tl-sm shadow-sm overflow-hidden ${ticketDraft.kind === "bug" ? "border-rose-200" : "border-indigo-200"}`}>
+                <div className={`max-w-[92%] bg-surface border rounded-2xl rounded-tl-sm shadow-sm overflow-hidden ${ticketDraft.kind === "bug" ? "border-rose-200" : "border-indigo-200"}`}>
                   <div className={`px-4 py-2.5 border-b flex items-center gap-2 ${ticketDraft.kind === "bug" ? "bg-rose-50 border-rose-100" : "bg-indigo-50 border-indigo-100"}`}>
                     {ticketDraft.kind === "bug"
                       ? <Bug size={13} className="text-rose-600 shrink-0" />
@@ -813,20 +813,20 @@ export default function AiChatWidget() {
                   </div>
                   <div className="px-4 py-3 space-y-2">
                     <p className="text-[13px] font-black text-slate-800 leading-snug">{ticketDraft.title}</p>
-                    <p className="text-[12px] text-slate-600 leading-relaxed whitespace-pre-wrap">{ticketDraft.description}</p>
+                    <p className="text-[12px] text-ink-body leading-relaxed whitespace-pre-wrap">{ticketDraft.description}</p>
                     {ticketDraft.steps && (
-                      <div className="rounded-xl bg-slate-50 border border-slate-200/60 px-3 py-2">
+                      <div className="rounded-xl bg-surface-subtle border border-slate-200/60 px-3 py-2">
                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">
                           {isAr ? "خطوات تكرار المشكلة" : "Steps to reproduce"}
                         </p>
-                        <p className="text-[12px] text-slate-600 whitespace-pre-wrap leading-relaxed">{ticketDraft.steps}</p>
+                        <p className="text-[12px] text-ink-body whitespace-pre-wrap leading-relaxed">{ticketDraft.steps}</p>
                       </div>
                     )}
-                    <div className="text-[11px] text-slate-500 space-y-0.5">
-                      <p><span className="font-bold text-slate-600">{isAr ? "العيادة:" : "Clinic:"}</span> {clinic?.name || clinicId} <span className="font-mono text-[10px] text-slate-400">({clinicId})</span></p>
-                      <p><span className="font-bold text-slate-600">{isAr ? "رقم التواصل:" : "Contact:"}</span> {ticketDraft.contactNumber}</p>
+                    <div className="text-[11px] text-ink-muted space-y-0.5">
+                      <p><span className="font-bold text-ink-body">{isAr ? "العيادة:" : "Clinic:"}</span> {clinic?.name || clinicId} <span className="font-mono text-[10px] text-slate-400">({clinicId})</span></p>
+                      <p><span className="font-bold text-ink-body">{isAr ? "رقم التواصل:" : "Contact:"}</span> {ticketDraft.contactNumber}</p>
                     </div>
-                    <label className="flex items-center gap-2 text-[11px] font-bold text-slate-600 cursor-pointer select-none pt-1">
+                    <label className="flex items-center gap-2 text-[11px] font-bold text-ink-body cursor-pointer select-none pt-1">
                       <input
                         type="checkbox"
                         checked={attachScreenshot}
@@ -847,7 +847,7 @@ export default function AiChatWidget() {
                       <button
                         onClick={() => setDraftFor(assistantMode, null)}
                         disabled={sendingTicket}
-                        className="flex-1 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-700 border border-slate-200 px-3 py-2 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.98]"
+                        className="flex-1 bg-surface hover:bg-surface-subtle disabled:opacity-50 text-slate-700 border border-line px-3 py-2 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.98]"
                       >
                         {isAr ? "تجاهل" : "Discard"}
                       </button>
@@ -858,7 +858,7 @@ export default function AiChatWidget() {
             )}
             {loadingMode === assistantMode && (
               <div className="flex justify-start">
-                <div className="bg-white border border-slate-200/60 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
+                <div className="bg-surface border border-slate-200/60 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
                   <Loader2 className="animate-spin text-teal-500" size={16} />
                 </div>
               </div>
@@ -870,10 +870,10 @@ export default function AiChatWidget() {
           <div className="shrink-0 px-4 pb-4 pt-2 border-t border-slate-100">
             {/* A staged image, shown before it costs anything — an image turn draws 3 credits. */}
             {pendingImage && (
-              <div className="flex items-center gap-2.5 mb-2 bg-white border border-slate-200 rounded-xl px-2.5 py-2">
+              <div className="flex items-center gap-2.5 mb-2 bg-surface border border-line rounded-xl px-2.5 py-2">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={pendingImage} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0 border border-slate-100" />
-                <span className="text-[11px] font-bold text-slate-600 flex-1 min-w-0 truncate">
+                <span className="text-[11px] font-bold text-ink-body flex-1 min-w-0 truncate">
                   {isAr ? "الصورة هتتبعت مع رسالتك الجاية" : "Image will be sent with your next message"}
                 </span>
                 <span className="text-[10px] font-black text-amber-600 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full shrink-0 flex items-center gap-1">
@@ -888,7 +888,7 @@ export default function AiChatWidget() {
                 </button>
               </div>
             )}
-            <form onSubmit={submitMessage} className="relative flex items-center bg-slate-50 border border-slate-200 rounded-xl focus-within:border-teal-400 focus-within:ring-4 focus-within:ring-teal-500/10 transition-all">
+            <form onSubmit={submitMessage} className="relative flex items-center bg-surface-subtle border border-line rounded-xl focus-within:border-teal-400 focus-within:ring-4 focus-within:ring-teal-500/10 transition-all">
               <input
                 ref={fileInputRef}
                 type="file"

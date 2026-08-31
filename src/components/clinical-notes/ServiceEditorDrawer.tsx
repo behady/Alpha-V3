@@ -138,13 +138,13 @@ const TeethChartSelector = memo(function TeethChartSelector({
       .filter(Boolean) as string[];
 
     return (
-      <div className="w-full p-3 bg-slate-50 border border-slate-200 rounded-2xl min-w-0">
+      <div className="w-full p-3 bg-surface-subtle border border-line rounded-2xl min-w-0">
         <div className="flex items-center justify-between gap-2 mb-2">
-          <p className="text-[10px] font-bold text-slate-500">
+          <p className="text-[10px] font-bold text-ink-muted">
             {isAr ? "اختر الأسنان من المخطط" : "Select teeth from chart"}
           </p>
           {selected.length > 0 && (
-            <span className="text-[10px] font-black text-slate-600 tabular-nums">
+            <span className="text-[10px] font-black text-ink-body tabular-nums">
               {isAr ? "المختار" : "Selected"} {selected.length}
             </span>
           )}
@@ -155,7 +155,7 @@ const TeethChartSelector = memo(function TeethChartSelector({
          * hidden, so on a short screen the chart was silently clipped and the lower arch simply was
          * not there — with nothing on screen to suggest anything had been cut off.
          */}
-        <div className="rounded-xl border border-slate-200 bg-white shadow-inner">
+        <div className="rounded-xl border border-line bg-surface shadow-inner">
           <TeethChart
             data={teethData}
             treatments={treatments}
@@ -169,7 +169,7 @@ const TeethChartSelector = memo(function TeethChartSelector({
         </div>
 
         {onSelected.length > 0 && (
-          <p className="mt-2 text-[10px] font-bold text-slate-600 leading-relaxed">
+          <p className="mt-2 text-[10px] font-bold text-ink-body leading-relaxed">
             <span className="text-slate-400">{isAr ? "على الأسنان دي:" : "Already on these:"}</span>{" "}
             {onSelected.join("  ·  ")}
           </p>
@@ -507,13 +507,13 @@ export default function ServiceEditorDrawer({
         : `${previewUnits} ${language === "ar" ? "سن" : previewUnits === 1 ? "tooth" : "teeth"}`;
 
   const billingStrip = (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+    <div className="rounded-xl border border-line bg-surface-subtle px-3 py-2.5">
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <p className="text-xs font-bold text-slate-600">
+        <p className="text-xs font-bold text-ink-body">
           {previewMode === "flat" ? (
             <>
               {language === "ar" ? "هيتحسب" : "Charging"}{" "}
-              <span className="text-slate-900 tabular-nums">{previewTotal.toLocaleString()} EGP</span>{" "}
+              <span className="text-ink tabular-nums">{previewTotal.toLocaleString()} EGP</span>{" "}
               <span className="text-slate-400">({unitsLabel})</span>
             </>
           ) : (
@@ -523,19 +523,19 @@ export default function ServiceEditorDrawer({
               {" × "}
               <span className="tabular-nums">{unitsLabel}</span>
               {" = "}
-              <span className="text-slate-900 tabular-nums">{previewTotal.toLocaleString()} EGP</span>
+              <span className="text-ink tabular-nums">{previewTotal.toLocaleString()} EGP</span>
             </>
           )}
         </p>
 
         <label className="flex items-center gap-2 shrink-0">
-          <span className="text-[11px] font-bold text-slate-500">
+          <span className="text-[11px] font-bold text-ink-muted">
             {language === "ar" ? "طريقة الحساب" : "Billing"}
           </span>
           <select
             value={previewMode}
             onChange={(e) => setPricingModeOverride(e.target.value as PricingMode)}
-            className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-700 outline-none focus:border-blue-500"
+            className="bg-surface border border-line rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-700 outline-none focus:border-blue-500"
           >
             <option value="per_tooth">{modeLabels.per_tooth}</option>
             <option value="flat">{modeLabels.flat}</option>
@@ -556,8 +556,8 @@ export default function ServiceEditorDrawer({
 
   // --- Individual controls, so the two layouts below share one set of inputs ---
   const inputClass =
-    "w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-blue-500";
-  const labelClass = "block text-xs font-bold text-slate-500 mb-1";
+    "w-full bg-surface-subtle border border-line rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-blue-500";
+  const labelClass = "block text-xs font-bold text-ink-muted mb-1";
 
   const dateField = (
     <div>
@@ -613,7 +613,7 @@ export default function ServiceEditorDrawer({
           <button
             type="button"
             onClick={() => setIsChangingService(true)}
-            className="p-2.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl border border-slate-200 transition-colors shrink-0"
+            className="p-2.5 bg-surface-muted text-ink-body hover:bg-slate-200 rounded-xl border border-line transition-colors shrink-0"
             title={language === "ar" ? "تغيير من القائمة" : "Change from list"}
           >
             <Edit2 size={18} />
@@ -634,7 +634,7 @@ export default function ServiceEditorDrawer({
             <button
               type="button"
               onClick={() => setIsChangingService(false)}
-              className="p-2.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl border border-slate-200 transition-colors shrink-0"
+              className="p-2.5 bg-surface-muted text-ink-body hover:bg-slate-200 rounded-xl border border-line transition-colors shrink-0"
               title={language === "ar" ? "إلغاء" : "Cancel"}
             >
               <X size={18} />
@@ -679,10 +679,10 @@ export default function ServiceEditorDrawer({
   );
 
   const ledgerField = !(initialNote?.isContinued) ? (
-    <label className={`flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors ${compact ? "px-3 py-2.5" : "p-4"}`}>
+    <label className={`flex items-center gap-3 bg-surface-subtle border border-line rounded-xl cursor-pointer hover:bg-surface-muted transition-colors ${compact ? "px-3 py-2.5" : "p-4"}`}>
       <input
         type="checkbox" checked={addToLedger} onChange={(e) => setAddToLedger(e.target.checked)}
-        className="w-5 h-5 rounded text-blue-600 focus:ring-blue-500 border-slate-300 shrink-0"
+        className="w-5 h-5 rounded text-blue-600 focus:ring-blue-500 border-line-strong shrink-0"
       />
       <span className={`font-bold text-slate-700 ${compact ? "text-xs" : "text-sm"}`}>{txt.addToFinance}</span>
     </label>
@@ -755,7 +755,7 @@ export default function ServiceEditorDrawer({
                     <button
                       type="button"
                       onClick={() => setShowExtraProcedures(false)}
-                      className="text-[11px] font-bold text-slate-400 hover:text-slate-600 transition-colors"
+                      className="text-[11px] font-bold text-slate-400 hover:text-ink-body transition-colors"
                     >
                       {txt.hide}
                     </button>
@@ -780,23 +780,23 @@ export default function ServiceEditorDrawer({
 
   const content = (
     <div
-      className={`w-full bg-white flex flex-col ${!inline ? (clinicalEditorMode === 'modal' ? 'h-full max-h-[90vh] rounded-[2rem] shadow-2xl overflow-hidden' : 'h-full min-h-0 shadow-[0_4px_20px_-4px_rgba(6,81,237,0.1)] rounded-t-3xl rounded-b-none lg:rounded-3xl border border-slate-100 overflow-hidden') : 'rounded-2xl border border-slate-200 mt-4'}`}
+      className={`w-full bg-surface flex flex-col ${!inline ? (clinicalEditorMode === 'modal' ? 'h-full max-h-[90vh] rounded-[2rem] shadow-2xl overflow-hidden' : 'h-full min-h-0 shadow-[0_4px_20px_-4px_rgba(6,81,237,0.1)] rounded-t-3xl rounded-b-none lg:rounded-3xl border border-slate-100 overflow-hidden') : 'rounded-2xl border border-line mt-4'}`}
     >
       {!inline && (
-        <div className="flex items-center justify-between p-6 md:p-8 border-b border-slate-100 bg-white shrink-0">
+        <div className="flex items-center justify-between p-6 md:p-8 border-b border-slate-100 bg-surface shrink-0">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center shadow-sm">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
             </div>
             <div>
-              <h2 className="text-xl font-black text-slate-900 tracking-tight">{txt.title}</h2>
-              <p className="text-sm font-medium text-slate-500 mt-0.5">{patientName}</p>
+              <h2 className="text-xl font-black text-ink tracking-tight">{txt.title}</h2>
+              <p className="text-sm font-medium text-ink-muted mt-0.5">{patientName}</p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="w-10 h-10 rounded-full bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-600 flex items-center justify-center transition-colors"
+            className="w-10 h-10 rounded-full bg-surface-subtle hover:bg-surface-muted text-slate-400 hover:text-ink-body flex items-center justify-center transition-colors"
           >
             <X size={20} />
           </button>
@@ -855,7 +855,7 @@ export default function ServiceEditorDrawer({
         </div>
       </div>
 
-      <div className={`p-6 border-t border-slate-100 bg-white shrink-0 ${!inline ? 'pb-24 lg:pb-6' : ''}`}>
+      <div className={`p-6 border-t border-slate-100 bg-surface shrink-0 ${!inline ? 'pb-24 lg:pb-6' : ''}`}>
         {saveButton}
       </div>
     </div>

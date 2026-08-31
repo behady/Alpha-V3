@@ -108,10 +108,10 @@ export function KpiStrip({ clinics }: KpiStripProps) {
             </div>
           </div>
           <div>
-            <div className="text-2xl font-black text-slate-900 tracking-tight">
+            <div className="text-2xl font-black text-ink tracking-tight">
               {kpi.value}
             </div>
-            <div className="text-xs font-bold text-slate-500 mt-1 truncate">
+            <div className="text-xs font-bold text-ink-muted mt-1 truncate">
               {kpi.label}
             </div>
           </div>

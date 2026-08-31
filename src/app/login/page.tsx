@@ -265,7 +265,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans selection:bg-primary-100 selection:text-primary-900" dir={isRTL ? 'rtl' : 'ltr'}>
+    <div className="min-h-screen bg-surface-subtle flex items-center justify-center p-4 font-sans selection:bg-primary-100 selection:text-primary-900" dir={isRTL ? 'rtl' : 'ltr'}>
       <div className="max-w-md w-full bg-white rounded-[2.5rem] p-8 md:p-10 shadow-2xl shadow-slate-200/50 border border-slate-100 animate-in fade-in zoom-in-95 duration-500">
         
         {/* LOGO & HEADER */}
@@ -276,7 +276,7 @@ export default function LoginPage() {
           <h1 className="text-3xl font-black text-slate-900 tracking-tight">
             {isResetMode ? txt.resetTitle : isSignUpMode ? txt.signUpTitle : txt.welcome}
           </h1>
-          <p className="text-slate-500 font-medium mt-2">
+          <p className="text-ink-muted font-medium mt-2">
             {isResetMode ? txt.resetSub : isSignUpMode ? txt.signUpSub : txt.subWelcome}
           </p>
         </div>
@@ -306,7 +306,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder={txt.email}
-                  className={`w-full py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-slate-300 focus:bg-white outline-none transition-all ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'}`}
+                  className={`w-full py-4 bg-surface-subtle border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-line-strong focus:bg-surface outline-none transition-all ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'}`}
                   required
                 />
               </div>
@@ -330,7 +330,7 @@ export default function LoginPage() {
                 onChange={(e) => setName(e.target.value)}
                 placeholder={txt.name}
                 autoComplete="name"
-                className={`w-full py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-slate-300 focus:bg-white outline-none transition-all ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'}`}
+                className={`w-full py-4 bg-surface-subtle border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-line-strong focus:bg-surface outline-none transition-all ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'}`}
                 required
               />
             </div>
@@ -342,7 +342,7 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder={txt.email}
                 autoComplete="email"
-                className={`w-full py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-slate-300 focus:bg-white outline-none transition-all ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'}`}
+                className={`w-full py-4 bg-surface-subtle border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-line-strong focus:bg-surface outline-none transition-all ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'}`}
                 required
               />
             </div>
@@ -356,7 +356,7 @@ export default function LoginPage() {
                   placeholder={txt.password}
                   autoComplete="new-password"
                   minLength={6}
-                  className={`w-full py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-slate-300 focus:bg-white outline-none transition-all ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'}`}
+                  className={`w-full py-4 bg-surface-subtle border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-line-strong focus:bg-surface outline-none transition-all ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'}`}
                   required
                 />
               </div>
@@ -374,16 +374,16 @@ export default function LoginPage() {
             </button>
 
             <div className="relative flex py-5 items-center">
-              <div className="flex-grow border-t border-slate-200"></div>
+              <div className="flex-grow border-t border-line"></div>
               <span className="shrink-0 mx-4 text-slate-400 text-xs font-bold uppercase tracking-wider">{language === 'ar' ? 'أو' : 'OR'}</span>
-              <div className="flex-grow border-t border-slate-200"></div>
+              <div className="flex-grow border-t border-line"></div>
             </div>
 
             <button
               type="button"
               onClick={handleGoogleLogin}
               disabled={loading}
-              className="w-full bg-white border-2 border-slate-200 text-slate-700 py-4 rounded-2xl font-black text-sm shadow-sm hover:bg-slate-50 hover:border-slate-300 active:scale-[0.98] transition-all flex items-center justify-center gap-3"
+              className="w-full bg-surface border-2 border-line text-slate-700 py-4 rounded-2xl font-black text-sm shadow-sm hover:bg-surface-subtle hover:border-line-strong active:scale-[0.98] transition-all flex items-center justify-center gap-3"
             >
               {loading ? (
                 <Loader2 size={20} className="animate-spin text-slate-400" />
@@ -410,7 +410,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder={txt.email}
-                  className={`w-full py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-slate-300 focus:bg-white outline-none transition-all ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'}`}
+                  className={`w-full py-4 bg-surface-subtle border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-line-strong focus:bg-surface outline-none transition-all ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'}`}
                   required
                 />
               </div>
@@ -423,7 +423,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder={txt.password}
-                  className={`w-full py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-slate-300 focus:bg-white outline-none transition-all ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'}`}
+                  className={`w-full py-4 bg-surface-subtle border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-line-strong focus:bg-surface outline-none transition-all ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'}`}
                   required
                 />
               </div>
@@ -439,7 +439,7 @@ export default function LoginPage() {
                   placeholder={txt.clinicId}
                   autoComplete="off"
                   spellCheck={false}
-                  className={`w-full py-4 bg-slate-50 border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-slate-300 focus:bg-white outline-none transition-all ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'}`}
+                  className={`w-full py-4 bg-surface-subtle border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-line-strong focus:bg-surface outline-none transition-all ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'}`}
                 />
               </div>
               <p className={`text-xs font-medium text-slate-400 mt-2 ${isRTL ? 'pr-2' : 'pl-2'}`}>
@@ -451,7 +451,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => switchMode("reset")}
-                className="text-xs font-bold text-slate-500 hover:text-slate-900 transition-colors"
+                className="text-xs font-bold text-ink-muted hover:text-ink transition-colors"
               >
                 {txt.forgotPass}
               </button>
@@ -466,9 +466,9 @@ export default function LoginPage() {
             </button>
             
             <div className="relative flex py-5 items-center">
-                <div className="flex-grow border-t border-slate-200"></div>
+                <div className="flex-grow border-t border-line"></div>
                 <span className="shrink-0 mx-4 text-slate-400 text-xs font-bold uppercase tracking-wider">{language === 'ar' ? 'أو' : 'OR'}</span>
-                <div className="flex-grow border-t border-slate-200"></div>
+                <div className="flex-grow border-t border-line"></div>
             </div>
 
             {/* GOOGLE LOGIN BUTTON */}
@@ -476,7 +476,7 @@ export default function LoginPage() {
               type="button"
               onClick={handleGoogleLogin}
               disabled={loading}
-              className="w-full bg-white border-2 border-slate-200 text-slate-700 py-4 rounded-2xl font-black text-sm shadow-sm hover:bg-slate-50 hover:border-slate-300 active:scale-[0.98] transition-all flex items-center justify-center gap-3"
+              className="w-full bg-surface border-2 border-line text-slate-700 py-4 rounded-2xl font-black text-sm shadow-sm hover:bg-surface-subtle hover:border-line-strong active:scale-[0.98] transition-all flex items-center justify-center gap-3"
             >
               {loading ? (
                 <Loader2 size={20} className="animate-spin text-slate-400" />
@@ -511,7 +511,7 @@ export default function LoginPage() {
             to an account at all — which was the whole problem. */}
         <div className="mt-8 pt-6 border-t border-slate-100 text-center animate-in fade-in">
           {mode === "signin" ? (
-            <p className="text-sm font-medium text-slate-500">
+            <p className="text-sm font-medium text-ink-muted">
               {txt.newHere}{" "}
               <button
                 type="button"
@@ -522,12 +522,12 @@ export default function LoginPage() {
               </button>
             </p>
           ) : mode === "signup" ? (
-            <p className="text-sm font-medium text-slate-500">
+            <p className="text-sm font-medium text-ink-muted">
               {txt.haveAccount}{" "}
               <button
                 type="button"
                 onClick={() => switchMode("signin")}
-                className="font-black text-slate-900 hover:underline"
+                className="font-black text-ink hover:underline"
               >
                 {txt.loginBtn}
               </button>
@@ -535,7 +535,7 @@ export default function LoginPage() {
           ) : (
             <button
               onClick={() => switchMode("signin")}
-              className="text-sm font-bold text-slate-500 hover:text-slate-900 transition-colors"
+              className="text-sm font-bold text-ink-muted hover:text-ink transition-colors"
             >
               {txt.backToLogin}
             </button>

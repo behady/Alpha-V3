@@ -420,10 +420,10 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
               >
                 {confirmState.tone === "danger" ? <AlertTriangle size={26} /> : <HelpCircle size={26} />}
               </div>
-              <h3 className="text-lg font-black text-slate-900 mb-1.5 tracking-tight">
+              <h3 className="text-lg font-black text-ink mb-1.5 tracking-tight">
                 {confirmState.title ?? (isAr ? "متأكد؟" : "Are you sure?")}
               </h3>
-              <p className="text-slate-500 text-sm font-medium whitespace-pre-line leading-relaxed">
+              <p className="text-ink-muted text-sm font-medium whitespace-pre-line leading-relaxed">
                 {confirmState.message}
               </p>
             </div>
@@ -431,7 +431,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
               <button
                 type="button"
                 onClick={() => handleConfirm(false)}
-                className="flex-1 py-3 rounded-xl border border-slate-200 bg-white text-xs font-black uppercase tracking-wide text-slate-600 hover:bg-slate-50 transition-colors"
+                className="flex-1 py-3 rounded-xl border border-line bg-surface text-xs font-black uppercase tracking-wide text-ink-body hover:bg-surface-subtle transition-colors"
               >
                 {confirmState.cancelLabel ?? (isAr ? "إلغاء" : "Cancel")}
               </button>
@@ -469,7 +469,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
               e.preventDefault();
               if (promptCanSubmit) closePrompt(promptValue.trim());
             }}
-            className="relative w-full max-w-md bg-white rounded-t-[1.75rem] sm:rounded-3xl shadow-2xl border border-slate-200/70 overflow-hidden animate-in slide-in-from-bottom-8 sm:slide-in-from-bottom-0 sm:zoom-in-95 duration-200"
+            className="relative w-full max-w-md bg-surface rounded-t-[1.75rem] sm:rounded-3xl shadow-2xl border border-slate-200/70 overflow-hidden animate-in slide-in-from-bottom-8 sm:slide-in-from-bottom-0 sm:zoom-in-95 duration-200"
           >
             <div className="w-10 h-1.5 bg-slate-200 rounded-full mx-auto mt-3 sm:hidden" />
 
@@ -478,17 +478,17 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
                 <PenLine size={20} />
               </div>
               <div className="min-w-0 flex-1">
-                <h3 className="text-base font-black text-slate-900 tracking-tight leading-snug">
+                <h3 className="text-base font-black text-ink tracking-tight leading-snug">
                   {promptState.title ?? (isAr ? "من فضلك اكتب" : "Quick question")}
                 </h3>
-                <p className="text-slate-500 text-sm font-medium mt-0.5 leading-relaxed">
+                <p className="text-ink-muted text-sm font-medium mt-0.5 leading-relaxed">
                   {promptState.message}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => closePrompt(null)}
-                className="w-8 h-8 rounded-full bg-slate-50 text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center transition-colors shrink-0"
+                className="w-8 h-8 rounded-full bg-surface-subtle text-slate-400 hover:text-slate-700 hover:bg-surface-muted flex items-center justify-center transition-colors shrink-0"
                 aria-label={isAr ? "إغلاق" : "Close"}
               >
                 <X size={16} />
@@ -525,7 +525,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
                   onChange={(e) => setPromptValue(e.target.value)}
                   placeholder={promptState.placeholder}
                   rows={3}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10 transition-all resize-none placeholder:font-medium placeholder:text-slate-400"
+                  className="w-full bg-surface-subtle border border-line rounded-xl px-4 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-teal-500 focus:bg-surface focus:ring-4 focus:ring-teal-500/10 transition-all resize-none placeholder:font-medium placeholder:text-slate-400"
                 />
               ) : (
                 <input
@@ -534,7 +534,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
                   value={promptValue}
                   onChange={(e) => setPromptValue(e.target.value)}
                   placeholder={promptState.placeholder}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10 transition-all placeholder:font-medium placeholder:text-slate-400"
+                  className="w-full bg-surface-subtle border border-line rounded-xl px-4 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-teal-500 focus:bg-surface focus:ring-4 focus:ring-teal-500/10 transition-all placeholder:font-medium placeholder:text-slate-400"
                 />
               )}
             </div>
@@ -543,7 +543,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
               <button
                 type="button"
                 onClick={() => closePrompt(null)}
-                className="flex-1 py-3 rounded-xl border border-slate-200 bg-white text-xs font-black uppercase tracking-wide text-slate-600 hover:bg-slate-50 transition-colors"
+                className="flex-1 py-3 rounded-xl border border-line bg-surface text-xs font-black uppercase tracking-wide text-ink-body hover:bg-surface-subtle transition-colors"
               >
                 {promptState.cancelLabel ?? (isAr ? "إلغاء" : "Cancel")}
               </button>

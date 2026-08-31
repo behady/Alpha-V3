@@ -4,12 +4,12 @@ import { Stethoscope, ArrowLeft } from "lucide-react";
 export default function NotFound() {
   return (
     <div className="min-h-screen bg-surface-subtle flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl border border-slate-200/80 p-8 shadow-xl max-w-md w-full text-center space-y-5 animate-in zoom-in-95">
+      <div className="bg-surface rounded-3xl border border-slate-200/80 p-8 shadow-xl max-w-md w-full text-center space-y-5 animate-in zoom-in-95">
         <div className="w-16 h-16 bg-purple-50 text-purple-600 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
           <Stethoscope size={32} />
         </div>
         <div className="space-y-1">
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Page Not Found</h1>
+          <h1 className="text-2xl font-black text-ink tracking-tight">Page Not Found</h1>
           <p className="text-sm font-bold text-slate-500">The page you are looking for does not exist or has moved.</p>
         </div>
         <Link

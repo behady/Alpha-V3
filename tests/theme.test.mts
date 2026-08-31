@@ -214,6 +214,72 @@ for (const preset of THEME_PRESETS) {
 /* --------------------------------------------------------------- report */
 
 console.log(`\n  ${pass} passed, ${fail.length} failed\n`);
+/* --------------------------------------- the legacy-palette migration stays equivalent
+
+   Roughly 3,100 Tailwind slate classes were moved onto these tokens so a preset can repaint the
+   whole app rather than only its accent — the migration `presets.ts` names as the condition for
+   shipping `graphite`.
+
+   It was safe to do mechanically only because each token is, on the default theme, the same
+   colour as the class it replaced. That is what these cases hold: retune one of these tokens in
+   globals.css and every converted usage silently drifts away from what it was, everywhere, with
+   nothing on screen to explain it. A deliberate retune should update the pair here and say so.
+
+   Tailwind v4 states its palette in oklch, and its slate scale is very slightly different from
+   the v3 values these tokens were originally transcribed from — hence a tolerance rather than
+   equality. Three per channel is well inside what an eye can pick out on a flat fill. */
+
+const MIGRATED_PAIRS: [string, string, string][] = [
+  // token,          replaced Tailwind class, that class's v4 hex
+  ["surface", "bg-white", "#ffffff"],
+  ["surface-subtle", "bg-slate-50", "#f8fafc"],
+  ["surface-muted", "bg-slate-100", "#f1f5f9"],
+  ["line", "border-slate-200", "#e2e8f0"],
+  ["line-strong", "border-slate-300", "#cad5e2"],
+  ["ink-muted", "text-slate-500", "#62748e"],
+  ["ink-body", "text-slate-600", "#45556c"],
+  ["ink", "text-slate-900", "#0f172b"],
+];
+
+const CHANNEL_TOLERANCE = 3;
+
+function channels(hex: string): [number, number, number] {
+  const v = hex.replace("#", "");
+  return [
+    parseInt(v.slice(0, 2), 16),
+    parseInt(v.slice(2, 4), 16),
+    parseInt(v.slice(4, 6), 16),
+  ];
+}
+
+const mintTokens = getPreset(DEFAULT_PRESET_ID)!.tokens as Record<string, string>;
+
+for (const [token, replacedClass, replacedHex] of MIGRATED_PAIRS) {
+  const tokenHex = mintTokens[token];
+  if (!tokenHex) {
+    ok(`migrated token "${token}" exists`, false, "not in the default preset");
+    continue;
+  }
+  const a = channels(tokenHex);
+  const b = channels(replacedHex);
+  const worst = Math.max(...a.map((v, i) => Math.abs(v - b[i])));
+  ok(
+    `${token} still matches the ${replacedClass} it replaced`,
+    worst <= CHANNEL_TOLERANCE,
+    `${tokenHex} vs ${replacedHex} — off by ${worst}/255 per channel`
+  );
+}
+
+/* `white` is deliberately absent from ROLE_TOKENS: it does two jobs, a card's surface and ink on
+   a coloured slab, and repainting it would turn button labels the colour of their own button.
+   The migration moved the surface half onto `bg-surface` and left `text-white` alone, so that
+   exclusion has to stay for the second half to keep working. */
+ok(
+  "white is still not a role token",
+  !ROLE_TOKENS.includes("white" as (typeof ROLE_TOKENS)[number]),
+  "adding it would repaint every text-white label"
+);
+
 if (fail.length) {
   for (const f of fail) console.error("  x " + f);
   process.exit(1);

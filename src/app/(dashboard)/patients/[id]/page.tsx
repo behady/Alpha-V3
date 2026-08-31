@@ -857,7 +857,7 @@ export default function PatientProfile() {
   }, [patientMedia, mediaCategoryFilter]);
 
   if (loading || authLoading || activeTab === "") return <div className="h-screen flex items-center justify-center bg-surface-subtle"><Loader2 className="animate-spin text-accent" size={40}/></div>;
-  if (error) return <div className="p-10 text-center text-slate-500 font-bold">{error}</div>;
+  if (error) return <div className="p-10 text-center text-ink-muted font-bold">{error}</div>;
 
   const displayAge = patient.dateOfBirth ? calculateAge(patient.dateOfBirth) : (patient.age || "N/A");
   const hasAlerts = patient.allergies || (patient.medicalHistory && patient.medicalHistory !== "None (Healthy)");
@@ -996,7 +996,7 @@ export default function PatientProfile() {
                </div>
                
                {/* Contact details card */}
-                <div className="hidden lg:flex bg-white border border-slate-200/60 rounded-2xl lg:rounded-3xl p-3 lg:p-4 flex-col gap-2.5 shadow-sm shrink-0">
+                <div className="hidden lg:flex bg-surface border border-slate-200/60 rounded-2xl lg:rounded-3xl p-3 lg:p-4 flex-col gap-2.5 shadow-sm shrink-0">
                     <button onClick={() => openWhatsApp(patient.phone)} className="flex items-center gap-3 text-slate-800 hover:text-emerald-700 transition-colors text-sm lg:text-[15px] font-extrabold">
                        <div className="w-7 h-7 lg:w-8 lg:h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0"><MessageCircle size={14} /></div>
                        {patient.phone || '—'}
@@ -1015,12 +1015,12 @@ export default function PatientProfile() {
                {/* Top Stats */}
                <div className="flex items-center justify-around bg-white/40 backdrop-blur-xl rounded-2xl lg:rounded-[2rem] p-3 lg:p-4 border border-white/50 shadow-sm shrink-0">
                     <div className="flex flex-col items-center flex-1">
-                        <span className="text-[10px] lg:text-sm font-bold text-slate-500 uppercase tracking-widest">{language === 'ar' ? 'الزيارات' : 'Visits'}</span>
+                        <span className="text-[10px] lg:text-sm font-bold text-ink-muted uppercase tracking-widest">{language === 'ar' ? 'الزيارات' : 'Visits'}</span>
                         <span className="text-3xl lg:text-4xl font-light tracking-tighter text-slate-800 leading-none mt-1">{appointmentTimeline.length}</span>
                     </div>
                     <div className="w-px h-10 lg:h-12 bg-slate-200"></div>
                     <div className="flex flex-col items-center flex-1">
-                        <span className="text-[10px] lg:text-sm font-bold text-slate-500 uppercase tracking-widest">{language === 'ar' ? 'مكتمل' : 'Completed'}</span>
+                        <span className="text-[10px] lg:text-sm font-bold text-ink-muted uppercase tracking-widest">{language === 'ar' ? 'مكتمل' : 'Completed'}</span>
                         <span className="text-3xl lg:text-4xl font-light tracking-tighter text-slate-800 leading-none mt-1">{servicesDone}</span>
                     </div>
                 </div>
@@ -1031,7 +1031,7 @@ export default function PatientProfile() {
                </div>
                
                {/* Quick Actions Toolbar */}
-                <div className="bg-white border border-slate-200/60 rounded-2xl lg:rounded-3xl p-3 lg:p-4 shadow-sm flex flex-col gap-2 mt-auto shrink-0">
+                <div className="bg-surface border border-slate-200/60 rounded-2xl lg:rounded-3xl p-3 lg:p-4 shadow-sm flex flex-col gap-2 mt-auto shrink-0">
                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">
                         {language === 'ar' ? 'الإجراءات السريعة' : 'Quick Actions'}
                     </span>
@@ -1040,17 +1040,17 @@ export default function PatientProfile() {
                            led straight to an Access Restricted screen. The Diagnosis button
                            beside it has always been gated the same way. */}
                        <Protect permission="clinical.edit">
-                         <button onClick={() => router.push(`/patients/${encodeURIComponent(id)}/rx`)} data-tour="rx-open" className="flex-1 py-2 lg:py-2.5 px-2 lg:px-3 bg-slate-50 hover:bg-slate-100 text-blue-600 rounded-xl font-bold text-[11px] lg:text-xs flex items-center justify-center gap-1.5 lg:gap-2 border border-slate-200 transition-all hover:-translate-y-0.5">
+                         <button onClick={() => router.push(`/patients/${encodeURIComponent(id)}/rx`)} data-tour="rx-open" className="flex-1 py-2 lg:py-2.5 px-2 lg:px-3 bg-surface-subtle hover:bg-surface-muted text-blue-600 rounded-xl font-bold text-[11px] lg:text-xs flex items-center justify-center gap-1.5 lg:gap-2 border border-line transition-all hover:-translate-y-0.5">
                             <Pill size={14} /> <span className="truncate">{language === 'ar' ? 'وصفة طبية' : 'Write Rx'}</span>
                          </button>
                        </Protect>
                        {canViewClinical && (
-                         <button onClick={() => router.push(`/patients/${encodeURIComponent(id)}/diagnosis`)} className="flex-1 py-2 lg:py-2.5 px-2 lg:px-3 bg-slate-50 hover:bg-slate-100 text-emerald-600 rounded-xl font-bold text-[11px] lg:text-xs flex items-center justify-center gap-1.5 lg:gap-2 border border-slate-200 transition-all hover:-translate-y-0.5">
+                         <button onClick={() => router.push(`/patients/${encodeURIComponent(id)}/diagnosis`)} className="flex-1 py-2 lg:py-2.5 px-2 lg:px-3 bg-surface-subtle hover:bg-surface-muted text-emerald-600 rounded-xl font-bold text-[11px] lg:text-xs flex items-center justify-center gap-1.5 lg:gap-2 border border-line transition-all hover:-translate-y-0.5">
                             <Stethoscope size={14} /> <span className="truncate">{language === 'ar' ? 'تشخيص' : 'Diagnosis'}</span>
                          </button>
                        )}
                        {canViewOrtho && (
-                         <button onClick={() => router.push(`/ortho/${id}`)} className="flex-1 py-2 lg:py-2.5 px-2 lg:px-3 bg-slate-50 hover:bg-slate-100 text-violet-600 rounded-xl font-bold text-[11px] lg:text-xs flex items-center justify-center gap-1.5 lg:gap-2 border border-slate-200 transition-all hover:-translate-y-0.5">
+                         <button onClick={() => router.push(`/ortho/${id}`)} className="flex-1 py-2 lg:py-2.5 px-2 lg:px-3 bg-surface-subtle hover:bg-surface-muted text-violet-600 rounded-xl font-bold text-[11px] lg:text-xs flex items-center justify-center gap-1.5 lg:gap-2 border border-line transition-all hover:-translate-y-0.5">
                             <Activity size={14} /> <span className="truncate">{language === 'ar' ? 'تقويم' : 'Ortho'}</span>
                          </button>
                        )}
@@ -1080,7 +1080,7 @@ export default function PatientProfile() {
                          </div>
                       ))}
                       {appointmentTimeline.length === 0 && (
-                          <div className="text-sm text-slate-500 italic">No recent activity.</div>
+                          <div className="text-sm text-ink-muted italic">No recent activity.</div>
                       )}
                    </div>
                    
@@ -1145,7 +1145,7 @@ export default function PatientProfile() {
                     data-tour={`patient-tab-${tb.id}`}
                     onClick={() => setActiveTab(tb.id)}
                     className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold transition-all whitespace-nowrap ${
-                      active ? 'bg-white text-slate-900 shadow-sm border border-white' : 'text-slate-500 hover:bg-white/50 border border-transparent'
+                      active ? 'bg-surface text-ink shadow-sm border border-white' : 'text-ink-muted hover:bg-white/50 border border-transparent'
                     }`}
                   >
                     <Icon size={16} className={active ? 'text-accent' : 'text-slate-400'} />
@@ -1161,11 +1161,11 @@ export default function PatientProfile() {
                 
                 {/* Connected Family Members */}
                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
-                  <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] lg:col-span-1">
-                    <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                  <div className="bg-surface rounded-2xl p-5 border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] lg:col-span-1">
+                    <h3 className="text-[10px] font-bold text-ink-muted uppercase tracking-widest mb-4 flex items-center gap-2">
                       <MessageCircle size={14} className="text-emerald-500" /> WhatsApp automation
                     </h3>
-                    <p className="text-xs font-semibold text-slate-600 leading-relaxed mb-5">
+                    <p className="text-xs font-semibold text-ink-body leading-relaxed mb-5">
                       {t("whatsappOptOutHint") || "Turn off automated appointment messages from the clinic (reminders and booking alerts)."}
                     </p>
                     <label className="flex items-center justify-between gap-4 cursor-pointer group">
@@ -1188,7 +1188,7 @@ export default function PatientProfile() {
                         } ${whatsappOptOutSaving ? "opacity-60 pointer-events-none" : ""}`}
                       >
                         <span
-                          className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-md transition-transform duration-200 ${
+                          className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-surface shadow-md transition-transform duration-200 ${
                             patient.whatsappOptOut === true ? "translate-x-0" : "translate-x-[1.35rem]"
                           }`}
                         />
@@ -1203,11 +1203,11 @@ export default function PatientProfile() {
 
                   {/* SMS automation — a separate switch from WhatsApp, because a patient with no
                       WhatsApp is still reachable by text, and the reverse happens too. */}
-                  <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] lg:col-span-1">
-                    <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                  <div className="bg-surface rounded-2xl p-5 border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] lg:col-span-1">
+                    <h3 className="text-[10px] font-bold text-ink-muted uppercase tracking-widest mb-4 flex items-center gap-2">
                       <MessageSquare size={14} className="text-emerald-500" /> SMS automation
                     </h3>
-                    <p className="text-xs font-semibold text-slate-600 leading-relaxed mb-5">
+                    <p className="text-xs font-semibold text-ink-body leading-relaxed mb-5">
                       Turn off automated text-message reminders for this patient. Texts are charged
                       to the clinic&apos;s SIM.
                     </p>
@@ -1229,7 +1229,7 @@ export default function PatientProfile() {
                         } ${smsOptOutSaving ? "opacity-60 pointer-events-none" : ""}`}
                       >
                         <span
-                          className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-md transition-transform duration-200 ${
+                          className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-surface shadow-md transition-transform duration-200 ${
                             smsBlocked ? "translate-x-0" : "translate-x-[1.35rem]"
                           }`}
                         />
@@ -1247,16 +1247,16 @@ export default function PatientProfile() {
                           : "Status: eligible for automation"}
                     </p>
                     {smsState === "blocked_by_whatsapp" && (
-                      <p className="text-[11px] font-semibold text-slate-500 mt-2 leading-relaxed">
+                      <p className="text-[11px] font-semibold text-ink-muted mt-2 leading-relaxed">
                         This patient opted out of WhatsApp, so texts are held too. Switch this on to
                         send them texts anyway.
                       </p>
                     )}
                   </div>
 
-                  <div className="bg-white rounded-2xl border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] overflow-hidden lg:col-span-2 flex flex-col min-h-[280px]">
+                  <div className="bg-surface rounded-2xl border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] overflow-hidden lg:col-span-2 flex flex-col min-h-[280px]">
                     <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3 shrink-0">
-                      <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                      <h3 className="text-[10px] font-bold text-ink-muted uppercase tracking-widest flex items-center gap-2">
                         <ScrollText size={14} className="text-indigo-500" />{" "}
                         {t("whatsappCommLog") || "WhatsApp communication log"}
                       </h3>
@@ -1276,7 +1276,7 @@ export default function PatientProfile() {
                       ) : (
                         <table className="w-full text-left text-sm">
                           <thead>
-                            <tr className="bg-slate-50/80 text-[10px] font-black uppercase tracking-widest text-slate-500 border-b border-slate-100">
+                            <tr className="bg-slate-50/80 text-[10px] font-black uppercase tracking-widest text-ink-muted border-b border-slate-100">
                               <th className="px-6 py-3">{t("date") || "Date"}</th>
                               <th className="px-4 py-3">{t("type") || "Type"}</th>
                               <th className="px-4 py-3 min-w-[200px]">{t("message") || "Snippet"}</th>
@@ -1326,7 +1326,7 @@ export default function PatientProfile() {
                                   : st === "queued" || st === "manual"
                                     ? "bg-amber-50 text-amber-700 border-amber-100"
                                     : st === "received"
-                                      ? "bg-slate-100 text-slate-600 border-slate-200"
+                                      ? "bg-surface-muted text-ink-body border-line"
                                       : "bg-rose-50 text-rose-700 border-rose-100";
                               const label =
                                 st === "success"
@@ -1340,13 +1340,13 @@ export default function PatientProfile() {
                                         : t("failed") || "Failed";
                               return (
                                 <tr key={row.id} className="hover:bg-slate-50/50 transition-colors">
-                                  <td className="px-6 py-3.5 text-xs font-semibold text-slate-600 whitespace-nowrap tabular-nums">
+                                  <td className="px-6 py-3.5 text-xs font-semibold text-ink-body whitespace-nowrap tabular-nums">
                                     {dateStr}
                                   </td>
                                   <td className="px-4 py-3.5 text-xs font-bold text-slate-800">
                                     {formatWhatsAppLogType(row.type)}
                                   </td>
-                                  <td className="px-4 py-3.5 text-xs text-slate-600 max-w-md">
+                                  <td className="px-4 py-3.5 text-xs text-ink-body max-w-md">
                                     <span className="line-clamp-2" title={typeof row.message === "string" ? row.message : ""}>
                                       {messageSnippet(row.message)}
                                     </span>
@@ -1372,7 +1372,7 @@ export default function PatientProfile() {
                             isRTL ? "flex-row-reverse" : ""
                           }`}
                         >
-                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider tabular-nums">
+                          <span className="text-[10px] font-bold text-ink-muted uppercase tracking-wider tabular-nums">
                             {language === "ar"
                               ? `صفحة ${whatsappLogPage} من ${whatsappLogPageCount}`
                               : `Page ${whatsappLogPage} of ${whatsappLogPageCount}`}
@@ -1382,7 +1382,7 @@ export default function PatientProfile() {
                               type="button"
                               disabled={whatsappLogPage <= 1}
                               onClick={() => setWhatsappLogPage((p) => Math.max(1, p - 1))}
-                              className="px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wide border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                              className="px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wide border border-line bg-surface text-slate-700 hover:bg-surface-subtle disabled:opacity-40 disabled:pointer-events-none transition-colors"
                             >
                               {language === "ar" ? "السابق" : "Prev"}
                             </button>
@@ -1406,7 +1406,7 @@ export default function PatientProfile() {
                               type="button"
                               disabled={whatsappLogPage >= whatsappLogPageCount}
                               onClick={() => setWhatsappLogPage((p) => Math.min(whatsappLogPageCount, p + 1))}
-                              className="px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wide border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                              className="px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wide border border-line bg-surface text-slate-700 hover:bg-surface-subtle disabled:opacity-40 disabled:pointer-events-none transition-colors"
                             >
                               {language === "ar" ? "التالي" : "Next"}
                             </button>
@@ -1414,7 +1414,7 @@ export default function PatientProfile() {
                         </div>
                       ) : null}
 
-                      <div className="border-t border-slate-100 px-6 py-5 bg-white shrink-0">
+                      <div className="border-t border-slate-100 px-6 py-5 bg-surface shrink-0">
                         <div
                           className={`flex flex-wrap items-center justify-between gap-3 mb-1 ${
                             isRTL ? "flex-row-reverse" : ""
@@ -1436,13 +1436,13 @@ export default function PatientProfile() {
                             {language === "ar" ? "استوديو الوصفات ←" : "Prescription studio →"}
                           </button>
                         </div>
-                        <p className="text-[11px] text-slate-500 mb-4 leading-relaxed">
+                        <p className="text-[11px] text-ink-muted mb-4 leading-relaxed">
                           {language === "ar"
                             ? "كل الوصفات المحفوظة من الاستوديو (بما فيها الطباعة فقط أو إرسال واتساب). افتح البطاقة للتفاصيل أو إعادة الإرسال."
                             : "All prescriptions saved from Prescription Studio—including print-only saves and WhatsApp shares. Open a card for details, PDF, or WhatsApp."}
                         </p>
                         {prescriptionsHistory.length === 0 ? (
-                          <p className="text-xs font-semibold text-slate-400 py-4 text-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/50">
+                          <p className="text-xs font-semibold text-slate-400 py-4 text-center rounded-2xl border border-dashed border-line bg-slate-50/50">
                             {language === "ar"
                               ? "لا توجد وصفات محفوظة بعد. أنشئ واحدة من استوديو الوصفات."
                               : "No saved prescriptions yet. Create one in Prescription Studio."}
@@ -1457,7 +1457,7 @@ export default function PatientProfile() {
                                     key={row.id}
                                     type="button"
                                     onClick={() => setSelectedPrescription(row)}
-                                    className="text-left rounded-2xl border border-slate-200 bg-slate-50/40 hover:bg-white hover:border-violet-200/80 hover:shadow-md transition-all p-4 group"
+                                    className="text-left rounded-2xl border border-line bg-slate-50/40 hover:bg-surface hover:border-violet-200/80 hover:shadow-md transition-all p-4 group"
                                   >
                                     <div
                                       className={`flex flex-wrap items-center justify-between gap-2 ${
@@ -1471,7 +1471,7 @@ export default function PatientProfile() {
                                         className={`shrink-0 inline-flex px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wide border ${
                                           sentWa
                                             ? "bg-emerald-50 text-emerald-800 border-emerald-100"
-                                            : "bg-slate-100 text-slate-600 border-slate-200"
+                                            : "bg-surface-muted text-ink-body border-line"
                                         }`}
                                       >
                                         {sentWa
@@ -1484,7 +1484,7 @@ export default function PatientProfile() {
                                       </span>
                                     </div>
                                     {row.doctor ? (
-                                      <p className="text-[10px] font-bold text-slate-500 mt-2 uppercase tracking-wide">
+                                      <p className="text-[10px] font-bold text-ink-muted mt-2 uppercase tracking-wide">
                                         {String(row.doctor)}
                                       </p>
                                     ) : null}
@@ -1508,7 +1508,7 @@ export default function PatientProfile() {
                                   isRTL ? "flex-row-reverse" : ""
                                 }`}
                               >
-                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider tabular-nums">
+                                <span className="text-[10px] font-bold text-ink-muted uppercase tracking-wider tabular-nums">
                                   {language === "ar"
                                     ? `صفحة ${prescriptionHistoryPage} من ${prescriptionHistoryPageCount}`
                                     : `Page ${prescriptionHistoryPage} of ${prescriptionHistoryPageCount}`}
@@ -1520,7 +1520,7 @@ export default function PatientProfile() {
                                     onClick={() =>
                                       setPrescriptionHistoryPage((p) => Math.max(1, p - 1))
                                     }
-                                    className="px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wide border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                                    className="px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wide border border-line bg-surface text-slate-700 hover:bg-surface-subtle disabled:opacity-40 disabled:pointer-events-none transition-colors"
                                   >
                                     {language === "ar" ? "السابق" : "Prev"}
                                   </button>
@@ -1550,7 +1550,7 @@ export default function PatientProfile() {
                                         Math.min(prescriptionHistoryPageCount, p + 1)
                                       )
                                     }
-                                    className="px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wide border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                                    className="px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wide border border-line bg-surface text-slate-700 hover:bg-surface-subtle disabled:opacity-40 disabled:pointer-events-none transition-colors"
                                   >
                                     {language === "ar" ? "التالي" : "Next"}
                                   </button>
@@ -1565,13 +1565,13 @@ export default function PatientProfile() {
                 </div>
 
                 {familyMembers.length > 0 && (
-                   <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)]">
-                      <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2"><Users size={14} className="text-blue-500"/> Connected Family Profile</h3>
+                   <div className="bg-surface rounded-2xl p-5 border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)]">
+                      <h3 className="text-[10px] font-bold text-ink-muted uppercase tracking-widest mb-4 flex items-center gap-2"><Users size={14} className="text-blue-500"/> Connected Family Profile</h3>
                       <div className="flex flex-wrap gap-3">
                          {familyMembers.map((member: any) => (
-                            <button key={member.id} onClick={() => router.push(`/patients/${member.id}`)} className="flex items-center gap-3 px-4 py-2.5 bg-slate-50 hover:bg-accent-tint border border-slate-100 hover:border-accent-soft rounded-xl transition-all duration-200 hover:shadow-sm group">
+                            <button key={member.id} onClick={() => router.push(`/patients/${member.id}`)} className="flex items-center gap-3 px-4 py-2.5 bg-surface-subtle hover:bg-accent-tint border border-slate-100 hover:border-accent-soft rounded-xl transition-all duration-200 hover:shadow-sm group">
                                <div className="text-left">
-                                  <div className="text-sm font-bold text-slate-900 group-hover:text-accent-strong transition-colors">{member.name}</div>
+                                  <div className="text-sm font-bold text-ink group-hover:text-accent-strong transition-colors">{member.name}</div>
                                   <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mt-0.5">{calculateAge(member.dateOfBirth)} Y · {member.gender}</div>
                                </div>
                             </button>
@@ -1582,16 +1582,16 @@ export default function PatientProfile() {
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                    {/* Integrated Financial Summary Snapshot */}
-                   <div className="bg-white rounded-2xl p-5 md:p-6 border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] flex flex-col h-[480px]">
+                   <div className="bg-surface rounded-2xl p-5 md:p-6 border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] flex flex-col h-[480px]">
                        <div className="flex items-center justify-between mb-5 shrink-0">
-                           <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><Wallet size={14} className="text-emerald-500"/> Financial Snapshot</h3>
+                           <h3 className="text-[10px] font-bold text-ink-muted uppercase tracking-widest flex items-center gap-2"><Wallet size={14} className="text-emerald-500"/> Financial Snapshot</h3>
                            <button onClick={() => setActiveTab('finance')} className="text-[10px] font-bold text-accent uppercase tracking-widest hover:underline">View Full Ledger</button>
                        </div>
 
                        <div className="grid grid-cols-2 gap-3 mb-6 shrink-0">
-                           <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 hover:border-slate-200 transition-colors">
-                               <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Total Billed</p>
-                               <p className="text-xl font-bold text-slate-900 mt-1 tabular-nums tracking-tight">{totalBilled.toLocaleString()} <span className="text-xs text-slate-400">EGP</span></p>
+                           <div className="bg-surface-subtle p-4 rounded-xl border border-slate-100 hover:border-line transition-colors">
+                               <p className="text-[9px] font-bold text-ink-muted uppercase tracking-widest">Total Billed</p>
+                               <p className="text-xl font-bold text-ink mt-1 tabular-nums tracking-tight">{totalBilled.toLocaleString()} <span className="text-xs text-slate-400">EGP</span></p>
                            </div>
                            <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100/50 hover:border-emerald-200 transition-colors">
                                <p className="text-[9px] font-bold text-emerald-600/70 uppercase tracking-widest">Total Paid</p>
@@ -1600,7 +1600,7 @@ export default function PatientProfile() {
                        </div>
 
                        <div className="flex-1 flex flex-col overflow-hidden">
-                           <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 pb-2 border-b border-slate-100 shrink-0">Recent Activity</h4>
+                           <h4 className="text-[10px] font-bold text-ink-muted uppercase tracking-widest mb-3 pb-2 border-b border-slate-100 shrink-0">Recent Activity</h4>
                            <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-3">
                                {recentTransactions.length === 0 ? (
                                    <div className="h-full flex flex-col items-center justify-center text-slate-400 opacity-60">
@@ -1609,12 +1609,12 @@ export default function PatientProfile() {
                                    </div>
                                ) : (
                                    recentTransactions.map((t: any) => (
-                                       <div key={t.id} className="flex justify-between items-center bg-white border border-slate-100 hover:border-slate-200 p-4 rounded-2xl shadow-sm transition-all group">
+                                       <div key={t.id} className="flex justify-between items-center bg-surface border border-slate-100 hover:border-line p-4 rounded-2xl shadow-sm transition-all group">
                                            <div>
-                                               <p className="text-xs font-black text-slate-900 group-hover:text-accent transition-colors">{t.description}</p>
+                                               <p className="text-xs font-black text-ink group-hover:text-accent transition-colors">{t.description}</p>
                                                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">{t.createdAt ? new Date(t.createdAt.toMillis()).toLocaleDateString() : ''}</p>
                                            </div>
-                                           <div className={`text-sm font-black tabular-nums bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100 ${t.type === 'payment' ? 'text-emerald-600' : 'text-slate-900'}`}>
+                                           <div className={`text-sm font-black tabular-nums bg-surface-subtle px-3 py-1.5 rounded-xl border border-slate-100 ${t.type === 'payment' ? 'text-emerald-600' : 'text-ink'}`}>
                                                {t.type === 'payment' ? `+${Number(t.paid).toLocaleString()}` : `-${Number(t.cost).toLocaleString()}`} EGP
                                            </div>
                                        </div>
@@ -1625,8 +1625,8 @@ export default function PatientProfile() {
                    </div>
 
                    {/* Appointments Timeline (Visual Stepper with fixed container) */}
-                   <div className="bg-white rounded-2xl p-5 md:p-6 border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] flex flex-col h-[480px]">
-                      <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-5 flex items-center gap-2 shrink-0"><CalendarDays size={14} className="text-blue-500"/> Appointments Timeline</h3>
+                   <div className="bg-surface rounded-2xl p-5 md:p-6 border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] flex flex-col h-[480px]">
+                      <h3 className="text-[10px] font-bold text-ink-muted uppercase tracking-widest mb-5 flex items-center gap-2 shrink-0"><CalendarDays size={14} className="text-blue-500"/> Appointments Timeline</h3>
                       
                       <div className="flex-1 overflow-y-auto custom-scrollbar pr-4">
                           {appointmentTimeline.length === 0 ? (
@@ -1659,30 +1659,30 @@ export default function PatientProfile() {
                                             <div className="bg-white border border-slate-100 shadow-sm rounded-[1.5rem] rounded-tl-sm p-5 hover:shadow-md hover:border-slate-200 transition-all duration-300 relative before:absolute before:top-3 before:-left-[7px] before:w-3 before:h-3 before:bg-white before:border-l before:border-b before:border-slate-100 before:rotate-45">
                                                 <div className="flex flex-wrap gap-y-2 justify-between items-center mb-4">
                                                     <div className="flex items-center gap-3">
-                                                        <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg border shadow-sm ${style.color.split(' ')[0].replace('bg-', 'text-')} bg-slate-50 border-slate-200/60`}>
+                                                        <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg border shadow-sm ${style.color.split(' ')[0].replace('bg-', 'text-')} bg-surface-subtle border-slate-200/60`}>
                                                             {appt.status || "Scheduled"}
                                                         </span>
                                                         <span className="text-sm font-black text-slate-800">Appointment Update</span>
                                                     </div>
-                                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50 px-2 py-1 rounded-md">
+                                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider bg-surface-subtle px-2 py-1 rounded-md">
                                                         {eventTime}
                                                     </span>
                                                 </div>
                                                 
-                                                <div className="bg-slate-50 rounded-xl p-4 mb-4 border border-slate-100">
+                                                <div className="bg-surface-subtle rounded-xl p-4 mb-4 border border-slate-100">
                                                     <p className="text-sm font-semibold text-slate-700 leading-relaxed">
                                                         {appointmentNotes}
                                                     </p>
                                                 </div>
                                                 
                                                 <div className="flex flex-wrap gap-2">
-                                                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 bg-white border border-slate-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                                                    <span className="text-[10px] font-bold uppercase tracking-widest text-ink-muted bg-surface border border-line px-3 py-1.5 rounded-lg flex items-center gap-1.5">
                                                         <CalendarDays size={12} className="text-blue-500"/> Date: {appointmentDate} {appointmentTime}
                                                     </span>
-                                                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 bg-white border border-slate-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                                                    <span className="text-[10px] font-bold uppercase tracking-widest text-ink-muted bg-surface border border-line px-3 py-1.5 rounded-lg flex items-center gap-1.5">
                                                         <User size={12} className="text-emerald-500"/> Doctor: {appointmentDoctor}
                                                     </span>
-                                                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 bg-white border border-slate-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+                                                    <span className="text-[10px] font-bold uppercase tracking-widest text-ink-muted bg-surface border border-line px-3 py-1.5 rounded-lg flex items-center gap-1.5">
                                                         <Stethoscope size={12} className="text-rose-500"/> {t("reasonForVisit") || "Reason for Visit"}: {appointmentReason}
                                                     </span>
                                                 </div>
@@ -1756,13 +1756,13 @@ export default function PatientProfile() {
           {/* --- PRESCRIPTIONS TAB --- */}
           {activeTab === "prescriptions" && (
             <div className="animate-in fade-in duration-300 space-y-6 mt-6">
-              <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm ${isRTL ? "text-right" : ""}`}>
+              <div className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-surface p-6 rounded-2xl border border-slate-100 shadow-sm ${isRTL ? "text-right" : ""}`}>
                 <div>
-                  <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                  <h3 className="text-lg font-black text-ink flex items-center gap-2">
                     <Pill className="text-violet-600" size={22} />
                     {language === "ar" ? "سجل الروشتات والوصفات الطبية" : "Prescriptions & Medications"}
                   </h3>
-                  <p className="text-xs text-slate-500 font-medium mt-1">
+                  <p className="text-xs text-ink-muted font-medium mt-1">
                     {language === "ar"
                       ? "عرض كل الوصفات الطبية المسجلة للمريض أو كتابة روشتة جديدة وتحميلها PDF."
                       : "View all prescription records, print PDF copies, or write a new prescription for this patient."}
@@ -1780,7 +1780,7 @@ export default function PatientProfile() {
 
               {/* Prescriptions History Grid */}
               {prescriptionsHistory.length === 0 ? (
-                <div className="text-center py-16 px-4 bg-white rounded-3xl border border-dashed border-slate-200 space-y-3">
+                <div className="text-center py-16 px-4 bg-surface rounded-3xl border border-dashed border-line space-y-3">
                   <div className="w-16 h-16 bg-violet-50 text-violet-600 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
                     <Pill size={32} />
                   </div>
@@ -1801,7 +1801,7 @@ export default function PatientProfile() {
                       return (
                         <div
                           key={row.id}
-                          className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm hover:shadow-md hover:border-violet-200 transition-all flex flex-col justify-between gap-3"
+                          className="bg-surface rounded-2xl border border-slate-200/80 p-5 shadow-sm hover:shadow-md hover:border-violet-200 transition-all flex flex-col justify-between gap-3"
                         >
                           <div>
                             <div className="flex items-center justify-between gap-2 mb-2">
@@ -1812,7 +1812,7 @@ export default function PatientProfile() {
                                 className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide border ${
                                   sentWa
                                     ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                    : "bg-slate-100 text-slate-600 border-slate-200"
+                                    : "bg-surface-muted text-ink-body border-line"
                                 }`}
                               >
                                 {sentWa
@@ -1828,7 +1828,7 @@ export default function PatientProfile() {
                               </p>
                             )}
 
-                            <p className="text-xs text-slate-600 line-clamp-3 leading-relaxed bg-slate-50 p-3 rounded-xl border border-slate-100 font-medium">
+                            <p className="text-xs text-ink-body line-clamp-3 leading-relaxed bg-surface-subtle p-3 rounded-xl border border-slate-100 font-medium">
                               {prescriptionPreviewText(row)}
                             </p>
                           </div>
@@ -1869,8 +1869,8 @@ export default function PatientProfile() {
                   </div>
 
                   {prescriptionHistoryPageCount > 1 && (
-                    <div className="flex items-center justify-between pt-4 border-t border-slate-200">
-                      <span className="text-xs font-bold text-slate-500">
+                    <div className="flex items-center justify-between pt-4 border-t border-line">
+                      <span className="text-xs font-bold text-ink-muted">
                         {language === "ar"
                           ? `صفحة ${prescriptionHistoryPage} من ${prescriptionHistoryPageCount}`
                           : `Page ${prescriptionHistoryPage} of ${prescriptionHistoryPageCount}`}
@@ -1879,14 +1879,14 @@ export default function PatientProfile() {
                         <button
                           disabled={prescriptionHistoryPage <= 1}
                           onClick={() => setPrescriptionHistoryPage((p) => p - 1)}
-                          className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-700 disabled:opacity-40"
+                          className="px-3 py-1.5 rounded-lg border border-line text-xs font-bold text-slate-700 disabled:opacity-40"
                         >
                           {language === "ar" ? "السابق" : "Prev"}
                         </button>
                         <button
                           disabled={prescriptionHistoryPage >= prescriptionHistoryPageCount}
                           onClick={() => setPrescriptionHistoryPage((p) => p + 1)}
-                          className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-slate-700 disabled:opacity-40"
+                          className="px-3 py-1.5 rounded-lg border border-line text-xs font-bold text-slate-700 disabled:opacity-40"
                         >
                           {language === "ar" ? "التالي" : "Next"}
                         </button>
@@ -1910,7 +1910,7 @@ export default function PatientProfile() {
             >
               <div className="flex items-start justify-between gap-3 px-6 pt-6 pb-4 border-b border-slate-100 shrink-0">
                 <div className="min-w-0">
-                  <h2 className="text-lg font-black text-slate-900 tracking-tight flex items-center gap-2">
+                  <h2 className="text-lg font-black text-ink tracking-tight flex items-center gap-2">
                     <Pill size={18} className="text-violet-600 shrink-0" />
                     {language === "ar" ? "تفاصيل الوصفة" : "Prescription"}
                   </h2>
@@ -1921,13 +1921,13 @@ export default function PatientProfile() {
                         {language === "ar" ? "· أُرسل واتساب" : "· WhatsApp sent"}
                       </span>
                     ) : (
-                      <span className="ms-2 text-slate-500">
+                      <span className="ms-2 text-ink-muted">
                         {language === "ar" ? "· محفوظ محلياً" : "· Saved locally"}
                       </span>
                     )}
                   </p>
                   {selectedPrescription.doctor ? (
-                    <p className="text-xs font-bold text-slate-600 mt-2">
+                    <p className="text-xs font-bold text-ink-body mt-2">
                       {String(selectedPrescription.doctor)}
                     </p>
                   ) : null}
@@ -1935,7 +1935,7 @@ export default function PatientProfile() {
                 <button
                   type="button"
                   onClick={() => setSelectedPrescription(null)}
-                  className="p-2.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-slate-900 transition-colors shrink-0"
+                  className="p-2.5 rounded-xl bg-surface-subtle hover:bg-surface-muted text-ink-muted hover:text-ink transition-colors shrink-0"
                   aria-label="Close"
                 >
                   <X size={18} />
@@ -1962,14 +1962,14 @@ export default function PatientProfile() {
                         key={item.id}
                         className="text-sm border border-slate-100 rounded-xl p-3 bg-slate-50/60"
                       >
-                        <span className="font-black text-slate-900">
+                        <span className="font-black text-ink">
                           {idx + 1}. {item.name}
                         </span>
                         {item.dose ? (
                           <p className="text-xs font-bold text-slate-700 mt-1">• {item.dose}</p>
                         ) : null}
                         {item.note ? (
-                          <p className="text-[11px] font-semibold text-slate-500 mt-1">
+                          <p className="text-[11px] font-semibold text-ink-muted mt-1">
                             {language === "ar" ? "ملاحظة: " : "Note: "}
                             {item.note}
                           </p>
@@ -1978,7 +1978,7 @@ export default function PatientProfile() {
                     ))}
                   </ul>
                   {normalizeRxItemsFromRecord(selectedPrescription.drugs).length === 0 ? (
-                    <p className="text-xs text-slate-500 font-semibold">
+                    <p className="text-xs text-ink-muted font-semibold">
                       {language === "ar" ? "لا توجد أدوية مسجلة." : "No medications on file."}
                     </p>
                   ) : null}
@@ -1993,7 +1993,7 @@ export default function PatientProfile() {
                   type="button"
                   disabled={downloadingPrescriptionPdf}
                   onClick={() => void handleDownloadPrescriptionPdf(selectedPrescription)}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-wide border border-slate-200 bg-white text-slate-800 hover:bg-slate-50 transition-colors disabled:opacity-50"
+                  className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-wide border border-line bg-surface text-slate-800 hover:bg-surface-subtle transition-colors disabled:opacity-50"
                 >
                   {downloadingPrescriptionPdf ? (
                     <Loader2 size={16} className="animate-spin" />
@@ -2029,7 +2029,7 @@ export default function PatientProfile() {
                 <button
                   type="button"
                   onClick={() => setSelectedPrescription(null)}
-                  className={`inline-flex items-center justify-center px-4 py-3 rounded-xl text-xs font-black uppercase tracking-wide text-slate-600 hover:bg-slate-100 transition-colors ${
+                  className={`inline-flex items-center justify-center px-4 py-3 rounded-xl text-xs font-black uppercase tracking-wide text-ink-body hover:bg-surface-muted transition-colors ${
                     isRTL ? "mr-auto" : "ml-auto"
                   }`}
                 >
@@ -2047,9 +2047,9 @@ export default function PatientProfile() {
                  <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-100">
                     <div>
                         <h2 className="text-xl font-black text-slate-900 tracking-tight">{t('editProfile') || "Edit Profile"}</h2>
-                        <p className="text-xs font-semibold text-slate-500 mt-1">Update patient demographics and history.</p>
+                        <p className="text-xs font-semibold text-ink-muted mt-1">Update patient demographics and history.</p>
                     </div>
-                    <button onClick={() => setIsEditModalOpen(false)} className="bg-slate-50 hover:bg-slate-100 text-slate-400 hover:text-slate-900 p-2.5 rounded-full transition-colors"><X size={18}/></button>
+                    <button onClick={() => setIsEditModalOpen(false)} className="bg-surface-subtle hover:bg-surface-muted text-slate-400 hover:text-ink p-2.5 rounded-full transition-colors"><X size={18}/></button>
                  </div>
                  
                  <form onSubmit={handleUpdate} className="space-y-4 overflow-y-auto pr-2 flex-1 custom-scrollbar">
@@ -2064,7 +2064,7 @@ export default function PatientProfile() {
                             <select
                               value={editCountryCode}
                               onChange={e => setEditCountryCode(e.target.value)}
-                              className="w-[45%] px-3 py-3 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all appearance-none cursor-pointer"
+                              className="w-[45%] px-3 py-3 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all appearance-none cursor-pointer"
                             >
                               {COUNTRY_CODE_OPTIONS.map((opt) => (
                                 <option key={opt.code} value={opt.code}>{opt.label}</option>
@@ -2074,13 +2074,13 @@ export default function PatientProfile() {
                               value={editPhone}
                               onChange={e => setEditPhone(e.target.value)}
                               placeholder="1001234567"
-                              className="w-[55%] px-4 py-3 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all"
+                              className="w-[55%] px-4 py-3 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all"
                             />
                           </div>
                        </div>
                        <div>
                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{t('age') || "Age"} / {t('dob') || "DOB"}</label>
-                          <input type="date" value={editDob} onChange={e => setEditDob(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all"/>
+                          <input type="date" value={editDob} onChange={e => setEditDob(e.target.value)} className="w-full px-4 py-3 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all"/>
                        </div>
                     </div>
                     <Input label={t('address') || "Address"} value={editAddress} onChange={setEditAddress} />
@@ -2088,7 +2088,7 @@ export default function PatientProfile() {
                        <div>
                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{t('gender') || "Gender"}</label>
                           <div className="relative">
-                              <select value={editGender} onChange={e => setEditGender(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none appearance-none focus:bg-white focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all cursor-pointer">
+                              <select value={editGender} onChange={e => setEditGender(e.target.value)} className="w-full px-4 py-3 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none appearance-none focus:bg-surface focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all cursor-pointer">
                                  <option value="Male">{t('male') || "Male"}</option>
                                  <option value="Female">{t('female') || "Female"}</option>
                               </select>
@@ -2098,7 +2098,7 @@ export default function PatientProfile() {
                        <div>
                           <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{t('status') || "Status"}</label>
                           <div className="relative">
-                              <select value={editStatus} onChange={e => setEditStatus(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none appearance-none focus:bg-white focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all cursor-pointer">
+                              <select value={editStatus} onChange={e => setEditStatus(e.target.value)} className="w-full px-4 py-3 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none appearance-none focus:bg-surface focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all cursor-pointer">
                                  <option value="Active">{t('statusActive') || "Active"}</option>
                                  <option value="Archived">{t('statusArchived') || "Archived"}</option>
                               </select>
@@ -2109,7 +2109,7 @@ export default function PatientProfile() {
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{t('referralSource') || "Referral"}</label>
                         <div className="relative">
-                            <select value={editReferral} onChange={e => setEditReferral(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none appearance-none focus:bg-white focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all cursor-pointer">
+                            <select value={editReferral} onChange={e => setEditReferral(e.target.value)} className="w-full px-4 py-3 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none appearance-none focus:bg-surface focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all cursor-pointer">
                                <option value="">{t('select') || "Select..."}</option>
                                <option value="Walk-in">{t('walkIn') || "Walk-in"}</option>
                                <option value="Social Media">{t('socialMedia') || "Social Media"}</option>
@@ -2121,11 +2121,11 @@ export default function PatientProfile() {
                     </div>
                     <div>
                         <label className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-2 flex items-center gap-1.5"><AlertCircle size={12}/> {t('allergies') || "Allergies"}</label>
-                        <input value={editAllergies} onChange={e => setEditAllergies(e.target.value)} placeholder={language === 'ar' ? 'مثال: بنسلين — اتركه فارغاً إن لم يُسأل' : 'e.g. Penicillin — leave blank if not asked'} className="w-full px-4 py-3 bg-rose-50/50 border border-rose-200 rounded-xl font-bold text-rose-900 outline-none focus:bg-white focus:ring-4 focus:ring-rose-500/10 focus:border-rose-400 transition-all placeholder:font-medium placeholder:text-rose-300"/>
+                        <input value={editAllergies} onChange={e => setEditAllergies(e.target.value)} placeholder={language === 'ar' ? 'مثال: بنسلين — اتركه فارغاً إن لم يُسأل' : 'e.g. Penicillin — leave blank if not asked'} className="w-full px-4 py-3 bg-rose-50/50 border border-rose-200 rounded-xl font-bold text-rose-900 outline-none focus:bg-surface focus:ring-4 focus:ring-rose-500/10 focus:border-rose-400 transition-all placeholder:font-medium placeholder:text-rose-300"/>
                     </div>
                     <div>
                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{language === 'ar' ? 'التاريخ الطبي' : 'Medical history'}</label>
-                        <input value={editMedicalHistory} onChange={e => setEditMedicalHistory(e.target.value)} placeholder={language === 'ar' ? 'مثال: سكري، ضغط — اتركه فارغاً إن لم يُسأل' : 'e.g. Diabetes, hypertension — leave blank if not asked'} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:ring-4 focus:ring-primary-500/10 focus:border-primary-400 transition-all placeholder:font-medium placeholder:text-slate-300"/>
+                        <input value={editMedicalHistory} onChange={e => setEditMedicalHistory(e.target.value)} placeholder={language === 'ar' ? 'مثال: سكري، ضغط — اتركه فارغاً إن لم يُسأل' : 'e.g. Diabetes, hypertension — leave blank if not asked'} className="w-full px-4 py-3 bg-surface-subtle border border-line rounded-xl font-bold text-ink outline-none focus:bg-surface focus:ring-4 focus:ring-primary-500/10 focus:border-primary-400 transition-all placeholder:font-medium placeholder:text-slate-300"/>
                     </div>
                     
                     <div className="flex gap-4 pt-6 border-t border-slate-100 mt-6">
@@ -2198,6 +2198,6 @@ export default function PatientProfile() {
 const Input = ({ label, value, onChange }: any) => (
   <div>
     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{label}</label>
-    <input value={value} onChange={e => onChange(e.target.value)} className="w-full px-4 py-3 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all"/>
+    <input value={value} onChange={e => onChange(e.target.value)} className="w-full px-4 py-3 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:ring-4 focus:ring-accent-soft/10 focus:border-blue-400 transition-all"/>
   </div>
 );

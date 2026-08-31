@@ -295,7 +295,7 @@ export default function AppointmentSidePanel({
       <div className="w-full shrink-0 flex flex-col gap-4 z-20">
         <div className="bg-white/60 border border-white/60 shadow-sm rounded-2xl flex flex-col h-full min-h-[400px] items-center justify-center text-slate-400 transition-all">
           <Clock size={40} className="mb-4 opacity-50"/>
-          <p className="text-lg font-black text-slate-600">{language === 'ar' ? 'اختر موعداً' : 'Select an appointment'}</p>
+          <p className="text-lg font-black text-ink-body">{language === 'ar' ? 'اختر موعداً' : 'Select an appointment'}</p>
           <p className="text-sm font-bold mt-2 max-w-[240px] text-center">{language === 'ar' ? 'انقر على أي موعد لعرض التفاصيل والتعديل المباشر.' : 'Click on any appointment to view details and edit inline.'}</p>
         </div>
       </div>
@@ -323,7 +323,7 @@ export default function AppointmentSidePanel({
                       </div>
                       <div>
                         <h2 className="font-extrabold text-slate-800 text-lg leading-tight group-hover:text-teal-700 transition-colors">{selectedAppointment.patientName}</h2>
-                        <p className="text-sm font-medium text-slate-500 mt-1">{language === 'ar' ? selectedAppointment.time?.replace('AM', 'ص').replace('PM', 'م') : selectedAppointment.time} • {selectedAppointment.date}</p>
+                        <p className="text-sm font-medium text-ink-muted mt-1">{language === 'ar' ? selectedAppointment.time?.replace('AM', 'ص').replace('PM', 'م') : selectedAppointment.time} • {selectedAppointment.date}</p>
                       </div>
                   </div>
                   <div className="flex items-center shrink-0">
@@ -336,7 +336,7 @@ export default function AppointmentSidePanel({
                         <Sparkles size={17}/>
                       </button>
                     )}
-                    <button onClick={handleClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"><X size={18}/></button>
+                    <button onClick={handleClose} className="p-2 text-slate-400 hover:text-ink-body hover:bg-surface-muted rounded-full transition-colors"><X size={18}/></button>
                   </div>
                 </div>
 
@@ -372,7 +372,7 @@ export default function AppointmentSidePanel({
                                 serviceId: selectedAppointment.serviceId || '',
                                 serviceName: selectedAppointment.serviceName || '',
                               });
-                            }} className="text-sm font-bold text-slate-500 bg-slate-100 px-3.5 py-2 rounded-xl hover:bg-slate-200 transition-colors">
+                            }} className="text-sm font-bold text-ink-muted bg-surface-muted px-3.5 py-2 rounded-xl hover:bg-slate-200 transition-colors">
                               {language === 'ar' ? 'إلغاء' : 'Cancel'}
                             </button>
                         </div>
@@ -382,11 +382,11 @@ export default function AppointmentSidePanel({
                   <div className="grid grid-cols-2 gap-4">
                       {/* Doctor */}
                       <div>
-                        <label className="text-xs font-black text-slate-500 uppercase tracking-widest block mb-2">{language === 'ar' ? 'الطبيب' : 'Doctor'}</label>
+                        <label className="text-xs font-black text-ink-muted uppercase tracking-widest block mb-2">{language === 'ar' ? 'الطبيب' : 'Doctor'}</label>
                         <div className="relative group">
                           <Stethoscope size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-500 pointer-events-none" />
                           <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                          <select value={inlineEdit.doctor || ''} onChange={e => setInlineEdit(p => ({...p, doctor: e.target.value}))} className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-3 pl-9 pr-8 text-sm font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 appearance-none shadow-sm">
+                          <select value={inlineEdit.doctor || ''} onChange={e => setInlineEdit(p => ({...p, doctor: e.target.value}))} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-8 text-sm font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-surface focus:ring-4 focus:ring-emerald-500/10 appearance-none shadow-sm">
                               <option value="">--</option>
                               {doctorsList.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
                           </select>
@@ -394,11 +394,11 @@ export default function AppointmentSidePanel({
                       </div>
                       {/* Status */}
                       <div>
-                        <label className="text-xs font-black text-slate-500 uppercase tracking-widest block mb-2">{language === 'ar' ? 'الحالة' : 'Status'}</label>
+                        <label className="text-xs font-black text-ink-muted uppercase tracking-widest block mb-2">{language === 'ar' ? 'الحالة' : 'Status'}</label>
                         <div className="relative group">
                           <Activity size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-500 pointer-events-none" />
                           <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                          <select value={inlineEdit.status || 'Scheduled'} onChange={e => setInlineEdit(p => ({...p, status: e.target.value}))} className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-3 pl-9 pr-8 text-sm font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 appearance-none shadow-sm">
+                          <select value={inlineEdit.status || 'Scheduled'} onChange={e => setInlineEdit(p => ({...p, status: e.target.value}))} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-8 text-sm font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-surface focus:ring-4 focus:ring-emerald-500/10 appearance-none shadow-sm">
                               {/* Not a normal workflow stage — it is a marker the reception assistant leaves on a
                                   moved appointment's original slot, so it is shown only when that is what this
                                   record already is, never offered as something to switch a live appointment to. */}
@@ -413,28 +413,28 @@ export default function AppointmentSidePanel({
 
                   {/* Date — full width, so the native date field is never clipped */}
                   <div>
-                      <label className="text-xs font-black text-slate-500 uppercase tracking-widest block mb-2">{language === 'ar' ? 'التاريخ' : 'Date'}</label>
+                      <label className="text-xs font-black text-ink-muted uppercase tracking-widest block mb-2">{language === 'ar' ? 'التاريخ' : 'Date'}</label>
                       <div className="relative group">
                         <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-500 pointer-events-none" />
-                        <input type="date" value={inlineEdit.date || ''} onChange={e => setInlineEdit(p => ({...p, date: e.target.value}))} className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-3 pl-9 pr-4 text-sm font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 shadow-sm appearance-none"/>
+                        <input type="date" value={inlineEdit.date || ''} onChange={e => setInlineEdit(p => ({...p, date: e.target.value}))} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-4 text-sm font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-surface focus:ring-4 focus:ring-emerald-500/10 shadow-sm appearance-none"/>
                       </div>
                   </div>
 
                   {/* Time & Duration — a row of their own; sharing half a column truncated both */}
                   <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <label className="text-xs font-black text-slate-500 uppercase tracking-widest block mb-2">{language === 'ar' ? 'الوقت' : 'Time'}</label>
+                        <label className="text-xs font-black text-ink-muted uppercase tracking-widest block mb-2">{language === 'ar' ? 'الوقت' : 'Time'}</label>
                         <div className="relative group">
                           <Clock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-500 pointer-events-none" />
-                          <input type="text" value={inlineEdit.time || ''} onChange={e => setInlineEdit(p => ({...p, time: e.target.value}))} className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-3 pl-9 pr-4 text-sm font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 shadow-sm" placeholder="02:00 PM"/>
+                          <input type="text" value={inlineEdit.time || ''} onChange={e => setInlineEdit(p => ({...p, time: e.target.value}))} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-4 text-sm font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-surface focus:ring-4 focus:ring-emerald-500/10 shadow-sm" placeholder="02:00 PM"/>
                         </div>
                       </div>
                       <div>
-                        <label className="text-xs font-black text-slate-500 uppercase tracking-widest block mb-2">{language === 'ar' ? 'المدة' : 'Duration'}</label>
+                        <label className="text-xs font-black text-ink-muted uppercase tracking-widest block mb-2">{language === 'ar' ? 'المدة' : 'Duration'}</label>
                         <div className="relative group">
                           <Hourglass size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-500 pointer-events-none" />
                           <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                          <select value={inlineEdit.duration || 30} onChange={e => setInlineEdit(p => ({...p, duration: Number(e.target.value)}))} className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-3 pl-9 pr-8 text-sm font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 appearance-none shadow-sm">
+                          <select value={inlineEdit.duration || 30} onChange={e => setInlineEdit(p => ({...p, duration: Number(e.target.value)}))} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-8 text-sm font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-surface focus:ring-4 focus:ring-emerald-500/10 appearance-none shadow-sm">
                               <option value={15}>{language === 'ar' ? '15 د' : '15 min'}</option>
                               <option value={30}>{language === 'ar' ? '30 د' : '30 min'}</option>
                               <option value={45}>{language === 'ar' ? '45 د' : '45 min'}</option>
@@ -448,11 +448,11 @@ export default function AppointmentSidePanel({
 
                   {/* Reason for Visit */}
                   <div>
-                      <label className="text-xs font-black text-slate-500 uppercase tracking-widest block mb-2">{language === 'ar' ? 'سبب الزيارة' : 'Reason for Visit'}</label>
+                      <label className="text-xs font-black text-ink-muted uppercase tracking-widest block mb-2">{language === 'ar' ? 'سبب الزيارة' : 'Reason for Visit'}</label>
                       <div className="relative group">
                         <ClipboardList size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-500 pointer-events-none" />
                         <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                        <select value={inlineEdit.treatment || ''} onChange={e => setInlineEdit(p => ({...p, treatment: e.target.value}))} className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-3 pl-9 pr-8 text-sm font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 appearance-none shadow-sm">
+                        <select value={inlineEdit.treatment || ''} onChange={e => setInlineEdit(p => ({...p, treatment: e.target.value}))} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-8 text-sm font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-surface focus:ring-4 focus:ring-emerald-500/10 appearance-none shadow-sm">
                             <option value="" disabled>{language === 'ar' ? 'اختر سبب الزيارة' : 'Select Reason for Visit'}</option>
                             {visitReasonsOptions.map(r => <option key={r} value={r}>{r}</option>)}
                         </select>
@@ -466,7 +466,7 @@ export default function AppointmentSidePanel({
                         onClick={() => setShowAddProcedure(prev => !prev)}
                         className={`w-full text-sm font-bold rounded-xl py-3 flex items-center justify-center gap-2 transition-colors shadow-sm ${
                           showAddProcedure
-                            ? 'text-slate-600 bg-slate-100 border border-slate-200 hover:bg-slate-200'
+                            ? 'text-ink-body bg-surface-muted border border-line hover:bg-slate-200'
                             : 'text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100'
                         }`}
                       >
@@ -478,7 +478,7 @@ export default function AppointmentSidePanel({
                           <div className="flex flex-col gap-3">
                             {/* Service selector */}
                             <div>
-                              <label className="text-xs font-extrabold text-slate-500 uppercase tracking-wider block mb-1.5">
+                              <label className="text-xs font-extrabold text-ink-muted uppercase tracking-wider block mb-1.5">
                                 {language === 'ar' ? 'الخدمة' : 'Service'}
                               </label>
                               <ServiceCombobox
@@ -491,12 +491,12 @@ export default function AppointmentSidePanel({
                                 valueKey="id"
                                 placeholder={language === 'ar' ? 'اختر الخدمة...' : 'Select service...'}
                                 language={language}
-                                className="w-full text-sm py-2 font-bold border border-slate-200 rounded-lg bg-white"
+                                className="w-full text-sm py-2 font-bold border border-line rounded-lg bg-surface"
                               />
                             </div>
                             {/* Cost */}
                             <div>
-                              <label className="text-xs font-extrabold text-slate-500 uppercase tracking-wider block mb-1.5">
+                              <label className="text-xs font-extrabold text-ink-muted uppercase tracking-wider block mb-1.5">
                                 {language === 'ar' ? 'التكلفة' : 'Cost'}
                               </label>
                               <div className="relative">
@@ -507,7 +507,7 @@ export default function AppointmentSidePanel({
                                   type="number"
                                   value={procCost}
                                   onChange={e => setProcCost(e.target.value ? Number(e.target.value) : "")}
-                                  className="w-full ps-9 pe-3 py-2.5 text-sm font-black text-slate-800 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-400 bg-white"
+                                  className="w-full ps-9 pe-3 py-2.5 text-sm font-black text-slate-800 border border-line rounded-lg outline-none focus:ring-2 focus:ring-emerald-400 bg-surface"
                                   placeholder="0"
                                 />
                               </div>
@@ -518,9 +518,9 @@ export default function AppointmentSidePanel({
                                 type="checkbox"
                                 checked={addProcToLedger}
                                 onChange={e => setAddProcToLedger(e.target.checked)}
-                                className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                className="w-4 h-4 rounded border-line-strong text-emerald-600 focus:ring-emerald-500"
                               />
-                              <span className="text-sm font-bold text-slate-600">
+                              <span className="text-sm font-bold text-ink-body">
                                 {language === 'ar' ? 'إضافة للسجل المالي' : 'Add to Ledger'}
                               </span>
                             </label>
@@ -602,10 +602,10 @@ export default function AppointmentSidePanel({
                       {/* Added Session Procedures Review List */}
                       {sessionProcedures.length > 0 && (
                         <div className="mt-3 flex flex-col gap-2">
-                          <label className="text-[10px] font-extrabold text-slate-500 uppercase tracking-wider block">
+                          <label className="text-[10px] font-extrabold text-ink-muted uppercase tracking-wider block">
                             {language === 'ar' ? 'الإجراءات المضافة' : 'Added Procedures'}
                           </label>
-                          <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 overflow-hidden shadow-sm">
+                          <div className="bg-surface rounded-xl border border-line divide-y divide-slate-100 overflow-hidden shadow-sm">
                             {sessionProcedures.map((sp, idx) => (
                               <div key={idx} className="flex items-center justify-between p-3 text-sm">
                                 <div className="flex items-center gap-2">
@@ -613,7 +613,7 @@ export default function AppointmentSidePanel({
                                   <span className="font-bold text-slate-700">{sp.name}</span>
                                 </div>
                                 <div className="flex items-center gap-3">
-                                  <span className="font-black text-slate-900">{sp.cost} {language === 'ar' ? 'ج.م' : 'EGP'}</span>
+                                  <span className="font-black text-ink">{sp.cost} {language === 'ar' ? 'ج.م' : 'EGP'}</span>
                                   <button 
                                     type="button"
                                     onClick={async () => {
@@ -646,10 +646,10 @@ export default function AppointmentSidePanel({
 
                   {/* Notes */}
                   <div>
-                      <label className="text-xs font-black text-slate-500 uppercase tracking-widest block mb-2">{language === 'ar' ? 'ملاحظات' : 'Notes'}</label>
+                      <label className="text-xs font-black text-ink-muted uppercase tracking-widest block mb-2">{language === 'ar' ? 'ملاحظات' : 'Notes'}</label>
                       <div className="relative group">
                         <FileText size={16} className="absolute left-3 top-3 text-slate-400 transition-colors group-focus-within:text-emerald-500 pointer-events-none" />
-                        <textarea value={inlineEdit.notes || ''} onChange={e => setInlineEdit(p => ({...p, notes: e.target.value}))} rows={2} className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-3 pl-9 pr-4 text-sm font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 resize-none shadow-sm"/>
+                        <textarea value={inlineEdit.notes || ''} onChange={e => setInlineEdit(p => ({...p, notes: e.target.value}))} rows={2} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-4 text-sm font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-surface focus:ring-4 focus:ring-emerald-500/10 resize-none shadow-sm"/>
                       </div>
                   </div>
                   
@@ -719,7 +719,7 @@ export default function AppointmentSidePanel({
 
                       return (
                         <div className="flex gap-2 mb-4">
-                            <div className="flex-1 bg-white border border-slate-200 rounded-xl p-3 text-center shadow-sm">
+                            <div className="flex-1 bg-surface border border-line rounded-xl p-3 text-center shadow-sm">
                               <p className="text-xs font-extrabold text-slate-400 uppercase tracking-wider mb-1">{language === 'ar' ? 'الإجمالي' : 'Total Cost'}</p>
                               <p className="text-base font-black text-slate-800">{totalCost.toLocaleString()} <span className="text-[10px] text-slate-400">EGP</span></p>
                             </div>
@@ -737,17 +737,17 @@ export default function AppointmentSidePanel({
 
                   {/* Inline Payment Form */}
                   {showInlinePayment && (
-                      <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 mb-4 animate-in slide-in-from-top-2 duration-200">
+                      <div className="bg-surface-subtle rounded-xl p-3 border border-line mb-4 animate-in slide-in-from-top-2 duration-200">
                         {unpaidLoading ? (
                             <div className="flex justify-center p-4"><Loader2 className="animate-spin text-slate-400" size={20}/></div>
                         ) : (
                             <div className="flex flex-col gap-3">
                               <div>
-                                  <label className="text-xs font-extrabold text-slate-500 uppercase tracking-wider block mb-1.5">
+                                  <label className="text-xs font-extrabold text-ink-muted uppercase tracking-wider block mb-1.5">
                                     {language === 'ar' ? 'اختر الإجراء لدفع حسابه' : 'Select Procedure to Pay'}
                                   </label>
                                   <select 
-                                    className="w-full text-sm font-bold border border-slate-200 rounded-lg px-3 py-2.5 bg-white"
+                                    className="w-full text-sm font-bold border border-line rounded-lg px-3 py-2.5 bg-surface"
                                     value={selectedProcedure?.id || ""}
                                     onChange={(e) => {
                                         if (e.target.value === 'general_payment') setSelectedProcedure({ id: 'general_payment', description: 'General Payment', remaining: Infinity });
@@ -765,7 +765,7 @@ export default function AppointmentSidePanel({
                               </div>
                               <div className="flex gap-2 items-end">
                                   <div className="flex-1">
-                                    <label className="text-xs font-extrabold text-slate-500 uppercase tracking-wider block mb-1.5">
+                                    <label className="text-xs font-extrabold text-ink-muted uppercase tracking-wider block mb-1.5">
                                         {language === 'ar' ? 'المبلغ' : 'Amount'}
                                     </label>
                                     <div className="relative">
@@ -776,7 +776,7 @@ export default function AppointmentSidePanel({
                                           type="number" 
                                           value={inlinePayAmount} 
                                           onChange={e => setInlinePayAmount(Number(e.target.value))}
-                                          className="w-full ps-8 pe-3 py-2 text-sm font-black text-slate-800 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-400"
+                                          className="w-full ps-8 pe-3 py-2 text-sm font-black text-slate-800 border border-line rounded-lg outline-none focus:ring-2 focus:ring-emerald-400"
                                           placeholder="0.00"
                                         />
                                     </div>

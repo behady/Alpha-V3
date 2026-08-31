@@ -241,12 +241,12 @@ export default function IsolatedOrthoWorkspace() {
 
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-slate-50">
+      <div className="h-screen flex items-center justify-center bg-surface-subtle">
         <Loader2 className="animate-spin text-purple-600" size={40} />
       </div>
     );
   }
-  if (!patientData) return <div className="p-10 text-center font-black text-slate-500">Patient not found.</div>;
+  if (!patientData) return <div className="p-10 text-center font-black text-ink-muted">Patient not found.</div>;
 
   const status = orthoCase?.status || "Active";
   const statusStyles: Record<string, string> = {
@@ -327,8 +327,8 @@ export default function IsolatedOrthoWorkspace() {
                     <MoreVertical size={18} />
                   </button>
                   {menuOpen && (
-                    <div className="absolute right-0 top-[calc(100%+8px)] w-60 bg-white border border-slate-200 shadow-2xl rounded-2xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-150 p-1.5">
-                      <button onClick={() => { setMenuOpen(false); router.push(`/patients/${id}`); }} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors">
+                    <div className="absolute right-0 top-[calc(100%+8px)] w-60 bg-surface border border-line shadow-2xl rounded-2xl overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-150 p-1.5">
+                      <button onClick={() => { setMenuOpen(false); router.push(`/patients/${id}`); }} className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold text-ink-body hover:bg-surface-subtle transition-colors">
                         <Activity size={16} className="text-blue-500" /> Clinical Profile
                       </button>
                       {status !== "Completed" ? (
@@ -353,14 +353,14 @@ export default function IsolatedOrthoWorkspace() {
       <main className="max-w-[1600px] mx-auto p-4 md:p-8 no-print">
         {!orthoCase ? (
           /* ---- NO ACTIVE CASE: activation hero ---- */
-          <div className="max-w-xl mx-auto mt-10 bg-white rounded-3xl border border-slate-100 shadow-sm p-8 md:p-10 text-center animate-in fade-in">
+          <div className="max-w-xl mx-auto mt-10 bg-surface rounded-3xl border border-slate-100 shadow-sm p-8 md:p-10 text-center animate-in fade-in">
             <div className="w-20 h-20 bg-gradient-to-br from-purple-100 to-fuchsia-100 rounded-3xl flex items-center justify-center mx-auto mb-6">
               <Sparkles size={34} className="text-purple-600" />
             </div>
-            <h2 className="text-2xl font-black text-slate-900 mb-2">
+            <h2 className="text-2xl font-black text-ink mb-2">
               {hasSessions ? "Restore Orthodontic Case" : "Start Orthodontic Treatment"}
             </h2>
-            <p className="text-slate-500 font-medium mb-8">
+            <p className="text-ink-muted font-medium mb-8">
               {hasSessions
                 ? "This patient has past ortho records but no active case file. Restore the case to track it on the orthodontic dashboard."
                 : "Create a dedicated orthodontic workspace for this patient. It will appear on the Orthodontics dashboard and keep treatment records separate from general dentistry."}
@@ -383,7 +383,7 @@ export default function IsolatedOrthoWorkspace() {
               <SnapshotCard icon={<Clock size={16} />} label="Duration" value={fmtDuration(daysIn)} accent="#0d9488" />
               <button
                 onClick={() => openWhatsApp(patientData.phone)}
-                className="bg-white rounded-2xl border border-slate-100 shadow-sm px-4 py-3 flex items-center gap-3 hover:border-emerald-200 hover:bg-emerald-50/40 transition-colors text-left"
+                className="bg-surface rounded-2xl border border-slate-100 shadow-sm px-4 py-3 flex items-center gap-3 hover:border-emerald-200 hover:bg-emerald-50/40 transition-colors text-left"
               >
                 <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0"><MessageCircle size={16} /></div>
                 <div className="min-w-0">
@@ -394,11 +394,11 @@ export default function IsolatedOrthoWorkspace() {
             </div>
 
             {/* Simple Table Interface */}
-            <div className="bg-white rounded-[2rem] border border-slate-100 shadow-sm p-6 md:p-8 space-y-6">
+            <div className="bg-surface rounded-[2rem] border border-slate-100 shadow-sm p-6 md:p-8 space-y-6">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 pb-6">
                 <div>
                   <div className="flex items-center gap-2">
-                    <h2 className="text-xl font-black text-slate-900 flex items-center gap-2">
+                    <h2 className="text-xl font-black text-ink flex items-center gap-2">
                       <Stethoscope className="text-purple-500" size={22} /> Diagnosis & Records
                     </h2>
                     {isDirty && (
@@ -425,7 +425,7 @@ export default function IsolatedOrthoWorkspace() {
                   </button>
                   <button
                     onClick={() => window.print()}
-                    className="flex-1 sm:flex-none bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 px-5 py-3 rounded-2xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-sm"
+                    className="flex-1 sm:flex-none bg-surface hover:bg-surface-subtle border border-line text-ink-body px-5 py-3 rounded-2xl font-black text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-sm"
                   >
                     <Printer size={16} /> Print File
                   </button>
@@ -440,21 +440,21 @@ export default function IsolatedOrthoWorkspace() {
                     value={localDiagnosis}
                     onChange={(e) => setLocalDiagnosis(e.target.value)}
                     placeholder="Enter patient diagnosis and orthodontic master plan here..."
-                    className="w-full p-4 bg-slate-50 border border-slate-200 hover:border-purple-300 focus:border-purple-500 focus:bg-white rounded-xl outline-none font-bold text-sm text-slate-700 transition-all resize-y min-h-[100px]"
+                    className="w-full p-4 bg-surface-subtle border border-line hover:border-purple-300 focus:border-purple-500 focus:bg-surface rounded-xl outline-none font-bold text-sm text-slate-700 transition-all resize-y min-h-[100px]"
                   />
                 </div>
                 
-                <div className="bg-slate-50 rounded-xl border border-slate-200 p-4">
+                <div className="bg-surface-subtle rounded-xl border border-line p-4">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Cephalometric & Clinical Data</label>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     {CEPH_FIELDS.map(field => (
                       <div key={field.id}>
-                        <label className="text-[9px] font-bold text-slate-500 block mb-1">{field.label}</label>
+                        <label className="text-[9px] font-bold text-ink-muted block mb-1">{field.label}</label>
                         <input
                           type="text"
                           value={localCephData[field.id] || ""}
                           onChange={e => setLocalCephData({ ...localCephData, [field.id]: e.target.value })}
-                          className="w-full p-2 bg-white border border-slate-200 hover:border-purple-300 focus:border-purple-500 rounded-lg outline-none font-bold text-sm text-slate-700 transition-all"
+                          className="w-full p-2 bg-surface border border-line hover:border-purple-300 focus:border-purple-500 rounded-lg outline-none font-bold text-sm text-slate-700 transition-all"
                           placeholder="—"
                         />
                       </div>
@@ -483,7 +483,7 @@ export default function IsolatedOrthoWorkspace() {
                               type="date"
                               value={visit.date}
                               onChange={(e) => handleCellChange(idx, "date", e.target.value)}
-                              className="w-full p-2 bg-transparent border border-transparent hover:border-slate-200 focus:border-purple-500 focus:bg-white rounded-lg outline-none font-bold text-sm text-slate-700 transition-all"
+                              className="w-full p-2 bg-transparent border border-transparent hover:border-line focus:border-purple-500 focus:bg-surface rounded-lg outline-none font-bold text-sm text-slate-700 transition-all"
                             />
                           </td>
                           <td className="py-4 px-6">
@@ -492,7 +492,7 @@ export default function IsolatedOrthoWorkspace() {
                               onChange={(e) => handleCellChange(idx, "workDone", e.target.value)}
                               placeholder="Describe orthodontic work done..."
                               rows={1}
-                              className="w-full p-2 bg-transparent border border-transparent hover:border-slate-200 focus:border-purple-500 focus:bg-white rounded-lg outline-none font-bold text-sm text-slate-700 transition-all resize-none overflow-hidden min-h-[38px] auto-grow"
+                              className="w-full p-2 bg-transparent border border-transparent hover:border-line focus:border-purple-500 focus:bg-surface rounded-lg outline-none font-bold text-sm text-slate-700 transition-all resize-none overflow-hidden min-h-[38px] auto-grow"
                               onInput={(e) => {
                                 const target = e.target as HTMLTextAreaElement;
                                 target.style.height = "auto";
@@ -506,7 +506,7 @@ export default function IsolatedOrthoWorkspace() {
                               onChange={(e) => handleCellChange(idx, "nextStep", e.target.value)}
                               placeholder="Plan for next visit..."
                               rows={1}
-                              className="w-full p-2 bg-transparent border border-transparent hover:border-slate-200 focus:border-purple-500 focus:bg-white rounded-lg outline-none font-bold text-sm text-slate-700 transition-all resize-none overflow-hidden min-h-[38px] auto-grow"
+                              className="w-full p-2 bg-transparent border border-transparent hover:border-line focus:border-purple-500 focus:bg-surface rounded-lg outline-none font-bold text-sm text-slate-700 transition-all resize-none overflow-hidden min-h-[38px] auto-grow"
                               onInput={(e) => {
                                 const target = e.target as HTMLTextAreaElement;
                                 target.style.height = "auto";
@@ -535,37 +535,37 @@ export default function IsolatedOrthoWorkspace() {
       </main>
 
       {/* PRINT LAYOUT (Only visible when printing) */}
-      <div className="hidden print-container p-8 max-w-4xl mx-auto bg-white text-slate-850 font-sans">
-        <div className="grid grid-cols-3 gap-y-4 gap-x-6 p-6 border-2 border-t-0 border-slate-300 rounded-b-3xl mb-8 text-sm font-bold bg-slate-50/30">
-          <div className="col-span-2 border-b border-slate-200 pb-2">
+      <div className="hidden print-container p-8 max-w-4xl mx-auto bg-surface text-slate-850 font-sans">
+        <div className="grid grid-cols-3 gap-y-4 gap-x-6 p-6 border-2 border-t-0 border-line-strong rounded-b-3xl mb-8 text-sm font-bold bg-slate-50/30">
+          <div className="col-span-2 border-b border-line pb-2">
             <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-0.5">Name</span>
             <span className="text-slate-800 text-base">{patientData.name}</span>
           </div>
-          <div className="border-b border-slate-200 pb-2">
+          <div className="border-b border-line pb-2">
             <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-0.5">Age</span>
             <span className="text-slate-800 text-base">{calculateAge(patientData.dateOfBirth || patientData.age)}</span>
           </div>
-          <div className="border-b border-slate-200 pb-2">
+          <div className="border-b border-line pb-2">
             <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-0.5">Gender</span>
             <span className="text-slate-800 text-base">{patientData.gender || "—"}</span>
           </div>
-          <div className="col-span-2 border-b border-slate-200 pb-2">
+          <div className="col-span-2 border-b border-line pb-2">
             <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-0.5">Telephone / Mobile</span>
             <span className="text-slate-800 text-base">{patientData.phone || "—"}</span>
           </div>
           {localDiagnosis && (
-            <div className="col-span-3 border-b border-slate-200 pb-2 pt-2">
+            <div className="col-span-3 border-b border-line pb-2 pt-2">
               <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-0.5">Diagnosis</span>
               <span className="text-slate-800 text-base whitespace-pre-wrap">{localDiagnosis}</span>
             </div>
           )}
           {Object.keys(localCephData).some(k => localCephData[k]) && (
-            <div className="col-span-3 border-b border-slate-200 pb-2 pt-2">
+            <div className="col-span-3 border-b border-line pb-2 pt-2">
               <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-2">Cephalometric & Clinical Data</span>
               <div className="grid grid-cols-4 gap-4">
                 {CEPH_FIELDS.map(field => localCephData[field.id] ? (
                   <div key={field.id}>
-                    <span className="text-slate-500 text-[10px] block">{field.label}</span>
+                    <span className="text-ink-muted text-[10px] block">{field.label}</span>
                     <span className="text-slate-800 font-bold">{localCephData[field.id]}</span>
                   </div>
                 ) : null)}
@@ -573,7 +573,7 @@ export default function IsolatedOrthoWorkspace() {
             </div>
           )}
           {patientData.address && (
-            <div className="col-span-3 border-b border-slate-200 pb-2">
+            <div className="col-span-3 border-b border-line pb-2">
               <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-0.5">Address</span>
               <span className="text-slate-800 text-base">{patientData.address}</span>
             </div>
@@ -587,20 +587,20 @@ export default function IsolatedOrthoWorkspace() {
         </div>
 
         {/* Visits Table */}
-        <table className="w-full text-left border-collapse border border-slate-300">
+        <table className="w-full text-left border-collapse border border-line-strong">
           <tbody>
             {localVisits.map((visit) => (
               <tr key={visit.visitNo} className="text-sm">
-                <td className="py-3 px-4 border border-slate-300 font-black text-slate-800">
+                <td className="py-3 px-4 border border-line-strong font-black text-slate-800">
                   #{visit.visitNo}
                 </td>
-                <td className="py-3 px-4 border border-slate-300 font-bold text-slate-700">
+                <td className="py-3 px-4 border border-line-strong font-bold text-slate-700">
                   {new Date(visit.date).toLocaleDateString()}
                 </td>
-                <td className="py-3 px-4 border border-slate-300 text-slate-700 whitespace-pre-wrap font-medium">
+                <td className="py-3 px-4 border border-line-strong text-slate-700 whitespace-pre-wrap font-medium">
                   {visit.workDone || "—"}
                 </td>
-                <td className="py-3 px-4 border border-slate-300 text-slate-700 whitespace-pre-wrap font-medium">
+                <td className="py-3 px-4 border border-line-strong text-slate-700 whitespace-pre-wrap font-medium">
                   {visit.nextStep || "—"}
                 </td>
               </tr>
@@ -609,10 +609,10 @@ export default function IsolatedOrthoWorkspace() {
             {localVisits.length < 12 &&
               Array.from({ length: 12 - localVisits.length }).map((_, i) => (
                 <tr key={`empty-${i}`}>
-                  <td className="py-7 px-4 border border-slate-300"></td>
-                  <td className="py-7 px-4 border border-slate-300"></td>
-                  <td className="py-7 px-4 border border-slate-300"></td>
-                  <td className="py-7 px-4 border border-slate-300"></td>
+                  <td className="py-7 px-4 border border-line-strong"></td>
+                  <td className="py-7 px-4 border border-line-strong"></td>
+                  <td className="py-7 px-4 border border-line-strong"></td>
+                  <td className="py-7 px-4 border border-line-strong"></td>
                 </tr>
               ))
             }
@@ -626,7 +626,7 @@ export default function IsolatedOrthoWorkspace() {
 
 function SnapshotCard({ icon, label, value, accent }: { icon: React.ReactNode; label: string; value: string; accent: string }) {
   return (
-    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-4 py-3 flex items-center gap-3 min-w-0">
+    <div className="bg-surface rounded-2xl border border-slate-100 shadow-sm px-4 py-3 flex items-center gap-3 min-w-0">
       <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: `${accent}14`, color: accent }}>
         {icon}
       </div>

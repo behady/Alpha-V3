@@ -443,14 +443,14 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
 
   return (
     <div className="space-y-6 animate-in fade-in" dir={isRTL ? "rtl" : "ltr"}>
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 bg-surface p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center">
             <Users size={28} />
           </div>
           <div>
-            <h3 className="text-xl font-bold text-slate-900">{txt.title}</h3>
-            <p className="text-sm font-semibold text-slate-500 mt-1">{txt.sub}</p>
+            <h3 className="text-xl font-bold text-ink">{txt.title}</h3>
+            <p className="text-sm font-semibold text-ink-muted mt-1">{txt.sub}</p>
           </div>
         </div>
         <button
@@ -466,11 +466,11 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
           Clinic ID — they'll find it in Settings". Until now it was shown nowhere in Settings, so
           that instruction was a dead end and new colleagues had no way to reach the clinic. */}
       {clinicId && (
-        <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm">
-          <h4 className="text-sm font-black text-slate-900">{txt.clinicIdTitle}</h4>
-          <p className="text-xs font-semibold text-slate-500 mt-1 leading-relaxed">{txt.clinicIdHelp}</p>
+        <div className="bg-surface p-6 rounded-3xl border border-slate-200/60 shadow-sm">
+          <h4 className="text-sm font-black text-ink">{txt.clinicIdTitle}</h4>
+          <p className="text-xs font-semibold text-ink-muted mt-1 leading-relaxed">{txt.clinicIdHelp}</p>
           <div className="mt-3 flex flex-col sm:flex-row gap-2">
-            <code className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm text-slate-800 break-all select-all">
+            <code className="flex-1 px-4 py-3 bg-surface-subtle border border-line rounded-xl font-mono text-sm text-slate-800 break-all select-all">
               {clinicId}
             </code>
             <button
@@ -503,7 +503,7 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
           return (
             <div
               key={u.id}
-              className={`bg-white rounded-3xl border shadow-sm transition-all hover:shadow-md relative overflow-hidden flex flex-col ${
+              className={`bg-surface rounded-3xl border shadow-sm transition-all hover:shadow-md relative overflow-hidden flex flex-col ${
                 isOrphan ? "border-red-200 bg-red-50/10" : updatingUserId === u.id ? "border-accent-soft opacity-70" : "border-slate-200/60 hover:border-slate-300"
               }`}
             >
@@ -552,7 +552,7 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
               <div className={`p-6 md:p-8 flex-1 flex flex-col items-center text-center ${isOrphan ? "pt-10" : ""}`}>
                 <div
                   className={`w-20 h-20 rounded-[1.5rem] flex items-center justify-center shadow-sm mb-4 overflow-hidden ${
-                    isOrphan ? "bg-red-50 text-red-500 border border-red-200/60" : "bg-slate-50 border border-slate-200/60"
+                    isOrphan ? "bg-red-50 text-red-500 border border-red-200/60" : "bg-surface-subtle border border-slate-200/60"
                   }`}
                 >
                   {isOrphan ? (
@@ -572,7 +572,7 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
                   )}
                 </div>
                 
-                <h4 className="font-bold text-slate-900 text-lg mb-2 px-4 w-full truncate">
+                <h4 className="font-bold text-ink text-lg mb-2 px-4 w-full truncate">
                   {u.name || txt.unnamed}
                 </h4>
                 
@@ -581,7 +581,7 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
                     className={`text-[10px] px-2.5 py-1 rounded-lg font-bold uppercase tracking-wider border flex items-center gap-1 ${
                       isOwnerRole(u.role)
                         ? "bg-amber-50 border-amber-200 text-amber-700"
-                        : "bg-slate-100 border-slate-200 text-slate-600"
+                        : "bg-surface-muted border-line text-ink-body"
                     }`}
                   >
                     {isOwnerRole(u.role) && <Crown size={10} />}
@@ -594,7 +594,7 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
                   )}
                 </div>
 
-                <p className="text-sm font-medium text-slate-500 w-full truncate px-4">
+                <p className="text-sm font-medium text-ink-muted w-full truncate px-4">
                   {u.email}
                 </p>
               </div>
@@ -607,19 +607,19 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
                       <Shield size={14} /> {txt.accessControl}
                     </p>
                     {!isOrphan && (
-                      <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg bg-slate-50 text-slate-500 border border-slate-200/60">
+                      <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg bg-surface-subtle text-ink-muted border border-slate-200/60">
                         {enabled} {txt.of} {totalAssignable}
                       </span>
                     )}
                   </div>
 
                   {isOrphan ? (
-                    <div className="text-xs font-semibold space-y-2 bg-slate-50 p-3 rounded-xl">
-                      <p className="text-slate-600 flex justify-between">
+                    <div className="text-xs font-semibold space-y-2 bg-surface-subtle p-3 rounded-xl">
+                      <p className="text-ink-body flex justify-between">
                         <span>{txt.authStatus}</span> 
                         <span className="text-green-600 font-bold">{txt.active}</span>
                       </p>
-                      <p className="text-slate-600 flex justify-between">
+                      <p className="text-ink-body flex justify-between">
                         <span>{txt.staffStatus}</span>
                         <span className="text-red-500 font-bold">{txt.missing}</span>
                       </p>
@@ -650,7 +650,7 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
                 {isAr ? "كلمة مرور جديدة لـ" : "New Password For"}{" "}
                 <span className="text-accent-soft">{resetTarget.name}</span>
               </h2>
-              <button type="button" onClick={() => setResetTarget(null)} className="text-slate-400 hover:text-red-500 bg-slate-50 hover:bg-red-50 p-2 rounded-full transition-colors">
+              <button type="button" onClick={() => setResetTarget(null)} className="text-slate-400 hover:text-red-500 bg-surface-subtle hover:bg-red-50 p-2 rounded-full transition-colors">
                 <X size={20} />
               </button>
             </div>
@@ -663,7 +663,7 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
               </div>
 
               <div className="space-y-1.5">
-                <label className={`text-[11px] font-bold text-slate-500 uppercase tracking-wider ${isRTL ? "pr-1" : "pl-1"}`}>
+                <label className={`text-[11px] font-bold text-ink-muted uppercase tracking-wider ${isRTL ? "pr-1" : "pl-1"}`}>
                   {isAr ? "اكتب كلمة المرور الجديدة" : "Type New Password"}
                 </label>
                 <div className="relative">
@@ -675,7 +675,7 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="Minimum 6 characters"
-                    className={`w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all ${
+                    className={`w-full py-3.5 bg-surface-subtle rounded-xl border border-slate-200/60 font-semibold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all ${
                       isRTL ? "pr-11 pl-4" : "pl-11 pr-4"
                     }`}
                   />

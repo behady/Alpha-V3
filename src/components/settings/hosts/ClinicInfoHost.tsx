@@ -146,7 +146,7 @@ export default function ClinicInfoHost({ sectionId, fields, activityLabel, canEd
   );
 
   if (!loaded) {
-    return <div className="h-40 rounded-3xl bg-slate-100 animate-pulse" aria-hidden="true" />;
+    return <div className="h-40 rounded-3xl bg-surface-muted animate-pulse" aria-hidden="true" />;
   }
 
   return <>{children({ clinicData, setClinicData, handleSaveClinic, save, saving, isDirty })}</>;

@@ -216,7 +216,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <div className={`min-h-[100dvh] lg:h-[100dvh] lg:overflow-hidden bg-surface-page text-slate-700 flex ${isRTL ? cairo.className : plusJakartaSans.className} relative z-0`} dir={isRTL ? 'rtl' : 'ltr'}>
       {/* Decorative Minimal Background - Stronger Green/White Gradient */}
       <div className="hidden lg:block absolute inset-0 w-full h-full overflow-hidden pointer-events-none -z-10 bg-gradient-to-br from-surface-subtle via-surface-page to-accent-tint">
-         <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-white rounded-full blur-[120px] opacity-[0.8]"></div>
+         <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-surface rounded-full blur-[120px] opacity-[0.8]"></div>
          <div className="absolute bottom-[-10%] right-[-5%] w-[50%] h-[70%] bg-accent-soft rounded-full blur-[140px] opacity-[0.3]"></div>
       </div>
       <ReceptionSummonOverlay />
@@ -241,11 +241,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {/* MOBILE MENU OVERLAY */}
         {isOpen && (
-           <div className="lg:hidden fixed inset-0 z-[100] bg-white flex flex-col animate-in fade-in slide-in-from-bottom-8 duration-300">
+           <div className="lg:hidden fixed inset-0 z-[100] bg-surface flex flex-col animate-in fade-in slide-in-from-bottom-8 duration-300">
               <div className="flex items-center justify-between p-5 border-b border-slate-100">
                  {logoUrl ? (
                     /* White tile, not the black one: a dark logo on a black square is invisible. */
-                    <div className="w-10 h-10 bg-white border border-slate-200 rounded-xl flex items-center justify-center overflow-hidden shadow-sm p-1">
+                    <div className="w-10 h-10 bg-surface border border-line rounded-xl flex items-center justify-center overflow-hidden shadow-sm p-1">
                        {/* eslint-disable-next-line @next/next/no-img-element */}
                        <img src={logoUrl} alt={clinic?.name || ""} className="max-h-full max-w-full object-contain" />
                     </div>
@@ -278,7 +278,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                        </Link>
                     )
                  })}
-                 <button onClick={() => { toggleLanguage(); setIsOpen(false); }} className="flex items-center w-full gap-4 px-5 py-3.5 rounded-xl font-bold text-slate-600 hover:bg-slate-50 transition-all">
+                 <button onClick={() => { toggleLanguage(); setIsOpen(false); }} className="flex items-center w-full gap-4 px-5 py-3.5 rounded-xl font-bold text-ink-body hover:bg-surface-subtle transition-all">
                     <Languages size={22} />
                     <span className="text-base">{language === 'en' ? 'Switch to Arabic' : 'English'}</span>
                  </button>

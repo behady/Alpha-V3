@@ -160,24 +160,24 @@ export default function RecentlyDeleted() {
 
   return (
     <div className="space-y-6 animate-in fade-in" dir={isRTL ? "rtl" : "ltr"}>
-      <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
+      <div className="bg-surface p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 bg-rose-50 text-rose-600 rounded-2xl flex items-center justify-center">
             <Trash2 size={28} />
           </div>
           <div>
-            <h3 className="text-xl font-bold text-slate-900">{t.title}</h3>
-            <p className="text-sm font-semibold text-slate-500 mt-1">{t.sub}</p>
+            <h3 className="text-xl font-bold text-ink">{t.title}</h3>
+            <p className="text-sm font-semibold text-ink-muted mt-1">{t.sub}</p>
           </div>
         </div>
 
-        <div className="mt-4 flex items-start gap-2 rounded-2xl bg-slate-50 border border-slate-200/60 p-3">
+        <div className="mt-4 flex items-start gap-2 rounded-2xl bg-surface-subtle border border-slate-200/60 p-3">
           <Info size={16} className="text-slate-400 mt-0.5 shrink-0" />
-          <p className="text-xs font-semibold text-slate-500 leading-relaxed">{t.filesNote}</p>
+          <p className="text-xs font-semibold text-ink-muted leading-relaxed">{t.filesNote}</p>
         </div>
       </div>
 
-      <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm">
+      <div className="bg-surface p-6 rounded-3xl border border-slate-200/60 shadow-sm">
         <div className="flex flex-col sm:flex-row gap-3 mb-5">
           <div className="relative flex-1">
             <Search size={16} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? "right-4" : "left-4"}`} />
@@ -185,13 +185,13 @@ export default function RecentlyDeleted() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t.search}
-              className={`w-full py-3 rounded-2xl bg-slate-50 border border-slate-200 text-sm font-semibold outline-none focus:border-slate-400 ${isRTL ? "pr-11 pl-4" : "pl-11 pr-4"}`}
+              className={`w-full py-3 rounded-2xl bg-surface-subtle border border-line text-sm font-semibold outline-none focus:border-slate-400 ${isRTL ? "pr-11 pl-4" : "pl-11 pr-4"}`}
             />
           </div>
           <select
             value={collectionFilter}
             onChange={(e) => setCollectionFilter(e.target.value)}
-            className="py-3 px-4 rounded-2xl bg-slate-50 border border-slate-200 text-sm font-bold outline-none"
+            className="py-3 px-4 rounded-2xl bg-surface-subtle border border-line text-sm font-bold outline-none"
           >
             <option value="all">{t.all}</option>
             {collections.map((c) => (
@@ -215,12 +215,12 @@ export default function RecentlyDeleted() {
             {filtered.map((entry) => (
               <div
                 key={entry.id}
-                className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-2xl border border-slate-200/60 hover:border-slate-300 transition-colors"
+                className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-2xl border border-slate-200/60 hover:border-line-strong transition-colors"
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-black text-slate-900 truncate">{entry.label}</span>
-                    <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-lg bg-slate-100 text-slate-500">
+                    <span className="text-sm font-black text-ink truncate">{entry.label}</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-lg bg-surface-muted text-ink-muted">
                       {prettyCollection(entry.collection)}
                     </span>
                     {entry.hasFiles && (
@@ -229,12 +229,12 @@ export default function RecentlyDeleted() {
                       </span>
                     )}
                     {entry.actionSize > 1 && (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-slate-50 text-slate-400">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-surface-subtle text-slate-400">
                         {entry.actionSize}
                       </span>
                     )}
                   </div>
-                  <p className="text-xs font-semibold text-slate-500 mt-1">
+                  <p className="text-xs font-semibold text-ink-muted mt-1">
                     {t.deletedBy} {entry.deletedByName} · {RELATIVE(entry.deletedAt, ar)}
                     {entry.reason ? ` · ${entry.reason}` : ""}
                   </p>

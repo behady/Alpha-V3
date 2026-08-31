@@ -104,7 +104,7 @@ export default function DeleteAppointmentDialog({ appointmentId, patientName, on
             </span>
             <div>
               <h2 className="text-base font-black text-slate-800">{txt.title}</h2>
-              {patientName && <p className="text-xs font-medium text-slate-500">{patientName}</p>}
+              {patientName && <p className="text-xs font-medium text-ink-muted">{patientName}</p>}
             </div>
           </div>
           <button
@@ -112,7 +112,7 @@ export default function DeleteAppointmentDialog({ appointmentId, patientName, on
             onClick={onCancel}
             disabled={!!submitting}
             aria-label={txt.cancel}
-            className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
+            className="rounded-full p-2 text-slate-400 transition hover:bg-surface-muted hover:text-ink-body disabled:opacity-50"
           >
             <X size={18} />
           </button>
@@ -120,23 +120,23 @@ export default function DeleteAppointmentDialog({ appointmentId, patientName, on
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {loading ? (
-            <p className="flex items-center gap-2 py-6 text-sm font-medium text-slate-500">
+            <p className="flex items-center gap-2 py-6 text-sm font-medium text-ink-muted">
               <Loader2 size={16} className="animate-spin" /> {txt.checking}
             </p>
           ) : error ? (
             <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p>
           ) : services.length === 0 ? (
-            <p className="text-sm font-medium text-slate-600">{txt.noServices}</p>
+            <p className="text-sm font-medium text-ink-body">{txt.noServices}</p>
           ) : (
             <>
-              <p className="mb-3 text-sm font-medium text-slate-600">{txt.intro}</p>
+              <p className="mb-3 text-sm font-medium text-ink-body">{txt.intro}</p>
               <ul className="space-y-2">
                 {services.map((s) => (
-                  <li key={s.noteId} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5">
+                  <li key={s.noteId} className="flex items-center justify-between gap-3 rounded-xl border border-line bg-slate-50/60 px-3 py-2.5">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-bold text-slate-800">{s.name}</p>
                       {s.tooth && s.tooth !== "Gen" && (
-                        <p className="text-[11px] font-medium text-slate-500">{ar ? "أسنان" : "Teeth"}: {s.tooth}</p>
+                        <p className="text-[11px] font-medium text-ink-muted">{ar ? "أسنان" : "Teeth"}: {s.tooth}</p>
                       )}
                     </div>
                     <div className="shrink-0 text-right">
@@ -166,7 +166,7 @@ export default function DeleteAppointmentDialog({ appointmentId, patientName, on
                 type="button"
                 onClick={onCancel}
                 disabled={!!submitting}
-                className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-100 disabled:opacity-50"
+                className="flex-1 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-bold text-ink-body transition hover:bg-surface-muted disabled:opacity-50"
               >
                 {txt.cancel}
               </button>
@@ -222,7 +222,7 @@ export default function DeleteAppointmentDialog({ appointmentId, patientName, on
                 }}
                 disabled={loading || !!submitting || !!error || hasPayments}
                 title={hasPayments ? txt.blocked : undefined}
-                className="w-full rounded-xl border border-rose-200 bg-white px-4 py-3 text-left text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="w-full rounded-xl border border-rose-200 bg-surface px-4 py-3 text-left text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <span className="flex items-center gap-2 text-sm font-bold">
                   {submitting === "delete" && <Loader2 size={14} className="animate-spin" />}
@@ -237,7 +237,7 @@ export default function DeleteAppointmentDialog({ appointmentId, patientName, on
                 type="button"
                 onClick={onCancel}
                 disabled={!!submitting}
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 transition hover:bg-slate-100 disabled:opacity-50"
+                className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-bold text-ink-body transition hover:bg-surface-muted disabled:opacity-50"
               >
                 {txt.cancel}
               </button>

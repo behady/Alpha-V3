@@ -805,7 +805,7 @@ export default function WhatsAppSettings() {
 
   if (!hasLoaded) {
     return (
-      <div className="flex items-center justify-center py-24 text-slate-500">
+      <div className="flex items-center justify-center py-24 text-ink-muted">
         <Loader2 className="animate-spin w-8 h-8 text-primary-500" />
       </div>
     );
@@ -818,18 +818,18 @@ export default function WhatsAppSettings() {
           <MessageCircle size={24} />
         </div>
         <div>
-          <h2 className="text-xl font-black text-slate-900 tracking-tight">{txt.title}</h2>
-          <p className="text-sm text-slate-500 font-medium mt-1">{txt.subtitle}</p>
+          <h2 className="text-xl font-black text-ink tracking-tight">{txt.title}</h2>
+          <p className="text-sm text-ink-muted font-medium mt-1">{txt.subtitle}</p>
         </div>
       </div>
 
-      <section className="rounded-2xl xl:rounded-3xl bg-white border border-violet-200/80 shadow-sm ring-1 ring-violet-100 p-5 xl:p-6 space-y-4">
+      <section className="rounded-2xl xl:rounded-3xl bg-surface border border-violet-200/80 shadow-sm ring-1 ring-violet-100 p-5 xl:p-6 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-center gap-2 text-violet-700">
             <Plug size={18} />
             <div>
               <h3 className="text-sm font-black uppercase tracking-wider text-slate-800">{txt.wapilotCard}</h3>
-              <p className="text-xs text-slate-500 font-medium mt-0.5 max-w-xl">{txt.wapilotHint}</p>
+              <p className="text-xs text-ink-muted font-medium mt-0.5 max-w-xl">{txt.wapilotHint}</p>
             </div>
           </div>
           {wapilotLoading ? (
@@ -862,22 +862,22 @@ export default function WhatsAppSettings() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label className="block">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.instanceId}</span>
+            <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.instanceId}</span>
             <input
               value={wapilotInstanceId}
               onChange={(e) => setWapilotInstanceId(e.target.value)}
-              className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-500/15"
+              className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-violet-500 focus:ring-2 focus:ring-violet-500/15"
               placeholder="e.g. your-wapilot-instance-id"
             />
           </label>
           <label className="block">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.apiToken}</span>
+            <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.apiToken}</span>
             <input
               type="password"
               value={wapilotTokenDraft}
               onChange={(e) => setWapilotTokenDraft(e.target.value)}
               autoComplete="new-password"
-              className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-500/15"
+              className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-violet-500 focus:ring-2 focus:ring-violet-500/15"
               placeholder={txt.tokenPlaceholder}
             />
           </label>
@@ -894,20 +894,20 @@ export default function WhatsAppSettings() {
         {showAdvancedWapilot && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <label className="block">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.apiBaseUrl}</span>
+              <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.apiBaseUrl}</span>
               <input
                 value={wapilotApiBaseUrl}
                 onChange={(e) => setWapilotApiBaseUrl(e.target.value)}
-                className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-violet-500"
+                className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-violet-500"
                 placeholder="https://api.wapilot.net/api/v2"
               />
             </label>
             <label className="block">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.phoneHint}</span>
+              <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.phoneHint}</span>
               <input
                 value={wapilotPhoneHint}
                 onChange={(e) => setWapilotPhoneHint(e.target.value)}
-                className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-violet-500"
+                className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-violet-500"
                 placeholder="+20..."
               />
             </label>
@@ -928,13 +928,13 @@ export default function WhatsAppSettings() {
       {/* Official Meta Cloud API. Above the two-column grid, beside Wapilot's card: they are the
           same decision — how this clinic's messages leave — and reading one without seeing the
           other is how a clinic ends up configured twice or not at all. */}
-      <section className="rounded-2xl xl:rounded-3xl bg-white border border-emerald-200/80 shadow-sm ring-1 ring-emerald-100 p-5 xl:p-6 space-y-4">
+      <section className="rounded-2xl xl:rounded-3xl bg-surface border border-emerald-200/80 shadow-sm ring-1 ring-emerald-100 p-5 xl:p-6 space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-center gap-2 text-emerald-700">
             <MessageCircle size={18} />
             <div>
               <h3 className="text-sm font-black uppercase tracking-wider text-slate-800">{txt.metaCard}</h3>
-              <p className="text-xs text-slate-500 font-medium mt-0.5 max-w-xl">{txt.metaHint}</p>
+              <p className="text-xs text-ink-muted font-medium mt-0.5 max-w-xl">{txt.metaHint}</p>
             </div>
           </div>
           {metaLoading ? (
@@ -954,44 +954,44 @@ export default function WhatsAppSettings() {
 
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.metaPhoneNumberId}</span>
+            <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.metaPhoneNumberId}</span>
             <input
               type="text"
               value={metaPhoneNumberId}
               onChange={(e) => setMetaPhoneNumberId(e.target.value)}
               placeholder="1142062985667803"
-              className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+              className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
             />
           </label>
           <label className="block">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.metaWabaId}</span>
+            <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.metaWabaId}</span>
             <input
               type="text"
               value={metaWabaId}
               onChange={(e) => setMetaWabaId(e.target.value)}
-              className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+              className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
             />
           </label>
         </div>
         <label className="block">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.metaToken}</span>
+          <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.metaToken}</span>
           <input
             type="password"
             value={metaTokenDraft}
             onChange={(e) => setMetaTokenDraft(e.target.value)}
             placeholder={metaStatus?.tokenSet ? txt.metaTokenKept : "EAA..."}
             autoComplete="off"
-            className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+            className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
           />
         </label>
         <label className="block">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.metaTestTo}</span>
+          <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.metaTestTo}</span>
           <input
             type="tel"
             value={metaTestTo}
             onChange={(e) => setMetaTestTo(e.target.value)}
             placeholder="+2010..."
-            className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+            className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
           />
         </label>
         <button
@@ -1007,17 +1007,17 @@ export default function WhatsAppSettings() {
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         {/* Patient automation */}
-        <section className="rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 shadow-sm ring-1 ring-slate-100 p-5 xl:p-6 flex flex-col gap-5">
+        <section className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 shadow-sm ring-1 ring-slate-100 p-5 xl:p-6 flex flex-col gap-5">
           <div className="flex items-center gap-2 text-primary-600">
             <Sparkles size={18} />
             <h3 className="text-sm font-black uppercase tracking-wider text-slate-800">{txt.patientCard}</h3>
           </div>
 
-          <label className="flex items-center justify-between gap-4 cursor-pointer rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
+          <label className="flex items-center justify-between gap-4 cursor-pointer rounded-xl border border-line bg-slate-50/80 px-4 py-3">
             <span className="text-sm font-bold text-slate-700">{txt.patientToggle}</span>
             <input
               type="checkbox"
-              className="h-5 w-5 rounded border-slate-300 text-primary-600 focus:ring-primary-500 shrink-0"
+              className="h-5 w-5 rounded border-line-strong text-primary-600 focus:ring-primary-500 shrink-0"
               checked={state.isPatientAutomationEnabled}
               onChange={(e) => {
                 const checked = e.target.checked;
@@ -1042,13 +1042,13 @@ export default function WhatsAppSettings() {
             </p>
           )}
 
-          <p className="text-xs text-slate-600 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5 leading-relaxed">
+          <p className="text-xs text-ink-body bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5 leading-relaxed">
             {txt.paymentAutomationHint}
           </p>
 
           {/* How messages leave. See WhatsAppDeliveryMode for why manual is a first-class choice. */}
           <div className="space-y-2">
-            <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">{txt.deliveryTitle}</p>
+            <p className="text-[11px] font-black uppercase tracking-widest text-ink-muted">{txt.deliveryTitle}</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {(["auto", "manual"] as const).map((mode) => {
                 // When no choice is stored, show what the server will actually do
@@ -1078,10 +1078,10 @@ export default function WhatsAppSettings() {
                     }
                     className={`text-start rounded-xl border px-4 py-3 transition-all ${
                       locked
-                        ? "border-slate-200 bg-slate-50/60 opacity-70 cursor-not-allowed"
+                        ? "border-line bg-slate-50/60 opacity-70 cursor-not-allowed"
                         : active
                           ? "border-primary-500 bg-primary-50 ring-1 ring-primary-200"
-                          : "border-slate-200 bg-slate-50/80 hover:border-slate-300"
+                          : "border-line bg-slate-50/80 hover:border-line-strong"
                     }`}
                   >
                     <span className="flex items-center gap-2">
@@ -1094,7 +1094,7 @@ export default function WhatsAppSettings() {
                         </span>
                       )}
                     </span>
-                    <span className="block text-xs text-slate-500 mt-1 leading-relaxed">
+                    <span className="block text-xs text-ink-muted mt-1 leading-relaxed">
                       {mode === "auto"
                         ? locked
                           ? txt.deliveryLockedHint
@@ -1134,7 +1134,7 @@ export default function WhatsAppSettings() {
               />
             </label>
             <p className="text-xs font-bold text-indigo-900/80 leading-relaxed">{txt.leadToggle}</p>
-            <p className="text-xs text-slate-600 leading-relaxed">{txt.leadHint}</p>
+            <p className="text-xs text-ink-body leading-relaxed">{txt.leadHint}</p>
             <p className="text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 leading-relaxed">
               {txt.leadWarning}
             </p>
@@ -1161,7 +1161,7 @@ export default function WhatsAppSettings() {
                 }}
               />
             </label>
-            <p className="text-xs text-slate-600 leading-relaxed">{txt.optOutHint}</p>
+            <p className="text-xs text-ink-body leading-relaxed">{txt.optOutHint}</p>
             <p className="text-xs text-amber-900 leading-relaxed">{txt.optOutWarning}</p>
           </div>
 
@@ -1186,7 +1186,7 @@ export default function WhatsAppSettings() {
                 }}
               />
             </label>
-            <p className="text-xs text-slate-600 leading-relaxed">{txt.botHint}</p>
+            <p className="text-xs text-ink-body leading-relaxed">{txt.botHint}</p>
 
             {state.botEnabled === true && (
               <>
@@ -1211,7 +1211,7 @@ export default function WhatsAppSettings() {
                     }}
                   />
                 </label>
-                <p className="text-xs text-slate-500 leading-relaxed">{txt.botStrangersHint}</p>
+                <p className="text-xs text-ink-muted leading-relaxed">{txt.botStrangersHint}</p>
                 <label className="flex items-center justify-between gap-4 cursor-pointer pt-1">
                   <span className="text-sm font-bold text-indigo-950 leading-relaxed">{txt.botAutoConfirm}</span>
                   <input
@@ -1228,7 +1228,7 @@ export default function WhatsAppSettings() {
                     }}
                   />
                 </label>
-                <p className="text-xs text-slate-500 leading-relaxed">{txt.botAutoConfirmHint}</p>
+                <p className="text-xs text-ink-muted leading-relaxed">{txt.botAutoConfirmHint}</p>
                 <label className="flex items-center justify-between gap-4 cursor-pointer pt-1">
                   <span className="text-sm font-bold text-indigo-950 leading-relaxed">{txt.botAi}</span>
                   <input
@@ -1245,8 +1245,8 @@ export default function WhatsAppSettings() {
                     }}
                   />
                 </label>
-                <p className="text-xs text-slate-500 leading-relaxed">{txt.botAiHint}</p>
-                <p className="text-xs text-slate-500 leading-relaxed">{txt.botLimits}</p>
+                <p className="text-xs text-ink-muted leading-relaxed">{txt.botAiHint}</p>
+                <p className="text-xs text-ink-muted leading-relaxed">{txt.botLimits}</p>
 
                 {/*
                   The answers the system does not otherwise hold.
@@ -1256,7 +1256,7 @@ export default function WhatsAppSettings() {
                 */}
                 <div className="pt-4 mt-2 border-t border-indigo-200 space-y-3">
                   <p className="text-[11px] font-black uppercase tracking-widest text-indigo-800">{txt.factsTitle}</p>
-                  <p className="text-xs text-slate-600 leading-relaxed">{txt.factsHint}</p>
+                  <p className="text-xs text-ink-body leading-relaxed">{txt.factsHint}</p>
                   <div className="grid gap-3">
                     {(
                       [
@@ -1277,7 +1277,7 @@ export default function WhatsAppSettings() {
                         <textarea
                           rows={key === "mapsUrl" ? 1 : 2}
                           dir="auto"
-                          className="w-full rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 resize-y"
+                          className="w-full rounded-lg border border-indigo-200 bg-surface px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 resize-y"
                           placeholder={ph}
                           value={state.botFacts?.[key] ?? ""}
                           onChange={(e) => {
@@ -1298,7 +1298,7 @@ export default function WhatsAppSettings() {
 
           {/* Which built-in wording the templates start from. */}
           <div className="space-y-3">
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.packTitle}</p>
+            <p className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.packTitle}</p>
             <div className="grid gap-2 sm:grid-cols-2">
               {(
                 [
@@ -1315,11 +1315,11 @@ export default function WhatsAppSettings() {
                     className={`text-start rounded-xl border p-3 transition-all ${
                       selected
                         ? "border-primary-500 bg-primary-50 ring-2 ring-primary-500/15"
-                        : "border-slate-200 bg-slate-50 hover:border-slate-300"
+                        : "border-line bg-surface-subtle hover:border-line-strong"
                     }`}
                   >
                     <span className="block text-sm font-black text-slate-800">{label}</span>
-                    <span className="block text-xs text-slate-500 mt-1 leading-relaxed">{hint}</span>
+                    <span className="block text-xs text-ink-muted mt-1 leading-relaxed">{hint}</span>
                     {!selected && (
                       <span className="block text-[10px] font-black uppercase tracking-widest text-primary-600 mt-2">
                         {txt.packApply}
@@ -1333,11 +1333,11 @@ export default function WhatsAppSettings() {
 
           <div className="space-y-3">
             <label className="block">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.templateType}</span>
+              <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.templateType}</span>
               <select
                 value={templateType}
                 onChange={(e) => setTemplateType(e.target.value as WhatsAppTemplateType)}
-                className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15"
+                className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15"
               >
                 <option value="new">{txt.types.new}</option>
                 <option value="edit">{txt.types.edit}</option>
@@ -1361,12 +1361,12 @@ export default function WhatsAppSettings() {
                     : txt.templateHint}
             </p>
             <label className="block">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.message}</span>
+              <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.message}</span>
               <textarea
                 value={draftMessage}
                 onChange={(e) => setDraftMessage(e.target.value)}
                 rows={5}
-                className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15 resize-y min-h-[120px]"
+                className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15 resize-y min-h-[120px]"
               />
             </label>
             <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
@@ -1374,7 +1374,7 @@ export default function WhatsAppSettings() {
                 type="checkbox"
                 checked={draftActive}
                 onChange={(e) => setDraftActive(e.target.checked)}
-                className="rounded border-slate-300 text-primary-600 focus:ring-primary-500"
+                className="rounded border-line-strong text-primary-600 focus:ring-primary-500"
               />
               {txt.active}
             </label>
@@ -1391,32 +1391,32 @@ export default function WhatsAppSettings() {
         </section>
 
         {/* Owner alerts */}
-        <section className="rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 shadow-sm ring-1 ring-slate-100 p-5 xl:p-6 flex flex-col gap-5">
+        <section className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 shadow-sm ring-1 ring-slate-100 p-5 xl:p-6 flex flex-col gap-5">
           <h3 className="text-sm font-black uppercase tracking-wider text-slate-800">{txt.ownerCard}</h3>
 
           <label className="block">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.ownerNumber}</span>
+            <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.ownerNumber}</span>
             <input
               type="tel"
               value={state.ownerNumber}
               onChange={(e) => setState((s) => ({ ...s, ownerNumber: e.target.value }))}
               placeholder="+2010..."
-              className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15"
+              className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15"
             />
             <p className="text-xs text-slate-400 mt-1">{txt.ownerHint}</p>
           </label>
 
           <div>
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3">{txt.alertGrid}</p>
-            <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <p className="text-[11px] font-bold text-ink-muted uppercase tracking-wider mb-3">{txt.alertGrid}</p>
+            <div className="overflow-x-auto rounded-xl border border-line">
               <table className="w-full min-w-[320px] text-sm">
                 <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="text-start px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                  <tr className="bg-surface-subtle border-b border-line">
+                    <th className="text-start px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-ink-muted">
                       {language === "ar" ? "الوحدة" : "Module"}
                     </th>
                     {ACTION_HEADERS.map((h) => (
-                      <th key={h.key} className="text-center px-2 py-2.5 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                      <th key={h.key} className="text-center px-2 py-2.5 text-[10px] font-black uppercase tracking-wider text-ink-muted">
                         {language === "ar" ? h.labelAr : h.labelEn}
                       </th>
                     ))}
@@ -1432,7 +1432,7 @@ export default function WhatsAppSettings() {
                         <td key={key} className="text-center py-3">
                           <input
                             type="checkbox"
-                            className="w-4 h-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
+                            className="w-4 h-4 rounded border-line-strong text-primary-600 focus:ring-primary-500 cursor-pointer"
                             checked={Boolean(state.ownerAlerts[key])}
                             onChange={(e) => toggleOwnerAlert(key, e.target.checked)}
                           />
@@ -1447,19 +1447,19 @@ export default function WhatsAppSettings() {
         </section>
       </div>
 
-      <section className="rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 shadow-sm ring-1 ring-slate-100 p-5 xl:p-6 flex flex-col gap-4">
+      <section className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 shadow-sm ring-1 ring-slate-100 p-5 xl:p-6 flex flex-col gap-4">
         <div className="flex items-center gap-2 text-primary-600">
           <Send size={18} />
           <h3 className="text-sm font-black uppercase tracking-wider text-slate-800">{txt.testCard}</h3>
         </div>
-        <p className="text-xs text-slate-500 font-medium">{txt.testHint}</p>
+        <p className="text-xs text-ink-muted font-medium">{txt.testHint}</p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <label className="block">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.testCountry}</span>
+            <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.testCountry}</span>
             <select
               value={testCountryIso}
               onChange={(e) => setTestCountryIso(e.target.value)}
-              className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15"
+              className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15"
             >
               {WHATSAPP_DIAL_COUNTRIES.map((c) => (
                 <option key={c.iso} value={c.iso}>
@@ -1469,7 +1469,7 @@ export default function WhatsAppSettings() {
             </select>
           </label>
           <label className="block">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.testNational}</span>
+            <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.testNational}</span>
             <input
               type="tel"
               inputMode="numeric"
@@ -1477,21 +1477,21 @@ export default function WhatsAppSettings() {
               value={testNational}
               onChange={(e) => setTestNational(e.target.value)}
               placeholder={txt.testNationalPh}
-              className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15"
+              className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15"
             />
           </label>
         </div>
-        <p className="text-xs font-mono text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2">
-          {txt.testPreview}: <span className="font-bold text-slate-900">{testE164Preview || "—"}</span>
+        <p className="text-xs font-mono text-ink-body bg-surface-subtle border border-line rounded-xl px-4 py-2">
+          {txt.testPreview}: <span className="font-bold text-ink">{testE164Preview || "—"}</span>
         </p>
         <label className="block">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.testMessage}</span>
+          <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.testMessage}</span>
           <textarea
             value={testMessage}
             onChange={(e) => setTestMessage(e.target.value)}
             rows={2}
             placeholder="Alpha Dental — test..."
-            className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15 resize-y"
+            className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15 resize-y"
           />
         </label>
         <div>

@@ -157,10 +157,10 @@ export default function LocationsSettings() {
             <Building2 size={20} className="text-teal-600" />
           </div>
           <div>
-            <h2 className="text-base font-black text-slate-900 tracking-tight">
+            <h2 className="text-base font-black text-ink tracking-tight">
               {isAr ? "الفروع والغرف" : "Branches & Rooms"}
             </h2>
-            <p className="text-xs text-slate-500 font-medium mt-0.5">
+            <p className="text-xs text-ink-muted font-medium mt-0.5">
               {isAr
                 ? "أضف فروع العيادة وغرف الكشف (الكراسي) في كل فرع. هتظهر عند حجز المواعيد وفي الحجز الأونلاين."
                 : "Add your clinic branches and the treatment rooms (chairs) in each. They appear when booking appointments and on the online booking page."}
@@ -190,7 +190,7 @@ export default function LocationsSettings() {
             }
           }}
           placeholder={isAr ? "اسم الفرع الجديد… (مثال: فرع مدينة نصر)" : "New branch name… (e.g. Downtown Branch)"}
-          className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all min-w-0"
+          className="flex-1 px-4 py-3 bg-surface border border-line rounded-xl text-sm font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 transition-all min-w-0"
         />
         <button
           onClick={addBranch}
@@ -202,7 +202,7 @@ export default function LocationsSettings() {
       </div>
 
       {branches.length === 0 && (
-        <div className="p-8 text-center text-slate-400 text-sm font-medium bg-white border border-dashed border-slate-200 rounded-2xl">
+        <div className="p-8 text-center text-slate-400 text-sm font-medium bg-surface border border-dashed border-line rounded-2xl">
           {isAr
             ? "مفيش فروع لسه. لو عندك مكان واحد بس، ممكن تسيب الصفحة دي فاضية — كل حاجة هتشتغل عادي."
             : "No branches yet. If you have a single location you can leave this empty — everything keeps working as before."}
@@ -210,7 +210,7 @@ export default function LocationsSettings() {
       )}
 
       {branches.map((branch) => (
-        <div key={branch.id} className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+        <div key={branch.id} className="bg-surface border border-line rounded-2xl shadow-sm overflow-hidden">
           <div className="p-4 sm:p-5 space-y-3">
             <div className="flex items-center gap-2">
               <Building2 size={16} className="text-teal-600 shrink-0" />
@@ -218,7 +218,7 @@ export default function LocationsSettings() {
                 type="text"
                 value={branch.name}
                 onChange={(e) => updateBranch(branch.id, { name: e.target.value })}
-                className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-black text-slate-800 focus:outline-none focus:border-teal-500 transition-all"
+                className="flex-1 min-w-0 px-3 py-2 bg-surface-subtle border border-line rounded-xl text-sm font-black text-slate-800 focus:outline-none focus:border-teal-500 transition-all"
               />
               <button
                 onClick={() => void removeBranch(branch.id)}
@@ -234,10 +234,10 @@ export default function LocationsSettings() {
                 field here that gets printed on paper and written on a bag with a marker — and
                 because the preview beside it is the point: an admin should see MAD-0142 before
                 they commit to MAD. */}
-            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 bg-slate-50/60 border border-slate-200 rounded-xl px-3 py-2.5">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 bg-slate-50/60 border border-line rounded-xl px-3 py-2.5">
               <div className="flex items-center gap-2 shrink-0">
                 <Tag size={14} className="text-slate-400" />
-                <span className="text-[11px] font-black uppercase tracking-wider text-slate-500">
+                <span className="text-[11px] font-black uppercase tracking-wider text-ink-muted">
                   {isAr ? "كود المعمل" : "Lab code"}
                 </span>
               </div>
@@ -252,9 +252,9 @@ export default function LocationsSettings() {
                   })
                 }
                 placeholder={deriveBranchCode(branch.name, branches.indexOf(branch))}
-                className="w-24 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm font-black text-slate-800 tracking-widest text-center uppercase focus:outline-none focus:border-teal-500 transition-all"
+                className="w-24 px-3 py-1.5 bg-surface border border-line rounded-lg text-sm font-black text-slate-800 tracking-widest text-center uppercase focus:outline-none focus:border-teal-500 transition-all"
               />
-              <p className="text-[11px] text-slate-500 font-semibold leading-relaxed min-w-0">
+              <p className="text-[11px] text-ink-muted font-semibold leading-relaxed min-w-0">
                 {isAr ? "أوامر المعمل من الفرع ده هتترقّم " : "Lab orders from this branch will be numbered "}
                 <span className="font-black text-slate-700" dir="ltr">
                   {branchCodeFor(branch, branches.indexOf(branch))}-0001
@@ -279,7 +279,7 @@ export default function LocationsSettings() {
                   value={branch.address || ""}
                   onChange={(e) => updateBranch(branch.id, { address: e.target.value })}
                   placeholder={isAr ? "العنوان (اختياري)" : "Address (optional)"}
-                  className="w-full ps-9 pe-3 py-2 bg-slate-50/60 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 placeholder:text-slate-400 focus:outline-none focus:border-teal-500 transition-all"
+                  className="w-full ps-9 pe-3 py-2 bg-slate-50/60 border border-line rounded-xl text-xs font-bold text-ink-body placeholder:text-slate-400 focus:outline-none focus:border-teal-500 transition-all"
                 />
               </div>
               <div className="relative">
@@ -290,7 +290,7 @@ export default function LocationsSettings() {
                   value={branch.phone || ""}
                   onChange={(e) => updateBranch(branch.id, { phone: e.target.value })}
                   placeholder={isAr ? "التليفون (اختياري)" : "Phone (optional)"}
-                  className="w-full ps-9 pe-3 py-2 bg-slate-50/60 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 placeholder:text-slate-400 focus:outline-none focus:border-teal-500 transition-all"
+                  className="w-full ps-9 pe-3 py-2 bg-slate-50/60 border border-line rounded-xl text-xs font-bold text-ink-body placeholder:text-slate-400 focus:outline-none focus:border-teal-500 transition-all"
                 />
               </div>
             </div>
@@ -307,7 +307,7 @@ export default function LocationsSettings() {
                 {branch.rooms.map((room) => (
                   <span
                     key={room.id}
-                    className="inline-flex items-center gap-1.5 bg-white border border-slate-200 rounded-full ps-3 pe-1.5 py-1.5 text-xs font-bold text-slate-700 shadow-sm"
+                    className="inline-flex items-center gap-1.5 bg-surface border border-line rounded-full ps-3 pe-1.5 py-1.5 text-xs font-bold text-slate-700 shadow-sm"
                   >
                     {room.name}
                     <button
@@ -336,12 +336,12 @@ export default function LocationsSettings() {
                   }
                 }}
                 placeholder={isAr ? "اسم الغرفة… (مثال: غرفة 1)" : "Room name… (e.g. Room 1)"}
-                className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-teal-500 transition-all min-w-0"
+                className="flex-1 px-3 py-2 bg-surface border border-line rounded-xl text-xs font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-teal-500 transition-all min-w-0"
               />
               <button
                 onClick={() => addRoom(branch.id)}
                 disabled={!(newRoomNames[branch.id] || "").trim()}
-                className="px-3 py-2 bg-white border border-slate-200 text-teal-700 rounded-xl hover:bg-teal-50 disabled:opacity-50 transition-colors shrink-0"
+                className="px-3 py-2 bg-surface border border-line text-teal-700 rounded-xl hover:bg-teal-50 disabled:opacity-50 transition-colors shrink-0"
               >
                 <Plus size={16} />
               </button>

@@ -147,15 +147,15 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
       className="max-w-[1600px] w-full mx-auto p-4 md:p-8 pb-24 md:pb-10 font-sans text-slate-800 animate-in fade-in"
       dir={isRTL ? "rtl" : "ltr"}
     >
-      <header className="flex items-center gap-4 bg-white p-6 rounded-[2rem] border border-slate-200/60 shadow-sm mb-6">
+      <header className="flex items-center gap-4 bg-surface p-6 rounded-[2rem] border border-slate-200/60 shadow-sm mb-6">
         <div className="bg-accent-tint p-3.5 rounded-2xl text-accent shrink-0">
           <ActiveIcon size={26} />
         </div>
         <div className="min-w-0">
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight truncate">
+          <h1 className="text-2xl font-black text-ink tracking-tight truncate">
             {activeLabel}
           </h1>
-          <p className="text-sm text-slate-500 font-medium mt-1">{txt.subtitle}</p>
+          <p className="text-sm text-ink-muted font-medium mt-1">{txt.subtitle}</p>
         </div>
       </header>
 
@@ -172,7 +172,7 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
             <button
               onClick={() => setIsPickerOpen((open) => !open)}
               aria-expanded={isPickerOpen}
-              className="w-full bg-white border border-slate-200 px-5 py-4 rounded-2xl flex items-center justify-between font-bold text-slate-700 hover:bg-slate-50 transition-all shadow-sm"
+              className="w-full bg-surface border border-line px-5 py-4 rounded-2xl flex items-center justify-between font-bold text-slate-700 hover:bg-surface-subtle transition-all shadow-sm"
             >
               <span className="flex items-center gap-2 min-w-0">
                 <ActiveIcon size={18} className="text-accent-soft shrink-0" />
@@ -186,7 +186,7 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
 
             {isPickerOpen && (
               <div
-                className={`absolute top-[calc(100%+8px)] ${isRTL ? "left-0" : "right-0"} w-full bg-white border border-slate-200 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95`}
+                className={`absolute top-[calc(100%+8px)] ${isRTL ? "left-0" : "right-0"} w-full bg-surface border border-line rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95`}
               >
                 <div className="max-h-[60vh] overflow-y-auto py-2 custom-scrollbar">
                   {sections.map((section) => {
@@ -198,7 +198,7 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
                         onClick={() => void go(section.route)}
                         data-tour={section.tourAnchor}
                         className={`w-full flex items-center gap-3 px-5 py-3 text-sm font-bold transition-colors ${
-                          isActive ? "bg-accent-tint text-accent" : "text-slate-600 hover:bg-slate-50"
+                          isActive ? "bg-accent-tint text-accent" : "text-ink-body hover:bg-surface-subtle"
                         }`}
                       >
                         <Icon size={18} className={isActive ? "text-accent" : "text-slate-400"} />
@@ -226,7 +226,7 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={txt.search}
                 aria-label={txt.search}
-                className={`w-full py-3 bg-white rounded-2xl border border-slate-200/60 text-sm font-semibold text-slate-900 outline-none focus:border-accent-soft transition-all ${
+                className={`w-full py-3 bg-surface rounded-2xl border border-slate-200/60 text-sm font-semibold text-ink outline-none focus:border-accent-soft transition-all ${
                   isRTL ? "pr-10 pl-9" : "pl-10 pr-9"
                 }`}
               />
@@ -265,8 +265,8 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
                           aria-current={isActive ? "page" : undefined}
                           className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-bold rounded-2xl transition-all text-start ${
                             isActive
-                              ? "bg-white text-accent shadow-sm border border-slate-200/60"
-                              : "text-slate-600 hover:bg-white/60 hover:text-slate-900 border border-transparent"
+                              ? "bg-surface text-accent shadow-sm border border-slate-200/60"
+                              : "text-ink-body hover:bg-white/60 hover:text-ink border border-transparent"
                           }`}
                         >
                           <Icon
@@ -286,7 +286,7 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
           </nav>
         </div>
 
-        <div className="flex-1 min-w-0 bg-white rounded-[2.5rem] border border-slate-200/60 shadow-sm p-4 md:p-8 min-h-[600px]">
+        <div className="flex-1 min-w-0 bg-surface rounded-[2.5rem] border border-slate-200/60 shadow-sm p-4 md:p-8 min-h-[600px]">
           {children}
         </div>
       </div>

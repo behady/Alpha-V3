@@ -353,14 +353,14 @@ export default function LeadsPage() {
               <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
                 {isAr ? "العملاء المحتملين" : "Leads"}
               </h1>
-              <p className="text-xs text-slate-500 font-medium">
+              <p className="text-xs text-ink-muted font-medium">
                 {isAr ? "كل اللي سألوا ولسه محجزوش" : "Everyone who asked but hasn't booked yet"}
               </p>
             </div>
           </div>
           <button
             data-tour="leads-add" onClick={openAdd}
-            className="bg-[#FACC15] hover:bg-[#EAB308] text-slate-900 font-black px-4 sm:px-5 py-2.5 rounded-xl shadow-sm flex items-center gap-2 transition-all active:scale-95"
+            className="bg-[#FACC15] hover:bg-[#EAB308] text-ink font-black px-4 sm:px-5 py-2.5 rounded-xl shadow-sm flex items-center gap-2 transition-all active:scale-95"
           >
             <Plus size={18} strokeWidth={3} /> {isAr ? "إضافة" : "Add lead"}
           </button>
@@ -368,28 +368,28 @@ export default function LeadsPage() {
 
         {/* Month stats */}
         <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 sm:p-4">
+          <div className="bg-surface rounded-2xl border border-slate-100 shadow-sm p-3 sm:p-4">
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{isAr ? "هذا الشهر" : "This month"}</p>
-            <p className="text-2xl font-black text-slate-900 mt-1">{stats.total}</p>
-            <p className="text-[11px] font-bold text-slate-500">{isAr ? "عميل محتمل" : "leads"}</p>
+            <p className="text-2xl font-black text-ink mt-1">{stats.total}</p>
+            <p className="text-[11px] font-bold text-ink-muted">{isAr ? "عميل محتمل" : "leads"}</p>
           </div>
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 sm:p-4">
+          <div className="bg-surface rounded-2xl border border-slate-100 shadow-sm p-3 sm:p-4">
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{isAr ? "وصلوا للكرسي" : "In the chair"}</p>
             <p className="text-2xl font-black text-emerald-600 mt-1">{stats.won}</p>
-            <p className="text-[11px] font-bold text-slate-500">
+            <p className="text-[11px] font-bold text-ink-muted">
               {stats.total > 0 ? `${Math.round((stats.won / stats.total) * 100)}%` : "—"}
             </p>
           </div>
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 sm:p-4">
+          <div className="bg-surface rounded-2xl border border-slate-100 shadow-sm p-3 sm:p-4">
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{isAr ? "متابعة اليوم" : "Due today"}</p>
-            <p className={`text-2xl font-black mt-1 ${stats.dueToday > 0 ? "text-amber-600" : "text-slate-900"}`}>{stats.dueToday}</p>
-            <p className="text-[11px] font-bold text-slate-500">{isAr ? "محتاجين رد" : "need a reply"}</p>
+            <p className={`text-2xl font-black mt-1 ${stats.dueToday > 0 ? "text-amber-600" : "text-ink"}`}>{stats.dueToday}</p>
+            <p className="text-[11px] font-bold text-ink-muted">{isAr ? "محتاجين رد" : "need a reply"}</p>
           </div>
         </div>
 
         {/* Source breakdown */}
         {stats.bySource.length > 0 && (
-          <details className="bg-white rounded-2xl border border-slate-100 shadow-sm mb-4 group">
+          <details className="bg-surface rounded-2xl border border-slate-100 shadow-sm mb-4 group">
             <summary className="cursor-pointer list-none px-4 py-3 flex items-center justify-between text-sm font-black text-slate-700 [&::-webkit-details-marker]:hidden">
               {isAr ? "حسب المصدر (هذا الشهر)" : "By source (this month)"}
               <ChevronDown size={16} className="text-slate-400 group-open:rotate-180 transition-transform" />
@@ -400,7 +400,7 @@ export default function LeadsPage() {
                   <span className="font-bold text-slate-700 flex items-center gap-2">
                     <SourceIcon source={source} size={16} /> {source}
                   </span>
-                  <span className="font-bold text-slate-500 tabular-nums">
+                  <span className="font-bold text-ink-muted tabular-nums">
                     {row.total} {isAr ? "→ كرسي" : "→ chair"} <span className="text-emerald-600">{row.won}</span>
                   </span>
                 </div>
@@ -411,12 +411,12 @@ export default function LeadsPage() {
 
         {/* Filters */}
         <div className="flex flex-col gap-2 mb-4">
-          <div className="flex bg-slate-100 p-1 rounded-xl gap-1 overflow-x-auto no-scrollbar">
+          <div className="flex bg-surface-muted p-1 rounded-xl gap-1 overflow-x-auto no-scrollbar">
             {stageTabs.map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setStageFilter(tab.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${stageFilter === tab.id ? "bg-white text-slate-800 shadow-sm" : "text-slate-500 hover:text-slate-800"}`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${stageFilter === tab.id ? "bg-surface text-slate-800 shadow-sm" : "text-ink-muted hover:text-slate-800"}`}
               >
                 {tab.label}
               </button>
@@ -429,13 +429,13 @@ export default function LeadsPage() {
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
                 placeholder={isAr ? "دور بالاسم أو الرقم أو الحملة…" : "Search name, phone or campaign…"}
-                className="w-full ps-9 pe-3 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-teal-500"
+                className="w-full ps-9 pe-3 py-2 bg-surface border border-line rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-teal-500"
               />
             </div>
             <select
               value={sourceFilter}
               onChange={(e) => setSourceFilter(e.target.value)}
-              className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-600 outline-none focus:border-teal-500"
+              className="bg-surface border border-line rounded-xl px-3 py-2 text-xs font-bold text-ink-body outline-none focus:border-teal-500"
             >
               <option value="">{isAr ? "كل المصادر" : "All sources"}</option>
               {sources.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -444,7 +444,7 @@ export default function LeadsPage() {
               <select
                 value={branchFilter}
                 onChange={(e) => setBranchFilter(e.target.value)}
-                className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-600 outline-none focus:border-teal-500"
+                className="bg-surface border border-line rounded-xl px-3 py-2 text-xs font-bold text-ink-body outline-none focus:border-teal-500"
               >
                 <option value="">{isAr ? "كل الفروع" : "All branches"}</option>
                 {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -457,7 +457,7 @@ export default function LeadsPage() {
         {loading ? (
           <div className="flex justify-center py-16"><Loader2 className="w-6 h-6 text-slate-400 animate-spin" /></div>
         ) : filtered.length === 0 ? (
-          <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-200">
+          <div className="text-center py-16 bg-surface rounded-2xl border border-dashed border-line">
             <p className="text-slate-400 font-bold text-sm">
               {leads.length === 0
                 ? (isAr ? "مفيش عملاء محتملين لسه. أول حد يسأل — سجّله هنا بزر الإضافة." : "No leads yet. The next person who asks — add them with the button above.")
@@ -471,11 +471,11 @@ export default function LeadsPage() {
               const due = isDue(lead);
               const stale = isLeadStale(lead);
               return (
-                <div key={lead.id} className={`bg-white rounded-2xl border shadow-sm p-3 sm:p-4 ${due ? "border-amber-300 ring-1 ring-amber-200" : "border-slate-100"}`}>
+                <div key={lead.id} className={`bg-surface rounded-2xl border shadow-sm p-3 sm:p-4 ${due ? "border-amber-300 ring-1 ring-amber-200" : "border-slate-100"}`}>
                   <div className="flex items-start justify-between gap-2 flex-wrap">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-extrabold text-slate-900 text-sm sm:text-base truncate">{lead.name}</h3>
+                        <h3 className="font-extrabold text-ink text-sm sm:text-base truncate">{lead.name}</h3>
                         <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${styles.pill}`}>
                           {leadStageLabel(lead.stage, isAr ? "ar" : "en")}
                         </span>
@@ -530,13 +530,13 @@ export default function LeadsPage() {
                           </span>
                         )}
                         {stale && (
-                          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 flex items-center gap-1">
+                          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-slate-200 text-ink-body flex items-center gap-1">
                             <Hourglass size={10} /> {isAr ? `ساكن ${STALE_AFTER_DAYS}+ يوم` : `${STALE_AFTER_DAYS}+ days quiet`}
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-slate-500 font-bold mt-1" dir="ltr">{lead.phone}</p>
-                      <p className="text-xs text-slate-600 font-medium mt-1 truncate flex items-center gap-1.5">
+                      <p className="text-xs text-ink-muted font-bold mt-1" dir="ltr">{lead.phone}</p>
+                      <p className="text-xs text-ink-body font-medium mt-1 truncate flex items-center gap-1.5">
                         {lead.source && <SourceIcon source={lead.source} size={14} />}
                         <span className="truncate">{[lead.interest, lead.source, lead.branchName].filter(Boolean).join(" · ")}</span>
                       </p>
@@ -555,7 +555,7 @@ export default function LeadsPage() {
                       >
                         <MessageCircle size={16} />
                       </a>
-                      <a href={`tel:${lead.phone}`} className="p-2 rounded-xl bg-slate-50 text-slate-500 hover:bg-slate-100 transition-colors" title={isAr ? "اتصال" : "Call"}>
+                      <a href={`tel:${lead.phone}`} className="p-2 rounded-xl bg-surface-subtle text-ink-muted hover:bg-surface-muted transition-colors" title={isAr ? "اتصال" : "Call"}>
                         <Phone size={16} />
                       </a>
                       {lead.stage !== "won" && (
@@ -585,14 +585,14 @@ export default function LeadsPage() {
                     <select
                       value={lead.stage} data-tour="leads-stage"
                       onChange={(e) => void setStage(lead, e.target.value as LeadStage)}
-                      className="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-[11px] font-bold text-slate-600 outline-none focus:border-teal-500"
+                      className="bg-surface-subtle border border-line rounded-lg px-2 py-1.5 text-[11px] font-bold text-ink-body outline-none focus:border-teal-500"
                     >
                       {LEAD_STAGES.map((s) => (
                         <option key={s} value={s}>{leadStageLabel(s, isAr ? "ar" : "en")}</option>
                       ))}
                     </select>
                     <div className="flex items-center gap-2">
-                      <button onClick={() => openEdit(lead)} className="text-[11px] font-bold text-slate-500 hover:text-slate-800 px-2 py-1 rounded-lg hover:bg-slate-50 transition-colors">
+                      <button onClick={() => openEdit(lead)} className="text-[11px] font-bold text-ink-muted hover:text-slate-800 px-2 py-1 rounded-lg hover:bg-surface-subtle transition-colors">
                         {isAr ? "تعديل" : "Edit"}
                       </button>
                       {isAdmin && (
@@ -618,7 +618,7 @@ export default function LeadsPage() {
                 <h2 className="font-black text-slate-900">
                   {editingLead ? (isAr ? "تعديل" : "Edit lead") : (isAr ? "عميل محتمل جديد" : "New lead")}
                 </h2>
-                <button onClick={() => setShowAdd(false)} className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition-colors"><X size={18} /></button>
+                <button onClick={() => setShowAdd(false)} className="p-2 text-slate-400 hover:text-slate-700 hover:bg-surface-muted rounded-full transition-colors"><X size={18} /></button>
               </div>
               <div className="p-5 space-y-3">
                 <input
@@ -626,14 +626,14 @@ export default function LeadsPage() {
                   value={form.name} data-tour="leads-name"
                   onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                   placeholder={isAr ? "الاسم *" : "Name *"}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none focus:border-teal-500"
+                  className="w-full px-4 py-3 bg-surface-subtle border border-line rounded-xl text-sm font-bold text-slate-800 outline-none focus:border-teal-500"
                 />
                 <div className="flex gap-2">
                   {!form.phone.startsWith("+") && (
                     <select
                       value={form.countryCode}
                       onChange={(e) => setForm((f) => ({ ...f, countryCode: e.target.value }))}
-                      className="w-28 px-2 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-teal-500"
+                      className="w-28 px-2 py-3 bg-surface-subtle border border-line rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-teal-500"
                     >
                       {COUNTRY_CODE_OPTIONS.map((opt) => (
                         <option key={opt.code} value={opt.code}>{opt.code} {opt.label.split(" ")[0]}</option>
@@ -645,14 +645,14 @@ export default function LeadsPage() {
                     onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
                     placeholder={isAr ? "رقم الموبايل *" : "Phone *"}
                     dir="ltr"
-                    className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none focus:border-teal-500"
+                    className="flex-1 px-4 py-3 bg-surface-subtle border border-line rounded-xl text-sm font-bold text-slate-800 outline-none focus:border-teal-500"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <select
                     value={form.source}
                     onChange={(e) => setForm((f) => ({ ...f, source: e.target.value }))}
-                    className="px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-teal-500"
+                    className="px-3 py-3 bg-surface-subtle border border-line rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-teal-500"
                   >
                     <option value="">{isAr ? "المصدر…" : "Source…"}</option>
                     {sources.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -662,7 +662,7 @@ export default function LeadsPage() {
                     value={form.interest}
                     onChange={(e) => setForm((f) => ({ ...f, interest: e.target.value }))}
                     placeholder={isAr ? "سأل عن…" : "Asked about…"}
-                    className="px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-teal-500 min-w-0"
+                    className="px-3 py-3 bg-surface-subtle border border-line rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-teal-500 min-w-0"
                   />
                   <datalist id="lead-interests">
                     {servicesList.map((s) => <option key={s} value={s} />)}
@@ -674,7 +674,7 @@ export default function LeadsPage() {
                     <select
                       value={form.branchId}
                       onChange={(e) => setForm((f) => ({ ...f, branchId: e.target.value }))}
-                      className="w-full ps-9 pe-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-teal-500 appearance-none"
+                      className="w-full ps-9 pe-3 py-3 bg-surface-subtle border border-line rounded-xl text-xs font-bold text-slate-700 outline-none focus:border-teal-500 appearance-none"
                     >
                       <option value="">{isAr ? "الفرع (اختياري)" : "Branch (optional)"}</option>
                       {branches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -690,7 +690,7 @@ export default function LeadsPage() {
                     value={form.followUpDate}
                     min={todayStr}
                     onChange={(e) => setForm((f) => ({ ...f, followUpDate: e.target.value }))}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-teal-500"
+                    className="w-full px-4 py-3 bg-surface-subtle border border-line rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-teal-500"
                   />
                 </div>
                 <textarea
@@ -698,11 +698,11 @@ export default function LeadsPage() {
                   onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
                   placeholder={isAr ? "ملاحظات…" : "Notes…"}
                   rows={2}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 outline-none focus:border-teal-500 resize-none"
+                  className="w-full px-4 py-3 bg-surface-subtle border border-line rounded-xl text-sm font-medium text-slate-700 outline-none focus:border-teal-500 resize-none"
                 />
               </div>
               <div className="flex gap-2 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom,0px))]">
-                <button onClick={() => setShowAdd(false)} className="flex-1 py-3 rounded-xl border border-slate-200 bg-white text-xs font-black uppercase tracking-wide text-slate-600 hover:bg-slate-50 transition-colors">
+                <button onClick={() => setShowAdd(false)} className="flex-1 py-3 rounded-xl border border-line bg-surface text-xs font-black uppercase tracking-wide text-ink-body hover:bg-surface-subtle transition-colors">
                   {isAr ? "إلغاء" : "Cancel"}
                 </button>
                 <button

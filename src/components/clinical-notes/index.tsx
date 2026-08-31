@@ -363,7 +363,7 @@ export default function ClinicalNotesContainer({
               <div className="flex items-center gap-2 mt-3">
                 <button
                   onClick={() => setLabModalOpen(true)}
-                  className="px-4 py-2 rounded-xl bg-white text-slate-900 text-[11px] font-black uppercase tracking-wide hover:bg-slate-200 transition-colors"
+                  className="px-4 py-2 rounded-xl bg-surface text-ink text-[11px] font-black uppercase tracking-wide hover:bg-slate-200 transition-colors"
                 >
                   {language === "ar" ? "اعمل أمر معمل" : "Create lab order"}
                 </button>

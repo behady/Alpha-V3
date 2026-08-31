@@ -319,7 +319,7 @@ export default function DentistReport({ procedures, payments, rangeLabel, isAr }
     return (
       <div className="flex flex-col items-center justify-center py-16 text-slate-400">
         <UserCheck size={40} className="mb-3 opacity-30" />
-        <p className="font-bold text-slate-500">{isAr ? "لا توجد بيانات أطباء في هذه الفترة" : "No dentist data in this period"}</p>
+        <p className="font-bold text-ink-muted">{isAr ? "لا توجد بيانات أطباء في هذه الفترة" : "No dentist data in this period"}</p>
       </div>
     );
   }
@@ -365,8 +365,8 @@ export default function DentistReport({ procedures, payments, rangeLabel, isAr }
       {activeDentist && (
         <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
           {/* Pie Chart */}
-          <div className="xl:col-span-5 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-            <h3 className="text-sm font-black text-slate-900 mb-1">Dr. {activeDentist.name}</h3>
+          <div className="xl:col-span-5 bg-surface rounded-2xl border border-line p-5 shadow-sm">
+            <h3 className="text-sm font-black text-ink mb-1">Dr. {activeDentist.name}</h3>
             {/* Export hint */}
             <div className="flex items-center gap-2 text-[11px] text-slate-400 font-medium pt-2">
               <FileBarChart size={14} />
@@ -402,7 +402,7 @@ export default function DentistReport({ procedures, payments, rangeLabel, isAr }
               {[
                 { l: isAr ? "الدخل" : "Income", v: `${activeDentist.totalIncome.toLocaleString()}`, c: "text-emerald-600" },
                 { l: isAr ? "العمولة" : "Comm.", v: `${activeDentist.commission.toLocaleString()}`, c: "text-amber-600" },
-                { l: isAr ? "الصافي" : "Net", v: `${activeDentist.netToClinic.toLocaleString()}`, c: "text-slate-900" },
+                { l: isAr ? "الصافي" : "Net", v: `${activeDentist.netToClinic.toLocaleString()}`, c: "text-ink" },
               ].map((k) => (
                 <div key={k.l} className="text-center">
                   <p className="text-[9px] font-black text-slate-400 uppercase">{k.l}</p>
@@ -413,16 +413,16 @@ export default function DentistReport({ procedures, payments, rangeLabel, isAr }
           </div>
 
           {/* Bar chart per procedure */}
-          <div className="xl:col-span-7 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+          <div className="xl:col-span-7 bg-surface rounded-2xl border border-line p-5 shadow-sm">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-black text-slate-900">
+              <h3 className="text-sm font-black text-ink">
                 {isAr ? "الإجراءات بالتفصيل" : "Procedure Detail"}
               </h3>
               <div className="flex items-center gap-2">
                 <select
                   value={selectedDentist || dentistNames[0]}
                   onChange={(e) => setSelectedDentist(e.target.value)}
-                  className="px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-bold bg-white outline-none"
+                  className="px-3 py-1.5 rounded-xl border border-line text-xs font-bold bg-surface outline-none"
                 >
                   {dentistNames.map((n) => <option key={n} value={n}>Dr. {n}</option>)}
                 </select>

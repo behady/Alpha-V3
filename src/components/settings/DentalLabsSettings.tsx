@@ -154,10 +154,10 @@ export default function DentalLabsSettings() {
             <FlaskConical size={20} className="text-sky-600" />
           </div>
           <div>
-            <h2 className="text-base font-black text-slate-900 tracking-tight">
+            <h2 className="text-base font-black text-ink tracking-tight">
               {isAr ? "المعامل" : "Dental Labs"}
             </h2>
-            <p className="text-xs text-slate-500 font-medium mt-0.5">
+            <p className="text-xs text-ink-muted font-medium mt-0.5">
               {isAr
                 ? "المعامل اللي بتبعتلها شغل. هتظهر عند إنشاء أمر معمل، وميعاد التسليم بيتحسب لوحده من مدة كل معمل."
                 : "The labs you send work to. They appear when raising a lab order, and each lab's usual turnaround fills the due date in for you."}
@@ -187,7 +187,7 @@ export default function DentalLabsSettings() {
             }
           }}
           placeholder={isAr ? "اسم المعمل الجديد… (مثال: معمل النور)" : "New lab name… (e.g. Cairo Dental Lab)"}
-          className="flex-1 px-4 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 transition-all min-w-0"
+          className="flex-1 px-4 py-3 bg-surface border border-line rounded-xl text-sm font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 transition-all min-w-0"
         />
         <button
           onClick={addLab}
@@ -199,7 +199,7 @@ export default function DentalLabsSettings() {
       </div>
 
       {labs.length === 0 && (
-        <div className="p-8 text-center text-slate-400 text-sm font-medium bg-white border border-dashed border-slate-200 rounded-2xl">
+        <div className="p-8 text-center text-slate-400 text-sm font-medium bg-surface border border-dashed border-line rounded-2xl">
           {isAr
             ? "مفيش معامل لسه. ضيف معمل واحد على الأقل عشان تقدر تعمل أمر معمل."
             : "No labs yet. Add at least one before raising a lab order."}
@@ -207,7 +207,7 @@ export default function DentalLabsSettings() {
       )}
 
       {labs.map((lab) => (
-        <div key={lab.id} className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+        <div key={lab.id} className="bg-surface border border-line rounded-2xl shadow-sm overflow-hidden">
           <div className="p-4 sm:p-5 space-y-3">
             <div className="flex items-center gap-2">
               <FlaskConical size={16} className="text-sky-600 shrink-0" />
@@ -215,7 +215,7 @@ export default function DentalLabsSettings() {
                 type="text"
                 value={lab.name}
                 onChange={(e) => updateLab(lab.id, { name: e.target.value })}
-                className="flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-black text-slate-800 focus:outline-none focus:border-sky-500 transition-all"
+                className="flex-1 min-w-0 px-3 py-2 bg-surface-subtle border border-line rounded-xl text-sm font-black text-slate-800 focus:outline-none focus:border-sky-500 transition-all"
               />
               <button
                 onClick={() => void removeLab(lab.id)}
@@ -235,7 +235,7 @@ export default function DentalLabsSettings() {
                   value={lab.phone || ""}
                   onChange={(e) => updateLab(lab.id, { phone: e.target.value })}
                   placeholder={isAr ? "التليفون" : "Phone"}
-                  className="w-full ps-9 pe-3 py-2 bg-slate-50/60 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 placeholder:text-slate-400 focus:outline-none focus:border-sky-500 transition-all"
+                  className="w-full ps-9 pe-3 py-2 bg-slate-50/60 border border-line rounded-xl text-xs font-bold text-ink-body placeholder:text-slate-400 focus:outline-none focus:border-sky-500 transition-all"
                 />
               </div>
               <div className="relative">
@@ -246,7 +246,7 @@ export default function DentalLabsSettings() {
                   value={lab.whatsapp || ""}
                   onChange={(e) => updateLab(lab.id, { whatsapp: e.target.value })}
                   placeholder={isAr ? "واتساب (لو مختلف)" : "WhatsApp (if different)"}
-                  className="w-full ps-9 pe-3 py-2 bg-slate-50/60 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 placeholder:text-slate-400 focus:outline-none focus:border-sky-500 transition-all"
+                  className="w-full ps-9 pe-3 py-2 bg-slate-50/60 border border-line rounded-xl text-xs font-bold text-ink-body placeholder:text-slate-400 focus:outline-none focus:border-sky-500 transition-all"
                 />
               </div>
               <div className="relative">
@@ -256,7 +256,7 @@ export default function DentalLabsSettings() {
                   value={lab.driverName || ""}
                   onChange={(e) => updateLab(lab.id, { driverName: e.target.value })}
                   placeholder={isAr ? "اسم المندوب (اختياري)" : "Driver's name (optional)"}
-                  className="w-full ps-9 pe-3 py-2 bg-slate-50/60 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 placeholder:text-slate-400 focus:outline-none focus:border-sky-500 transition-all"
+                  className="w-full ps-9 pe-3 py-2 bg-slate-50/60 border border-line rounded-xl text-xs font-bold text-ink-body placeholder:text-slate-400 focus:outline-none focus:border-sky-500 transition-all"
                 />
               </div>
               <div className="relative">
@@ -275,7 +275,7 @@ export default function DentalLabsSettings() {
                     })
                   }
                   placeholder={isAr ? "مدة التسليم بالأيام" : "Usual turnaround (days)"}
-                  className="w-full ps-9 pe-3 py-2 bg-slate-50/60 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 placeholder:text-slate-400 focus:outline-none focus:border-sky-500 transition-all"
+                  className="w-full ps-9 pe-3 py-2 bg-slate-50/60 border border-line rounded-xl text-xs font-bold text-ink-body placeholder:text-slate-400 focus:outline-none focus:border-sky-500 transition-all"
                 />
               </div>
               <div className="relative sm:col-span-2">
@@ -285,7 +285,7 @@ export default function DentalLabsSettings() {
                   value={lab.address || ""}
                   onChange={(e) => updateLab(lab.id, { address: e.target.value })}
                   placeholder={isAr ? "العنوان (اختياري)" : "Address (optional)"}
-                  className="w-full ps-9 pe-3 py-2 bg-slate-50/60 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 placeholder:text-slate-400 focus:outline-none focus:border-sky-500 transition-all"
+                  className="w-full ps-9 pe-3 py-2 bg-slate-50/60 border border-line rounded-xl text-xs font-bold text-ink-body placeholder:text-slate-400 focus:outline-none focus:border-sky-500 transition-all"
                 />
               </div>
             </div>
@@ -294,7 +294,7 @@ export default function DentalLabsSettings() {
                 Collapsed by default: twelve work types is a long list, and most labs are priced
                 for three or four of them. The summary line carries the only number that matters
                 when it is shut. */}
-            <div className="border border-slate-200 rounded-xl overflow-hidden">
+            <div className="border border-line rounded-xl overflow-hidden">
               <button
                 type="button"
                 onClick={() => setOpenPrices((prev) => ({ ...prev, [lab.id]: !prev[lab.id] }))}
@@ -302,7 +302,7 @@ export default function DentalLabsSettings() {
               >
                 <span className="flex items-center gap-2 min-w-0">
                   <Coins size={14} className="text-slate-400 shrink-0" />
-                  <span className="text-[11px] font-black uppercase tracking-wider text-slate-600">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-ink-body">
                     {isAr ? "أسعار المعمل" : "Price list"}
                   </span>
                   <span className="text-[11px] font-bold text-slate-400 truncate">
@@ -320,15 +320,15 @@ export default function DentalLabsSettings() {
               </button>
 
               {openPrices[lab.id] && (
-                <div className="p-3 space-y-1.5 bg-white border-t border-slate-200">
-                  <p className="text-[11px] font-semibold text-slate-500 leading-relaxed mb-2">
+                <div className="p-3 space-y-1.5 bg-surface border-t border-line">
+                  <p className="text-[11px] font-semibold text-ink-muted leading-relaxed mb-2">
                     {isAr
                       ? "سيب الخانة فاضية لو المعمل ده مبيعملش النوع ده، أو لسه مفيش سعر متفق عليه. السعر بيتحط لوحده في أمر المعمل، وتقدر تغيّره في أي أمر."
                       : "Leave a box empty for work this lab does not do, or has no agreed price for. The price fills itself in when an order is raised, and can still be changed on any order."}
                   </p>
                   {LAB_WORK_TYPES.map((w) => (
                     <div key={w.id} className="flex items-center gap-2">
-                      <span className="flex-1 min-w-0 text-xs font-bold text-slate-600 truncate">
+                      <span className="flex-1 min-w-0 text-xs font-bold text-ink-body truncate">
                         {isAr ? w.ar : w.en}
                       </span>
                       <div className="relative shrink-0">
@@ -352,7 +352,7 @@ export default function DentalLabsSettings() {
                             })
                           }
                           placeholder="—"
-                          className="w-28 ps-3 pe-10 py-1.5 bg-slate-50/60 border border-slate-200 rounded-lg text-xs font-bold text-slate-700 text-end placeholder:text-slate-300 focus:outline-none focus:border-sky-500 transition-all tabular-nums"
+                          className="w-28 ps-3 pe-10 py-1.5 bg-slate-50/60 border border-line rounded-lg text-xs font-bold text-slate-700 text-end placeholder:text-slate-300 focus:outline-none focus:border-sky-500 transition-all tabular-nums"
                         />
                         <span className="absolute end-2.5 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400 pointer-events-none">
                           EGP
@@ -378,7 +378,7 @@ export default function DentalLabsSettings() {
       {/* Paper size.
           Below the labs rather than above them, because it is set once and then never touched
           again — putting it first would make the screen open on the thing nobody came for. */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-4 sm:p-5 space-y-3">
+      <div className="bg-surface border border-line rounded-2xl shadow-sm p-4 sm:p-5 space-y-3">
         <div className="flex items-center gap-2">
           <Printer size={16} className="text-slate-400 shrink-0" />
           <h3 className="text-sm font-black text-slate-800">
@@ -396,13 +396,13 @@ export default function DentalLabsSettings() {
                 className={`w-full text-start px-4 py-3 rounded-xl border transition-all ${
                   active
                     ? "bg-sky-50 border-sky-400 ring-4 ring-sky-500/10"
-                    : "bg-slate-50/60 border-slate-200 hover:bg-white"
+                    : "bg-slate-50/60 border-line hover:bg-surface"
                 }`}
               >
                 <span className={`block text-sm font-black ${active ? "text-sky-800" : "text-slate-700"}`}>
                   {isAr ? opt.ar : opt.en}
                 </span>
-                <span className="block text-[11px] font-semibold text-slate-500 mt-0.5 leading-relaxed">
+                <span className="block text-[11px] font-semibold text-ink-muted mt-0.5 leading-relaxed">
                   {isAr ? opt.hintAr : opt.hintEn}
                 </span>
               </button>

@@ -881,9 +881,9 @@ export default function MobileDashboard() {
         <div className="hidden lg:flex items-end justify-between shrink-0 pt-4 pb-2">
           <div className="flex flex-col min-w-0">
             <h1 className="text-4xl font-light text-slate-800 tracking-tight">
-              {language === 'ar' ? 'أهلاً بك،' : 'Welcome in,'} <span className="font-normal text-slate-900">{getWelcomeName(user?.name)}</span>
+              {language === 'ar' ? 'أهلاً بك،' : 'Welcome in,'} <span className="font-normal text-ink">{getWelcomeName(user?.name)}</span>
             </h1>
-            <p className="flex items-center gap-3 text-sm font-medium text-slate-500 mt-2">
+            <p className="flex items-center gap-3 text-sm font-medium text-ink-muted mt-2">
               <DashboardClockWidget language={language} showTime={true} />
             </p>
           </div>
@@ -908,19 +908,19 @@ export default function MobileDashboard() {
               <Wallet size={18} className="text-slate-400" />
             </div>
             <span className="text-3xl font-light tracking-tight">
-              {dailyIncome === null ? <Loader2 className="w-6 h-6 animate-spin text-slate-500" /> : <><span className="font-normal">{dailyIncome?.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}</span> <span className="text-lg text-slate-400">{language === 'ar' ? 'ج.م' : 'EGP'}</span></>}
+              {dailyIncome === null ? <Loader2 className="w-6 h-6 animate-spin text-ink-muted" /> : <><span className="font-normal">{dailyIncome?.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}</span> <span className="text-lg text-slate-400">{language === 'ar' ? 'ج.م' : 'EGP'}</span></>}
             </span>
           </div>
 
           {/* Total Appointments - Floating Huge Number */}
           <div className="flex flex-col justify-center px-4">
-            <span className="text-sm font-medium text-slate-500 mb-1">{language === 'ar' ? 'المواعيد' : 'Appointments'}</span>
+            <span className="text-sm font-medium text-ink-muted mb-1">{language === 'ar' ? 'المواعيد' : 'Appointments'}</span>
             <span className="text-5xl font-light text-slate-800 tracking-tighter leading-none">{activeAppointmentsCount}</span>
           </div>
 
           {/* Status Distribution - Abstract Chart */}
           <div className="flex flex-col justify-center px-4 flex-1 max-w-sm">
-            <div className="flex items-center justify-between text-sm font-medium text-slate-500 mb-3">
+            <div className="flex items-center justify-between text-sm font-medium text-ink-muted mb-3">
               <span>{language === 'ar' ? 'حالة المواعيد' : 'Status Distribution'}</span>
               <span>{Math.round(((summaryStats.confirmed + summaryStats.checkedIn + summaryStats.inChair + summaryStats.completed) / (activeAppointmentsCount || 1)) * 100)}%</span>
             </div>
@@ -948,7 +948,7 @@ export default function MobileDashboard() {
           <div className="flex items-center justify-between bg-white/80 backdrop-blur-xl border border-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-full p-1.5 mx-1 mt-1">
             <div className="flex items-center gap-2">
               <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-emerald-400 to-teal-400 p-[1.5px] shadow-sm shrink-0">
-                <div className="w-full h-full rounded-full bg-white flex items-center justify-center overflow-hidden border-2 border-white">
+                <div className="w-full h-full rounded-full bg-surface flex items-center justify-center overflow-hidden border-2 border-white">
                   {/* Fallback to initials if no avatar */}
                   <span className="text-emerald-600 font-black text-sm">
                     {getWelcomeName(user?.name).charAt(0).toUpperCase()}
@@ -997,20 +997,20 @@ export default function MobileDashboard() {
                 {/* Status Cards (2x2 grid inside the other half) - Cleaner palette with icons */}
                 <div className="grid grid-cols-2 gap-2">
                     <div className="bg-white/60 backdrop-blur-xl border border-white rounded-[1.2rem] p-3 flex flex-col justify-center items-center shadow-[0_4px_20px_rgb(0,0,0,0.03)]">
-                        <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest mb-1 flex items-center gap-1.5"><Check size={12} strokeWidth={3} className="text-sky-500" /> {language === 'ar' ? 'مؤكد' : 'Confirm'}</span>
-                        <span className="text-2xl font-black text-slate-900 leading-none mt-0.5">{summaryStats.confirmed}</span>
+                        <span className="text-[10px] font-black text-ink uppercase tracking-widest mb-1 flex items-center gap-1.5"><Check size={12} strokeWidth={3} className="text-sky-500" /> {language === 'ar' ? 'مؤكد' : 'Confirm'}</span>
+                        <span className="text-2xl font-black text-ink leading-none mt-0.5">{summaryStats.confirmed}</span>
                     </div>
                     <div className="bg-white/60 backdrop-blur-xl border border-white rounded-[1.2rem] p-3 flex flex-col justify-center items-center shadow-[0_4px_20px_rgb(0,0,0,0.03)]">
-                        <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest mb-1 flex items-center gap-1.5"><Clock size={12} strokeWidth={3} className="text-amber-500" /> {language === 'ar' ? 'متأخر' : 'Delay'}</span>
-                        <span className="text-2xl font-black text-slate-900 leading-none mt-0.5">{summaryStats.delayed}</span>
+                        <span className="text-[10px] font-black text-ink uppercase tracking-widest mb-1 flex items-center gap-1.5"><Clock size={12} strokeWidth={3} className="text-amber-500" /> {language === 'ar' ? 'متأخر' : 'Delay'}</span>
+                        <span className="text-2xl font-black text-ink leading-none mt-0.5">{summaryStats.delayed}</span>
                     </div>
                     <div className="bg-white/60 backdrop-blur-xl border border-white rounded-[1.2rem] p-3 flex flex-col justify-center items-center shadow-[0_4px_20px_rgb(0,0,0,0.03)]">
-                        <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest mb-1 flex items-center gap-1.5"><Check size={12} strokeWidth={3} className="text-emerald-500" /> {language === 'ar' ? 'تمت' : 'Done'}</span>
-                        <span className="text-2xl font-black text-slate-900 leading-none mt-0.5">{summaryStats.completed}</span>
+                        <span className="text-[10px] font-black text-ink uppercase tracking-widest mb-1 flex items-center gap-1.5"><Check size={12} strokeWidth={3} className="text-emerald-500" /> {language === 'ar' ? 'تمت' : 'Done'}</span>
+                        <span className="text-2xl font-black text-ink leading-none mt-0.5">{summaryStats.completed}</span>
                     </div>
                     <div className="bg-white/60 backdrop-blur-xl border border-white rounded-[1.2rem] p-3 flex flex-col justify-center items-center shadow-[0_4px_20px_rgb(0,0,0,0.03)]">
-                        <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest mb-1 flex items-center gap-1.5"><X size={12} strokeWidth={3} className="text-rose-500" /> {language === 'ar' ? 'ملغي' : 'Cancel'}</span>
-                        <span className="text-2xl font-black text-slate-900 leading-none mt-0.5">{summaryStats.canceled}</span>
+                        <span className="text-[10px] font-black text-ink uppercase tracking-widest mb-1 flex items-center gap-1.5"><X size={12} strokeWidth={3} className="text-rose-500" /> {language === 'ar' ? 'ملغي' : 'Cancel'}</span>
+                        <span className="text-2xl font-black text-ink leading-none mt-0.5">{summaryStats.canceled}</span>
                     </div>
                 </div>
              </div>
@@ -1027,7 +1027,7 @@ export default function MobileDashboard() {
               onClick={() => setActiveModal('patient')}
               className="w-full flex items-center py-3 px-4 rounded-[1.2rem] bg-white/60 backdrop-blur-xl border border-white shadow-[0_4px_20px_rgb(0,0,0,0.03)] active:scale-[0.98] transition-transform"
             >
-              <div className="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center shrink-0"><User size={16} strokeWidth={2.5} className="text-slate-800" /></div>
+              <div className="w-8 h-8 rounded-full bg-surface shadow-sm flex items-center justify-center shrink-0"><User size={16} strokeWidth={2.5} className="text-slate-800" /></div>
               <span className="text-lg font-black text-slate-800 flex-1 text-center">{language === 'ar' ? 'مريض جديد' : 'New Patient'}</span>
               <div className="w-8 h-8 shrink-0"></div>
             </button>
@@ -1036,7 +1036,7 @@ export default function MobileDashboard() {
               onClick={() => { setAppointmentToEdit(null); setActiveModal('booking'); }}
               className="w-full flex items-center py-3 px-4 rounded-[1.2rem] bg-white/60 backdrop-blur-xl border border-white shadow-[0_4px_20px_rgb(0,0,0,0.03)] active:scale-[0.98] transition-transform"
             >
-              <div className="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center shrink-0"><Calendar size={16} strokeWidth={2.5} className="text-slate-800" /></div>
+              <div className="w-8 h-8 rounded-full bg-surface shadow-sm flex items-center justify-center shrink-0"><Calendar size={16} strokeWidth={2.5} className="text-slate-800" /></div>
               <span className="text-lg font-black text-slate-800 flex-1 text-center">{language === 'ar' ? 'حجز موعد' : 'New Visit'}</span>
               <div className="w-8 h-8 shrink-0"></div>
             </button>
@@ -1045,7 +1045,7 @@ export default function MobileDashboard() {
               onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }}
               className="w-full flex items-center py-3 px-4 rounded-[1.2rem] bg-white/60 backdrop-blur-xl border border-white shadow-[0_4px_20px_rgb(0,0,0,0.03)] active:scale-[0.98] transition-transform"
             >
-              <div className="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center shrink-0"><Wallet size={16} strokeWidth={2.5} className="text-slate-800" /></div>
+              <div className="w-8 h-8 rounded-full bg-surface shadow-sm flex items-center justify-center shrink-0"><Wallet size={16} strokeWidth={2.5} className="text-slate-800" /></div>
               <span className="text-lg font-black text-slate-800 flex-1 text-center">{language === 'ar' ? 'دفع سريع' : 'Quick Pay'}</span>
               <div className="w-8 h-8 shrink-0"></div>
             </button>
@@ -1072,7 +1072,7 @@ export default function MobileDashboard() {
                       d.setDate(d.getDate() - 1);
                       setScheduleViewDate(d.toISOString().split("T")[0]);
                     }}
-                    className="p-1.5 rounded-lg text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm transition-all"
+                    className="p-1.5 rounded-lg text-ink-muted hover:bg-surface hover:text-slate-800 hover:shadow-sm transition-all"
                     aria-label={language === "ar" ? "اليوم السابق" : "Previous Day"}
                   >
                     <ChevronLeft size={16} className={isRTL ? "rotate-180" : ""} />
@@ -1084,7 +1084,7 @@ export default function MobileDashboard() {
                       d.setDate(d.getDate() + 1);
                       setScheduleViewDate(d.toISOString().split("T")[0]);
                     }}
-                    className="p-1.5 rounded-lg text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm transition-all"
+                    className="p-1.5 rounded-lg text-ink-muted hover:bg-surface hover:text-slate-800 hover:shadow-sm transition-all"
                     aria-label={language === "ar" ? "اليوم التالي" : "Next Day"}
                   >
                     <ChevronRight size={16} className={isRTL ? "rotate-180" : ""} />
@@ -1110,7 +1110,7 @@ export default function MobileDashboard() {
                     <span className="text-lg font-light tracking-widest text-slate-800">
                       {language === 'ar' ? 'جدول المواعيد' : 'Schedule'}
                     </span>
-                    <span className="text-xs font-bold text-ink-muted lg:text-slate-600 mt-0.5">
+                    <span className="text-xs font-bold text-ink-muted lg:text-ink-body mt-0.5">
                       {scheduleViewDate}
                       {scheduleViewDate === getLocalDateKey()
                         ? language === "ar"
@@ -1135,14 +1135,14 @@ export default function MobileDashboard() {
                     {isScheduleToday ? (language === 'ar' ? 'اليوم، ' : 'Today, ') : ''}
                     {new Date(`${scheduleViewDate}T12:00:00`).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { day: 'numeric', month: 'short' })}
                   </span>
-                  <div className="flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5 shadow-inner">
+                  <div className="flex items-center gap-0.5 bg-surface-muted rounded-lg p-0.5 shadow-inner">
                     <button
                       onClick={() => {
                         const d = new Date(`${scheduleViewDate}T12:00:00`);
                         d.setDate(d.getDate() - 1);
                         setScheduleViewDate(d.toISOString().split("T")[0]);
                       }}
-                      className="p-1 rounded-md text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm transition-all"
+                      className="p-1 rounded-md text-ink-muted hover:bg-surface hover:text-slate-800 hover:shadow-sm transition-all"
                     >
                       <ChevronLeft size={14} className={isRTL ? "rotate-180" : ""} />
                     </button>
@@ -1152,7 +1152,7 @@ export default function MobileDashboard() {
                         d.setDate(d.getDate() + 1);
                         setScheduleViewDate(d.toISOString().split("T")[0]);
                       }}
-                      className="p-1 rounded-md text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm transition-all"
+                      className="p-1 rounded-md text-ink-muted hover:bg-surface hover:text-slate-800 hover:shadow-sm transition-all"
                     >
                       <ChevronRight size={14} className={isRTL ? "rotate-180" : ""} />
                     </button>
@@ -1169,7 +1169,7 @@ export default function MobileDashboard() {
                         el.click();
                       }
                     }}
-                    className="p-2 bg-slate-50 hover:bg-slate-100 rounded-xl text-slate-500"
+                    className="p-2 bg-surface-subtle hover:bg-surface-muted rounded-xl text-ink-muted"
                   >
                     <Calendar size={16} />
                   </button>
@@ -1210,7 +1210,7 @@ export default function MobileDashboard() {
                   <Pill size={14} />
                   {language === "ar" ? "طباعة وصفة" : "Print Rx"}
                 </button>
-                <Link href="/appointments" className="flex items-center gap-1 rounded-full bg-white border border-slate-200 px-3 lg:px-4 py-1.5 lg:py-2 text-[10px] lg:text-xs font-bold text-slate-600 transition hover:bg-slate-50 hover:shadow-sm">
+                <Link href="/appointments" className="flex items-center gap-1 rounded-full bg-surface border border-line px-3 lg:px-4 py-1.5 lg:py-2 text-[10px] lg:text-xs font-bold text-ink-body transition hover:bg-surface-subtle hover:shadow-sm">
                   {language === "ar" ? "عرض الكل" : "View All"}
                   <ChevronRight size={12} className={`lg:w-3.5 lg:h-3.5 ${isRTL ? "rotate-180" : ""}`} />
                 </Link>
@@ -1218,7 +1218,7 @@ export default function MobileDashboard() {
             </div>
 
             {/* Horizontal Weekly Stripe (Mobile Only) */}
-            <div className="flex px-3 py-3 bg-white border-b border-slate-100 lg:hidden shrink-0 select-none overflow-x-auto no-scrollbar gap-2 scroll-smooth">
+            <div className="flex px-3 py-3 bg-surface border-b border-slate-100 lg:hidden shrink-0 select-none overflow-x-auto no-scrollbar gap-2 scroll-smooth">
               {daysOfWeek.map((day, idx) => {
                 const dateKey = day.toISOString().split("T")[0];
                 const isSelected = dateKey === scheduleViewDate;
@@ -1301,7 +1301,7 @@ export default function MobileDashboard() {
                                   }
                                   handleSelectAppointmentWrapper(apt);
                                 }}
-                                className={`flex bg-white rounded-3xl border border-slate-100 shadow-sm p-4 gap-4 items-center transition-transform active:scale-[0.98] ${selectedAppointment?.id === apt.id ? 'ring-2 ring-emerald-500 shadow-md' : ''}`}
+                                className={`flex bg-surface rounded-3xl border border-slate-100 shadow-sm p-4 gap-4 items-center transition-transform active:scale-[0.98] ${selectedAppointment?.id === apt.id ? 'ring-2 ring-emerald-500 shadow-md' : ''}`}
                               >
                                 <div className="flex flex-col items-center justify-center shrink-0 w-16">
                                   <span className="text-sm font-black text-slate-800 leading-none mb-1">{apt.time?.split(" ")[0]}</span>
@@ -1311,10 +1311,10 @@ export default function MobileDashboard() {
                                 <div className="flex-1 flex justify-between items-center min-w-0 gap-2">
                                   <div className="flex flex-col min-w-0">
                                     <h4 className="text-base font-black text-slate-800 truncate mb-1">{apt.patientName}</h4>
-                                    <span className="text-[11px] font-bold text-slate-500 truncate">{apt.treatment || '-'}</span>
+                                    <span className="text-[11px] font-bold text-ink-muted truncate">{apt.treatment || '-'}</span>
                                   </div>
                                   <div className="flex flex-col items-end shrink-0 gap-1.5">
-                                     <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest bg-slate-50 border border-slate-100 px-2 py-1 rounded-full whitespace-nowrap">
+                                     <span className="text-[9px] font-black text-ink-body uppercase tracking-widest bg-surface-subtle border border-slate-100 px-2 py-1 rounded-full whitespace-nowrap">
                                        {getAppointmentStageLabel(apt.status, language)}
                                      </span>
                                      {isLate && <AlertCircle size={14} className="text-rose-500 animate-pulse" />}
@@ -1445,7 +1445,7 @@ export default function MobileDashboard() {
                                       }
                                       handleSelectAppointmentWrapper(apt);
                                     }}
-                                    className={`w-full h-full rounded-2xl bg-white border border-slate-100 shadow-sm transition-all hover:scale-[1.01] hover:shadow-md cursor-pointer overflow-hidden flex relative ${selectedAppointment?.id === apt.id ? 'ring-2 ring-emerald-500 scale-[1.01] z-10 shadow-md' : ''}`}
+                                    className={`w-full h-full rounded-2xl bg-surface border border-slate-100 shadow-sm transition-all hover:scale-[1.01] hover:shadow-md cursor-pointer overflow-hidden flex relative ${selectedAppointment?.id === apt.id ? 'ring-2 ring-emerald-500 scale-[1.01] z-10 shadow-md' : ''}`}
                                   >
                                     {/* Accent color bar on the left */}
                                     <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${aptStyles.accent}`}></div>
@@ -1460,9 +1460,9 @@ export default function MobileDashboard() {
                                         </span>
                                       </div>
                                       {/* Right: Status dot + Label */}
-                                      <div className="flex items-center gap-1.5 shrink-0 bg-slate-50 border border-slate-100 rounded-full px-2.5 py-1">
+                                      <div className="flex items-center gap-1.5 shrink-0 bg-surface-subtle border border-slate-100 rounded-full px-2.5 py-1">
                                         <span className={`w-1.5 h-1.5 rounded-full ${aptStyles.dot}`} />
-                                        <span className="text-[9px] font-black text-slate-600 uppercase tracking-wide">
+                                        <span className="text-[9px] font-black text-ink-body uppercase tracking-wide">
                                           {getAppointmentStageLabel(apt.status, language)}
                                         </span>
                                       </div>
@@ -1574,7 +1574,7 @@ export default function MobileDashboard() {
             <h3 className="text-xl font-black text-slate-900 mb-2">
               {language === 'ar' ? 'تأجيل الموعد' : 'Delay Appointment'}
             </h3>
-            <p className="text-sm font-medium text-slate-600 mb-6 leading-relaxed">
+            <p className="text-sm font-medium text-ink-body mb-6 leading-relaxed">
               {language === 'ar'
                 ? 'هل تريد جدولة موعد جديد لهذا المريض الآن، أم تركه غير محدد بعد؟'
                 : 'Would you like to schedule a new appointment for this patient now, or leave it as not set yet?'}
@@ -1651,13 +1651,13 @@ export default function MobileDashboard() {
                     setInlineSaving(false);
                   }
                 }}
-                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-black py-3 rounded-xl transition-colors text-sm"
+                className="w-full bg-surface-muted hover:bg-slate-200 text-slate-700 font-black py-3 rounded-xl transition-colors text-sm"
               >
                 {language === 'ar' ? 'غير محدد بعد' : 'Not Set Yet'}
               </button>
               <button
                 onClick={() => setShowDelayPrompt(false)}
-                className="w-full bg-white hover:bg-slate-50 text-slate-500 font-bold py-2.5 rounded-xl border border-slate-200 transition-colors text-sm mt-2"
+                className="w-full bg-surface hover:bg-surface-subtle text-ink-muted font-bold py-2.5 rounded-xl border border-line transition-colors text-sm mt-2"
               >
                 {language === 'ar' ? 'إلغاء' : 'Cancel'}
               </button>
@@ -1672,10 +1672,10 @@ export default function MobileDashboard() {
             {/* Header bar to pull down or close */}
             <div className="w-12 h-1 bg-slate-200 rounded-full mx-auto my-3 shrink-0" />
             <div className="flex justify-between items-center px-6 pb-2 shrink-0">
-              <h3 className="text-lg font-black text-slate-900">{language === 'ar' ? 'تفاصيل الموعد' : 'Appointment Details'}</h3>
+              <h3 className="text-lg font-black text-ink">{language === 'ar' ? 'تفاصيل الموعد' : 'Appointment Details'}</h3>
               <button
                 onClick={() => handleSelectAppointmentWrapper(null)}
-                className="p-2 bg-slate-50 hover:bg-slate-100 rounded-full text-slate-400"
+                className="p-2 bg-surface-subtle hover:bg-surface-muted rounded-full text-slate-400"
               >
                 <X size={18} />
               </button>

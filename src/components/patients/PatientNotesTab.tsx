@@ -118,8 +118,8 @@ const SOURCE_STYLES: Record<
   profile: {
     icon: ShieldAlert,
     dot: "bg-slate-500",
-    badge: "bg-slate-100 text-slate-700 border-slate-200",
-    iconColor: "text-slate-600",
+    badge: "bg-surface-muted text-slate-700 border-line",
+    iconColor: "text-ink-body",
     labelEn: "Patient file",
     labelAr: "ملف المريض",
   },
@@ -486,7 +486,7 @@ export default function PatientNotesTab({
     return (
       <div
         key={entry.key}
-        className="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-slate-300 transition-all p-4 md:p-5"
+        className="bg-surface rounded-2xl border border-line shadow-sm hover:shadow-md hover:border-line-strong transition-all p-4 md:p-5"
       >
         <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
           <div className="min-w-0">
@@ -516,7 +516,7 @@ export default function PatientNotesTab({
         </div>
 
         {entry.body && (
-          <div className="bg-slate-50 border border-slate-100 rounded-xl p-3.5">
+          <div className="bg-surface-subtle border border-slate-100 rounded-xl p-3.5">
             <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap break-words">
               {entry.body}
             </p>
@@ -540,7 +540,7 @@ export default function PatientNotesTab({
           {entry.writtenBy ? (
             <span className="inline-flex items-center gap-1.5 text-[12px] font-bold text-slate-700">
               <PenLine size={13} className="text-slate-400" />
-              {L("Written by", "كتبها")} <span className="text-slate-900">{entry.writtenBy}</span>
+              {L("Written by", "كتبها")} <span className="text-ink">{entry.writtenBy}</span>
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-slate-400 italic">
@@ -550,7 +550,7 @@ export default function PatientNotesTab({
           )}
 
           {entry.doctorOfRecord && (
-            <span className="inline-flex items-center gap-1.5 text-[12px] font-bold text-slate-500">
+            <span className="inline-flex items-center gap-1.5 text-[12px] font-bold text-ink-muted">
               <Stethoscope size={13} className="text-slate-400" />
               {L("Doctor", "الطبيب")}: <span className="text-slate-700">{entry.doctorOfRecord}</span>
             </span>
@@ -569,7 +569,7 @@ export default function PatientNotesTab({
             {entry.chips.map((chip, i) => (
               <span
                 key={i}
-                className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-500 text-[11px] font-bold max-w-[220px] truncate"
+                className="px-2.5 py-1 rounded-lg bg-surface border border-line text-ink-muted text-[11px] font-bold max-w-[220px] truncate"
                 title={chip}
               >
                 {chip}
@@ -592,14 +592,14 @@ export default function PatientNotesTab({
   return (
     <div className={`space-y-6 ${isRTL ? "text-right" : ""}`}>
       {/* Header + controls */}
-      <div className="bg-white p-5 md:p-6 rounded-2xl border border-slate-100 shadow-sm space-y-5">
+      <div className="bg-surface p-5 md:p-6 rounded-2xl border border-slate-100 shadow-sm space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h3 className="text-lg font-black text-slate-900 flex items-center gap-2">
+            <h3 className="text-lg font-black text-ink flex items-center gap-2">
               <StickyNote className="text-amber-500" size={22} />
               {L("All Notes", "كل الملاحظات")}
             </h3>
-            <p className="text-xs text-slate-500 font-medium mt-1">
+            <p className="text-xs text-ink-muted font-medium mt-1">
               {L(
                 "Every note written about this patient — clinical, appointments, diagnosis chart, prescriptions, images and leads — in one timeline.",
                 "كل ملاحظة اتكتبت عن المريض — سريرية، مواعيد، مخطط التشخيص، روشتات، صور، وعملاء محتملين — في سجل واحد."
@@ -607,13 +607,13 @@ export default function PatientNotesTab({
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <span className="px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-700 text-xs font-black tabular-nums">
+            <span className="px-3 py-2 rounded-xl bg-surface-subtle border border-line text-slate-700 text-xs font-black tabular-nums">
               {entries.length} {L("notes", "ملاحظة")}
             </span>
             <button
               type="button"
               onClick={() => setNewestFirst((v) => !v)}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 text-xs font-bold transition-colors"
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-surface-subtle hover:bg-surface-muted border border-line text-ink-body text-xs font-bold transition-colors"
             >
               <ArrowDownUp size={14} />
               {newestFirst ? L("Newest first", "الأحدث أولاً") : L("Oldest first", "الأقدم أولاً")}
@@ -631,7 +631,7 @@ export default function PatientNotesTab({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={L("Search inside notes…", "ابحث داخل الملاحظات…")}
-            className={`w-full rounded-xl border border-slate-200 bg-slate-50/60 py-2.5 text-sm font-semibold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10 ${
+            className={`w-full rounded-xl border border-line bg-slate-50/60 py-2.5 text-sm font-semibold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-surface focus:ring-4 focus:ring-emerald-500/10 ${
               isRTL ? "pr-11 pl-4" : "pl-11 pr-4"
             }`}
           />
@@ -660,7 +660,7 @@ export default function PatientNotesTab({
                 type="button"
                 onClick={() => setSourceFilter(active ? "all" : s)}
                 className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold border transition-all ${
-                  active ? style.badge : "bg-white text-slate-500 border-slate-200 hover:border-slate-300"
+                  active ? style.badge : "bg-surface text-ink-muted border-line hover:border-line-strong"
                 }`}
               >
                 <Icon size={13} className={active ? style.iconColor : "text-slate-400"} />
@@ -673,9 +673,9 @@ export default function PatientNotesTab({
 
       {/* Timeline */}
       {visible.dated.length === 0 && visible.undated.length === 0 ? (
-        <div className="text-center py-16 px-4 bg-white rounded-3xl border border-dashed border-slate-200">
+        <div className="text-center py-16 px-4 bg-surface rounded-3xl border border-dashed border-line">
           <StickyNote size={56} className="mx-auto text-slate-200 mb-4" />
-          <p className="text-slate-500 font-bold text-base">
+          <p className="text-ink-muted font-bold text-base">
             {entries.length === 0
               ? L("No notes recorded for this patient yet", "لا توجد ملاحظات مسجلة لهذا المريض")
               : L("No notes match this filter", "لا توجد ملاحظات مطابقة للبحث")}
@@ -732,7 +732,7 @@ export default function PatientNotesTab({
           {visible.undated.length > 0 && (
             <div className="grid grid-cols-1 md:grid-cols-[170px_1fr] gap-4 md:gap-6">
               <div className="md:pt-2">
-                <span className="text-sm font-black text-slate-500">{L("Always on file", "ثابت في الملف")}</span>
+                <span className="text-sm font-black text-ink-muted">{L("Always on file", "ثابت في الملف")}</span>
                 <p className="text-[11px] font-bold text-slate-400 mt-1">
                   {L("No date recorded", "بدون تاريخ مسجل")}
                 </p>
@@ -740,7 +740,7 @@ export default function PatientNotesTab({
               <div
                 className={`relative space-y-4 ${
                   isRTL ? "md:pr-8 md:border-r-2 md:border-dashed" : "md:pl-8 md:border-l-2 md:border-dashed"
-                } md:border-slate-200`}
+                } md:border-line`}
               >
                 {visible.undated.map((entry) => (
                   <div key={entry.key} className="relative">

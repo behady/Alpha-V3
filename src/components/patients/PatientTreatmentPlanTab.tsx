@@ -167,7 +167,7 @@ function RichText({ text }: { text: string }) {
       {lines.map((raw, i) => {
         const t = raw.trim();
         if (!t) return <div key={i} className="h-1" />;
-        if (/^[-—_]{3,}$/.test(t)) return <hr key={i} className="border-slate-200 my-1.5" />;
+        if (/^[-—_]{3,}$/.test(t)) return <hr key={i} className="border-line my-1.5" />;
         const heading = t.match(/^#{1,4}\s+(.*)$/);
         if (heading) {
           return (
@@ -1300,7 +1300,7 @@ export default function PatientTreatmentPlanTab({
       case "accepted": return "bg-emerald-50 text-emerald-700 border-emerald-200";
       case "presented": return "bg-blue-50 text-blue-700 border-blue-200";
       case "declined": return "bg-rose-50 text-rose-600 border-rose-200";
-      default: return "bg-slate-100 text-slate-600 border-slate-200";
+      default: return "bg-surface-muted text-ink-body border-line";
     }
   };
 
@@ -1308,7 +1308,7 @@ export default function PatientTreatmentPlanTab({
 
   const renderVisitBadge = (v: { date: string; time: string }, subtle = false) => (
     <span className={`flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full border whitespace-nowrap ${
-      v.date ? "bg-emerald-50 text-emerald-700 border-emerald-200" : subtle ? "bg-slate-50 text-slate-400 border-slate-200" : "bg-amber-50 text-amber-600 border-amber-200"
+      v.date ? "bg-emerald-50 text-emerald-700 border-emerald-200" : subtle ? "bg-surface-subtle text-slate-400 border-line" : "bg-amber-50 text-amber-600 border-amber-200"
     }`}>
       <CalendarDays size={12} />
       {v.date ? `${formatDateLabel(v.date, language as "en" | "ar")}${v.time ? ` · ${v.time}` : ""}` : txt.notScheduled}
@@ -1319,7 +1319,7 @@ export default function PatientTreatmentPlanTab({
     <div className="overflow-x-auto rounded-xl border border-slate-100">
       <table className="w-full text-sm min-w-[560px]">
         <thead>
-          <tr className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+          <tr className="bg-surface-subtle text-[10px] font-bold text-ink-muted uppercase tracking-widest">
             <th className="px-3 py-2.5 text-start w-8">#</th>
             <th className="px-3 py-2.5 text-start">{txt.procedure}</th>
             <th className="px-3 py-2.5 text-start">{txt.teeth}</th>
@@ -1334,22 +1334,22 @@ export default function PatientTreatmentPlanTab({
               <td className="px-3 py-2.5 font-bold text-slate-400">{i + 1}</td>
               <td className="px-3 py-2.5">
                 <span className="font-bold text-slate-800">{s.serviceName}</span>
-                {s.note && <div className="text-xs text-slate-500 font-medium mt-0.5 leading-relaxed">{s.note}</div>}
+                {s.note && <div className="text-xs text-ink-muted font-medium mt-0.5 leading-relaxed">{s.note}</div>}
                 {s.unmatched && (
                   <div className="flex items-center gap-1 text-[11px] font-bold text-amber-600 mt-1">
                     <AlertTriangle size={12} /> {txt.priceMissing}
                   </div>
                 )}
               </td>
-              <td className="px-3 py-2.5 font-semibold text-slate-600 whitespace-nowrap">{s.teeth || "—"}</td>
-              <td className="px-3 py-2.5 text-center font-semibold text-slate-600">{s.quantity}</td>
-              <td className="px-3 py-2.5 text-end font-semibold text-slate-600 whitespace-nowrap">{money(s.unitPrice)}</td>
+              <td className="px-3 py-2.5 font-semibold text-ink-body whitespace-nowrap">{s.teeth || "—"}</td>
+              <td className="px-3 py-2.5 text-center font-semibold text-ink-body">{s.quantity}</td>
+              <td className="px-3 py-2.5 text-end font-semibold text-ink-body whitespace-nowrap">{money(s.unitPrice)}</td>
               <td className="px-3 py-2.5 text-end font-black text-slate-800 whitespace-nowrap">{money(s.unitPrice * s.quantity)}</td>
             </tr>
           ))}
           {showTotal && (
-            <tr className="border-t-2 border-slate-200 bg-slate-50/60">
-              <td colSpan={5} className="px-3 py-2.5 text-end text-[10px] font-black text-slate-500 uppercase tracking-widest">{txt.visitSubtotal}</td>
+            <tr className="border-t-2 border-line bg-slate-50/60">
+              <td colSpan={5} className="px-3 py-2.5 text-end text-[10px] font-black text-ink-muted uppercase tracking-widest">{txt.visitSubtotal}</td>
               <td className="px-3 py-2.5 text-end font-black text-slate-700 whitespace-nowrap">
                 {money(stepsSum(steps))} {planCurrency}
               </td>
@@ -1374,11 +1374,11 @@ export default function PatientTreatmentPlanTab({
         {visits.map((v, vi) => (
           <div key={v.id || vi}>
             {(multi || v.label || v.date) && (
-              <div className="flex flex-wrap items-center justify-between gap-2 mb-2 bg-slate-50 border border-slate-100 rounded-xl px-3.5 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2 bg-surface-subtle border border-slate-100 rounded-xl px-3.5 py-2">
                 <span className="text-sm font-black text-slate-700 flex items-center gap-2 flex-wrap">
                   {v.label || `${txt.visit} ${vi + 1}`}
                   {stepsMinutes(v.steps) > 0 && (
-                    <span className="text-[10px] font-black text-slate-400 bg-white border border-slate-200 rounded-full px-2 py-0.5">
+                    <span className="text-[10px] font-black text-slate-400 bg-surface border border-line rounded-full px-2 py-0.5">
                       ~{stepsMinutes(v.steps)} {txt.minutesPh}
                     </span>
                   )}
@@ -1402,7 +1402,7 @@ export default function PatientTreatmentPlanTab({
   /** Powerful vs Super: the fast model at base price, or the deep-thinking model at double credits. */
   const renderModeToggle = (value: AiMode, onChange: (m: AiMode) => void, hint: string, disabled: boolean) => (
     <div className="flex items-center justify-between gap-3 flex-wrap">
-      <div className="flex rounded-xl border border-slate-200 overflow-hidden shrink-0">
+      <div className="flex rounded-xl border border-line overflow-hidden shrink-0">
         <button
           onClick={() => onChange("power")}
           disabled={disabled}
@@ -1431,7 +1431,7 @@ export default function PatientTreatmentPlanTab({
     return (
       <div className="flex items-center gap-1.5">
         <Languages size={14} className="text-slate-400" />
-        <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+        <div className="flex rounded-lg border border-line overflow-hidden">
           {(["en", "ar"] as const).map((lng) => (
             <button
               key={lng}
@@ -1457,7 +1457,7 @@ export default function PatientTreatmentPlanTab({
           <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
             <ClipboardList size={20} className="text-accent" /> {txt.tabTitle}
           </h3>
-          <p className="text-sm font-medium text-slate-500 mt-1">{txt.subtitle}</p>
+          <p className="text-sm font-medium text-ink-muted mt-1">{txt.subtitle}</p>
         </div>
         <div className="flex items-center gap-2 shrink-0 flex-wrap">
           <button
@@ -1485,22 +1485,22 @@ export default function PatientTreatmentPlanTab({
       {plansLoading ? (
         <div className="flex justify-center py-16"><Loader2 className="animate-spin text-accent" size={28} /></div>
       ) : plans.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-dashed border-slate-200 p-12 text-center">
+        <div className="bg-surface rounded-2xl border border-dashed border-line p-12 text-center">
           <ClipboardList size={36} className="mx-auto text-slate-300 mb-3" />
-          <p className="text-sm font-semibold text-slate-500 max-w-md mx-auto leading-relaxed">{txt.empty}</p>
+          <p className="text-sm font-semibold text-ink-muted max-w-md mx-auto leading-relaxed">{txt.empty}</p>
         </div>
       ) : (
         <div className="space-y-5">
           {plans.map((plan) => {
             const busy = busyPlanId === plan.id;
             return (
-              <div key={plan.id} className="bg-white rounded-2xl border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] p-5">
+              <div key={plan.id} className="bg-surface rounded-2xl border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h4 className="text-base font-black text-slate-800">{plan.title}</h4>
                       <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                        plan.source === "ai" ? "bg-violet-50 text-violet-600 border-violet-200" : "bg-slate-50 text-slate-500 border-slate-200"
+                        plan.source === "ai" ? "bg-violet-50 text-violet-600 border-violet-200" : "bg-surface-subtle text-ink-muted border-line"
                       }`}>
                         {plan.source === "ai" ? txt.aiBadge : txt.manualBadge}
                       </span>
@@ -1526,7 +1526,7 @@ export default function PatientTreatmentPlanTab({
                 </div>
 
                 {plan.description && (
-                  <p className="text-sm font-medium text-slate-600 leading-relaxed mb-4 whitespace-pre-wrap">{plan.description}</p>
+                  <p className="text-sm font-medium text-ink-body leading-relaxed mb-4 whitespace-pre-wrap">{plan.description}</p>
                 )}
 
                 {renderVisits(plan.visits, plan.currency || currency)}
@@ -1534,7 +1534,7 @@ export default function PatientTreatmentPlanTab({
                 <div className="flex flex-wrap items-center gap-2 mt-4">
                   <button
                     onClick={() => openEditEditor(plan)}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-colors"
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-surface-subtle text-ink-body border border-line hover:bg-surface-muted transition-colors"
                   >
                     <Edit2 size={14} /> {txt.edit}
                   </button>
@@ -1542,14 +1542,14 @@ export default function PatientTreatmentPlanTab({
                   <button
                     onClick={() => handlePrint(plan)}
                     disabled={busy}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-colors disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-surface-subtle text-ink-body border border-line hover:bg-surface-muted transition-colors disabled:opacity-50"
                   >
                     {busy && busyAction === "print" ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />} {txt.print}
                   </button>
                   <button
                     onClick={() => handleDownloadPdf(plan)}
                     disabled={busy}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-colors disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-surface-subtle text-ink-body border border-line hover:bg-surface-muted transition-colors disabled:opacity-50"
                   >
                     {busy && busyAction === "pdf" ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} {txt.downloadPdf}
                   </button>
@@ -1582,27 +1582,27 @@ export default function PatientTreatmentPlanTab({
                 <ClipboardList size={18} className="text-accent" />
                 {editingPlanId ? (ar ? "تعديل خطة العلاج" : "Edit Treatment Plan") : (ar ? "خطة علاج جديدة" : "New Treatment Plan")}
               </h3>
-              <button onClick={() => setEditorOpen(false)} className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 transition-colors"><X size={18} /></button>
+              <button onClick={() => setEditorOpen(false)} className="p-2 rounded-xl text-slate-400 hover:bg-surface-muted transition-colors"><X size={18} /></button>
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">{txt.planTitle}</label>
+                  <label className="block text-[10px] font-black text-ink-muted uppercase tracking-widest mb-1.5">{txt.planTitle}</label>
                   <input
                     value={formTitle}
                     onChange={(e) => setFormTitle(e.target.value)}
                     placeholder={txt.planTitlePh}
-                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-900 outline-none focus:border-accent focus:ring-2 focus:ring-emerald-100 transition-all"
+                    className="w-full rounded-xl border border-line px-4 py-3 text-sm font-bold text-ink outline-none focus:border-accent focus:ring-2 focus:ring-emerald-100 transition-all"
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">{txt.description}</label>
+                  <label className="block text-[10px] font-black text-ink-muted uppercase tracking-widest mb-1.5">{txt.description}</label>
                   <input
                     value={formDescription}
                     onChange={(e) => setFormDescription(e.target.value)}
                     placeholder={txt.descriptionPh}
-                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-accent focus:ring-2 focus:ring-emerald-100 transition-all"
+                    className="w-full rounded-xl border border-line px-4 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-accent focus:ring-2 focus:ring-emerald-100 transition-all"
                   />
                 </div>
               </div>
@@ -1617,10 +1617,10 @@ export default function PatientTreatmentPlanTab({
                         value={visit.label}
                         onChange={(e) => updateVisit(visit.id, { label: e.target.value })}
                         placeholder={txt.visitLabelPh}
-                        className="flex-1 min-w-[160px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 outline-none focus:border-accent transition-all"
+                        className="flex-1 min-w-[160px] rounded-lg border border-line bg-surface px-3 py-2 text-sm font-bold text-slate-800 outline-none focus:border-accent transition-all"
                       />
                       {stepsMinutes(visit.steps) > 0 && (
-                        <span className="text-[10px] font-black text-slate-500 bg-white border border-slate-200 rounded-full px-2 py-1 whitespace-nowrap">
+                        <span className="text-[10px] font-black text-ink-muted bg-surface border border-line rounded-full px-2 py-1 whitespace-nowrap">
                           ~{stepsMinutes(visit.steps)} {txt.minutesPh}
                         </span>
                       )}
@@ -1628,13 +1628,13 @@ export default function PatientTreatmentPlanTab({
                         type="date"
                         value={visit.date}
                         onChange={(e) => updateVisit(visit.id, { date: e.target.value })}
-                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-700 outline-none focus:border-accent transition-all"
+                        className="rounded-lg border border-line bg-surface px-2.5 py-2 text-xs font-bold text-slate-700 outline-none focus:border-accent transition-all"
                       />
                       <input
                         value={visit.time}
                         onChange={(e) => updateVisit(visit.id, { time: e.target.value })}
                         placeholder={ar ? "الوقت" : "Time"}
-                        className="w-24 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-700 outline-none focus:border-accent transition-all"
+                        className="w-24 rounded-lg border border-line bg-surface px-2.5 py-2 text-xs font-bold text-slate-700 outline-none focus:border-accent transition-all"
                       />
                       <button
                         onClick={() => openSlotPicker(visit)}
@@ -1661,16 +1661,16 @@ export default function PatientTreatmentPlanTab({
                     {slotPickerVisitId === visit.id && (
                       <div className="px-4 py-3 bg-emerald-50/40 border-b border-emerald-100">
                         {slotLoading ? (
-                          <div className="flex items-center gap-2 text-xs font-bold text-slate-500 py-1">
+                          <div className="flex items-center gap-2 text-xs font-bold text-ink-muted py-1">
                             <Loader2 size={14} className="animate-spin" /> {txt.loadingSlots}
                           </div>
                         ) : slotDays.length === 0 ? (
-                          <p className="text-xs font-bold text-slate-500 py-1">{txt.noSlots}</p>
+                          <p className="text-xs font-bold text-ink-muted py-1">{txt.noSlots}</p>
                         ) : (
                           <div className="space-y-2">
                             {slotDays.map((day) => (
                               <div key={day.date} className="flex flex-wrap items-center gap-1.5">
-                                <span className="text-xs font-black text-slate-600 min-w-[120px]">
+                                <span className="text-xs font-black text-ink-body min-w-[120px]">
                                   {formatDateLabel(day.date, language as "en" | "ar")}
                                 </span>
                                 {day.times.slice(0, 6).map((time) => (
@@ -1722,7 +1722,7 @@ export default function PatientTreatmentPlanTab({
                                 value={step.teeth}
                                 onChange={(e) => updateStep(visit.id, step.id, { teeth: e.target.value })}
                                 placeholder={txt.teethPh}
-                                className="md:col-span-3 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-accent transition-all"
+                                className="md:col-span-3 rounded-xl border border-line bg-surface px-3 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-accent transition-all"
                               />
                               <input
                                 type="number"
@@ -1730,7 +1730,7 @@ export default function PatientTreatmentPlanTab({
                                 value={step.quantity}
                                 onChange={(e) => updateStep(visit.id, step.id, { quantity: Math.max(1, Math.round(Number(e.target.value) || 1)) })}
                                 title={txt.qty}
-                                className="md:col-span-2 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-accent transition-all"
+                                className="md:col-span-2 rounded-xl border border-line bg-surface px-3 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-accent transition-all"
                               />
                               <input
                                 type="number"
@@ -1738,13 +1738,13 @@ export default function PatientTreatmentPlanTab({
                                 value={step.unitPrice}
                                 onChange={(e) => updateStep(visit.id, step.id, { unitPrice: Math.max(0, Number(e.target.value) || 0) })}
                                 title={txt.unitPrice}
-                                className="md:col-span-2 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-accent transition-all"
+                                className="md:col-span-2 rounded-xl border border-line bg-surface px-3 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-accent transition-all"
                               />
                               <input
                                 value={step.note}
                                 onChange={(e) => updateStep(visit.id, step.id, { note: e.target.value })}
                                 placeholder={txt.notePh}
-                                className="md:col-span-9 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 outline-none focus:border-accent transition-all"
+                                className="md:col-span-9 rounded-xl border border-line bg-surface px-3 py-2.5 text-xs font-semibold text-slate-700 outline-none focus:border-accent transition-all"
                               />
                               <div className="md:col-span-3 relative">
                                 <input
@@ -1754,7 +1754,7 @@ export default function PatientTreatmentPlanTab({
                                   onChange={(e) => updateStep(visit.id, step.id, { estimatedMinutes: Math.max(0, Math.round(Number(e.target.value) || 0)) })}
                                   placeholder={txt.minutesPh}
                                   title={txt.minutesTitle}
-                                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 pe-12 text-xs font-semibold text-slate-700 outline-none focus:border-accent transition-all"
+                                  className="w-full rounded-xl border border-line bg-surface px-3 py-2.5 pe-12 text-xs font-semibold text-slate-700 outline-none focus:border-accent transition-all"
                                 />
                                 <span className="absolute end-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 pointer-events-none">{txt.minutesPh}</span>
                               </div>
@@ -1767,7 +1767,7 @@ export default function PatientTreatmentPlanTab({
                               <Trash2 size={15} />
                             </button>
                           </div>
-                          <div className="text-end text-xs font-black text-slate-500 mt-2">
+                          <div className="text-end text-xs font-black text-ink-muted mt-2">
                             {money(step.unitPrice * step.quantity)} {currency}
                           </div>
                         </div>
@@ -1784,7 +1784,7 @@ export default function PatientTreatmentPlanTab({
 
                 <button
                   onClick={() => setFormVisits((prev) => [...prev, blankVisit(prev.length + 1)])}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-sm font-bold border-2 border-dashed border-slate-200 text-slate-500 hover:border-accent hover:text-accent transition-colors"
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-sm font-bold border-2 border-dashed border-line text-ink-muted hover:border-accent hover:text-accent transition-colors"
                 >
                   <Plus size={16} /> {txt.addVisit}
                 </button>
@@ -1796,7 +1796,7 @@ export default function PatientTreatmentPlanTab({
                 {txt.total}: <span className="text-accent">{money(formTotal)} {currency}</span>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => setEditorOpen(false)} className="px-4 py-2.5 rounded-xl text-sm font-bold text-slate-500 hover:bg-slate-100 transition-colors">
+                <button onClick={() => setEditorOpen(false)} className="px-4 py-2.5 rounded-xl text-sm font-bold text-ink-muted hover:bg-surface-muted transition-colors">
                   {txt.cancel}
                 </button>
                 <button
@@ -1822,20 +1822,20 @@ export default function PatientTreatmentPlanTab({
                   <button
                     onClick={() => setDiagView("list")}
                     title={txt.diagBack}
-                    className="p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 transition-colors shrink-0"
+                    className="p-1.5 rounded-lg text-slate-400 hover:bg-surface-muted transition-colors shrink-0"
                   >
                     <ArrowRight size={16} className={isRTL ? "" : "-scale-x-100"} />
                   </button>
                 )}
                 <Stethoscope size={18} className="text-sky-500 shrink-0" /> <span className="truncate">{txt.diagModalTitle}</span>
               </h3>
-              <button onClick={() => setDiagOpen(false)} className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 transition-colors"><X size={18} /></button>
+              <button onClick={() => setDiagOpen(false)} className="p-2 rounded-xl text-slate-400 hover:bg-surface-muted transition-colors"><X size={18} /></button>
             </div>
 
             {/* Saved discussions for this patient */}
             {diagView === "list" && (
               <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3 bg-slate-50/50">
-                <p className="text-[13px] font-medium text-slate-500 leading-6 bg-sky-50 border border-sky-100 rounded-2xl px-4 py-3">
+                <p className="text-[13px] font-medium text-ink-muted leading-6 bg-sky-50 border border-sky-100 rounded-2xl px-4 py-3">
                   {txt.diagHint}
                 </p>
                 <button
@@ -1850,7 +1850,7 @@ export default function PatientTreatmentPlanTab({
                   diagSessions.map((s) => (
                     <div
                       key={s.id}
-                      className="bg-white border border-slate-200 rounded-2xl px-4 py-3 flex items-center gap-3 hover:border-sky-300 transition-colors cursor-pointer"
+                      className="bg-surface border border-line rounded-2xl px-4 py-3 flex items-center gap-3 hover:border-sky-300 transition-colors cursor-pointer"
                       onClick={() => openDiagSession(s)}
                     >
                       <Stethoscope size={16} className="text-sky-400 shrink-0" />
@@ -1882,7 +1882,7 @@ export default function PatientTreatmentPlanTab({
             <div ref={diagScrollRef} className="flex-1 overflow-y-auto px-5 md:px-10 py-5 space-y-4 bg-slate-50/50">
               {diagMessages.length === 0 && (
                 <>
-                  <p className="text-[13px] font-medium text-slate-500 leading-6 bg-sky-50 border border-sky-100 rounded-2xl px-4 py-3">
+                  <p className="text-[13px] font-medium text-ink-muted leading-6 bg-sky-50 border border-sky-100 rounded-2xl px-4 py-3">
                     {txt.diagHint}
                   </p>
                   <p className="text-sm font-semibold text-slate-400 text-center py-8">{txt.diagStart}</p>
@@ -1924,7 +1924,7 @@ export default function PatientTreatmentPlanTab({
                             <div className="space-y-3">
                               {form.fields.map((f) => (
                                 <div key={f.id}>
-                                  <label className="block text-[13px] font-bold text-slate-600 mb-1">{f.label}</label>
+                                  <label className="block text-[13px] font-bold text-ink-body mb-1">{f.label}</label>
                                   {f.type === "yesno" || f.type === "choice" ? (
                                     <div className="flex flex-wrap gap-1.5">
                                       {(f.type === "yesno" ? [txt.formYes, txt.formNo] : f.options).map((opt) => (
@@ -1949,7 +1949,7 @@ export default function PatientTreatmentPlanTab({
                                         disabled={formAnswered}
                                         value={values[f.id] || ""}
                                         onChange={(e) => setValue(f.id, e.target.value)}
-                                        className={`w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-[14px] font-semibold text-slate-800 outline-none focus:border-sky-400 transition-all disabled:bg-slate-50 ${f.unit ? "pe-12" : ""}`}
+                                        className={`w-full rounded-lg border border-line bg-surface px-3 py-2 text-[14px] font-semibold text-slate-800 outline-none focus:border-sky-400 transition-all disabled:bg-surface-subtle ${f.unit ? "pe-12" : ""}`}
                                       />
                                       {f.unit && (
                                         <span className="absolute end-3 top-1/2 -translate-y-1/2 text-[11px] font-bold text-slate-400 pointer-events-none">{f.unit}</span>
@@ -1980,7 +1980,7 @@ export default function PatientTreatmentPlanTab({
               })}
               {diagSending && (
                 <div className="flex justify-start">
-                  <div className="bg-white border border-slate-200 rounded-2xl px-4 py-3 flex items-center gap-2 text-sm font-semibold text-slate-500">
+                  <div className="bg-surface border border-line rounded-2xl px-4 py-3 flex items-center gap-2 text-sm font-semibold text-ink-muted">
                     <Loader2 size={14} className="animate-spin" /> {txt.diagThinking}
                   </div>
                 </div>
@@ -1990,7 +1990,7 @@ export default function PatientTreatmentPlanTab({
 
             {/* Gallery picker */}
             {diagView === "chat" && diagGalleryOpen && (
-              <div className="border-t border-slate-100 px-5 py-3 max-h-44 overflow-y-auto shrink-0 bg-white">
+              <div className="border-t border-slate-100 px-5 py-3 max-h-44 overflow-y-auto shrink-0 bg-surface">
                 {patientMedia.length === 0 ? (
                   <p className="text-xs font-semibold text-slate-400 py-2">{txt.diagGalleryEmpty}</p>
                 ) : (
@@ -2010,7 +2010,7 @@ export default function PatientTreatmentPlanTab({
                             }
                           }}
                           className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all ${
-                            selected ? "border-sky-500 ring-2 ring-sky-200" : "border-slate-200 hover:border-sky-300"
+                            selected ? "border-sky-500 ring-2 ring-sky-200" : "border-line hover:border-sky-300"
                           }`}
                           title={m.filename || m.category}
                         >
@@ -2029,7 +2029,7 @@ export default function PatientTreatmentPlanTab({
 
             {/* Pending attachments */}
             {diagView === "chat" && diagPendingImages.length > 0 && (
-              <div className="flex gap-2 px-5 py-2 border-t border-slate-100 shrink-0 bg-white">
+              <div className="flex gap-2 px-5 py-2 border-t border-slate-100 shrink-0 bg-surface">
                 {diagPendingImages.map((p, pi) => (
                   <div key={pi} className="relative">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -2047,7 +2047,7 @@ export default function PatientTreatmentPlanTab({
 
             {/* Input row */}
             {diagView === "chat" && (
-            <div className="px-5 py-3.5 border-t border-slate-100 shrink-0 bg-white rounded-b-3xl">
+            <div className="px-5 py-3.5 border-t border-slate-100 shrink-0 bg-surface rounded-b-3xl">
               <div className="mb-2.5">
                 {renderModeToggle(
                   diagMode,
@@ -2133,13 +2133,13 @@ export default function PatientTreatmentPlanTab({
               <h3 className="font-black text-slate-800 flex items-center gap-2">
                 <Sparkles size={18} className="text-violet-500" /> {txt.aiModalTitle}
               </h3>
-              <button onClick={() => setAiOpen(false)} className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 transition-colors"><X size={18} /></button>
+              <button onClick={() => setAiOpen(false)} className="p-2 rounded-xl text-slate-400 hover:bg-surface-muted transition-colors"><X size={18} /></button>
             </div>
 
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
               {!aiOptions && (
                 <>
-                  <p className="text-sm font-medium text-slate-500 leading-relaxed bg-violet-50/60 border border-violet-100 rounded-2xl px-4 py-3">
+                  <p className="text-sm font-medium text-ink-muted leading-relaxed bg-violet-50/60 border border-violet-100 rounded-2xl px-4 py-3">
                     {txt.aiHint}
                   </p>
                   <textarea
@@ -2148,7 +2148,7 @@ export default function PatientTreatmentPlanTab({
                     placeholder={txt.aiInstructionsPh}
                     rows={3}
                     disabled={aiLoading}
-                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all resize-y disabled:opacity-60"
+                    className="w-full rounded-xl border border-line px-4 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all resize-y disabled:opacity-60"
                   />
                   {renderModeToggle(
                     aiMode,
@@ -2193,7 +2193,7 @@ export default function PatientTreatmentPlanTab({
                         placeholder={txt.aiAnswersPh}
                         rows={3}
                         disabled={aiLoading}
-                        className="w-full rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 transition-all resize-y disabled:opacity-60"
+                        className="w-full rounded-xl border border-amber-200 bg-surface px-4 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 transition-all resize-y disabled:opacity-60"
                       />
                       <button
                         onClick={() => handleGenerateAi(true)}
@@ -2223,7 +2223,7 @@ export default function PatientTreatmentPlanTab({
                           </button>
                         </div>
                         {option.description && (
-                          <p className="text-sm font-medium text-slate-600 leading-relaxed mb-3 whitespace-pre-wrap">{option.description}</p>
+                          <p className="text-sm font-medium text-ink-body leading-relaxed mb-3 whitespace-pre-wrap">{option.description}</p>
                         )}
                         {renderVisits(option.visits, currency)}
                       </div>
@@ -2232,7 +2232,7 @@ export default function PatientTreatmentPlanTab({
                   <button
                     onClick={() => { setAiOptions(null); setAiQuestions([]); setAiAnswers(""); }}
                     disabled={aiLoading || aiSavingIdx !== null}
-                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-colors disabled:opacity-60"
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold bg-surface-subtle text-ink-body border border-line hover:bg-surface-muted transition-colors disabled:opacity-60"
                   >
                     <Sparkles size={14} /> {txt.tryAgain}
                   </button>

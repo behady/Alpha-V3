@@ -368,7 +368,7 @@ export default function SmsSettings() {
   const anyEventOn = SMS_EVENT_TYPES.some((type) => settings.events[type]);
 
   const statusMeta: Record<QueueMessage["status"], { label: string; className: string }> = {
-    queued: { label: txt.statusQueued, className: "bg-slate-100 text-slate-600 border-slate-200" },
+    queued: { label: txt.statusQueued, className: "bg-surface-muted text-ink-body border-line" },
     sending: { label: txt.statusSending, className: "bg-amber-50 text-amber-700 border-amber-200" },
     sent: { label: txt.statusSent, className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
     failed: { label: txt.statusFailed, className: "bg-rose-50 text-rose-700 border-rose-200" },
@@ -405,11 +405,11 @@ export default function SmsSettings() {
   return (
     <div className="space-y-6 animate-in fade-in max-w-5xl mx-auto">
       {/* What this is */}
-      <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
-        <h3 className="text-xl font-black text-slate-900 flex items-center gap-3">
+      <div className="bg-surface p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
+        <h3 className="text-xl font-black text-ink flex items-center gap-3">
           <MessagesSquare className="text-primary-500" /> {txt.title}
         </h3>
-        <p className="text-sm font-medium text-slate-500 mt-2 leading-relaxed">{txt.intro}</p>
+        <p className="text-sm font-medium text-ink-muted mt-2 leading-relaxed">{txt.intro}</p>
 
         {/* The costs, stated before the switch rather than after the phone bill. */}
         <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
@@ -426,7 +426,7 @@ export default function SmsSettings() {
           </ul>
         </div>
 
-        <label className="mt-5 flex items-center justify-between gap-4 cursor-pointer rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3.5">
+        <label className="mt-5 flex items-center justify-between gap-4 cursor-pointer rounded-2xl border border-line bg-slate-50/80 px-4 py-3.5">
           <span className="text-sm font-black text-slate-800 flex items-center gap-2">
             <Smartphone size={16} className="text-slate-400" /> {txt.enable}
           </span>
@@ -438,7 +438,7 @@ export default function SmsSettings() {
             }`}
           >
             <span
-              className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${
+              className={`inline-block h-6 w-6 transform rounded-full bg-surface transition-transform ${
                 settings.enabled ? "translate-x-7" : "translate-x-1"
               }`}
             />
@@ -447,8 +447,8 @@ export default function SmsSettings() {
       </div>
 
       {/* Channel */}
-      <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
-        <h3 className="text-lg font-black text-slate-900 flex items-center gap-3">
+      <div className="bg-surface p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
+        <h3 className="text-lg font-black text-ink flex items-center gap-3">
           <MessageCircle className="text-primary-500" size={20} /> {txt.channelTitle}
         </h3>
 
@@ -469,10 +469,10 @@ export default function SmsSettings() {
                 className={`p-5 rounded-3xl border-2 text-center transition-all ${
                   active
                     ? "border-primary-500 bg-primary-50 shadow-md scale-[1.02]"
-                    : "border-slate-100 bg-slate-50 hover:border-slate-300 hover:bg-white"
+                    : "border-slate-100 bg-surface-subtle hover:border-line-strong hover:bg-surface"
                 }`}
               >
-                <span className={`block text-sm font-black ${active ? "text-primary-700" : "text-slate-600"}`}>{label}</span>
+                <span className={`block text-sm font-black ${active ? "text-primary-700" : "text-ink-body"}`}>{label}</span>
                 <span className="block text-xs font-bold text-slate-400 mt-2 leading-relaxed">{hint}</span>
               </button>
             );
@@ -495,17 +495,17 @@ export default function SmsSettings() {
       </div>
 
       {/* When the reminder goes out */}
-      <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
-        <h3 className="text-lg font-black text-slate-900 flex items-center gap-3">
+      <div className="bg-surface p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
+        <h3 className="text-lg font-black text-ink flex items-center gap-3">
           <Clock className="text-primary-500" size={20} /> {txt.hourTitle}
         </h3>
-        <p className="text-xs font-bold text-slate-500 mt-2 leading-relaxed">{txt.hourHint}</p>
+        <p className="text-xs font-bold text-ink-muted mt-2 leading-relaxed">{txt.hourHint}</p>
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <select
             value={settings.sendHour}
             onChange={(e) => void save({ ...settings, sendHour: Number(e.target.value) })}
-            className="py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-black text-slate-800 outline-none focus:bg-white focus:border-primary-500"
+            className="py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-black text-slate-800 outline-none focus:bg-surface focus:border-primary-500"
           >
             {Array.from({ length: MAX_SEND_HOUR - MIN_SEND_HOUR + 1 }, (_, i) => MIN_SEND_HOUR + i).map((hour) => (
               <option key={hour} value={hour}>
@@ -518,8 +518,8 @@ export default function SmsSettings() {
       </div>
 
       {/* Which messages, and what they say */}
-      <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
-        <h3 className="text-lg font-black text-slate-900 flex items-center gap-3">
+      <div className="bg-surface p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
+        <h3 className="text-lg font-black text-ink flex items-center gap-3">
           <Wallet className="text-primary-500" size={20} /> {txt.templateTitle}
         </h3>
         <p className="text-xs font-bold text-slate-400 mt-2 leading-relaxed">{txt.templateHint}</p>
@@ -543,7 +543,7 @@ export default function SmsSettings() {
               onChange={(e) => void save({ ...settings, optOutFooterEnabled: e.target.checked })}
             />
           </label>
-          <p className="text-xs font-bold text-slate-600 leading-relaxed">{txt.optOutHint}</p>
+          <p className="text-xs font-bold text-ink-body leading-relaxed">{txt.optOutHint}</p>
           <p className="text-xs text-amber-900 leading-relaxed">{txt.optOutCost}</p>
         </div>
 
@@ -555,12 +555,12 @@ export default function SmsSettings() {
               <div
                 key={type}
                 className={`rounded-2xl border p-4 transition-colors ${
-                  on ? "border-slate-200 bg-white" : "border-slate-100 bg-slate-50/70"
+                  on ? "border-line bg-surface" : "border-slate-100 bg-slate-50/70"
                 }`}
               >
                 <div className="flex items-center gap-3">
                   <div className="min-w-0 flex-1">
-                    <p className={`text-sm font-black ${on ? "text-slate-900" : "text-slate-500"}`}>
+                    <p className={`text-sm font-black ${on ? "text-ink" : "text-ink-muted"}`}>
                       {eventMeta[type].label}
                     </p>
                     <p className="text-[11px] font-bold text-slate-400 mt-0.5 leading-relaxed">{eventMeta[type].hint}</p>
@@ -574,7 +574,7 @@ export default function SmsSettings() {
                     }`}
                   >
                     <span
-                      className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                      className={`inline-block h-5 w-5 transform rounded-full bg-surface transition-transform ${
                         on ? "translate-x-6" : "translate-x-1"
                       }`}
                     />
@@ -590,7 +590,7 @@ export default function SmsSettings() {
                         setSettings({ ...settings, templates: { ...settings.templates, [type]: e.target.value } })
                       }
                       rows={2}
-                      className="mt-3 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-primary-500 resize-y"
+                      className="mt-3 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-primary-500 resize-y"
                     />
                     {/* Live cost, because it is otherwise invisible until the bill arrives. */}
                     <div className="mt-2 flex flex-wrap items-center gap-3">
@@ -614,7 +614,7 @@ export default function SmsSettings() {
                             templates: { ...settings.templates, [type]: DEFAULT_SMS_TEMPLATES[type] },
                           })
                         }
-                        className="text-xs font-black text-slate-500 hover:text-slate-800 underline underline-offset-2"
+                        className="text-xs font-black text-ink-muted hover:text-slate-800 underline underline-offset-2"
                       >
                         {txt.resetTemplate}
                       </button>
@@ -637,8 +637,8 @@ export default function SmsSettings() {
       </div>
 
       {/* Devices */}
-      <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
-        <h3 className="text-lg font-black text-slate-900 flex items-center gap-3">
+      <div className="bg-surface p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
+        <h3 className="text-lg font-black text-ink flex items-center gap-3">
           <Smartphone className="text-primary-500" size={20} /> {txt.devicesTitle}
         </h3>
 
@@ -648,7 +648,7 @@ export default function SmsSettings() {
               <p className="text-4xl font-black tracking-[0.35em] text-primary-800 select-all" dir="ltr">
                 {pairingCode}
               </p>
-              <p className="mt-3 text-xs font-bold text-slate-600 leading-relaxed">{txt.pairIntro}</p>
+              <p className="mt-3 text-xs font-bold text-ink-body leading-relaxed">{txt.pairIntro}</p>
               <p className="mt-2 text-[11px] font-black uppercase tracking-widest text-primary-600 animate-pulse">
                 {txt.pairWaiting}
               </p>
@@ -665,7 +665,7 @@ export default function SmsSettings() {
           )}
         </div>
 
-        <p className="mt-3 text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 leading-relaxed">
+        <p className="mt-3 text-xs font-bold text-ink-body bg-surface-subtle border border-line rounded-xl px-4 py-3 leading-relaxed">
           {txt.howToAdd}
         </p>
 
@@ -677,18 +677,18 @@ export default function SmsSettings() {
               <div
                 key={device.deviceId}
                 className={`flex items-center gap-4 rounded-2xl border p-4 ${
-                  device.enabled ? "border-slate-200 bg-white" : "border-slate-200 bg-slate-50 opacity-60"
+                  device.enabled ? "border-line bg-surface" : "border-line bg-surface-subtle opacity-60"
                 }`}
               >
                 <Smartphone size={20} className={device.alive ? "text-primary-500" : "text-slate-300"} />
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-black text-slate-900 truncate">
+                  <p className="text-sm font-black text-ink truncate">
                     {device.name}
                     {/* Three states, not two. A phone can be switched on and still not be
                         checking in — flat, out of signal, or killed by battery saver — and that
                         is the case worth surfacing, because the queue silently stops moving. */}
                     {!device.enabled ? (
-                      <span className="ms-2 text-[10px] font-black px-2 py-0.5 rounded-md bg-slate-200 text-slate-500">
+                      <span className="ms-2 text-[10px] font-black px-2 py-0.5 rounded-md bg-slate-200 text-ink-muted">
                         {txt.revoked}
                       </span>
                     ) : device.alive ? (
@@ -736,8 +736,8 @@ export default function SmsSettings() {
       </div>
 
       {/* Queue */}
-      <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
-        <h3 className="text-lg font-black text-slate-900 flex items-center gap-3">
+      <div className="bg-surface p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
+        <h3 className="text-lg font-black text-ink flex items-center gap-3">
           <Clock className="text-primary-500" size={20} /> {txt.queueTitle}
         </h3>
         <p className="text-xs font-bold text-slate-400 mt-2 leading-relaxed">{txt.queueNote}</p>
@@ -747,7 +747,7 @@ export default function SmsSettings() {
             <p className="text-sm font-bold text-slate-400 text-center py-6">{txt.queueEmpty}</p>
           ) : (
             messages.map((message) => (
-              <div key={message.id} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
+              <div key={message.id} className="flex items-center gap-3 rounded-xl border border-line bg-slate-50/60 px-4 py-3">
                 <span className={`text-[10px] font-black px-2 py-1 rounded-md border shrink-0 ${badgeFor(message).className}`}>
                   {badgeFor(message).label}
                 </span>

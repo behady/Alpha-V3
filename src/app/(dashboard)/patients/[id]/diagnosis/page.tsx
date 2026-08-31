@@ -225,16 +225,16 @@ export default function DiagnosisPage() {
               <h1 className="text-base md:text-lg font-bold text-slate-900 leading-tight">
                 {language === "ar" ? "التشخيصات السنية" : "Dental Diagnoses"}
               </h1>
-              <p className="text-[11px] md:text-xs text-slate-500 truncate">
+              <p className="text-[11px] md:text-xs text-ink-muted truncate">
                 {patient.name} · {language === "ar" ? "السن" : "Patient"} {patient.phone || ""}
               </p>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
-              <div className="hidden sm:flex bg-slate-100 p-1 rounded-full">
+              <div className="hidden sm:flex bg-surface-muted p-1 rounded-full">
                 <button
                   onClick={() => setChartMode("adult")}
                   className={`px-3 py-1 rounded-full text-[11px] font-bold inline-flex items-center gap-1.5 transition-all ${
-                    chartMode === "adult" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+                    chartMode === "adult" ? "bg-surface text-ink shadow-sm" : "text-ink-muted"
                   }`}
                 >
                   <User size={12} /> {language === "ar" ? "بالغ" : "Adult"}
@@ -242,14 +242,14 @@ export default function DiagnosisPage() {
                 <button
                   onClick={() => setChartMode("pedo")}
                   className={`px-3 py-1 rounded-full text-[11px] font-bold inline-flex items-center gap-1.5 transition-all ${
-                    chartMode === "pedo" ? "bg-white text-accent shadow-sm" : "text-slate-500"
+                    chartMode === "pedo" ? "bg-surface text-accent shadow-sm" : "text-ink-muted"
                   }`}
                 >
                   <Baby size={12} /> {language === "ar" ? "أطفال" : "Child"}
                 </button>
               </div>
 
-              <div className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 px-2.5 py-1.5 rounded-full border border-slate-200 bg-white">
+              <div className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-semibold text-ink-muted px-2.5 py-1.5 rounded-full border border-line bg-surface">
                 {saving ? (
                   <>
                     <Loader2 size={12} className="animate-spin text-blue-500" />
@@ -302,9 +302,9 @@ export default function DiagnosisPage() {
           {/* Chart + log layout */}
           <section className="grid grid-cols-1 xl:grid-cols-5 gap-4 md:gap-5">
             {/* Chart card */}
-            <div className="xl:col-span-3 bg-white rounded-2xl border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] p-3 md:p-5">
+            <div className="xl:col-span-3 bg-surface rounded-2xl border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] p-3 md:p-5">
               <div className="flex items-center justify-between mb-3 md:mb-4">
-                <h2 className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                <h2 className="text-[11px] font-bold text-ink-muted uppercase tracking-widest flex items-center gap-2">
                   <Stethoscope size={14} className="text-blue-500" />
                   {language === "ar" ? "مخطط الأسنان" : "Odontogram"}
                 </h2>
@@ -314,13 +314,13 @@ export default function DiagnosisPage() {
                 <div className="flex bg-slate-100/50 p-1 rounded-xl">
                   <button
                     onClick={() => setPerioMode(false)}
-                    className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${!perioMode ? "bg-white text-slate-800 shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
+                    className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${!perioMode ? "bg-surface text-slate-800 shadow-sm" : "text-slate-400 hover:text-ink-body"}`}
                   >
                     Clinical
                   </button>
                   <button
                     onClick={() => setPerioMode(true)}
-                    className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${perioMode ? "bg-white text-blue-600 shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
+                    className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all ${perioMode ? "bg-surface text-blue-600 shadow-sm" : "text-slate-400 hover:text-ink-body"}`}
                   >
                     Perio
                   </button>
@@ -336,9 +336,9 @@ export default function DiagnosisPage() {
             </div>
 
             {/* Diagnosis log */}
-            <div className="xl:col-span-2 bg-white rounded-2xl border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] flex flex-col overflow-hidden min-h-[480px]">
+            <div className="xl:col-span-2 bg-surface rounded-2xl border border-slate-100 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] flex flex-col overflow-hidden min-h-[480px]">
               <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-3 bg-gradient-to-b from-white to-slate-50/40">
-                <h2 className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                <h2 className="text-[11px] font-bold text-ink-muted uppercase tracking-widest flex items-center gap-2">
                   <Activity size={14} className="text-blue-500" />
                   {language === "ar" ? "سجل التشخيصات" : "Diagnoses log"}
                 </h2>
@@ -348,8 +348,8 @@ export default function DiagnosisPage() {
               </div>
 
               {/* Search + filter */}
-              <div className="px-4 py-3 border-b border-slate-100 bg-white space-y-2">
-                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+              <div className="px-4 py-3 border-b border-slate-100 bg-surface space-y-2">
+                <div className="flex items-center gap-2 bg-surface-subtle border border-line rounded-xl px-3 py-2">
                   <Search size={14} className="text-slate-400" />
                   <input
                     value={search}
@@ -474,7 +474,7 @@ function StatCard({
 }) {
   return (
     <div
-      className="bg-white rounded-xl border border-slate-100 px-3 py-2.5 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] flex items-center gap-2.5 min-w-0"
+      className="bg-surface rounded-xl border border-slate-100 px-3 py-2.5 shadow-[0_2px_10px_-3px_rgba(6,81,237,0.05)] flex items-center gap-2.5 min-w-0"
     >
       <div
         className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
@@ -483,8 +483,8 @@ function StatCard({
         {icon}
       </div>
       <div className="min-w-0 flex-1">
-        <div className="text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-tight truncate">{label}</div>
-        <div className="text-lg font-bold text-slate-900 tabular-nums leading-tight">{value}</div>
+        <div className="text-[9px] font-bold text-ink-muted uppercase tracking-widest leading-tight truncate">{label}</div>
+        <div className="text-lg font-bold text-ink tabular-nums leading-tight">{value}</div>
       </div>
     </div>
   );
@@ -502,8 +502,8 @@ function DiagnosisRow({
   const { language } = useLanguage();
 
   return (
-    <div className="group relative bg-white rounded-xl border border-slate-100 hover:border-accent-soft hover:shadow-sm transition-all p-3 flex gap-3">
-      <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200 flex items-center justify-center font-bold text-slate-700 shrink-0 tabular-nums shadow-inner">
+    <div className="group relative bg-surface rounded-xl border border-slate-100 hover:border-accent-soft hover:shadow-sm transition-all p-3 flex gap-3">
+      <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100 border border-line flex items-center justify-center font-bold text-slate-700 shrink-0 tabular-nums shadow-inner">
         {row.id}
       </div>
 
@@ -529,7 +529,7 @@ function DiagnosisRow({
                 
                 {/* Description */}
                 {(opt.descEn || opt.descAr) && (
-                  <p className="text-xs text-slate-500 font-medium leading-relaxed mt-1">
+                  <p className="text-xs text-ink-muted font-medium leading-relaxed mt-1">
                     {language === "ar" ? opt.descAr : opt.descEn}
                   </p>
                 )}
@@ -541,7 +541,7 @@ function DiagnosisRow({
                       {language === "ar" ? "العلاج المقترح:" : "Suggested Tx:"}
                     </span>
                     {(language === "ar" ? (opt.treatmentsAr || []) : (opt.treatmentsEn || [])).map((tx: string, idx: number) => (
-                      <span key={idx} className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200 font-semibold">
+                      <span key={idx} className="text-[10px] bg-surface-muted text-ink-body px-1.5 py-0.5 rounded border border-line font-semibold">
                         {tx}
                       </span>
                     ))}
@@ -571,7 +571,7 @@ function DiagnosisRow({
 
       <button
         onClick={onDelete}
-        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white border border-slate-200 hover:border-rose-300 text-slate-400 hover:text-rose-500 rounded-full p-1 shadow-sm"
+        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-surface border border-line hover:border-rose-300 text-slate-400 hover:text-rose-500 rounded-full p-1 shadow-sm"
         title="Remove"
       >
         <X size={12} />

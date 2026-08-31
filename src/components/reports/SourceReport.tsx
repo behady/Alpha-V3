@@ -264,7 +264,7 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
     return (
       <div className="flex flex-col items-center justify-center py-16 text-slate-400">
         <Network size={40} className="mb-3 opacity-30" />
-        <p className="font-bold text-slate-500">{isAr ? "لا توجد بيانات مصادر في هذه الفترة" : "No source data in this period"}</p>
+        <p className="font-bold text-ink-muted">{isAr ? "لا توجد بيانات مصادر في هذه الفترة" : "No source data in this period"}</p>
       </div>
     );
   }
@@ -276,10 +276,10 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
         {[
           { l: isAr ? "المصادر" : "Sources", v: stats.length.toString(), c: "text-blue-600" },
           { l: isAr ? "عدد المرضى" : "Patients (active)", v: totalPatients.toString(), c: "text-emerald-600" },
-          { l: isAr ? "إجمالي الدخل" : "Total Income", v: `${totalIncome.toLocaleString()} EGP`, c: "text-slate-900" },
+          { l: isAr ? "إجمالي الدخل" : "Total Income", v: `${totalIncome.toLocaleString()} EGP`, c: "text-ink" },
         ].map((k) => (
-          <div key={k.l} className="bg-white border border-slate-200 shadow-sm rounded-2xl p-4">
-            <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">{k.l}</p>
+          <div key={k.l} className="bg-surface border border-line shadow-sm rounded-2xl p-4">
+            <p className="text-[10px] font-black text-ink-muted uppercase tracking-wider">{k.l}</p>
             <p className={`text-xl font-black tabular-nums mt-1 ${k.c}`}>{k.v}</p>
           </div>
         ))}
@@ -287,8 +287,8 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
         {/* Pie */}
-        <div className="xl:col-span-4 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-          <h3 className="text-sm font-black text-slate-900 mb-4">{isAr ? "توزيع الدخل" : "Income Distribution"}</h3>
+        <div className="xl:col-span-4 bg-surface rounded-2xl border border-line p-5 shadow-sm">
+          <h3 className="text-sm font-black text-ink mb-4">{isAr ? "توزيع الدخل" : "Income Distribution"}</h3>
           <div ref={chartRef}>
             <ResponsiveContainer width="100%" height={230}>
               <PieChart>
@@ -316,9 +316,9 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
         </div>
 
         {/* Sources table with expandable rows */}
-        <div className="xl:col-span-8 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="xl:col-span-8 bg-surface rounded-2xl border border-line shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center">
-            <h3 className="text-sm font-black text-slate-900">{isAr ? "تفاصيل المصادر" : "Source Details"}</h3>
+            <h3 className="text-sm font-black text-ink">{isAr ? "تفاصيل المصادر" : "Source Details"}</h3>
             <div className="flex items-center gap-2">
               <button
                 onClick={handlePdfExport}
@@ -344,11 +344,11 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
                 <button
                   type="button"
                   onClick={() => setExpanded(expanded === s.name ? null : s.name)}
-                  className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 transition-colors text-start"
+                  className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-surface-subtle transition-colors text-start"
                 >
                   <span className="w-3 h-3 rounded-full shrink-0" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
                   <span className="flex-1 font-bold text-sm text-slate-800">{s.name}</span>
-                  <span className="text-xs text-slate-500 font-semibold">{s.patientCount} {isAr ? "مريض" : "patients"}</span>
+                  <span className="text-xs text-ink-muted font-semibold">{s.patientCount} {isAr ? "مريض" : "patients"}</span>
                   <span className="text-xs font-black text-emerald-600 tabular-nums w-24 text-end">{s.totalIncome.toLocaleString()} EGP</span>
                   {expanded === s.name ? <ChevronDown size={15} className="text-slate-400 shrink-0" /> : <ChevronRight size={15} className="text-slate-400 shrink-0" />}
                 </button>
@@ -358,10 +358,10 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
                     {/* Services */}
                     <div>
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">{isAr ? "الخدمات" : "Services"}</p>
-                      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                      <div className="bg-surface rounded-xl border border-line overflow-hidden">
                         <table className="w-full text-xs">
                           <thead>
-                            <tr className="bg-slate-50 text-[9px] font-black text-slate-500 uppercase">
+                            <tr className="bg-surface-subtle text-[9px] font-black text-ink-muted uppercase">
                               <th className="text-start py-2 px-3">{isAr ? "الخدمة" : "Service"}</th>
                               <th className="text-center py-2 px-3">{isAr ? "العدد" : "Count"}</th>
                               <th className="text-end py-2 px-3">{isAr ? "الدخل" : "Income"}</th>
@@ -383,10 +383,10 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
                     {/* Patients */}
                     <div>
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-2">{isAr ? "المرضى" : "Patients"}</p>
-                      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                      <div className="bg-surface rounded-xl border border-line overflow-hidden">
                         <table className="w-full text-xs">
                           <thead>
-                            <tr className="bg-slate-50 text-[9px] font-black text-slate-500 uppercase">
+                            <tr className="bg-surface-subtle text-[9px] font-black text-ink-muted uppercase">
                               <th className="text-start py-2 px-3">{isAr ? "الاسم" : "Name"}</th>
                               <th className="text-start py-2 px-3">{isAr ? "الهاتف" : "Phone"}</th>
                               <th className="text-end py-2 px-3">{isAr ? "المدفوع" : "Paid (EGP)"}</th>
@@ -396,7 +396,7 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
                             {s.patients.slice(0, 10).map((p, j) => (
                               <tr key={j}>
                                 <td className="py-2 px-3 font-semibold text-slate-700">{p.name}</td>
-                                <td className="py-2 px-3 text-slate-500">{p.phone || "—"}</td>
+                                <td className="py-2 px-3 text-ink-muted">{p.phone || "—"}</td>
                                 <td className="py-2 px-3 text-end font-bold text-emerald-600 tabular-nums">{p.paid.toLocaleString()}</td>
                               </tr>
                             ))}

@@ -322,7 +322,7 @@ export default function DesignStudio({
               {isAr ? `الثيم: ${theme.ar} — يتغير من «هوية العيادة»` : `Theme: ${theme.en} — change it from Brand Kit`}
             </p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500">
+          <button onClick={onClose} className="p-1.5 rounded-full bg-surface-muted hover:bg-slate-200 text-ink-muted">
             <X size={16} />
           </button>
         </div>
@@ -331,7 +331,7 @@ export default function DesignStudio({
           {/* Controls */}
           <div className="space-y-4 min-w-0">
             <div>
-              <label className="block text-xs font-black text-slate-500 mb-1.5">{isAr ? "التكوين" : "Layout"}</label>
+              <label className="block text-xs font-black text-ink-muted mb-1.5">{isAr ? "التكوين" : "Layout"}</label>
               <div className="grid grid-cols-3 gap-1.5">
                 {(
                   [
@@ -354,7 +354,7 @@ export default function DesignStudio({
             </div>
 
             <div>
-              <label className="block text-xs font-black text-slate-500 mb-1.5">{isAr ? "المقاس" : "Format"}</label>
+              <label className="block text-xs font-black text-ink-muted mb-1.5">{isAr ? "المقاس" : "Format"}</label>
               <div className="grid grid-cols-2 gap-1.5">
                 <button
                   onClick={() => setFormat("square")}
@@ -376,23 +376,23 @@ export default function DesignStudio({
             </div>
 
             <div>
-              <label className="block text-xs font-black text-slate-500 mb-1.5">{isAr ? "العنوان على التصميم" : "Headline on the design"}</label>
+              <label className="block text-xs font-black text-ink-muted mb-1.5">{isAr ? "العنوان على التصميم" : "Headline on the design"}</label>
               <textarea
                 value={headline}
                 onChange={(e) => setHeadline(e.target.value)}
                 rows={2}
                 dir="auto"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-800 outline-none focus:border-emerald-400 resize-y"
+                className="w-full bg-surface-subtle border border-line rounded-xl p-3 text-sm font-bold text-slate-800 outline-none focus:border-emerald-400 resize-y"
               />
             </div>
             <div>
-              <label className="block text-xs font-black text-slate-500 mb-1.5">{isAr ? "النص المساعد" : "Supporting text"}</label>
+              <label className="block text-xs font-black text-ink-muted mb-1.5">{isAr ? "النص المساعد" : "Supporting text"}</label>
               <textarea
                 value={rest}
                 onChange={(e) => setRest(e.target.value)}
                 rows={4}
                 dir="auto"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-700 leading-relaxed outline-none focus:border-emerald-400 resize-y"
+                className="w-full bg-surface-subtle border border-line rounded-xl p-3 text-xs text-slate-700 leading-relaxed outline-none focus:border-emerald-400 resize-y"
               />
             </div>
 
@@ -400,7 +400,7 @@ export default function DesignStudio({
               <button
                 onClick={() => setIncludeLogo((v) => !v)}
                 className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-black transition-colors ${
-                  includeLogo ? "bg-white text-slate-700 border-slate-300" : "bg-slate-100 text-slate-400 border-slate-200"
+                  includeLogo ? "bg-surface text-slate-700 border-line-strong" : "bg-surface-muted text-slate-400 border-line"
                 }`}
               >
                 <ImageOff size={13} /> {includeLogo ? (isAr ? "اللوجو ظاهر — اضغط للإخفاء" : "Logo on — click to hide") : isAr ? "اللوجو مخفي" : "Logo off"}
@@ -427,7 +427,7 @@ export default function DesignStudio({
           {/* Preview */}
           <div className="flex items-start justify-center">
             <div
-              className="rounded-2xl border border-slate-200 shadow-lg overflow-hidden shrink-0"
+              className="rounded-2xl border border-line shadow-lg overflow-hidden shrink-0"
               style={{ width: previewWidth, height: h * scale }}
             >
               <div style={{ transform: `scale(${scale})`, transformOrigin: "top left", width: w, height: h }}>

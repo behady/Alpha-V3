@@ -117,7 +117,7 @@ export default function PatientHistoryDrawer({
     if (s.includes("checked")) return "bg-blue-100 text-blue-700";
     if (s.includes("cancel")) return "bg-rose-100 text-rose-700";
     if (s.includes("delay")) return "bg-amber-100 text-amber-700";
-    return "bg-slate-100 text-slate-700";
+    return "bg-surface-muted text-slate-700";
   };
 
   return (
@@ -130,26 +130,26 @@ export default function PatientHistoryDrawer({
       )}
 
       <div 
-        className={`fixed top-0 end-0 h-full w-full sm:w-[450px] bg-white shadow-2xl z-[101] transform transition-transform duration-300 ease-in-out flex flex-col ${
+        className={`fixed top-0 end-0 h-full w-full sm:w-[450px] bg-surface shadow-2xl z-[101] transform transition-transform duration-300 ease-in-out flex flex-col ${
           isOpen ? "translate-x-0" : "translate-x-full rtl:-translate-x-full"
         }`}
       >
-        <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-white shrink-0">
+        <div className="flex justify-between items-center p-5 border-b border-slate-100 bg-surface shrink-0">
           <div>
             <h2 className="text-xl font-black text-slate-800">{patientName}</h2>
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mt-1 flex items-center gap-1">
+            <p className="text-xs font-bold text-ink-muted uppercase tracking-wider mt-1 flex items-center gap-1">
               <Clock size={12} /> {language === "ar" ? "سجل الزيارات" : "Visit History"}
             </p>
           </div>
           <button 
             onClick={onClose}
-            className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-500"
+            className="p-2 hover:bg-surface-muted rounded-full transition-colors text-ink-muted"
           >
             <X size={20} />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5 bg-slate-50">
+        <div className="flex-1 overflow-y-auto p-5 bg-surface-subtle">
           {loading ? (
             <div className="flex justify-center items-center h-40 text-primary-500">
               <Loader2 className="animate-spin" size={32} />
@@ -157,7 +157,7 @@ export default function PatientHistoryDrawer({
           ) : visits.length === 0 ? (
             <div className="text-center py-10">
               <CalendarDays size={48} className="mx-auto text-slate-300 mb-3" />
-              <p className="text-slate-500 font-semibold">{language === "ar" ? "لا توجد زيارات سابقة" : "No past visits found"}</p>
+              <p className="text-ink-muted font-semibold">{language === "ar" ? "لا توجد زيارات سابقة" : "No past visits found"}</p>
             </div>
           ) : (
             <div className="space-y-8 pb-10">
@@ -172,13 +172,13 @@ export default function PatientHistoryDrawer({
                 <div key={dateStr} className="relative">
                   <div className="flex items-center gap-4 mb-4">
                     <div className="h-px bg-slate-200 flex-1"></div>
-                    <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full uppercase tracking-wider">
+                    <span className="text-xs font-bold text-ink-muted bg-surface-muted px-3 py-1 rounded-full uppercase tracking-wider">
                       {dateStr}
                     </span>
                     <div className="h-px bg-slate-200 flex-1"></div>
                   </div>
 
-                  <div className="relative border-s-2 border-slate-200 ms-3 ps-5 space-y-4">
+                  <div className="relative border-s-2 border-line ms-3 ps-5 space-y-4">
                     {dayVisits.map((visit: any, index: number) => {
                       const isLatest = dateIndex === 0 && index === 0;
                       const isExpanded = expandedIds[visit.id];
@@ -201,12 +201,12 @@ export default function PatientHistoryDrawer({
                             isLatest ? "bg-primary-500" : "bg-slate-300"
                           }`} />
                           
-                          <div className={`bg-white rounded-xl p-4 shadow-sm border transition-all ${
+                          <div className={`bg-surface rounded-xl p-4 shadow-sm border transition-all ${
                             isLatest ? "border-primary-100 shadow-md ring-1 ring-primary-50" : "border-slate-100"
                           }`}>
                             <div className="flex justify-between items-start mb-2 cursor-pointer" onClick={() => toggleExpand(visit.id)}>
                               <div className="flex items-center gap-2">
-                                 <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md flex items-center gap-1.5">
+                                 <span className="text-xs font-bold text-ink-muted bg-surface-muted px-2 py-0.5 rounded-md flex items-center gap-1.5">
                                    <Clock size={12} className="text-primary-500" />
                                    {visit.lastScheduledTime || visit.time || visit.dateObj.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                                  </span>
@@ -220,7 +220,7 @@ export default function PatientHistoryDrawer({
                                    </span>
                                  )}
                               </div>
-                              <button className="text-slate-400 hover:text-primary-500 transition-colors bg-slate-50 hover:bg-primary-50 p-1 rounded-md">
+                              <button className="text-slate-400 hover:text-primary-500 transition-colors bg-surface-subtle hover:bg-primary-50 p-1 rounded-md">
                                 {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                               </button>
                             </div>
@@ -231,7 +231,7 @@ export default function PatientHistoryDrawer({
                                     {visit.type === "appointment" ? (visit.treatment || "Visit") : (visit.procedure || "Consultation")}
                                  </h4>
                                  {visit.doctor && (
-                                   <div className="flex items-center gap-1 text-[10px] font-bold text-slate-600">
+                                   <div className="flex items-center gap-1 text-[10px] font-bold text-ink-body">
                                      <Stethoscope size={12} className="text-indigo-400" />
                                      Dr. {visit.doctor.split(" ")[1] || visit.doctor}
                                    </div>
@@ -252,13 +252,13 @@ export default function PatientHistoryDrawer({
                                 {visit.type === "appointment" && (checkInStr || checkOutStr) && (
                                   <div className="flex flex-wrap gap-2 mb-3">
                                     {checkInStr && (
-                                      <span className="text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-200 px-2 py-1 rounded flex items-center gap-1">
+                                      <span className="text-[10px] font-bold text-ink-muted bg-surface-subtle border border-line px-2 py-1 rounded flex items-center gap-1">
                                         <Clock size={10} className="text-blue-500" />
                                         {language === 'ar' ? 'حضور:' : 'Checked In:'} {checkInStr}
                                       </span>
                                     )}
                                     {checkOutStr && (
-                                      <span className="text-[10px] font-bold text-slate-500 bg-slate-50 border border-slate-200 px-2 py-1 rounded flex items-center gap-1">
+                                      <span className="text-[10px] font-bold text-ink-muted bg-surface-subtle border border-line px-2 py-1 rounded flex items-center gap-1">
                                         <Clock size={10} className="text-emerald-500" />
                                         {language === 'ar' ? 'انصراف:' : 'Checked Out:'} {checkOutStr}
                                       </span>
@@ -281,7 +281,7 @@ export default function PatientHistoryDrawer({
                                 {(visit.noteDetails?.note || visit.note) ? (
                                   <div className="flex items-start gap-1.5 bg-slate-50/80 p-3 rounded-lg border border-slate-100">
                                     <FileText size={14} className="text-slate-400 shrink-0 mt-0.5" />
-                                    <p className="text-xs text-slate-600 whitespace-pre-wrap">{visit.noteDetails?.note || visit.note}</p>
+                                    <p className="text-xs text-ink-body whitespace-pre-wrap">{visit.noteDetails?.note || visit.note}</p>
                                   </div>
                                 ) : (
                                   <div className="text-xs text-slate-400 italic bg-slate-50/50 p-2 rounded-lg text-center border border-slate-100/50">

@@ -160,23 +160,23 @@ export default function TimelineCard({
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm hover:border-slate-300 transition-colors overflow-hidden">
+    <div className="bg-surface border border-line rounded-2xl shadow-sm hover:border-line-strong transition-colors overflow-hidden">
       {/* Header */}
       <div className="p-5 flex items-center justify-between border-b border-slate-100 bg-slate-50/50 gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 bg-white border border-slate-200 rounded-xl flex items-center justify-center text-teal-500 shadow-sm shrink-0">
+          <div className="w-10 h-10 bg-surface border border-line rounded-xl flex items-center justify-center text-teal-500 shadow-sm shrink-0">
             <Clock size={18} />
           </div>
           <div className="min-w-0">
-            <h3 className="font-bold text-slate-900 text-base truncate">{txt.title}</h3>
-            <p className="text-[11px] font-medium text-slate-500 truncate">{txt.subtitle}</p>
+            <h3 className="font-bold text-ink text-base truncate">{txt.title}</h3>
+            <p className="text-[11px] font-medium text-ink-muted truncate">{txt.subtitle}</p>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {/* What arrangement is in force, so nobody wonders why the order changed. */}
           <span
             title={txt.changeInSettings}
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-[11px] font-bold text-slate-500"
+            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface border border-line text-[11px] font-bold text-ink-muted"
           >
             <SortIcon size={13} /> {sortLabel}
           </span>
@@ -201,14 +201,14 @@ export default function TimelineCard({
         )}
 
         {orderedNotes.length === 0 ? (
-          <div className="text-center py-10 bg-slate-50/50 rounded-xl border border-slate-200 border-dashed">
+          <div className="text-center py-10 bg-slate-50/50 rounded-xl border border-line border-dashed">
             <p className="text-sm font-medium text-slate-400">{txt.emptyList}</p>
           </div>
         ) : clinicalNoteGrouping === "visit" ? (
           <div className="space-y-6">
             {groups.map((group) => (
-              <section key={group.key} className="rounded-2xl border border-slate-200 overflow-hidden">
-                <header className="flex items-center gap-2.5 px-4 py-2.5 bg-slate-50 border-b border-slate-200">
+              <section key={group.key} className="rounded-2xl border border-line overflow-hidden">
+                <header className="flex items-center gap-2.5 px-4 py-2.5 bg-surface-subtle border-b border-line">
                   {group.key === GENERAL_GROUP_KEY ? (
                     <Inbox size={15} className="text-slate-400 shrink-0" />
                   ) : (
@@ -220,7 +220,7 @@ export default function TimelineCard({
                       : `${txt.visit} — ${formatDate(group.appointment?.date) || "—"}`}
                   </span>
                   {group.appointment?.time && (
-                    <span className="text-[11px] font-bold text-slate-500 shrink-0">{group.appointment.time}</span>
+                    <span className="text-[11px] font-bold text-ink-muted shrink-0">{group.appointment.time}</span>
                   )}
                   {(group.appointment?.doctorName || group.appointment?.doctor) && (
                     <span className="text-[11px] font-bold text-slate-400 truncate">
@@ -268,7 +268,7 @@ export default function TimelineCard({
                       onDragEnd={() => setDragId(null)}
                       className={`flex items-center gap-3 ${dragId === note.id ? "opacity-40" : ""}`}
                     >
-                      <span className="w-[86px] shrink-0 text-[11px] font-bold text-slate-500 text-end">
+                      <span className="w-[86px] shrink-0 text-[11px] font-bold text-ink-muted text-end">
                         {displayDate}
                       </span>
                       <div className="flex-1 min-w-0">{renderService(note)}</div>
@@ -291,14 +291,14 @@ export default function TimelineCard({
                     {/* Timestamp Section (Left) */}
                     <div className="md:w-[100px] shrink-0 pt-2 pl-12 md:pl-0 md:text-right flex flex-col">
                       <span className="text-sm font-bold text-slate-800">{displayDate}</span>
-                      {displayTime && <span className="text-xs font-semibold text-slate-500">{displayTime}</span>}
+                      {displayTime && <span className="text-xs font-semibold text-ink-muted">{displayTime}</span>}
                     </div>
 
                     {/* Timeline Node (Center Dot) */}
                     <div className="absolute left-6 md:left-[120px] top-3 -translate-x-1/2 w-3 h-3 rounded-full border-2 border-white bg-teal-500 shadow-[0_0_0_2px_rgba(20,184,166,0.2)] group-hover:bg-teal-600 group-hover:scale-125 transition-all duration-300" />
 
                     {/* Content Section (Right) */}
-                    <div className="flex-1 ml-12 md:ml-0 bg-white rounded-xl border border-slate-100 shadow-sm hover:shadow-md hover:border-slate-200 transition-all p-1">
+                    <div className="flex-1 ml-12 md:ml-0 bg-surface rounded-xl border border-slate-100 shadow-sm hover:shadow-md hover:border-line transition-all p-1">
                       {renderService(note)}
                     </div>
                   </div>

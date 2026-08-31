@@ -143,13 +143,13 @@ export default function JoinRequests() {
 
   return (
     <div className="space-y-6 animate-in fade-in" dir={isRTL ? "rtl" : "ltr"}>
-      <div className="flex items-center gap-4 mb-6 bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
+      <div className="flex items-center gap-4 mb-6 bg-surface p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
         <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center">
           <UserPlus size={28} />
         </div>
         <div>
-          <h3 className="text-xl font-bold text-slate-900">{isAr ? "طلبات الانضمام" : "Join Requests"}</h3>
-          <p className="text-sm font-semibold text-slate-500 mt-1">
+          <h3 className="text-xl font-bold text-ink">{isAr ? "طلبات الانضمام" : "Join Requests"}</h3>
+          <p className="text-sm font-semibold text-ink-muted mt-1">
             {isAr ? "إدارة طلبات انضمام الموظفين الجدد إلى هذه العيادة." : "Manage requests from users wanting to join this clinic."}
           </p>
         </div>
@@ -168,9 +168,9 @@ export default function JoinRequests() {
       )}
 
       {requests.length === 0 ? (
-        <div className="bg-slate-50 border border-slate-200 rounded-[2rem] p-12 flex flex-col items-center justify-center text-center">
+        <div className="bg-surface-subtle border border-line rounded-[2rem] p-12 flex flex-col items-center justify-center text-center">
            <AlertCircle size={48} className="text-slate-300 mb-4" />
-           <p className="text-lg font-bold text-slate-600">
+           <p className="text-lg font-bold text-ink-body">
              {isAr ? "لا توجد طلبات معلقة" : "No pending requests"}
            </p>
            <p className="text-sm text-slate-400 font-semibold max-w-md mx-auto mt-2">
@@ -180,10 +180,10 @@ export default function JoinRequests() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {requests.map(req => (
-             <div key={req.id} className="bg-white border border-slate-200 p-6 rounded-3xl shadow-sm flex flex-col gap-4">
+             <div key={req.id} className="bg-surface border border-line p-6 rounded-3xl shadow-sm flex flex-col gap-4">
                <div>
-                  <h4 className="font-bold text-slate-900 text-lg">{req.name}</h4>
-                  <p className="text-sm font-semibold text-slate-500">{req.email}</p>
+                  <h4 className="font-bold text-ink text-lg">{req.name}</h4>
+                  <p className="text-sm font-semibold text-ink-muted">{req.email}</p>
                   <p className="text-xs font-medium text-slate-400 mt-1">
                     {formatRequestDate(req)}
                   </p>

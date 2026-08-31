@@ -135,10 +135,10 @@ export default function UsersHost() {
     }
   };
 
-  const fieldClass = `w-full py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all ${
+  const fieldClass = `w-full py-3.5 bg-surface-subtle rounded-xl border border-slate-200/60 font-semibold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all ${
     isRTL ? "pr-11 pl-4" : "pl-11 pr-4"
   }`;
-  const labelClass = `text-[11px] font-bold text-slate-500 uppercase tracking-wider ${
+  const labelClass = `text-[11px] font-bold text-ink-muted uppercase tracking-wider ${
     isRTL ? "pr-1" : "pl-1"
   }`;
   const iconClass = `absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? "right-4" : "left-4"}`;
@@ -161,7 +161,7 @@ export default function UsersHost() {
               <button
                 onClick={() => setIsModalOpen(false)}
                 aria-label={language === "ar" ? "إغلاق" : "Close"}
-                className="text-slate-400 hover:text-red-500 bg-slate-50 hover:bg-red-50 p-2 rounded-full transition-colors"
+                className="text-slate-400 hover:text-red-500 bg-surface-subtle hover:bg-red-50 p-2 rounded-full transition-colors"
               >
                 <X size={20} />
               </button>
@@ -234,12 +234,12 @@ export default function UsersHost() {
               </div>
 
               {isFullAccessRole(form.role) && (
-                <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <label className="flex items-start gap-3 cursor-pointer rounded-xl border border-line bg-surface-subtle p-4">
                   <input
                     type="checkbox"
                     checked={form.isDentist}
                     onChange={(e) => setForm({ ...form, isDentist: e.target.checked })}
-                    className="mt-0.5 w-4 h-4 rounded border-slate-300 text-accent"
+                    className="mt-0.5 w-4 h-4 rounded border-line-strong text-accent"
                   />
                   <span className="text-sm font-semibold text-slate-700 leading-snug">
                     {language === "ar"

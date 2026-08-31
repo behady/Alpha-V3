@@ -53,7 +53,7 @@ import type { FindingKind, RecoveryFinding, RecoveryReport } from "@/lib/revenue
     icon: Tag,
     en: "Below price list",
     ar: "أقل من قائمة الأسعار",
-    tone: "text-slate-600 bg-slate-50 border-slate-200",
+    tone: "text-ink-body bg-surface-subtle border-line",
     explainEn: "Charged less than the service price. Often a deliberate discount — worth confirming.",
     explainAr: "تم تحصيل مبلغ أقل من سعر الخدمة. غالبًا خصم مقصود — يستحق المراجعة.",
   },
@@ -120,7 +120,7 @@ export default function RevenueRecoveryPage() {
             <h1 className="text-xl font-black text-slate-900">
               {isAr ? "استعادة الإيرادات" : "Revenue Recovery"}
             </h1>
-            <p className="text-sm font-medium text-slate-500 mt-3 leading-relaxed">
+            <p className="text-sm font-medium text-ink-muted mt-3 leading-relaxed">
               {isAr
                 ? "يفحص سجلاتك بحثًا عن علاجات لم تُفوتر، وأرصدة متأخرة، وقيود مكررة. متاح في باقة Premium."
                 : "Scans your records for treatment that was never invoiced, stale balances, and duplicated entries. Available on the Premium plan."}
@@ -147,10 +147,10 @@ export default function RevenueRecoveryPage() {
                   {isAr ? "ذكاء ألفا · بريميوم" : "Alpha Intelligence · Premium"}
                 </span>
               </div>
-              <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight mt-1">
+              <h1 className="text-2xl md:text-3xl font-black text-ink tracking-tight mt-1">
                 {isAr ? "استعادة الإيرادات" : "Revenue Recovery"}
               </h1>
-              <p className="text-sm font-medium text-slate-500 mt-1 max-w-2xl">
+              <p className="text-sm font-medium text-ink-muted mt-1 max-w-2xl">
                 {isAr
                   ? "يفحص كل سجل مالي وسريري بحثًا عن أموال استحققتها ولم تُحصّلها."
                   : "Scans every financial and clinical record for money you earned but never collected."}
@@ -169,14 +169,14 @@ export default function RevenueRecoveryPage() {
 
           {/* Empty state — the scan is on-demand, so say what will happen before it runs. */}
           {!report && !scanning && (
-            <div className="bg-white rounded-3xl border border-slate-200 border-dashed p-12 text-center">
-              <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center mx-auto mb-4">
+            <div className="bg-surface rounded-3xl border border-line border-dashed p-12 text-center">
+              <div className="w-14 h-14 rounded-2xl bg-surface-subtle border border-slate-100 flex items-center justify-center mx-auto mb-4">
                 <BadgeDollarSign size={26} className="text-slate-400" />
               </div>
-              <p className="text-base font-black text-slate-900">
+              <p className="text-base font-black text-ink">
                 {isAr ? "لم يتم إجراء فحص بعد" : "No scan run yet"}
               </p>
-              <p className="text-sm font-medium text-slate-500 mt-2 max-w-md mx-auto leading-relaxed">
+              <p className="text-sm font-medium text-ink-muted mt-2 max-w-md mx-auto leading-relaxed">
                 {isAr
                   ? "سيقارن الفحص ملاحظاتك السريرية بدفتر الحسابات وقائمة أسعارك. كل نتيجة مرتبطة بالسجل الأصلي حتى تتمكن من التحقق بنفسك."
                   : "The scan cross-checks your clinical notes against the ledger and your price list. Every finding links back to the source record so you can verify it yourself."}
@@ -185,9 +185,9 @@ export default function RevenueRecoveryPage() {
           )}
 
           {scanning && (
-            <div className="bg-white rounded-3xl border border-slate-200 p-12 flex flex-col items-center">
+            <div className="bg-surface rounded-3xl border border-line p-12 flex flex-col items-center">
               <Loader2 size={28} className="animate-spin text-violet-500" />
-              <p className="text-sm font-bold text-slate-500 mt-4">
+              <p className="text-sm font-bold text-ink-muted mt-4">
                 {isAr ? "يقرأ دفتر الحسابات والملاحظات السريرية..." : "Reading the ledger and clinical notes..."}
               </p>
             </div>
@@ -243,9 +243,9 @@ export default function RevenueRecoveryPage() {
 
               {/* Caveats — a financial claim without its limits stated is not trustworthy. */}
               {report.notes.length > 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 p-4 flex items-start gap-3">
+                <div className="bg-surface rounded-2xl border border-line p-4 flex items-start gap-3">
                   <AlertCircle size={16} className="text-slate-400 shrink-0 mt-0.5" />
-                  <ul className="text-xs font-medium text-slate-500 space-y-1 leading-relaxed">
+                  <ul className="text-xs font-medium text-ink-muted space-y-1 leading-relaxed">
                     {report.notes.map((n, i) => (
                       <li key={i}>{n}</li>
                     ))}
@@ -254,7 +254,7 @@ export default function RevenueRecoveryPage() {
               )}
 
               {/* Findings */}
-              <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden">
+              <div className="bg-surface rounded-3xl border border-line overflow-hidden">
                 <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
                   <h2 className="text-xs font-black uppercase tracking-widest text-slate-800">
                     {activeKind === "all"
@@ -278,10 +278,10 @@ export default function RevenueRecoveryPage() {
 
                 {visibleFindings.length === 0 ? (
                   <div className="p-12 text-center">
-                    <p className="text-base font-black text-slate-900">
+                    <p className="text-base font-black text-ink">
                       {isAr ? "لا شيء هنا — وهذا خبر جيد" : "Nothing here — that's good news"}
                     </p>
-                    <p className="text-sm font-medium text-slate-500 mt-1">
+                    <p className="text-sm font-medium text-ink-muted mt-1">
                       {isAr ? "لم يعثر الفحص على أي مشكلة في هذه الفئة." : "The scan found no issues in this category."}
                     </p>
                   </div>
@@ -301,7 +301,7 @@ export default function RevenueRecoveryPage() {
                                 <div className="flex flex-wrap items-center gap-2">
                                   <Link
                                     href={patientHref(f)}
-                                    className="text-sm font-black text-slate-900 hover:text-violet-700 transition-colors inline-flex items-center gap-1"
+                                    className="text-sm font-black text-ink hover:text-violet-700 transition-colors inline-flex items-center gap-1"
                                   >
                                     {f.patientName}
                                     <ArrowUpRight size={13} className="text-slate-400" />
@@ -317,14 +317,14 @@ export default function RevenueRecoveryPage() {
                                     </span>
                                   )}
                                 </div>
-                                <p className="text-xs font-medium text-slate-600 mt-1 leading-relaxed">{f.detail}</p>
+                                <p className="text-xs font-medium text-ink-body mt-1 leading-relaxed">{f.detail}</p>
                                 <p className="text-[10px] font-mono text-slate-400 mt-1.5 break-all">
                                   {f.evidence.map((e) => `${e.collection}/${e.docId}`).join("  ·  ")}
                                 </p>
                               </div>
                             </div>
 
-                            <p className="text-lg font-black text-slate-900 shrink-0 tabular-nums">{money(f.amount)}</p>
+                            <p className="text-lg font-black text-ink shrink-0 tabular-nums">{money(f.amount)}</p>
                           </div>
                         </div>
                       );
