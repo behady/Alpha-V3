@@ -32,6 +32,16 @@ const APP_BASE_URL = process.env.APP_BASE_URL || "https://alpha-v3-live.vercel.a
 /** How long after a review ask before the same patient may be asked again. */
 const REVIEW_COOLDOWN_DAYS = 90;
 const LEAD_ALERT_AFTER_MINUTES = 15;
+/**
+ * The second nudge, and the reason this job is worth having at all.
+ *
+ * The first alert goes to whoever is on the floor, once, and then the lead was never mentioned
+ * again — an inbox of eight paid ad leads sat untouched for eighteen hours with every one of them
+ * already alerted. So a lead still untouched two hours on stops being a busy-moment problem and
+ * goes over the floor's head to the people paying for the ads, naming whoever owns it.
+ * Once per lead: escalation that repeats is just noise with a worse reputation.
+ */
+const LEAD_ESCALATE_AFTER_MINUTES = 120;
 
 /**
  * Twin of OCCASION_DATES in src/types/marketing.ts — functions can't import TS, so keep the
@@ -330,6 +340,7 @@ exports.leadSpeedAlerts = onSchedule(
   { schedule: "*/10 9-22 * * *", timeZone: TIMEZONE, timeoutSeconds: 300, memory: "256MiB" },
   async () => {
     const cutoffMs = Date.now() - LEAD_ALERT_AFTER_MINUTES * 60 * 1000;
+    const escalateCutoffMs = Date.now() - LEAD_ESCALATE_AFTER_MINUTES * 60 * 1000;
 
     for (const clinic of await marketingClinics()) {
       try {
@@ -347,28 +358,65 @@ exports.leadSpeedAlerts = onSchedule(
           const created = d.createdAt && typeof d.createdAt.toMillis === "function" ? d.createdAt.toMillis() : 0;
           return created > 0 && created < cutoffMs;
         });
-        if (waiting.length === 0) continue;
+        // Not `continue` on an empty first pass: no lead being newly due a nudge is the normal
+        // case, and it is exactly when an already-nudged one is sitting there needing escalation.
+        if (waiting.length > 0) {
+          const names = waiting
+            .map((doc) => String(doc.data().name || "").trim())
+            .filter(Boolean)
+            .slice(0, 3)
+            .join(", ");
 
-        const names = waiting
-          .map((doc) => String(doc.data().name || "").trim())
-          .filter(Boolean)
-          .slice(0, 3)
-          .join(", ");
+          await sendClinicPush(
+            db(),
+            clinic.id,
+            {
+              title: `⏱ ${waiting.length} lead${waiting.length === 1 ? "" : "s"} waiting ${LEAD_ALERT_AFTER_MINUTES}+ min`,
+              body: names
+                ? `Still unanswered: ${names}${waiting.length > 3 ? "…" : ""}. The first minutes win the lead.`
+                : "Open the Leads inbox — someone is waiting for a reply.",
+            },
+            { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_leads", data: { screen: "leads" } }
+          );
+
+          await Promise.all(
+            waiting.map((doc) => doc.ref.update({ speedAlertAt: FieldValue.serverTimestamp() }).catch(() => {}))
+          );
+        }
+
+        // --- second pass: still nobody, two hours on. Escalate.
+        // Only leads that already had their first nudge, which also keeps a lead that arrived
+        // overnight from getting both pushes in the same 9am run.
+        const abandoned = snap.docs.filter((doc) => {
+          const d = doc.data() || {};
+          if (!d.speedAlertAt || d.escalatedAt) return false;
+          const created = d.createdAt && typeof d.createdAt.toMillis === "function" ? d.createdAt.toMillis() : 0;
+          return created > 0 && created < escalateCutoffMs;
+        });
+        if (abandoned.length === 0) continue;
+
+        const owned = [
+          ...new Set(
+            abandoned.map((doc) => String(doc.data().assignedToName || "").trim()).filter(Boolean)
+          ),
+        ];
+        const hours = Math.round(LEAD_ESCALATE_AFTER_MINUTES / 60);
 
         await sendClinicPush(
           db(),
           clinic.id,
           {
-            title: `⏱ ${waiting.length} lead${waiting.length === 1 ? "" : "s"} waiting ${LEAD_ALERT_AFTER_MINUTES}+ min`,
-            body: names
-              ? `Still unanswered: ${names}${waiting.length > 3 ? "…" : ""}. The first minutes win the lead.`
-              : "Open the Leads inbox — someone is waiting for a reply.",
+            title: `🚨 ${abandoned.length} paid lead${abandoned.length === 1 ? "" : "s"} still unanswered after ${hours}h`,
+            body: owned.length
+              ? `Assigned to ${owned.join(", ")} — nobody has replied yet.`
+              : "Nobody has been assigned to them. Open the Leads inbox.",
           },
-          { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_leads", data: { screen: "leads" } }
+          // Over the floor's head on purpose: reception was already told, twice is not the answer.
+          { roles: ["Owner", "Admin"], channel: "alpha_leads", data: { screen: "leads" } }
         );
 
         await Promise.all(
-          waiting.map((doc) => doc.ref.update({ speedAlertAt: FieldValue.serverTimestamp() }).catch(() => {}))
+          abandoned.map((doc) => doc.ref.update({ escalatedAt: FieldValue.serverTimestamp() }).catch(() => {}))
         );
       } catch (e) {
         console.error(`leadSpeedAlerts failed for ${clinic.id}:`, e);

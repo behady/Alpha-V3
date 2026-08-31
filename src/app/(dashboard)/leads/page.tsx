@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import {
   Plus, Phone, MessageCircle, Search, ChevronDown, X, Loader2,
   UserPlus, Building2, CalendarClock, Trash2, Inbox, Check, UserCheck, Copy, Hourglass, Timer,
+  Clock, Megaphone, UserCog, ShieldAlert,
 } from "lucide-react";
 import { onSnapshot, orderBy, query, addDoc, updateDoc, deleteDoc, serverTimestamp, getDoc } from "firebase/firestore";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
@@ -61,9 +62,25 @@ export default function LeadsPage() {
     if (h < 24) return isAr ? `${h} س` : `${h}h`;
     return isAr ? `${Math.floor(h / 24)} يوم` : `${Math.floor(h / 24)}d`;
   };
+  /**
+   * When the lead actually landed. "waiting 6h" answers how stale it is; reception also has to
+   * answer "when did this come in?" — to a patient asking why nobody called, and to themselves
+   * when a night's leads all need working through in the morning.
+   */
+  const arrivedLabel = (seconds?: number) => {
+    if (!seconds) return "";
+    return new Date(seconds * 1000).toLocaleString(isAr ? "ar-EG" : "en-GB", {
+      day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit",
+    });
+  };
   const [branches, setBranches] = useState<ClinicBranch[]>([]);
   const [sources, setSources] = useState<string[]>(DEFAULT_LEAD_SOURCES);
   const [servicesList, setServicesList] = useState<string[]>([]);
+
+  /** Clinic staff who can own a lead. Only people with a login — a name alone cannot be chased. */
+  const [staff, setStaff] = useState<{ uid: string; name: string; role: string }[]>([]);
+  /** "" all · "me" mine · "none" unassigned · otherwise a staff uid. */
+  const [ownerFilter, setOwnerFilter] = useState("");
 
   const [stageFilter, setStageFilter] = useState<"active" | LeadStage>("active");
   const [sourceFilter, setSourceFilter] = useState("");
@@ -111,7 +128,21 @@ export default function LeadsPage() {
     const unsubServices = onSnapshot(getClinicCollection("services"), (snap) => {
       setServicesList(snap.docs.map((d) => String(d.data().name || "")).filter(Boolean));
     });
-    return () => unsubServices();
+    const unsubStaff = onSnapshot(getClinicCollection("staff"), (snap) => {
+      setStaff(
+        snap.docs
+          .map((d) => ({
+            uid: String(d.data().uid || "").trim(),
+            name: String(d.data().name || d.data().displayName || "").trim(),
+            role: String(d.data().role || "").trim(),
+          }))
+          // A staff row with no uid is someone who never finished signing in; assigning a lead to
+          // them would put it somewhere no notification can reach.
+          .filter((s) => s.uid && s.name)
+          .sort((a, b) => a.name.localeCompare(b.name))
+      );
+    });
+    return () => { unsubServices(); unsubStaff(); };
   }, [user]);
 
   const todayStr = useMemo(() => {
@@ -127,6 +158,9 @@ export default function LeadsPage() {
         if (l.stage === "won" || l.stage === "lost") return false;
       } else if (l.stage !== stageFilter) return false;
       if (sourceFilter && l.source !== sourceFilter) return false;
+      if (ownerFilter === "me" && l.assignedToUid !== user?.uid) return false;
+      if (ownerFilter === "none" && l.assignedToUid) return false;
+      if (ownerFilter && ownerFilter !== "me" && ownerFilter !== "none" && l.assignedToUid !== ownerFilter) return false;
       if (branchFilter && l.branchId && l.branchId !== branchFilter) return false;
       if (branchFilter && !l.branchId) return false;
       if (searchText) {
@@ -146,7 +180,7 @@ export default function LeadsPage() {
       if (dueA === 0) return (a.followUpDate || "").localeCompare(b.followUpDate || "");
       return (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
     });
-  }, [leads, stageFilter, sourceFilter, branchFilter, searchText, todayStr]);
+  }, [leads, stageFilter, sourceFilter, branchFilter, ownerFilter, searchText, todayStr, user]);
 
   // This month's numbers — the "is the marketing working" strip.
   const stats = useMemo(() => {
@@ -269,6 +303,24 @@ export default function LeadsPage() {
       await updateDoc(getClinicDoc("leads", lead.id), patch);
     } catch (e) {
       console.error("Stage change error:", e);
+      showToast(isAr ? "حصل خطأ" : "Error", "error");
+    }
+  };
+
+  /**
+   * Hand a lead to a person. Deliberately one tap from the row rather than buried in the edit
+   * sheet: the point is that assigning is cheaper than ignoring.
+   */
+  const setOwner = async (lead: Lead, uid: string) => {
+    try {
+      const member = staff.find((s) => s.uid === uid);
+      await updateDoc(getClinicDoc("leads", lead.id), {
+        assignedToUid: uid || null,
+        assignedToName: member?.name || null,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (e) {
+      console.error("Assign error:", e);
       showToast(isAr ? "حصل خطأ" : "Error", "error");
     }
   };
@@ -440,6 +492,18 @@ export default function LeadsPage() {
               <option value="">{isAr ? "كل المصادر" : "All sources"}</option>
               {sources.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
+            {staff.length > 0 && (
+              <select
+                value={ownerFilter}
+                onChange={(e) => setOwnerFilter(e.target.value)}
+                className="bg-surface border border-line rounded-xl px-3 py-2 text-xs font-bold text-ink-body outline-none focus:border-teal-500"
+              >
+                <option value="">{isAr ? "كل المسؤولين" : "Anyone"}</option>
+                <option value="me">{isAr ? "بتاعي" : "Mine"}</option>
+                <option value="none">{isAr ? "من غير مسؤول" : "Unassigned"}</option>
+                {staff.map((s) => <option key={s.uid} value={s.uid}>{s.name}</option>)}
+              </select>
+            )}
             {branches.length > 0 && (
               <select
                 value={branchFilter}
@@ -529,6 +593,19 @@ export default function LeadsPage() {
                             <MessageCircle size={10} /> {isAr ? "رد جاهز للإرسال" : "reply waiting to send"}
                           </span>
                         )}
+                        {!lead.assignedToUid && lead.stage !== "won" && lead.stage !== "lost" && (
+                          <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 flex items-center gap-1">
+                            <UserCog size={10} /> {isAr ? "من غير مسؤول" : "unassigned"}
+                          </span>
+                        )}
+                        {lead.escalatedAt && lead.stage === "new" && (
+                          <span
+                            className="text-[10px] font-black px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 flex items-center gap-1"
+                            title={isAr ? "عدى ساعتين من غير رد، فاتبلغت الإدارة" : "Two hours unanswered — the owner was told"}
+                          >
+                            <ShieldAlert size={10} /> {isAr ? "اتبلغت الإدارة" : "escalated"}
+                          </span>
+                        )}
                         {stale && (
                           <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-slate-200 text-ink-body flex items-center gap-1">
                             <Hourglass size={10} /> {isAr ? `ساكن ${STALE_AFTER_DAYS}+ يوم` : `${STALE_AFTER_DAYS}+ days quiet`}
@@ -540,6 +617,20 @@ export default function LeadsPage() {
                         {lead.source && <SourceIcon source={lead.source} size={14} />}
                         <span className="truncate">{[lead.interest, lead.source, lead.branchName].filter(Boolean).join(" · ")}</span>
                       </p>
+                      {(lead.createdAt?.seconds || lead.meta?.campaignName) && (
+                        <p className="text-[11px] text-slate-400 font-semibold mt-1 flex items-center gap-x-3 gap-y-1 flex-wrap">
+                          {lead.createdAt?.seconds ? (
+                            <span className="flex items-center gap-1">
+                              <Clock size={11} /> {arrivedLabel(lead.createdAt.seconds)}
+                            </span>
+                          ) : null}
+                          {lead.meta?.campaignName ? (
+                            <span className="flex items-center gap-1 text-slate-500">
+                              <Megaphone size={11} /> {lead.meta.campaignName}
+                            </span>
+                          ) : null}
+                        </p>
+                      )}
                       {lead.notes && <p className="text-[11px] text-slate-400 font-medium mt-1 line-clamp-2">{lead.notes}</p>}
                       {lead.stage === "lost" && lead.lostReason && (
                         <p className="text-[11px] text-rose-500 font-bold mt-1">{isAr ? "السبب:" : "Reason:"} {lead.lostReason}</p>
@@ -591,6 +682,21 @@ export default function LeadsPage() {
                         <option key={s} value={s}>{leadStageLabel(s, isAr ? "ar" : "en")}</option>
                       ))}
                     </select>
+                    {staff.length > 0 && (
+                      <select
+                        value={lead.assignedToUid || ""}
+                        onChange={(e) => void setOwner(lead, e.target.value)}
+                        className={`border rounded-lg px-2 py-1.5 text-[11px] font-bold outline-none focus:border-teal-500 ${
+                          lead.assignedToUid
+                            ? "bg-surface-subtle border-line text-ink-body"
+                            : "bg-amber-50 border-amber-200 text-amber-700"
+                        }`}
+                        title={isAr ? "مين مسؤول عن العميل ده" : "Who is chasing this lead"}
+                      >
+                        <option value="">{isAr ? "مسؤول؟" : "Assign to…"}</option>
+                        {staff.map((s) => <option key={s.uid} value={s.uid}>{s.name}</option>)}
+                      </select>
+                    )}
                     <div className="flex items-center gap-2">
                       <button onClick={() => openEdit(lead)} className="text-[11px] font-bold text-ink-muted hover:text-slate-800 px-2 py-1 rounded-lg hover:bg-surface-subtle transition-colors">
                         {isAr ? "تعديل" : "Edit"}

@@ -106,6 +106,38 @@ assert.equal(
   "an essay in the answer box is not a service label; fall back to the campaign"
 );
 
+// --- THE LIVE FORM, verbatim: what the clinic's own ortho leads actually arrive as ---
+// Meta writes multiple-choice answers with underscores, and this form asks the service question
+// in Egyptian Arabic. Every assertion here is copied from a real lead in the inbox.
+const ORTHO_Q = "إيه_نوع_التقويم_اللي_مهتم_بيه؟";
+const TIME_Q = "إمتى_تفضل_نتواصل_معاك؟";
+
+assert.equal(
+  withForm([{ name: ORTHO_Q, values: ["تقويم_معدني"] }], ""),
+  "تقويم الأسنان",
+  "مهتم must be in the hint list — تهتم alone never matched this form"
+);
+assert.equal(withForm([{ name: ORTHO_Q, values: ["تقويم_شفاف"] }], ""), "تقويم الأسنان");
+assert.equal(
+  withForm([{ name: ORTHO_Q, values: ["مش_عارف_ومحتاج_استشارة"] }], ""),
+  "تقويم الأسنان",
+  "an 'I don't know yet' answer is still an ortho lead — the question says so"
+);
+
+// The other question every one of these forms carries must never be read as the treatment.
+assert.equal(
+  withForm([{ name: TIME_Q, values: ["3_عصرا_:_7_مساء"] }], "Veneers Sep 2026"),
+  "Veneers",
+  "a callback-time question must not be mistaken for a service question"
+);
+assert.equal(withForm([{ name: TIME_Q, values: ["3_عصرا_:_7_مساء"] }], ""), "");
+
+// An unrecognised answer is quoted in the person's own words, without Meta's underscores.
+assert.equal(
+  withForm([{ name: "which_service_are_you_interested_in", values: ["Smile_Makeover"] }], ""),
+  "Smile Makeover"
+);
+
 // --- the ad name is consulted when the campaign is generic ---
 assert.equal(
   detectInterest({ fieldData: [], campaignName: "Leads Q3", adName: "Veneer before and after", clinicServices: [] }),

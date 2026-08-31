@@ -155,8 +155,24 @@ const SERVICE_KEYWORDS = [
   { en: "Teeth cleaning", ar: "تنظيف الأسنان", enWords: ["cleaning", "scaling", "hygiene"], arWords: ["تنظيف", "تنضيف", "جير"] },
 ];
 
-/** Field names a lead form uses when it asks which treatment the person came for. */
-const SERVICE_QUESTION_HINTS = ["service", "treatment", "interested", "procedure", "خدمه", "علاج", "تهتم"];
+/**
+ * Field names a lead form uses when it asks which treatment the person came for.
+ *
+ * The Arabic ones are the working set here: the live ortho form asks
+ * "إيه نوع التقويم اللي مهتم بيه؟", so مهتم and نوع both have to be listed — تهتم alone never
+ * fired, because whole-token matching will not find تهتم inside مهتم and should not.
+ * Nothing here may match the other question every one of these forms carries,
+ * "إمتى تفضل نتواصل معاك؟", or a callback time becomes the treatment.
+ */
+const SERVICE_QUESTION_HINTS = [
+  "service", "treatment", "interested", "procedure", "looking for",
+  "خدمه", "علاج", "تهتم", "مهتم", "نوع", "عايز", "محتاج",
+];
+
+/** Meta writes multiple-choice answers with underscores for spaces: "تقويم_شفاف". */
+function cleanAnswer(raw) {
+  return String(raw || "").replace(/_/g, " ").replace(/\s+/g, " ").trim();
+}
 
 /** The clinic's own service names first, then the built-in table. "" when nothing is recognised. */
 function matchService(text, clinicServices) {
@@ -188,12 +204,19 @@ function matchService(text, clinicServices) {
  */
 function detectInterest({ fieldData, campaignName, adName, clinicServices }) {
   for (const field of Array.isArray(fieldData) ? fieldData : []) {
-    const answer = (Array.isArray(field.values) ? field.values.filter(Boolean).join(", ") : "").trim();
+    const answer = cleanAnswer(Array.isArray(field.values) ? field.values.filter(Boolean).join(", ") : "");
     if (!answer) continue;
     if (!SERVICE_QUESTION_HINTS.some((hint) => matchesKeyword(field.name, hint))) continue;
-    // Their own answer to "which service?" — trustworthy enough to quote even unrecognised,
-    // unlike an ad name, as long as it is short enough to be a service and not an essay.
-    const picked = matchService(answer, clinicServices) || (answer.length <= 40 ? answer : "");
+
+    const picked =
+      matchService(answer, clinicServices) ||
+      // The question itself names the treatment when the answer does not: a form asking
+      // "which kind of braces?" is an orthodontics lead even when the person picked
+      // "I don't know yet, I need a consultation" — which is exactly what several of them do.
+      matchService(field.name, clinicServices) ||
+      // Otherwise their own words, trustworthy enough to quote unlike an ad name, as long as
+      // it is short enough to be a service rather than an essay.
+      (answer.length <= 40 ? answer : "");
     // A paragraph in a free-text box tells us nothing, but the campaign that carried it still
     // might — so an unreadable answer falls through rather than ending the search.
     if (picked) return picked;
