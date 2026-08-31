@@ -715,19 +715,19 @@ export default function BookingModal({
       <div
         className={
           inlineDesktop && isDesktop
-            ? `flex flex-col w-full h-full overflow-hidden ${language === "ar" ? "text-right" : "text-left"}`
+            ? `flex flex-col w-full h-full min-h-0 overflow-hidden rounded-[2rem] border border-white/60 bg-white/80 shadow-[0_8px_40px_rgba(0,0,0,0.04)] backdrop-blur-3xl transition-all duration-300 ${language === "ar" ? "text-right" : "text-left"}`
             : `flex max-h-[90vh] sm:max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-t-[1.75rem] sm:rounded-b-[1.75rem] border-t sm:border border-slate-200/80 bg-surface shadow-2xl shadow-slate-300/40 ${language === "ar" ? "text-right" : "text-left"}`
         }
       >
         {inlineDesktop && isDesktop ? (
           <div className="shrink-0 px-5 py-4 flex items-center justify-between border-b border-white/40 bg-transparent">
             <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center font-black text-primary-700 bg-primary-50 border border-primary-100">
-                  <Calendar size={18} />
+                <div className="w-11 h-11 rounded-xl flex items-center justify-center font-black text-teal-700 bg-teal-50 text-base shadow-sm border border-teal-100">
+                  <Calendar size={20} />
                 </div>
                 <div>
-                  <h2 className="font-extrabold text-slate-800 text-base leading-tight">{editAppointment ? txt.editTitle : txt.title}</h2>
-                  <p className="text-xs font-medium text-ink-muted mt-0.5 line-clamp-1">{txt.subtitle}</p>
+                  <h2 className="font-extrabold text-slate-800 text-lg leading-tight">{editAppointment ? txt.editTitle : txt.title}</h2>
+                  <p className="text-sm font-medium text-ink-muted mt-0.5 line-clamp-1">{txt.subtitle}</p>
                 </div>
             </div>
             <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"><X size={18}/></button>
@@ -754,7 +754,7 @@ export default function BookingModal({
           </div>
         )}
 
-        <div className="custom-scrollbar flex-1 overflow-y-auto px-6 py-5 space-y-5">
+        <div className={`custom-scrollbar flex-1 overflow-y-auto py-5 space-y-5 ${inlineDesktop && isDesktop ? "px-5" : "px-6"}`}>
           <div className="space-y-3">
             {!editAppointment && (
               <div className="flex items-center justify-between mb-2">
@@ -784,7 +784,7 @@ export default function BookingModal({
                     placeholder={language === "ar" ? "اسم المريض *" : "Patient Name *"}
                     value={newPatientName}
                     onChange={(e) => setNewPatientName(e.target.value)}
-                    className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-10 pr-4 text-sm font-bold text-slate-700 outline-none transition-all focus:border-primary-500 focus:bg-surface focus:ring-4 focus:ring-primary-500/10 placeholder:font-medium placeholder:text-slate-400"
+                    className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-10 pr-4 text-sm font-bold text-slate-700 outline-none transition-all focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/10 placeholder:font-medium placeholder:text-slate-400"
                   />
                 </div>
                 <div className="flex relative group">
@@ -816,7 +816,7 @@ export default function BookingModal({
                       type="date"
                       value={newPatientDob}
                       onChange={(e) => setNewPatientDob(e.target.value)}
-                      className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-10 pr-4 text-sm font-bold text-slate-700 outline-none transition-all focus:border-primary-500 focus:bg-surface focus:ring-4 focus:ring-primary-500/10 text-slate-400"
+                      className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-10 pr-4 text-sm font-bold text-slate-700 outline-none transition-all focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/10 text-slate-400"
                     />
                   </div>
                   <div className="flex rounded-xl border border-line overflow-hidden bg-slate-50/50">
@@ -843,7 +843,7 @@ export default function BookingModal({
                     placeholder={language === "ar" ? "العنوان" : "Address"}
                     value={newPatientAddress}
                     onChange={(e) => setNewPatientAddress(e.target.value)}
-                    className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-10 pr-4 text-sm font-bold text-slate-700 outline-none transition-all focus:border-primary-500 focus:bg-surface focus:ring-4 focus:ring-primary-500/10 placeholder:font-medium placeholder:text-slate-400"
+                    className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-10 pr-4 text-sm font-bold text-slate-700 outline-none transition-all focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/10 placeholder:font-medium placeholder:text-slate-400"
                   />
                 </div>
                 <div className="relative group">
@@ -851,7 +851,7 @@ export default function BookingModal({
                   <select
                     value={newPatientSource}
                     onChange={(e) => setNewPatientSource(e.target.value)}
-                    className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-4 pr-10 text-sm font-bold text-slate-700 outline-none transition-all focus:border-primary-500 focus:bg-surface focus:ring-4 focus:ring-primary-500/10 appearance-none"
+                    className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-4 pr-10 text-sm font-bold text-slate-700 outline-none transition-all focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/10 appearance-none"
                   >
                     <option value="">{language === "ar" ? "مصدر المريض (اختياري)" : "Patient Source (Optional)"}</option>
                     {sourcesOptions.map(s => (

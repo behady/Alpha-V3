@@ -386,7 +386,7 @@ export default function AppointmentSidePanel({
                         <div className="relative group">
                           <Stethoscope size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-500 pointer-events-none" />
                           <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                          <select value={inlineEdit.doctor || ''} onChange={e => setInlineEdit(p => ({...p, doctor: e.target.value}))} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-8 text-sm font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-surface focus:ring-4 focus:ring-emerald-500/10 appearance-none shadow-sm">
+                          <select value={inlineEdit.doctor || ''} onChange={e => setInlineEdit(p => ({...p, doctor: e.target.value}))} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-8 text-sm font-bold text-slate-700 outline-none transition-all focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/10 appearance-none shadow-sm">
                               <option value="">--</option>
                               {doctorsList.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
                           </select>
@@ -398,7 +398,7 @@ export default function AppointmentSidePanel({
                         <div className="relative group">
                           <Activity size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-500 pointer-events-none" />
                           <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                          <select value={inlineEdit.status || 'Scheduled'} onChange={e => setInlineEdit(p => ({...p, status: e.target.value}))} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-8 text-sm font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-surface focus:ring-4 focus:ring-emerald-500/10 appearance-none shadow-sm">
+                          <select value={inlineEdit.status || 'Scheduled'} onChange={e => setInlineEdit(p => ({...p, status: e.target.value}))} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-8 text-sm font-bold text-slate-700 outline-none transition-all focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/10 appearance-none shadow-sm">
                               {/* Not a normal workflow stage — it is a marker the reception assistant leaves on a
                                   moved appointment's original slot, so it is shown only when that is what this
                                   record already is, never offered as something to switch a live appointment to. */}
@@ -416,7 +416,7 @@ export default function AppointmentSidePanel({
                       <label className="text-xs font-black text-ink-muted uppercase tracking-widest block mb-2">{language === 'ar' ? 'التاريخ' : 'Date'}</label>
                       <div className="relative group">
                         <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-500 pointer-events-none" />
-                        <input type="date" value={inlineEdit.date || ''} onChange={e => setInlineEdit(p => ({...p, date: e.target.value}))} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-4 text-sm font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-surface focus:ring-4 focus:ring-emerald-500/10 shadow-sm appearance-none"/>
+                        <input type="date" value={inlineEdit.date || ''} onChange={e => setInlineEdit(p => ({...p, date: e.target.value}))} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-4 text-sm font-bold text-slate-700 outline-none transition-all focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/10 shadow-sm appearance-none"/>
                       </div>
                   </div>
 
@@ -426,7 +426,7 @@ export default function AppointmentSidePanel({
                         <label className="text-xs font-black text-ink-muted uppercase tracking-widest block mb-2">{language === 'ar' ? 'الوقت' : 'Time'}</label>
                         <div className="relative group">
                           <Clock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-500 pointer-events-none" />
-                          <input type="text" value={inlineEdit.time || ''} onChange={e => setInlineEdit(p => ({...p, time: e.target.value}))} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-4 text-sm font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-surface focus:ring-4 focus:ring-emerald-500/10 shadow-sm" placeholder="02:00 PM"/>
+                          <input type="text" value={inlineEdit.time || ''} onChange={e => setInlineEdit(p => ({...p, time: e.target.value}))} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-4 text-sm font-bold text-slate-700 outline-none transition-all focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/10 shadow-sm" placeholder="02:00 PM"/>
                         </div>
                       </div>
                       <div>
@@ -434,7 +434,7 @@ export default function AppointmentSidePanel({
                         <div className="relative group">
                           <Hourglass size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-500 pointer-events-none" />
                           <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                          <select value={inlineEdit.duration || 30} onChange={e => setInlineEdit(p => ({...p, duration: Number(e.target.value)}))} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-8 text-sm font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-surface focus:ring-4 focus:ring-emerald-500/10 appearance-none shadow-sm">
+                          <select value={inlineEdit.duration || 30} onChange={e => setInlineEdit(p => ({...p, duration: Number(e.target.value)}))} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-8 text-sm font-bold text-slate-700 outline-none transition-all focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/10 appearance-none shadow-sm">
                               <option value={15}>{language === 'ar' ? '15 د' : '15 min'}</option>
                               <option value={30}>{language === 'ar' ? '30 د' : '30 min'}</option>
                               <option value={45}>{language === 'ar' ? '45 د' : '45 min'}</option>
@@ -452,7 +452,7 @@ export default function AppointmentSidePanel({
                       <div className="relative group">
                         <ClipboardList size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-500 pointer-events-none" />
                         <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                        <select value={inlineEdit.treatment || ''} onChange={e => setInlineEdit(p => ({...p, treatment: e.target.value}))} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-8 text-sm font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-surface focus:ring-4 focus:ring-emerald-500/10 appearance-none shadow-sm">
+                        <select value={inlineEdit.treatment || ''} onChange={e => setInlineEdit(p => ({...p, treatment: e.target.value}))} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-8 text-sm font-bold text-slate-700 outline-none transition-all focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/10 appearance-none shadow-sm">
                             <option value="" disabled>{language === 'ar' ? 'اختر سبب الزيارة' : 'Select Reason for Visit'}</option>
                             {visitReasonsOptions.map(r => <option key={r} value={r}>{r}</option>)}
                         </select>
@@ -649,7 +649,7 @@ export default function AppointmentSidePanel({
                       <label className="text-xs font-black text-ink-muted uppercase tracking-widest block mb-2">{language === 'ar' ? 'ملاحظات' : 'Notes'}</label>
                       <div className="relative group">
                         <FileText size={16} className="absolute left-3 top-3 text-slate-400 transition-colors group-focus-within:text-emerald-500 pointer-events-none" />
-                        <textarea value={inlineEdit.notes || ''} onChange={e => setInlineEdit(p => ({...p, notes: e.target.value}))} rows={2} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-4 text-sm font-bold text-slate-700 outline-none transition-all focus:border-emerald-500 focus:bg-surface focus:ring-4 focus:ring-emerald-500/10 resize-none shadow-sm"/>
+                        <textarea value={inlineEdit.notes || ''} onChange={e => setInlineEdit(p => ({...p, notes: e.target.value}))} rows={2} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-4 text-sm font-bold text-slate-700 outline-none transition-all focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/10 resize-none shadow-sm"/>
                       </div>
                   </div>
                   
