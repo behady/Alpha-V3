@@ -59,7 +59,7 @@ export default function BranchSelector({
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className={`flex items-center gap-2 rounded-full border border-slate-200 bg-white font-bold text-slate-700 shadow-sm transition hover:border-slate-300 hover:shadow ${
+        className={`flex items-center gap-2 rounded-full border border-line bg-surface font-bold text-slate-700 shadow-sm transition hover:border-line-strong hover:shadow ${
           compact ? "px-3 py-1.5 text-[11px]" : "px-4 py-2 text-xs"
         }`}
       >
@@ -74,7 +74,7 @@ export default function BranchSelector({
 
       {open && (
         <div
-          className={`absolute z-[120] mt-2 min-w-[13rem] overflow-hidden rounded-2xl border border-slate-200 bg-white py-1 shadow-xl ${
+          className={`absolute z-[120] mt-2 min-w-[13rem] overflow-hidden rounded-2xl border border-line bg-surface py-1 shadow-xl ${
             isRTL ? "left-0" : "right-0"
           }`}
         >
@@ -86,7 +86,7 @@ export default function BranchSelector({
                   onChange(ALL_BRANCHES);
                   setOpen(false);
                 }}
-                className="flex w-full items-center gap-2.5 px-4 py-2.5 text-start text-xs font-bold text-slate-600 transition hover:bg-slate-50"
+                className="flex w-full items-center gap-2.5 px-4 py-2.5 text-start text-xs font-bold text-ink-body transition hover:bg-surface-subtle"
               >
                 <Layers size={14} className="shrink-0 text-slate-400" />
                 <span className="flex-1 truncate">{txt.all}</span>
@@ -103,7 +103,7 @@ export default function BranchSelector({
                 onChange(b.id);
                 setOpen(false);
               }}
-              className="flex w-full items-center gap-2.5 px-4 py-2.5 text-start text-xs font-bold text-slate-700 transition hover:bg-slate-50"
+              className="flex w-full items-center gap-2.5 px-4 py-2.5 text-start text-xs font-bold text-slate-700 transition hover:bg-surface-subtle"
             >
               <Building2 size={14} className="shrink-0 text-slate-400" />
               <span className="min-w-0 flex-1">

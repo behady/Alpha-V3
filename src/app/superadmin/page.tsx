@@ -180,7 +180,7 @@ export default function SuperAdminDashboard() {
   );
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center bg-surface-page"><Loader2 className="animate-spin text-slate-500" size={32} /></div>;
+    return <div className="min-h-screen flex items-center justify-center bg-surface-page"><Loader2 className="animate-spin text-ink-muted" size={32} /></div>;
   }
 
   return (
@@ -226,7 +226,7 @@ export default function SuperAdminDashboard() {
             <KpiStrip clinics={clinics} />
 
             {/* Toolbar */}
-            <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-4 rounded-2xl border border-slate-200/60 shadow-sm">
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-surface p-4 rounded-2xl border border-slate-200/60 shadow-sm">
               <div className="w-full md:w-96 relative">
                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                  <input 
@@ -234,31 +234,31 @@ export default function SuperAdminDashboard() {
                    placeholder="Search by name, ID, or owner email..." 
                    value={searchQuery}
                    onChange={(e) => setSearchQuery(e.target.value)}
-                   className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-11 pr-4 text-sm font-bold text-slate-800 outline-none focus:border-indigo-500 transition-all"
+                   className="w-full bg-surface-subtle border border-line rounded-xl py-2.5 pl-11 pr-4 text-sm font-bold text-slate-800 outline-none focus:border-indigo-500 transition-all"
                  />
               </div>
-              <button onClick={() => window.location.reload()} className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl font-bold text-sm transition-colors">
+              <button onClick={() => window.location.reload()} className="flex items-center gap-2 px-4 py-2 bg-surface-muted text-ink-body hover:bg-slate-200 rounded-xl font-bold text-sm transition-colors">
                 <RefreshCcw size={16} /> Refresh
               </button>
             </div>
 
             {/* Clinics List */}
-            <div className="bg-white rounded-[2rem] border border-slate-200/60 shadow-sm overflow-hidden">
+            <div className="bg-surface rounded-[2rem] border border-slate-200/60 shadow-sm overflow-hidden">
               {loadingClinics ? (
                 <div className="p-12 flex justify-center"><Loader2 className="animate-spin text-slate-400" size={32} /></div>
               ) : filteredClinics.length === 0 ? (
                 <div className="p-16 text-center">
-                  <div className="w-20 h-20 bg-slate-100 text-slate-300 rounded-3xl flex items-center justify-center mx-auto mb-4">
+                  <div className="w-20 h-20 bg-surface-muted text-slate-300 rounded-3xl flex items-center justify-center mx-auto mb-4">
                     <Search size={32} />
                   </div>
                   <h3 className="text-lg font-bold text-slate-700">No clinics found</h3>
-                  <p className="text-slate-500 text-sm mt-1">Try adjusting your search query.</p>
+                  <p className="text-ink-muted text-sm mt-1">Try adjusting your search query.</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse">
                     <thead>
-                      <tr className="bg-slate-50 border-b border-slate-100 text-xs font-black text-slate-400 uppercase tracking-widest">
+                      <tr className="bg-surface-subtle border-b border-slate-100 text-xs font-black text-slate-400 uppercase tracking-widest">
                         <th className="px-6 py-4">Clinic Info</th>
                         <th className="px-6 py-4">Owner</th>
                         <th className="px-6 py-4">Status & Tier</th>
@@ -275,7 +275,7 @@ export default function SuperAdminDashboard() {
                                 {clinic.name?.charAt(0).toUpperCase()}
                               </div>
                               <div>
-                                <p className="font-bold text-slate-900">{clinic.name}</p>
+                                <p className="font-bold text-ink">{clinic.name}</p>
                                 <p className="text-xs font-mono text-slate-400 mt-0.5" title={clinic.id}>{clinic.id.slice(0, 8)}...</p>
                               </div>
                             </div>
@@ -304,7 +304,7 @@ export default function SuperAdminDashboard() {
                               <select
                                 value={clinic.subscriptionTier}
                                 onChange={(e) => handleUpdateTier(clinic.id, e.target.value as SubscriptionTier)}
-                                className="bg-slate-100 text-slate-600 text-xs font-bold rounded-lg px-2.5 py-1 outline-none cursor-pointer border border-transparent hover:border-slate-300"
+                                className="bg-surface-muted text-ink-body text-xs font-bold rounded-lg px-2.5 py-1 outline-none cursor-pointer border border-transparent hover:border-line-strong"
                               >
                                 <option value="Free Trial">Free Trial</option>
                                 <option value="Basic">Basic</option>
@@ -323,7 +323,7 @@ export default function SuperAdminDashboard() {
                               <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold ${
                                 clinic.daysRemaining < 0 ? 'bg-rose-100 text-rose-700' :
                                 clinic.daysRemaining <= 7 ? 'bg-amber-100 text-amber-700' :
-                                'bg-slate-100 text-slate-600'
+                                'bg-surface-muted text-ink-body'
                               }`}>
                                 {clinic.daysRemaining < 0 
                                   ? `Expired ${Math.abs(clinic.daysRemaining)}d ago` 

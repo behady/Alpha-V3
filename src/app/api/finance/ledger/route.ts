@@ -630,6 +630,95 @@ async function setCommission(args: { clinicId: string; actor: Actor; body: Recor
 }
 
 // ---------------------------------------------------------------------------------------------
+// set-lab-fee — correcting the estimate to what the lab actually charged
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Correct what a treatment was charged for its lab work.
+ *
+ * The price list holds an ESTIMATE, and that estimate is what came off the top when the treatment
+ * was saved — before the dentist's commission, before clinic profit. When the lab actually charges
+ * something else, the books stay quietly wrong until somebody says so. This is that correction,
+ * driven from the agreed price on a lab case.
+ *
+ * `labFee` is deliberately absent from EDITABLE_PROCEDURE_FIELDS, so `update` cannot reach it. It
+ * gets its own action because changing it is not an edit to one row: it moves money between the
+ * dentist and the clinic on every payment already recorded against the treatment, which is why
+ * this rebalances those too rather than just stamping a new number on the charge.
+ *
+ * A dentist noticing their commission shifted overnight with no explanation is a real problem, not
+ * a technical one. So the row keeps what it was corrected FROM, and the audit trail and the
+ * activity log both name the old figure, the new one and who did it.
+ */
+async function setLabFee(args: { clinicId: string; actor: Actor; body: Record<string, unknown> }) {
+  const { clinicId, actor, body } = args;
+  const id = String(body.id || "").trim();
+  if (!id) return bad("Which treatment?");
+
+  const labFee = Number(body.labFee);
+  if (!Number.isFinite(labFee) || labFee < 0) return bad("Enter a lab fee of zero or more.");
+
+  const reason = String(body.reason || "").trim();
+
+  const result = await adminDb().runTransaction(async (txn) => {
+    const ref = adminClinicDoc(clinicId, "ledger", id);
+    const snap = await txn.get(ref);
+    if (!snap.exists) throw new Error("NOT_FOUND");
+    const before = snap.data() || {};
+    if (String(before.type || "") !== "procedure") throw new Error("NOT_A_PROCEDURE");
+
+    const previous = Number(before.labFee) || 0;
+    if (Math.abs(previous - labFee) < 0.01) throw new Error("NOTHING_TO_DO");
+
+    // The dentist's rate comes from their staff record, not from whatever was copied onto the row
+    // when it was written — the same basis every other money path in this route uses.
+    const basis = await readProcedureCommissionBasis(txn, clinicId, { ...before, labFee });
+    const payments = await readProcedurePayments(txn, clinicId, id);
+
+    // The lab is paid in full whatever the patient was charged, so the fee comes off before the
+    // split, never out of it.
+    const cost = chargeAmount(before);
+    const net = cost - labFee;
+    const doctorCommissionAmount = net > 0 ? Number((net * (basis.commissionPct / 100)).toFixed(2)) : 0;
+    const update: Record<string, unknown> = {
+      labFee,
+      doctorCommissionAmount,
+      clinicProfit: Number((cost - doctorCommissionAmount - labFee).toFixed(2)),
+      labFeeCorrectedFrom: previous,
+      labFeeCorrectedAt: FieldValue.serverTimestamp(),
+      labFeeCorrectedByName: actor.name,
+      ...(reason ? { labFeeCorrectedReason: reason } : {}),
+    };
+    txn.update(ref, update);
+
+    applyProcedureSync(txn, {
+      clinicId,
+      procedureLedgerId: id,
+      payments,
+      labFee,
+      commissionPct: basis.commissionPct,
+    });
+
+    return { before, update, previous, payments: payments.length };
+  });
+
+  await recordMoneyChange({
+    entry: {
+      clinicId, action: "update", collection: "ledger", documentId: id,
+      before: result.before, after: result.update, actor, via: "finance/ledger:set-lab-fee",
+    },
+    action: "Lab Fee Corrected",
+    details:
+      `Lab fee on treatment ${id} corrected from ${result.previous} to ${labFee}` +
+      (result.payments ? `, rebalancing ${result.payments} payment(s)` : "") +
+      (reason ? ` — ${reason}` : ""),
+    severity: "HIGH",
+  });
+
+  return NextResponse.json({ ok: true, id, previousLabFee: result.previous, labFee });
+}
+
+// ---------------------------------------------------------------------------------------------
 // delete
 // ---------------------------------------------------------------------------------------------
 
@@ -741,6 +830,10 @@ const PERMISSION_BY_ACTION: Record<string, string> = {
   "create-entry": "finance.add",
   update: "finance.edit",
   "set-commission": "finance.edit",
+  // Correcting a lab fee moves money between the dentist and the clinic on every payment already
+  // recorded against the treatment. That is a finance edit, not a lab-tracking one — holding
+  // access.lab lets you record what a lab charged; changing what a dentist was paid does not.
+  "set-lab-fee": "finance.edit",
   delete: "finance.delete",
 };
 
@@ -782,6 +875,8 @@ export async function POST(request: Request) {
         return await updateRow({ clinicId, actor, body });
       case "set-commission":
         return await setCommission({ clinicId, actor, body });
+      case "set-lab-fee":
+        return await setLabFee({ clinicId, actor, body });
       case "delete":
         return await deleteRow({ clinicId, actor, body });
       default:

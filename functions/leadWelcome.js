@@ -34,12 +34,17 @@ async function loadWapilotConfig(db, clinicId) {
   const pick = (data) => {
     if (!data || typeof data !== "object") return null;
     const instanceId = String(data.instanceId || "").trim();
-    const token = String(data.token || data.accessToken || "").trim();
+    // `apiToken`/`apiBaseUrl` are what the app actually stores (src/lib/wapilotConfig.ts writes
+    // and reads those names). Reading only `token` meant a clinic could fill its credentials in,
+    // switch delivery to auto, and still have every greeting fall silently into the manual queue —
+    // configured, saved, and never sent. The older names stay as fallbacks because the env-var
+    // path below builds its object with them.
+    const token = String(data.apiToken || data.token || data.accessToken || "").trim();
     if (!instanceId || !token) return null;
     return {
       instanceId,
       token,
-      apiRoot: String(data.apiRoot || DEFAULT_API_ROOT).replace(/\/$/, ""),
+      apiRoot: String(data.apiBaseUrl || data.apiRoot || DEFAULT_API_ROOT).replace(/\/$/, ""),
       sendUrlOverride: String(data.sendUrl || "").trim() || null,
       sendPathTemplate: String(data.sendPath || DEFAULT_SEND_PATH).trim() || DEFAULT_SEND_PATH,
     };

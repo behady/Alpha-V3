@@ -57,7 +57,7 @@ export default function MigratePage() {
   return (
     <div className="p-8">
       <h1 className="text-2xl font-bold mb-4">Migrate Appointments</h1>
-      <p className="mb-4 text-slate-600">
+      <p className="mb-4 text-ink-body">
         This script migrates existing appointments. If an appointment has no "Reason for Visit" (treatment) but has legacy services, it extracts the service names and saves them as the reason for visit.
       </p>
       

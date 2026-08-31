@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { db } from "@/lib/firebase";
-import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
+import { limit, onSnapshot, orderBy, query } from "firebase/firestore";
 import { ClipboardList, Search, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { getClinicCollection } from "@/lib/db-utils";
 
 type ActivityLog = {
   id: string;
@@ -34,18 +34,39 @@ export default function ActivityLogs() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 50;
 
+  /**
+   * How many entries are subscribed to.
+   *
+   * This used to be every entry the clinic had ever written: an orderBy with no limit, on a
+   * collection `logActivity` appends to on essentially every action. The page then paged through
+   * them in the browser, so the whole audit trail was downloaded to show fifty rows.
+   *
+   * A growing window rather than a cursor because the list is live and the filters run in the
+   * browser: raising it re-delivers a larger window, and new entries still arrive on their own.
+   */
+  const [windowSize, setWindowSize] = useState(200);
+  /** True while the window is smaller than what the server holds, so there is more to show. */
+  const [hasOlder, setHasOlder] = useState(false);
+
   useEffect(() => {
-    const q = query(getClinicCollection("system_logs"), orderBy("timestamp", "desc"));
+    // One more than the window, purely to learn whether older entries exist.
+    const q = query(
+      getClinicCollection("system_logs"),
+      orderBy("timestamp", "desc"),
+      limit(windowSize + 1)
+    );
     const unsub = onSnapshot(
       q,
       (snap) => {
-        setLogs(snap.docs.map((d) => ({ id: d.id, ...d.data() } as ActivityLog)));
+        const docs = snap.docs.slice(0, windowSize);
+        setLogs(docs.map((d) => ({ id: d.id, ...d.data() } as ActivityLog)));
+        setHasOlder(snap.docs.length > windowSize);
         setLoading(false);
       },
       () => setLoading(false)
     );
     return () => unsub();
-  }, []);
+  }, [windowSize]);
 
   const filteredLogs = useMemo(() => {
     const term = queryText.trim().toLowerCase();
@@ -79,17 +100,17 @@ export default function ActivityLogs() {
 
   return (
     <div className="space-y-6 animate-in fade-in" dir={isRTL ? "rtl" : "ltr"}>
-      <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
+      <div className="bg-surface p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center">
               <ClipboardList size={28} />
             </div>
             <div>
-              <h3 className="text-xl font-bold text-slate-900">
+              <h3 className="text-xl font-bold text-ink">
                 {language === "ar" ? "سجل نشاط المستخدمين" : "User Activity Logs"}
               </h3>
-              <p className="text-sm font-semibold text-slate-500 mt-1">
+              <p className="text-sm font-semibold text-ink-muted mt-1">
                 {language === "ar"
                   ? "سجل كامل لكل مستخدم والإجراء المنفذ مع التاريخ والوقت."
                   : "Track each user action with date and time."}
@@ -108,13 +129,13 @@ export default function ActivityLogs() {
               value={queryText}
               onChange={(e) => setQueryText(e.target.value)}
               placeholder={language === "ar" ? "بحث باسم المستخدم أو الإجراء..." : "Search by user or action..."}
-              className={`w-full py-3 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-primary-500 transition-all ${isRTL ? "pr-10 pl-4" : "pl-10 pr-4"}`}
+              className={`w-full py-3 bg-surface-subtle rounded-xl border border-slate-200/60 font-semibold text-ink outline-none focus:bg-surface focus:border-primary-500 transition-all ${isRTL ? "pr-10 pl-4" : "pl-10 pr-4"}`}
             />
           </div>
           <select
             value={moduleFilter}
             onChange={(e) => setModuleFilter(e.target.value)}
-            className="py-3 px-4 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-primary-500 transition-all"
+            className="py-3 px-4 bg-surface-subtle rounded-xl border border-slate-200/60 font-semibold text-ink outline-none focus:bg-surface focus:border-primary-500 transition-all"
           >
             <option value="all">{language === "ar" ? "كل الوحدات" : "All Modules"}</option>
             {modules.map((module) => (
@@ -126,7 +147,7 @@ export default function ActivityLogs() {
           <select
             value={actorFilter}
             onChange={(e) => setActorFilter(e.target.value)}
-            className="py-3 px-4 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-primary-500 transition-all"
+            className="py-3 px-4 bg-surface-subtle rounded-xl border border-slate-200/60 font-semibold text-ink outline-none focus:bg-surface focus:border-primary-500 transition-all"
           >
             <option value="all">{language === "ar" ? "الكل" : "Everyone"}</option>
             <option value="staff">{language === "ar" ? "إجراءات يدوية" : "Done manually"}</option>
@@ -135,7 +156,7 @@ export default function ActivityLogs() {
           <select
             value={severityFilter}
             onChange={(e) => setSeverityFilter(e.target.value)}
-            className="py-3 px-4 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-primary-500 transition-all"
+            className="py-3 px-4 bg-surface-subtle rounded-xl border border-slate-200/60 font-semibold text-ink outline-none focus:bg-surface focus:border-primary-500 transition-all"
           >
             <option value="all">{language === "ar" ? "كل الدرجات" : "All Severities"}</option>
             <option value="LOW">LOW</option>
@@ -147,21 +168,21 @@ export default function ActivityLogs() {
 
         <div className="overflow-x-auto rounded-2xl border border-slate-200/60">
           <table className="w-full text-left">
-            <thead className="bg-slate-50 border-b border-slate-200/60">
+            <thead className="bg-surface-subtle border-b border-slate-200/60">
               <tr>
-                <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase">User</th>
-                <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase">Role</th>
-                <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase">Module</th>
-                <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase">Severity</th>
-                <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase">Action</th>
-                <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase">Details</th>
-                <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase">Date</th>
+                <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">User</th>
+                <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">Role</th>
+                <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">Module</th>
+                <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">Severity</th>
+                <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">Action</th>
+                <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">Details</th>
+                <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">Date</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-sm font-semibold text-slate-500">
+                  <td colSpan={7} className="px-4 py-8 text-center text-sm font-semibold text-ink-muted">
                     {language === "ar" ? "جاري تحميل السجلات..." : "Loading logs..."}
                   </td>
                 </tr>
@@ -169,7 +190,7 @@ export default function ActivityLogs() {
 
               {!loading && filteredLogs.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-sm font-semibold text-slate-500">
+                  <td colSpan={7} className="px-4 py-8 text-center text-sm font-semibold text-ink-muted">
                     {language === "ar" ? "لا توجد سجلات حتى الآن." : "No logs found."}
                   </td>
                 </tr>
@@ -179,8 +200,8 @@ export default function ActivityLogs() {
                 paginatedLogs.map((log) => {
                   const when = log.timestamp?.toDate ? log.timestamp.toDate() : null;
                   return (
-                    <tr key={log.id} className="bg-white hover:bg-slate-50/50">
-                      <td className="px-4 py-3 text-sm font-bold text-slate-900">
+                    <tr key={log.id} className="bg-surface hover:bg-slate-50/50">
+                      <td className="px-4 py-3 text-sm font-bold text-ink">
                         <span className="flex items-center gap-2">
                           {log.userName || log.user || "Unknown"}
                           {log.actor === "ai" && (
@@ -192,8 +213,8 @@ export default function ActivityLogs() {
                           )}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-xs font-semibold text-slate-600">{log.userRole || "-"}</td>
-                      <td className="px-4 py-3 text-[11px] font-black text-slate-600 uppercase">{log.module || "system"}</td>
+                      <td className="px-4 py-3 text-xs font-semibold text-ink-body">{log.userRole || "-"}</td>
+                      <td className="px-4 py-3 text-[11px] font-black text-ink-body uppercase">{log.module || "system"}</td>
                       <td className="px-4 py-3 text-[11px] font-black uppercase">
                         <span
                           className={`px-2 py-1 rounded-lg border ${
@@ -201,7 +222,7 @@ export default function ActivityLogs() {
                               ? "bg-rose-50 text-rose-700 border-rose-200"
                               : (log.severity || "LOW") === "MEDIUM"
                               ? "bg-amber-50 text-amber-700 border-amber-200"
-                              : "bg-slate-50 text-slate-600 border-slate-200"
+                              : "bg-surface-subtle text-ink-body border-line"
                           }`}
                         >
                           {log.severity || "LOW"}
@@ -209,7 +230,7 @@ export default function ActivityLogs() {
                       </td>
                       <td className="px-4 py-3 text-xs font-bold text-primary-700">{log.action || "-"}</td>
                       <td className="px-4 py-3 text-xs text-slate-700">{log.details || "-"}</td>
-                      <td className="px-4 py-3 text-xs font-semibold text-slate-600">
+                      <td className="px-4 py-3 text-xs font-semibold text-ink-body">
                         {when
                           ? when.toLocaleString(language === "ar" ? "ar-EG" : "en-US")
                           : log.date || "-"}
@@ -221,9 +242,28 @@ export default function ActivityLogs() {
           </table>
         </div>
 
+        {/* What is actually loaded. Filtering a list that is not all there, and saying nothing
+            about it, is how someone concludes an entry is missing from the audit trail. */}
+        {hasOlder && (
+          <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-line bg-surface-subtle p-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-[13px] font-semibold text-ink-body">
+              {language === "ar"
+                ? `يعرض آخر ${logs.length} إجراء. البحث والفلاتر تعمل على المعروض فقط.`
+                : `Showing the most recent ${logs.length} actions. Search and filters apply to these.`}
+            </p>
+            <button
+              type="button"
+              onClick={() => setWindowSize((n) => n + 200)}
+              className="shrink-0 rounded-xl border border-line bg-surface px-4 py-2 text-[13px] font-bold text-ink-body transition-colors hover:text-ink"
+            >
+              {language === "ar" ? "حمّل أقدم" : "Load older"}
+            </button>
+          </div>
+        )}
+
         {totalPages > 1 && (
-          <div className="flex items-center justify-between mt-4 bg-slate-50 border border-slate-200/60 p-3 rounded-2xl">
-            <span className="text-sm font-semibold text-slate-500 px-2">
+          <div className="flex items-center justify-between mt-4 bg-surface-subtle border border-slate-200/60 p-3 rounded-2xl">
+            <span className="text-sm font-semibold text-ink-muted px-2">
               {language === "ar"
                 ? `صفحة ${currentPage} من ${totalPages}`
                 : `Page ${currentPage} of ${totalPages}`}
@@ -232,14 +272,14 @@ export default function ActivityLogs() {
               <button
                 disabled={currentPage === 1}
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                className="p-2 bg-white shadow-sm rounded-lg text-slate-600 border border-slate-200 hover:bg-slate-50 disabled:opacity-50"
+                className="p-2 bg-surface shadow-sm rounded-lg text-ink-body border border-line hover:bg-surface-subtle disabled:opacity-50"
               >
                 <ChevronLeft size={16} className={isRTL ? "rotate-180" : ""} />
               </button>
               <button
                 disabled={currentPage === totalPages}
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                className="p-2 bg-white shadow-sm rounded-lg text-slate-600 border border-slate-200 hover:bg-slate-50 disabled:opacity-50"
+                className="p-2 bg-surface shadow-sm rounded-lg text-ink-body border border-line hover:bg-surface-subtle disabled:opacity-50"
               >
                 <ChevronRight size={16} className={isRTL ? "rotate-180" : ""} />
               </button>

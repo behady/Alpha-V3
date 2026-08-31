@@ -73,8 +73,25 @@ fun ensureNotificationChannel(context: Context) {
  * also covers the cold start, where the navigation target would otherwise be
  * read before there is anywhere to navigate.
  */
+/**
+ * Where a tapped notification wants to go.
+ *
+ * It used to carry a screen name and nothing else, so "Dina booked 09:00"
+ * dropped you on the day list to find Dina yourself, and a notification about
+ * one patient among forty was a search. The id is what the notification is
+ * actually about; the screen stays as the fallback for the ones that are about
+ * a list rather than a record.
+ */
+data class PushTarget(
+    val screen: String?,
+    val appointmentId: String? = null,
+    val patientId: String? = null,
+) {
+    val isEmpty: Boolean get() = screen.isNullOrBlank() && appointmentId.isNullOrBlank() && patientId.isNullOrBlank()
+}
+
 object PushNav {
-    val requested = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val requested = kotlinx.coroutines.flow.MutableStateFlow<PushTarget?>(null)
 }
 
 object PushRegistrar {
@@ -160,7 +177,13 @@ class AlphaMessagingService : FirebaseMessagingService() {
             System.currentTimeMillis().toInt(),
             Intent(this, MainActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                .apply { message.data["screen"]?.let { putExtra("screen", it) } },
+                .apply {
+                    // Everything the server said this is about. MainActivity keeps
+                    // whichever of them it can act on.
+                    message.data["screen"]?.let { putExtra("screen", it) }
+                    message.data["appointmentId"]?.let { putExtra("appointmentId", it) }
+                    message.data["patientId"]?.let { putExtra("patientId", it) }
+                },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 

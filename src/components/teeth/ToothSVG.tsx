@@ -251,7 +251,7 @@ export default function ToothSVG({
         */}
       {hasPendingTreatment && !gone && (
         <div
-          className="absolute -bottom-1 -right-1 w-2.5 h-2.5 rounded-full border-2 bg-white shadow-sm z-20 pointer-events-none"
+          className="absolute -bottom-1 -right-1 w-2.5 h-2.5 rounded-full border-2 bg-surface shadow-sm z-20 pointer-events-none"
           style={{ borderColor: "#64748b" }}
           aria-hidden
         />

@@ -263,7 +263,7 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
     return (
       <div className="flex flex-col items-center justify-center py-16 text-slate-400">
         <Building2 size={40} className="mb-3 opacity-30" />
-        <p className="font-bold text-slate-500">{isAr ? "لا توجد بيانات في هذه الفترة" : "No data in this period"}</p>
+        <p className="font-bold text-ink-muted">{isAr ? "لا توجد بيانات في هذه الفترة" : "No data in this period"}</p>
       </div>
     );
   }
@@ -276,10 +276,10 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
           { l: isAr ? "إجمالي الدخل" : "Total Income", v: `${totalIncome.toLocaleString()} EGP`, c: "text-emerald-600" },
           { l: isAr ? "الاستقطاعات" : "Deductions", v: `(${totalCommissions.toLocaleString()}) EGP`, c: "text-amber-600" },
           { l: isAr ? "المصروفات" : "Expenses", v: `(${totalExpenses.toLocaleString()}) EGP`, c: "text-red-600" },
-          { l: isAr ? "صافي الربح" : "Net Profit", v: `${netProfit.toLocaleString()} EGP`, c: netProfit >= 0 ? "text-slate-900" : "text-red-600" },
+          { l: isAr ? "صافي الربح" : "Net Profit", v: `${netProfit.toLocaleString()} EGP`, c: netProfit >= 0 ? "text-ink" : "text-red-600" },
         ].map((k) => (
-          <div key={k.l} className="bg-white border border-slate-200 shadow-sm rounded-2xl p-4">
-            <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">{k.l}</p>
+          <div key={k.l} className="bg-surface border border-line shadow-sm rounded-2xl p-4">
+            <p className="text-[10px] font-black text-ink-muted uppercase tracking-wider">{k.l}</p>
             <p className={`text-xl font-black tabular-nums mt-1 ${k.c}`}>{k.v}</p>
           </div>
         ))}
@@ -288,16 +288,16 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
       {/* New vs Returning patients */}
       <div className="grid grid-cols-2 gap-4">
         {[
-          { label: isAr ? "مرضى جدد" : "New Patients", count: newPatientIds.size, income: newPatientIncome, color: "bg-violet-600", text: "text-slate-900" },
-          { label: isAr ? "مرضى حاليون" : "Returning Patients", count: returningPatientIds.size, income: returningPatientIncome, color: "bg-blue-600", text: "text-slate-900" },
+          { label: isAr ? "مرضى جدد" : "New Patients", count: newPatientIds.size, income: newPatientIncome, color: "bg-violet-600", text: "text-ink" },
+          { label: isAr ? "مرضى حاليون" : "Returning Patients", count: returningPatientIds.size, income: returningPatientIncome, color: "bg-blue-600", text: "text-ink" },
         ].map((p) => (
-          <div key={p.label} className="bg-white border border-slate-200 shadow-sm rounded-2xl p-5">
+          <div key={p.label} className="bg-surface border border-line shadow-sm rounded-2xl p-5">
             <div className="flex items-center gap-2 mb-3">
               <span className={`w-3 h-3 rounded-full ${p.color}`} />
-              <p className="text-xs font-black text-slate-600 uppercase tracking-wide">{p.label}</p>
+              <p className="text-xs font-black text-ink-body uppercase tracking-wide">{p.label}</p>
             </div>
             <p className={`text-3xl font-black tabular-nums ${p.text}`}>{p.count}</p>
-            <p className="text-sm font-semibold text-slate-500 mt-1">
+            <p className="text-sm font-semibold text-ink-muted mt-1">
               {p.income.toLocaleString()} EGP {isAr ? "مدفوع" : "paid"}
             </p>
           </div>
@@ -307,8 +307,8 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
       {/* Charts + Table */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
         {/* Patient pie */}
-        <div className="xl:col-span-4 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-          <h3 className="text-sm font-black text-slate-900 mb-4">{isAr ? "توزيع المرضى" : "Patient Distribution"}</h3>
+        <div className="xl:col-span-4 bg-surface rounded-2xl border border-line p-5 shadow-sm">
+          <h3 className="text-sm font-black text-ink mb-4">{isAr ? "توزيع المرضى" : "Patient Distribution"}</h3>
           <div ref={chartRef}>
             <ResponsiveContainer width="100%" height={200}>
               <PieChart>
@@ -324,15 +324,15 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
         </div>
 
         {/* Top procedures bar */}
-        <div className="xl:col-span-8 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
+        <div className="xl:col-span-8 bg-surface rounded-2xl border border-line p-5 shadow-sm">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="text-sm font-black text-slate-900">{isAr ? "أكثر الإجراءات" : "Top Procedures by Income"}</h3>
+            <h3 className="text-sm font-black text-ink">{isAr ? "أكثر الإجراءات" : "Top Procedures by Income"}</h3>
             <div className="flex gap-2 mb-4">
               <div className="flex items-center gap-2">
                 <button
                   onClick={handlePdfExport}
                   disabled={exporting}
-                  className="px-4 py-2 bg-slate-800 text-white text-sm font-bold rounded-xl hover:bg-slate-900 transition-colors flex items-center gap-2 disabled:opacity-50"
+                  className="px-4 py-2 bg-slate-800 text-ink-on-accent text-sm font-bold rounded-xl hover:bg-accent transition-colors flex items-center gap-2 disabled:opacity-50"
                 >
                   <Download size={16} />
                   {exporting ? (isAr ? "جاري التصدير..." : "Exporting...") : "PDF"}
@@ -377,14 +377,14 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
       </div>
 
       {/* Full procedure table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="bg-surface rounded-2xl border border-line shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-100">
-          <h3 className="text-sm font-black text-slate-900">{isAr ? "جدول الإجراءات الكامل" : "Full Procedure Table"}</h3>
+          <h3 className="text-sm font-black text-ink">{isAr ? "جدول الإجراءات الكامل" : "Full Procedure Table"}</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-black uppercase tracking-wider text-slate-500">
+              <tr className="bg-surface-subtle border-b border-slate-100 text-[10px] font-black uppercase tracking-wider text-ink-muted">
                 <th className="text-start py-3 px-4">{isAr ? "الإجراء" : "Procedure"}</th>
                 <th className="text-center py-3 px-4">{isAr ? "العدد" : "Count"}</th>
                 <th className="text-end py-3 px-4">{isAr ? "الدخل" : "Income (EGP)"}</th>
@@ -393,7 +393,7 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
             </thead>
             <tbody className="divide-y divide-slate-50">
               {serviceStats.map((s, i) => (
-                <tr key={i} className="hover:bg-slate-50 transition-colors">
+                <tr key={i} className="hover:bg-surface-subtle transition-colors">
                   <td className="py-3 px-4 font-semibold text-slate-800 text-xs flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full shrink-0" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
                     {s.name}
@@ -409,7 +409,7 @@ export default function ClinicReport({ procedures, payments, allPatients, startD
               ))}
             </tbody>
             <tfoot>
-              <tr className="bg-[#2D3748] text-white text-xs font-black">
+              <tr className="bg-ink-strong text-white text-xs font-black">
                 <td className="py-3 px-4">{isAr ? "الإجمالي" : "TOTAL"}</td>
                 <td className="py-3 px-4 text-center">{totalProcs}</td>
                 <td className="py-3 px-4 text-end tabular-nums">{totalIncome.toLocaleString()}</td>

@@ -169,15 +169,15 @@ export default function ChartWorkspace({
   return (
     // No `overflow-hidden`: the procedure combobox drops its list with `absolute`, not a portal,
     // so clipping this card to its rounded corners would cut the search results off mid-list.
-    <div className="bg-white rounded-3xl border border-slate-100 shadow-sm">
+    <div className="bg-surface rounded-3xl border border-slate-100 shadow-sm">
       {/* --- Chart header --- */}
       <div className="flex flex-wrap items-start justify-between gap-4 p-5 md:p-6 border-b border-slate-100">
         <div className="min-w-0">
-          <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+          <h3 className="text-base font-black text-ink flex items-center gap-2">
             <Hand size={18} className="text-blue-600" />
             {txt.title}
           </h3>
-          <p className="text-xs font-medium text-slate-500 mt-1 max-w-2xl">
+          <p className="text-xs font-medium text-ink-muted mt-1 max-w-2xl">
             {presentCategories.length > 0 ? txt.hint : txt.hintNoDiagnoses}
           </p>
         </div>
@@ -193,7 +193,7 @@ export default function ChartWorkspace({
             <button
               type="button"
               onClick={() => onSelectedTeethChange([])}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 text-[11px] font-bold transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-subtle hover:bg-surface-muted border border-line text-ink-body text-[11px] font-bold transition-colors"
             >
               <Eraser size={12} />
               {txt.clear}
@@ -230,7 +230,7 @@ export default function ChartWorkspace({
           </p>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             {presentTreatments.map((t) => (
-              <span key={t.label} className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-600">
+              <span key={t.label} className="inline-flex items-center gap-1.5 text-[11px] font-bold text-ink-body">
                 <span className="w-2.5 h-2.5 rounded-sm shrink-0 border border-white shadow-sm" style={{ backgroundColor: t.color }} />
                 {t.label}
                 <span className="text-slate-400 font-semibold tabular-nums">
@@ -250,7 +250,7 @@ export default function ChartWorkspace({
           </p>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             {presentCategories.map((cat) => (
-              <span key={cat.label} className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-600">
+              <span key={cat.label} className="inline-flex items-center gap-1.5 text-[11px] font-bold text-ink-body">
                 <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: cat.color }} />
                 {cat.label}
                 <span className="text-slate-400 font-semibold tabular-nums">
@@ -268,7 +268,7 @@ export default function ChartWorkspace({
           <p className="text-xs font-bold text-slate-400 italic">{txt.none}</p>
         ) : (
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest">
+            <span className="text-[11px] font-black text-ink-muted uppercase tracking-widest">
               {txt.selected} ({selectedTeeth.length})
             </span>
             {selectedTeeth.map((t) => (
@@ -297,7 +297,7 @@ export default function ChartWorkspace({
             <button
               type="button"
               onClick={onCancelEdit}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11px] font-bold transition-colors"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-muted hover:bg-slate-200 text-ink-body text-[11px] font-bold transition-colors"
             >
               <X size={12} />
               {txt.cancelEdit}

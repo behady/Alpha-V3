@@ -478,7 +478,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
           </p>
         )}
         {mode === "keyfile" && (
-          <p className="text-xs text-slate-500 mt-2 flex items-start gap-2">
+          <p className="text-xs text-ink-muted mt-2 flex items-start gap-2">
             <Lock size={13} className="mt-0.5 shrink-0" />
             <span>
               Key file detected. The old project is opened read-only; give this account only the
@@ -514,7 +514,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
                     <td className="px-3 py-2 font-mono text-slate-300">
                       {entry.name}
                       {entry.nested > 0 && (
-                        <span className="text-slate-500 font-sans"> + {entry.nested} inner list{entry.nested > 1 ? "s" : ""}</span>
+                        <span className="text-ink-muted font-sans"> + {entry.nested} inner list{entry.nested > 1 ? "s" : ""}</span>
                       )}
                     </td>
                     <td className="px-3 py-2 text-right text-slate-400 tabular-nums">
@@ -522,7 +522,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
                     </td>
                     <td className="px-3 py-2 text-xs">
                       {entry.action === "skip" ? (
-                        <span className="text-slate-500">handled in step 3</span>
+                        <span className="text-ink-muted">handled in step 3</span>
                       ) : !entry.known ? (
                         <span className="text-amber-400">not recognised</span>
                       ) : entry.noConsumer ? (
@@ -693,7 +693,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
               {staffPeople.map((person) => (
                 <div key={person.staffDocId} className="flex justify-between px-3 py-2 border-b border-slate-800 last:border-0 text-sm">
                   <span className="text-slate-300">{person.name}</span>
-                  <span className="text-slate-500">{person.email}</span>
+                  <span className="text-ink-muted">{person.email}</span>
                   <span className={person.role === "Admin" ? "text-indigo-400 font-bold" : "text-slate-400"}>
                     {person.role}
                   </span>
@@ -892,7 +892,7 @@ function CheckGroup({ title, rows }: { title: string; rows: CheckRow[] }) {
     ok: "text-emerald-400",
     fail: "text-red-400",
     warn: "text-amber-400",
-    info: "text-slate-500",
+    info: "text-ink-muted",
   };
   return (
     <div>

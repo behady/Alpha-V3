@@ -25,10 +25,15 @@
 import {
   ABUTMENT_OPTIONS,
   FDI_LOWER,
+  FDI_PRIMARY_LOWER,
+  FDI_PRIMARY_UPPER,
   FDI_UPPER,
   GUIDE_TYPE_OPTIONS,
   RETENTION_OPTIONS,
+  formatPalmer,
+  hasPrimaryTeeth,
   optionLabel,
+  toPalmer,
   workTypeFor,
   workTypeLabel,
   type LabCase,
@@ -89,6 +94,34 @@ function specRow(label: string, value: string): string {
 }
 
 /**
+ * A tooth written the way Palmer is written: the number INSIDE its bracket.
+ *
+ * Borders on the number itself rather than a box-drawing character beside it. Set as a glyph the
+ * bracket reads as a separate mark and a technician has to reassemble the two; drawn as lines it
+ * reads as the notation, because it is the notation. Same `sides` the picker uses, so the screen
+ * and the paper cannot drift apart.
+ */
+function palmerMarkHtml(fdi: number): string {
+  const palmer = toPalmer(fdi);
+  if (!palmer) return "";
+  const { sides, position } = palmer;
+  const line = `1.4px solid ${INK}`;
+  const style = [
+    sides.top ? `border-top:${line}` : "",
+    sides.bottom ? `border-bottom:${line}` : "",
+    sides.left ? `border-left:${line}` : "",
+    sides.right ? `border-right:${line}` : "",
+  ]
+    .filter(Boolean)
+    .join(";");
+  return `<span style="display:inline-block;padding:0 2px;margin:0 4px 0 0;${style};">${esc(position)}</span>`;
+}
+
+function palmerListHtml(teeth: number[]): string {
+  return teeth.map(palmerMarkHtml).join("");
+}
+
+/**
  * The tooth chart.
  *
  * Plain table cells, not the app's `ToothSVG`: that component renders through `next/image` with
@@ -100,17 +133,49 @@ function specRow(label: string, value: string): string {
  */
 function toothChartHtml(teeth: number[]): string {
   const on = new Set(teeth);
-  const row = (ids: number[]) =>
-    `<tr>${ids
-      .map((id) => {
-        const lit = on.has(id);
-        return `<td style="width:15px;height:15px;padding:0;text-align:center;vertical-align:middle;border:1px solid ${lit ? ACCENT : "#DFE2DE"};background:${lit ? ACCENT : "#FFFFFF"};color:${lit ? "#FFFFFF" : "#9AA09D"};font-size:5.5pt;font-weight:${lit ? 700 : 400};">${id}</td>`;
-      })
-      .join("")}</tr>`;
-  return `<table cellspacing="1" cellpadding="0" style="border-collapse:separate;border-spacing:1px;">
-    ${row(FDI_UPPER)}
-    ${row(FDI_LOWER)}
-  </table>`;
+
+  // Palmer positions, not FDI codes: 8→1 out to the midline, then 1→8 away from it, with the
+  // quadrant cross drawn through the middle. This IS the Palmer grid — the bracket on a written
+  // tooth is just the corner of this cross, so a technician reads the chart and the text line as
+  // one thing rather than two notations for the same mouth.
+  const cell = (id: number, borders: string) => {
+    const lit = on.has(id);
+    const position = toPalmer(id)?.position ?? "";
+    return `<td style="width:14px;height:14px;padding:0;text-align:center;vertical-align:middle;${borders}background:${lit ? ACCENT : "#FFFFFF"};color:${lit ? "#FFFFFF" : "#9AA09D"};font-size:5.5pt;font-weight:${lit ? 700 : 400};">${position}</td>`;
+  };
+
+  const MID = `border-right:2px solid ${INK};`;
+  const OCCLUSAL = `border-bottom:2px solid ${INK};`;
+
+  const row = (right: number[], left: number[], lower: boolean) =>
+    `<tr>${right
+      .map((id, i) => cell(id, (i === right.length - 1 ? MID : "") + (lower ? "" : OCCLUSAL)))
+      .join("")}${left.map((id) => cell(id, lower ? "" : OCCLUSAL)).join("")}</tr>`;
+
+  const sideLabel = (text: string, span: number) =>
+    `<td colspan="${span}" style="padding:0 0 2px;text-align:center;font-size:5.5pt;letter-spacing:0.1em;text-transform:uppercase;color:${MUTED};">${esc(text)}</td>`;
+
+  const grid = (upper: number[], lower: number[]) => {
+    const half = upper.length / 2;
+    // Which half is which. A chart is drawn facing the patient, so the left of the page is their
+    // RIGHT — the one thing about a dental chart everybody is told once and nobody should have to
+    // recall correctly while holding a bag of crowns.
+    return `<table cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+      <tr>${sideLabel("Patient's right · يمين", half)}${sideLabel("Patient's left · شمال", half)}</tr>
+      ${row(upper.slice(0, half), upper.slice(half), false)}
+      ${row(lower.slice(0, half), lower.slice(half), true)}
+    </table>`;
+  };
+
+  // The child's grid is printed only when the case actually involves one, and it is a SECOND grid
+  // rather than a replacement: mixed dentition is ordinary, and a chart that could show only one
+  // set would leave the other appearing in the written line and nowhere on the diagram — the one
+  // disagreement a technician has no way to resolve.
+  const primary = hasPrimaryTeeth(teeth)
+    ? `<div style="margin-top:4px;">${grid(FDI_PRIMARY_UPPER, FDI_PRIMARY_LOWER)}</div>`
+    : "";
+
+  return grid(FDI_UPPER, FDI_LOWER) + primary;
 }
 
 /** One order, laid out to fill whatever box it is given. */
@@ -134,8 +199,8 @@ function orderBodyHtml(
   specs.push(specRow(bi("Work", "الشغل"), workTypeLabel(labCase.workType, "en")));
   if (wt.units && labCase.units) specs.push(specRow(bi("Units", "عدد"), String(labCase.units)));
   if (labCase.material) specs.push(specRow(bi("Material", "الخامة"), labCase.material));
-  if (wt.toothShade && labCase.toothShade) specs.push(specRow(bi("Shade", "اللون"), labCase.toothShade));
-  if (wt.stumpShade && labCase.stumpShade) specs.push(specRow(bi("Stump", "لون اللب"), labCase.stumpShade));
+  if (wt.bodyShade && labCase.bodyShade) specs.push(specRow(bi("Body shade", "لون الجسم"), labCase.bodyShade));
+  if (wt.cervicalShade && labCase.cervicalShade) specs.push(specRow(bi("Cervical shade", "لون العنق"), labCase.cervicalShade));
   if (wt.gumShade && labCase.gumShade) specs.push(specRow(bi("Gum", "اللثة"), labCase.gumShade));
   if (wt.implant && labCase.implantSystem) specs.push(specRow(bi("Implant", "الزرعة"), labCase.implantSystem));
   if (wt.implant && labCase.implantPlatform) specs.push(specRow(bi("Platform", "المقاس"), labCase.implantPlatform));
@@ -156,7 +221,8 @@ function orderBodyHtml(
     ? `<div>
         <div style="font-size:6.5pt;letter-spacing:0.09em;text-transform:uppercase;color:${MUTED};margin-bottom:3px;">${esc(bi("Teeth", "الأسنان"))}</div>
         ${toothChartHtml(labCase.teeth)}
-        <div style="font-size:7.5pt;color:${MUTED};margin-top:3px;" dir="ltr">FDI ${esc(labCase.teeth.join(", "))}</div>
+        <div style="font-size:10pt;font-weight:700;color:${INK};margin-top:5px;" dir="ltr">${palmerListHtml(labCase.teeth)}</div>
+        <div style="font-size:6.5pt;color:${MUTED};margin-top:1px;" dir="ltr">FDI ${esc(labCase.teeth.join(", "))}</div>
       </div>`
     : `<div style="font-size:8pt;color:${MUTED};">${esc(bi("No specific teeth", "من غير أسنان محددة"))}</div>`;
 

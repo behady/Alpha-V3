@@ -234,7 +234,7 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
                 </p>
              </div>
           </div>
-          <button onClick={onClose} className="p-2 bg-white hover:bg-red-50 border border-gray-100 rounded-full text-gray-400 hover:text-red-500 transition-colors shadow-sm"><X size={18}/></button>
+          <button onClick={onClose} className="p-2 bg-surface hover:bg-red-50 border border-gray-100 rounded-full text-gray-400 hover:text-red-500 transition-colors shadow-sm"><X size={18}/></button>
         </div>
 
         {/* FORM BODY */}
@@ -255,7 +255,7 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
                     <select
                       value={countryCode}
                       onChange={(e) => setCountryCode(e.target.value)}
-                      className="w-[42%] p-3 border-2 border-gray-100 rounded-xl font-bold text-gray-900 outline-none focus:border-primary-500 bg-white"
+                      className="w-[42%] p-3 border-2 border-gray-100 rounded-xl font-bold text-gray-900 outline-none focus:border-primary-500 bg-surface"
                     >
                       {COUNTRY_CODE_OPTIONS.map((opt) => (
                         <option key={opt.code} value={opt.code}>
@@ -319,8 +319,8 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
               <div>
                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">{t("gender")}</label>
                  <div className="flex bg-gray-50 p-1.5 rounded-xl border border-gray-100 h-[48px]">
-                    <button type="button" onClick={() => setGender('Male')} className={`flex-1 text-xs font-black uppercase rounded-lg transition-all ${gender === 'Male' ? 'bg-white text-blue-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-gray-600'}`}>{t("male")}</button>
-                    <button type="button" onClick={() => setGender('Female')} className={`flex-1 text-xs font-black uppercase rounded-lg transition-all ${gender === 'Female' ? 'bg-white text-pink-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-gray-600'}`}>{t("female")}</button>
+                    <button type="button" onClick={() => setGender('Male')} className={`flex-1 text-xs font-black uppercase rounded-lg transition-all ${gender === 'Male' ? 'bg-surface text-blue-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-gray-600'}`}>{t("male")}</button>
+                    <button type="button" onClick={() => setGender('Female')} className={`flex-1 text-xs font-black uppercase rounded-lg transition-all ${gender === 'Female' ? 'bg-surface text-pink-600 shadow-sm border border-gray-100' : 'text-gray-400 hover:text-gray-600'}`}>{t("female")}</button>
                  </div>
               </div>
            </div>
@@ -334,7 +334,7 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
                 <select
                    value={branchId}
                    onChange={e => setBranchId(e.target.value)}
-                   className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-gray-900 outline-none focus:border-primary-500 bg-white appearance-none cursor-pointer transition-colors"
+                   className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-gray-900 outline-none focus:border-primary-500 bg-surface appearance-none cursor-pointer transition-colors"
                 >
                    <option value="">{language === 'ar' ? 'بدون فرع محدد' : 'No branch'}</option>
                    {branches.map((b) => (
@@ -347,7 +347,7 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
 
            <div className="relative">
               <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1 block">{t("referralSource")}</label>
-              <select value={referral} onChange={e => setReferral(e.target.value)} className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-gray-900 outline-none focus:border-primary-500 bg-white appearance-none cursor-pointer transition-colors">
+              <select value={referral} onChange={e => setReferral(e.target.value)} className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-gray-900 outline-none focus:border-primary-500 bg-surface appearance-none cursor-pointer transition-colors">
                  <option value="">{t("selectReferralSource")}</option>
                  {sourcesOptions.map((src) => (
                    <option key={src} value={src}>{src}</option>
@@ -376,7 +376,7 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
                  value={medicalHistory}
                  onChange={e => setMedicalHistory(e.target.value)}
                  placeholder={language === 'ar' ? 'مثال: سكري، ضغط — اتركه فارغاً إن لم يُسأل' : 'e.g. Diabetes, hypertension — leave blank if not asked'}
-                 className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-gray-900 outline-none focus:border-primary-500 bg-white transition-colors placeholder:font-medium placeholder:text-gray-300"
+                 className="w-full p-3 border-2 border-gray-100 rounded-xl font-bold text-gray-900 outline-none focus:border-primary-500 bg-surface transition-colors placeholder:font-medium placeholder:text-gray-300"
               />
            </div>
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MessageCircle, Save, Loader2, Sparkles, Send, Plug, CheckCircle2, AlertCircle } from "lucide-react";
+import { MessageCircle, Save, Loader2, Send, Plug, CheckCircle2, AlertCircle } from "lucide-react";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { WHATSAPP_DIAL_COUNTRIES, buildE164FromDialAndNational } from "@/lib/whatsappDialCountries";
@@ -11,6 +11,7 @@ import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
 import { hasFeature } from "@/lib/subscriptions";
 import { logActivity } from "@/lib/logger";
+import { useDirtyFlag } from "@/context/UnsavedChangesContext";
 import type {
   OwnerAlertKey,
   WhatsAppMessageTemplate,
@@ -150,6 +151,10 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
   };
 }
 
+/** The four jobs this page does, in the order someone new to it needs them. */
+const WHATSAPP_TABS = ["connection", "messages", "wording", "incoming"] as const;
+type WhatsAppTab = (typeof WHATSAPP_TABS)[number];
+
 export default function WhatsAppSettings() {
   const { language, isRTL } = useLanguage();
   const { user } = useAuth();
@@ -172,6 +177,7 @@ export default function WhatsAppSettings() {
    * was next opened and it had silently gone back.
    */
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [tab, setTab] = useState<WhatsAppTab>("connection");
   /** The last state the server confirmed, to restore when a write is refused. */
   const serverState = useRef<WhatsAppSettingsDocument | null>(null);
   const [state, setState] = useState<WhatsAppSettingsDocument>({
@@ -215,11 +221,32 @@ export default function WhatsAppSettings() {
 
   const txt = useMemo(
     () => ({
+      railLiveBadge: language === "ar" ? "يعمل" : "Sending",
+      railManualBadge: language === "ar" ? "يدوي" : "Manual",
+      railOffBadge: language === "ar" ? "متوقف" : "Not sending",
+      railLiveMeta: language === "ar"
+        ? "الرسائل تُرسل تلقائياً من قناة واتساب الرسمية."
+        : "Messages send automatically through the official WhatsApp channel.",
+      railLiveOwn: language === "ar"
+        ? "الرسائل تُرسل تلقائياً من رقم العيادة."
+        : "Messages send automatically from the clinic's own number.",
+      railManualMeta: language === "ar"
+        ? "متصل، لكن كل رسالة تفتح في واتساب لترسلها بنفسك."
+        : "Connected, but every message opens in WhatsApp for you to send.",
+      railManualOwn: language === "ar"
+        ? "متصل برقم العيادة، وكل رسالة تفتح لترسلها بنفسك."
+        : "Connected to the clinic's number, but every message opens for you to send.",
+      railOff: language === "ar" ? "لا يمكن إرسال أي رسالة الآن." : "No messages can be sent yet.",
+      railOffDetail: language === "ar"
+        ? "اربط قناة من تبويب الاتصال لتبدأ الرسائل في الوصول."
+        : "Connect a channel under Connection and messages will start going out.",
+      savingNow: language === "ar" ? "جارٍ الحفظ..." : "Saving...",
+      savedAll: language === "ar" ? "كل التغييرات محفوظة" : "All changes saved",
+      tab_connection: language === "ar" ? "الاتصال" : "Connection",
+      tab_messages: language === "ar" ? "الرسائل" : "Messages",
+      tab_wording: language === "ar" ? "الصياغة" : "Wording",
+      tab_incoming: language === "ar" ? "الوارد" : "Incoming",
       title: language === "ar" ? "واتساب" : "WhatsApp",
-      subtitle:
-        language === "ar"
-          ? "أتمتة رسائل المرضى وتنبيهات المالك"
-          : "Patient automation & owner alerts",
       patientCard: language === "ar" ? "أتمتة رسائل المرضى" : "Patient automation",
     saveRefused:
       language === "ar"
@@ -381,7 +408,6 @@ export default function WhatsAppSettings() {
       ownerNumber: language === "ar" ? "رقم واتساب المالك" : "Owner WhatsApp number",
       ownerHint: language === "ar" ? "صيغة دولية مفضلة (+2010...)" : "Prefer E.164 format (+2010...)",
       alertGrid: language === "ar" ? "قواعد التنبيه" : "Alert rules",
-      saveAll: language === "ar" ? "حفظ الإعدادات" : "Save settings",
       saved: language === "ar" ? "تم الحفظ" : "Saved",
       failed: language === "ar" ? "فشل الحفظ" : "Save failed",
       templateSaved: language === "ar" ? "تم تحديث القالب" : "Template updated",
@@ -653,6 +679,25 @@ export default function WhatsAppSettings() {
     syncDraftFromType(templateType, state.templates);
   }, [templateType, state.templates, syncDraftFromType]);
 
+  /**
+   * What is actually unsaved on this screen.
+   *
+   * Not the whole document: the toggles here persist the moment they are clicked, so treating the
+   * settings object as a draft would report unsaved work permanently. The two things that really
+   * do wait for a button are the message template being typed, and the credentials in the
+   * connection forms — and a half-entered access token lost to a stray click means fetching it
+   * from Meta again.
+   */
+  const storedTemplate = state.templates.find((t) => t.type === templateType);
+  const templateDirty =
+    hasLoaded &&
+    (draftMessage !== (storedTemplate?.message ?? "") ||
+      draftActive !== (storedTemplate?.isActive ?? true));
+  const connectionDirty = Boolean(
+    metaTokenDraft.trim() || wapilotTokenDraft.trim() || metaPhoneNumberId.trim() !== (metaStatus?.phoneNumberId ?? "")
+  );
+  useDirtyFlag("whatsapp", templateDirty || connectionDirty);
+
   const persist = async (next: WhatsAppSettingsDocument, toastMode: "default" | "template" | "silent" | "none" = "default") => {
     setSaving(true);
     try {
@@ -737,12 +782,54 @@ export default function WhatsAppSettings() {
     showToast(txt.packApplied, "success");
   };
 
+  /**
+   * Saves on change, like every other switch here.
+   *
+   * This was the one control on the page that did not, which is the entire reason a page-wide
+   * Save button existed — and why it sat at the bottom of a very long scroll, minutes away from
+   * the checkbox that needed it.
+   */
   const toggleOwnerAlert = (key: OwnerAlertKey, value: boolean) => {
-    setState((prev) => ({
-      ...prev,
-      ownerAlerts: { ...prev.ownerAlerts, [key]: value },
-    }));
+    setState((prev) => {
+      const next = { ...prev, ownerAlerts: { ...prev.ownerAlerts, [key]: value } };
+      void persist(next, "silent");
+      return next;
+    });
   };
+
+  /**
+   * What the rail says. Plain language, and the manual case is a first-class answer rather than a
+   * footnote: a clinic on manual delivery IS connected, but nothing leaves without someone
+   * pressing send, and not knowing that is how a day of reminders quietly goes nowhere.
+   */
+  const channel = (() => {
+    const manual = state.deliveryMode === "manual";
+    if (metaStatus?.configured) {
+      return {
+        live: true,
+        badge: manual ? txt.railManualBadge : txt.railLiveBadge,
+        headline: manual ? txt.railManualMeta : txt.railLiveMeta,
+        number: metaStatus.phoneNumberId ? `ID ${metaStatus.phoneNumberId}` : "",
+        detail: "",
+      };
+    }
+    if (wapilotStatus?.configured) {
+      return {
+        live: true,
+        badge: manual ? txt.railManualBadge : txt.railLiveBadge,
+        headline: manual ? txt.railManualOwn : txt.railLiveOwn,
+        number: wapilotStatus.connectedPhoneHint ? String(wapilotStatus.connectedPhoneHint) : "",
+        detail: "",
+      };
+    }
+    return {
+      live: false,
+      badge: txt.railOffBadge,
+      headline: txt.railOff,
+      number: "",
+      detail: txt.railOffDetail,
+    };
+  })();
 
   const handleSendTest = async () => {
     const e164 = testE164Preview;
@@ -785,618 +872,742 @@ export default function WhatsAppSettings() {
 
   if (!hasLoaded) {
     return (
-      <div className="flex items-center justify-center py-24 text-slate-500">
+      <div className="flex items-center justify-center py-24 text-ink-muted">
         <Loader2 className="animate-spin w-8 h-8 text-primary-500" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6" dir={isRTL ? "rtl" : "ltr"}>
-      <div className="flex items-start gap-4">
-        <div className="bg-primary-50 p-3 rounded-2xl text-primary-600 border border-primary-100 shrink-0">
-          <MessageCircle size={24} />
-        </div>
-        <div>
-          <h2 className="text-xl font-black text-slate-900 tracking-tight">{txt.title}</h2>
-          <p className="text-sm text-slate-500 font-medium mt-1">{txt.subtitle}</p>
+    <div className="mx-auto w-full max-w-3xl space-y-10 pb-4" dir={isRTL ? "rtl" : "ltr"}>
+      {/* The one question this screen exists to answer, answered before anything else: can the
+          clinic send right now, through what, and from which number. The old page made you read
+          two gateway cards and decode two status pills to work it out. The number is set in the
+          figure face — the treatment money and counts get elsewhere — because it is a stated fact,
+          not form data. */}
+      <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 space-y-2">
+            <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
+              <MessageCircle size={12} />
+              {txt.title}
+            </p>
+            <p className="text-lg font-bold leading-snug text-white sm:text-xl">{channel.headline}</p>
+            {channel.number ? (
+              <p className="font-figure text-[15px] tracking-tight text-white/70" dir="ltr">
+                {channel.number}
+              </p>
+            ) : (
+              <p className="max-w-md text-[13px] leading-relaxed text-white/55">{channel.detail}</p>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3 sm:flex-col sm:items-end sm:gap-2">
+            <span
+              className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] ${
+                channel.live ? "bg-white/12 text-white" : "bg-amber-400/20 text-amber-200"
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${channel.live ? "bg-emerald-400" : "bg-amber-400"}`}
+              />
+              {channel.badge}
+            </span>
+            {/* Saving is reported here, where it is always in view, instead of by a button at the
+                bottom of a long scroll. Everything on this page writes as you change it. */}
+            <span className="text-[11px] font-semibold text-white/45">
+              {saveError ? txt.saveRefused : saving ? txt.savingNow : txt.savedAll}
+            </span>
+          </div>
         </div>
       </div>
 
-      <section className="rounded-2xl xl:rounded-3xl bg-white border border-violet-200/80 shadow-sm ring-1 ring-violet-100 p-5 xl:p-6 space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex items-center gap-2 text-violet-700">
-            <Plug size={18} />
-            <div>
-              <h3 className="text-sm font-black uppercase tracking-wider text-slate-800">{txt.wapilotCard}</h3>
-              <p className="text-xs text-slate-500 font-medium mt-0.5 max-w-xl">{txt.wapilotHint}</p>
-            </div>
-          </div>
-          {wapilotLoading ? (
-            <Loader2 size={18} className="animate-spin text-violet-500" />
-          ) : wapilotStatus?.source === "clinic" ? (
-            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full">
-              <CheckCircle2 size={14} />
-              {txt.statusClinic}
-            </span>
-          ) : wapilotStatus?.source === "platform" ? (
-            // Deliberately not green. Messages do go out, but from a number that is not this
-            // clinic's — that is a problem to fix, not a healthy state to reassure someone about.
-            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-full">
-              <AlertCircle size={14} />
-              {txt.statusPlatform}
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-full">
-              <AlertCircle size={14} />
-              {txt.statusNone}
-            </span>
-          )}
+      <div className="border-b border-line">
+        <div className="-mb-px flex gap-6 overflow-x-auto no-scrollbar">
+          {WHATSAPP_TABS.map((id) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTab(id)}
+              aria-current={tab === id ? "page" : undefined}
+              className={`whitespace-nowrap border-b-2 pb-3 text-[13px] font-bold transition-colors ${
+                tab === id
+                  ? "border-accent text-ink"
+                  : "border-transparent text-ink-muted hover:text-ink-body"
+              }`}
+            >
+              {txt[`tab_${id}` as keyof typeof txt] as string}
+            </button>
+          ))}
         </div>
+      </div>
 
-        {wapilotStatus?.source === "platform" && (
-          <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 leading-relaxed">
-            {txt.sharedWarning}
+      {tab === "connection" && (
+        <div className="space-y-6">
+        <section className="rounded-2xl xl:rounded-3xl bg-surface border border-line shadow-sm ring-1 ring-line p-5 xl:p-6 space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex items-center gap-2 text-ink-body">
+              <Plug size={18} />
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-wider text-slate-800">{txt.wapilotCard}</h3>
+                <p className="text-xs text-ink-muted font-medium mt-0.5 max-w-xl">{txt.wapilotHint}</p>
+              </div>
+            </div>
+            {wapilotLoading ? (
+              <Loader2 size={18} className="animate-spin text-ink-muted" />
+            ) : wapilotStatus?.source === "clinic" ? (
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full">
+                <CheckCircle2 size={14} />
+                {txt.statusClinic}
+              </span>
+            ) : wapilotStatus?.source === "platform" ? (
+              // Deliberately not green. Messages do go out, but from a number that is not this
+              // clinic's — that is a problem to fix, not a healthy state to reassure someone about.
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-full">
+                <AlertCircle size={14} />
+                {txt.statusPlatform}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-full">
+                <AlertCircle size={14} />
+                {txt.statusNone}
+              </span>
+            )}
+          </div>
+
+          {wapilotStatus?.source === "platform" && (
+            <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 leading-relaxed">
+              {txt.sharedWarning}
+            </p>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <label className="block">
+              <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.instanceId}</span>
+              <input
+                value={wapilotInstanceId}
+                onChange={(e) => setWapilotInstanceId(e.target.value)}
+                className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20"
+                placeholder="e.g. your-wapilot-instance-id"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.apiToken}</span>
+              <input
+                type="password"
+                value={wapilotTokenDraft}
+                onChange={(e) => setWapilotTokenDraft(e.target.value)}
+                autoComplete="new-password"
+                className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20"
+                placeholder={txt.tokenPlaceholder}
+              />
+            </label>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowAdvancedWapilot((v) => !v)}
+            className="text-xs font-bold text-ink-body hover:text-ink"
+          >
+            {txt.advanced} {showAdvancedWapilot ? "▲" : "▼"}
+          </button>
+
+          {showAdvancedWapilot && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <label className="block">
+                <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.apiBaseUrl}</span>
+                <input
+                  value={wapilotApiBaseUrl}
+                  onChange={(e) => setWapilotApiBaseUrl(e.target.value)}
+                  className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-accent-soft"
+                  placeholder="https://api.wapilot.net/api/v2"
+                />
+              </label>
+              <label className="block">
+                <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.phoneHint}</span>
+                <input
+                  value={wapilotPhoneHint}
+                  onChange={(e) => setWapilotPhoneHint(e.target.value)}
+                  className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-accent-soft"
+                  placeholder="+20..."
+                />
+              </label>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => void handleSaveWapilotConnection()}
+            disabled={wapilotSaving || wapilotLoading}
+            className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-ink-slab text-white text-xs font-black uppercase tracking-widest hover:bg-ink disabled:opacity-50 transition-all"
+          >
+            {wapilotSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+            {txt.saveConnection}
+          </button>
+        </section>
+
+        {/* Official Meta Cloud API. Above the two-column grid, beside Wapilot's card: they are the
+            same decision — how this clinic's messages leave — and reading one without seeing the
+            other is how a clinic ends up configured twice or not at all. */}
+        <section className="rounded-2xl xl:rounded-3xl bg-surface border border-line shadow-sm ring-1 ring-line p-5 xl:p-6 space-y-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex items-center gap-2 text-emerald-700">
+              <MessageCircle size={18} />
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-wider text-slate-800">{txt.metaCard}</h3>
+                <p className="text-xs text-ink-muted font-medium mt-0.5 max-w-xl">{txt.metaHint}</p>
+              </div>
+            </div>
+            {metaLoading ? (
+              <Loader2 size={18} className="animate-spin text-emerald-500" />
+            ) : metaStatus?.configured ? (
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full">
+                <CheckCircle2 size={14} />
+                {txt.metaConnected}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-full">
+                <AlertCircle size={14} />
+                {txt.metaNotConnected}
+              </span>
+            )}
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.metaPhoneNumberId}</span>
+              <input
+                type="text"
+                value={metaPhoneNumberId}
+                onChange={(e) => setMetaPhoneNumberId(e.target.value)}
+                placeholder="1142062985667803"
+                className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.metaWabaId}</span>
+              <input
+                type="text"
+                value={metaWabaId}
+                onChange={(e) => setMetaWabaId(e.target.value)}
+                className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+              />
+            </label>
+          </div>
+          <label className="block">
+            <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.metaToken}</span>
+            <input
+              type="password"
+              value={metaTokenDraft}
+              onChange={(e) => setMetaTokenDraft(e.target.value)}
+              placeholder={metaStatus?.tokenSet ? txt.metaTokenKept : "EAA..."}
+              autoComplete="off"
+              className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.metaTestTo}</span>
+            <input
+              type="tel"
+              value={metaTestTo}
+              onChange={(e) => setMetaTestTo(e.target.value)}
+              placeholder="+2010..."
+              className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => void handleSaveMetaConnection()}
+            disabled={metaSaving || metaLoading}
+            className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-600 text-white text-xs font-black uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-50 transition-all"
+          >
+            {metaSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+            {txt.saveConnection}
+          </button>
+        </section>
+
+        <section className="rounded-2xl xl:rounded-3xl bg-surface border border-line shadow-sm ring-1 ring-line p-5 xl:p-6 flex flex-col gap-4">
+          <div className="flex items-center gap-2 text-primary-600">
+            <Send size={18} />
+            <h3 className="text-sm font-black uppercase tracking-wider text-slate-800">{txt.testCard}</h3>
+          </div>
+          <p className="text-xs text-ink-muted font-medium">{txt.testHint}</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <label className="block">
+              <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.testCountry}</span>
+              <select
+                value={testCountryIso}
+                onChange={(e) => setTestCountryIso(e.target.value)}
+                className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15"
+              >
+                {WHATSAPP_DIAL_COUNTRIES.map((c) => (
+                  <option key={c.iso} value={c.iso}>
+                    {language === "ar" ? c.nameAr : c.nameEn} (+{c.dial})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.testNational}</span>
+              <input
+                type="tel"
+                inputMode="numeric"
+                autoComplete="tel-national"
+                value={testNational}
+                onChange={(e) => setTestNational(e.target.value)}
+                placeholder={txt.testNationalPh}
+                className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15"
+              />
+            </label>
+          </div>
+          <p className="text-xs font-mono text-ink-body bg-surface-subtle border border-line rounded-xl px-4 py-2">
+            {txt.testPreview}: <span className="font-bold text-ink">{testE164Preview || "—"}</span>
+          </p>
+          <label className="block">
+            <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.testMessage}</span>
+            <textarea
+              value={testMessage}
+              onChange={(e) => setTestMessage(e.target.value)}
+              rows={2}
+              placeholder="Alpha Dental — test..."
+              className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15 resize-y"
+            />
+          </label>
+          <div>
+            <button
+              type="button"
+              onClick={() => void handleSendTest()}
+              disabled={testSending}
+              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-600 text-white text-xs font-black uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-50 transition-all shadow-md shadow-emerald-600/15"
+            >
+              {testSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+              {txt.testSend}
+            </button>
+          </div>
+        </section>
+        </div>
+      )}
+
+      {tab === "messages" && (
+      <div className="flex flex-col gap-8">
+        <label className="flex items-center justify-between gap-4 cursor-pointer rounded-xl border border-line bg-slate-50/80 px-4 py-3">
+          <span className="text-sm font-bold text-slate-700">{txt.patientToggle}</span>
+          <input
+            type="checkbox"
+            className="h-5 w-5 rounded border-line-strong text-primary-600 focus:ring-primary-500 shrink-0"
+            checked={state.isPatientAutomationEnabled}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setState((s) => {
+                const next = { ...s, isPatientAutomationEnabled: checked };
+                void persist(next, "silent");
+                return next;
+              });
+            }}
+          />
+        </label>
+
+        {/* A refused save, said once and left on screen. A toast for this was
+            missed every time, which is how a setting that never saved looked
+            like a setting that would not select. */}
+        {saveError && (
+          <p
+            role="alert"
+            className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2.5 leading-relaxed"
+          >
+            {saveError}
           </p>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <label className="block">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.instanceId}</span>
-            <input
-              value={wapilotInstanceId}
-              onChange={(e) => setWapilotInstanceId(e.target.value)}
-              className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-500/15"
-              placeholder="e.g. your-wapilot-instance-id"
-            />
-          </label>
-          <label className="block">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.apiToken}</span>
-            <input
-              type="password"
-              value={wapilotTokenDraft}
-              onChange={(e) => setWapilotTokenDraft(e.target.value)}
-              autoComplete="new-password"
-              className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-violet-500 focus:ring-2 focus:ring-violet-500/15"
-              placeholder={txt.tokenPlaceholder}
-            />
-          </label>
-        </div>
+        <p className="text-xs text-ink-body bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5 leading-relaxed">
+          {txt.paymentAutomationHint}
+        </p>
 
-        <button
-          type="button"
-          onClick={() => setShowAdvancedWapilot((v) => !v)}
-          className="text-xs font-bold text-violet-600 hover:text-violet-800"
-        >
-          {txt.advanced} {showAdvancedWapilot ? "▲" : "▼"}
-        </button>
 
-        {showAdvancedWapilot && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <label className="block">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.apiBaseUrl}</span>
-              <input
-                value={wapilotApiBaseUrl}
-                onChange={(e) => setWapilotApiBaseUrl(e.target.value)}
-                className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-violet-500"
-                placeholder="https://api.wapilot.net/api/v2"
-              />
-            </label>
-            <label className="block">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.phoneHint}</span>
-              <input
-                value={wapilotPhoneHint}
-                onChange={(e) => setWapilotPhoneHint(e.target.value)}
-                className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-violet-500"
-                placeholder="+20..."
-              />
-            </label>
-          </div>
-        )}
-
-        <button
-          type="button"
-          onClick={() => void handleSaveWapilotConnection()}
-          disabled={wapilotSaving || wapilotLoading}
-          className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-violet-600 text-white text-xs font-black uppercase tracking-widest hover:bg-violet-700 disabled:opacity-50 transition-all"
-        >
-          {wapilotSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-          {txt.saveConnection}
-        </button>
-      </section>
-
-      {/* Official Meta Cloud API. Above the two-column grid, beside Wapilot's card: they are the
-          same decision — how this clinic's messages leave — and reading one without seeing the
-          other is how a clinic ends up configured twice or not at all. */}
-      <section className="rounded-2xl xl:rounded-3xl bg-white border border-emerald-200/80 shadow-sm ring-1 ring-emerald-100 p-5 xl:p-6 space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex items-center gap-2 text-emerald-700">
-            <MessageCircle size={18} />
-            <div>
-              <h3 className="text-sm font-black uppercase tracking-wider text-slate-800">{txt.metaCard}</h3>
-              <p className="text-xs text-slate-500 font-medium mt-0.5 max-w-xl">{txt.metaHint}</p>
-            </div>
-          </div>
-          {metaLoading ? (
-            <Loader2 size={18} className="animate-spin text-emerald-500" />
-          ) : metaStatus?.configured ? (
-            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full">
-              <CheckCircle2 size={14} />
-              {txt.metaConnected}
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-full">
-              <AlertCircle size={14} />
-              {txt.metaNotConnected}
-            </span>
-          )}
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.metaPhoneNumberId}</span>
-            <input
-              type="text"
-              value={metaPhoneNumberId}
-              onChange={(e) => setMetaPhoneNumberId(e.target.value)}
-              placeholder="1142062985667803"
-              className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
-            />
-          </label>
-          <label className="block">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.metaWabaId}</span>
-            <input
-              type="text"
-              value={metaWabaId}
-              onChange={(e) => setMetaWabaId(e.target.value)}
-              className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
-            />
-          </label>
-        </div>
-        <label className="block">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.metaToken}</span>
-          <input
-            type="password"
-            value={metaTokenDraft}
-            onChange={(e) => setMetaTokenDraft(e.target.value)}
-            placeholder={metaStatus?.tokenSet ? txt.metaTokenKept : "EAA..."}
-            autoComplete="off"
-            className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
-          />
-        </label>
-        <label className="block">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.metaTestTo}</span>
-          <input
-            type="tel"
-            value={metaTestTo}
-            onChange={(e) => setMetaTestTo(e.target.value)}
-            placeholder="+2010..."
-            className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
-          />
-        </label>
-        <button
-          type="button"
-          onClick={() => void handleSaveMetaConnection()}
-          disabled={metaSaving || metaLoading}
-          className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-600 text-white text-xs font-black uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-50 transition-all"
-        >
-          {metaSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
-          {txt.saveConnection}
-        </button>
-      </section>
-
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* Patient automation */}
-        <section className="rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 shadow-sm ring-1 ring-slate-100 p-5 xl:p-6 flex flex-col gap-5">
-          <div className="flex items-center gap-2 text-primary-600">
-            <Sparkles size={18} />
-            <h3 className="text-sm font-black uppercase tracking-wider text-slate-800">{txt.patientCard}</h3>
+        {/* How messages leave. See WhatsAppDeliveryMode for why manual is a first-class choice. */}
+        <div className="space-y-2">
+          <p className="text-[11px] font-black uppercase tracking-widest text-ink-muted">{txt.deliveryTitle}</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {(["auto", "manual"] as const).map((mode) => {
+              // When no choice is stored, show what the server will actually do
+              // (resolveWhatsappDeliveryMode): auto needs the plan feature AND a connected
+              // gateway; everything else falls back to a person pressing send.
+              const effectiveMode =
+                state.deliveryMode ??
+                (canSendAutomatically && wapilotStatus && wapilotStatus.source !== "none"
+                  ? "auto"
+                  : "manual");
+              const active = effectiveMode === mode;
+              // Shown but not hidden when the plan excludes it: a feature nobody can see is a
+              // feature nobody upgrades for, and silently removing the option would leave a
+              // clinic wondering why their messages stopped sending themselves.
+              const locked = mode === "auto" && !canSendAutomatically;
+              return (
+                <button
+                  key={mode}
+                  type="button"
+                  disabled={locked}
+                  onClick={() =>
+                    setState((s) => {
+                      const next = { ...s, deliveryMode: mode };
+                      void persist(next, "silent");
+                      return next;
+                    })
+                  }
+                  className={`text-start rounded-xl border px-4 py-3 transition-all ${
+                    locked
+                      ? "border-line bg-slate-50/60 opacity-70 cursor-not-allowed"
+                      : active
+                        ? "border-primary-500 bg-primary-50 ring-1 ring-primary-200"
+                        : "border-line bg-slate-50/80 hover:border-line-strong"
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-slate-800">
+                      {mode === "auto" ? txt.deliveryAuto : txt.deliveryManual}
+                    </span>
+                    {locked && (
+                      <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-100 text-amber-800">
+                        {txt.deliveryLocked}
+                      </span>
+                    )}
+                  </span>
+                  <span className="block text-xs text-ink-muted mt-1 leading-relaxed">
+                    {mode === "auto"
+                      ? locked
+                        ? txt.deliveryLockedHint
+                        : txt.deliveryAutoHint
+                      : txt.deliveryManualHint}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
-          <label className="flex items-center justify-between gap-4 cursor-pointer rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3">
-            <span className="text-sm font-bold text-slate-700">{txt.patientToggle}</span>
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3">
+            <p className="text-[11px] font-black uppercase tracking-widest text-emerald-700">
+              {txt.deliveryQueueTitle}
+            </p>
+            <p className="text-xs text-emerald-900 mt-1.5 leading-relaxed">{txt.deliveryQueueBody}</p>
+          </div>
+        </div>
+
+
+        {/* Leads are strangers, not patients — a separate switch on purpose. A clinic may want
+            reminders for its own people and no machine greeting anybody else, or the reverse. */}
+        <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
+          <label className="flex items-center justify-between gap-4 cursor-pointer">
+            <span className="text-sm font-black text-amber-950">{txt.leadCard}</span>
             <input
               type="checkbox"
-              className="h-5 w-5 rounded border-slate-300 text-primary-600 focus:ring-primary-500 shrink-0"
-              checked={state.isPatientAutomationEnabled}
+              className="h-5 w-5 rounded border-amber-300 text-amber-700 focus:ring-amber-500 shrink-0"
+              checked={state.isLeadAutoReplyEnabled ?? false}
               onChange={(e) => {
                 const checked = e.target.checked;
                 setState((s) => {
-                  const next = { ...s, isPatientAutomationEnabled: checked };
+                  const next = { ...s, isLeadAutoReplyEnabled: checked };
                   void persist(next, "silent");
                   return next;
                 });
               }}
             />
           </label>
-
-          {/* A refused save, said once and left on screen. A toast for this was
-              missed every time, which is how a setting that never saved looked
-              like a setting that would not select. */}
-          {saveError && (
-            <p
-              role="alert"
-              className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2.5 leading-relaxed"
-            >
-              {saveError}
-            </p>
-          )}
-
-          <p className="text-xs text-slate-600 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5 leading-relaxed">
-            {txt.paymentAutomationHint}
+          <p className="text-xs font-bold text-amber-900/80 leading-relaxed">{txt.leadToggle}</p>
+          <p className="text-xs text-ink-body leading-relaxed">{txt.leadHint}</p>
+          <p className="text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 leading-relaxed">
+            {txt.leadWarning}
           </p>
+        </div>
 
-          {/* How messages leave. See WhatsAppDeliveryMode for why manual is a first-class choice. */}
-          <div className="space-y-2">
-            <p className="text-[11px] font-black uppercase tracking-widest text-slate-500">{txt.deliveryTitle}</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {(["auto", "manual"] as const).map((mode) => {
-                // When no choice is stored, show what the server will actually do
-                // (resolveWhatsappDeliveryMode): auto needs the plan feature AND a connected
-                // gateway; everything else falls back to a person pressing send.
-                const effectiveMode =
-                  state.deliveryMode ??
-                  (canSendAutomatically && wapilotStatus && wapilotStatus.source !== "none"
-                    ? "auto"
-                    : "manual");
-                const active = effectiveMode === mode;
-                // Shown but not hidden when the plan excludes it: a feature nobody can see is a
-                // feature nobody upgrades for, and silently removing the option would leave a
-                // clinic wondering why their messages stopped sending themselves.
-                const locked = mode === "auto" && !canSendAutomatically;
-                return (
-                  <button
-                    key={mode}
-                    type="button"
-                    disabled={locked}
-                    onClick={() =>
-                      setState((s) => {
-                        const next = { ...s, deliveryMode: mode };
-                        void persist(next, "silent");
-                        return next;
-                      })
-                    }
-                    className={`text-start rounded-xl border px-4 py-3 transition-all ${
-                      locked
-                        ? "border-slate-200 bg-slate-50/60 opacity-70 cursor-not-allowed"
-                        : active
-                          ? "border-primary-500 bg-primary-50 ring-1 ring-primary-200"
-                          : "border-slate-200 bg-slate-50/80 hover:border-slate-300"
-                    }`}
-                  >
-                    <span className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-slate-800">
-                        {mode === "auto" ? txt.deliveryAuto : txt.deliveryManual}
-                      </span>
-                      {locked && (
-                        <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-100 text-amber-800">
-                          {txt.deliveryLocked}
-                        </span>
-                      )}
+
+        {/* Opt-out. Sits above the template editor on purpose: it is the setting that decides
+            whether the clinic still has a WhatsApp number in six months, and it should be read
+            before the wording is fiddled with rather than found underneath it. */}
+        <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
+          <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">{txt.optOutTitle}</p>
+          <label className="flex items-center justify-between gap-4 cursor-pointer">
+            <span className="text-sm font-bold text-amber-950 leading-relaxed">{txt.optOutToggle}</span>
+            <input
+              type="checkbox"
+              className="h-5 w-5 rounded border-amber-300 text-amber-600 focus:ring-amber-500 shrink-0"
+              checked={state.optOutFooterEnabled !== false}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setState((s) => {
+                  const next = { ...s, optOutFooterEnabled: checked };
+                  void persist(next, "silent");
+                  return next;
+                });
+              }}
+            />
+          </label>
+          <p className="text-xs text-ink-body leading-relaxed">{txt.optOutHint}</p>
+          <p className="text-xs text-amber-900 leading-relaxed">{txt.optOutWarning}</p>
+        </div>
+
+      </div>
+      )}
+
+      {tab === "wording" && (
+      <div className="flex flex-col gap-8">
+        {/* Which built-in wording the templates start from. */}
+        <div className="space-y-3">
+          <p className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.packTitle}</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {(
+              [
+                { pack: "bilingual" as const, label: txt.packBilingual, hint: txt.packBilingualHint },
+                { pack: "arabic" as const, label: txt.packArabic, hint: txt.packArabicHint },
+              ]
+            ).map(({ pack, label, hint }) => {
+              const selected = (state.templatePack ?? "bilingual") === pack;
+              return (
+                <button
+                  key={pack}
+                  type="button"
+                  onClick={() => applyTemplatePack(pack)}
+                  className={`text-start rounded-xl border p-3 transition-all ${
+                    selected
+                      ? "border-primary-500 bg-primary-50 ring-2 ring-primary-500/15"
+                      : "border-line bg-surface-subtle hover:border-line-strong"
+                  }`}
+                >
+                  <span className="block text-sm font-black text-slate-800">{label}</span>
+                  <span className="block text-xs text-ink-muted mt-1 leading-relaxed">{hint}</span>
+                  {!selected && (
+                    <span className="block text-[10px] font-black uppercase tracking-widest text-primary-600 mt-2">
+                      {txt.packApply}
                     </span>
-                    <span className="block text-xs text-slate-500 mt-1 leading-relaxed">
-                      {mode === "auto"
-                        ? locked
-                          ? txt.deliveryLockedHint
-                          : txt.deliveryAutoHint
-                        : txt.deliveryManualHint}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3">
-              <p className="text-[11px] font-black uppercase tracking-widest text-emerald-700">
-                {txt.deliveryQueueTitle}
-              </p>
-              <p className="text-xs text-emerald-900 mt-1.5 leading-relaxed">{txt.deliveryQueueBody}</p>
-            </div>
+                  )}
+                </button>
+              );
+            })}
           </div>
+        </div>
 
-          {/* Leads are strangers, not patients — a separate switch on purpose. A clinic may want
-              reminders for its own people and no machine greeting anybody else, or the reverse. */}
-          <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 space-y-3">
-            <label className="flex items-center justify-between gap-4 cursor-pointer">
-              <span className="text-sm font-black text-indigo-900">{txt.leadCard}</span>
-              <input
-                type="checkbox"
-                className="h-5 w-5 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
-                checked={state.isLeadAutoReplyEnabled ?? false}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  setState((s) => {
-                    const next = { ...s, isLeadAutoReplyEnabled: checked };
-                    void persist(next, "silent");
-                    return next;
-                  });
-                }}
-              />
-            </label>
-            <p className="text-xs font-bold text-indigo-900/80 leading-relaxed">{txt.leadToggle}</p>
-            <p className="text-xs text-slate-600 leading-relaxed">{txt.leadHint}</p>
-            <p className="text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 leading-relaxed">
-              {txt.leadWarning}
-            </p>
-          </div>
 
-          {/* Opt-out. Sits above the template editor on purpose: it is the setting that decides
-              whether the clinic still has a WhatsApp number in six months, and it should be read
-              before the wording is fiddled with rather than found underneath it. */}
-          <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
-            <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">{txt.optOutTitle}</p>
-            <label className="flex items-center justify-between gap-4 cursor-pointer">
-              <span className="text-sm font-bold text-amber-950 leading-relaxed">{txt.optOutToggle}</span>
-              <input
-                type="checkbox"
-                className="h-5 w-5 rounded border-amber-300 text-amber-600 focus:ring-amber-500 shrink-0"
-                checked={state.optOutFooterEnabled !== false}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  setState((s) => {
-                    const next = { ...s, optOutFooterEnabled: checked };
-                    void persist(next, "silent");
-                    return next;
-                  });
-                }}
-              />
-            </label>
-            <p className="text-xs text-slate-600 leading-relaxed">{txt.optOutHint}</p>
-            <p className="text-xs text-amber-900 leading-relaxed">{txt.optOutWarning}</p>
-          </div>
-
-          {/* Answering inbound messages. Sits under the opt-out card because it shares the same
-              risk: this is the one feature that talks to a patient with no staff member deciding
-              to, so its off-switch and its limits belong where they can be read together. */}
-          <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 space-y-3">
-            <p className="text-[11px] font-black uppercase tracking-widest text-indigo-800">{txt.botTitle}</p>
-            <label className="flex items-center justify-between gap-4 cursor-pointer">
-              <span className="text-sm font-black text-indigo-950 leading-relaxed">{txt.botToggle}</span>
-              <input
-                type="checkbox"
-                className="h-5 w-5 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
-                checked={state.botEnabled === true}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  setState((s) => {
-                    const next = { ...s, botEnabled: checked };
-                    void persist(next, "silent");
-                    return next;
-                  });
-                }}
-              />
-            </label>
-            <p className="text-xs text-slate-600 leading-relaxed">{txt.botHint}</p>
-
-            {state.botEnabled === true && (
-              <>
-                {(state.deliveryMode ?? (canSendAutomatically ? "auto" : "manual")) !== "auto" && (
-                  <p className="text-xs font-bold text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
-                    {txt.botNeedsGateway}
-                  </p>
-                )}
-                <label className="flex items-center justify-between gap-4 cursor-pointer pt-1">
-                  <span className="text-sm font-bold text-indigo-950 leading-relaxed">{txt.botStrangers}</span>
-                  <input
-                    type="checkbox"
-                    className="h-5 w-5 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
-                    checked={state.botAnswerStrangers === true}
-                    onChange={(e) => {
-                      const checked = e.target.checked;
-                      setState((s) => {
-                        const next = { ...s, botAnswerStrangers: checked };
-                        void persist(next, "silent");
-                        return next;
-                      });
-                    }}
-                  />
-                </label>
-                <p className="text-xs text-slate-500 leading-relaxed">{txt.botStrangersHint}</p>
-                <label className="flex items-center justify-between gap-4 cursor-pointer pt-1">
-                  <span className="text-sm font-bold text-indigo-950 leading-relaxed">{txt.botAutoConfirm}</span>
-                  <input
-                    type="checkbox"
-                    className="h-5 w-5 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
-                    checked={state.botAutoConfirmBookings === true}
-                    onChange={(e) => {
-                      const checked = e.target.checked;
-                      setState((s) => {
-                        const next = { ...s, botAutoConfirmBookings: checked };
-                        void persist(next, "silent");
-                        return next;
-                      });
-                    }}
-                  />
-                </label>
-                <p className="text-xs text-slate-500 leading-relaxed">{txt.botAutoConfirmHint}</p>
-                <label className="flex items-center justify-between gap-4 cursor-pointer pt-1">
-                  <span className="text-sm font-bold text-indigo-950 leading-relaxed">{txt.botAi}</span>
-                  <input
-                    type="checkbox"
-                    className="h-5 w-5 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 shrink-0"
-                    checked={state.botAiEnabled === true}
-                    onChange={(e) => {
-                      const checked = e.target.checked;
-                      setState((s) => {
-                        const next = { ...s, botAiEnabled: checked };
-                        void persist(next, "silent");
-                        return next;
-                      });
-                    }}
-                  />
-                </label>
-                <p className="text-xs text-slate-500 leading-relaxed">{txt.botAiHint}</p>
-                <p className="text-xs text-slate-500 leading-relaxed">{txt.botLimits}</p>
-
-                {/*
-                  The answers the system does not otherwise hold.
-                  Every one of these questions reached a receptionist every single time, or reached
-                  the model with no data and came back as general dentistry in the clinic's voice.
-                  Empty stays safe — the bot says a person will follow up rather than guessing.
-                */}
-                <div className="pt-4 mt-2 border-t border-indigo-200 space-y-3">
-                  <p className="text-[11px] font-black uppercase tracking-widest text-indigo-800">{txt.factsTitle}</p>
-                  <p className="text-xs text-slate-600 leading-relaxed">{txt.factsHint}</p>
-                  <div className="grid gap-3">
-                    {(
-                      [
-                        { key: "walkIn" as const, label: txt.factWalkIn, ph: txt.factWalkInPh },
-                        { key: "durations" as const, label: txt.factDurations, ph: txt.factDurationsPh },
-                        { key: "sessions" as const, label: txt.factSessions, ph: txt.factSessionsPh },
-                        { key: "installments" as const, label: txt.factInstallments, ph: txt.factInstallmentsPh },
-                        { key: "offers" as const, label: txt.factOffers, ph: txt.factOffersPh },
-                        { key: "insurance" as const, label: txt.factInsurance, ph: txt.factInsurancePh },
-                        { key: "notOffered" as const, label: txt.factNotOffered, ph: txt.factNotOfferedPh },
-                        { key: "aftercare" as const, label: txt.factAftercare, ph: txt.factAftercarePh },
-                        { key: "parking" as const, label: txt.factParking, ph: txt.factParkingPh },
-                        { key: "mapsUrl" as const, label: txt.factMaps, ph: txt.factMapsPh },
-                      ]
-                    ).map(({ key, label, ph }) => (
-                      <label key={key} className="block space-y-1">
-                        <span className="text-xs font-bold text-indigo-950">{label}</span>
-                        <textarea
-                          rows={key === "mapsUrl" ? 1 : 2}
-                          dir="auto"
-                          className="w-full rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-400 resize-y"
-                          placeholder={ph}
-                          value={state.botFacts?.[key] ?? ""}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            setState((s) => ({ ...s, botFacts: { ...(s.botFacts ?? {}), [key]: value } }));
-                          }}
-                          // Saved on blur rather than per keystroke: these are sentences, and a
-                          // write per character is a write per character.
-                          onBlur={() => void persist(state, "silent")}
-                        />
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Which built-in wording the templates start from. */}
-          <div className="space-y-3">
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.packTitle}</p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {(
-                [
-                  { pack: "bilingual" as const, label: txt.packBilingual, hint: txt.packBilingualHint },
-                  { pack: "arabic" as const, label: txt.packArabic, hint: txt.packArabicHint },
-                ]
-              ).map(({ pack, label, hint }) => {
-                const selected = (state.templatePack ?? "bilingual") === pack;
-                return (
-                  <button
-                    key={pack}
-                    type="button"
-                    onClick={() => applyTemplatePack(pack)}
-                    className={`text-start rounded-xl border p-3 transition-all ${
-                      selected
-                        ? "border-primary-500 bg-primary-50 ring-2 ring-primary-500/15"
-                        : "border-slate-200 bg-slate-50 hover:border-slate-300"
-                    }`}
-                  >
-                    <span className="block text-sm font-black text-slate-800">{label}</span>
-                    <span className="block text-xs text-slate-500 mt-1 leading-relaxed">{hint}</span>
-                    {!selected && (
-                      <span className="block text-[10px] font-black uppercase tracking-widest text-primary-600 mt-2">
-                        {txt.packApply}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <label className="block">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.templateType}</span>
-              <select
-                value={templateType}
-                onChange={(e) => setTemplateType(e.target.value as WhatsAppTemplateType)}
-                className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15"
-              >
-                <option value="new">{txt.types.new}</option>
-                <option value="edit">{txt.types.edit}</option>
-                <option value="cancel">{txt.types.cancel}</option>
-                <option value="invoice">{txt.types.invoice}</option>
-                <option value="treatment">{txt.types.treatment}</option>
-                <option value="reminder24h">{txt.types.reminder24h}</option>
-                <option value="google_review">{txt.types.google_review}</option>
-                <option value="lead_welcome">{txt.types.lead_welcome}</option>
-              </select>
-            </label>
-            <p className="text-xs text-slate-400 font-medium">
-              {templateType === "lead_welcome"
-                ? txt.leadWelcomeHint
-                : templateType === "google_review"
-                ? txt.googleReviewHint
-                : templateType === "invoice"
-                  ? txt.invoiceHint
-                  : templateType === "reminder24h"
-                    ? txt.reminder24hHint
-                    : txt.templateHint}
-            </p>
-            <label className="block">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.message}</span>
-              <textarea
-                value={draftMessage}
-                onChange={(e) => setDraftMessage(e.target.value)}
-                rows={5}
-                className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15 resize-y min-h-[120px]"
-              />
-            </label>
-            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-              <input
-                type="checkbox"
-                checked={draftActive}
-                onChange={(e) => setDraftActive(e.target.checked)}
-                className="rounded border-slate-300 text-primary-600 focus:ring-primary-500"
-              />
-              {txt.active}
-            </label>
-            <button
-              type="button"
-              onClick={handleSaveTemplate}
-              disabled={saving}
-              className="inline-flex items-center justify-center gap-2 w-full sm:w-auto px-5 py-3 rounded-xl bg-slate-900 text-white text-xs font-black uppercase tracking-widest hover:bg-slate-800 disabled:opacity-50 transition-all"
+        <div className="space-y-3">
+          <label className="block">
+            <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.templateType}</span>
+            <select
+              value={templateType}
+              onChange={(e) => setTemplateType(e.target.value as WhatsAppTemplateType)}
+              className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15"
             >
-              <Save size={16} />
-              {txt.saveTemplate}
-            </button>
-          </div>
-        </section>
+              <option value="new">{txt.types.new}</option>
+              <option value="edit">{txt.types.edit}</option>
+              <option value="cancel">{txt.types.cancel}</option>
+              <option value="invoice">{txt.types.invoice}</option>
+              <option value="treatment">{txt.types.treatment}</option>
+              <option value="reminder24h">{txt.types.reminder24h}</option>
+              <option value="google_review">{txt.types.google_review}</option>
+              <option value="lead_welcome">{txt.types.lead_welcome}</option>
+            </select>
+          </label>
+          <p className="text-xs text-slate-400 font-medium">
+            {templateType === "lead_welcome"
+              ? txt.leadWelcomeHint
+              : templateType === "google_review"
+              ? txt.googleReviewHint
+              : templateType === "invoice"
+                ? txt.invoiceHint
+                : templateType === "reminder24h"
+                  ? txt.reminder24hHint
+                  : txt.templateHint}
+          </p>
+          <label className="block">
+            <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.message}</span>
+            <textarea
+              value={draftMessage}
+              onChange={(e) => setDraftMessage(e.target.value)}
+              rows={5}
+              className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15 resize-y min-h-[120px]"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+            <input
+              type="checkbox"
+              checked={draftActive}
+              onChange={(e) => setDraftActive(e.target.checked)}
+              className="rounded border-line-strong text-primary-600 focus:ring-primary-500"
+            />
+            {txt.active}
+          </label>
+          <button
+            type="button"
+            onClick={handleSaveTemplate}
+            disabled={saving}
+            className="inline-flex items-center justify-center gap-2 w-full sm:w-auto px-5 py-3 rounded-xl bg-accent text-ink-on-accent text-xs font-black uppercase tracking-widest hover:bg-accent-strong disabled:opacity-50 transition-all"
+          >
+            <Save size={16} />
+            {txt.saveTemplate}
+          </button>
+        </div>
+      </div>
+      )}
 
+      {tab === "incoming" && (
+        <div className="space-y-6">
+      <div className="flex flex-col gap-8">
+        {/* Answering inbound messages. Sits under the opt-out card because it shares the same
+            risk: this is the one feature that talks to a patient with no staff member deciding
+            to, so its off-switch and its limits belong where they can be read together. */}
+        <div className="space-y-3">
+          <p className="text-[11px] font-black uppercase tracking-widest text-ink-body">{txt.botTitle}</p>
+          <label className="flex items-center justify-between gap-4 cursor-pointer">
+            <span className="text-sm font-black text-ink leading-relaxed">{txt.botToggle}</span>
+            <input
+              type="checkbox"
+              className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
+              checked={state.botEnabled === true}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setState((s) => {
+                  const next = { ...s, botEnabled: checked };
+                  void persist(next, "silent");
+                  return next;
+                });
+              }}
+            />
+          </label>
+          <p className="text-xs text-ink-body leading-relaxed">{txt.botHint}</p>
+
+          {state.botEnabled === true && (
+            <>
+              {(state.deliveryMode ?? (canSendAutomatically ? "auto" : "manual")) !== "auto" && (
+                <p className="text-xs font-bold text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+                  {txt.botNeedsGateway}
+                </p>
+              )}
+              <label className="flex items-center justify-between gap-4 cursor-pointer pt-1">
+                <span className="text-sm font-bold text-ink leading-relaxed">{txt.botStrangers}</span>
+                <input
+                  type="checkbox"
+                  className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
+                  checked={state.botAnswerStrangers === true}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setState((s) => {
+                      const next = { ...s, botAnswerStrangers: checked };
+                      void persist(next, "silent");
+                      return next;
+                    });
+                  }}
+                />
+              </label>
+              <p className="text-xs text-ink-muted leading-relaxed">{txt.botStrangersHint}</p>
+              <label className="flex items-center justify-between gap-4 cursor-pointer pt-1">
+                <span className="text-sm font-bold text-ink leading-relaxed">{txt.botAutoConfirm}</span>
+                <input
+                  type="checkbox"
+                  className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
+                  checked={state.botAutoConfirmBookings === true}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setState((s) => {
+                      const next = { ...s, botAutoConfirmBookings: checked };
+                      void persist(next, "silent");
+                      return next;
+                    });
+                  }}
+                />
+              </label>
+              <p className="text-xs text-ink-muted leading-relaxed">{txt.botAutoConfirmHint}</p>
+              <label className="flex items-center justify-between gap-4 cursor-pointer pt-1">
+                <span className="text-sm font-bold text-ink leading-relaxed">{txt.botAi}</span>
+                <input
+                  type="checkbox"
+                  className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
+                  checked={state.botAiEnabled === true}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setState((s) => {
+                      const next = { ...s, botAiEnabled: checked };
+                      void persist(next, "silent");
+                      return next;
+                    });
+                  }}
+                />
+              </label>
+              <p className="text-xs text-ink-muted leading-relaxed">{txt.botAiHint}</p>
+              <p className="text-xs text-ink-muted leading-relaxed">{txt.botLimits}</p>
+
+              {/*
+                The answers the system does not otherwise hold.
+                Every one of these questions reached a receptionist every single time, or reached
+                the model with no data and came back as general dentistry in the clinic's voice.
+                Empty stays safe — the bot says a person will follow up rather than guessing.
+              */}
+              <div className="pt-4 mt-2 border-t border-line space-y-3">
+                <p className="text-[11px] font-black uppercase tracking-widest text-ink-body">{txt.factsTitle}</p>
+                <p className="text-xs text-ink-body leading-relaxed">{txt.factsHint}</p>
+                <div className="grid gap-3">
+                  {(
+                    [
+                      { key: "walkIn" as const, label: txt.factWalkIn, ph: txt.factWalkInPh },
+                      { key: "durations" as const, label: txt.factDurations, ph: txt.factDurationsPh },
+                      { key: "sessions" as const, label: txt.factSessions, ph: txt.factSessionsPh },
+                      { key: "installments" as const, label: txt.factInstallments, ph: txt.factInstallmentsPh },
+                      { key: "offers" as const, label: txt.factOffers, ph: txt.factOffersPh },
+                      { key: "insurance" as const, label: txt.factInsurance, ph: txt.factInsurancePh },
+                      { key: "notOffered" as const, label: txt.factNotOffered, ph: txt.factNotOfferedPh },
+                      { key: "aftercare" as const, label: txt.factAftercare, ph: txt.factAftercarePh },
+                      { key: "parking" as const, label: txt.factParking, ph: txt.factParkingPh },
+                      { key: "mapsUrl" as const, label: txt.factMaps, ph: txt.factMapsPh },
+                    ]
+                  ).map(({ key, label, ph }) => (
+                    <label key={key} className="block space-y-1">
+                      <span className="text-xs font-bold text-ink">{label}</span>
+                      <textarea
+                        rows={key === "mapsUrl" ? 1 : 2}
+                        dir="auto"
+                        className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-accent-soft focus:ring-1 focus:ring-accent-soft/30 resize-y"
+                        placeholder={ph}
+                        value={state.botFacts?.[key] ?? ""}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setState((s) => ({ ...s, botFacts: { ...(s.botFacts ?? {}), [key]: value } }));
+                        }}
+                        // Saved on blur rather than per keystroke: these are sentences, and a
+                        // write per character is a write per character.
+                        onBlur={() => void persist(state, "silent")}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+      </div>
         {/* Owner alerts */}
-        <section className="rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 shadow-sm ring-1 ring-slate-100 p-5 xl:p-6 flex flex-col gap-5">
+        <section className="rounded-2xl xl:rounded-3xl bg-surface border border-line shadow-sm ring-1 ring-line p-5 xl:p-6 flex flex-col gap-5">
           <h3 className="text-sm font-black uppercase tracking-wider text-slate-800">{txt.ownerCard}</h3>
 
           <label className="block">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.ownerNumber}</span>
+            <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.ownerNumber}</span>
             <input
               type="tel"
               value={state.ownerNumber}
               onChange={(e) => setState((s) => ({ ...s, ownerNumber: e.target.value }))}
               placeholder="+2010..."
-              className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15"
+              className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15"
             />
             <p className="text-xs text-slate-400 mt-1">{txt.ownerHint}</p>
           </label>
 
           <div>
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3">{txt.alertGrid}</p>
-            <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <p className="text-[11px] font-bold text-ink-muted uppercase tracking-wider mb-3">{txt.alertGrid}</p>
+            <div className="overflow-x-auto rounded-xl border border-line">
               <table className="w-full min-w-[320px] text-sm">
                 <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="text-start px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                  <tr className="bg-surface-subtle border-b border-line">
+                    <th className="text-start px-3 py-2.5 text-[10px] font-black uppercase tracking-wider text-ink-muted">
                       {language === "ar" ? "الوحدة" : "Module"}
                     </th>
                     {ACTION_HEADERS.map((h) => (
-                      <th key={h.key} className="text-center px-2 py-2.5 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                      <th key={h.key} className="text-center px-2 py-2.5 text-[10px] font-black uppercase tracking-wider text-ink-muted">
                         {language === "ar" ? h.labelAr : h.labelEn}
                       </th>
                     ))}
@@ -1412,7 +1623,7 @@ export default function WhatsAppSettings() {
                         <td key={key} className="text-center py-3">
                           <input
                             type="checkbox"
-                            className="w-4 h-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
+                            className="w-4 h-4 rounded border-line-strong text-primary-600 focus:ring-primary-500 cursor-pointer"
                             checked={Boolean(state.ownerAlerts[key])}
                             onChange={(e) => toggleOwnerAlert(key, e.target.checked)}
                           />
@@ -1425,79 +1636,9 @@ export default function WhatsAppSettings() {
             </div>
           </div>
         </section>
-      </div>
+        </div>
+      )}
 
-      <section className="rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 shadow-sm ring-1 ring-slate-100 p-5 xl:p-6 flex flex-col gap-4">
-        <div className="flex items-center gap-2 text-primary-600">
-          <Send size={18} />
-          <h3 className="text-sm font-black uppercase tracking-wider text-slate-800">{txt.testCard}</h3>
-        </div>
-        <p className="text-xs text-slate-500 font-medium">{txt.testHint}</p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <label className="block">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.testCountry}</span>
-            <select
-              value={testCountryIso}
-              onChange={(e) => setTestCountryIso(e.target.value)}
-              className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15"
-            >
-              {WHATSAPP_DIAL_COUNTRIES.map((c) => (
-                <option key={c.iso} value={c.iso}>
-                  {language === "ar" ? c.nameAr : c.nameEn} (+{c.dial})
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.testNational}</span>
-            <input
-              type="tel"
-              inputMode="numeric"
-              autoComplete="tel-national"
-              value={testNational}
-              onChange={(e) => setTestNational(e.target.value)}
-              placeholder={txt.testNationalPh}
-              className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15"
-            />
-          </label>
-        </div>
-        <p className="text-xs font-mono text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2">
-          {txt.testPreview}: <span className="font-bold text-slate-900">{testE164Preview || "—"}</span>
-        </p>
-        <label className="block">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{txt.testMessage}</span>
-          <textarea
-            value={testMessage}
-            onChange={(e) => setTestMessage(e.target.value)}
-            rows={2}
-            placeholder="Alpha Dental — test..."
-            className="mt-1.5 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-primary-500 focus:ring-2 focus:ring-primary-500/15 resize-y"
-          />
-        </label>
-        <div>
-          <button
-            type="button"
-            onClick={() => void handleSendTest()}
-            disabled={testSending}
-            className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-600 text-white text-xs font-black uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-50 transition-all shadow-md shadow-emerald-600/15"
-          >
-            {testSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-            {txt.testSend}
-          </button>
-        </div>
-      </section>
-
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={() => void persist(state)}
-          disabled={saving}
-          className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-primary-600 text-white text-xs font-black uppercase tracking-widest hover:bg-primary-700 shadow-md shadow-primary-600/20 disabled:opacity-50 transition-all"
-        >
-          {saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
-          {txt.saveAll}
-        </button>
-      </div>
     </div>
   );
 }

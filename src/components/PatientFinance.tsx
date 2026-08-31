@@ -608,11 +608,11 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
       {/* 💻 SCREEN UI */}
       <div className="print:hidden space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col items-center justify-center gap-2">
+            <div className="bg-surface p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col items-center justify-center gap-2">
             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{txt.totalTreatment}</span>
             <span className="text-2xl font-black text-gray-900">{totalCost.toLocaleString()} <span className="text-xs text-gray-400">EGP</span></span>
             </div>
-            <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col items-center justify-center gap-2">
+            <div className="bg-surface p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col items-center justify-center gap-2">
             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{txt.totalPaid}</span>
             <span className="text-2xl font-black text-green-600">{totalPaid.toLocaleString()} <span className="text-xs text-green-400">EGP</span></span>
             </div>
@@ -628,7 +628,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
             </div>
         </div>
 
-        <div className="flex flex-col lg:flex-row justify-between items-stretch lg:items-center bg-white p-4 rounded-xl border border-gray-200 shadow-sm gap-4 overflow-hidden">
+        <div className="flex flex-col lg:flex-row justify-between items-stretch lg:items-center bg-surface p-4 rounded-xl border border-gray-200 shadow-sm gap-4 overflow-hidden">
             <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest flex items-center gap-2 min-w-0">
             <Wallet size={16} className="text-blue-600"/> {txt.history}
             </h3>
@@ -636,7 +636,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
             <button
               type="button"
               onClick={() => void handlePrintReceipt()}
-              className="min-w-0 justify-center text-xs font-bold text-slate-700 hover:text-slate-900 flex items-center gap-2 px-3 py-2.5 hover:bg-slate-100 rounded-xl transition-colors border border-slate-200 bg-white leading-tight whitespace-normal text-center"
+              className="min-w-0 justify-center text-xs font-bold text-slate-700 hover:text-ink flex items-center gap-2 px-3 py-2.5 hover:bg-surface-muted rounded-xl transition-colors border border-line bg-surface leading-tight whitespace-normal text-center"
             >
               <Printer size={16} className="shrink-0"/>
               <span className="min-w-0 break-words">{txt.print}</span>
@@ -668,7 +668,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                 <button 
                     type="button" 
                     onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                    className={`w-full p-3.5 bg-white border-2 rounded-xl text-sm font-bold outline-none flex justify-between items-center transition-all ${isDropdownOpen ? 'border-green-500 ring-2 ring-green-500/20' : 'border-green-200 hover:border-green-300'}`}
+                    className={`w-full p-3.5 bg-surface border-2 rounded-xl text-sm font-bold outline-none flex justify-between items-center transition-all ${isDropdownOpen ? 'border-green-500 ring-2 ring-green-500/20' : 'border-green-200 hover:border-green-300'}`}
                 >
                     <span className={selectedProcedureObj ? "text-gray-900" : "text-gray-500"}>
                         {selectedProcedureObj ? selectedProcedureObj.description.split('(')[0] : txt.generalPayment}
@@ -677,7 +677,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                 </button>
 
                 {isDropdownOpen && (
-                    <div className="absolute top-[100%] left-0 right-0 mt-1 bg-white border border-gray-100 rounded-xl shadow-2xl z-50 max-h-64 overflow-y-auto p-1.5 space-y-1 animate-in slide-in-from-top-2 fade-in">
+                    <div className="absolute top-[100%] left-0 right-0 mt-1 bg-surface border border-gray-100 rounded-xl shadow-2xl z-50 max-h-64 overflow-y-auto p-1.5 space-y-1 animate-in slide-in-from-top-2 fade-in">
                         <button 
                             type="button" 
                             onClick={() => { setSelectedProcedureId(""); setPayAmount(""); setIsDropdownOpen(false); }}
@@ -756,7 +756,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                               <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">{language === "ar" ? "قبل الخصم (قائمة)" : "List price (EGP)"}</label><input type="number" value={Number(editingItem.listPrice) || ""} onChange={e => setEditingItem({...editingItem, listPrice: Number(e.target.value)})} className="w-full p-3 border border-gray-200 rounded-xl font-black text-sm outline-none focus:border-blue-500"/></div>
                               <div>
                                 <label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">{txt.discountSummary}</label>
-                                <select value={editingItem.discountMode || "none"} onChange={e => setEditingItem({ ...editingItem, discountMode: e.target.value })} className="w-full p-3 border border-gray-200 rounded-xl font-bold text-sm outline-none focus:border-blue-500 bg-white">
+                                <select value={editingItem.discountMode || "none"} onChange={e => setEditingItem({ ...editingItem, discountMode: e.target.value })} className="w-full p-3 border border-gray-200 rounded-xl font-bold text-sm outline-none focus:border-blue-500 bg-surface">
                                   <option value="none">{language === "ar" ? "بدون خصم" : "No discount"}</option>
                                   <option value="percent">{language === "ar" ? "نسبة %" : "Percent %"}</option>
                                   <option value="fixed">{language === "ar" ? "مبلغ ثابت" : "Fixed EGP"}</option>
@@ -806,7 +806,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                 <select
                                   value={editingItem.procedureId || ""}
                                   onChange={e => setEditingItem({ ...editingItem, procedureId: e.target.value || undefined })}
-                                  className="w-full p-3 border border-gray-200 rounded-xl font-bold text-sm outline-none focus:border-blue-500 bg-white"
+                                  className="w-full p-3 border border-gray-200 rounded-xl font-bold text-sm outline-none focus:border-blue-500 bg-surface"
                                 >
                                   <option value="">{txt.onAccount}</option>
                                   {/*
@@ -843,7 +843,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                 <div><label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">{txt.paidAmount}</label><input type="number" value={editingItem.paid} onChange={e => setEditingItem({...editingItem, paid: Number(e.target.value)})} className="w-full p-3 border border-gray-200 rounded-xl font-black text-green-600 outline-none focus:border-green-500"/></div>
                                 <div>
                                     <label className="text-[10px] font-black text-gray-400 uppercase mb-1 block">{txt.method}</label>
-                                    <select value={editingItem.method || "Cash"} onChange={e => setEditingItem({...editingItem, method: e.target.value})} className="w-full p-3 border border-gray-200 rounded-xl font-bold text-sm outline-none focus:border-green-500 bg-white">
+                                    <select value={editingItem.method || "Cash"} onChange={e => setEditingItem({...editingItem, method: e.target.value})} className="w-full p-3 border border-gray-200 rounded-xl font-bold text-sm outline-none focus:border-green-500 bg-surface">
                                         <option>Cash</option><option>Visa</option><option>InstaPay</option><option>Insurance</option>
                                     </select>
                                 </div>
@@ -856,7 +856,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
             </div>
         )}
 
-        <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="bg-surface rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="overflow-x-auto custom-scrollbar">
                 <table className="w-full text-sm text-left min-w-[700px]">
                     <thead className="bg-gray-50 text-gray-500 font-black text-[10px] uppercase tracking-wider">
@@ -932,7 +932,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                    )}
                                                    {item.doctorName && <span className="mt-2 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-100 text-[9px] uppercase font-bold inline-flex items-center gap-1 me-2"><User size={8}/> {item.doctorName.replace(/^Dr\.\s*/i, '')}</span>}
                                                    {getTxUser(item) && getTxUser(item) !== item.doctorName?.replace(/^Dr\.\s*/i, '') && (
-                                                     <span className="mt-2 px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 text-[9px] uppercase font-bold inline-flex items-center gap-1 me-2">
+                                                     <span className="mt-2 px-1.5 py-0.5 rounded bg-surface-muted text-ink-body border border-line text-[9px] uppercase font-bold inline-flex items-center gap-1 me-2">
                                                        <User size={8}/> {getTxUser(item)}
                                                      </span>
                                                    )}
@@ -984,7 +984,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                 const payTime = formatTxTime(payment);
                                                 const payUser = getTxUser(payment);
                                                 return (
-                                                <tr id={`tx-${payment.id}`} key={payment.id} className={`transition-colors ${highlightTxId === payment.id ? 'bg-blue-50/80 ring-2 ring-blue-500 ring-inset' : 'bg-slate-50/50 hover:bg-slate-50'}`}>
+                                                <tr id={`tx-${payment.id}`} key={payment.id} className={`transition-colors ${highlightTxId === payment.id ? 'bg-blue-50/80 ring-2 ring-blue-500 ring-inset' : 'bg-slate-50/50 hover:bg-surface-subtle'}`}>
                                                     <td className="p-4 pl-12 font-bold text-gray-400 text-xs">
                                                         <div className="flex items-center gap-2">
                                                             <div className="w-1.5 h-1.5 rounded-full bg-slate-300"></div>
@@ -1003,7 +1003,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                         <div className="leading-snug">{payment.description}</div>
                                                         <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                                                             {payment.method && (
-                                                                <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[9px] uppercase font-extrabold inline-block border border-slate-200">
+                                                                <span className="px-2 py-0.5 rounded bg-surface-muted text-ink-body text-[9px] uppercase font-extrabold inline-block border border-line">
                                                                     {payment.method}
                                                                 </span>
                                                             )}
@@ -1054,7 +1054,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                <div className="leading-snug">{payment.description}</div>
                                                <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                                                    {payment.method && (
-                                                       <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[9px] uppercase font-extrabold inline-block border border-slate-200">
+                                                       <span className="px-2 py-0.5 rounded bg-surface-muted text-ink-body text-[9px] uppercase font-extrabold inline-block border border-line">
                                                            {payment.method}
                                                        </span>
                                                    )}

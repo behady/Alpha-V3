@@ -32,6 +32,8 @@ import {
 } from "lucide-react";
 import PermissionGuard from "@/components/PermissionGuard";
 import LabCaseModal from "@/components/lab/LabCaseModal";
+import LabAccountsPanel from "@/components/lab/LabAccountsPanel";
+import LabRemakeModal from "@/components/lab/LabRemakeModal";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext";
@@ -45,6 +47,7 @@ import {
   LAB_CASES_COLLECTION,
   LAB_CASE_STATUSES,
   dueStateFor,
+  formatPalmer,
   matchesLabCode,
   nextStatuses,
   statusFor,
@@ -58,6 +61,7 @@ import {
   type LabOrderPaper,
 } from "@/lib/labCases";
 import { advanceLabCase, createRemake } from "@/lib/labCaseWrite";
+import { LAB_PAYMENTS_COLLECTION, type LabPayment } from "@/lib/labAccounts";
 import { loadLabOrderClinic, printLabOrder } from "@/lib/labOrderPrint";
 
 /**
@@ -84,7 +88,7 @@ const DUE_STYLE: Record<DueState, { pill: string; en: (n: number) => string; ar:
     en: (n) => `Due in ${n}d`,
     ar: (n) => `باقي ${n} يوم`,
   },
-  on_time: { pill: "bg-slate-100 text-slate-500 border-slate-200", en: () => "", ar: () => "" },
+  on_time: { pill: "bg-surface-muted text-ink-muted border-line", en: () => "", ar: () => "" },
   none: { pill: "", en: () => "", ar: () => "" },
 };
 
@@ -107,6 +111,10 @@ export default function LabTrackingPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<LabCase | null>(null);
   const [busyId, setBusyId] = useState("");
+  /** Cases, or what the clinic owes. Two different questions, so two views rather than one page. */
+  const [view, setView] = useState<"cases" | "money">("cases");
+  const [payments, setPayments] = useState<LabPayment[]>([]);
+  const [remaking, setRemaking] = useState<LabCase | null>(null);
 
   const today = localYmd();
 
@@ -213,36 +221,27 @@ export default function LabTrackingPage() {
     [user, showToast, isAr, language]
   );
 
-  const handleRemake = useCallback(
-    async (labCase: LabCase) => {
-      const ok = await confirm(
-        isAr
-          ? `إعادة عمل ${labCase.code}؟ هيتعمل أمر جديد بنفس التفاصيل ورقم جديد، والأمر القديم هيفضل زي ما هو في السجل.`
-          : `Remake ${labCase.code}? A new order is raised with the same details and its own number. The original stays on the record exactly as it is.`,
-        { confirmLabel: isAr ? "إعادة عمل" : "Raise remake" }
-      );
-      if (!ok) return;
+  /** Opens the dialog. The work happens in `confirmRemake` once fault and price are answered. */
+  const handleRemake = useCallback((labCase: LabCase) => {
+    setRemaking(labCase);
+  }, []);
 
-      setBusyId(labCase.id);
+  const confirmRemake = useCallback(
+    async (args: { reason: string; fault: NonNullable<LabCase["remakeFault"]>; agreedPrice: number }) => {
+      if (!remaking) return;
       try {
-        const created = await createRemake(labCase, {
-          reason: "",
-          fault: "unknown",
-          agreedPrice: 0,
-          by: user?.name,
-        });
+        const created = await createRemake(remaking, { ...args, by: user?.name });
         showToast(
           isAr ? `اتعمل أمر إعادة ${created.code}` : `Remake ${created.code} raised`,
           "success"
         );
+        setRemaking(null);
       } catch (err) {
         console.error("Remake failed", err);
         showToast(isAr ? "فشل إنشاء الإعادة" : "Could not raise the remake", "error");
-      } finally {
-        setBusyId("");
       }
     },
-    [confirm, isAr, showToast, user]
+    [remaking, isAr, showToast, user]
   );
 
   return (
@@ -258,23 +257,58 @@ export default function LabTrackingPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between shrink-0">
             <div>
               <p className="text-[11px] font-black uppercase tracking-[0.2em] text-accent">Alpha</p>
-              <h1 className="text-2xl xl:text-3xl font-black text-slate-900 tracking-tight mt-1">
+              <h1 className="text-2xl xl:text-3xl font-black text-ink tracking-tight mt-1">
                 {isAr ? "متابعة المعمل" : "Lab Tracking"}
               </h1>
-              <p className="text-slate-500 font-semibold text-sm mt-1">
+              <p className="text-ink-muted font-semibold text-sm mt-1">
                 {isAr
                   ? "كل حالة خرجت للمعمل: فين دلوقتي، ومتى المفروض ترجع"
                   : "Every case out at a lab: where it is, and when it is due back"}
               </p>
             </div>
-            <button
-              onClick={openNew}
-              data-tour="lab-new-order"
-              className="inline-flex justify-center items-center gap-2 bg-slate-900 text-white hover:bg-slate-700 px-5 py-3 rounded-xl font-black text-xs uppercase tracking-wide shadow-md transition-colors shrink-0"
-            >
-              <Plus size={16} /> {isAr ? "أمر معمل جديد" : "New lab order"}
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Two questions, not one screen: "where is the crown" and "what do we owe them" are
+                  asked by different people on different days. */}
+              <div className="flex rounded-xl bg-slate-100 p-1">
+                {([
+                  ["cases", isAr ? "الحالات" : "Cases"],
+                  ["money", isAr ? "الحسابات" : "Money"],
+                ] as const).map(([id, label]) => (
+                  <button
+                    key={id}
+                    onClick={() => setView(id)}
+                    className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wide transition-colors ${
+                      view === id ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {view === "cases" && (
+                <button
+                  onClick={openNew}
+                  data-tour="lab-new-order"
+                  className="inline-flex justify-center items-center gap-2 bg-accent text-ink-on-accent hover:bg-accent-strong px-5 py-3 rounded-xl font-black text-xs uppercase tracking-wide shadow-md transition-colors"
+                >
+                  <Plus size={16} /> {isAr ? "أمر معمل جديد" : "New lab order"}
+                </button>
+              )}
+            </div>
           </div>
+
+          {view === "money" && (
+            <LabAccountsPanel
+              labs={labs}
+              cases={branchScoped}
+              payments={payments}
+              currentUserName={user?.name}
+            />
+          )}
+
+          {view === "cases" && (
+          <>
+
 
           {/* Hero + counts */}
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 xl:gap-6 shrink-0">
@@ -299,7 +333,7 @@ export default function LabTrackingPage() {
                 <dl className="mt-8 pt-6 border-t border-white/10 space-y-3 text-sm">
                   <div className="flex justify-between gap-4">
                     <dt className="text-slate-400 font-semibold">{isAr ? "متأخرة" : "Overdue"}</dt>
-                    <dd className={`font-black tabular-nums ${summary.overdue > 0 ? "text-rose-300" : "text-slate-500"}`}>
+                    <dd className={`font-black tabular-nums ${summary.overdue > 0 ? "text-rose-300" : "text-ink-muted"}`}>
                       {summary.overdue}
                     </dd>
                   </div>
@@ -360,7 +394,7 @@ export default function LabTrackingPage() {
                 placeholder={
                   isAr ? "دور بالكود (142) أو اسم المريض أو المعمل…" : "Search the code (142), patient, or lab…"
                 }
-                className="w-full ps-11 pe-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 transition-all"
+                className="w-full ps-11 pe-4 py-3 bg-surface border border-line rounded-2xl text-sm font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 transition-all"
               />
               {search && (
                 <button
@@ -376,7 +410,7 @@ export default function LabTrackingPage() {
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-                className="px-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-bold text-slate-700 focus:outline-none focus:border-sky-500 transition-all"
+                className="px-4 py-3 bg-surface border border-line rounded-2xl text-sm font-bold text-slate-700 focus:outline-none focus:border-sky-500 transition-all"
               >
                 <option value="open">{isAr ? "الشغّالة" : "Open cases"}</option>
                 <option value="all">{isAr ? "الكل" : "All"}</option>
@@ -389,7 +423,7 @@ export default function LabTrackingPage() {
               <select
                 value={labFilter}
                 onChange={(e) => setLabFilter(e.target.value)}
-                className="px-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-bold text-slate-700 focus:outline-none focus:border-sky-500 transition-all"
+                className="px-4 py-3 bg-surface border border-line rounded-2xl text-sm font-bold text-slate-700 focus:outline-none focus:border-sky-500 transition-all"
               >
                 <option value="">{isAr ? "كل المعامل" : "All labs"}</option>
                 {labs.map((l) => (
@@ -402,17 +436,17 @@ export default function LabTrackingPage() {
           </div>
 
           {/* The board */}
-          <div className="bg-white border border-slate-200/80 rounded-2xl xl:rounded-3xl shadow-sm ring-1 ring-slate-100 overflow-hidden">
+          <div className="bg-surface border border-slate-200/80 rounded-2xl xl:rounded-3xl shadow-sm ring-1 ring-slate-100 overflow-hidden">
             {loading ? (
               <div className="flex items-center justify-center py-20">
                 <Loader2 className="w-6 h-6 text-slate-400 animate-spin" />
               </div>
             ) : visible.length === 0 ? (
               <div className="py-20 px-6 text-center">
-                <div className="w-14 h-14 rounded-2xl bg-slate-50 text-slate-300 flex items-center justify-center mx-auto mb-4">
+                <div className="w-14 h-14 rounded-2xl bg-surface-subtle text-slate-300 flex items-center justify-center mx-auto mb-4">
                   <FlaskConical size={26} />
                 </div>
-                <p className="text-sm font-bold text-slate-500">
+                <p className="text-sm font-bold text-ink-muted">
                   {cases.length === 0
                     ? isAr
                       ? "مفيش حالات معمل لسه."
@@ -450,8 +484,17 @@ export default function LabTrackingPage() {
               </div>
             )}
           </div>
+          </>
+          )}
         </div>
       </div>
+
+      <LabRemakeModal
+        open={Boolean(remaking)}
+        labCase={remaking}
+        onClose={() => setRemaking(null)}
+        onConfirm={confirmRemake}
+      />
 
       <LabCaseModal
         open={modalOpen}
@@ -489,21 +532,21 @@ function Tile({
     amber: { chip: "bg-amber-50 text-amber-600", text: "text-amber-600" },
     emerald: { chip: "bg-emerald-50 text-emerald-600", text: "text-emerald-600" },
     sky: { chip: "bg-sky-50 text-sky-600", text: "text-sky-600" },
-    slate: { chip: "bg-slate-100 text-slate-400", text: "text-slate-400" },
+    slate: { chip: "bg-surface-muted text-slate-400", text: "text-slate-400" },
   };
   const t = tones[tone];
   const Wrapper = onClick ? "button" : "div";
   return (
     <Wrapper
       {...(onClick ? { onClick, type: "button" as const } : {})}
-      className={`rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100 text-start ${
-        onClick ? "hover:border-slate-300 transition-colors" : ""
+      className={`rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100 text-start ${
+        onClick ? "hover:border-line-strong transition-colors" : ""
       }`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{label}</p>
-          <p className="text-xs text-slate-500 mt-1 font-medium">{sub}</p>
+          <p className="text-xs text-ink-muted mt-1 font-medium">{sub}</p>
         </div>
         <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${t.chip}`}>{icon}</div>
       </div>
@@ -542,7 +585,8 @@ function CaseRow({
   const workLine = [
     workTypeLabel(labCase.workType, language),
     labCase.workDescription,
-    labCase.teeth.length ? `FDI ${labCase.teeth.join(", ")}` : "",
+    // Palmer, not FDI: the board is read by the same people who read the printed order.
+    formatPalmer(labCase.teeth),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -551,7 +595,7 @@ function CaseRow({
     <div className="flex flex-col lg:flex-row lg:items-center gap-3 lg:gap-4 p-4 hover:bg-slate-50/60 transition-colors">
       {/* Code */}
       <div className="lg:w-32 shrink-0">
-        <p className="text-sm font-black text-slate-900 tabular-nums tracking-tight" dir="ltr">
+        <p className="text-sm font-black text-ink tabular-nums tracking-tight" dir="ltr">
           {labCase.code}
         </p>
         <p className="text-[11px] font-bold text-slate-400 mt-0.5">{labCase.labName || "—"}</p>
@@ -609,7 +653,7 @@ function CaseRow({
             </button>
             <button
               onClick={onEdit}
-              className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+              className="p-2 text-slate-400 hover:text-slate-700 hover:bg-surface-muted rounded-lg transition-colors"
               aria-label={isAr ? "تعديل" : "Edit"}
               title={isAr ? "تعديل" : "Edit"}
             >

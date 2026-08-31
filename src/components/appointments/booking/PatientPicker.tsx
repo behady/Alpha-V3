@@ -57,7 +57,7 @@ export default function PatientPicker({
           onFocus={() => setShowSuggestions(true)}
           placeholder={txt.searchPlaceholder}
           className={`w-full rounded-2xl border-2 py-3 ps-10 pe-4 text-sm font-bold outline-none transition focus:border-primary-500 ${
-            selectedPatient ? "border-emerald-400 bg-emerald-50/80 text-emerald-900" : "border-slate-100 bg-white text-slate-900"
+            selectedPatient ? "border-emerald-400 bg-emerald-50/80 text-emerald-900" : "border-slate-100 bg-surface text-ink"
           }`}
         />
         <User size={18} className="pointer-events-none absolute top-3.5 text-slate-400 start-3" />
@@ -75,7 +75,7 @@ export default function PatientPicker({
         )}
       </div>
       {showSuggestions && searchTerm && !selectedPatient && (
-        <div className="absolute start-0 end-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-2xl border border-slate-100 bg-white shadow-xl">
+        <div className="absolute start-0 end-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-2xl border border-slate-100 bg-surface shadow-xl">
           {filteredPatients.length > 0 ? (
             filteredPatients.map((p) => (
               <button
@@ -88,7 +88,7 @@ export default function PatientPicker({
                 }}
                 className="block w-full border-b border-slate-50 px-4 py-3 text-start last:border-0 hover:bg-primary-50"
               >
-                <p className="text-sm font-bold text-slate-900">{p.name}</p>
+                <p className="text-sm font-bold text-ink">{p.name}</p>
                 {p.phone && <p className="text-[10px] text-slate-400">{p.phone}</p>}
               </button>
             ))

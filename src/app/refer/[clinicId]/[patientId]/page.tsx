@@ -68,7 +68,7 @@ export default function PublicReferralPage() {
 
   return (
     <div dir="rtl" className="min-h-[100dvh] bg-gradient-to-b from-emerald-50 via-white to-white flex items-center justify-center p-5">
-      <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200 shadow-xl shadow-emerald-100/40 p-7">
+      <div className="w-full max-w-md bg-surface rounded-3xl border border-line shadow-xl shadow-emerald-100/40 p-7">
         {phase === "loading" && <Loader2 className="w-8 h-8 text-emerald-500 animate-spin mx-auto my-12" />}
 
         {phase === "invalid" && (
@@ -88,7 +88,7 @@ export default function PublicReferralPage() {
               <h1 className="text-xl font-black text-slate-900 leading-snug">
                 {referrerFirstName ? `${referrerFirstName} رشّحلك عيادتنا 🦷` : "صديقك رشّحلك عيادتنا 🦷"}
               </h1>
-              <p className="text-sm text-slate-500 font-bold mt-2 leading-relaxed">
+              <p className="text-sm text-ink-muted font-bold mt-2 leading-relaxed">
                 سيب اسمك ورقمك وهنكلمك نحجزلك موعد يناسبك
               </p>
               <p className="text-[11px] text-slate-400 font-bold mt-1">
@@ -116,7 +116,7 @@ export default function PublicReferralPage() {
                   dir="auto"
                   maxLength={120}
                   placeholder="الاسم / Name"
-                  className="w-full ps-10 pe-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 outline-none focus:border-emerald-400"
+                  className="w-full ps-10 pe-4 py-3.5 bg-surface-subtle border border-line rounded-2xl text-sm font-bold text-slate-800 outline-none focus:border-emerald-400"
                 />
               </div>
               <div className="relative">
@@ -128,7 +128,7 @@ export default function PublicReferralPage() {
                   inputMode="tel"
                   maxLength={30}
                   placeholder="01xxxxxxxxx"
-                  className="w-full ps-10 pe-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-bold text-slate-800 outline-none focus:border-emerald-400 text-left"
+                  className="w-full ps-10 pe-4 py-3.5 bg-surface-subtle border border-line rounded-2xl text-sm font-bold text-slate-800 outline-none focus:border-emerald-400 text-left"
                 />
               </div>
 
@@ -149,7 +149,7 @@ export default function PublicReferralPage() {
           <div className="py-10 text-center">
             <CheckCircle2 size={44} className="mx-auto text-emerald-500 mb-4" />
             <p className="text-lg font-black text-slate-800 mb-1">وصلنا طلبك 🎉</p>
-            <p className="text-sm text-slate-500 font-bold leading-relaxed">
+            <p className="text-sm text-ink-muted font-bold leading-relaxed">
               هنكلمك في أقرب وقت نحجزلك موعدك في {clinicName}
             </p>
             <p className="text-xs text-slate-400 font-bold mt-2">We got it — the clinic will call you shortly.</p>

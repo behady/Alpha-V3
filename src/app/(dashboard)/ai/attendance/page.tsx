@@ -107,10 +107,10 @@ export default function AttendancePage() {
                 {isAr ? "ذكاء ألفا" : "Alpha Intelligence"}
               </span>
             </div>
-            <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight mt-1">
+            <h1 className="text-2xl md:text-3xl font-black text-ink tracking-tight mt-1">
               {isAr ? "الحضور والغياب" : "Attendance"}
             </h1>
-            <p className="text-sm font-medium text-slate-500 mt-1 max-w-2xl">
+            <p className="text-sm font-medium text-ink-muted mt-1 max-w-2xl">
               {isAr
                 ? "أغلق المواعيد السابقة التي لم يُسجَّل ما حدث فيها. هذا وحده ما يجعل أرقام الغياب ذات معنى."
                 : "Close out past appointments nobody answered for. That is the only thing that makes attendance figures mean anything."}
@@ -118,17 +118,17 @@ export default function AttendancePage() {
           </div>
 
           {loading ? (
-            <div className="bg-white rounded-3xl border border-slate-200 p-12 flex justify-center">
+            <div className="bg-surface rounded-3xl border border-line p-12 flex justify-center">
               <Loader2 size={24} className="animate-spin text-slate-300" />
             </div>
           ) : (
             <>
               {/* --- Unresolved: the data-generating step --- */}
-              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="bg-surface rounded-3xl border border-line shadow-sm overflow-hidden">
                 <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <CircleHelp size={16} className="text-violet-600" />
-                    <h2 className="text-sm font-black text-slate-900 uppercase tracking-widest">
+                    <h2 className="text-sm font-black text-ink uppercase tracking-widest">
                       {isAr ? "بحاجة إلى إجابة" : "Needs an answer"}
                     </h2>
                   </div>
@@ -138,7 +138,7 @@ export default function AttendancePage() {
                 {unresolved && unresolved.appointments.length === 0 ? (
                   <div className="p-10 text-center">
                     <Check size={24} className="text-emerald-500 mx-auto mb-3" />
-                    <p className="text-sm font-bold text-slate-600">
+                    <p className="text-sm font-bold text-ink-body">
                       {isAr ? "كل المواعيد السابقة مُغلقة." : "Every past appointment is closed out."}
                     </p>
                   </div>
@@ -149,12 +149,12 @@ export default function AttendancePage() {
                         <div className="min-w-0">
                           <Link
                             href={a.patientId ? `/patients/${a.patientId}` : "/appointments"}
-                            className="inline-flex items-center gap-1.5 font-bold text-slate-900 hover:text-violet-600 transition-colors"
+                            className="inline-flex items-center gap-1.5 font-bold text-ink hover:text-violet-600 transition-colors"
                           >
                             {a.patientName}
                             <ArrowUpRight size={13} />
                           </Link>
-                          <p className="text-[12px] font-medium text-slate-500 mt-0.5">
+                          <p className="text-[12px] font-medium text-ink-muted mt-0.5">
                             {a.date} {a.time && `· ${a.time}`}
                             {a.treatment && ` · ${a.treatment}`}
                             {" · "}
@@ -173,7 +173,7 @@ export default function AttendancePage() {
                           <button
                             onClick={() => void resolve(a.id, "No Show")}
                             disabled={busy === a.id}
-                            className="inline-flex items-center gap-1.5 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-600 border border-slate-200 px-3 py-2 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.98]"
+                            className="inline-flex items-center gap-1.5 bg-surface hover:bg-surface-subtle disabled:opacity-50 text-ink-body border border-line px-3 py-2 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.98]"
                           >
                             <UserX size={12} />
                             {isAr ? "لم يحضر" : "No show"}
@@ -185,7 +185,7 @@ export default function AttendancePage() {
                 )}
 
                 {unresolved && unresolved.notes.length > 0 && (
-                  <div className="px-6 py-3 bg-slate-50 border-t border-slate-100">
+                  <div className="px-6 py-3 bg-surface-subtle border-t border-slate-100">
                     {unresolved.notes.map((n, i) => (
                       <p key={i} className="text-[11px] font-medium text-slate-400 leading-relaxed">{n}</p>
                     ))}
@@ -195,9 +195,9 @@ export default function AttendancePage() {
 
               {/* --- What the closed-out history implies --- */}
               {risk && (
-                <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="bg-surface rounded-3xl border border-line shadow-sm overflow-hidden">
                   <div className="px-6 py-4 border-b border-slate-100">
-                    <h2 className="text-sm font-black text-slate-900 uppercase tracking-widest">
+                    <h2 className="text-sm font-black text-ink uppercase tracking-widest">
                       {isAr ? "سجل الحضور" : "Attendance record"}
                     </h2>
                   </div>
@@ -209,9 +209,9 @@ export default function AttendancePage() {
                       { label: isAr ? "حالات غياب" : "No-shows recorded", value: risk.summary.totalMissed },
                       { label: isAr ? "مرضى لديهم سجل كافٍ" : "Patients with enough history", value: risk.summary.patientsScored },
                     ].map((tile) => (
-                      <div key={tile.label} className="rounded-2xl bg-slate-50 border border-slate-200/60 px-4 py-3">
+                      <div key={tile.label} className="rounded-2xl bg-surface-subtle border border-slate-200/60 px-4 py-3">
                         <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{tile.label}</p>
-                        <p className="text-2xl font-black text-slate-900 mt-1">{tile.value}</p>
+                        <p className="text-2xl font-black text-ink mt-1">{tile.value}</p>
                       </div>
                     ))}
                   </div>
@@ -238,12 +238,12 @@ export default function AttendancePage() {
                             <div className="min-w-0">
                               <Link
                                 href={`/patients/${p.patientId}`}
-                                className="inline-flex items-center gap-1.5 font-bold text-slate-900 hover:text-violet-600 transition-colors"
+                                className="inline-flex items-center gap-1.5 font-bold text-ink hover:text-violet-600 transition-colors"
                               >
                                 {p.patientName}
                                 <ArrowUpRight size={13} />
                               </Link>
-                              <p className="text-[12px] font-medium text-slate-500 mt-0.5">
+                              <p className="text-[12px] font-medium text-ink-muted mt-0.5">
                                 {isAr
                                   ? `حضر ${p.attended} · غاب ${p.missed}`
                                   : `${p.attended} attended · ${p.missed} missed`}

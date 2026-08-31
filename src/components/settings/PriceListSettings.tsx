@@ -15,6 +15,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { useSettingsText } from "@/lib/useSettingsText";
 import { onSnapshot, setDoc, writeBatch, doc, getDocs } from "firebase/firestore";
 import { Check, Loader2, Plus, Star, Tag, Trash2, X, Percent, Copy, SlidersHorizontal, Building2, Layers } from "lucide-react";
 import { db } from "@/lib/firebase";
@@ -109,72 +110,23 @@ export default function PriceListSettings({ currency }: { currency: string }) {
     };
   }, []);
 
+
   const txt = {
-    title: ar ? "قوائم الأسعار" : "Price lists",
-    subtitle: ar
-      ? "طرق مختلفة لتسعير نفس العلاج — تأمين، عرض، سعر عائلة. الخصم العام بيتحط تلقائي وبيفضل ظاهر."
-      : "Different ways of charging for the same treatment. A list's blanket discount is prefilled on each line and stays visible.",
-    addList: ar ? "قائمة جديدة" : "New list",
-    listName: ar ? "اسم القائمة" : "List name",
-    blanket: ar ? "خصم عام" : "Blanket discount",
-    makeDefault: ar ? "اجعلها الافتراضية" : "Make default",
-    isDefault: ar ? "الافتراضية" : "Default",
-    active: ar ? "شغالة" : "Active",
-    inactive: ar ? "موقوفة" : "Inactive",
-    deactivate: ar ? "أوقف" : "Deactivate",
-    activate: ar ? "شغّل" : "Activate",
-    remove: ar ? "احذف" : "Delete",
-    cannotDeactivateDefault: ar
-      ? "مينفعش توقف القائمة الافتراضية. خلي قائمة تانية افتراضية الأول."
-      : "The default list cannot be deactivated. Make another list the default first.",
-    inUse: ar
-      ? "فيه خدمات مسعّرة على القائمة دي، فمينفعش تتحذف. أوقفها بدل الحذف."
-      : "Services are priced on this list, so it cannot be deleted. Deactivate it instead.",
-    confirmBlanketTitle: ar ? "تغيير الخصم العام" : "Change the blanket discount",
+
+    ...useSettingsText("priceLists"),
+
     confirmBlanket: (name: string, pct: number) =>
       ar
         ? `أي خدمة تتاخد من "${name}" من دلوقتي هتيجي وعليها خصم ${pct}% ظاهر وقابل للتعديل. العلاج المسجل قبل كده مش هيتغير.`
         : `Services picked from "${name}" will arrive with a visible, editable ${pct}% discount from now on. Treatments already recorded are not changed.`,
-    confirmDeleteTitle: ar ? "حذف القائمة" : "Delete price list",
+
     confirmDelete: (name: string) =>
       ar ? `تحذف قائمة "${name}" نهائياً؟` : `Permanently delete the price list "${name}"?`,
-    reasonsTitle: ar ? "أسباب الخصم" : "Discount reasons",
-    reasonsSub: ar
-      ? "لازم سبب مع أي خصم — عشان آخر الشهر تعرف الفلوس راحت فين، مش بس إنها راحت."
-      : "A reason is required with every discount, so at month end you can see where the money went, not just that it went.",
-    addReason: ar ? "سبب جديد" : "New reason",
-    capTitle: ar ? "حد الخصم لغير المديرين" : "Discount ceiling for non-Admins",
-    capSub: ar
-      ? "أعلى نسبة يقدر أي حد غير المدير يخصمها. المدير مالوش حد."
-      : "The most anyone who is not an Admin can take off. Admins have no ceiling.",
-    noCap: ar ? "بدون حد" : "No ceiling",
-    saved: ar ? "اتحفظ" : "Saved",
-    failed: ar ? "فشل الحفظ" : "Could not save",
-    editPrices: ar ? "الأسعار" : "Prices",
-    newListTitle: ar ? "قائمة أسعار جديدة" : "New price list",
-    startFrom: ar ? "تبدأ منين؟" : "Start from",
-    fresh: ar ? "من الأول" : "Start fresh",
-    freshHint: ar
-      ? "كل العلاجات هتتحاسب بالسعر الأساسي لحد ما تغيّرها."
-      : "Every treatment charges the standard price until you change it.",
+
     copyOf: (name: string) => (ar ? `نسخة من "${name}"` : `Copy of "${name}"`),
-    copyHint: ar
-      ? "بينسخ كل أسعار القائمة دي، وبعدين تعدّل اللي عايزه."
-      : "Copies that list's prices across, then you edit what differs.",
-    create: ar ? "إنشاء" : "Create list",
-    listNamePlaceholder: ar ? "مثلاً: تأمين مصر" : "e.g. Misr Insurance",
+
     priced: (n: number) => (ar ? `${n} علاج مسعّر` : `${n} priced`),
-    pricedNone: ar ? "بالسعر الأساسي" : "all at standard price",
-    clinicWide: ar ? "كل الفروع" : "All branches",
-    branchInherits: ar
-      ? "الفرع ده بيحاسب بأسعار العيادة العامة. اعمل له قائمة لو أسعاره مختلفة."
-      : "This branch charges the clinic-wide prices. Give it a list of its own if it charges differently.",
-    orphaned: ar ? "فروع محذوفة" : "Lists on a deleted branch",
-    branchLabel: ar ? "الفرع" : "Branch",
-    branchAll: ar ? "كل الفروع" : "All branches (clinic-wide)",
-    branchHint: ar
-      ? "القائمة دي هتظهر بس في الفرع ده. سيبها على كل الفروع لو الأسعار واحدة."
-      : "The list is only offered at that branch. Leave it clinic-wide if every branch charges it.",
+
   };
 
   const clinicWideActiveCount = useMemo(
@@ -417,7 +369,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
         <li
           key={list.id}
           className={`flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 ${
-            list.active ? "border-slate-200 bg-slate-50/60" : "border-slate-200 bg-slate-100/60 opacity-70"
+            list.active ? "border-line bg-slate-50/60" : "border-line bg-slate-100/60 opacity-70"
           }`}
         >
           <div className="min-w-0 flex-1">
@@ -429,14 +381,14 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                 </span>
               )}
               {!list.active && (
-                <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-black text-slate-600">
+                <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-black text-ink-body">
                   {txt.inactive}
                 </span>
               )}
             </p>
             <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-slate-400">
               {branches.length > 1 && (
-                <span className="inline-flex items-center gap-1 rounded bg-slate-200/70 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">
+                <span className="inline-flex items-center gap-1 rounded bg-slate-200/70 px-1.5 py-0.5 text-[10px] font-bold text-ink-body">
                   {list.branchId ? <Building2 size={9} /> : <Layers size={9} />}
                   {list.branchId ? branchName(list.branchId) : txt.clinicWide}
                 </span>
@@ -461,7 +413,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                 defaultValue={list.generalDiscountPercent}
                 disabled={saving}
                 onBlur={(e) => setBlanket(list, Number(e.target.value))}
-                className="w-20 rounded-xl border border-slate-200 bg-white py-1.5 pl-2 pr-6 text-sm font-bold tabular-nums text-slate-700 outline-none focus:border-primary-500 disabled:opacity-60"
+                className="w-20 rounded-xl border border-line bg-surface py-1.5 pl-2 pr-6 text-sm font-bold tabular-nums text-slate-700 outline-none focus:border-primary-500 disabled:opacity-60"
               />
               <Percent size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400" />
             </span>
@@ -483,7 +435,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                 type="button"
                 onClick={() => makeDefault(list)}
                 disabled={saving}
-                className="rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-slate-500 transition hover:bg-white hover:text-primary-700 disabled:opacity-50"
+                className="rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-ink-muted transition hover:bg-surface hover:text-primary-700 disabled:opacity-50"
               >
                 {txt.makeDefault}
               </button>
@@ -492,7 +444,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
               type="button"
               onClick={() => toggleActive(list)}
               disabled={saving}
-              className="rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-slate-500 transition hover:bg-white hover:text-slate-800 disabled:opacity-50"
+              className="rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-ink-muted transition hover:bg-surface hover:text-slate-800 disabled:opacity-50"
             >
               {list.active ? txt.deactivate : txt.activate}
             </button>
@@ -520,14 +472,14 @@ export default function PriceListSettings({ currency }: { currency: string }) {
   return (
     <div className="space-y-6" dir={ar ? "rtl" : "ltr"}>
       {/* --- lists --- */}
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="rounded-3xl border border-line bg-surface p-5 shadow-sm">
         <header className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h3 className="flex items-center gap-2 text-base font-black text-slate-800">
               <Tag size={16} className="text-primary-600" />
               {txt.title}
             </h3>
-            <p className="mt-1 max-w-prose text-xs font-medium text-slate-500">{txt.subtitle}</p>
+            <p className="mt-1 max-w-prose text-xs font-medium text-ink-muted">{txt.subtitle}</p>
           </div>
           {saving && <Loader2 size={16} className="animate-spin text-slate-400" />}
         </header>
@@ -555,7 +507,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
               {items.length > 0 ? (
                 <ul className="space-y-2">{items.map(renderList)}</ul>
               ) : (
-                <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-3 text-[11px] font-bold text-slate-400">
+                <p className="rounded-2xl border border-dashed border-line bg-slate-50/50 px-4 py-3 text-[11px] font-bold text-slate-400">
                   {txt.branchInherits}
                 </p>
               )}
@@ -575,24 +527,24 @@ export default function PriceListSettings({ currency }: { currency: string }) {
           type="button"
           data-tour="price-new-list" onClick={() => setIsNewOpen(true)}
           disabled={saving}
-          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-300 bg-slate-50/50 px-4 py-3 text-sm font-bold text-slate-600 transition hover:border-primary-400 hover:bg-white hover:text-primary-700 disabled:opacity-50"
+          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-line-strong bg-slate-50/50 px-4 py-3 text-sm font-bold text-ink-body transition hover:border-primary-400 hover:bg-surface hover:text-primary-700 disabled:opacity-50"
         >
           <Plus size={15} /> {txt.addList}
         </button>
       </section>
 
       {/* --- reasons + ceiling --- */}
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="rounded-3xl border border-line bg-surface p-5 shadow-sm">
         <header className="mb-4">
           <h3 className="text-base font-black text-slate-800">{txt.reasonsTitle}</h3>
-          <p className="mt-1 max-w-prose text-xs font-medium text-slate-500">{txt.reasonsSub}</p>
+          <p className="mt-1 max-w-prose text-xs font-medium text-ink-muted">{txt.reasonsSub}</p>
         </header>
 
         <div className="flex flex-wrap gap-2">
           {settings.reasons.map((reason) => (
             <span
               key={reason}
-              className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 py-1 pl-3 pr-1.5 text-xs font-bold text-slate-700"
+              className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-subtle py-1 pl-3 pr-1.5 text-xs font-bold text-slate-700"
             >
               {reason}
               <button
@@ -615,13 +567,13 @@ export default function PriceListSettings({ currency }: { currency: string }) {
             onKeyDown={(e) => e.key === "Enter" && addReason()}
             placeholder={txt.addReason}
             disabled={saving}
-            className="flex-1 rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-primary-500 focus:bg-white disabled:opacity-60"
+            className="flex-1 rounded-xl border border-line bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-primary-500 focus:bg-surface disabled:opacity-60"
           />
           <button
             type="button"
             onClick={addReason}
             disabled={saving || !newReason.trim()}
-            className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-surface-subtle disabled:opacity-50"
           >
             <Check size={15} />
           </button>
@@ -629,7 +581,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
 
         <div className="mt-6 border-t border-slate-100 pt-5">
           <h4 className="text-sm font-black text-slate-800">{txt.capTitle}</h4>
-          <p className="mt-1 max-w-prose text-xs font-medium text-slate-500">{txt.capSub}</p>
+          <p className="mt-1 max-w-prose text-xs font-medium text-ink-muted">{txt.capSub}</p>
           <div className="mt-3 flex items-center gap-3">
             <span className="relative">
               <input
@@ -645,11 +597,11 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                     `Set the non-Admin discount ceiling to ${e.target.value}%`
                   )
                 }
-                className="w-24 rounded-xl border border-slate-200 bg-slate-50/50 py-2 pl-3 pr-7 text-sm font-bold tabular-nums text-slate-700 outline-none focus:border-primary-500 focus:bg-white disabled:opacity-50"
+                className="w-24 rounded-xl border border-line bg-slate-50/50 py-2 pl-3 pr-7 text-sm font-bold tabular-nums text-slate-700 outline-none focus:border-primary-500 focus:bg-surface disabled:opacity-50"
               />
               <Percent size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
             </span>
-            <label className="flex cursor-pointer items-center gap-2 text-xs font-bold text-slate-600">
+            <label className="flex cursor-pointer items-center gap-2 text-xs font-bold text-ink-body">
               <input
                 type="checkbox"
                 checked={settings.maxDiscountPercentNonAdmin === null}
@@ -663,7 +615,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                     e.target.checked ? "Removed the non-Admin discount ceiling" : "Restored the non-Admin discount ceiling"
                   )
                 }
-                className="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500"
+                className="h-4 w-4 rounded border-line-strong text-primary-600 focus:ring-primary-500"
               />
               {txt.noCap}
             </label>
@@ -680,7 +632,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
               <button
                 type="button"
                 onClick={() => setIsNewOpen(false)}
-                className="rounded-full bg-slate-50 p-2 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500"
+                className="rounded-full bg-surface-subtle p-2 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500"
               >
                 <X size={17} />
               </button>
@@ -688,14 +640,14 @@ export default function PriceListSettings({ currency }: { currency: string }) {
 
             <div className="custom-scrollbar space-y-5 overflow-y-auto px-6 py-5">
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{txt.listName}</label>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">{txt.listName}</label>
                 <input
                   autoFocus
                   value={newListName}
                   onChange={(e) => setNewListName(e.target.value)}
                   placeholder={txt.listNamePlaceholder}
                   disabled={saving}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all focus:border-primary-500 focus:bg-white disabled:opacity-60"
+                  className="w-full rounded-xl border border-line bg-surface-subtle px-4 py-3 text-sm font-semibold text-ink outline-none transition-all focus:border-primary-500 focus:bg-surface disabled:opacity-60"
                 />
               </div>
 
@@ -704,12 +656,12 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                   dialog and one per treatment. */}
               {branches.length > 1 && (
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{txt.branchLabel}</label>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">{txt.branchLabel}</label>
                   <select
                     value={newBranchId}
                     onChange={(e) => setNewBranchId(e.target.value)}
                     disabled={saving}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all focus:border-primary-500 focus:bg-white disabled:opacity-60"
+                    className="w-full rounded-xl border border-line bg-surface-subtle px-4 py-3 text-sm font-semibold text-ink outline-none transition-all focus:border-primary-500 focus:bg-surface disabled:opacity-60"
                   >
                     <option value="">{txt.branchAll}</option>
                     {branches.map((b) => (
@@ -721,19 +673,19 @@ export default function PriceListSettings({ currency }: { currency: string }) {
               )}
 
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{txt.startFrom}</label>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">{txt.startFrom}</label>
                 <div className="space-y-2">
                   <button
                     type="button"
                     onClick={() => setCopyFrom("")}
                     className={`w-full rounded-xl border px-4 py-3 text-start transition-all ${
-                      copyFrom === "" ? "border-primary-500 bg-primary-50" : "border-slate-200 bg-slate-50 hover:border-slate-300"
+                      copyFrom === "" ? "border-primary-500 bg-primary-50" : "border-line bg-surface-subtle hover:border-line-strong"
                     }`}
                   >
                     <span className="flex items-center gap-2 text-sm font-bold text-slate-800">
                       <Plus size={14} /> {txt.fresh}
                     </span>
-                    <span className="mt-0.5 block text-[11px] font-medium text-slate-500">{txt.freshHint}</span>
+                    <span className="mt-0.5 block text-[11px] font-medium text-ink-muted">{txt.freshHint}</span>
                   </button>
 
                   {lists.map((l) => (
@@ -742,20 +694,20 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                       key={l.id}
                       onClick={() => setCopyFrom(l.id)}
                       className={`w-full rounded-xl border px-4 py-3 text-start transition-all ${
-                        copyFrom === l.id ? "border-primary-500 bg-primary-50" : "border-slate-200 bg-slate-50 hover:border-slate-300"
+                        copyFrom === l.id ? "border-primary-500 bg-primary-50" : "border-line bg-surface-subtle hover:border-line-strong"
                       }`}
                     >
                       <span className="flex items-center gap-2 text-sm font-bold text-slate-800">
                         <Copy size={14} /> {txt.copyOf(ar && l.nameAr ? l.nameAr : l.name)}
                       </span>
-                      <span className="mt-0.5 block text-[11px] font-medium text-slate-500">{txt.copyHint}</span>
+                      <span className="mt-0.5 block text-[11px] font-medium text-ink-muted">{txt.copyHint}</span>
                     </button>
                   ))}
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{txt.blanket}</label>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-ink-muted">{txt.blanket}</label>
                 <span className="relative block">
                   <input
                     type="number"
@@ -764,7 +716,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                     value={newBlanket}
                     onChange={(e) => setNewBlanket(e.target.value)}
                     disabled={saving}
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-4 pr-9 text-sm font-bold tabular-nums text-slate-900 outline-none transition-all focus:border-primary-500 focus:bg-white disabled:opacity-60"
+                    className="w-full rounded-xl border border-line bg-surface-subtle py-3 pl-4 pr-9 text-sm font-bold tabular-nums text-ink outline-none transition-all focus:border-primary-500 focus:bg-surface disabled:opacity-60"
                   />
                   <Percent size={13} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? "left-3.5" : "right-3.5"}`} />
                 </span>
@@ -777,7 +729,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                 type="button"
                 onClick={addList}
                 disabled={saving || !newListName.trim()}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 py-3.5 text-sm font-bold text-white shadow-md transition-all active:scale-95 disabled:opacity-40"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent py-3.5 text-sm font-bold text-ink-on-accent shadow-md transition-all active:scale-95 disabled:opacity-40"
               >
                 {saving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} {txt.create}
               </button>

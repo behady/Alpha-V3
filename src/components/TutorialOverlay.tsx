@@ -246,7 +246,7 @@ export default function TutorialOverlay() {
             </span>
             <button
               onClick={cancelTutorial}
-              className="w-7 h-7 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center transition-colors shrink-0"
+              className="w-7 h-7 rounded-full text-slate-400 hover:text-slate-700 hover:bg-surface-muted flex items-center justify-center transition-colors shrink-0"
               aria-label={isAr ? "إلغاء الدرس" : "Cancel tutorial"}
             >
               <X size={15} />
@@ -277,7 +277,7 @@ export default function TutorialOverlay() {
               {lost && !rect && (
                 <button
                   onClick={finishOrAdvance}
-                  className="px-3 py-1.5 rounded-full text-[11px] font-black text-slate-500 border border-slate-200 hover:bg-slate-50 transition-colors"
+                  className="px-3 py-1.5 rounded-full text-[11px] font-black text-ink-muted border border-line hover:bg-surface-subtle transition-colors"
                 >
                   {isAr ? "تخطّي" : "Skip"}
                 </button>

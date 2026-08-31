@@ -203,7 +203,7 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
     return (
       <div className="flex flex-col items-center justify-center py-16 text-slate-400">
         <Stethoscope size={40} className="mb-3 opacity-30" />
-        <p className="font-bold text-slate-500">{isAr ? "لا توجد إجراءات في هذه الفترة" : "No procedures in this period"}</p>
+        <p className="font-bold text-ink-muted">{isAr ? "لا توجد إجراءات في هذه الفترة" : "No procedures in this period"}</p>
       </div>
     );
   }
@@ -216,10 +216,10 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
           { label: isAr ? "إجمالي الإجراءات" : "Total Services", value: totalCount.toString(), color: "text-blue-600" },
           { label: isAr ? "إجمالي الدخل" : "Total Income", value: `${totalIncome.toLocaleString()} EGP`, color: "text-emerald-600" },
           { label: isAr ? "العمولات" : "Commissions", value: `(${totalCommission.toLocaleString()}) EGP`, color: "text-amber-600" },
-          { label: isAr ? "صافي الدخل" : "Net Income", value: `${totalNet.toLocaleString()} EGP`, color: "text-slate-900" },
+          { label: isAr ? "صافي الدخل" : "Net Income", value: `${totalNet.toLocaleString()} EGP`, color: "text-ink" },
         ].map((k) => (
-          <div key={k.label} className="bg-white border border-slate-200 shadow-sm rounded-2xl p-4 flex flex-col gap-1">
-            <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">{k.label}</p>
+          <div key={k.label} className="bg-surface border border-line shadow-sm rounded-2xl p-4 flex flex-col gap-1">
+            <p className="text-[10px] font-black text-ink-muted uppercase tracking-wider">{k.label}</p>
             <p className={`text-xl font-black tabular-nums ${k.color}`}>{k.value}</p>
           </div>
         ))}
@@ -228,8 +228,8 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
       {/* Chart + Table */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
         {/* Pie Chart */}
-        <div className="xl:col-span-5 bg-white rounded-2xl border border-slate-200 p-5 shadow-sm">
-          <h3 className="text-sm font-black text-slate-900 mb-4">
+        <div className="xl:col-span-5 bg-surface rounded-2xl border border-line p-5 shadow-sm">
+          <h3 className="text-sm font-black text-ink mb-4">
             {isAr ? "توزيع الدخل حسب الخدمة" : "Income by Service"}
           </h3>
           <div ref={chartRef}>
@@ -257,14 +257,14 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
         </div>
 
         {/* Table */}
-        <div className="xl:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="xl:col-span-7 bg-surface rounded-2xl border border-line shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center">
-            <h3 className="text-sm font-black text-slate-900">{isAr ? "تفاصيل الخدمات" : "Service Breakdown"}</h3>
+            <h3 className="text-sm font-black text-ink">{isAr ? "تفاصيل الخدمات" : "Service Breakdown"}</h3>
             <div className="flex items-center gap-2">
             <button
               data-tour="reports-export-pdf" onClick={handlePdfExport}
               disabled={exporting}
-              className="px-4 py-2 bg-slate-800 text-white text-sm font-bold rounded-xl hover:bg-slate-900 transition-colors flex items-center gap-2 disabled:opacity-50"
+              className="px-4 py-2 bg-slate-800 text-ink-on-accent text-sm font-bold rounded-xl hover:bg-accent transition-colors flex items-center gap-2 disabled:opacity-50"
             >
               <Download size={16} />
               {exporting ? (isAr ? "جاري التصدير..." : "Exporting...") : "PDF"}
@@ -282,7 +282,7 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-100 text-[10px] font-black uppercase tracking-wider text-slate-500">
+                <tr className="bg-surface-subtle border-b border-slate-100 text-[10px] font-black uppercase tracking-wider text-ink-muted">
                   <th className="text-start py-3 px-4">{isAr ? "الخدمة" : "Service"}</th>
                   <th className="text-center py-3 px-3">{isAr ? "العدد" : "Count"}</th>
                   <th className="text-end py-3 px-4">{isAr ? "الدخل" : "Income"}</th>
@@ -292,7 +292,7 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {stats.map((s, i) => (
-                  <tr key={i} className="hover:bg-slate-50 transition-colors">
+                  <tr key={i} className="hover:bg-surface-subtle transition-colors">
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2">
                         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
@@ -304,12 +304,12 @@ export default function ServiceReport({ procedures, payments, rangeLabel, isAr }
                     </td>
                     <td className="py-3 px-4 text-end font-bold text-emerald-600 tabular-nums text-xs">{s.income.toLocaleString()}</td>
                     <td className="py-3 px-4 text-end text-amber-600 tabular-nums text-xs">({s.commission.toLocaleString()})</td>
-                    <td className="py-3 px-4 text-end font-black text-slate-900 tabular-nums text-xs">{s.netIncome.toLocaleString()}</td>
+                    <td className="py-3 px-4 text-end font-black text-ink tabular-nums text-xs">{s.netIncome.toLocaleString()}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
-                <tr className="bg-[#2D3748] text-white text-xs font-black">
+                <tr className="bg-ink-strong text-white text-xs font-black">
                   <td className="py-3 px-4">{isAr ? "الإجمالي" : "TOTAL"}</td>
                   <td className="py-3 px-3 text-center">{totalCount}</td>
                   <td className="py-3 px-4 text-end tabular-nums">{totalIncome.toLocaleString()}</td>

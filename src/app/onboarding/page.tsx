@@ -201,7 +201,7 @@ export default function OnboardingPage() {
 
   if (!user || healing) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-3 text-slate-500 font-semibold">
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 text-ink-muted font-semibold">
         <Loader2 className="animate-spin" size={22} />
         <p className="text-sm">{t.checking}</p>
       </div>
@@ -211,13 +211,13 @@ export default function OnboardingPage() {
   // Waiting for the grant to propagate — a real state, not a spinner over a lie.
   if (pendingClinicId) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4" dir={isAr ? "rtl" : "ltr"}>
-        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-10 max-w-md w-full text-center">
+      <div className="min-h-screen bg-surface-subtle flex items-center justify-center p-4" dir={isAr ? "rtl" : "ltr"}>
+        <div className="bg-surface rounded-3xl border border-line shadow-sm p-10 max-w-md w-full text-center">
           <div className="w-16 h-16 rounded-2xl bg-accent-tint text-accent flex items-center justify-center mx-auto mb-6">
             {slowGrant ? <AlertCircle size={28} /> : <Loader2 size={28} className="animate-spin" />}
           </div>
-          <h1 className="text-xl font-black text-slate-900 mb-2">{t.creating}</h1>
-          <p className="text-sm font-medium text-slate-500">{slowGrant ? t.slow : t.almost}</p>
+          <h1 className="text-xl font-black text-ink mb-2">{t.creating}</h1>
+          <p className="text-sm font-medium text-ink-muted">{slowGrant ? t.slow : t.almost}</p>
           {slowGrant && (
             <>
               <button
@@ -228,7 +228,7 @@ export default function OnboardingPage() {
               </button>
               <button
                 onClick={logout}
-                className="mt-3 text-sm font-medium text-slate-500 hover:text-slate-900 inline-flex items-center gap-1.5"
+                className="mt-3 text-sm font-medium text-ink-muted hover:text-ink inline-flex items-center gap-1.5"
               >
                 <LogOut size={15} />
                 {t.signOut}
@@ -241,14 +241,14 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6" dir={isAr ? "rtl" : "ltr"}>
+    <div className="min-h-screen bg-surface-subtle py-12 px-4 sm:px-6" dir={isAr ? "rtl" : "ltr"}>
       <div className="max-w-md mx-auto">
         <div className="text-center mb-8">
           <div className="w-14 h-14 rounded-2xl bg-accent-tint text-accent flex items-center justify-center mx-auto mb-4">
             <Building2 size={26} />
           </div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">{t.welcome}</h1>
-          <p className="mt-2 text-sm font-medium text-slate-500">
+          <h1 className="text-2xl font-black text-ink tracking-tight">{t.welcome}</h1>
+          <p className="mt-2 text-sm font-medium text-ink-muted">
             {existingClinics.length > 0 ? t.hasClinics : t.noClinics}
           </p>
         </div>
@@ -260,12 +260,12 @@ export default function OnboardingPage() {
           </div>
         )}
 
-        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 sm:p-8 space-y-8">
+        <div className="bg-surface rounded-3xl border border-line shadow-sm p-6 sm:p-8 space-y-8">
           {/* Create */}
           <div>
-            <h2 className="text-base font-black text-slate-900 mb-1.5">{t.createTitle}</h2>
-            <p className="text-xs font-medium text-slate-500 leading-relaxed mb-4">{t.createHelp}</p>
-            <label className="block text-[11px] font-black text-slate-500 uppercase tracking-widest mb-2">
+            <h2 className="text-base font-black text-ink mb-1.5">{t.createTitle}</h2>
+            <p className="text-xs font-medium text-ink-muted leading-relaxed mb-4">{t.createHelp}</p>
+            <label className="block text-[11px] font-black text-ink-muted uppercase tracking-widest mb-2">
               {t.clinicNameLabel}
             </label>
             <input
@@ -275,7 +275,7 @@ export default function OnboardingPage() {
               onKeyDown={(e) => e.key === "Enter" && !creating && void handleCreateClinic()}
               placeholder={t.clinicNamePlaceholder}
               disabled={creating}
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all disabled:opacity-60"
+              className="w-full px-4 py-3 bg-surface-subtle border border-line rounded-xl font-semibold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all disabled:opacity-60"
             />
             <button
               onClick={() => void handleCreateClinic()}
@@ -289,10 +289,10 @@ export default function OnboardingPage() {
 
           <div className="relative">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-slate-200" />
+              <div className="w-full border-t border-line" />
             </div>
             <div className="relative flex justify-center">
-              <span className="px-3 bg-white text-xs font-bold text-slate-400 uppercase tracking-widest">
+              <span className="px-3 bg-surface text-xs font-bold text-slate-400 uppercase tracking-widest">
                 {t.orDivider}
               </span>
             </div>
@@ -300,15 +300,15 @@ export default function OnboardingPage() {
 
           {/* Join */}
           <div>
-            <h2 className="text-base font-black text-slate-900 mb-4">{t.joinTitle}</h2>
+            <h2 className="text-base font-black text-ink mb-4">{t.joinTitle}</h2>
 
             {joinSent ? (
               <div className="rounded-2xl bg-accent-tint border border-emerald-200 p-5 text-center">
-                <div className="w-11 h-11 rounded-full bg-white text-accent flex items-center justify-center mx-auto mb-3">
+                <div className="w-11 h-11 rounded-full bg-surface text-accent flex items-center justify-center mx-auto mb-3">
                   <Check size={22} />
                 </div>
-                <p className="font-black text-slate-900 text-sm">{t.joinSentTitle}</p>
-                <p className="text-xs font-medium text-slate-600 mt-1.5 leading-relaxed">{t.joinSentBody}</p>
+                <p className="font-black text-ink text-sm">{t.joinSentTitle}</p>
+                <p className="text-xs font-medium text-ink-body mt-1.5 leading-relaxed">{t.joinSentBody}</p>
                 <button
                   onClick={() => setJoinSent(false)}
                   className="mt-4 text-xs font-bold text-accent hover:underline"
@@ -318,7 +318,7 @@ export default function OnboardingPage() {
               </div>
             ) : (
               <>
-                <label className="block text-[11px] font-black text-slate-500 uppercase tracking-widest mb-2">
+                <label className="block text-[11px] font-black text-ink-muted uppercase tracking-widest mb-2">
                   {t.joinIdLabel}
                 </label>
                 <input
@@ -330,13 +330,13 @@ export default function OnboardingPage() {
                   autoComplete="off"
                   spellCheck={false}
                   disabled={joining}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all disabled:opacity-60"
+                  className="w-full px-4 py-3 bg-surface-subtle border border-line rounded-xl font-semibold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all disabled:opacity-60"
                 />
                 <p className="mt-2 text-xs font-medium text-slate-400 leading-relaxed">{t.joinIdHelp}</p>
                 <button
                   onClick={() => void handleJoinClinic()}
                   disabled={joining || creating}
-                  className="mt-4 w-full bg-white border border-slate-300 text-slate-700 font-bold py-3 rounded-xl hover:bg-slate-50 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="mt-4 w-full bg-surface border border-line-strong text-slate-700 font-bold py-3 rounded-xl hover:bg-surface-subtle transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                   {joining ? <Loader2 size={18} className="animate-spin" /> : null}
                   {t.joinBtn}
@@ -358,7 +358,7 @@ export default function OnboardingPage() {
           )}
           <button
             onClick={logout}
-            className="text-sm font-medium text-slate-500 hover:text-slate-900 flex items-center gap-1.5"
+            className="text-sm font-medium text-ink-muted hover:text-ink flex items-center gap-1.5"
           >
             <LogOut size={15} />
             {t.signOut}

@@ -7,8 +7,24 @@ import { getDoc, setDoc } from "firebase/firestore";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { storage } from "@/lib/firebase";
 import { getClinicDoc, getGlobalClinicId } from "@/lib/db-utils";
+import { useSettingsDraft } from "@/lib/settingsDraft";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
+
+type BookingSettings = {
+  enabled: boolean;
+  enableDoctorSelection: boolean;
+  defaultDurationMinutes: string;
+  heroImage: string;
+};
+
+/** Module-level so the fallback keeps its identity between renders. */
+const EMPTY_BOOKING_SETTINGS: BookingSettings = {
+  enabled: false,
+  enableDoctorSelection: false,
+  defaultDurationMinutes: "30",
+  heroImage: "",
+};
 
 export default function OnlineBookingSettings() {
   const { language } = useLanguage();
@@ -20,12 +36,14 @@ export default function OnlineBookingSettings() {
   const [uploadingImage, setUploadingImage] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   
-  const [settings, setSettings] = useState({
-    enabled: false,
-    enableDoctorSelection: false,
-    defaultDurationMinutes: "30",
-    heroImage: ""
-  });
+  const [stored, setStored] = useState<BookingSettings | null>(null);
+
+  // Edits sit on top of what is stored, so leaving mid-change asks first. See lib/settingsDraft.ts.
+  const { value: settings, setValue: setSettings, markSaved } = useSettingsDraft<BookingSettings>(
+    "online_booking",
+    stored,
+    EMPTY_BOOKING_SETTINGS
+  );
 
   const clinicId = getGlobalClinicId();
   const bookingUrl = typeof window !== 'undefined' 
@@ -35,7 +53,7 @@ export default function OnlineBookingSettings() {
   useEffect(() => {
     getDoc(getClinicDoc("settings", "onlineBooking")).then(snap => {
       if (snap.exists()) {
-        setSettings({
+        setStored({
           enabled: snap.data().enabled ?? false,
           enableDoctorSelection: snap.data().enableDoctorSelection ?? false,
           defaultDurationMinutes: snap.data().defaultDurationMinutes ?? "30",
@@ -89,6 +107,8 @@ export default function OnlineBookingSettings() {
     setSaving(true);
     try {
       await setDoc(getClinicDoc("settings", "onlineBooking"), settings, { merge: true });
+      setStored(settings);
+      markSaved();
       showToast(language === 'ar' ? "تم حفظ إعدادات الحجز الإلكتروني" : "Online Booking settings saved", "success");
     } catch (error) {
       console.error(error);
@@ -125,16 +145,16 @@ export default function OnlineBookingSettings() {
     showToast(language === 'ar' ? "تم نسخ الرابط" : "Link copied to clipboard", "success");
   };
 
-  if (loading) return <div className="p-8 text-center text-slate-500 animate-pulse">Loading...</div>;
+  if (loading) return <div className="p-8 text-center text-ink-muted animate-pulse">Loading...</div>;
 
   return (
-    <div className="max-w-2xl bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm">
-      <div className="bg-slate-50 px-6 py-5 border-b border-slate-200">
+    <div className="max-w-2xl bg-surface rounded-3xl border border-line overflow-hidden shadow-sm">
+      <div className="bg-surface-subtle px-6 py-5 border-b border-line">
         <h2 className="text-xl font-black text-slate-800 flex items-center gap-3">
           <Globe className="text-indigo-500" size={24} />
           {language === 'ar' ? 'إعدادات الحجز الإلكتروني' : 'Online Booking Settings'}
         </h2>
-        <p className="text-slate-500 text-sm mt-1">
+        <p className="text-ink-muted text-sm mt-1">
           {language === 'ar' 
             ? 'قم بإدارة صفحة الحجز العامة الخاصة بك والسماح للمرضى بحجز المواعيد عبر الإنترنت.' 
             : 'Manage your public booking page and allow patients to book appointments online.'}
@@ -158,7 +178,7 @@ export default function OnlineBookingSettings() {
             onClick={() => setSettings(s => ({ ...s, enabled: !s.enabled }))}
             className={`w-14 h-8 rounded-full relative transition-colors ${settings.enabled ? 'bg-indigo-600' : 'bg-slate-300'}`}
           >
-            <div className={`w-6 h-6 bg-white rounded-full absolute top-1 shadow-md transition-transform ${settings.enabled ? 'translate-x-7' : 'translate-x-1'}`} />
+            <div className={`w-6 h-6 bg-surface rounded-full absolute top-1 shadow-md transition-transform ${settings.enabled ? 'translate-x-7' : 'translate-x-1'}`} />
           </button>
         </div>
 
@@ -174,7 +194,7 @@ export default function OnlineBookingSettings() {
                   type="text" 
                   readOnly 
                   value={bookingUrl} 
-                  className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-600 font-medium"
+                  className="flex-1 bg-surface-subtle border border-line rounded-xl px-4 py-3 text-ink-body font-medium"
                 />
                 <button 
                   type="button"
@@ -192,14 +212,14 @@ export default function OnlineBookingSettings() {
               <label className="block text-sm font-bold text-slate-700">
                 {language === 'ar' ? 'روابط بعلامة المصدر (لتقرير المصادر)' : 'Tagged links (for the source report)'}
               </label>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-ink-muted">
                 {language === 'ar'
                   ? 'كل قناة ليها رابط خاص. اللي يحجز من الرابط ده بيتسجل مصدره تلقائياً — من غير ما حد يكتب حاجة.'
                   : 'Each channel gets its own link. Anyone who books through it is attributed to that channel automatically — nobody types anything.'}
               </p>
-              <div className="border border-slate-200 rounded-2xl divide-y divide-slate-100 overflow-hidden">
+              <div className="border border-line rounded-2xl divide-y divide-slate-100 overflow-hidden">
                 {taggedLinks.map(({ tag, label }) => (
-                  <div key={tag} className="flex items-center justify-between gap-2 px-4 py-2.5 bg-white">
+                  <div key={tag} className="flex items-center justify-between gap-2 px-4 py-2.5 bg-surface">
                     <div className="min-w-0">
                       <div className="text-sm font-bold text-slate-700">{label}</div>
                       <div className="text-[11px] text-slate-400 font-medium truncate" dir="ltr">…/book/{clinicId.slice(0, 6)}…?src={tag}</div>
@@ -207,7 +227,7 @@ export default function OnlineBookingSettings() {
                     <button
                       type="button"
                       onClick={() => handleCopyTagged(tag)}
-                      className="shrink-0 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors"
+                      className="shrink-0 bg-surface-muted hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors"
                     >
                       {copiedTag === tag ? <Check size={14} /> : <Copy size={14} />}
                       {language === 'ar' ? 'نسخ' : 'Copy'}
@@ -224,7 +244,7 @@ export default function OnlineBookingSettings() {
               </label>
               <div className="flex flex-col gap-4">
                 {settings.heroImage && (
-                  <img src={settings.heroImage} alt="Hero" className="w-full max-w-sm rounded-xl border border-slate-200 shadow-sm" />
+                  <img src={settings.heroImage} alt="Hero" className="w-full max-w-sm rounded-xl border border-line shadow-sm" />
                 )}
                 <input 
                   type="file" 
@@ -247,12 +267,12 @@ export default function OnlineBookingSettings() {
             </div>
 
             {/* Doctor Selection */}
-            <div className="flex items-center justify-between p-4 border border-slate-200 rounded-2xl">
+            <div className="flex items-center justify-between p-4 border border-line rounded-2xl">
               <div>
                 <div className="font-bold text-slate-800">
                   {language === 'ar' ? 'اختيار الطبيب' : 'Doctor Selection'}
                 </div>
-                <div className="text-slate-500 text-sm">
+                <div className="text-ink-muted text-sm">
                   {language === 'ar' 
                     ? 'السماح للمرضى باختيار طبيب معين.' 
                     : 'Allow patients to pick a specific doctor.'}
@@ -263,7 +283,7 @@ export default function OnlineBookingSettings() {
                 onClick={() => setSettings(s => ({ ...s, enableDoctorSelection: !s.enableDoctorSelection }))}
                 className={`w-12 h-6 rounded-full relative transition-colors ${settings.enableDoctorSelection ? 'bg-emerald-500' : 'bg-slate-200'}`}
               >
-                <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 shadow transition-transform ${settings.enableDoctorSelection ? 'translate-x-6.5 rtl:-translate-x-6.5' : 'translate-x-0.5 rtl:-translate-x-0.5'}`} style={{ transform: settings.enableDoctorSelection ? 'translateX(24px)' : 'translateX(2px)' }} />
+                <div className={`w-5 h-5 bg-surface rounded-full absolute top-0.5 shadow transition-transform ${settings.enableDoctorSelection ? 'translate-x-6.5 rtl:-translate-x-6.5' : 'translate-x-0.5 rtl:-translate-x-0.5'}`} style={{ transform: settings.enableDoctorSelection ? 'translateX(24px)' : 'translateX(2px)' }} />
               </button>
             </div>
 
@@ -275,7 +295,7 @@ export default function OnlineBookingSettings() {
               <select
                 value={settings.defaultDurationMinutes}
                 onChange={e => setSettings(s => ({ ...s, defaultDurationMinutes: e.target.value }))}
-                className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-slate-700 font-bold focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all outline-none"
+                className="w-full bg-surface border border-line rounded-xl px-4 py-3 text-slate-700 font-bold focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 transition-all outline-none"
               >
                 <option value="15">15 {language === 'ar' ? 'دقيقة' : 'Mins'}</option>
                 <option value="30">30 {language === 'ar' ? 'دقيقة' : 'Mins'}</option>

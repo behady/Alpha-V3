@@ -75,7 +75,7 @@ export default function WeeklyScheduleView({ appointments, currentDate, language
                     const isToday = new Date().toISOString().split('T')[0] === d.toISOString().split('T')[0];
                     return (
                         <div key={i} className={`flex-1 min-w-0 border-e border-white/40 last:border-e-0 p-2 md:p-3 text-center flex flex-col items-center justify-center ${isToday ? 'bg-primary-50/50' : ''}`}>
-                            <span className={`text-xs md:text-sm font-bold uppercase tracking-wider ${isToday ? 'text-primary-600' : 'text-slate-500'}`}>
+                            <span className={`text-xs md:text-sm font-bold uppercase tracking-wider ${isToday ? 'text-primary-600' : 'text-ink-muted'}`}>
                                 {d.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { weekday: 'short' })}
                             </span>
                             <span className={`text-xl md:text-2xl font-light mt-0.5 ${isToday ? 'text-primary-700 font-bold' : 'text-slate-800'}`}>
@@ -93,7 +93,7 @@ export default function WeeklyScheduleView({ appointments, currentDate, language
                     <div className="absolute inset-y-0 start-0 w-[84px] md:w-[100px] border-e border-white/60 flex flex-col pointer-events-none z-10 bg-white/20 backdrop-blur-sm">
                         {timeSlots.map((slot, idx) => (
                             <div key={idx} className="relative flex-1" style={{ height: `${rowHeight}px` }}>
-                                <div className={`absolute end-2 md:end-3 text-xs font-bold text-slate-500 ${idx === 0 ? 'top-4' : 'top-0 -translate-y-1/2'}`}>
+                                <div className={`absolute end-2 md:end-3 text-xs font-bold text-ink-muted ${idx === 0 ? 'top-4' : 'top-0 -translate-y-1/2'}`}>
                                     {slot.label}
                                 </div>
                             </div>
@@ -236,16 +236,16 @@ export default function WeeklyScheduleView({ appointments, currentDate, language
                                                     >
                                                         <div className={`absolute start-0 top-1 bottom-1 w-1 rounded-r-full ${styles.accent}`}></div>
                                                         <div className="flex flex-col min-w-0 h-full overflow-hidden ms-1.5 relative z-10">
-                                                            <span className="text-sm md:text-base font-bold text-slate-900 truncate leading-tight group-hover:text-lg transition-all">{apt.patientName}</span>
-                                                            {!isVeryShort && phone && <span className="text-xs text-slate-600 truncate flex items-center gap-1.5 mt-1 group-hover:text-sm transition-all"><svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>{phone}</span>}
+                                                            <span className="text-sm md:text-base font-bold text-ink truncate leading-tight group-hover:text-lg transition-all">{apt.patientName}</span>
+                                                            {!isVeryShort && phone && <span className="text-xs text-ink-body truncate flex items-center gap-1.5 mt-1 group-hover:text-sm transition-all"><svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>{phone}</span>}
                                                             {!isShort && <span className="text-xs md:text-sm text-slate-700 truncate mt-1 group-hover:whitespace-normal group-hover:line-clamp-2 transition-all">{apt.treatment}</span>}
                                                         </div>
                                                         {/* Enhanced Tooltip for Hover */}
-                                                        <div className={`absolute hidden group-hover:flex flex-col z-[100] bg-white shadow-[0_20px_50px_rgba(0,0,0,0.2)] rounded-2xl p-4 border border-slate-200 w-64 top-0 ${i >= 4 ? 'end-full me-2' : 'start-full ms-2'} scale-100 transform`}>
-                                                            <div className="font-black text-lg text-slate-900">{apt.patientName}</div>
-                                                            {phone && <div className="text-sm font-bold text-slate-600 mb-2">{phone}</div>}
-                                                            <div className="text-sm font-bold text-slate-800 bg-slate-50 p-2 rounded-lg my-1">{apt.treatment}</div>
-                                                            {apt.doctor && <div className="text-xs font-bold text-slate-500 mt-1">{apt.doctor}</div>}
+                                                        <div className={`absolute hidden group-hover:flex flex-col z-[100] bg-surface shadow-[0_20px_50px_rgba(0,0,0,0.2)] rounded-2xl p-4 border border-line w-64 top-0 ${i >= 4 ? 'end-full me-2' : 'start-full ms-2'} scale-100 transform`}>
+                                                            <div className="font-black text-lg text-ink">{apt.patientName}</div>
+                                                            {phone && <div className="text-sm font-bold text-ink-body mb-2">{phone}</div>}
+                                                            <div className="text-sm font-bold text-slate-800 bg-surface-subtle p-2 rounded-lg my-1">{apt.treatment}</div>
+                                                            {apt.doctor && <div className="text-xs font-bold text-ink-muted mt-1">{apt.doctor}</div>}
                                                             <div className="text-sm text-primary-600 font-black mt-2 bg-primary-50 px-2 py-1 rounded-md self-start">{apt.time} - {apt.dur} min</div>
                                                         </div>
                                                     </div>

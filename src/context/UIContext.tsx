@@ -4,13 +4,18 @@ import React, { createContext, useContext, useState, useCallback, useRef, useEff
 import { X, CheckCircle2, AlertCircle, Info, AlertTriangle, HelpCircle, PenLine } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { openWhatsAppWithText, registerWhatsAppManualHandler } from "@/lib/whatsappManual";
+import { auth } from "@/lib/firebase";
+import {
+  loadRemotePreferences,
+  readLocalPreferences,
+  saveRemotePreferences,
+  writeLocalPreference,
+  type UiPreferences,
+} from "@/lib/uiPreferences";
 import {
   ClinicalNoteDensity,
   ClinicalNoteGrouping,
   ClinicalNoteSort,
-  isClinicalNoteDensity,
-  isClinicalNoteGrouping,
-  isClinicalNoteSort,
 } from "@/components/clinical-notes/ordering";
 
 // --- TYPES ---
@@ -66,11 +71,9 @@ interface PromptOptions extends PromptDialogOptions {
  */
 export type ClinicalEditorMode = 'modal' | 'drawer' | 'inline';
 
-const CLINICAL_EDITOR_MODES: ClinicalEditorMode[] = ['modal', 'drawer', 'inline'];
-
-function isClinicalEditorMode(value: unknown): value is ClinicalEditorMode {
-  return typeof value === 'string' && (CLINICAL_EDITOR_MODES as string[]).includes(value);
-}
+// Validation of every stored preference — including this one — now lives in lib/uiPreferences.ts,
+// beside the two stores it has to defend against. Both are editable by hand, and an unrecognised
+// value used to flow straight into the clinical timeline and render nothing at all.
 
 interface UIContextType {
   showToast: (message: string, type?: ToastType) => void;
@@ -145,106 +148,115 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const [clinicalNoteGrouping, setClinicalNoteGroupingState] = useState<ClinicalNoteGrouping>('flat');
   const [clinicalNoteDensity, setClinicalNoteDensityState] = useState<ClinicalNoteDensity>('detailed');
 
-  // Load editor mode from localStorage
-  useEffect(() => {
-    try {
-      if (typeof window !== "undefined") {
-        const savedMode = localStorage.getItem("alpha_clinical_editor_mode");
-        if (isClinicalEditorMode(savedMode)) {
-          setClinicalEditorModeState(savedMode);
-          setClinicalEditorModeChosen(true);
-        }
-      }
-
-      const savedClinicalMode = localStorage.getItem("clinicalEditorMode");
-      if (isClinicalEditorMode(savedClinicalMode)) {
-        setClinicalEditorModeState(savedClinicalMode);
-        setClinicalEditorModeChosen(true);
-      }
-      
-      const savedApptMode = localStorage.getItem("appointmentEditorMode") as 'modal' | 'drawer';
-      if (savedApptMode) setAppointmentEditorModeState(savedApptMode);
-
-      const savedPanelMode = localStorage.getItem("appointmentPanelMode");
-      if (savedPanelMode === "avatar" || savedPanelMode === "editor") setAppointmentPanelModeState(savedPanelMode);
-
-      const savedApptsVis = localStorage.getItem("appointmentsVisibility") as 'all' | 'desktop' | 'hidden';
-      if (savedApptsVis) setAppointmentsVisibilityState(savedApptsVis);
-
-      const savedTracker = localStorage.getItem("latePatientTrackerEnabled");
-      if (savedTracker !== null) setLatePatientTrackerEnabledState(savedTracker === "true");
-
-      // Validated on read rather than cast: these come from a store the user can edit, and an
-      // unrecognised value would otherwise flow into the timeline and render nothing at all.
-      const savedNoteSort = localStorage.getItem("clinicalNoteSort");
-      if (isClinicalNoteSort(savedNoteSort)) setClinicalNoteSortState(savedNoteSort);
-
-      const savedNoteGrouping = localStorage.getItem("clinicalNoteGrouping");
-      if (isClinicalNoteGrouping(savedNoteGrouping)) setClinicalNoteGroupingState(savedNoteGrouping);
-
-      const savedNoteDensity = localStorage.getItem("clinicalNoteDensity");
-      if (isClinicalNoteDensity(savedNoteDensity)) setClinicalNoteDensityState(savedNoteDensity);
-    } catch (e) {
-      console.error("Could not load UI settings", e);
+  /**
+   * Apply a set of preferences to the eight pieces of state that hold them.
+   *
+   * One place rather than eight, because both stores load through it: the browser cache on mount,
+   * and the person's own record once their session resolves.
+   */
+  const applyPreferences = useCallback((prefs: Partial<UiPreferences>) => {
+    if (prefs.clinicalEditorMode !== undefined) {
+      setClinicalEditorModeState(prefs.clinicalEditorMode);
+      setClinicalEditorModeChosen(true);
     }
+    if (prefs.appointmentEditorMode !== undefined) setAppointmentEditorModeState(prefs.appointmentEditorMode);
+    if (prefs.appointmentPanelMode !== undefined) setAppointmentPanelModeState(prefs.appointmentPanelMode);
+    if (prefs.appointmentsVisibility !== undefined) setAppointmentsVisibilityState(prefs.appointmentsVisibility);
+    if (prefs.latePatientTrackerEnabled !== undefined) setLatePatientTrackerEnabledState(prefs.latePatientTrackerEnabled);
+    if (prefs.clinicalNoteSort !== undefined) setClinicalNoteSortState(prefs.clinicalNoteSort);
+    if (prefs.clinicalNoteGrouping !== undefined) setClinicalNoteGroupingState(prefs.clinicalNoteGrouping);
+    if (prefs.clinicalNoteDensity !== undefined) setClinicalNoteDensityState(prefs.clinicalNoteDensity);
   }, []);
+
+  // The browser's cache first, so the screen paints the layout this person chose rather than the
+  // default and then rearranging itself once the network answers.
+  useEffect(() => {
+    applyPreferences(readLocalPreferences());
+  }, [applyPreferences]);
+
+  /**
+   * Then their own record, which is the truth and follows them between devices.
+   *
+   * Someone who has always used this one browser has preferences here and none stored: the first
+   * load after signing in uploads what it finds, once, so nobody loses a setting to the move and
+   * there is no migration script for anyone to remember.
+   */
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged(async (user) => {
+      if (!user) return;
+      try {
+        const remote = await loadRemotePreferences(user.uid);
+        if (remote && Object.keys(remote).length > 0) {
+          applyPreferences(remote);
+          return;
+        }
+        const local = readLocalPreferences();
+        if (Object.keys(local).length > 0) await saveRemotePreferences(user.uid, local);
+      } catch {
+        /* Offline, or the record is not readable yet. The cached values are already on screen. */
+      }
+    });
+    return () => unsub();
+  }, [applyPreferences]);
+
+  /**
+   * Remember one preference: cached locally for the next load on this machine, and stored on the
+   * person's record so it reaches every other one.
+   *
+   * The stored write is deliberately not awaited. A preference toggle has to feel instant, and a
+   * write that fails leaves the local cache correct until the next sign-in reconciles it.
+   */
+  const rememberPreference = useCallback(
+    <K extends keyof UiPreferences>(key: K, value: UiPreferences[K]) => {
+      writeLocalPreference(key, value);
+      const uid = auth.currentUser?.uid;
+      if (uid) {
+        void saveRemotePreferences(uid, { [key]: value } as Partial<UiPreferences>).catch(() => {});
+      }
+    },
+    []
+  );
 
   const setClinicalEditorMode = useCallback((mode: ClinicalEditorMode) => {
     setClinicalEditorModeState(mode);
     setClinicalEditorModeChosen(true);
-    try {
-      localStorage.setItem("clinicalEditorMode", mode);
-    } catch (e) {}
-  }, []);
+    rememberPreference("clinicalEditorMode", mode);
+  }, [rememberPreference]);
 
   const setAppointmentEditorMode = useCallback((mode: 'modal' | 'drawer') => {
     setAppointmentEditorModeState(mode);
-    try {
-      localStorage.setItem("appointmentEditorMode", mode);
-    } catch (e) {}
-  }, []);
+    rememberPreference("appointmentEditorMode", mode);
+  }, [rememberPreference]);
 
   const setAppointmentPanelMode = useCallback((mode: 'editor' | 'avatar') => {
     setAppointmentPanelModeState(mode);
-    try {
-      localStorage.setItem("appointmentPanelMode", mode);
-    } catch (e) {}
-  }, []);
+    rememberPreference("appointmentPanelMode", mode);
+  }, [rememberPreference]);
 
   const setAppointmentsVisibility = useCallback((visibility: 'all' | 'desktop' | 'hidden') => {
     setAppointmentsVisibilityState(visibility);
-    try {
-      localStorage.setItem("appointmentsVisibility", visibility);
-    } catch (e) {}
-  }, []);
+    rememberPreference("appointmentsVisibility", visibility);
+  }, [rememberPreference]);
 
   const setLatePatientTrackerEnabled = useCallback((enabled: boolean) => {
     setLatePatientTrackerEnabledState(enabled);
-    try {
-      localStorage.setItem("latePatientTrackerEnabled", String(enabled));
-    } catch (e) {}
-  }, []);
+    rememberPreference("latePatientTrackerEnabled", enabled);
+  }, [rememberPreference]);
 
   const setClinicalNoteSort = useCallback((sort: ClinicalNoteSort) => {
     setClinicalNoteSortState(sort);
-    try {
-      localStorage.setItem("clinicalNoteSort", sort);
-    } catch (e) {}
-  }, []);
+    rememberPreference("clinicalNoteSort", sort);
+  }, [rememberPreference]);
 
   const setClinicalNoteGrouping = useCallback((grouping: ClinicalNoteGrouping) => {
     setClinicalNoteGroupingState(grouping);
-    try {
-      localStorage.setItem("clinicalNoteGrouping", grouping);
-    } catch (e) {}
-  }, []);
+    rememberPreference("clinicalNoteGrouping", grouping);
+  }, [rememberPreference]);
 
   const setClinicalNoteDensity = useCallback((density: ClinicalNoteDensity) => {
     setClinicalNoteDensityState(density);
-    try {
-      localStorage.setItem("clinicalNoteDensity", density);
-    } catch (e) {}
-  }, []);
+    rememberPreference("clinicalNoteDensity", density);
+  }, [rememberPreference]);
 
   // --- TOAST LOGIC ---
   const showToast = useCallback((message: string, type: ToastType = "success") => {
@@ -365,14 +377,21 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
           <div
             key={toast.id}
             className={`pointer-events-auto flex items-center gap-3 px-5 py-4 rounded-2xl shadow-xl min-w-[300px] max-w-[400px] animate-in slide-in-from-right-10 fade-in duration-300 border-l-4 ${
-              toast.type === "success" ? "bg-[#AFDDE5] border-[#0FA4AF] text-[#003135]" :
-              toast.type === "error" ? "bg-[#AFDDE5] border-[#964734] text-[#003135]" :
-              "bg-[#003135] border-[#003135] text-[#AFDDE5]"
+              /*
+                 Success and error used to share a background AND a text colour, differing only by
+                 a four-pixel border stripe -- so "Saved" and "Failed to save" looked the same at a
+                 glance, which in a clinic is the difference between a payment recorded and a
+                 payment lost. They are now the status tokens, which are distinct by hue and follow
+                 the clinic's theme.
+              */
+              toast.type === "success" ? "bg-ok-tint border-ok text-ok" :
+              toast.type === "error" ? "bg-danger-tint border-danger text-danger" :
+              "bg-info-tint border-info text-info"
             }`}
           >
-            {toast.type === "success" && <CheckCircle2 className="text-[#0FA4AF] shrink-0" size={20} />}
-            {toast.type === "error" && <AlertCircle className="text-[#964734] shrink-0" size={20} />}
-            {toast.type === "info" && <Info className="text-[#0FA4AF] shrink-0" size={20} />}
+            {toast.type === "success" && <CheckCircle2 className="text-ok shrink-0" size={20} />}
+            {toast.type === "error" && <AlertCircle className="text-danger shrink-0" size={20} />}
+            {toast.type === "info" && <Info className="text-info shrink-0" size={20} />}
             <p className="text-sm font-bold flex-1">{toast.message}</p>
             <button onClick={() => removeToast(toast.id)} className="opacity-50 hover:opacity-100"><X size={16}/></button>
           </div>
@@ -401,10 +420,10 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
               >
                 {confirmState.tone === "danger" ? <AlertTriangle size={26} /> : <HelpCircle size={26} />}
               </div>
-              <h3 className="text-lg font-black text-slate-900 mb-1.5 tracking-tight">
+              <h3 className="text-lg font-black text-ink mb-1.5 tracking-tight">
                 {confirmState.title ?? (isAr ? "متأكد؟" : "Are you sure?")}
               </h3>
-              <p className="text-slate-500 text-sm font-medium whitespace-pre-line leading-relaxed">
+              <p className="text-ink-muted text-sm font-medium whitespace-pre-line leading-relaxed">
                 {confirmState.message}
               </p>
             </div>
@@ -412,7 +431,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
               <button
                 type="button"
                 onClick={() => handleConfirm(false)}
-                className="flex-1 py-3 rounded-xl border border-slate-200 bg-white text-xs font-black uppercase tracking-wide text-slate-600 hover:bg-slate-50 transition-colors"
+                className="flex-1 py-3 rounded-xl border border-line bg-surface text-xs font-black uppercase tracking-wide text-ink-body hover:bg-surface-subtle transition-colors"
               >
                 {confirmState.cancelLabel ?? (isAr ? "إلغاء" : "Cancel")}
               </button>
@@ -450,7 +469,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
               e.preventDefault();
               if (promptCanSubmit) closePrompt(promptValue.trim());
             }}
-            className="relative w-full max-w-md bg-white rounded-t-[1.75rem] sm:rounded-3xl shadow-2xl border border-slate-200/70 overflow-hidden animate-in slide-in-from-bottom-8 sm:slide-in-from-bottom-0 sm:zoom-in-95 duration-200"
+            className="relative w-full max-w-md bg-surface rounded-t-[1.75rem] sm:rounded-3xl shadow-2xl border border-slate-200/70 overflow-hidden animate-in slide-in-from-bottom-8 sm:slide-in-from-bottom-0 sm:zoom-in-95 duration-200"
           >
             <div className="w-10 h-1.5 bg-slate-200 rounded-full mx-auto mt-3 sm:hidden" />
 
@@ -459,17 +478,17 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
                 <PenLine size={20} />
               </div>
               <div className="min-w-0 flex-1">
-                <h3 className="text-base font-black text-slate-900 tracking-tight leading-snug">
+                <h3 className="text-base font-black text-ink tracking-tight leading-snug">
                   {promptState.title ?? (isAr ? "من فضلك اكتب" : "Quick question")}
                 </h3>
-                <p className="text-slate-500 text-sm font-medium mt-0.5 leading-relaxed">
+                <p className="text-ink-muted text-sm font-medium mt-0.5 leading-relaxed">
                   {promptState.message}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => closePrompt(null)}
-                className="w-8 h-8 rounded-full bg-slate-50 text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center transition-colors shrink-0"
+                className="w-8 h-8 rounded-full bg-surface-subtle text-slate-400 hover:text-slate-700 hover:bg-surface-muted flex items-center justify-center transition-colors shrink-0"
                 aria-label={isAr ? "إغلاق" : "Close"}
               >
                 <X size={16} />
@@ -506,7 +525,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
                   onChange={(e) => setPromptValue(e.target.value)}
                   placeholder={promptState.placeholder}
                   rows={3}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10 transition-all resize-none placeholder:font-medium placeholder:text-slate-400"
+                  className="w-full bg-surface-subtle border border-line rounded-xl px-4 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-teal-500 focus:bg-surface focus:ring-4 focus:ring-teal-500/10 transition-all resize-none placeholder:font-medium placeholder:text-slate-400"
                 />
               ) : (
                 <input
@@ -515,7 +534,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
                   value={promptValue}
                   onChange={(e) => setPromptValue(e.target.value)}
                   placeholder={promptState.placeholder}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-teal-500 focus:bg-white focus:ring-4 focus:ring-teal-500/10 transition-all placeholder:font-medium placeholder:text-slate-400"
+                  className="w-full bg-surface-subtle border border-line rounded-xl px-4 py-3 text-sm font-semibold text-slate-800 outline-none focus:border-teal-500 focus:bg-surface focus:ring-4 focus:ring-teal-500/10 transition-all placeholder:font-medium placeholder:text-slate-400"
                 />
               )}
             </div>
@@ -524,7 +543,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
               <button
                 type="button"
                 onClick={() => closePrompt(null)}
-                className="flex-1 py-3 rounded-xl border border-slate-200 bg-white text-xs font-black uppercase tracking-wide text-slate-600 hover:bg-slate-50 transition-colors"
+                className="flex-1 py-3 rounded-xl border border-line bg-surface text-xs font-black uppercase tracking-wide text-ink-body hover:bg-surface-subtle transition-colors"
               >
                 {promptState.cancelLabel ?? (isAr ? "إلغاء" : "Cancel")}
               </button>

@@ -17,6 +17,7 @@ import QRCode from "qrcode";
 import { getClinicDoc } from "@/lib/db-utils";
 import { clinicLogoImgHtml, getClinicLogo, NO_CLINIC_LOGO, type ClinicLogoAsset } from "@/lib/clinicLogo";
 import { buildLabOrderSrcDoc, isCompactPaper, type LabOrderClinic } from "@/lib/labOrderHtml";
+import { buildLabStatementSrcDoc, type LabStatementPayload } from "@/lib/labStatementHtml";
 import type { LabCase, LabOrderPaper } from "@/lib/labCases";
 
 export type { LabOrderClinic } from "@/lib/labOrderHtml";
@@ -83,6 +84,54 @@ export async function loadLabOrderClinic(branchName: string): Promise<LabOrderCl
 // Pieces of the page
 // ---------------------------------------------------------------------------
 
+/**
+ * Open a built document in a hidden iframe and fire the print dialog.
+ *
+ * Extracted from `printLabOrder` when statements arrived, because every guard in here was paid for
+ * by a bug: the readyState check (document.write can finish before a load listener is attached, and
+ * the dialog then never opens), the image wait, the font settle without which Arabic prints
+ * disconnected, and firing print() off the await chain so the caller's toast appears as the dialog
+ * opens rather than after the user dismisses it.
+ */
+async function printSrcDoc(srcDoc: string): Promise<void> {
+  const iframe = document.createElement("iframe");
+  iframe.style.cssText = "position:absolute;width:0;height:0;border:none;visibility:hidden;";
+  document.body.appendChild(iframe);
+
+  const win = iframe.contentWindow;
+  const doc = win?.document;
+  if (!win || !doc) {
+    iframe.remove();
+    return;
+  }
+
+  doc.open();
+  doc.write(srcDoc);
+  doc.close();
+
+  if (doc.readyState !== "complete") {
+    await waitFor((done) => win.addEventListener("load", done, { once: true }), 8000);
+  }
+  await waitForImages(doc);
+  await delay(500);
+
+  window.setTimeout(() => {
+    try {
+      win.focus();
+      win.print();
+    } catch (err) {
+      console.error("Lab print failed", err);
+    } finally {
+      window.setTimeout(() => iframe.remove(), 2000);
+    }
+  }, 0);
+}
+
+/** The statement a clinic settles a lab against. */
+export async function printLabStatement(payload: LabStatementPayload): Promise<void> {
+  await printSrcDoc(buildLabStatementSrcDoc(payload));
+}
+
 export async function printLabOrder(options: {
   labCase: LabCase;
   clinic: LabOrderClinic;
@@ -112,42 +161,5 @@ export async function printLabOrder(options: {
   });
 
   const srcDoc = buildLabOrderSrcDoc(labCase, clinic, qrDataUrl, logoHtml, language, paper);
-
-  const iframe = document.createElement("iframe");
-  iframe.style.cssText = "position:absolute;width:0;height:0;border:none;visibility:hidden;";
-  document.body.appendChild(iframe);
-
-  const win = iframe.contentWindow;
-  const doc = win?.document;
-  if (!win || !doc) {
-    iframe.remove();
-    return;
-  }
-
-  doc.open();
-  doc.write(srcDoc);
-  doc.close();
-
-  // document.write can finish before a load listener is attached, and a missed load event means
-  // the dialog never opens at all. Guard on readyState first, exactly as the receipt does.
-  if (doc.readyState !== "complete") {
-    await waitFor((done) => win.addEventListener("load", done, { once: true }), 8000);
-  }
-  await waitForImages(doc);
-  // Settle time for the Tajawal webfont. Without it the sheet prints in the fallback face and
-  // Arabic letters come out disconnected.
-  await delay(500);
-
-  // print() blocks until the dialog is dismissed. Fired off the await chain so the caller's
-  // "opening the order" toast appears as the dialog opens rather than after it closes.
-  window.setTimeout(() => {
-    try {
-      win.focus();
-      win.print();
-    } catch (err) {
-      console.error("Lab order print failed", err);
-    } finally {
-      window.setTimeout(() => iframe.remove(), 2000);
-    }
-  }, 0);
+  await printSrcDoc(srcDoc);
 }

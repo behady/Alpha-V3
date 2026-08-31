@@ -73,7 +73,7 @@ export default function WaitingMoodPicker({
       <div
         id="waiting-mood-picker-menu"
         role="listbox"
-        className="fixed z-[9999] min-w-[200px] rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
+        className="fixed z-[9999] min-w-[200px] rounded-xl border border-line bg-surface py-1 shadow-xl"
         style={{ top: menuPos.top, left: menuPos.left }}
         onClick={stop}
         onMouseDown={stop}
@@ -91,7 +91,7 @@ export default function WaitingMoodPicker({
                 onChange(m.key);
                 setOpen(false);
               }}
-              className={`flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-bold transition-colors hover:bg-slate-50 ${
+              className={`flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-bold transition-colors hover:bg-surface-subtle ${
                 active ? "bg-primary-50 text-primary-800" : "text-slate-700"
               }`}
             >

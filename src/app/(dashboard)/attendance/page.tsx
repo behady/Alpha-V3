@@ -1174,15 +1174,15 @@ export default function AttendancePage() {
       {/* HEADER & ADMIN TOGGLE */}
       <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
         <div>
-            <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3">
+            <h1 className="text-2xl md:text-3xl font-black text-ink tracking-tight flex items-center gap-3">
               <Clock className="text-accent-soft" size={28}/> {canAdmin && viewMode === 'team' ? 'Team Control Center' : 'My Worksheet'}
             </h1>
-            <p className="text-xs md:text-sm text-slate-500 font-semibold mt-1">Track shifts, log attendance, and run payroll invoices.</p>
+            <p className="text-xs md:text-sm text-ink-muted font-semibold mt-1">Track shifts, log attendance, and run payroll invoices.</p>
         </div>
         
         <div className="flex flex-col sm:flex-row items-center gap-3 w-full xl:w-auto overflow-x-auto pb-1">
             {/* GLOBAL DATE RANGE SELECTOR */}
-            <div className="flex items-center gap-2 bg-white p-1 rounded-xl border border-slate-200 shadow-sm shrink-0">
+            <div className="flex items-center gap-2 bg-surface p-1 rounded-xl border border-line shadow-sm shrink-0">
                 <select 
                     value={dateRangeType}
                     onChange={(e) => {
@@ -1207,22 +1207,22 @@ export default function AttendancePage() {
                 </select>
 
                 {dateRangeType === 'custom' && (
-                    <div className="flex items-center bg-slate-50 rounded-lg px-2 py-1 mx-1 border border-slate-100">
-                        <input type="date" value={startDate} onChange={e => {setStartDate(e.target.value); setDateRangeType('custom');}} className="bg-transparent text-xs font-bold text-slate-600 outline-none w-[110px]" />
+                    <div className="flex items-center bg-surface-subtle rounded-lg px-2 py-1 mx-1 border border-slate-100">
+                        <input type="date" value={startDate} onChange={e => {setStartDate(e.target.value); setDateRangeType('custom');}} className="bg-transparent text-xs font-bold text-ink-body outline-none w-[110px]" />
                         <span className="text-slate-300 mx-1 font-bold">-</span>
-                        <input type="date" value={endDate} onChange={e => {setEndDate(e.target.value); setDateRangeType('custom');}} className="bg-transparent text-xs font-bold text-slate-600 outline-none w-[110px]" />
+                        <input type="date" value={endDate} onChange={e => {setEndDate(e.target.value); setDateRangeType('custom');}} className="bg-transparent text-xs font-bold text-ink-body outline-none w-[110px]" />
                     </div>
                 )}
             </div>
 
             {/* ADMIN TOGGLE */}
             {canAdmin ? (
-                <div className="bg-slate-100 p-1 rounded-xl flex items-center shadow-inner border border-slate-200 shrink-0">
-                    <button onClick={() => setViewMode('personal')} className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${viewMode === 'personal' ? 'bg-white text-slate-900 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}>{language === 'ar' ? 'تعقبي' : 'My Tracker'}</button>
-                    <button onClick={() => setViewMode('team')} className={`px-5 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${viewMode === 'team' ? 'bg-white text-accent shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}><Users size={16}/> {language === 'ar' ? 'نظرة الفريق' : 'Team Overview'}</button>
+                <div className="bg-surface-muted p-1 rounded-xl flex items-center shadow-inner border border-line shrink-0">
+                    <button onClick={() => setViewMode('personal')} className={`px-5 py-2 rounded-lg text-sm font-bold transition-all ${viewMode === 'personal' ? 'bg-surface text-ink shadow-sm border border-line' : 'text-ink-muted hover:text-slate-700'}`}>{language === 'ar' ? 'تعقبي' : 'My Tracker'}</button>
+                    <button onClick={() => setViewMode('team')} className={`px-5 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2 ${viewMode === 'team' ? 'bg-surface text-accent shadow-sm border border-line' : 'text-ink-muted hover:text-slate-700'}`}><Users size={16}/> {language === 'ar' ? 'نظرة الفريق' : 'Team Overview'}</button>
                 </div>
             ) : (
-                <div className="bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm flex items-center gap-2 shrink-0">
+                <div className="bg-surface px-4 py-2 rounded-xl border border-line shadow-sm flex items-center gap-2 shrink-0">
                     <CalendarDays size={16} className="text-slate-400"/>
                     <span className="font-bold text-sm">{new Date().toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</span>
                 </div>

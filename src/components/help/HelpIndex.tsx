@@ -49,8 +49,8 @@ export default function HelpIndex({ articles }: { articles: { en: HelpArticle[];
           <LifeBuoy size={28} />
         </span>
         <div>
-          <h1 className="text-2xl font-black tracking-tight text-slate-900">{txt.title}</h1>
-          <p className="mt-1 text-sm font-semibold text-slate-500">{txt.sub}</p>
+          <h1 className="text-2xl font-black tracking-tight text-ink">{txt.title}</h1>
+          <p className="mt-1 text-sm font-semibold text-ink-muted">{txt.sub}</p>
         </div>
       </header>
 
@@ -64,15 +64,15 @@ export default function HelpIndex({ articles }: { articles: { en: HelpArticle[];
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder={txt.search}
-          className={`w-full rounded-2xl border border-slate-200/60 bg-white py-4 text-sm font-bold text-slate-800 shadow-sm outline-none transition-all focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 ${
+          className={`w-full rounded-2xl border border-slate-200/60 bg-surface py-4 text-sm font-bold text-slate-800 shadow-sm outline-none transition-all focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 ${
             isRTL ? "pr-12 pl-4" : "pl-12 pr-4"
           }`}
         />
       </div>
 
       {sections.length === 0 ? (
-        <div className="rounded-[2rem] border border-slate-200 bg-slate-50 p-12 text-center">
-          <p className="text-lg font-bold text-slate-600">{txt.none}</p>
+        <div className="rounded-[2rem] border border-line bg-surface-subtle p-12 text-center">
+          <p className="text-lg font-bold text-ink-body">{txt.none}</p>
           <p className="mt-2 text-sm font-semibold text-slate-400">{txt.noneSub}</p>
         </div>
       ) : (
@@ -80,7 +80,7 @@ export default function HelpIndex({ articles }: { articles: { en: HelpArticle[];
           {sections.map((section) => (
             <section key={section.id}>
               <div className="mb-4">
-                <h2 className="text-lg font-black tracking-tight text-slate-900">
+                <h2 className="text-lg font-black tracking-tight text-ink">
                   {isAr ? section.titleAr : section.titleEn}
                 </h2>
                 <p className="mt-0.5 text-xs font-semibold text-slate-400">
@@ -93,11 +93,11 @@ export default function HelpIndex({ articles }: { articles: { en: HelpArticle[];
                   <Link
                     key={a.slug}
                     href={`/help/${a.slug}`}
-                    className="group flex items-center gap-4 rounded-3xl border border-slate-200/60 bg-white p-5 shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
+                    className="group flex items-center gap-4 rounded-3xl border border-slate-200/60 bg-surface p-5 shadow-sm transition-all hover:border-line-strong hover:shadow-md"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-sm font-black tracking-tight text-slate-900">{a.title}</h3>
+                        <h3 className="text-sm font-black tracking-tight text-ink">{a.title}</h3>
                         {a.plan ? (
                           <span className="rounded-lg border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-violet-700">
                             {a.plan}
@@ -106,14 +106,14 @@ export default function HelpIndex({ articles }: { articles: { en: HelpArticle[];
                         {a.roles.map((r) => (
                           <span
                             key={r}
-                            className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-slate-500"
+                            className="rounded-lg border border-line bg-surface-subtle px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-ink-muted"
                           >
                             {r}
                           </span>
                         ))}
                       </div>
                       {a.summary ? (
-                        <p className="mt-1.5 text-xs font-semibold leading-relaxed text-slate-500">
+                        <p className="mt-1.5 text-xs font-semibold leading-relaxed text-ink-muted">
                           {a.summary}
                         </p>
                       ) : null}

@@ -608,14 +608,14 @@ export default function FinancePage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between shrink-0">
             <div>
               <p className="text-[11px] font-black uppercase tracking-[0.2em] text-accent">Alpha</p>
-              <h1 className="text-2xl xl:text-3xl font-black text-slate-900 tracking-tight mt-1">{t("finance")}</h1>
-              <p className="text-slate-500 font-semibold text-sm mt-1 tabular-nums">{periodLabel}</p>
+              <h1 className="text-2xl xl:text-3xl font-black text-ink tracking-tight mt-1">{t("finance")}</h1>
+              <p className="text-ink-muted font-semibold text-sm mt-1 tabular-nums">{periodLabel}</p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              <button type="button" onClick={handleLangToggle} className="w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300 flex items-center justify-center font-bold text-[10px] uppercase tracking-widest shadow-sm transition-colors">
+              <button type="button" onClick={handleLangToggle} className="w-10 h-10 rounded-xl bg-surface border border-line text-ink-body hover:bg-surface-subtle hover:border-line-strong flex items-center justify-center font-bold text-[10px] uppercase tracking-widest shadow-sm transition-colors">
                 {language === "ar" ? "EN" : "ع"}
               </button>
-              <button type="button" className="w-10 h-10 rounded-xl bg-white border border-slate-200 text-slate-500 hover:text-accent flex items-center justify-center shadow-sm transition-colors relative">
+              <button type="button" className="w-10 h-10 rounded-xl bg-surface border border-line text-ink-muted hover:text-accent flex items-center justify-center shadow-sm transition-colors relative">
                 <Bell size={18} />
                 <span className="absolute top-2 end-2 w-1.5 h-1.5 bg-red-500 rounded-full border-2 border-white" />
               </button>
@@ -666,11 +666,11 @@ export default function FinancePage() {
             </div>
 
             <div className="xl:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
+              <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "المتحصل" : "Cash in"}</p>
-                    <p className="text-xs text-slate-500 mt-1 font-medium">{language === "ar" ? "دفعات فعلية" : "Payments received"}</p>
+                    <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "دفعات فعلية" : "Payments received"}</p>
                   </div>
                   <div className="w-11 h-11 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
                     <TrendingUp size={22} />
@@ -680,14 +680,14 @@ export default function FinancePage() {
                   {isLoading ? <Loader2 className="w-6 h-6 animate-spin text-emerald-300" /> : formatCurrency(kpiStats.grossIncome)}
                 </p>
               </div>
-              <div className="rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
+              <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "خصومات ممنوحة" : "Discounts granted"}</p>
                     {/* Named apart from the cash tiles on purpose: this is what was given away when
                         treatments were charged in this period, not what was collected. */}
                     <p
-                      className="text-xs text-slate-500 mt-1 font-medium"
+                      className="text-xs text-ink-muted mt-1 font-medium"
                       title={language === "ar"
                         ? "محسوبة على الإجراءات اللي اتسجلت في الفترة دي، مش على المتحصل."
                         : "Counted on treatments charged in this period, not on cash collected."}
@@ -703,11 +703,11 @@ export default function FinancePage() {
                   {isLoading ? <Loader2 className="w-6 h-6 animate-spin text-violet-300" /> : formatCurrency(kpiStats.totalProcedureDiscounts)}
                 </p>
               </div>
-              <div className="rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
+              <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "استقطاعات" : "Deductions"}</p>
-                    <p className="text-xs text-slate-500 mt-1 font-medium">{language === "ar" ? "من المتحصل" : "From cash-in"}</p>
+                    <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "من المتحصل" : "From cash-in"}</p>
                   </div>
                   <div className="w-11 h-11 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
                     <Users size={22} />
@@ -721,11 +721,11 @@ export default function FinancePage() {
                   )}
                 </p>
               </div>
-              <div className="rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
+              <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 p-5 xl:p-6 shadow-sm flex flex-col justify-between min-h-[120px] ring-1 ring-slate-100">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">{language === "ar" ? "مصروفات" : "Expenses"}</p>
-                    <p className="text-xs text-slate-500 mt-1 font-medium">{language === "ar" ? "يدوي" : "Manual ledger"}</p>
+                    <p className="text-xs text-ink-muted mt-1 font-medium">{language === "ar" ? "يدوي" : "Manual ledger"}</p>
                   </div>
                   <div className="w-11 h-11 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
                     <TrendingDown size={22} />
@@ -741,13 +741,13 @@ export default function FinancePage() {
           {/* What was given away, and on what. A total with no breakdown is a number nobody can
               act on — "we discounted 8,000" invites the question this table answers. */}
           {discountsByReason.length > 0 && (
-            <div className="rounded-2xl xl:rounded-3xl bg-white border border-slate-200/80 shadow-sm p-5 xl:p-6">
+            <div className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 shadow-sm p-5 xl:p-6">
               <div className="flex items-center justify-between gap-3 mb-4">
                 <div>
                   <p className="text-[11px] font-black text-slate-400 uppercase tracking-wider">
                     {language === "ar" ? "الخصومات حسب السبب" : "Discounts by reason"}
                   </p>
-                  <p className="text-xs text-slate-500 mt-1 font-medium">
+                  <p className="text-xs text-ink-muted mt-1 font-medium">
                     {language === "ar" ? "على العلاج المسجل في الفترة" : "On treatments charged this period"}
                   </p>
                 </div>
@@ -778,12 +778,12 @@ export default function FinancePage() {
           {/* Toolbar */}
           <div className="rounded-2xl xl:rounded-3xl bg-white/95 backdrop-blur border border-slate-200/80 shadow-sm p-4 xl:p-5 flex flex-col gap-4 shrink-0 sticky top-0 z-20">
             <div className="flex flex-wrap items-center gap-3">
-              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/60 shrink-0">
+              <div className="flex bg-surface-muted p-1 rounded-xl border border-slate-200/60 shrink-0">
                 <button
                   type="button"
                   onClick={() => handleTimeViewChange("daily")}
                   className={`flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-lg transition-all ${
-                    timeView === "daily" ? "bg-white shadow text-accent border border-slate-200/50" : "text-slate-500"
+                    timeView === "daily" ? "bg-surface shadow text-accent border border-slate-200/50" : "text-ink-muted"
                   }`}
                 >
                   <CalendarDays size={16} />
@@ -793,7 +793,7 @@ export default function FinancePage() {
                   type="button"
                   onClick={() => handleTimeViewChange("monthly")}
                   className={`flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-lg transition-all ${
-                    timeView === "monthly" ? "bg-white shadow text-accent border border-slate-200/50" : "text-slate-500"
+                    timeView === "monthly" ? "bg-surface shadow text-accent border border-slate-200/50" : "text-ink-muted"
                   }`}
                 >
                   <CalendarClock size={16} />
@@ -803,7 +803,7 @@ export default function FinancePage() {
                   type="button"
                   onClick={() => handleTimeViewChange("range")}
                   className={`flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-lg transition-all ${
-                    timeView === "range" ? "bg-white shadow text-accent border border-slate-200/50" : "text-slate-500"
+                    timeView === "range" ? "bg-surface shadow text-accent border border-slate-200/50" : "text-ink-muted"
                   }`}
                 >
                   <CalendarDays size={16} />
@@ -816,14 +816,14 @@ export default function FinancePage() {
                     type="date"
                     value={customStartDate}
                     onChange={(e) => setCustomStartDate(e.target.value)}
-                    className="bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[160px] cursor-pointer focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 transition-all"
+                    className="bg-surface-subtle border border-line rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[160px] cursor-pointer focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 transition-all"
                   />
                   <span className="text-slate-400 font-bold text-xs">→</span>
                   <input
                     type="date"
                     value={customEndDate}
                     onChange={(e) => setCustomEndDate(e.target.value)}
-                    className="bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[160px] cursor-pointer focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 transition-all"
+                    className="bg-surface-subtle border border-line rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[160px] cursor-pointer focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 transition-all"
                   />
                 </div>
               ) : (
@@ -831,7 +831,7 @@ export default function FinancePage() {
                   type={timeView === "daily" ? "date" : "month"}
                   value={dateRange}
                   onChange={(e) => setDateRange(e.target.value)}
-                  className="bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[160px] cursor-pointer focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 transition-all"
+                  className="bg-surface-subtle border border-line rounded-xl text-sm font-bold text-slate-800 outline-none px-4 py-2.5 min-w-[160px] cursor-pointer focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/20 transition-all"
                 />
               )}
               <div className="flex-1 min-w-[80px]" />
@@ -863,7 +863,7 @@ export default function FinancePage() {
             <div
               className={`${isFiltersExpanded ? "flex" : "hidden"} xl:flex flex-col lg:flex-row flex-wrap gap-3 lg:items-center lg:justify-between border-t border-slate-100 pt-4`}
             >
-              <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200/60 shrink-0">
+              <div className="flex bg-surface-muted p-1 rounded-xl border border-slate-200/60 shrink-0">
                 {(["all", "income", "expense"] as const).map((type) => (
                   <button
                     key={type}
@@ -881,7 +881,7 @@ export default function FinancePage() {
                 <select
                   value={filterDoctor}
                   onChange={(e) => setFilterDoctor(e.target.value)}
-                  className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none w-full sm:max-w-[220px] cursor-pointer focus:border-accent-soft"
+                  className="bg-surface-subtle border border-line rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none w-full sm:max-w-[220px] cursor-pointer focus:border-accent-soft"
                 >
                   <option value="all">{language === "ar" ? "كل الأطباء" : "All doctors"}</option>
                   {availableDoctors.map((d) => (
@@ -897,7 +897,7 @@ export default function FinancePage() {
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder={language === "ar" ? "بحث..." : "Search patient or note..."}
-                    className="bg-slate-50 border border-slate-200 rounded-xl ps-10 pe-4 py-2.5 text-sm font-semibold text-slate-800 outline-none w-full focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/15"
+                    className="bg-surface-subtle border border-line rounded-xl ps-10 pe-4 py-2.5 text-sm font-semibold text-slate-800 outline-none w-full focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/15"
                   />
                 </div>
                 <div className="flex gap-2 shrink-0">
@@ -905,7 +905,7 @@ export default function FinancePage() {
                     type="button"
                     onClick={openPdfModal}
                     disabled={isLoading}
-                    className="flex-1 sm:flex-none inline-flex justify-center items-center gap-2 bg-slate-900 text-white hover:bg-slate-700 px-4 py-2.5 rounded-xl font-bold text-xs border border-slate-800 disabled:opacity-50 transition-colors shadow-md"
+                    className="flex-1 sm:flex-none inline-flex justify-center items-center gap-2 bg-accent text-ink-on-accent hover:bg-accent-strong px-4 py-2.5 rounded-xl font-bold text-xs border border-slate-800 disabled:opacity-50 transition-colors shadow-md"
                   >
                     <FileText size={16} />
                     {language === "ar" ? "تقرير PDF" : "PDF Report"}
@@ -916,20 +916,20 @@ export default function FinancePage() {
           </div>
 
           {/* Ledger */}
-          <div className="bg-white rounded-2xl xl:rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden flex flex-col flex-1 min-h-[420px] ring-1 ring-slate-100">
+          <div className="bg-surface rounded-2xl xl:rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden flex flex-col flex-1 min-h-[420px] ring-1 ring-slate-100">
             {isLoading ? (
               <div className="flex-1 flex flex-col items-center justify-center text-slate-400 min-h-[320px]">
                 <Loader2 size={28} className="animate-spin mb-3 text-accent-soft" />
-                <p className="font-bold text-xs text-slate-500 uppercase tracking-widest">
+                <p className="font-bold text-xs text-ink-muted uppercase tracking-widest">
                   {language === "ar" ? "جاري التحميل..." : "Loading ledger..."}
                 </p>
               </div>
             ) : filteredList.length === 0 ? (
               <div className="flex-1 flex flex-col items-center justify-center text-slate-400 min-h-[320px] px-6">
-                <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mb-4">
+                <div className="w-16 h-16 rounded-2xl bg-surface-muted flex items-center justify-center mb-4">
                   <DollarSign className="w-8 h-8 text-slate-300" />
                 </div>
-                <p className="font-bold text-slate-600">{t("noData")}</p>
+                <p className="font-bold text-ink-body">{t("noData")}</p>
                 <p className="text-sm text-slate-400 mt-1 text-center max-w-sm">
                   {language === "ar" ? "غيّر التاريخ أو الفلاتر لرؤية المعاملات." : "Try another date or clear filters to see transactions."}
                 </p>
@@ -940,7 +940,7 @@ export default function FinancePage() {
                 <div className="hidden lg:block overflow-x-auto flex-1">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="bg-slate-50/90 border-b border-slate-200 text-[11px] font-black uppercase tracking-wider text-slate-500">
+                      <tr className="bg-slate-50/90 border-b border-line text-[11px] font-black uppercase tracking-wider text-ink-muted">
                         <th className="text-start py-4 px-6 w-[110px] whitespace-nowrap">{language === "ar" ? "التاريخ" : "Date"}</th>
                         <th className="text-start py-4 px-4 min-w-[200px]">{language === "ar" ? "التفاصيل" : "Details"}</th>
                         <th className="text-start py-4 px-4 w-[140px]">{language === "ar" ? "المريض" : "Patient"}</th>
@@ -955,7 +955,7 @@ export default function FinancePage() {
                         return (
                           <tr key={tx.id} className="hover:bg-slate-50/80 transition-colors group">
                             <td className="py-4 px-6 align-top">
-                              <span className="font-bold text-slate-600 tabular-nums text-xs whitespace-nowrap">{tx.date}</span>
+                              <span className="font-bold text-ink-body tabular-nums text-xs whitespace-nowrap">{tx.date}</span>
                             </td>
                             <td className="py-4 px-4 align-top min-w-0">
                               <div className="flex items-start gap-2">
@@ -967,7 +967,7 @@ export default function FinancePage() {
                                   {isExpense ? <TrendingDown size={16} /> : <TrendingUp size={16} />}
                                 </span>
                                 <div className="min-w-0">
-                                  <p className="font-bold text-slate-900 leading-snug">
+                                  <p className="font-bold text-ink leading-snug">
                                     {tx.description}
                                     {tx.isRecurring ? (
                                       <span className="ms-2 align-middle text-[10px] bg-accent-soft text-accent-strong px-1.5 py-0.5 rounded-md font-black uppercase">
@@ -1049,7 +1049,7 @@ export default function FinancePage() {
                                     <button
                                       type="button"
                                       onClick={() => handleEdit(tx)}
-                                      className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-accent hover:border-accent-soft shadow-sm"
+                                      className="p-2 rounded-lg bg-surface border border-line text-ink-muted hover:text-accent hover:border-accent-soft shadow-sm"
                                     >
                                       <Edit2 size={16} />
                                     </button>
@@ -1058,7 +1058,7 @@ export default function FinancePage() {
                                       type="button"
                                       disabled
                                       title={language === "ar" ? "تعديل المدفوعات يتم من ملف المريض" : "Edit payments from patient profile"}
-                                      className="p-2 rounded-lg bg-slate-50 border border-slate-200 text-slate-300 shadow-sm cursor-not-allowed"
+                                      className="p-2 rounded-lg bg-surface-subtle border border-line text-slate-300 shadow-sm cursor-not-allowed"
                                     >
                                       <Edit2 size={16} />
                                     </button>
@@ -1068,7 +1068,7 @@ export default function FinancePage() {
                                   <button
                                     type="button"
                                     onClick={() => handleDelete(tx.id, tx.description)}
-                                    className="p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:text-red-600 hover:bg-red-50 shadow-sm"
+                                    className="p-2 rounded-lg bg-surface border border-line text-ink-muted hover:text-red-600 hover:bg-red-50 shadow-sm"
                                   >
                                     <Trash2 size={16} />
                                   </button>
@@ -1087,7 +1087,7 @@ export default function FinancePage() {
                   {paginatedTransactions.map((tx) => {
                     const isExpense = tx.type === "expense";
                     return (
-                      <div key={tx.id} className="p-4 hover:bg-slate-50 transition-colors flex flex-col gap-3">
+                      <div key={tx.id} className="p-4 hover:bg-surface-subtle transition-colors flex flex-col gap-3">
                         <div className="flex justify-between items-start gap-3">
                           <div className="flex items-start gap-3 min-w-0">
                             <div
@@ -1098,7 +1098,7 @@ export default function FinancePage() {
                               {isExpense ? <TrendingDown size={18} /> : <TrendingUp size={18} />}
                             </div>
                             <div className="min-w-0">
-                              <h4 className="font-bold text-slate-900 text-sm leading-snug">{tx.description}</h4>
+                              <h4 className="font-bold text-ink text-sm leading-snug">{tx.description}</h4>
                               {tx.patientId ? (
                                 <button
                                   onClick={() => router.push(`/patients/${tx.patientId}?tab=finance&tx=${tx.id}`)}
@@ -1151,7 +1151,7 @@ export default function FinancePage() {
                               <button
                                 type="button"
                                 onClick={() => handleEdit(tx)}
-                                className="p-2 rounded-lg border border-slate-200 text-slate-600"
+                                className="p-2 rounded-lg border border-line text-ink-body"
                               >
                                 <Edit2 size={16} />
                               </button>
@@ -1160,7 +1160,7 @@ export default function FinancePage() {
                                 type="button"
                                 disabled
                                 title={language === "ar" ? "تعديل المدفوعات يتم من ملف المريض" : "Edit payments from patient profile"}
-                                className="p-2 rounded-lg border border-slate-200 text-slate-300 cursor-not-allowed"
+                                className="p-2 rounded-lg border border-line text-slate-300 cursor-not-allowed"
                               >
                                 <Edit2 size={16} />
                               </button>
@@ -1170,7 +1170,7 @@ export default function FinancePage() {
                             <button
                               type="button"
                               onClick={() => handleDelete(tx.id, tx.description)}
-                              className="p-2 rounded-lg border border-slate-200 text-red-600"
+                              className="p-2 rounded-lg border border-line text-red-600"
                             >
                               <Trash2 size={16} />
                             </button>
@@ -1183,7 +1183,7 @@ export default function FinancePage() {
 
                 {totalPages > 1 && (
                   <div className="p-4 border-t border-slate-100 bg-slate-50/80 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
-                    <span className="text-xs font-bold text-slate-500">
+                    <span className="text-xs font-bold text-ink-muted">
                       {(currentPage - 1) * ITEMS_PER_PAGE + 1}–{Math.min(currentPage * ITEMS_PER_PAGE, filteredList.length)} /{" "}
                       {filteredList.length}
                     </span>
@@ -1192,7 +1192,7 @@ export default function FinancePage() {
                         type="button"
                         onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
                         disabled={currentPage === 1}
-                        className="p-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                        className="p-2 rounded-xl bg-surface border border-line text-ink-body hover:bg-surface-subtle disabled:opacity-40"
                       >
                         <ChevronLeft size={18} />
                       </button>
@@ -1214,7 +1214,7 @@ export default function FinancePage() {
                         type="button"
                         onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
                         disabled={currentPage === totalPages}
-                        className="p-2 rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+                        className="p-2 rounded-xl bg-surface border border-line text-ink-body hover:bg-surface-subtle disabled:opacity-40"
                       >
                         <ChevronRight size={18} />
                       </button>
@@ -1241,7 +1241,7 @@ export default function FinancePage() {
                     <p className="text-[10px] text-slate-400 font-semibold">{language === "ar" ? "اختر محتوى التقرير" : "Customize your report"}</p>
                   </div>
                 </div>
-                <button onClick={() => setIsPdfModalOpen(false)} className="p-1.5 bg-slate-100 hover:bg-red-50 hover:text-red-500 rounded-full text-slate-400 transition-colors">
+                <button onClick={() => setIsPdfModalOpen(false)} className="p-1.5 bg-surface-muted hover:bg-red-50 hover:text-red-500 rounded-full text-slate-400 transition-colors">
                   <X size={16} />
                 </button>
               </div>
@@ -1249,7 +1249,7 @@ export default function FinancePage() {
               <div className="p-6 space-y-5">
                 {/* Date Range */}
                 <div>
-                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">{language === "ar" ? "النطاق الزمني" : "Date Range"}</p>
+                  <p className="text-[10px] font-black text-ink-muted uppercase tracking-wider mb-2">{language === "ar" ? "النطاق الزمني" : "Date Range"}</p>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block mb-1">{language === "ar" ? "من" : "From"}</label>
@@ -1257,7 +1257,7 @@ export default function FinancePage() {
                         type="date"
                         value={pdfDateFrom}
                         onChange={e => setPdfDateFrom(e.target.value)}
-                        className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/15"
+                        className="w-full px-3 py-2.5 bg-surface-subtle border border-line rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/15"
                       />
                     </div>
                     <div>
@@ -1266,7 +1266,7 @@ export default function FinancePage() {
                         type="date"
                         value={pdfDateTo}
                         onChange={e => setPdfDateTo(e.target.value)}
-                        className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/15"
+                        className="w-full px-3 py-2.5 bg-surface-subtle border border-line rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-accent-soft focus:ring-2 focus:ring-accent-soft/15"
                       />
                     </div>
                   </div>
@@ -1274,7 +1274,7 @@ export default function FinancePage() {
 
                 {/* Section checkboxes */}
                 <div>
-                  <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">{language === "ar" ? "المحتوى" : "Include in Report"}</p>
+                  <p className="text-[10px] font-black text-ink-muted uppercase tracking-wider mb-2">{language === "ar" ? "المحتوى" : "Include in Report"}</p>
                   <div className="space-y-1.5">
                     {([
                       { key: 'kpis', label: language === 'ar' ? '📊 ملخص المؤشرات (KPI)' : '📊 Summary KPIs' },
@@ -1326,31 +1326,31 @@ export default function FinancePage() {
                     <button onClick={closeModal} className="p-1.5 bg-slate-100 hover:bg-red-50 rounded-full text-slate-400 hover:text-red-500"><X size={16}/></button>
                  </div>
                  <form onSubmit={handleSave} className="p-5 space-y-4">
-                    <div className="flex bg-slate-100 p-1 rounded-lg">
-                       <button type="button" onClick={() => setFormType('income')} className={`flex-1 py-1.5 text-[11px] font-bold uppercase rounded-md ${formType === 'income' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500'}`}>Income</button>
-                       <button type="button" data-tour="finance-type-expense" onClick={() => setFormType('expense')} className={`flex-1 py-1.5 text-[11px] font-bold uppercase rounded-md ${formType === 'expense' ? 'bg-white text-red-600 shadow-sm' : 'text-slate-500'}`}>Expense</button>
+                    <div className="flex bg-surface-muted p-1 rounded-lg">
+                       <button type="button" onClick={() => setFormType('income')} className={`flex-1 py-1.5 text-[11px] font-bold uppercase rounded-md ${formType === 'income' ? 'bg-surface text-emerald-600 shadow-sm' : 'text-ink-muted'}`}>Income</button>
+                       <button type="button" data-tour="finance-type-expense" onClick={() => setFormType('expense')} className={`flex-1 py-1.5 text-[11px] font-bold uppercase rounded-md ${formType === 'expense' ? 'bg-surface text-red-600 shadow-sm' : 'text-ink-muted'}`}>Expense</button>
                     </div>
                     <div className="space-y-1">
-                       <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider pl-1">{t('date')}</label>
-                       <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200/60 rounded-lg text-xs font-semibold text-slate-900 outline-none focus:border-accent-soft"/>
+                       <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider pl-1">{t('date')}</label>
+                       <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs font-semibold text-ink outline-none focus:border-accent-soft"/>
                     </div>
                     <div className="space-y-1">
-                       <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider pl-1">{t('description')}</label>
-                       <input required value={description} onChange={e => setDescription(e.target.value)} placeholder="e.g. Electricity Bill" data-tour="finance-expense-desc" className="w-full px-3 py-2 bg-slate-50 border border-slate-200/60 rounded-lg text-xs font-semibold text-slate-900 outline-none focus:border-accent-soft"/>
+                       <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider pl-1">{t('description')}</label>
+                       <input required value={description} onChange={e => setDescription(e.target.value)} placeholder="e.g. Electricity Bill" data-tour="finance-expense-desc" className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs font-semibold text-ink outline-none focus:border-accent-soft"/>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                        <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider pl-1">{language === 'ar' ? 'المبلغ' : 'Amount'}</label>
-                          <input required type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" className="w-full px-3 py-2 bg-slate-50 border border-slate-200/60 rounded-lg text-xs font-semibold text-slate-900 outline-none focus:border-accent-soft"/>
+                          <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider pl-1">{language === 'ar' ? 'المبلغ' : 'Amount'}</label>
+                          <input required type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs font-semibold text-ink outline-none focus:border-accent-soft"/>
                        </div>
                        <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-slate-500 uppercase tracking-wider pl-1">{t('category')}</label>
-                          <select value={category} onChange={e => setCategory(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200/60 rounded-lg text-xs font-semibold text-slate-900 outline-none focus:border-accent-soft">
+                          <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider pl-1">{t('category')}</label>
+                          <select value={category} onChange={e => setCategory(e.target.value)} className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs font-semibold text-ink outline-none focus:border-accent-soft">
                              <option value="General">General</option><option value="Supplies">Supplies</option><option value="Rent">Rent</option><option value="Salary">Salary</option><option value="Lab">Lab</option>
                           </select>
                        </div>
                     </div>
-                    <button data-tour="finance-expense-save" type="submit" className="w-full py-3 bg-slate-900 text-white rounded-lg font-bold text-xs hover:bg-slate-800 active:scale-95 shadow-sm mt-2 flex justify-center items-center gap-1.5"><Save size={14}/> {t('save')}</button>
+                    <button data-tour="finance-expense-save" type="submit" className="w-full py-3 bg-accent text-ink-on-accent rounded-lg font-bold text-xs hover:bg-accent-strong active:scale-95 shadow-sm mt-2 flex justify-center items-center gap-1.5"><Save size={14}/> {t('save')}</button>
                  </form>
               </div>
             </div>

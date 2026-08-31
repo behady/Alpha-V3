@@ -109,7 +109,7 @@ export default function OrthoDashboard() {
 
   return (
     <PermissionGuard permission="access.ortho" allowedRoles={["Dentist"]}>
-      <div className="min-h-screen bg-[#f7f7fb] pb-24 lg:pb-10">
+      <div className="min-h-screen bg-surface-subtle pb-24 lg:pb-10">
       <div className="max-w-7xl mx-auto p-4 md:p-8 animate-in fade-in">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
@@ -134,7 +134,7 @@ export default function OrthoDashboard() {
 
         {/* Controls */}
         <div className="flex flex-col sm:flex-row gap-3 mb-5">
-          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-2xl px-4 py-2.5 flex-1 shadow-sm">
+          <div className="flex items-center gap-2 bg-surface border border-line rounded-2xl px-4 py-2.5 flex-1 shadow-sm">
             <Search size={16} className="text-slate-400 shrink-0" />
             <input
               value={search}
@@ -146,7 +146,7 @@ export default function OrthoDashboard() {
               <button onClick={() => setSearch("")} className="text-slate-400 hover:text-slate-700"><X size={15} /></button>
             )}
           </div>
-          <div className="flex bg-white border border-slate-200 rounded-2xl p-1 shadow-sm">
+          <div className="flex bg-surface border border-line rounded-2xl p-1 shadow-sm">
             {(["Active", "Completed", "All"] as Filter[]).map(f => (
               <button
                 key={f}
@@ -165,14 +165,14 @@ export default function OrthoDashboard() {
         {loading ? (
           <div className="flex justify-center py-20"><Loader2 className="animate-spin text-purple-600" size={40} /></div>
         ) : filtered.length === 0 ? (
-          <div className="bg-white rounded-3xl border border-slate-100 shadow-sm text-center py-20 px-6">
-            <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+          <div className="bg-surface rounded-3xl border border-slate-100 shadow-sm text-center py-20 px-6">
+            <div className="w-16 h-16 bg-surface-subtle rounded-2xl flex items-center justify-center mx-auto mb-4">
               <Stethoscope size={28} className="text-slate-300" />
             </div>
-            <p className="font-black text-slate-900 text-lg">
+            <p className="font-black text-ink text-lg">
               {search ? "No matching cases" : filter === "Active" ? "No active cases" : "Nothing here yet"}
             </p>
-            <p className="text-slate-500 font-medium mt-1">
+            <p className="text-ink-muted font-medium mt-1">
               {search ? "Try a different name or phone number." : "Open a patient profile and tap “Ortho” to activate a case."}
             </p>
           </div>
@@ -193,7 +193,7 @@ export default function OrthoDashboard() {
 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <h3 className="font-black text-slate-900 truncate group-hover:text-purple-700 transition-colors">{c.patientName || "Unnamed"}</h3>
+                      <h3 className="font-black text-ink truncate group-hover:text-purple-700 transition-colors">{c.patientName || "Unnamed"}</h3>
                       <span className={`text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded shrink-0 ${isDone ? "bg-sky-50 text-sky-600" : st === "Retention" ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-emerald-600"}`}>
                         {st}
                       </span>
@@ -222,13 +222,13 @@ export default function OrthoDashboard() {
 
 function StatCard({ icon, label, value, accent }: { icon: React.ReactNode; label: string; value: number; accent: string }) {
   return (
-    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-4 py-3.5 flex items-center gap-3">
+    <div className="bg-surface rounded-2xl border border-slate-100 shadow-sm px-4 py-3.5 flex items-center gap-3">
       <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: `${accent}14`, color: accent }}>
         {icon}
       </div>
       <div className="min-w-0">
         <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest leading-tight truncate">{label}</div>
-        <div className="text-xl font-black text-slate-900 tabular-nums leading-tight">{value}</div>
+        <div className="text-xl font-black text-ink tabular-nums leading-tight">{value}</div>
       </div>
     </div>
   );

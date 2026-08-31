@@ -105,7 +105,7 @@ export default function AppointmentStagePicker({
       <div
         id="appointment-stage-picker-menu"
         role="listbox"
-        className="fixed z-[9999] rounded-xl border border-slate-200 bg-white py-1 shadow-xl shadow-slate-300/40 max-h-[min(320px,70vh)] overflow-y-auto custom-scrollbar"
+        className="fixed z-[9999] rounded-xl border border-line bg-surface py-1 shadow-xl shadow-slate-300/40 max-h-[min(320px,70vh)] overflow-y-auto custom-scrollbar"
         style={{ top: menuPos.top, left: menuPos.left, width: menuPos.width }}
         onClick={stop}
         onMouseDown={stop}
@@ -125,7 +125,7 @@ export default function AppointmentStagePicker({
                 onChange(stage.value);
                 setOpen(false);
               }}
-              className={`flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs font-bold transition-colors hover:bg-slate-50 ${
+              className={`flex w-full items-center gap-2 px-3 py-2.5 text-left text-xs font-bold transition-colors hover:bg-surface-subtle ${
                 active ? "bg-primary-50 text-primary-800" : "text-slate-700"
               }`}
             >
@@ -160,7 +160,7 @@ export default function AppointmentStagePicker({
           aria-haspopup="listbox"
           aria-label={language === "ar" ? "مراحل الموعد" : "Appointment stages"}
           onClick={toggleOpen}
-          className={`rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800 transition-colors ${
+          className={`rounded-md text-ink-muted hover:bg-surface-muted hover:text-slate-800 transition-colors ${
             compact ? "p-0.5" : "p-1"
           }`}
         >

@@ -136,7 +136,7 @@ export default function MisplacedRecordsTab() {
                       {" · belongs to "}
                       <span className="text-emerald-300 font-bold">{f.belongsToClinicNames.join(" / ")}</span>
                     </p>
-                    <p className="text-[11px] text-slate-600 mt-0.5 font-mono">
+                    <p className="text-[11px] text-ink-body mt-0.5 font-mono">
                       {f.collection}/{f.documentId} · patient {f.patientId}
                     </p>
                   </div>

@@ -367,7 +367,7 @@ export default function TeethChart({
 
         {/* Tooth number for Buccal upper */}
         {!isUpper && viewType === "buccal" && !perioMode && (
-           <div className={`text-[10px] sm:text-xs font-bold tabular-nums tracking-tight transition-colors ${isActive ? "text-blue-600" : "text-slate-400 group-hover:text-slate-600"} ${dense ? "mt-0.5" : "mt-2"}`}>
+           <div className={`text-[10px] sm:text-xs font-bold tabular-nums tracking-tight transition-colors ${isActive ? "text-blue-600" : "text-slate-400 group-hover:text-ink-body"} ${dense ? "mt-0.5" : "mt-2"}`}>
              {id}
            </div>
         )}
@@ -444,7 +444,7 @@ export default function TeethChart({
 
         {/* Tooth number for lower (below tooth) */}
         {isUpper && viewType === "buccal" && !perioMode && (
-           <div className={`text-[10px] sm:text-xs font-bold tabular-nums tracking-tight transition-colors ${isActive ? "text-blue-600" : "text-slate-400 group-hover:text-slate-600"} ${dense ? "mb-0.5" : "mb-2"}`}>
+           <div className={`text-[10px] sm:text-xs font-bold tabular-nums tracking-tight transition-colors ${isActive ? "text-blue-600" : "text-slate-400 group-hover:text-ink-body"} ${dense ? "mb-0.5" : "mb-2"}`}>
              {id}
            </div>
         )}
@@ -481,7 +481,7 @@ export default function TeethChart({
           {/* Arch label header */}
           <div className={`${dense ? "hidden" : "flex"} items-center justify-between px-3 mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400`}>
             <span>{language === "ar" ? "يمين" : "Right"}</span>
-            <span className="text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded-full">
+            <span className="text-ink-muted bg-surface-muted px-2.5 py-0.5 rounded-full">
               {isPrimary
                 ? language === "ar" ? "أسنان لبنية" : "Primary"
                 : language === "ar" ? "بالغ" : "Adult"}
@@ -490,7 +490,7 @@ export default function TeethChart({
           </div>
 
           {/* Chart canvas (Grid Layout) */}
-          <div className={`rounded-3xl border border-slate-100 bg-white shadow-sm px-2 ${dense ? "md:px-3 py-3" : "md:px-6 py-6 md:py-8"} flex flex-col items-center justify-center overflow-hidden`}>
+          <div className={`rounded-3xl border border-slate-100 bg-surface shadow-sm px-2 ${dense ? "md:px-3 py-3" : "md:px-6 py-6 md:py-8"} flex flex-col items-center justify-center overflow-hidden`}>
             <div className={`flex flex-col ${dense ? "gap-3" : "gap-6 md:gap-8"} w-full ${wide ? "max-w-none" : "max-w-3xl"} items-center relative`}>
                
                {/* Global cross dividers for the entire grid */}
@@ -589,7 +589,7 @@ export default function TeethChart({
                 className="w-2.5 h-2.5 rounded-full shrink-0"
                 style={{ backgroundColor: cat.color }}
               />
-              <span className="text-slate-500 font-medium">{language === "ar" ? cat.labelAr : cat.labelEn}</span>
+              <span className="text-ink-muted font-medium">{language === "ar" ? cat.labelAr : cat.labelEn}</span>
             </div>
           ))}
         </div>
@@ -616,7 +616,7 @@ export default function TeethChart({
                   <h3 className="font-bold text-slate-900 text-base sm:text-lg leading-tight">
                     {language === "ar" ? "التشخيص السريري" : "Clinical Diagnosis"}
                   </h3>
-                  <p className="text-[11px] font-semibold text-slate-500 mt-0.5">
+                  <p className="text-[11px] font-semibold text-ink-muted mt-0.5">
                     {isPrimary ? (language === "ar" ? "سنة لبنية" : "Primary tooth") : (language === "ar" ? "سنة دائمة" : "Adult tooth")}
                     {" · "}FDI {activeTooth}
                     {draftStatuses.length > 0 && (
@@ -629,7 +629,7 @@ export default function TeethChart({
               </div>
               <button
                 onClick={() => setActiveTooth(null)}
-                className="w-9 h-9 sm:w-10 sm:h-10 bg-slate-50 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-full flex items-center justify-center transition-colors"
+                className="w-9 h-9 sm:w-10 sm:h-10 bg-surface-subtle text-slate-400 hover:text-slate-800 hover:bg-surface-muted rounded-full flex items-center justify-center transition-colors"
               >
                 <X size={18} strokeWidth={2.4} />
               </button>
@@ -657,7 +657,7 @@ export default function TeethChart({
                       >
                         <span className="w-2 h-2 rounded-full" style={{ backgroundColor: cat?.color }} />
                         {language === "ar" ? opt.labelAr : opt.labelEn}
-                        <span className="w-4 h-4 rounded-full bg-white/70 group-hover:bg-white flex items-center justify-center">
+                        <span className="w-4 h-4 rounded-full bg-white/70 group-hover:bg-surface flex items-center justify-center">
                           <X size={10} strokeWidth={3} />
                         </span>
                       </button>
@@ -670,7 +670,7 @@ export default function TeethChart({
             {/* Body */}
             <div className="flex flex-col sm:flex-row flex-1 min-h-0 overflow-hidden bg-slate-50/40">
               {/* Categories sidebar */}
-              <div className="w-full sm:w-1/3 border-b sm:border-b-0 sm:border-r border-slate-200 bg-white flex flex-col shrink-0">
+              <div className="w-full sm:w-1/3 border-b sm:border-b-0 sm:border-r border-line bg-surface flex flex-col shrink-0">
                 <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/40 flex items-center gap-2">
                   <Search size={14} className="text-slate-400 shrink-0" />
                   <input
@@ -699,8 +699,8 @@ export default function TeethChart({
                         onClick={() => { setActiveCategory(cat.id); setSearch(""); }}
                         className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl whitespace-nowrap sm:whitespace-normal shrink-0 sm:w-full text-left transition-colors border ${
                           isActive
-                            ? "bg-slate-50 border-slate-200"
-                            : "bg-white border-transparent hover:bg-slate-50"
+                            ? "bg-surface-subtle border-line"
+                            : "bg-surface border-transparent hover:bg-surface-subtle"
                         }`}
                       >
                         <div
@@ -709,7 +709,7 @@ export default function TeethChart({
                         >
                           <Icon size={15} strokeWidth={2.2} />
                         </div>
-                        <span className={`text-xs sm:text-sm flex-1 ${isActive ? "font-bold text-slate-900" : "font-semibold text-slate-600"}`}>
+                        <span className={`text-xs sm:text-sm flex-1 ${isActive ? "font-bold text-ink" : "font-semibold text-ink-body"}`}>
                           {language === "ar" ? cat.labelAr : cat.labelEn}
                         </span>
                         {countInCat > 0 && (
@@ -732,7 +732,7 @@ export default function TeethChart({
                 <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 sm:p-6 space-y-5">
                   <div>
                     <div className="flex items-center justify-between mb-3">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">
+                      <label className="text-[11px] font-bold text-ink-muted uppercase tracking-widest">
                         {search
                           ? language === "ar" ? "نتائج البحث" : "Search results"
                           : language === "ar" ? "اختر التشخيصات (متعدد)" : "Select diagnoses (multi-select)"}
@@ -749,7 +749,7 @@ export default function TeethChart({
                       className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 transition-all duration-150 mb-3 ${
                         draftStatuses.length === 0
                           ? "border-emerald-400 bg-emerald-50/70 text-emerald-700 shadow-sm"
-                          : "border-slate-200 bg-white hover:border-emerald-300 text-slate-600"
+                          : "border-line bg-surface hover:border-emerald-300 text-ink-body"
                       }`}
                     >
                       <CheckCircle2 size={18} className={draftStatuses.length === 0 ? "text-emerald-500" : "text-slate-400"} />
@@ -766,7 +766,7 @@ export default function TeethChart({
                           <React.Fragment key={opt.id}>
                             <button
                               onClick={() => toggleDraftStatus(opt.id)}
-                              className="flex items-center gap-3 p-3 rounded-xl border-2 transition-all duration-150 text-left bg-white hover:shadow-sm"
+                              className="flex items-center gap-3 p-3 rounded-xl border-2 transition-all duration-150 text-left bg-surface hover:shadow-sm"
                               style={{
                                 borderColor: isSelected ? cat?.color : "#e2e8f0",
                                 backgroundColor: isSelected ? `${cat?.color}10` : "#ffffff",
@@ -786,7 +786,7 @@ export default function TeethChart({
                                 )}
                               </div>
                               <div className="min-w-0 flex-1">
-                                <div className={`text-sm leading-snug ${isSelected ? "font-bold text-slate-900" : "font-semibold text-slate-600"}`}>
+                                <div className={`text-sm leading-snug ${isSelected ? "font-bold text-ink" : "font-semibold text-ink-body"}`}>
                                   {language === "ar" ? opt.labelAr : opt.labelEn}
                                 </div>
                                 {search && cat && (
@@ -799,7 +799,7 @@ export default function TeethChart({
                             
                             {/* Surface Selector for active diagnoses */}
                             {isSelected && (
-                              <div className="md:col-span-1 md:col-start-2 bg-slate-50 border-2 border-slate-200 border-t-0 -mt-3 pt-4 pb-2 px-3 rounded-b-xl flex items-center justify-between gap-1 mb-1">
+                              <div className="md:col-span-1 md:col-start-2 bg-surface-subtle border-2 border-line border-t-0 -mt-3 pt-4 pb-2 px-3 rounded-b-xl flex items-center justify-between gap-1 mb-1">
                                 <span className="text-[10px] font-bold text-slate-400 uppercase">{language === "ar" ? "الأسطح" : "Surfaces"}</span>
                                 <div className="flex items-center gap-1">
                                   {(["M", "O", "D", "B", "L"] as ToothSurface[]).map(surf => {
@@ -826,7 +826,7 @@ export default function TeethChart({
                         );
                       })}
                       {filteredOptions.length === 0 && (
-                        <div className="md:col-span-2 text-center text-xs font-semibold text-slate-400 py-6 border-2 border-dashed border-slate-200 rounded-xl">
+                        <div className="md:col-span-2 text-center text-xs font-semibold text-slate-400 py-6 border-2 border-dashed border-line rounded-xl">
                           {language === "ar" ? "لا توجد نتائج" : "No results"}
                         </div>
                       )}
@@ -836,7 +836,7 @@ export default function TeethChart({
                   {/* Notes & image */}
                   <div className="pt-4 border-t border-slate-200/60">
                     <div className="flex items-center justify-between mb-3">
-                      <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                      <label className="text-[11px] font-bold text-ink-muted uppercase tracking-widest flex items-center gap-2">
                         <FileText size={14} /> {language === "ar" ? "ملاحظات ومرفقات" : "Notes & attachments"}
                       </label>
                       <div>
@@ -890,7 +890,7 @@ export default function TeethChart({
 
                   {/* Existing summary line */}
                   {existingStatuses.length > 0 && (
-                    <div className="pt-3 border-t border-slate-200/60 text-[11px] text-slate-500 font-semibold flex items-center gap-2">
+                    <div className="pt-3 border-t border-slate-200/60 text-[11px] text-ink-muted font-semibold flex items-center gap-2">
                       <Activity size={12} className="text-slate-400" />
                       {language === "ar" ? "محفوظ مسبقاً:" : "Previously saved:"} {existingStatuses.length} {language === "ar" ? "تشخيصات" : "items"}
                     </div>
@@ -900,10 +900,10 @@ export default function TeethChart({
             </div>
 
             {/* Footer — pinned at modal bottom so Save stays visible on mobile */}
-            <div className="p-3 sm:p-4 pb-safe bg-white border-t border-slate-200 flex items-center gap-2 shrink-0 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
+            <div className="p-3 sm:p-4 pb-safe bg-surface border-t border-line flex items-center gap-2 shrink-0 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
               <button
                 onClick={handleClearTooth}
-                className="px-3.5 py-3 rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200 flex items-center justify-center transition-colors shrink-0 font-semibold text-sm gap-2"
+                className="px-3.5 py-3 rounded-xl bg-surface-muted text-ink-body hover:bg-slate-200 flex items-center justify-center transition-colors shrink-0 font-semibold text-sm gap-2"
               >
                 <Eraser size={16} /> <span className="hidden sm:inline">{language === "ar" ? "مسح" : "Clear"}</span>
               </button>

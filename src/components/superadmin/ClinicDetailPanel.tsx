@@ -43,7 +43,7 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
   };
 
   return (
-    <div className="fixed inset-y-0 right-0 w-full max-w-md bg-white shadow-2xl z-50 flex flex-col border-l border-slate-200 animate-in slide-in-from-right-8 duration-300">
+    <div className="fixed inset-y-0 right-0 w-full max-w-md bg-surface shadow-2xl z-50 flex flex-col border-l border-line animate-in slide-in-from-right-8 duration-300">
       {/* Header */}
       <div className="p-6 border-b border-slate-100 flex justify-between items-start bg-slate-50/50">
         <div className="flex gap-4 items-center">
@@ -51,8 +51,8 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
             {clinic.name.charAt(0).toUpperCase()}
           </div>
           <div>
-            <h2 className="text-xl font-bold text-slate-900">{clinic.name}</h2>
-            <div className="flex items-center gap-2 mt-1 text-xs text-slate-500 font-mono">
+            <h2 className="text-xl font-bold text-ink">{clinic.name}</h2>
+            <div className="flex items-center gap-2 mt-1 text-xs text-ink-muted font-mono">
               ID: {clinic.id}
               <button 
                 onClick={() => navigator.clipboard.writeText(clinic.id)}
@@ -63,7 +63,7 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
             </div>
           </div>
         </div>
-        <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors">
+        <button onClick={onClose} className="p-2 text-slate-400 hover:text-ink-body hover:bg-surface-muted rounded-full transition-colors">
           <X size={20} />
         </button>
       </div>
@@ -72,12 +72,12 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
         
         {/* Subscription & Tier */}
         <section className="space-y-4">
-          <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+          <h3 className="text-sm font-black text-ink uppercase tracking-wider flex items-center gap-2">
             <KeyRound size={16} className="text-indigo-500" /> Subscription Control
           </h3>
-          <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200/60 space-y-4">
+          <div className="bg-surface-subtle rounded-2xl p-4 border border-slate-200/60 space-y-4">
             <div>
-              <label className="text-xs font-bold text-slate-500 block mb-1">Tier</label>
+              <label className="text-xs font-bold text-ink-muted block mb-1">Tier</label>
               <select
                 value={clinic.subscriptionTier}
                 onChange={(e) => {
@@ -87,7 +87,7 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
                     features: { ...TIER_LIMITS[newTier].features }
                   });
                 }}
-                className="w-full bg-white border border-slate-200 text-slate-700 text-sm font-bold rounded-xl px-3 py-2 outline-none focus:border-indigo-500"
+                className="w-full bg-surface border border-line text-slate-700 text-sm font-bold rounded-xl px-3 py-2 outline-none focus:border-indigo-500"
               >
                 <option value="Free Trial">Free Trial</option>
                 <option value="Basic">Basic</option>
@@ -97,7 +97,7 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs font-bold text-slate-500 block mb-1">Started At</label>
+                <label className="text-xs font-bold text-ink-muted block mb-1">Started At</label>
                 <input 
                   type="date"
                   min="2020-01-01"
@@ -117,11 +117,11 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
                     const date = new Date(e.target.value);
                     if (!isNaN(date.getTime())) onUpdateClinic(clinic.id, { createdAt: date });
                   }}
-                  className="w-full bg-white border border-slate-200 text-slate-700 text-sm font-bold rounded-xl px-3 py-2 outline-none focus:border-indigo-500"
+                  className="w-full bg-surface border border-line text-slate-700 text-sm font-bold rounded-xl px-3 py-2 outline-none focus:border-indigo-500"
                 />
               </div>
               <div>
-                <label className="text-xs font-bold text-slate-500 block mb-1">Expires At</label>
+                <label className="text-xs font-bold text-ink-muted block mb-1">Expires At</label>
                 <input 
                   type="date"
                   min="2020-01-01"
@@ -141,7 +141,7 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
                     const date = new Date(e.target.value);
                     if (!isNaN(date.getTime())) onUpdateClinic(clinic.id, { expiresAt: date });
                   }}
-                  className="w-full bg-white border border-slate-200 text-slate-700 text-sm font-bold rounded-xl px-3 py-2 outline-none focus:border-indigo-500"
+                  className="w-full bg-surface border border-line text-slate-700 text-sm font-bold rounded-xl px-3 py-2 outline-none focus:border-indigo-500"
                 />
               </div>
             </div>
@@ -150,7 +150,7 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
 
         {/* Pricing & Financial Setup */}
         <section className="space-y-4">
-          <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+          <h3 className="text-sm font-black text-ink uppercase tracking-wider flex items-center gap-2">
             <DollarSign size={16} className="text-emerald-500" /> Pricing & Financials
           </h3>
           <div className="bg-emerald-50/40 rounded-2xl p-4 border border-emerald-200/60 space-y-4">
@@ -164,7 +164,7 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
                       billingCycle: e.target.value as 'Monthly' | 'Yearly' | '2-Yearly' 
                     });
                   }}
-                  className="w-full bg-white border border-slate-200 text-slate-700 text-xs font-bold rounded-xl px-2.5 py-2 outline-none focus:border-emerald-500 shadow-sm"
+                  className="w-full bg-surface border border-line text-slate-700 text-xs font-bold rounded-xl px-2.5 py-2 outline-none focus:border-emerald-500 shadow-sm"
                 >
                   <option value="Monthly">Monthly</option>
                   <option value="Yearly">Yearly (1 Yr)</option>
@@ -183,7 +183,7 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
                     const val = parseFloat(e.target.value);
                     onUpdateClinic(clinic.id, { customPrice: isNaN(val) ? 0 : val });
                   }}
-                  className="w-full bg-white border border-slate-200 text-slate-700 text-xs font-bold rounded-xl px-2.5 py-2 outline-none focus:border-emerald-500 shadow-sm"
+                  className="w-full bg-surface border border-line text-slate-700 text-xs font-bold rounded-xl px-2.5 py-2 outline-none focus:border-emerald-500 shadow-sm"
                 />
               </div>
 
@@ -198,7 +198,7 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
                     const val = parseFloat(e.target.value);
                     onUpdateClinic(clinic.id, { amountPaid: isNaN(val) ? 0 : val });
                   }}
-                  className="w-full bg-white border border-slate-200 text-slate-700 text-xs font-bold rounded-xl px-2.5 py-2 outline-none focus:border-emerald-500 shadow-sm"
+                  className="w-full bg-surface border border-line text-slate-700 text-xs font-bold rounded-xl px-2.5 py-2 outline-none focus:border-emerald-500 shadow-sm"
                 />
               </div>
             </div>
@@ -212,14 +212,14 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
               const balance = price - paid;
 
               return (
-                <div className="p-3.5 bg-white border border-emerald-100 rounded-xl flex items-center justify-between text-xs shadow-sm">
+                <div className="p-3.5 bg-surface border border-emerald-100 rounded-xl flex items-center justify-between text-xs shadow-sm">
                   <div>
-                    <span className="text-slate-500 font-semibold block">Calculated Monthly MRR:</span>
+                    <span className="text-ink-muted font-semibold block">Calculated Monthly MRR:</span>
                     <strong className="text-emerald-700 font-black text-sm">${Math.round(monthlyMrr * 100) / 100} / mo</strong>
                     <span className="text-slate-400 text-[10px] block">({cycle})</span>
                   </div>
                   <div className="text-right">
-                    <span className="text-slate-500 font-semibold block">Payment Status:</span>
+                    <span className="text-ink-muted font-semibold block">Payment Status:</span>
                     {balance <= 0 ? (
                       <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 font-bold rounded-lg inline-block text-xs">
                         Fully Paid (${paid})
@@ -238,12 +238,12 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
 
         {/* Feature Toggles */}
         <section className="space-y-4">
-          <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+          <h3 className="text-sm font-black text-ink uppercase tracking-wider flex items-center gap-2">
             <Building2 size={16} className="text-emerald-500" /> Feature Overrides
           </h3>
           <div className="space-y-3">
             {['aiChat', 'whatsappIntegration', 'inventory', 'attendance', 'marketingText', 'marketingDesign'].map((feature) => (
-              <div key={feature} className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-xl">
+              <div key={feature} className="flex items-center justify-between p-3 bg-surface border border-line rounded-xl">
                 <span className="font-bold text-sm text-slate-700 capitalize">
                   {feature === 'aiChat' ? 'AI Assistant'
                     : feature === 'marketingText' ? 'Marketing — Text & Strategy'
@@ -256,14 +256,14 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
                     clinic.features?.[feature as keyof NonNullable<Clinic["features"]>] ? 'bg-emerald-500' : 'bg-slate-200'
                   }`}
                 >
-                  <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 shadow transition-transform ${
+                  <div className={`w-5 h-5 bg-surface rounded-full absolute top-0.5 shadow transition-transform ${
                     clinic.features?.[feature as keyof NonNullable<Clinic["features"]>] ? 'translate-x-5' : 'translate-x-0.5'
                   }`} />
                 </button>
               </div>
             ))}
 
-            <div className="p-3.5 bg-white border border-slate-200 rounded-xl space-y-3">
+            <div className="p-3.5 bg-surface border border-line rounded-xl space-y-3">
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">Base Monthly AI Credits</label>
                 <input
@@ -275,7 +275,7 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
                       features: { ...(clinic.features || {}), aiMonthlyCredits: isNaN(val) ? 0 : val }
                     });
                   }}
-                  className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-indigo-500"
+                  className="w-full bg-surface-subtle border border-line text-slate-800 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-indigo-500"
                   placeholder="1000"
                 />
               </div>
@@ -310,7 +310,7 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
                         features: { ...(clinic.features || {}), extraAiCredits: 0 }
                       });
                     }}
-                    className="px-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg py-1.5 text-[11px] font-black transition-all active:scale-95"
+                    className="px-2.5 bg-surface-muted hover:bg-slate-200 text-ink-body rounded-lg py-1.5 text-[11px] font-black transition-all active:scale-95"
                   >
                     Reset
                   </button>
@@ -326,20 +326,20 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
 
         {/* Staff Overview */}
         <section className="space-y-4">
-          <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+          <h3 className="text-sm font-black text-ink uppercase tracking-wider flex items-center gap-2">
             <Users size={16} className="text-blue-500" /> Staff Members ({staff.length})
           </h3>
-          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100">
+          <div className="bg-surface border border-line rounded-2xl overflow-hidden divide-y divide-slate-100">
             {staff.length === 0 ? (
-              <div className="p-4 text-center text-sm text-slate-500 font-medium">No staff found</div>
+              <div className="p-4 text-center text-sm text-ink-muted font-medium">No staff found</div>
             ) : (
               staff.map(member => (
                 <div key={member.id} className="p-3 flex justify-between items-center">
                   <div>
                     <div className="font-bold text-slate-800 text-sm">{member.name || 'No Name'}</div>
-                    <div className="text-xs text-slate-500">{member.email}</div>
+                    <div className="text-xs text-ink-muted">{member.email}</div>
                   </div>
-                  <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-md text-xs font-bold">
+                  <span className="px-2 py-1 bg-surface-muted text-ink-body rounded-md text-xs font-bold">
                     {member.clinicRoles[clinic.id]}
                   </span>
                 </div>
@@ -350,7 +350,7 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
 
         {/* Admin Notes */}
         <section className="space-y-4">
-          <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider flex items-center gap-2">
+          <h3 className="text-sm font-black text-ink uppercase tracking-wider flex items-center gap-2">
             <CalendarDays size={16} className="text-amber-500" /> Admin Notes
           </h3>
           <div className="space-y-2">
@@ -358,12 +358,12 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
               value={adminNotes}
               onChange={(e) => setAdminNotes(e.target.value)}
               placeholder="Internal notes about this clinic..."
-              className="w-full h-32 bg-white border border-slate-200 text-slate-700 text-sm rounded-xl p-3 outline-none focus:border-amber-500 resize-none"
+              className="w-full h-32 bg-surface border border-line text-slate-700 text-sm rounded-xl p-3 outline-none focus:border-amber-500 resize-none"
             />
             <button 
               onClick={handleSaveNotes}
               disabled={isSaving || adminNotes === (clinic.adminNotes || "")}
-              className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-50 font-bold py-2 rounded-xl text-sm flex items-center justify-center gap-2 transition-colors"
+              className="w-full bg-surface-muted hover:bg-slate-200 text-slate-700 disabled:opacity-50 font-bold py-2 rounded-xl text-sm flex items-center justify-center gap-2 transition-colors"
             >
               <Save size={16} /> {isSaving ? "Saving..." : "Save Notes"}
             </button>

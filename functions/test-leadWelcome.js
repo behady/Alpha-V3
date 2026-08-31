@@ -88,7 +88,7 @@ const baseDocs = () => ({
     const db = fakeDb({
       ...baseDocs(),
       [`clinics/${CLINIC}/settings/whatsapp`]: { isLeadAutoReplyEnabled: true, deliveryMode: "auto" },
-      [`clinic_secrets/${CLINIC}`]: { wapilot: { instanceId: "inst1", token: "tok1" } },
+      [`clinic_secrets/${CLINIC}`]: { wapilot: { instanceId: "inst1", apiToken: "tok1" } },
     });
     const result = await sendLeadWelcome(db, CLINIC, lead);
     assert.equal(result.status, "sent");
@@ -97,13 +97,38 @@ const baseDocs = () => ({
     assert.equal(db.store.get(`clinics/${CLINIC}/whatsapp_outbox/lead_meta_L1`), undefined);
   }
 
+  // --- THE ONE THAT MATTERS: the field name the app actually stores
+  // This test used to seed `token`, which nothing writes — so it passed for months while every
+  // real clinic fell through to the manual queue with its credentials filled in and auto selected.
+  // Eight live ad leads sat unanswered before anyone noticed. Both spellings are pinned now: the
+  // stored one, and the legacy one the env-var fallback still builds.
+  {
+    const db = fakeDb({
+      ...baseDocs(),
+      [`clinics/${CLINIC}/settings/whatsapp`]: { isLeadAutoReplyEnabled: true, deliveryMode: "auto" },
+      [`clinic_secrets/${CLINIC}`]: { wapilot: { instanceId: "inst1", apiToken: "tok1", apiBaseUrl: "https://api.example.test/v2" } },
+    });
+    const result = await sendLeadWelcome(db, CLINIC, lead);
+    assert.equal(result.status, "sent", "apiToken is the name the app saves — it must be read");
+    assert.equal(result.mode, "auto");
+  }
+  {
+    const db = fakeDb({
+      ...baseDocs(),
+      [`clinics/${CLINIC}/settings/whatsapp`]: { isLeadAutoReplyEnabled: true, deliveryMode: "auto" },
+      [`clinic_secrets/${CLINIC}`]: { wapilot: { instanceId: "inst1", token: "legacy" } },
+    });
+    const result = await sendLeadWelcome(db, CLINIC, lead);
+    assert.equal(result.status, "sent", "the legacy spelling must keep working for the env fallback");
+  }
+
   // --- auto mode when the gateway fails: falls back to the queue rather than losing the reply
   {
     const db = fakeDb(
       {
         ...baseDocs(),
         [`clinics/${CLINIC}/settings/whatsapp`]: { isLeadAutoReplyEnabled: true, deliveryMode: "auto" },
-        [`clinic_secrets/${CLINIC}`]: { wapilot: { instanceId: "inst1", token: "tok1" } },
+        [`clinic_secrets/${CLINIC}`]: { wapilot: { instanceId: "inst1", apiToken: "tok1" } },
       },
       { gatewayOk: false }
     );

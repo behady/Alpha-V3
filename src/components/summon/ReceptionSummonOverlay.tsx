@@ -250,7 +250,7 @@ export default function ReceptionSummonOverlay() {
 
           <div className="px-6 py-6 text-center space-y-4">
             <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{txt.from}</p>
-            <p className="text-xl font-black text-slate-900">{pending.requestedByName}</p>
+            <p className="text-xl font-black text-ink">{pending.requestedByName}</p>
 
             <button
               type="button"

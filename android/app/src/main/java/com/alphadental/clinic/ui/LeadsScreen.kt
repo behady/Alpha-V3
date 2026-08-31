@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -82,6 +84,10 @@ fun LeadsScreen(
     loading: Boolean,
     arabic: Boolean,
     onSetStage: (Lead, String, String?) -> Unit,
+    /** Creates or links a patient file. Null for roles that may not add patients. */
+    onConvert: ((Lead) -> Unit)?,
+    /** The lead currently being converted, so only its own button waits. */
+    convertingLeadId: String,
     onAdd: () -> Unit,
     onClose: () -> Unit,
 ) {
@@ -89,6 +95,8 @@ fun LeadsScreen(
     BackHandler { onClose() }
 
     var stageFilter by rememberSaveable { mutableStateOf("inbox") }
+    /** Blank means every source. Survives rotation, like the stage above it. */
+    var sourceFilter by rememberSaveable { mutableStateOf("") }
     var losing by remember { mutableStateOf<Lead?>(null) }
 
     losing?.let { lead ->
@@ -139,6 +147,17 @@ fun LeadsScreen(
     }
 
     val today = AppViewModel.today()
+    // Every source the clinic actually has leads from, commonest first — read off
+    // the leads rather than from a fixed list, because a clinic adds its own
+    // sources on the website and a hardcoded set here would go stale the day it did.
+    val sources = leads
+        .mapNotNull { it.source.trim().takeIf(String::isNotBlank) }
+        .groupingBy { it }
+        .eachCount()
+        .entries
+        .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+        .map { it.key }
+
     val shown = leads
         .filter { lead ->
             when (stageFilter) {
@@ -146,6 +165,9 @@ fun LeadsScreen(
                 else -> lead.stage == stageFilter
             }
         }
+        // Narrowed together: "Facebook leads still in the inbox" is one question,
+        // not two screens.
+        .filter { lead -> sourceFilter.isBlank() || lead.source.trim() == sourceFilter }
         .sortedWith(
             // Due follow-ups first, then the newest arrivals.
             compareByDescending<Lead> { it.followUpDate.isNotBlank() && it.followUpDate <= today && it.stage !in setOf("won", "lost") }
@@ -227,6 +249,33 @@ fun LeadsScreen(
                 }
             }
 
+            // Where they came from. Hidden entirely with one source or none — a row
+            // of filters offering a single choice is furniture, not a control.
+            if (sources.size > 1) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 8.dp),
+                ) {
+                    item {
+                        SourceChip(
+                            label = if (arabic) "كل المصادر" else "All sources",
+                            selected = sourceFilter.isBlank(),
+                        ) { sourceFilter = "" }
+                    }
+                    items(sources) { source ->
+                        val count = leads.count { it.source.trim() == source }
+                        SourceChip(
+                            label = "$source · $count",
+                            selected = sourceFilter == source,
+                        ) {
+                            // Tapping the chosen one again clears it, so getting back
+                            // to everything does not mean hunting for "All sources".
+                            sourceFilter = if (sourceFilter == source) "" else source
+                        }
+                    }
+                }
+            }
+
             when {
                 loading && leads.isEmpty() -> Box(
                     Modifier.fillMaxSize().padding(32.dp),
@@ -236,9 +285,18 @@ fun LeadsScreen(
                 }
 
                 shown.isEmpty() -> Box(Modifier.fillMaxSize().padding(24.dp)) {
+                    // An empty list because of a filter is a different fact from an
+                    // empty list because nobody has enquired, and only one of them
+                    // is fixed by tapping something.
                     EmptyState(
-                        if (arabic) "لا يوجد عملاء محتملون هنا."
-                        else "Nothing here — new leads land in the inbox the moment they arrive.",
+                        when {
+                            sourceFilter.isNotBlank() && arabic ->
+                                "لا يوجد عملاء من \"$sourceFilter\" في هذا القسم."
+                            sourceFilter.isNotBlank() ->
+                                "No leads from \"$sourceFilter\" here. Tap the source again to see them all."
+                            arabic -> "لا يوجد عملاء محتملون هنا."
+                            else -> "Nothing here — new leads land in the inbox the moment they arrive."
+                        }
                     )
                 }
 
@@ -257,6 +315,11 @@ fun LeadsScreen(
                             onStage = { stage ->
                                 if (stage == "lost") losing = lead else onSetStage(lead, stage, null)
                             },
+                            // Nothing to convert once it is won — the file exists.
+                            onConvert = if (onConvert != null && lead.stage != "won") {
+                                { onConvert(lead) }
+                            } else null,
+                            converting = convertingLeadId == lead.id,
                         )
                     }
                 }
@@ -273,6 +336,8 @@ private fun LeadCard(
     onCall: () -> Unit,
     onWhatsapp: () -> Unit,
     onStage: (String) -> Unit,
+    onConvert: (() -> Unit)?,
+    converting: Boolean,
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -299,7 +364,6 @@ private fun LeadCard(
                     Text(
                         listOfNotNull(
                             lead.phone.takeIf { it.isNotBlank() },
-                            lead.source.takeIf { it.isNotBlank() },
                             prettyLeadDate(lead.createdAtMillis, arabic),
                         ).joinToString("  ·  "),
                         fontSize = 11.5.sp,
@@ -308,6 +372,46 @@ private fun LeadCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    // Where it came from, and how long it has been sitting. The source
+                    // was a coloured initial plus a word buried mid-sentence; the wait
+                    // was not shown at all, though it is the thing that decides which
+                    // lead to ring first.
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        // Said plainly when it is missing, rather than left blank —
+                        // "no source recorded" is a fact about the lead, not a gap in
+                        // the screen.
+                        Surface(shape = Alpha.PillShape, color = Alpha.Slate100) {
+                            Text(
+                                lead.source.ifBlank { if (arabic) "مصدر غير مسجل" else "No source" },
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (lead.source.isBlank()) Alpha.Slate400 else Alpha.Slate700,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.5.dp),
+                            )
+                        }
+                        waitingLabel(lead, arabic)?.let { waited ->
+                            val stale = isStale(lead)
+                            Surface(
+                                shape = Alpha.PillShape,
+                                color = if (stale) Alpha.WarnBg else Alpha.Slate100,
+                            ) {
+                                Text(
+                                    waited,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (stale) Alpha.WarnText else Alpha.Slate600,
+                                    maxLines = 1,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.5.dp),
+                                )
+                            }
+                        }
+                    }
                 }
                 Spacer(Modifier.width(8.dp))
                 StagePill(lead.stage, arabic)
@@ -343,6 +447,18 @@ private fun LeadCard(
                             color = Alpha.WarnText,
                         )
                     }
+                    // Whatever reception wrote down when they last spoke to this
+                    // person. It is on the website's card and was simply absent here.
+                    if (lead.notes.isNotBlank()) {
+                        Text(
+                            lead.notes,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Alpha.Slate500,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                     if (lead.stage == "lost" && lead.lostReason.isNotBlank()) {
                         Text(
                             (if (arabic) "السبب: " else "Reason: ") + lead.lostReason,
@@ -369,6 +485,48 @@ private fun LeadCard(
                         modifier = Modifier.weight(1f),
                         onClick = onWhatsapp,
                     )
+                }
+            }
+
+            // Winning a lead means a patient file exists, so this is the button that
+            // does it rather than a pill that says it happened. Not offered once the
+            // lead is won — the file is already there.
+            if (onConvert != null) {
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    onClick = { if (!converting) onConvert() },
+                    enabled = !converting,
+                    shape = Alpha.PillShape,
+                    color = Alpha.Ink,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(vertical = 10.dp),
+                    ) {
+                        if (converting) {
+                            CircularProgressIndicator(
+                                color = Color.White,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(14.dp),
+                            )
+                        } else {
+                            Icon(
+                                Icons.Filled.PersonAdd,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (arabic) "تحويل إلى مريض" else "Add as a patient",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color.White,
+                        )
+                    }
                 }
             }
 
@@ -435,6 +593,28 @@ private fun ContactChip(
 }
 
 /** The channel's colour and initial — sources are free text, so this fuzzy-matches. */
+/** One source filter. Outlined rather than filled, so it sits under the stage
+ *  pills as a refinement of them rather than as a second set of tabs. */
+@Composable
+private fun SourceChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = Alpha.PillShape,
+        color = if (selected) Alpha.GreenSoft else Alpha.Card,
+        border = BorderStroke(1.dp, if (selected) Alpha.Green else Alpha.Slate200),
+    ) {
+        Text(
+            label,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (selected) Alpha.Green else Alpha.Slate600,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+        )
+    }
+}
+
 @Composable
 private fun SourceBadge(source: String) {
     val lower = source.lowercase()
@@ -625,7 +805,42 @@ private fun LocalContextCompat(): Context = androidx.compose.ui.platform.LocalCo
 private fun prettyLeadDate(millis: Long, arabic: Boolean): String? {
     if (millis <= 0) return null
     val locale = if (arabic) Locale("ar", "EG") else Locale.US
-    return SimpleDateFormat("d MMM", locale).format(Date(millis))
+    // The year too: a lead from last March read as "12 Mar" and looked like this week.
+    return SimpleDateFormat("d MMM yyyy", locale).format(Date(millis))
+}
+
+/**
+ * How long this lead has been waiting for somebody to answer it.
+ *
+ * The single most useful thing on the card and the one it did not say. An advert
+ * lead answered in minutes converts several times better than one answered
+ * tomorrow, and a date alone makes the reader do that arithmetic themselves for
+ * every row in the list.
+ *
+ * Stops counting once the lead is won or lost: those are finished, and "waiting
+ * 40 days" on a patient who has been treated is noise dressed as an alarm.
+ */
+private fun waitingLabel(lead: Lead, arabic: Boolean, now: Long = System.currentTimeMillis()): String? {
+    if (lead.createdAtMillis <= 0) return null
+    if (lead.stage == "won" || lead.stage == "lost") return null
+
+    val minutes = ((now - lead.createdAtMillis) / 60_000L).coerceAtLeast(0)
+    return when {
+        minutes < 60 && arabic -> "في الانتظار منذ $minutes دقيقة"
+        minutes < 60 -> "waiting ${minutes}m"
+        minutes < 60 * 24 && arabic -> "في الانتظار منذ ${minutes / 60} ساعة"
+        minutes < 60 * 24 -> "waiting ${minutes / 60}h"
+        arabic -> "في الانتظار منذ ${minutes / (60 * 24)} يوم"
+        else -> "waiting ${minutes / (60 * 24)}d"
+    }
+}
+
+/** Past this, a lead nobody has answered is a problem rather than a queue. */
+private fun isStale(lead: Lead, now: Long = System.currentTimeMillis()): Boolean {
+    if (lead.createdAtMillis <= 0) return false
+    if (lead.stage == "won" || lead.stage == "lost") return false
+    if (lead.hasFirstContact) return false
+    return now - lead.createdAtMillis > 24L * 60 * 60 * 1000
 }
 
 private fun Context.dialLead(phone: String) {

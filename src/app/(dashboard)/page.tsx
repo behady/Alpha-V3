@@ -19,7 +19,7 @@ export default function Dashboard() {
 
   if (isDesktop === null || !clinicId) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="min-h-screen flex items-center justify-center bg-surface-subtle">
         <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
       </div>
     );

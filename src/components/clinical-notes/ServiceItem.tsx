@@ -40,18 +40,18 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
       case "Ongoing":
         return "bg-amber-100 text-amber-700";
       default:
-        return "bg-slate-100 text-slate-700";
+        return "bg-surface-muted text-slate-700";
     }
   };
 
   const getContainerStyles = (status: string | undefined) => {
     switch (status) {
       case "Ongoing":
-        return "bg-white border-amber-200 shadow-sm ring-1 ring-amber-400/20";
+        return "bg-surface border-amber-200 shadow-sm ring-1 ring-amber-400/20";
       case "Completed":
-        return "bg-white border-slate-200 opacity-80";
+        return "bg-surface border-line opacity-80";
       default:
-        return "bg-white border-slate-200 hover:border-slate-300 shadow-sm";
+        return "bg-surface border-line hover:border-line-strong shadow-sm";
     }
   };
 
@@ -70,7 +70,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
         disabled={!reorder.canMoveUp}
         title={txt.moveUp}
         aria-label={txt.moveUp}
-        className="p-0.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-25 disabled:hover:bg-transparent transition-colors"
+        className="p-0.5 rounded text-slate-400 hover:text-slate-700 hover:bg-surface-muted disabled:opacity-25 disabled:hover:bg-transparent transition-colors"
       >
         <ChevronUp size={14} />
       </button>
@@ -81,7 +81,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
         disabled={!reorder.canMoveDown}
         title={txt.moveDown}
         aria-label={txt.moveDown}
-        className="p-0.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 disabled:opacity-25 disabled:hover:bg-transparent transition-colors"
+        className="p-0.5 rounded text-slate-400 hover:text-slate-700 hover:bg-surface-muted disabled:opacity-25 disabled:hover:bg-transparent transition-colors"
       >
         <ChevronDown size={14} />
       </button>
@@ -102,16 +102,16 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
           title={note.status || "Planned"}
         />
 
-        <p className="font-bold text-slate-900 truncate text-sm min-w-0 flex-1">{note.procedure}</p>
+        <p className="font-bold text-ink truncate text-sm min-w-0 flex-1">{note.procedure}</p>
 
         {note.tooth && note.tooth !== "Gen" && (
-          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-50 text-slate-600 border border-slate-200 shrink-0">
+          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-surface-subtle text-ink-body border border-line shrink-0">
             {note.tooth}
           </span>
         )}
 
         {Number(note.cost) > 0 && (
-          <span className="text-xs font-black text-slate-600 shrink-0">EGP {Number(note.cost).toLocaleString()}</span>
+          <span className="text-xs font-black text-ink-body shrink-0">EGP {Number(note.cost).toLocaleString()}</span>
         )}
 
         <div className="flex items-center gap-1 shrink-0">
@@ -145,7 +145,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
       {reorderControls}
       <div className="flex flex-col gap-1 min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
-          <p className="font-bold text-slate-900 truncate text-sm">{note.procedure}</p>
+          <p className="font-bold text-ink truncate text-sm">{note.procedure}</p>
           <span
             className={`flex items-center gap-1.5 text-[10px] font-bold px-2 py-0.5 rounded-md ${getStatusColor(note.status)}`}
           >
@@ -158,7 +158,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
             {note.status || "Planned"}
           </span>
           {note.tooth && note.tooth !== "Gen" && (
-            <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-50 text-slate-600 border border-slate-200">
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-surface-subtle text-ink-body border border-line">
               Tooth: {note.tooth}
             </span>
           )}
@@ -170,7 +170,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
         </div>
         
         {note.note && (
-          <p className="text-sm font-bold text-slate-500 line-clamp-2 mt-1">
+          <p className="text-sm font-bold text-ink-muted line-clamp-2 mt-1">
             {note.note}
           </p>
         )}
@@ -180,7 +180,7 @@ export default function ServiceItem({ note, onEdit, onDelete, onMove, onContinue
             <p className="text-xs font-bold text-slate-400">Dr. {note.doctor}</p>
           )}
           {Number(note.cost) > 0 && (
-            <p className="text-xs font-black text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md flex items-center justify-center">
+            <p className="text-xs font-black text-ink-body bg-surface-muted px-2 py-0.5 rounded-md flex items-center justify-center">
               EGP {Number(note.cost).toLocaleString()}
             </p>
           )}

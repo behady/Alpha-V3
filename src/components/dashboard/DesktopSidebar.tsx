@@ -158,7 +158,7 @@ export default function DesktopSidebar({
   ) => {
     const toneIdle =
       tone === "danger"
-        ? "bg-white text-rose-500 hover:bg-rose-50 hover:text-rose-600 shadow-sm border border-rose-100"
+        ? "bg-surface text-rose-500 hover:bg-rose-50 hover:text-rose-600 shadow-sm border border-rose-100"
         : tone === "success"
           ? "bg-emerald-50 text-emerald-600 hover:bg-emerald-100 shadow-sm border border-emerald-100"
           : idleClass;
@@ -174,7 +174,7 @@ export default function DesktopSidebar({
         </span>
         <span
           className={`text-sm font-bold truncate ${
-            active ? "text-slate-900" : tone === "danger" ? "text-rose-600" : "text-slate-600"
+            active ? "text-ink" : tone === "danger" ? "text-rose-600" : "text-ink-body"
           }`}
         >
           {label}
@@ -224,7 +224,7 @@ export default function DesktopSidebar({
 
   const menuPanel = (children: React.ReactNode) => (
     <div
-      className={`absolute bottom-0 z-[250] w-60 overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_10px_40px_-10px_rgba(0,0,0,0.25)] ${popoverSide}`}
+      className={`absolute bottom-0 z-[250] w-60 overflow-hidden rounded-2xl border border-slate-100 bg-surface shadow-[0_10px_40px_-10px_rgba(0,0,0,0.25)] ${popoverSide}`}
     >
       {children}
     </div>
@@ -246,7 +246,7 @@ export default function DesktopSidebar({
           ? "text-rose-600 hover:bg-rose-50"
           : tone === "success"
             ? "text-emerald-700 hover:bg-emerald-50"
-            : "text-slate-600 hover:bg-slate-50"
+            : "text-ink-body hover:bg-surface-subtle"
     }`;
     const inner = (
       <>

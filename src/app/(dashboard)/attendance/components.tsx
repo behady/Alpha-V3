@@ -39,21 +39,21 @@ export const PersonalWorksheet = ({
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 animate-in slide-in-from-bottom-4">
         {/* LEFT COLUMN: Terminal & Earnings */}
         <div className="lg:col-span-4 space-y-6">
-            <div className="bg-white rounded-[2.5rem] p-8 shadow-lg border border-slate-200 flex flex-col items-center text-center relative overflow-hidden">
+            <div className="bg-surface rounded-[2.5rem] p-8 shadow-lg border border-line flex flex-col items-center text-center relative overflow-hidden">
                 {isDeviceBlocked ? (
                     <div className="flex flex-col items-center justify-center py-6">
                         <div className="w-24 h-24 rounded-full bg-red-50 text-red-500 border-4 border-red-100 flex items-center justify-center mb-6"><Lock size={40}/></div>
-                        <h2 className="text-xl font-black text-slate-900 mb-2">Device Blocked</h2>
-                        <p className="text-sm font-bold text-slate-500 px-2 leading-relaxed">This phone is not your registered clock-in device. Ask Admin to unlink your device in Team → Settings, then clock in again here.</p>
+                        <h2 className="text-xl font-black text-ink mb-2">Device Blocked</h2>
+                        <p className="text-sm font-bold text-ink-muted px-2 leading-relaxed">This phone is not your registered clock-in device. Ask Admin to unlink your device in Team → Settings, then clock in again here.</p>
                     </div>
                 ) : (
                     <>
                         {activeSession && <div className="absolute top-0 left-0 right-0 h-2 bg-emerald-500 animate-pulse"></div>}
-                        <div className={`w-24 h-24 rounded-full flex items-center justify-center mb-6 shadow-inner border-4 ${activeSession ? 'bg-emerald-50 border-emerald-100 text-emerald-500' : 'bg-slate-50 border-slate-100 text-slate-400'}`}>
+                        <div className={`w-24 h-24 rounded-full flex items-center justify-center mb-6 shadow-inner border-4 ${activeSession ? 'bg-emerald-50 border-emerald-100 text-emerald-500' : 'bg-surface-subtle border-slate-100 text-slate-400'}`}>
                             {activeSession ? <Hourglass size={40} className="animate-pulse"/> : <MapPin size={40}/>}
                         </div>
-                        <h2 className="text-2xl font-black text-slate-900 mb-1">{activeSession ? 'Shift in Progress' : 'Ready to Work?'}</h2>
-                        <p className="text-sm font-semibold text-slate-500 mb-8 px-4">{activeSession ? "Clock out when you leave — you must be at the clinic (GPS)." : "Ensure you are inside the clinic to securely clock in."}</p>
+                        <h2 className="text-2xl font-black text-ink mb-1">{activeSession ? 'Shift in Progress' : 'Ready to Work?'}</h2>
+                        <p className="text-sm font-semibold text-ink-muted mb-8 px-4">{activeSession ? "Clock out when you leave — you must be at the clinic (GPS)." : "Ensure you are inside the clinic to securely clock in."}</p>
 
                         {isDeviceMismatch && activeSession && (
                             <div className="mb-4 w-full flex items-start gap-2 text-left bg-amber-50 text-amber-800 p-3 rounded-xl border border-amber-100 text-xs font-semibold leading-relaxed">
@@ -63,7 +63,7 @@ export const PersonalWorksheet = ({
                         )}
 
                         {activeSession && (
-                            <div className="mb-8 w-full bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                            <div className="mb-8 w-full bg-surface-subtle border border-slate-100 rounded-2xl p-4">
                                 <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-1">Current Session</p>
                                 <p className="text-3xl font-black text-emerald-600 tabular-nums">{liveDuration || "0h 0m 0s"}</p>
                             </div>
@@ -101,7 +101,7 @@ export const PersonalWorksheet = ({
                         </div>
                         <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-800/50">
                             <div><p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Base Pay</p><p className="font-bold text-sm text-slate-200">{Math.floor(myCalculatedStats.estimatedBasePay)} EGP</p></div>
-                            <div><p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Commissions</p><p className="font-bold text-sm text-emerald-400">+{Math.floor(myCalculatedStats.earnedCommissions)} EGP</p></div>
+                            <div><p className="text-[10px] text-ink-muted font-bold uppercase tracking-wider mb-1">Commissions</p><p className="font-bold text-sm text-emerald-400">+{Math.floor(myCalculatedStats.earnedCommissions)} EGP</p></div>
                         </div>
                     </div>
                 </div>
@@ -110,9 +110,9 @@ export const PersonalWorksheet = ({
 
         {/* RIGHT COLUMN: Table */}
         <div className="lg:col-span-8">
-            <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col h-full min-h-[500px]">
+            <div className="bg-surface rounded-[2rem] border border-line shadow-sm overflow-hidden flex flex-col h-full min-h-[500px]">
                 <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                    <div><h3 className="font-black text-slate-900 text-lg">My Time Logs</h3><p className="text-xs font-semibold text-slate-500">History of your check-ins.</p></div>
+                    <div><h3 className="font-black text-ink text-lg">My Time Logs</h3><p className="text-xs font-semibold text-ink-muted">History of your check-ins.</p></div>
                 </div>
                 <div className="overflow-x-auto flex-1">
                     <table className="w-full text-left text-sm">
@@ -125,12 +125,12 @@ export const PersonalWorksheet = ({
                             ) : (
                                 personalLogs.map((log: any) => (
                                     <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
-                                        <td className="p-4 pl-6 font-bold text-slate-900">{log.date || (log.checkIn && log.checkIn.toDate().toISOString().split('T')[0])}</td>
-                                        <td className="p-4 font-bold text-slate-600 text-center">{formatTime(log.checkIn)}</td>
-                                        <td className="p-4 font-bold text-slate-600 text-center">{formatTime(log.checkOut)}</td>
-                                        <td className="p-4 font-black text-slate-900 text-center">{log.status === 'active' ? <span className="text-emerald-500 animate-pulse">In Progress</span> : formatDuration(log.durationMinutes)}</td>
+                                        <td className="p-4 pl-6 font-bold text-ink">{log.date || (log.checkIn && log.checkIn.toDate().toISOString().split('T')[0])}</td>
+                                        <td className="p-4 font-bold text-ink-body text-center">{formatTime(log.checkIn)}</td>
+                                        <td className="p-4 font-bold text-ink-body text-center">{formatTime(log.checkOut)}</td>
+                                        <td className="p-4 font-black text-ink text-center">{log.status === 'active' ? <span className="text-emerald-500 animate-pulse">In Progress</span> : formatDuration(log.durationMinutes)}</td>
                                         <td className="p-4 pr-6 text-right">
-                                            {log.status === 'active' ? <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border border-emerald-100">Active</span> : <span className="inline-flex items-center gap-1.5 bg-slate-100 text-slate-500 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest"><CheckCircle2 size={12}/> Logged</span>}
+                                            {log.status === 'active' ? <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-600 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest border border-emerald-100">Active</span> : <span className="inline-flex items-center gap-1.5 bg-surface-muted text-ink-muted px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest"><CheckCircle2 size={12}/> Logged</span>}
                                         </td>
                                     </tr>
                                 ))
@@ -153,13 +153,13 @@ export const TeamOverview = ({
 }: any) => (
     <div className="space-y-8 animate-in slide-in-from-bottom-4">
         {/* ADMIN FILTER BAR */}
-        <div className="bg-white p-5 rounded-[2rem] border border-slate-200 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-            <div className="flex items-center gap-2"><Filter size={20} className="text-accent" /><h3 className="font-black text-slate-900">Payroll Engine</h3></div>
+        <div className="bg-surface p-5 rounded-[2rem] border border-line shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="flex items-center gap-2"><Filter size={20} className="text-accent" /><h3 className="font-black text-ink">Payroll Engine</h3></div>
                 <div className="flex flex-col xl:flex-row items-center gap-3 w-full lg:w-auto">
-                <select value={filterRole} onChange={e => setFilterRole(e.target.value)} className="w-full sm:w-auto bg-slate-50 border border-slate-200 text-slate-700 px-4 py-2.5 rounded-xl text-xs font-bold outline-none cursor-pointer">
+                <select value={filterRole} onChange={e => setFilterRole(e.target.value)} className="w-full sm:w-auto bg-surface-subtle border border-line text-slate-700 px-4 py-2.5 rounded-xl text-xs font-bold outline-none cursor-pointer">
                     <option value="all">All Roles</option><option value="Dentist">Dentists</option><option value="Assistant">Assistants</option><option value="Receptionist">Receptionists</option>
                 </select>
-                <select value={filterUser} onChange={e => setFilterUser(e.target.value)} className="w-full sm:w-auto bg-slate-50 border border-slate-200 text-slate-700 px-4 py-2.5 rounded-xl text-xs font-bold outline-none cursor-pointer max-w-[200px] truncate">
+                <select value={filterUser} onChange={e => setFilterUser(e.target.value)} className="w-full sm:w-auto bg-surface-subtle border border-line text-slate-700 px-4 py-2.5 rounded-xl text-xs font-bold outline-none cursor-pointer max-w-[200px] truncate">
                     <option value="all">All Staff</option>
                     {allStaff.filter((s: any) => filterRole === 'all' || s.role === filterRole).map((s: any) => (
                         <option key={s.id} value={s.uid || s.id}>{s.name}</option>
@@ -199,7 +199,7 @@ export const TeamOverview = ({
                                     <td className="p-4 pl-6">
                                         {/* NEW: LIVE INDICATOR */}
                                         <div className="flex items-center gap-2">
-                                            <p className="font-black text-slate-900 flex items-center gap-2">
+                                            <p className="font-black text-ink flex items-center gap-2">
                                                 {staff.name}
                                                 {staff.activeNow && (
                                                     <span className="inline-flex items-center gap-1.5 bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-md text-[9px] font-black uppercase tracking-widest border border-emerald-200 shadow-sm animate-in fade-in">
@@ -213,24 +213,24 @@ export const TeamOverview = ({
                                     </td>
                                     <td className="p-4">
                                         <div className="flex items-center justify-center gap-2">
-                                            <button onClick={() => openSettingsModal(staff)} className={`flex items-center justify-center gap-1.5 bg-white border px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm ${staff.registeredDeviceId ? 'border-slate-200 text-slate-600 hover:text-accent hover:border-accent-soft' : 'border-orange-200 text-orange-600 hover:bg-orange-50'}`}>
+                                            <button onClick={() => openSettingsModal(staff)} className={`flex items-center justify-center gap-1.5 bg-surface border px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm ${staff.registeredDeviceId ? 'border-line text-ink-body hover:text-accent hover:border-accent-soft' : 'border-orange-200 text-orange-600 hover:bg-orange-50'}`}>
                                                 <Settings2 size={14}/> {Math.floor(staff.expectedMonthlyHours)}h | {staff.commissionPercentage}%
                                             </button>
                                             {/* NEW: VIEW LOGS BUTTON */}
-                                            <button onClick={() => openLogsModal(staff)} className="flex items-center justify-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:text-accent hover:border-accent-soft transition-all shadow-sm">
+                                            <button onClick={() => openLogsModal(staff)} className="flex items-center justify-center gap-1.5 bg-surface border border-line px-2.5 py-1.5 rounded-lg text-xs font-bold text-ink-body hover:text-accent hover:border-accent-soft transition-all shadow-sm">
                                                 <History size={14}/> Logs
                                             </button>
                                         </div>
                                     </td>
                                     <td className="p-4 text-right">
-                                        <p className="font-black text-slate-600">{formatDuration(staff.regularMinutes)}</p>
+                                        <p className="font-black text-ink-body">{formatDuration(staff.regularMinutes)}</p>
                                         {staff.missingMinutes > 0 && <p className="text-[10px] font-bold text-red-500">-{formatDuration(staff.missingMinutes)}</p>}
                                     </td>
                                     <td className="p-4 text-right">
                                         <p className="font-black text-accent">{formatDuration(staff.approvedOvertimeMinutes)}</p>
                                         {staff.pendingOvertimeMinutes > 0 && <p className="text-[10px] font-bold text-amber-500">Pend: {formatDuration(staff.pendingOvertimeMinutes)}</p>}
                                     </td>
-                                    <td className="p-4 text-right font-bold text-slate-500">{Math.floor(staff.estimatedBasePay).toLocaleString()}</td>
+                                    <td className="p-4 text-right font-bold text-ink-muted">{Math.floor(staff.estimatedBasePay).toLocaleString()}</td>
                                     <td className="p-4 text-right">
                                         {staff.earnedCommissions > 0 ? <span className="text-accent font-bold flex items-center justify-end gap-1"><TrendingUp size={14}/> {Math.floor(staff.earnedCommissions).toLocaleString()}</span> : <span className="text-slate-300">-</span>}
                                     </td>
@@ -244,11 +244,11 @@ export const TeamOverview = ({
         </div>
 
         {/* COMMISSION BREAKDOWN TABLE */}
-        <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-surface rounded-[2rem] border border-line shadow-sm overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-50/50">
                 <div>
-                    <h3 className="font-black text-slate-900 text-lg">Commission Breakdown Engine</h3>
-                    <p className="text-xs font-semibold text-slate-500">
+                    <h3 className="font-black text-ink text-lg">Commission Breakdown Engine</h3>
+                    <p className="text-xs font-semibold text-ink-muted">
                         Shows exactly where commission comes from (patient + service). Editing % recalculates doctor share and clinic profit in ledger.
                     </p>
                 </div>
@@ -288,9 +288,9 @@ export const TeamOverview = ({
                         ) : (
                             commissionBreakdownRows.map((row: any) => (
                                 <tr key={row.id} className="hover:bg-slate-50/50 transition-colors">
-                                    <td className="p-4 pl-6 font-bold text-slate-900 tabular-nums">{row.date || "—"}</td>
+                                    <td className="p-4 pl-6 font-bold text-ink tabular-nums">{row.date || "—"}</td>
                                     <td className="p-4">
-                                        <p className="font-black text-slate-900">{row.staffName}</p>
+                                        <p className="font-black text-ink">{row.staffName}</p>
                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{row.staffRole}</p>
                                     </td>
                                     <td className="p-4 font-bold text-slate-700">{row.patientName || "—"}</td>
@@ -302,17 +302,17 @@ export const TeamOverview = ({
                                             {row.procedureId ? `Procedure: ${row.procedureId}` : "Ledger"} · {row.id}
                                         </p>
                                     </td>
-                                    <td className="p-4 text-right font-black text-slate-900 tabular-nums">
+                                    <td className="p-4 text-right font-black text-ink tabular-nums">
                                         {Math.floor(Number(row.paidAmount || 0)).toLocaleString()}
                                     </td>
-                                    <td className="p-4 text-right font-bold text-slate-500 tabular-nums">
+                                    <td className="p-4 text-right font-bold text-ink-muted tabular-nums">
                                         {Math.floor(Number(row.labFee || 0)).toLocaleString()}
                                     </td>
-                                    <td className="p-4 text-right font-bold text-slate-600 tabular-nums">
+                                    <td className="p-4 text-right font-bold text-ink-body tabular-nums">
                                         {Math.floor(Number(row.netAmount || 0)).toLocaleString()}
                                     </td>
                                     <td className="p-4 text-center">
-                                        <div className="inline-flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-2 py-1.5 shadow-sm">
+                                        <div className="inline-flex items-center gap-2 bg-surface border border-line rounded-xl px-2 py-1.5 shadow-sm">
                                             <input
                                                 type="number"
                                                 min={0}
@@ -327,7 +327,7 @@ export const TeamOverview = ({
                                                 }}
                                                 className="w-20 text-center font-black text-slate-800 bg-transparent outline-none"
                                             />
-                                            <span className="text-xs font-black text-slate-500">%</span>
+                                            <span className="text-xs font-black text-ink-muted">%</span>
                                         </div>
                                     </td>
                                     <td className="p-4 text-right font-black text-accent tabular-nums">
@@ -373,39 +373,39 @@ export const StaffLogsModal = ({ isOpen, onClose, staffName, logs, handleUpdateL
                 <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                     <div>
                         <h2 className="text-lg font-black text-slate-900">{staffName}'s Logs</h2>
-                        <p className="text-xs font-semibold text-slate-500 mt-0.5">Edit forgotten logouts or correct times.</p>
+                        <p className="text-xs font-semibold text-ink-muted mt-0.5">Edit forgotten logouts or correct times.</p>
                     </div>
-                    <button onClick={onClose} className="p-2 bg-white rounded-full text-slate-400 hover:text-red-500 border border-slate-200 shadow-sm"><X size={16}/></button>
+                    <button onClick={onClose} className="p-2 bg-surface rounded-full text-slate-400 hover:text-red-500 border border-line shadow-sm"><X size={16}/></button>
                 </div>
                 
                 <div className="flex-1 overflow-y-auto p-6 bg-slate-50/30">
                     <div className="space-y-3">
                         {logs.length === 0 ? <p className="text-center text-slate-400 font-bold py-10">No logs found in this period.</p> : null}
                         {logs.map((log: any) => (
-                            <div key={log.id} className={`p-4 rounded-2xl border bg-white shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${log.status === 'active' ? 'border-emerald-200 ring-1 ring-emerald-500/10' : 'border-slate-200'}`}>
+                            <div key={log.id} className={`p-4 rounded-2xl border bg-surface shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${log.status === 'active' ? 'border-emerald-200 ring-1 ring-emerald-500/10' : 'border-line'}`}>
                                 
                                 {editingLogId === log.id ? (
                                     <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
                                         <div>
                                             <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Check In</label>
-                                            <input type="datetime-local" value={editIn} onChange={e=>setEditIn(e.target.value)} className="w-full text-xs font-bold p-2 border rounded-lg focus:border-accent-soft outline-none bg-slate-50" />
+                                            <input type="datetime-local" value={editIn} onChange={e=>setEditIn(e.target.value)} className="w-full text-xs font-bold p-2 border rounded-lg focus:border-accent-soft outline-none bg-surface-subtle" />
                                         </div>
                                         <div>
                                             <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block">Check Out (Leave blank if Active)</label>
-                                            <input type="datetime-local" value={editOut} onChange={e=>setEditOut(e.target.value)} className="w-full text-xs font-bold p-2 border rounded-lg focus:border-accent-soft outline-none bg-slate-50" />
+                                            <input type="datetime-local" value={editOut} onChange={e=>setEditOut(e.target.value)} className="w-full text-xs font-bold p-2 border rounded-lg focus:border-accent-soft outline-none bg-surface-subtle" />
                                         </div>
                                     </div>
                                 ) : (
                                     <div className="flex items-center gap-4 flex-1">
-                                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${log.status === 'active' ? 'bg-emerald-50 text-emerald-500' : 'bg-slate-100 text-slate-400'}`}>
+                                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${log.status === 'active' ? 'bg-emerald-50 text-emerald-500' : 'bg-surface-muted text-slate-400'}`}>
                                             {log.status === 'active' ? <Hourglass size={20} className="animate-pulse"/> : <CheckCircle2 size={20}/>}
                                         </div>
                                         <div>
-                                            <p className="font-bold text-slate-900 text-sm">
+                                            <p className="font-bold text-ink text-sm">
                                                 {log.date}
                                                 {log.status === 'active' && <span className="ml-2 text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold uppercase tracking-widest">Active</span>}
                                             </p>
-                                            <div className="text-xs font-semibold text-slate-500 mt-1 flex items-center gap-2 flex-wrap">
+                                            <div className="text-xs font-semibold text-ink-muted mt-1 flex items-center gap-2 flex-wrap">
                                                 <span>In: {formatTime(log.checkIn)}</span> <span className="text-slate-300">•</span> <span>Out: {formatTime(log.checkOut)}</span> 
                                                 <span className="text-slate-300">•</span> <span className="text-slate-700 font-bold">{formatDuration(log.durationMinutes)}</span>
                                             </div>
@@ -433,8 +433,8 @@ export const StaffLogsModal = ({ isOpen, onClose, staffName, logs, handleUpdateL
                                         </>
                                     ) : (
                                         <>
-                                            <button onClick={() => startEdit(log)} className="bg-white border border-slate-200 text-slate-600 hover:text-accent p-2 rounded-lg font-bold text-xs flex items-center gap-1 shadow-sm"><Edit2 size={14}/> Edit</button>
-                                            <button onClick={() => handleDeleteLog(log.id)} className="bg-white border border-slate-200 text-slate-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg shadow-sm"><Trash2 size={14}/></button>
+                                            <button onClick={() => startEdit(log)} className="bg-surface border border-line text-ink-body hover:text-accent p-2 rounded-lg font-bold text-xs flex items-center gap-1 shadow-sm"><Edit2 size={14}/> Edit</button>
+                                            <button onClick={() => handleDeleteLog(log.id)} className="bg-surface border border-line text-slate-400 hover:text-red-600 hover:bg-red-50 p-2 rounded-lg shadow-sm"><Trash2 size={14}/></button>
                                         </>
                                     )}
                                 </div>
@@ -456,9 +456,9 @@ export const StaffSettingsModal = ({ settingsModal, setSettingsModal, handleUpda
             <div className="flex justify-between items-center mb-6 shrink-0">
                 <div>
                     <h2 className="text-xl font-bold text-slate-900 tracking-tight">Shift & Pay Settings</h2>
-                    <p className="text-xs font-semibold text-slate-500 mt-1">Configure {settingsModal.name}'s rules.</p>
+                    <p className="text-xs font-semibold text-ink-muted mt-1">Configure {settingsModal.name}'s rules.</p>
                 </div>
-                <button onClick={() => setSettingsModal({isOpen: false, staffId: "", name: "", baseSalary: 0, commissionPercentage: 0, registeredDeviceId: null, overtimeMultiplier: 1.5, schedule: []})} className="text-slate-400 hover:text-red-500 bg-slate-50 hover:bg-red-50 p-2 rounded-full transition-colors"><X size={20}/></button>
+                <button onClick={() => setSettingsModal({isOpen: false, staffId: "", name: "", baseSalary: 0, commissionPercentage: 0, registeredDeviceId: null, overtimeMultiplier: 1.5, schedule: []})} className="text-slate-400 hover:text-red-500 bg-surface-subtle hover:bg-red-50 p-2 rounded-full transition-colors"><X size={20}/></button>
             </div>
             
             <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-6">
@@ -468,38 +468,38 @@ export const StaffSettingsModal = ({ settingsModal, setSettingsModal, handleUpda
                         <p className="text-xs font-medium text-orange-800 mt-1">{settingsModal.registeredDeviceId ? "This user is locked to a specific phone." : "This user has not linked a phone yet."}</p>
                     </div>
                     {settingsModal.registeredDeviceId && (
-                        <button type="button" onClick={handleUnlinkDevice} className="bg-white border border-orange-200 text-orange-600 px-4 py-2 rounded-xl text-xs font-bold hover:bg-orange-100 transition-all shadow-sm">Reset Link</button>
+                        <button type="button" onClick={handleUnlinkDevice} className="bg-surface border border-orange-200 text-orange-600 px-4 py-2 rounded-xl text-xs font-bold hover:bg-orange-100 transition-all shadow-sm">Reset Link</button>
                     )}
                 </div>
 
                 <form onSubmit={handleUpdateStaffSettings} className="space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60"><label className="text-[11px] font-bold text-slate-500 uppercase block mb-2">Monthly Base Salary (EGP)</label><input type="number" required value={settingsModal.baseSalary} onChange={e => setSettingsModal({...settingsModal, baseSalary: Number(e.target.value)})} className="w-full px-4 py-3 bg-white rounded-xl border border-slate-200 font-black outline-none focus:border-accent-soft"/></div>
-                        <div className="bg-accent-tint p-4 rounded-2xl border border-accent-soft"><label className="text-[11px] font-bold text-accent uppercase block mb-2">Commission (%)</label><input type="number" required value={settingsModal.commissionPercentage} onChange={e => setSettingsModal({...settingsModal, commissionPercentage: Number(e.target.value)})} className="w-full px-4 py-3 bg-white rounded-xl border border-accent-soft font-black text-accent-strong outline-none focus:border-accent-soft"/></div>
-                        <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60"><label className="text-[11px] font-bold text-slate-500 uppercase block mb-2">Overtime Multiplier</label><input type="number" step="0.1" required value={settingsModal.overtimeMultiplier} onChange={e => setSettingsModal({...settingsModal, overtimeMultiplier: Number(e.target.value)})} className="w-full px-4 py-3 bg-white rounded-xl border border-slate-200 font-black outline-none focus:border-accent-soft"/></div>
+                        <div className="bg-surface-subtle p-4 rounded-2xl border border-slate-200/60"><label className="text-[11px] font-bold text-ink-muted uppercase block mb-2">Monthly Base Salary (EGP)</label><input type="number" required value={settingsModal.baseSalary} onChange={e => setSettingsModal({...settingsModal, baseSalary: Number(e.target.value)})} className="w-full px-4 py-3 bg-surface rounded-xl border border-line font-black outline-none focus:border-accent-soft"/></div>
+                        <div className="bg-accent-tint p-4 rounded-2xl border border-accent-soft"><label className="text-[11px] font-bold text-accent uppercase block mb-2">Commission (%)</label><input type="number" required value={settingsModal.commissionPercentage} onChange={e => setSettingsModal({...settingsModal, commissionPercentage: Number(e.target.value)})} className="w-full px-4 py-3 bg-surface rounded-xl border border-accent-soft font-black text-accent-strong outline-none focus:border-accent-soft"/></div>
+                        <div className="bg-surface-subtle p-4 rounded-2xl border border-slate-200/60"><label className="text-[11px] font-bold text-ink-muted uppercase block mb-2">Overtime Multiplier</label><input type="number" step="0.1" required value={settingsModal.overtimeMultiplier} onChange={e => setSettingsModal({...settingsModal, overtimeMultiplier: Number(e.target.value)})} className="w-full px-4 py-3 bg-surface rounded-xl border border-line font-black outline-none focus:border-accent-soft"/></div>
                     </div>
                     <div>
-                        <label className="text-[11px] font-bold text-slate-500 uppercase mb-3 block">Weekly Shift Roster</label>
+                        <label className="text-[11px] font-bold text-ink-muted uppercase mb-3 block">Weekly Shift Roster</label>
                         <div className="space-y-3">
                             {DAYS_OF_WEEK.map((dayName, idx) => {
                                 const dayConfig = settingsModal.schedule[idx] || { active: false, start: "09:00", end: "17:00" };
                                 return (
-                                    <div key={idx} className={`flex justify-between p-3 rounded-xl border transition-all ${dayConfig.active ? 'bg-white border-accent-soft' : 'bg-slate-50 border-slate-200/50 opacity-60'}`}>
+                                    <div key={idx} className={`flex justify-between p-3 rounded-xl border transition-all ${dayConfig.active ? 'bg-surface border-accent-soft' : 'bg-surface-subtle border-slate-200/50 opacity-60'}`}>
                                         <div className="flex items-center gap-3 w-1/3">
                                             <input type="checkbox" checked={dayConfig.active} onChange={(e) => setSettingsModal({...settingsModal, schedule: { ...settingsModal.schedule, [idx]: { ...dayConfig, active: e.target.checked } }})} className="w-4 h-4 cursor-pointer"/>
                                             <span className="font-bold text-sm">{dayName}</span>
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            <input type="time" disabled={!dayConfig.active} value={dayConfig.start} onChange={(e) => setSettingsModal({...settingsModal, schedule: { ...settingsModal.schedule, [idx]: { ...dayConfig, start: e.target.value } }})} className="px-3 py-2 bg-slate-50 border rounded-lg text-sm font-bold"/>
+                                            <input type="time" disabled={!dayConfig.active} value={dayConfig.start} onChange={(e) => setSettingsModal({...settingsModal, schedule: { ...settingsModal.schedule, [idx]: { ...dayConfig, start: e.target.value } }})} className="px-3 py-2 bg-surface-subtle border rounded-lg text-sm font-bold"/>
                                             <span className="text-xs font-bold text-slate-400">to</span>
-                                            <input type="time" disabled={!dayConfig.active} value={dayConfig.end} onChange={(e) => setSettingsModal({...settingsModal, schedule: { ...settingsModal.schedule, [idx]: { ...dayConfig, end: e.target.value } }})} className="px-3 py-2 bg-slate-50 border rounded-lg text-sm font-bold"/>
+                                            <input type="time" disabled={!dayConfig.active} value={dayConfig.end} onChange={(e) => setSettingsModal({...settingsModal, schedule: { ...settingsModal.schedule, [idx]: { ...dayConfig, end: e.target.value } }})} className="px-3 py-2 bg-surface-subtle border rounded-lg text-sm font-bold"/>
                                         </div>
                                     </div>
                                 );
                             })}
                         </div>
                     </div>
-                    <button type="submit" className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold text-sm shadow-md active:scale-95 flex justify-center gap-2"><Save size={18}/> Save Settings</button>
+                    <button type="submit" className="w-full bg-accent text-ink-on-accent py-4 rounded-xl font-bold text-sm shadow-md active:scale-95 flex justify-center gap-2"><Save size={18}/> Save Settings</button>
                 </form>
             </div>
         </div>

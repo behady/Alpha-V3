@@ -82,7 +82,7 @@ export default function PerioInputModal({ isOpen, onClose, toothId, initialData,
           <h2 className="font-bold text-slate-800">
             {language === "ar" ? `قياسات اللثة لسن ${toothId}` : `Perio Chart - Tooth ${toothId}`}
           </h2>
-          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors">
+          <button onClick={onClose} className="p-2 text-slate-400 hover:text-ink-body hover:bg-surface-muted rounded-full transition-colors">
             <X size={18} />
           </button>
         </div>
@@ -101,7 +101,7 @@ export default function PerioInputModal({ isOpen, onClose, toothId, initialData,
                   inputMode="numeric"
                   value={buccalPD[idx]}
                   onChange={(e) => handleInput(setBuccalPD, idx, e.target.value)}
-                  className="w-full h-12 text-center text-lg font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                  className="w-full h-12 text-center text-lg font-bold text-slate-800 bg-surface-subtle border border-line rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
                   placeholder="-"
                 />
               ))}
@@ -121,7 +121,7 @@ export default function PerioInputModal({ isOpen, onClose, toothId, initialData,
                   inputMode="numeric"
                   value={buccalGM[idx]}
                   onChange={(e) => handleInput(setBuccalGM, idx, e.target.value)}
-                  className="w-full h-12 text-center text-lg font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                  className="w-full h-12 text-center text-lg font-bold text-slate-800 bg-surface-subtle border border-line rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
                   placeholder="-"
                 />
               ))}

@@ -121,9 +121,9 @@ export default function PatientsPage() {
 
   const renderSourceBadge = (source?: string) => {
       const s = (source || "").toLowerCase();
-      if (s.includes("facebook") || s.includes("fb")) return <div className="absolute -bottom-0.5 -right-0.5 bg-white p-[1.5px] rounded-full shadow-sm border border-slate-100"><Facebook size={8} className="text-accent fill-blue-600" /></div>;
-      if (s.includes("instagram") || s.includes("insta")) return <div className="absolute -bottom-0.5 -right-0.5 bg-white p-[1.5px] rounded-full shadow-sm border border-slate-100"><Instagram size={8} className="text-pink-600" /></div>;
-      if (s.includes("friend") || s.includes("refer") || s.includes("patient")) return <div className="absolute -bottom-0.5 -right-0.5 bg-white p-[1.5px] rounded-full shadow-sm border border-slate-100"><Users size={8} className="text-emerald-600" /></div>;
+      if (s.includes("facebook") || s.includes("fb")) return <div className="absolute -bottom-0.5 -right-0.5 bg-surface p-[1.5px] rounded-full shadow-sm border border-slate-100"><Facebook size={8} className="text-accent fill-blue-600" /></div>;
+      if (s.includes("instagram") || s.includes("insta")) return <div className="absolute -bottom-0.5 -right-0.5 bg-surface p-[1.5px] rounded-full shadow-sm border border-slate-100"><Instagram size={8} className="text-pink-600" /></div>;
+      if (s.includes("friend") || s.includes("refer") || s.includes("patient")) return <div className="absolute -bottom-0.5 -right-0.5 bg-surface p-[1.5px] rounded-full shadow-sm border border-slate-100"><Users size={8} className="text-emerald-600" /></div>;
       return null;
   };
 
@@ -139,14 +139,14 @@ export default function PatientsPage() {
               {/* Row 1: Context Title & Utilities */}
               <div className="flex justify-between items-center">
                  <div className="flex items-center gap-3">
-                    <h1 className="text-lg font-black text-slate-900 tracking-tight uppercase">{t.title}</h1>
+                    <h1 className="text-lg font-black text-ink tracking-tight uppercase">{t.title}</h1>
                  </div>
                  
                  <div className="flex items-center gap-2">
-                    <button onClick={toggleLanguage} className="w-8 h-8 rounded-full bg-slate-50 hover:bg-accent-tint text-slate-500 hover:text-accent flex items-center justify-center font-bold text-[10px] uppercase tracking-widest transition-colors border border-slate-100">
+                    <button onClick={toggleLanguage} className="w-8 h-8 rounded-full bg-surface-subtle hover:bg-accent-tint text-ink-muted hover:text-accent flex items-center justify-center font-bold text-[10px] uppercase tracking-widest transition-colors border border-slate-100">
                        {language === 'ar' ? 'EN' : 'ع'}
                     </button>
-                    <button className="w-8 h-8 rounded-full bg-slate-50 hover:bg-accent-tint text-slate-500 hover:text-accent flex items-center justify-center transition-colors relative border border-slate-100">
+                    <button className="w-8 h-8 rounded-full bg-surface-subtle hover:bg-accent-tint text-ink-muted hover:text-accent flex items-center justify-center transition-colors relative border border-slate-100">
                         <Bell size={14}/>
                         <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-red-500 rounded-full border border-white"></span>
                     </button>
@@ -164,7 +164,7 @@ export default function PatientsPage() {
                         placeholder={t.searchPlaceholder} data-tour="patients-search" 
                         value={searchTerm} 
                         onChange={(e) => setSearchTerm(e.target.value)} 
-                        className="block w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200/60 focus:border-primary-400 focus:ring-2 focus:ring-accent-soft/10 rounded-xl text-sm font-semibold text-slate-900 placeholder-slate-400 transition-all outline-none" 
+                        className="block w-full pl-10 pr-4 py-2.5 bg-surface border border-slate-200/60 focus:border-primary-400 focus:ring-2 focus:ring-accent-soft/10 rounded-xl text-sm font-semibold text-ink placeholder-slate-400 transition-all outline-none" 
                      />
                   </div>
 
@@ -184,7 +184,7 @@ export default function PatientsPage() {
           {loading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 md:gap-4">
               {[...Array(6)].map((_, i) => (
-                <div key={i} className="flex items-center bg-white p-3 sm:p-4 rounded-[1.25rem] border border-slate-200/60 shadow-sm animate-pulse w-full">
+                <div key={i} className="flex items-center bg-surface p-3 sm:p-4 rounded-[1.25rem] border border-slate-200/60 shadow-sm animate-pulse w-full">
                   <div className="flex items-center w-full pl-2 sm:pl-3 gap-4">
                     <div className="flex items-center gap-3 flex-1">
                       <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-slate-200 shrink-0"></div>
@@ -211,7 +211,7 @@ export default function PatientsPage() {
                   <Link 
                      key={p.id} 
                      href={`/patients/${p.id}`} data-tour="patient-row" 
-                     className="group relative flex items-center bg-white p-3 sm:p-4 rounded-[1.25rem] border border-slate-200/60 shadow-sm hover:shadow-md hover:border-accent-soft hover:-translate-y-0.5 transition-all duration-300 outline-none w-full"
+                     className="group relative flex items-center bg-surface p-3 sm:p-4 rounded-[1.25rem] border border-slate-200/60 shadow-sm hover:shadow-md hover:border-accent-soft hover:-translate-y-0.5 transition-all duration-300 outline-none w-full"
                      style={{ animationDelay: `${(index % PAGE_SIZE) * 30}ms`, animationFillMode: 'both' }}
                   >
                     
@@ -228,7 +228,7 @@ export default function PatientsPage() {
                             </div>
 
                             <div className="flex flex-col min-w-0">
-                                <h3 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight truncate capitalize group-hover:text-accent transition-colors">
+                                <h3 className="text-sm sm:text-base font-bold text-ink tracking-tight truncate capitalize group-hover:text-accent transition-colors">
                                     {p.name}
                                 </h3>
                                 <div className="flex items-center gap-1.5 text-[10px] sm:text-xs font-semibold text-slate-400 mt-0.5">
@@ -240,10 +240,10 @@ export default function PatientsPage() {
 
                         <div className="flex items-center gap-4 shrink-0">
                             <div className="hidden sm:flex flex-col items-end">
-                                <span className="text-xs font-bold text-slate-500 tracking-wide" dir="ltr">{p.phone || "---"}</span>
+                                <span className="text-xs font-bold text-ink-muted tracking-wide" dir="ltr">{p.phone || "---"}</span>
                             </div>
                             
-                            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-slate-50 flex items-center justify-center border border-slate-100 group-hover:bg-accent-tint group-hover:border-primary-100 transition-colors">
+                            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-surface-subtle flex items-center justify-center border border-slate-100 group-hover:bg-accent-tint group-hover:border-primary-100 transition-colors">
                                 <span className="sm:hidden text-slate-400 group-hover:text-accent"><Phone size={14} className="fill-current opacity-20 group-hover:opacity-100 transition-all"/></span>
                                 <span className="hidden sm:block text-slate-300 group-hover:text-accent transition-transform group-hover:translate-x-0.5"><ChevronRight size={18}/></span>
                             </div>
@@ -259,7 +259,7 @@ export default function PatientsPage() {
                       <button 
                           onClick={() => fetchPatients(true, lastVisible)} 
                           disabled={loadingMore}
-                          className="bg-white border border-slate-200 text-slate-600 hover:text-slate-900 hover:shadow-md px-8 py-3 rounded-full font-bold text-xs uppercase tracking-widest transition-all flex items-center gap-2 disabled:opacity-50 active:scale-95"
+                          className="bg-surface border border-line text-ink-body hover:text-ink hover:shadow-md px-8 py-3 rounded-full font-bold text-xs uppercase tracking-widest transition-all flex items-center gap-2 disabled:opacity-50 active:scale-95"
                       >
                           {loadingMore ? <><Loader2 size={14} className="animate-spin text-accent-soft" /> Loading...</> : t.loadMore}
                       </button>
@@ -267,12 +267,12 @@ export default function PatientsPage() {
               )}
             </>
           ) : (
-              <div className="flex flex-col items-center justify-center py-24 bg-white rounded-[2rem] border border-slate-200/60 shadow-sm border-dashed">
-                  <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4">
+              <div className="flex flex-col items-center justify-center py-24 bg-surface rounded-[2rem] border border-slate-200/60 shadow-sm border-dashed">
+                  <div className="w-16 h-16 bg-surface-subtle rounded-full flex items-center justify-center mb-4">
                       <UserX size={24} className="text-slate-400" />
                   </div>
-                  <p className="text-base font-black text-slate-900">{t.noPatients}</p>
-                  <p className="text-slate-500 text-sm mt-1 font-medium">Try adjusting your search criteria</p>
+                  <p className="text-base font-black text-ink">{t.noPatients}</p>
+                  <p className="text-ink-muted text-sm mt-1 font-medium">Try adjusting your search criteria</p>
               </div>
           )}
           

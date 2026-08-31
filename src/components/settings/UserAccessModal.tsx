@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useSettingsText } from "@/lib/useSettingsText";
 import { X, Search, ChevronDown, ChevronRight, Info, Shield, Check, Crown, RotateCcw, ArrowRightLeft } from "lucide-react";
 import { PERMISSIONS_CATALOG, getAllPermissionIds, type PermissionCatalogGroup } from "@/config/permissionsCatalog";
 import { ASSIGNABLE_ROLES, isFullAccessRole, isOwnerRole, presetDiff, rolePreset } from "@/lib/permissions";
@@ -100,38 +101,19 @@ export default function UserAccessModal({
   const roleName = user.role || "Assistant";
   const presetSize = presetKeys.size;
 
+
   const txt = {
-    title: isAr ? "إدارة الصلاحيات" : "Manage Access",
-    systemRole: isAr ? "دور النظام الأساسي" : "Primary System Role",
-    alsoDentist: isAr ? "يعمل أيضاً كطبيب (يظهر في المواعيد)" : "Also acts as Dentist (Shows in appointments)",
-    adminBypass: isAr
-      ? "دور المدير (Admin) يتجاوز جميع هذه الصلاحيات تلقائياً، فهي معروضة للاطلاع فقط."
-      : "The Admin role bypasses every switch below, so they're shown for reference only.",
-    ownerBypass: isAr
-      ? "مالك العيادة يتجاوز جميع الصلاحيات. مفيش مدير تاني يقدر يغيّر دوره أو يحذفه أو يغيّر كلمة مروره."
-      : "The clinic owner bypasses every switch. No other admin can change their role, remove them, or reset their password.",
-    ownerLocked: isAr ? "مالك العيادة" : "Clinic owner",
-    ownerLockedHint: isAr
-      ? "المالك واحد بس لكل عيادة. عشان تغيّره استخدم «نقل الملكية»."
-      : "One owner per clinic. Use Transfer ownership to change who it is.",
-    searchPlaceholder: isAr ? "بحث في الصلاحيات..." : "Search permissions...",
-    selectAll: isAr ? "تحديد الكل" : "Select All",
-    deselectAll: isAr ? "إلغاء الكل" : "Deselect All",
+
+    ...useSettingsText("userAccess"),
+
     presetLabel: isAr ? `الإعداد الجاهز لدور ${roleName}` : `${roleName} preset`,
+
     presetSwitches: isAr ? `${presetSize} صلاحية` : `${presetSize} switches`,
-    presetMatches: isAr ? "مطابق للإعداد الجاهز" : "matches the preset",
-    presetUnset: isAr ? "لسه متسجّلش — اضغط إعادة الضبط" : "not recorded yet — press Reset to preset",
+
     presetAdded: (n: number) => (isAr ? `${n} مضافة` : `${n} added`),
+
     presetRemoved: (n: number) => (isAr ? `${n} مُزالة` : `${n} removed`),
-    applyPreset: isAr ? "إعادة الضبط" : "Reset to preset",
-    applyPresetHint: isAr
-      ? "يرجّع المفاتيح لما يبدأ به الدور ده، ويلغي أي تعديل يدوي."
-      : "Puts the switches back to what this role starts with, discarding hand-made changes.",
-    transfer: isAr ? "نقل ملكية العيادة" : "Transfer clinic ownership",
-    transferHint: isAr
-      ? "يخلي الشخص ده مالك العيادة، وإنت تبقى مدير (Admin)."
-      : "Makes this person the owner. You become an Admin.",
-    always: isAr ? "دائماً" : "Always",
+
   };
 
   return (
@@ -141,20 +123,20 @@ export default function UserAccessModal({
         dir={isRTL ? "rtl" : "ltr"}
       >
         {/* Header */}
-        <div className="flex justify-between items-center px-6 py-5 border-b border-slate-100 bg-white z-10 shrink-0">
+        <div className="flex justify-between items-center px-6 py-5 border-b border-slate-100 bg-surface z-10 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${targetIsOwner ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-accent-soft"}`}>
               {targetIsOwner ? <Crown size={20} /> : <Shield size={20} />}
             </div>
             <div className="min-w-0">
-              <h2 className="text-lg font-bold text-slate-900 truncate tracking-tight">{txt.title}</h2>
-              <p className="text-xs font-semibold text-slate-500 truncate">{user.name}</p>
+              <h2 className="text-lg font-bold text-ink truncate tracking-tight">{txt.title}</h2>
+              <p className="text-xs font-semibold text-ink-muted truncate">{user.name}</p>
             </div>
           </div>
           <button 
             type="button" 
             onClick={onClose} 
-            className="text-slate-400 hover:text-red-500 bg-slate-50 hover:bg-red-50 p-2.5 rounded-full transition-colors shrink-0"
+            className="text-slate-400 hover:text-red-500 bg-surface-subtle hover:bg-red-50 p-2.5 rounded-full transition-colors shrink-0"
           >
             <X size={20} />
           </button>
@@ -168,7 +150,7 @@ export default function UserAccessModal({
             <label className="text-xs font-black text-slate-400 uppercase tracking-widest block px-1">
               {txt.systemRole}
             </label>
-            <div className="bg-white rounded-[1.5rem] p-4 sm:p-5 border border-slate-200/60 shadow-sm space-y-4">
+            <div className="bg-surface rounded-[1.5rem] p-4 sm:p-5 border border-slate-200/60 shadow-sm space-y-4">
               {targetIsOwner ? (
                 <div className="flex items-start gap-3 py-2 px-4 rounded-xl bg-amber-50/60 border border-amber-100">
                   <Crown size={18} className="shrink-0 mt-0.5 text-amber-600" />
@@ -182,7 +164,7 @@ export default function UserAccessModal({
                   value={user.role || "Assistant"}
                   disabled={isUpdating}
                   onChange={(e) => handleRoleChange(user.id, e.target.value, user)}
-                  className="w-full py-3 px-4 rounded-xl border border-slate-200 text-sm font-bold text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-accent-soft/20 focus:border-accent-soft transition-all cursor-pointer"
+                  className="w-full py-3 px-4 rounded-xl border border-line text-sm font-bold text-slate-800 bg-surface-subtle outline-none focus:ring-2 focus:ring-accent-soft/20 focus:border-accent-soft transition-all cursor-pointer"
                 >
                   {ASSIGNABLE_ROLES.map((r) => (
                     <option key={r} value={r}>{r}</option>
@@ -191,9 +173,9 @@ export default function UserAccessModal({
               )}
 
               {bypassesEverything && (
-                <label className="flex items-center gap-3 cursor-pointer group p-3 rounded-xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100">
+                <label className="flex items-center gap-3 cursor-pointer group p-3 rounded-xl hover:bg-surface-subtle transition-colors border border-transparent hover:border-slate-100">
                   <div className={`relative w-11 h-6 rounded-full transition-colors duration-300 flex items-center ${user.isDentist ? 'bg-accent-soft' : 'bg-slate-200'} shrink-0`}>
-                    <div className={`w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform duration-300 mx-0.5 ${user.isDentist ? (isRTL ? '-translate-x-5' : 'translate-x-5') : 'translate-x-0'}`}></div>
+                    <div className={`w-5 h-5 bg-surface rounded-full shadow-sm transform transition-transform duration-300 mx-0.5 ${user.isDentist ? (isRTL ? '-translate-x-5' : 'translate-x-5') : 'translate-x-0'}`}></div>
                     <input
                       type="checkbox"
                       className="sr-only"
@@ -202,7 +184,7 @@ export default function UserAccessModal({
                       onChange={(e) => handleToggleAlsoDentist(user.id, user, e.target.checked)}
                     />
                   </div>
-                  <span className="text-sm font-bold text-slate-700 group-hover:text-slate-900 transition-colors">
+                  <span className="text-sm font-bold text-slate-700 group-hover:text-ink transition-colors">
                     {txt.alsoDentist}
                   </span>
                 </label>
@@ -225,14 +207,14 @@ export default function UserAccessModal({
                 type="button"
                 disabled={isUpdating}
                 onClick={() => transferOwnership(user)}
-                className="w-full flex items-center gap-3 p-4 rounded-[1.25rem] border border-amber-200 bg-white hover:bg-amber-50/60 transition-colors text-start disabled:opacity-50"
+                className="w-full flex items-center gap-3 p-4 rounded-[1.25rem] border border-amber-200 bg-surface hover:bg-amber-50/60 transition-colors text-start disabled:opacity-50"
               >
                 <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
                   <ArrowRightLeft size={16} />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-sm font-bold text-slate-900">{txt.transfer}</p>
-                  <p className="text-[11px] font-semibold text-slate-500 mt-0.5">{txt.transferHint}</p>
+                  <p className="text-sm font-bold text-ink">{txt.transfer}</p>
+                  <p className="text-[11px] font-semibold text-ink-muted mt-0.5">{txt.transferHint}</p>
                 </div>
               </button>
             )}
@@ -252,9 +234,9 @@ export default function UserAccessModal({
               decoration.
             */}
             {!bypassesEverything && (
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white rounded-[1.25rem] border border-slate-200/60 shadow-sm p-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface rounded-[1.25rem] border border-slate-200/60 shadow-sm p-4">
                 <div className="min-w-0">
-                  <p className="text-sm font-bold text-slate-900 truncate">
+                  <p className="text-sm font-bold text-ink truncate">
                     {txt.presetLabel} · {txt.presetSwitches}
                   </p>
                   <p className="text-[11px] font-semibold mt-0.5 truncate">
@@ -279,7 +261,7 @@ export default function UserAccessModal({
                   title={txt.applyPresetHint}
                   disabled={isUpdating || diff.matchesPreset}
                   onClick={() => applyRolePreset(user.id, user)}
-                  className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-[11px] font-bold uppercase tracking-wider border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-[11px] font-bold uppercase tracking-wider border border-line bg-surface-subtle text-slate-700 hover:bg-surface-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <RotateCcw size={14} />
                   {txt.applyPreset}
@@ -294,7 +276,7 @@ export default function UserAccessModal({
                 value={permissionSearch}
                 onChange={(e) => setPermissionSearch(e.target.value)}
                 placeholder={txt.searchPlaceholder}
-                className={`w-full py-3.5 rounded-[1.25rem] border border-slate-200/60 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-accent-soft/20 focus:border-accent-soft bg-white shadow-sm transition-all ${
+                className={`w-full py-3.5 rounded-[1.25rem] border border-slate-200/60 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-accent-soft/20 focus:border-accent-soft bg-surface shadow-sm transition-all ${
                   isRTL ? "pr-12 pl-4" : "pl-12 pr-4"
                 }`}
               />
@@ -308,9 +290,9 @@ export default function UserAccessModal({
                 const isAllSelected = groupKeys.every(k => perms.includes(k));
 
                 return (
-                  <div key={group.id} className="bg-white rounded-[1.5rem] border border-slate-200/60 shadow-sm overflow-hidden transition-all duration-300">
+                  <div key={group.id} className="bg-surface rounded-[1.5rem] border border-slate-200/60 shadow-sm overflow-hidden transition-all duration-300">
                     <div 
-                      className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 sm:p-5 cursor-pointer hover:bg-slate-50 transition-colors ${!collapsed ? 'border-b border-slate-100' : ''}`}
+                      className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 sm:p-5 cursor-pointer hover:bg-surface-subtle transition-colors ${!collapsed ? 'border-b border-slate-100' : ''}`}
                       onClick={(e) => {
                         // Prevent toggling accordion if clicking a button inside it
                         if ((e.target as HTMLElement).closest('button')) return;
@@ -318,13 +300,13 @@ export default function UserAccessModal({
                       }}
                     >
                       <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors ${!collapsed ? 'bg-accent-tint text-accent-soft' : 'bg-slate-100 text-slate-400'}`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors ${!collapsed ? 'bg-accent-tint text-accent-soft' : 'bg-surface-muted text-slate-400'}`}>
                           {collapsed ? (isRTL ? <ChevronRight size={16}/> : <ChevronDown size={16}/>) : <ChevronDown size={16}/>}
                         </div>
                         <div className="min-w-0">
-                          <p className="text-sm font-bold text-slate-900 truncate tracking-tight">{groupTitle(group)}</p>
+                          <p className="text-sm font-bold text-ink truncate tracking-tight">{groupTitle(group)}</p>
                           {groupDescription(group) && (
-                            <p className="text-[11px] font-semibold text-slate-500 mt-0.5 truncate">{groupDescription(group)}</p>
+                            <p className="text-[11px] font-semibold text-ink-muted mt-0.5 truncate">{groupDescription(group)}</p>
                           )}
                         </div>
                       </div>
@@ -360,17 +342,17 @@ export default function UserAccessModal({
                               title={hint || undefined}
                               className={`flex items-center justify-between p-3 rounded-xl transition-colors border border-transparent ${
                                 bypassesEverything
-                                  ? 'bg-slate-50 cursor-default'
+                                  ? 'bg-surface-subtle cursor-default'
                                   : isSet
                                     ? 'bg-accent-tint/40 cursor-pointer'
-                                    : 'hover:bg-slate-50 cursor-pointer'
+                                    : 'hover:bg-surface-subtle cursor-pointer'
                               }`}
                             >
                               <div className="flex items-center gap-4 min-w-0 pr-4">
                                 <div className={`relative w-11 h-6 rounded-full transition-colors duration-300 flex items-center shrink-0 ${
                                   bypassesEverything ? 'bg-slate-300' : isSet ? 'bg-accent-soft' : 'bg-slate-200'
                                 }`}>
-                                  <div className={`w-5 h-5 bg-white rounded-full shadow-sm transform transition-transform duration-300 mx-0.5 ${isSet ? (isRTL ? '-translate-x-5' : 'translate-x-5') : 'translate-x-0'}`}></div>
+                                  <div className={`w-5 h-5 bg-surface rounded-full shadow-sm transform transition-transform duration-300 mx-0.5 ${isSet ? (isRTL ? '-translate-x-5' : 'translate-x-5') : 'translate-x-0'}`}></div>
                                   <input
                                     type="checkbox"
                                     className="sr-only"
@@ -383,16 +365,16 @@ export default function UserAccessModal({
                                   />
                                 </div>
                                 <div className="min-w-0 py-1">
-                                  <p className={`text-sm font-bold truncate transition-colors ${isSet ? 'text-slate-900' : 'text-slate-600'}`}>{itemLabel(pk)}</p>
+                                  <p className={`text-sm font-bold truncate transition-colors ${isSet ? 'text-ink' : 'text-ink-body'}`}>{itemLabel(pk)}</p>
                                   <p className="text-[10px] font-semibold text-slate-400 font-mono mt-0.5 truncate">{pk.id}</p>
                                 </div>
                               </div>
                               {bypassesEverything ? (
-                                <span className="shrink-0 px-2 py-1 rounded-md bg-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-wider">
+                                <span className="shrink-0 px-2 py-1 rounded-md bg-slate-200 text-ink-body text-[10px] font-black uppercase tracking-wider">
                                   {txt.always}
                                 </span>
                               ) : inPreset ? (
-                                <span className="shrink-0 px-2 py-1 rounded-md bg-slate-100 text-slate-500 text-[10px] font-black uppercase tracking-wider">
+                                <span className="shrink-0 px-2 py-1 rounded-md bg-surface-muted text-ink-muted text-[10px] font-black uppercase tracking-wider">
                                   {roleName}
                                 </span>
                               ) : null}

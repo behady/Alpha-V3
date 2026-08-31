@@ -57,7 +57,7 @@ export default function PatientTimeTrackerWidget({ appointments }: { appointment
     return (
       <div className="bg-white/60 backdrop-blur-xl border border-white/40 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-3xl p-4 flex items-center justify-center gap-4 min-h-[100px] hover:scale-[1.01] transition-transform relative overflow-hidden group">
          <div className="text-slate-400 group-hover:scale-110 transition-transform"><Clock size={24} strokeWidth={1.5} /></div>
-         <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">{language === 'ar' ? 'غير متواجد بالعيادة' : 'Not in clinic'}</span>
+         <span className="text-xs font-bold text-ink-muted uppercase tracking-widest">{language === 'ar' ? 'غير متواجد بالعيادة' : 'Not in clinic'}</span>
       </div>
     );
   }
@@ -67,7 +67,7 @@ export default function PatientTimeTrackerWidget({ appointments }: { appointment
   return (
     <div className="bg-white/60 backdrop-blur-xl border border-white/40 shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-3xl p-4 flex items-center justify-between min-h-[100px] hover:scale-[1.01] transition-transform relative overflow-hidden group px-6">
        <div className="flex flex-col gap-1.5">
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{language === 'ar' ? 'الوقت المنقضي' : 'Session Duration'}</span>
+          <span className="text-[10px] font-bold text-ink-muted uppercase tracking-widest">{language === 'ar' ? 'الوقت المنقضي' : 'Session Duration'}</span>
           {isChair ? (
              <span className="flex items-center gap-1.5 bg-cyan-50 text-cyan-700 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest w-fit">
                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>

@@ -168,7 +168,7 @@ export default function ServiceCombobox({
           onKeyDown={handleKeyDown}
           onBlur={handleBlur}
           placeholder={placeholder || (language === "ar" ? "ابحث عن خدمة..." : "Search services...")}
-          className={`w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-900 outline-none transition-all focus:border-primary-400 focus:ring-2 focus:ring-primary-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:opacity-70 ${
+          className={`w-full rounded-xl border border-line bg-surface px-3 py-3 text-sm font-bold text-ink outline-none transition-all focus:border-primary-400 focus:ring-2 focus:ring-primary-100 disabled:cursor-not-allowed disabled:bg-surface-subtle disabled:opacity-70 ${
             language === "ar" ? "pr-10 pl-8" : "pl-10 pr-8"
           }`}
         />
@@ -194,10 +194,10 @@ export default function ServiceCombobox({
 
       {isOpen && !disabled && (
         <div
-          className={`absolute z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-xl custom-scrollbar ${dropdownClassName}`}
+          className={`absolute z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-line bg-surface py-1 shadow-xl custom-scrollbar ${dropdownClassName}`}
         >
           {filteredAndSortedServices.length === 0 ? (
-            <div className="px-4 py-3 text-sm text-slate-500">
+            <div className="px-4 py-3 text-sm text-ink-muted">
               {allowFreeText 
                  ? (language === "ar" ? `استخدام "${search}" كإجراء مخصص...` : `Use "${search}" as custom procedure...`)
                  : (language === "ar" ? "لم يتم العثور على خدمات" : "No services found")}
@@ -227,7 +227,7 @@ export default function ServiceCombobox({
                       </span>
                       <div className="flex items-center gap-2 shrink-0">
                         {service.price !== undefined && service.price !== null && (
-                          <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">
+                          <span className="rounded-md bg-surface-muted px-2 py-0.5 text-xs font-bold text-ink-body">
                             {service.price} EGP
                           </span>
                         )}

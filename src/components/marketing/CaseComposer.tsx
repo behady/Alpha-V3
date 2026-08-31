@@ -283,7 +283,7 @@ export default function CaseComposer({
             <h3 className="text-base font-black text-slate-900">{isAr ? "تصميم قبل / بعد" : "Before / after design"}</h3>
             <p className="text-[11px] font-bold text-slate-400" dir="auto">{caseItem.procedure} · {caseItem.patientName}</p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500">
+          <button onClick={onClose} className="p-1.5 rounded-full bg-surface-muted hover:bg-slate-200 text-ink-muted">
             <X size={16} />
           </button>
         </div>
@@ -292,7 +292,7 @@ export default function CaseComposer({
           {/* Controls */}
           <div className="space-y-4 min-w-0">
             <div>
-              <label className="block text-xs font-black text-slate-500 mb-1.5">{isAr ? "المقاس" : "Format"}</label>
+              <label className="block text-xs font-black text-ink-muted mb-1.5">{isAr ? "المقاس" : "Format"}</label>
               <div className="grid grid-cols-2 gap-1.5">
                 <button
                   onClick={() => setFormat("square")}
@@ -314,7 +314,7 @@ export default function CaseComposer({
             </div>
 
             <div>
-              <label className="block text-xs font-black text-slate-500 mb-1.5">
+              <label className="block text-xs font-black text-ink-muted mb-1.5">
                 {isAr ? "اسم الطبيب (اختياري — يظهر بخط اليد)" : "Dentist name (optional — shown in script)"}
               </label>
               <input
@@ -323,7 +323,7 @@ export default function CaseComposer({
                 dir="auto"
                 maxLength={60}
                 placeholder={isAr ? "مثال: Dr Ahmed Tarek" : "e.g. Dr Ahmed Tarek"}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400"
+                className="w-full bg-surface-subtle border border-line rounded-xl px-3 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400"
               />
             </div>
 
@@ -331,7 +331,7 @@ export default function CaseComposer({
               <button
                 onClick={() => setShowLogo((v) => !v)}
                 className={`px-3 py-2 rounded-xl border text-xs font-black transition-colors ${
-                  showLogo ? "bg-white text-slate-700 border-slate-300" : "bg-slate-100 text-slate-400 border-slate-200"
+                  showLogo ? "bg-surface text-slate-700 border-line-strong" : "bg-surface-muted text-slate-400 border-line"
                 }`}
               >
                 {showLogo ? (isAr ? "اللوجو ظاهر" : "Logo on") : isAr ? "اللوجو مخفي — اسم العيادة بدلاً منه" : "Logo off — clinic name instead"}
@@ -339,11 +339,11 @@ export default function CaseComposer({
             )}
 
             <div>
-              <label className="block text-xs font-black text-slate-500 mb-1.5">
+              <label className="block text-xs font-black text-ink-muted mb-1.5">
                 {isAr ? "ضبط قصّ صورة «قبل»" : "Adjust the BEFORE crop"}
               </label>
               <input type="range" min={0} max={100} value={beforeFocus} onChange={(e) => setBeforeFocus(Number(e.target.value))} className="w-full accent-emerald-500" />
-              <label className="block text-xs font-black text-slate-500 mb-1.5 mt-2">
+              <label className="block text-xs font-black text-ink-muted mb-1.5 mt-2">
                 {isAr ? "ضبط قصّ صورة «بعد»" : "Adjust the AFTER crop"}
               </label>
               <input type="range" min={0} max={100} value={afterFocus} onChange={(e) => setAfterFocus(Number(e.target.value))} className="w-full accent-emerald-500" />
@@ -364,13 +364,13 @@ export default function CaseComposer({
           {/* Preview */}
           <div className="flex items-start justify-center">
             {ready ? (
-              <div className="rounded-2xl border border-slate-200 shadow-lg overflow-hidden shrink-0" style={{ width: previewWidth, height: h * scale }}>
+              <div className="rounded-2xl border border-line shadow-lg overflow-hidden shrink-0" style={{ width: previewWidth, height: h * scale }}>
                 <div style={{ transform: `scale(${scale})`, transformOrigin: "top left", width: w, height: h }}>
                   <Artboard w={w} h={h} />
                 </div>
               </div>
             ) : (
-              <div className="w-[330px] h-[330px] rounded-2xl border border-dashed border-slate-300 flex items-center justify-center">
+              <div className="w-[330px] h-[330px] rounded-2xl border border-dashed border-line-strong flex items-center justify-center">
                 {loadError ? <X className="text-rose-300" /> : <Loader2 className="animate-spin text-slate-300" />}
               </div>
             )}

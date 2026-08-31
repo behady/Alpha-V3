@@ -62,7 +62,7 @@ export default function PendingActionCard({
   const patientName = String(action.summary?.patientName || action.summary?.name || "");
 
   return (
-    <div className={`bg-white border ${tone.ring} rounded-2xl shadow-sm overflow-hidden`}>
+    <div className={`bg-surface border ${tone.ring} rounded-2xl shadow-sm overflow-hidden`}>
       <div className={`px-4 py-2.5 border-b ${tone.head} flex items-center gap-2`}>
         <Icon size={14} className={tone.text} />
         <p className={`text-[11px] font-black uppercase tracking-widest ${tone.text}`}>
@@ -81,7 +81,7 @@ export default function PendingActionCard({
             {action.changes.map((c) => (
               <div key={c.label} className="flex items-center gap-2 text-[12px]">
                 <span className="text-slate-400 font-bold w-16 shrink-0">{c.label}</span>
-                <span className="text-slate-500 line-through">{c.from}</span>
+                <span className="text-ink-muted line-through">{c.from}</span>
                 <ArrowRight size={12} className="text-slate-300 shrink-0" />
                 <span className="font-black text-slate-800">{c.to}</span>
               </div>
@@ -90,7 +90,7 @@ export default function PendingActionCard({
         ) : null}
 
         {action.note && (
-          <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200/60 rounded-lg px-2.5 py-2 leading-relaxed">
+          <p className="text-[11px] text-ink-muted bg-surface-subtle border border-slate-200/60 rounded-lg px-2.5 py-2 leading-relaxed">
             {action.note}
           </p>
         )}
@@ -98,12 +98,12 @@ export default function PendingActionCard({
         {/* Payment */}
         {action.kind === "payment" && (
           <div>
-            <p className="text-2xl font-black text-slate-900 leading-none">
+            <p className="text-2xl font-black text-ink leading-none">
               {Number(action.amount || 0).toLocaleString()}{" "}
               <span className="text-xs text-slate-400 font-bold">{isAr ? "ج.م" : "EGP"}</span>
             </p>
             {action.summary?.description ? (
-              <p className="text-[12px] text-slate-500 font-bold mt-1">{String(action.summary.description)}</p>
+              <p className="text-[12px] text-ink-muted font-bold mt-1">{String(action.summary.description)}</p>
             ) : null}
           </div>
         )}
@@ -112,9 +112,9 @@ export default function PendingActionCard({
         {action.kind === "whatsapp" && (
           <div className="space-y-1.5">
             <p className="text-[11px] font-bold text-slate-400">
-              {isAr ? "إلى" : "To"} <span className="text-slate-600 font-black" dir="ltr">{action.recipient}</span>
+              {isAr ? "إلى" : "To"} <span className="text-ink-body font-black" dir="ltr">{action.recipient}</span>
             </p>
-            <div className="rounded-xl bg-slate-50 border border-slate-200/60 px-3 py-2">
+            <div className="rounded-xl bg-surface-subtle border border-slate-200/60 px-3 py-2">
               <p className="text-[12px] text-slate-700 whitespace-pre-wrap leading-relaxed">{action.messageBody}</p>
             </div>
           </div>
@@ -122,7 +122,7 @@ export default function PendingActionCard({
 
         {/* Delete / anything else — identifying fields of the real record */}
         {action.kind === "delete" && (
-          <div className="rounded-xl bg-slate-50 border border-slate-200/60 px-3 py-2 space-y-1">
+          <div className="rounded-xl bg-surface-subtle border border-slate-200/60 px-3 py-2 space-y-1">
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{action.collection}</p>
             {Object.entries(action.summary || {}).map(([key, value]) => (
               <div key={key} className="flex gap-2 text-[12px]">
@@ -149,7 +149,7 @@ export default function PendingActionCard({
           <button
             onClick={() => onResolve("reject")}
             disabled={resolving}
-            className="flex-1 bg-white hover:bg-slate-50 disabled:opacity-50 text-slate-600 border border-slate-200 px-3 py-2 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.98]"
+            className="flex-1 bg-surface hover:bg-surface-subtle disabled:opacity-50 text-ink-body border border-line px-3 py-2 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all active:scale-[0.98]"
           >
             {isAr ? "إلغاء" : "Cancel"}
           </button>

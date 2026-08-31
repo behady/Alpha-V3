@@ -1,4 +1,3 @@
-import { db } from "@/lib/firebase";
 import { getClinicProfile } from "@/lib/clinicProfile";
 import { getGlobalClinicId } from "@/lib/db-utils";
 
@@ -118,7 +117,7 @@ export async function getClinicLogo(): Promise<ClinicLogoAsset> {
   if (pending) return pending;
 
   const request = (async (): Promise<{ asset: ClinicLogoAsset; cacheable: boolean }> => {
-    const profile = await getClinicProfile(db);
+    const profile = await getClinicProfile();
     const url = profile?.logoUrl?.trim() ?? "";
     if (!url) return { asset: NO_CLINIC_LOGO, cacheable: true };
     try {

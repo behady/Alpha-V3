@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getDocs, limit, orderBy, query } from "firebase/firestore";
+import { getDoc, getDocs, limit, orderBy, query } from "firebase/firestore";
 import { Loader2, Search, X, FlaskConical, Info } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
-import { getClinicCollection } from "@/lib/db-utils";
+import Protect from "@/components/Protect";
+import LabTeethPicker from "@/components/lab/LabTeethPicker";
+import { MoneyApiError, setProcedureLabFee } from "@/lib/moneyApi";
+import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { localYmd } from "@/lib/clinicDate";
 import { matchesTokenizedSubstring, patientMatchesSearch } from "@/lib/flexibleSearch";
 import { findLab, labPriceFor, type DentalLab } from "@/lib/dentalLabs";
@@ -16,8 +19,11 @@ import {
   GUM_SHADE_SUGGESTIONS,
   LAB_WORK_TYPES,
   RETENTION_OPTIONS,
-  STUMP_SHADES,
   TOOTH_SHADES,
+  CERVICAL_SHADES,
+  formatPalmerShorthand,
+  hasPrimaryTeeth,
+  parseToothInput,
   addDays,
   workTypeFor,
   type LabCase,
@@ -46,8 +52,8 @@ type Props = {
 };
 
 const INPUT =
-  "w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 transition-all";
-const LABEL = "block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-1.5";
+  "w-full px-3 py-2.5 bg-surface border border-line rounded-xl text-sm font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 transition-all";
+const LABEL = "block text-[11px] font-black uppercase tracking-wider text-ink-muted mb-1.5";
 
 
 
@@ -82,8 +88,12 @@ export default function LabCaseModal({
   const [workDescription, setWorkDescription] = useState("");
   const [units, setUnits] = useState("");
   const [teethText, setTeethText] = useState("");
-  const [toothShade, setToothShade] = useState("");
-  const [stumpShade, setStumpShade] = useState("");
+  /** FDI numbers. The picker and the text box are both views onto this. */
+  const [teeth, setTeeth] = useState<number[]>([]);
+  /** Whether the child's grid is showing. Opens itself when a case already has primary teeth. */
+  const [showPrimaryTeeth, setShowPrimaryTeeth] = useState(false);
+  const [bodyShade, setBodyShade] = useState("");
+  const [cervicalShade, setCervicalShade] = useState("");
   const [gumShade, setGumShade] = useState("");
   const [material, setMaterial] = useState("");
   const [implantSystem, setImplantSystem] = useState("");
@@ -227,9 +237,13 @@ export default function LabCaseModal({
     setWorkType((src?.workType as LabWorkTypeId) || "zirconia");
     setWorkDescription(src?.workDescription || seed?.workDescription || "");
     setUnits(src?.units != null ? String(src.units) : seed?.units != null ? String(seed.units) : "");
-    setTeethText((src?.teeth?.length ? src.teeth : seed?.teeth || []).join(", "));
-    setToothShade(src?.toothShade || "");
-    setStumpShade(src?.stumpShade || "");
+    const seededTeeth = src?.teeth?.length ? src.teeth : seed?.teeth || [];
+    setTeeth(seededTeeth);
+    setTeethText(formatPalmerShorthand(seededTeeth));
+    // A paediatric case opens on the grid that can actually show it.
+    setShowPrimaryTeeth(hasPrimaryTeeth(seededTeeth));
+    setBodyShade(src?.bodyShade || "");
+    setCervicalShade(src?.cervicalShade || "");
     setGumShade(src?.gumShade || "");
     setMaterial(src?.material || "");
     setImplantSystem(src?.implantSystem || "");
@@ -286,6 +300,72 @@ export default function LabCaseModal({
     setLabId(labs[0].id);
   }, [open, labId, labs]);
 
+  /**
+   * What this treatment was actually charged for its lab work.
+   *
+   * Read on demand for the one case being looked at, rather than swept across the whole board:
+   * the person who can judge whether a correction is right is the person with the case open in
+   * front of them, and a batch screen of "17 treatments disagree" invites clicking Apply on all of
+   * them without reading any.
+   */
+  const [bookedLabFee, setBookedLabFee] = useState<number | null>(null);
+  const [correcting, setCorrecting] = useState(false);
+
+  useEffect(() => {
+    if (!open || !existing?.ledgerId) {
+      setBookedLabFee(null);
+      return;
+    }
+    let cancelled = false;
+    getDoc(getClinicDoc("ledger", existing.ledgerId))
+      .then((snap) => {
+        if (cancelled) return;
+        setBookedLabFee(snap.exists() ? Number(snap.data()?.labFee) || 0 : null);
+      })
+      .catch(() => {
+        // A charge that cannot be read is one this screen simply will not offer to correct.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, existing?.ledgerId]);
+
+  const agreedNumber = Number(agreedPrice) || 0;
+  // A piastre of rounding is not a correction worth offering anybody.
+  const feeDrift =
+    bookedLabFee !== null && agreedNumber > 0 && Math.abs(agreedNumber - bookedLabFee) >= 1
+      ? Number((agreedNumber - bookedLabFee).toFixed(2))
+      : 0;
+
+  const applyFeeCorrection = async () => {
+    if (!existing?.ledgerId || !feeDrift) return;
+    setCorrecting(true);
+    try {
+      await setProcedureLabFee(
+        existing.ledgerId,
+        agreedNumber,
+        `Agreed with ${existing.labName || "the lab"} on case ${existing.code}`
+      );
+      setBookedLabFee(agreedNumber);
+      showToast(
+        isAr
+          ? "اتعدلت تكلفة المعمل، والعمولة اتحسبت من جديد"
+          : "Lab cost corrected, and the commission recalculated",
+        "success"
+      );
+    } catch (err) {
+      console.error("Lab fee correction failed", err);
+      showToast(
+        err instanceof MoneyApiError
+          ? err.message
+          : isAr ? "فشل التعديل" : "Could not correct it",
+        "error"
+      );
+    } finally {
+      setCorrecting(false);
+    }
+  };
+
   const selectedLab = findLab(labs, labId);
 
   /** The lab's usual turnaround fills the due date in — the reason it is worth recording. */
@@ -332,14 +412,25 @@ export default function LabCaseModal({
       .slice(0, 8);
   }, [patientQuery, patients]);
 
-  const teeth = useMemo(
-    () =>
-      teethText
-        .split(/[^0-9]+/)
-        .map((t) => parseInt(t, 10))
-        .filter((n) => !Number.isNaN(n) && n >= 11 && n <= 85),
-    [teethText]
-  );
+  /**
+   * The chart and the text box are two views of one selection, kept in step in both directions.
+   *
+   * `teeth` is the truth. Clicking the chart rewrites the box in Palmer; typing in the box
+   * re-reads the selection, in whichever notation was typed. Deriving one from the other with a
+   * memo would have made the chart read-only, and storing them independently would have let them
+   * disagree — which on a lab order means the diagram and the written line name different teeth.
+   */
+  const setTeethBoth = (next: number[]) => {
+    setTeeth(next);
+    // Shorthand, not the bracket glyphs: this is a box somebody edits, and `UR3` can be
+    // typed on any keyboard while `3┘` cannot. The drawn brackets live in the picker.
+    setTeethText(formatPalmerShorthand(next));
+  };
+
+  const setTeethFromText = (value: string) => {
+    setTeethText(value);
+    setTeeth(parseToothInput(value));
+  };
 
   const branch = branches.find((b) => b.id === branchId) || null;
   const branchIndex = branch ? branches.indexOf(branch) : 0;
@@ -368,8 +459,8 @@ export default function LabCaseModal({
         teeth,
         // Cleared per work type rather than kept: a case switched from a crown to a surgical guide
         // must not carry a shade the printed order would then hide but the record still claims.
-        toothShade: wt.toothShade ? toothShade : "",
-        stumpShade: wt.stumpShade ? stumpShade : "",
+        bodyShade: wt.bodyShade ? bodyShade : "",
+        cervicalShade: wt.cervicalShade ? cervicalShade : "",
         gumShade: wt.gumShade ? gumShade : "",
         material: material.trim(),
         implantSystem: wt.implant ? implantSystem.trim() : "",
@@ -398,7 +489,7 @@ export default function LabCaseModal({
         // because detaching a patient or a dentist from a case is a real edit and "" is how it is
         // expressed. `units` is not here: it is written as a number (0 when cleared) above.
         const clearable = [
-          "toothShade", "stumpShade", "gumShade", "material", "implantSystem", "implantPlatform",
+          "bodyShade", "cervicalShade", "gumShade", "material", "implantSystem", "implantPlatform",
           "abutmentType", "retention", "guideType", "sleeveSystem", "notes", "workDescription",
           "dueDate", "patientPhone", "doctorName", "patientName", "patientFirstName",
           "patientId", "doctorId",
@@ -450,7 +541,7 @@ export default function LabCaseModal({
               <FlaskConical size={20} className="text-sky-600" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-base font-black text-slate-900 tracking-tight truncate">
+              <h2 className="text-base font-black text-ink tracking-tight truncate">
                 {isEdit
                   ? isAr ? `تعديل ${existing?.code}` : `Edit ${existing?.code}`
                   : isAr ? "أمر معمل جديد" : "New lab order"}
@@ -464,7 +555,7 @@ export default function LabCaseModal({
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors shrink-0"
+            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-surface-muted rounded-xl transition-colors shrink-0"
             aria-label={isAr ? "إغلاق" : "Close"}
           >
             <X size={18} />
@@ -527,7 +618,7 @@ export default function LabCaseModal({
           <div>
             <label className={LABEL}>{isAr ? "المريض" : "Patient"}</label>
             {patientName ? (
-              <div className="flex items-center justify-between gap-3 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl">
+              <div className="flex items-center justify-between gap-3 px-4 py-3 bg-surface-subtle border border-line rounded-xl">
                 <div className="min-w-0">
                   <p className="text-sm font-black text-slate-800 truncate">{patientName}</p>
                   <p className="text-[11px] font-bold text-slate-400 truncate" dir="ltr">
@@ -557,7 +648,7 @@ export default function LabCaseModal({
                   className={`${INPUT} ps-9`}
                 />
                 {patientMatches.length > 0 && (
-                  <div className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden max-h-56 overflow-y-auto">
+                  <div className="absolute z-10 mt-1 w-full bg-surface border border-line rounded-xl shadow-xl overflow-hidden max-h-56 overflow-y-auto">
                     {patientMatches.map((p) => (
                       <button
                         key={p.id}
@@ -567,7 +658,7 @@ export default function LabCaseModal({
                           setPatientPhone(p.phone || "");
                           setPatientQuery("");
                         }}
-                        className="w-full text-start px-4 py-2.5 hover:bg-slate-50 transition-colors"
+                        className="w-full text-start px-4 py-2.5 hover:bg-surface-subtle transition-colors"
                       >
                         <span className="block text-sm font-bold text-slate-700">{p.name}</span>
                         <span className="block text-[11px] font-semibold text-slate-400" dir="ltr">
@@ -634,24 +725,36 @@ export default function LabCaseModal({
               />
             </div>
             <div>
-              <label className={LABEL}>{isAr ? "الأسنان (FDI)" : "Teeth (FDI)"}</label>
+              <label className={LABEL}>{isAr ? "الأسنان — اكتبها" : "Teeth — or type them"}</label>
               <input
                 value={teethText}
-                onChange={(e) => setTeethText(e.target.value)}
-                placeholder="15, 14"
+                onChange={(e) => setTeethFromText(e.target.value)}
+                placeholder="UR5, UR4"
                 dir="ltr"
                 className={INPUT}
               />
-              {teeth.length > 0 && (
-                <p className="text-[10px] font-bold text-sky-700 mt-1" dir="ltr">
-                  {teeth.length} {isAr ? "سنة" : teeth.length === 1 ? "tooth" : "teeth"}: {teeth.join(", ")}
-                </p>
-              )}
+              {/* The box takes either notation: a case raised from a treatment arrives prefilled in
+                  FDI from the odontogram, while one typed by hand comes in the Palmer shorthand
+                  people actually write. Clicking the chart rewrites this in Palmer. */}
+              <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">
+                {isAr
+                  ? "بالمر (UR5) أو FDI (15) — الاتنين شغالين، والرسم فوق بيتحدث معاهم."
+                  : "Palmer (UR5) or FDI (15) — both work, and the chart stays in step."}
+              </p>
             </div>
           </div>
 
+          {/* The chart. Same grid the printed order draws, so what is clicked here is what the
+              technician receives — no translation step in anybody's head. */}
+          <LabTeethPicker
+            teeth={teeth}
+            onChange={setTeethBoth}
+            showPrimary={showPrimaryTeeth}
+            onShowPrimaryChange={setShowPrimaryTeeth}
+          />
+
           {/* Per-work-type technical fields */}
-          <div className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4 space-y-4">
+          <div className="rounded-2xl border border-line bg-slate-50/60 p-4 space-y-4">
             <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">
               {isAr ? "تفاصيل فنية" : "Technical details"}
             </p>
@@ -669,11 +772,11 @@ export default function LabCaseModal({
                   />
                 </div>
               )}
-              {wt.toothShade && (
+              {wt.bodyShade && (
                 <div>
-                  <label className={LABEL}>{isAr ? "لون السنة" : "Tooth shade"}</label>
-                  <select value={toothShade} onChange={(e) => setToothShade(e.target.value)} className={INPUT}>
-                    <option value="">{isAr ? "—" : "—"}</option>
+                  <label className={LABEL}>{isAr ? "لون الجسم" : "Body shade"}</label>
+                  <select value={bodyShade} onChange={(e) => setBodyShade(e.target.value)} className={INPUT}>
+                    <option value="">—</option>
                     {TOOTH_SHADES.map((s) => (
                       <option key={s} value={s}>
                         {s}
@@ -682,17 +785,24 @@ export default function LabCaseModal({
                   </select>
                 </div>
               )}
-              {wt.stumpShade && (
+              {wt.cervicalShade && (
                 <div>
-                  <label className={LABEL}>{isAr ? "لون اللب" : "Stump shade"}</label>
-                  <select value={stumpShade} onChange={(e) => setStumpShade(e.target.value)} className={INPUT}>
+                  <label className={LABEL}>{isAr ? "لون العنق" : "Cervical shade"}</label>
+                  <select value={cervicalShade} onChange={(e) => setCervicalShade(e.target.value)} className={INPUT}>
                     <option value="">—</option>
-                    {STUMP_SHADES.map((s) => (
+                    {CERVICAL_SHADES.map((s) => (
                       <option key={s} value={s}>
                         {s}
                       </option>
                     ))}
                   </select>
+                  {/* The whole point of a second shade: a crown built to one flat colour reads as
+                      a crown. Natural teeth are darker at the gum. */}
+                  <p className="text-[10px] font-semibold text-slate-400 mt-1 leading-relaxed">
+                    {isAr
+                      ? "أغمق من لون الجسم عادةً، عشان التاج يبان زي جيرانه."
+                      : "Usually a step darker than the body, so the crown reads like its neighbours."}
+                  </p>
                 </div>
               )}
               {wt.gumShade && (
@@ -711,7 +821,7 @@ export default function LabCaseModal({
                   </datalist>
                 </div>
               )}
-              <div className={wt.units || wt.toothShade ? "" : "sm:col-span-2"}>
+              <div className={wt.units || wt.bodyShade ? "" : "sm:col-span-2"}>
                 <label className={LABEL}>{isAr ? "الخامة / تفاصيل" : "Material / detail"}</label>
                 <input
                   value={material}
@@ -723,7 +833,7 @@ export default function LabCaseModal({
             </div>
 
             {wt.implant && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-slate-200">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-line">
                 <div>
                   <label className={LABEL}>{isAr ? "نظام الزرعة" : "Implant system"}</label>
                   <input
@@ -784,7 +894,7 @@ export default function LabCaseModal({
             )}
 
             {wt.guide && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-slate-200">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-line">
                 <div>
                   <label className={LABEL}>{isAr ? "نوع الدليل" : "Guide type"}</label>
                   <select value={guideType} onChange={(e) => setGuideType(e.target.value)} className={INPUT}>
@@ -845,6 +955,36 @@ export default function LabCaseModal({
                 placeholder="EGP"
                 className={INPUT}
               />
+              {/* The estimate the treatment was actually booked at, when it disagrees.
+                  Offered here rather than applied automatically: it moves money between the
+                  dentist and the clinic on every payment already taken, so it is a decision
+                  somebody makes, with both numbers in front of them. */}
+              {feeDrift !== 0 && (
+                <div className="mt-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200">
+                  <p className="text-[11px] font-bold text-amber-900 leading-relaxed">
+                    {isAr
+                      ? `العلاج اتحسب بـ ${Math.round(bookedLabFee || 0)} تكلفة معمل، وانت متفق على ${Math.round(agreedNumber)}.`
+                      : `The treatment was booked at ${Math.round(bookedLabFee || 0)} for lab work; you agreed ${Math.round(agreedNumber)}.`}
+                  </p>
+                  <Protect permission="finance.edit">
+                    <button
+                      type="button"
+                      onClick={() => void applyFeeCorrection()}
+                      disabled={correcting}
+                      className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-[10px] font-black uppercase tracking-wide hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                    >
+                      {correcting && <Loader2 size={12} className="animate-spin" />}
+                      {isAr ? "صحّح الحسابات" : "Correct the books"}
+                    </button>
+                  </Protect>
+                  <p className="text-[10px] font-semibold text-amber-700 mt-1.5 leading-relaxed">
+                    {isAr
+                      ? "هيعيد حساب عمولة الطبيب وربح العيادة على التكلفة الحقيقية، وهيتسجل مين عمل كده."
+                      : "Recalculates the dentist's commission and the clinic's profit on the true cost, and records who did it."}
+                  </p>
+                </div>
+              )}
+
               {/* Where the number came from. A price that appears on its own is a price nobody
                   checks — saying which lab's rate it is makes it worth glancing at, and makes an
                   out-of-date rate visible instead of silently agreed. */}
@@ -879,7 +1019,7 @@ export default function LabCaseModal({
 
           {/* Try-in + send now */}
           <div className="space-y-2">
-            <label className="flex items-start gap-3 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
+            <label className="flex items-start gap-3 p-3 bg-surface border border-line rounded-xl cursor-pointer hover:bg-surface-subtle transition-colors">
               <input
                 type="checkbox"
                 checked={needsTryIn}
@@ -899,7 +1039,7 @@ export default function LabCaseModal({
             </label>
 
             {!isEdit && (
-              <label className="flex items-start gap-3 p-3 bg-white border border-slate-200 rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
+              <label className="flex items-start gap-3 p-3 bg-surface border border-line rounded-xl cursor-pointer hover:bg-surface-subtle transition-colors">
                 <input
                   type="checkbox"
                   checked={sendNow}
@@ -925,7 +1065,7 @@ export default function LabCaseModal({
         <div className="flex items-center justify-end gap-2 px-5 sm:px-7 py-4 border-t border-slate-100 bg-slate-50/60 shrink-0">
           <button
             onClick={onClose}
-            className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wide text-slate-500 hover:bg-slate-200/60 transition-colors"
+            className="px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wide text-ink-muted hover:bg-slate-200/60 transition-colors"
           >
             {isAr ? "إلغاء" : "Cancel"}
           </button>

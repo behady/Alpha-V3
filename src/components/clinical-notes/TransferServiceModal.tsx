@@ -45,14 +45,14 @@ export default function TransferServiceModal({
           </h3>
           <button
             onClick={onClose}
-            className="p-2 rounded-full bg-white text-slate-400 hover:text-rose-500 border border-slate-200 transition-colors"
+            className="p-2 rounded-full bg-surface text-slate-400 hover:text-rose-500 border border-line transition-colors"
           >
             <X size={16} />
           </button>
         </div>
         
         <div className="p-6 overflow-y-auto custom-scrollbar">
-          <p className="text-sm font-bold text-slate-600 mb-4">
+          <p className="text-sm font-bold text-ink-body mb-4">
             {actionType === "move" ? txt.moveDesc : txt.continueDesc}
             <br/>
             <span className="text-primary-600">{service.procedure}</span>
@@ -60,7 +60,7 @@ export default function TransferServiceModal({
 
           <div className="space-y-2">
             {availableAppointments.length === 0 ? (
-              <p className="text-center text-slate-500 text-sm py-4">{txt.noAppointments}</p>
+              <p className="text-center text-ink-muted text-sm py-4">{txt.noAppointments}</p>
             ) : (
               availableAppointments.map((appt) => {
                 let dateStr = appt.date;
@@ -71,14 +71,14 @@ export default function TransferServiceModal({
                   <button
                     key={appt.id}
                     onClick={() => onConfirm(appt.id)}
-                    className="w-full text-left p-4 rounded-xl border border-slate-200 hover:border-primary-400 hover:bg-primary-50 transition-colors group flex items-center justify-between"
+                    className="w-full text-left p-4 rounded-xl border border-line hover:border-primary-400 hover:bg-primary-50 transition-colors group flex items-center justify-between"
                   >
                     <div>
-                      <p className="font-bold text-slate-900 flex items-center gap-2">
+                      <p className="font-bold text-ink flex items-center gap-2">
                         <Calendar size={14} className="text-slate-400" />
                         {dateStr || "Unknown Date"}
                       </p>
-                      <p className="text-xs font-bold text-slate-500 mt-1">
+                      <p className="text-xs font-bold text-ink-muted mt-1">
                         {appt.time || ""} • {appt.treatment || "Consultation"}
                       </p>
                     </div>
@@ -93,7 +93,7 @@ export default function TransferServiceModal({
         <div className="p-4 border-t border-slate-100 bg-slate-50/70 shrink-0">
           <button
             onClick={onClose}
-            className="w-full py-3 bg-white text-slate-700 font-bold rounded-xl border border-slate-200 hover:bg-slate-50"
+            className="w-full py-3 bg-surface text-slate-700 font-bold rounded-xl border border-line hover:bg-surface-subtle"
           >
             {txt.cancel}
           </button>

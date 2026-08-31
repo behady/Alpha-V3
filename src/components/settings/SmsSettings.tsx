@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSettingsText } from "@/lib/useSettingsText";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -19,6 +20,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
 import { getClinicDoc } from "@/lib/db-utils";
+import { useDirtyFlag } from "@/context/UnsavedChangesContext";
 import {
   DEFAULT_SMS_SETTINGS,
   DEFAULT_SMS_TEMPLATES,
@@ -68,10 +70,17 @@ export default function SmsSettings() {
   const isAr = language === "ar";
 
   const [settings, setSettings] = useState<SmsSettingsShape>(DEFAULT_SMS_SETTINGS);
+  /** What is stored, so an edited message body can be told apart from a saved one. */
+  const [storedSettings, setStoredSettings] = useState<SmsSettingsShape | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [devices, setDevices] = useState<Device[]>([]);
   const [messages, setMessages] = useState<QueueMessage[]>([]);
+  /** Cursor for the next page of older messages. Null once there are none left. */
+  const [olderCursor, setOlderCursor] = useState<string | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  /** How many are actually waiting, counted by the server — not the length of the page on screen. */
+  const [queuedCount, setQueuedCount] = useState(0);
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const [pairingBusy, setPairingBusy] = useState(false);
 
@@ -88,105 +97,8 @@ export default function SmsSettings() {
     return out;
   }, [settings.templates, settings.optOutFooterEnabled]);
 
-  const txt = {
-    title: isAr ? "الرسائل النصية من هاتف العيادة" : "SMS from the clinic's phone",
-    intro: isAr
-      ? "يرسل هاتف العيادة تذكيرات المواعيد كرسائل نصية عادية من شريحته، دون الحاجة إلى بوابة رسائل أو أوراق رسمية. النظام يجهّز الرسالة، والهاتف يرسلها."
-      : "The clinic's own phone sends appointment reminders as ordinary text messages from its SIM — no messaging gateway, no paperwork. The system prepares each message; the phone sends it.",
-    costWarnTitle: isAr ? "اقرأ هذا قبل التفعيل" : "Read this before turning it on",
-    costWarn1: isAr
-      ? "كل رسالة تُحتسب على رصيد الشريحة. هذه الخاصية ليست مجانية مثل واتساب."
-      : "Every message is billed to the SIM. This is not free the way WhatsApp is.",
-    costWarn2: isAr
-      ? "يجب أن يظل الهاتف مفتوحاً، متصلاً بالشبكة، والتطبيق غير موقوف من إعدادات توفير البطارية."
-      : "The phone must stay on, in signal, and the app must not be killed by battery saver.",
-    costWarn3: isAr
-      ? "الرسالة التي تحتوي على حرف عربي واحد تُحتسب ٧٠ حرفاً بدل ١٦٠ — النص الطويل يعني رسائل متعددة."
-      : "A message containing a single Arabic character fits 70 characters instead of 160 — a long body means several billed messages.",
-    costWarn4: isAr
-      ? "شركات المحمول قد تقيّد الشرائح العادية التي ترسل رسائل كثيرة متشابهة."
-      : "Carriers may restrict a consumer SIM that sends a lot of similar messages.",
-    enable: isAr ? "تفعيل الإرسال من الهاتف" : "Send from the clinic phone",
-    optOutTitle: isAr ? "سطر إيقاف الرسائل" : "Opt-out line",
-    optOutToggle: isAr
-      ? "إضافة «للإيقاف أرسل إيقاف» في آخر كل رسالة نصية"
-      : "Add \"reply to stop\" to the end of every text message",
-    optOutHint: isAr
-      ? "لما المريض يرد بكلمة «إيقاف» بتتوقف عنه رسائل الواتساب والنصية مع بعض."
-      : "A patient who replies with the stop word is switched off for both SMS and WhatsApp together.",
-    optOutCost: isAr
-      ? "انتبه: القوالب الافتراضية مكتوبة لتدخل في رسالة واحدة (٧٠ حرفاً). السطر ده بيزوّدها لرسالتين — يعني ضعف الفاتورة. شوف عدّاد الرسائل تحت بعد ما تفعّله."
-      : "Careful: the default bodies are written to fit one billed message (70 characters). This line pushes them into two — double the bill. Watch the segment counter below after you switch it on.",
-    channelTitle: isAr ? "كيف تصل رسائل العيادة للمريض" : "How the clinic's messages reach the patient",
-    channelWhatsapp: isAr ? "واتساب فقط" : "WhatsApp only",
-    channelWhatsappHint: isAr ? "الوضع الحالي. لا تُرسل أي رسالة نصية." : "What happens today. No text messages are sent.",
-    channelSms: isAr ? "رسالة نصية فقط" : "SMS only",
-    channelSmsHint: isAr ? "لكل مريض، حتى من لا يستخدم واتساب." : "Reaches every patient, including those with no WhatsApp.",
-    channelBoth: isAr ? "الاثنان معاً" : "Both",
-    channelBothHint: isAr
-      ? "المريض يستقبل رسالتين عن نفس الموعد، وتُحتسب تكلفة الرسالة النصية."
-      : "The patient gets two messages about the same appointment, and you pay for the SMS.",
-    templateTitle: isAr ? "متى تُرسل الرسائل ونصها" : "Which messages go out, and what they say",
-    templateHint: isAr
-      ? "المتغيرات المتاحة: {{patient_name}} و {{clinic_name}} و {{date}} و {{time}} و {{doctor}}. لرسالة الدفع أيضاً {{amount}} و {{balance}}."
-      : "Placeholders: {{patient_name}}, {{clinic_name}}, {{date}}, {{time}}, {{doctor}}. The payment message also has {{amount}} and {{balance}}.",
-    resetTemplate: isAr ? "استعادة النص الافتراضي" : "Reset to default",
-    hourTitle: isAr ? "ساعة إرسال التذكير" : "When the reminder goes out",
-    hourHint: isAr
-      ? "يجهّز النظام تذكيرات الغد فجراً، ويحتفظ بها الهاتف حتى الساعة التي تختارها. هذا يخصّ التذكير فقط — رسائل الحجز والتغيير والإلغاء والدفع تُرسل فور حدوثها."
-      : "The system prepares tomorrow's reminders before dawn, and the phone holds them until the hour you pick. This applies to the reminder only — booking, change, cancellation and payment messages go out the moment they happen.",
-    hourLate: isAr
-      ? "الهاتف يفحص القائمة كل ١٥ دقيقة، لذلك قد تصل الرسالة بعد الساعة المختارة بدقائق."
-      : "The phone checks the queue every 15 minutes, so a message may land a few minutes after the hour you picked.",
-    eventOn: isAr ? "مفعّلة" : "On",
-    eventOff: isAr ? "متوقفة" : "Off",
-    allOff: isAr
-      ? "لم تختر أي رسالة — لن يُرسل الهاتف شيئاً."
-      : "No message is switched on — the phone has nothing to send.",
-    save: isAr ? "حفظ" : "Save",
-    saved: isAr ? "تم الحفظ" : "Saved",
-    segments: isAr ? "رسالة مُحتسبة" : "billed messages",
-    characters: isAr ? "حرف" : "characters",
-    devicesTitle: isAr ? "الهواتف المُرسِلة" : "Sending phones",
-    noDevices: isAr
-      ? "لا يوجد هاتف يرسل حالياً. لن تُرسل أي رسالة نصية حتى تُفعّل الإرسال على هاتف العيادة."
-      : "No phone is sending. No text messages will go out until you turn the sender on, on the clinic phone.",
-    pairButton: isAr ? "ربط هاتف بكود" : "Pair a phone with a code",
-    pairIntro: isAr
-      ? "اكتب هذا الكود في تطبيق ألفا على هاتف العيادة: المزيد ← الرسائل النصية ← «ربط بالكود». صالح لمدة ١٠ دقائق ولمرة واحدة."
-      : "Type this code into the Alpha app on the clinic phone: More → Text messages → \"Pair with code\". Valid for 10 minutes, one use.",
-    pairWaiting: isAr ? "في انتظار الهاتف…" : "Waiting for the phone…",
-    howToAdd: isAr
-      ? "لإضافة هاتف: افتح تطبيق ألفا على هاتف العيادة، ثم «المزيد»، وفعّل «هذا الهاتف يرسل التذكيرات». سيظهر هنا خلال دقائق."
-      : "To add a phone: open the Alpha app on the clinic phone, go to More, and switch on \"Send reminders from this phone\". It appears here within a few minutes.",
-    unpair: isAr ? "إيقاف" : "Stop",
-    unpairConfirm: isAr
-      ? "إيقاف هذا الهاتف عن الإرسال؟"
-      : "Stop this phone from sending?",
-    revoked: isAr ? "موقوف" : "Stopped",
-    aliveNow: isAr ? "يعمل الآن" : "Sending",
-    notSeen: isAr ? "غير متصل" : "Not checking in",
-    lastSeen: isAr ? "آخر اتصال" : "Last checked in",
-    instantOn: isAr ? "إرسال فوري" : "Instant",
-    instantOff: isAr ? "كل ١٥ دقيقة" : "Every 15 min",
-    instantOffHint: isAr
-      ? "هذا الهاتف يحتاج تحديث التطبيق (٤.٨ أو أحدث). بعد التحديث انتظر فحصاً واحداً ليصبح الإرسال فورياً."
-      : "This phone needs app 4.8 or newer. After updating, wait for one check-in and sending becomes instant.",
-    never: isAr ? "لم يحدث" : "never",
-    queueTitle: isAr ? "آخر الرسائل" : "Recent messages",
-    queueEmpty: isAr ? "لا توجد رسائل بعد." : "Nothing in the queue yet.",
-    statusQueued: isAr ? "في الانتظار" : "Waiting",
-    statusSending: isAr ? "مع الهاتف" : "With the phone",
-    statusSent: isAr ? "أُرسلت" : "Sent",
-    statusFailed: isAr ? "فشلت" : "Failed",
-    statusRetrying: isAr ? "إعادة المحاولة" : "Retrying",
-    queueNote: isAr
-      ? "«في الانتظار» تعني أن النظام جهّز الرسالة ولم يحاول الهاتف إرسالها بعد. «إعادة المحاولة» تعني أنه حاول ورفضتها الشبكة، وسيحاول مرة أخرى — والسبب مكتوب تحت الرسالة. لا تُعتبر مُرسلة إلا عندما يؤكد الهاتف ذلك."
-      : "\"Waiting\" means the phone has not tried yet. \"Retrying\" means it tried, the network refused, and it will try again — the reason is written under the message. It only counts as sent once the phone confirms it.",
-    inAppHint: isAr
-      ? "أنت تفتح النظام من داخل تطبيق ألفا على هذا الهاتف، لذلك يمكنك ربطه مباشرة."
-      : "You are viewing this inside the Alpha app on this phone, so you can pair it directly.",
-  };
+
+  const txt = useSettingsText("sms");
 
   const authedFetch = useCallback(async (url: string, init?: RequestInit) => {
     const token = await auth.currentUser?.getIdToken();
@@ -205,10 +117,36 @@ export default function SmsSettings() {
       const data = await authedFetch(`/api/sms/devices?clinicId=${encodeURIComponent(clinicId || "")}`);
       setDevices(data.devices || []);
       setMessages(data.messages || []);
+      setOlderCursor(data.nextCursor ?? null);
+      setQueuedCount(Number(data.queued) || 0);
     } catch (e) {
       console.error("Could not load paired phones", e);
     }
   }, [authedFetch, clinicId]);
+
+  /**
+   * Fetch the next page and append it.
+   *
+   * Only older messages are ever fetched this way: the newest page arrives with the screen, and
+   * a clinic opening this page is asking "did today's reminders go out", not "show me everything
+   * since we started". Reading the whole outbox to answer the first question is what this
+   * replaced.
+   */
+  const loadOlder = useCallback(async () => {
+    if (!olderCursor || loadingOlder) return;
+    setLoadingOlder(true);
+    try {
+      const data = await authedFetch(
+        `/api/sms/devices?clinicId=${encodeURIComponent(clinicId || "")}&cursor=${encodeURIComponent(olderCursor)}`
+      );
+      setMessages((prev) => [...prev, ...(data.messages || [])]);
+      setOlderCursor(data.nextCursor ?? null);
+    } catch (e) {
+      console.error("Could not load older messages", e);
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [authedFetch, clinicId, olderCursor, loadingOlder]);
 
   useEffect(() => {
     if (!clinicId) return;
@@ -218,7 +156,13 @@ export default function SmsSettings() {
         // The same parser the server uses, so this screen can never show a clinic something
         // different from what the nightly job will act on — including the migration of a
         // hand-edited reminder saved before per-event templates existed.
-        if (snap.exists()) setSettings(parseSmsSettings(snap.data() || {}));
+        if (snap.exists()) {
+          const parsed = parseSmsSettings(snap.data() || {});
+          setSettings(parsed);
+          setStoredSettings(parsed);
+        } else {
+          setStoredSettings(DEFAULT_SMS_SETTINGS);
+        }
       } catch (e) {
         console.error("Could not load SMS settings", e);
       } finally {
@@ -227,6 +171,43 @@ export default function SmsSettings() {
       void loadDevices();
     })();
   }, [clinicId, loadDevices]);
+
+  /**
+   * Every switch on this screen saves the moment it is clicked; only the message bodies wait for
+   * the Save button. So the unsaved state is exactly the difference between what is typed and
+   * what is stored — an SMS body rewritten and then abandoned is real work lost.
+   */
+  useDirtyFlag(
+    "sms",
+    storedSettings !== null && JSON.stringify(settings) !== JSON.stringify(storedSettings)
+  );
+
+  /**
+   * What the rail says.
+   *
+   * Four states, not two. A phone that is paired but has not checked in is the one worth naming:
+   * the clinic believes SMS is working, the queue quietly stops moving, and the first anyone hears
+   * about it is a patient who was never reminded.
+   */
+  const line = (() => {
+    const usable = devices.filter((d) => d.enabled);
+    const alive = usable.find((d) => d.alive);
+    if (!settings.enabled) {
+      return { live: false, badge: txt.railOffBadge, headline: txt.railOff, detail: txt.railOffDetail };
+    }
+    if (usable.length === 0) {
+      return { live: false, badge: txt.railNoPhoneBadge, headline: txt.railNoPhone, detail: txt.railNoPhoneDetail };
+    }
+    if (!alive) {
+      return { live: false, badge: txt.railStalledBadge, headline: txt.railStalled, detail: txt.railStalledDetail };
+    }
+    return {
+      live: true,
+      badge: txt.railLiveBadge,
+      headline: txt.railLive.replace("{phone}", alive.name || ""),
+      detail: txt.railLiveDetail,
+    };
+  })();
 
   const save = async (next: SmsSettingsShape) => {
     setSaving(true);
@@ -244,6 +225,7 @@ export default function SmsSettings() {
         { merge: true }
       );
       setSettings(next);
+      setStoredSettings(next);
       showToast(txt.saved, "success");
     } catch (e) {
       console.error("Could not save SMS settings", e);
@@ -348,7 +330,7 @@ export default function SmsSettings() {
   const anyEventOn = SMS_EVENT_TYPES.some((type) => settings.events[type]);
 
   const statusMeta: Record<QueueMessage["status"], { label: string; className: string }> = {
-    queued: { label: txt.statusQueued, className: "bg-slate-100 text-slate-600 border-slate-200" },
+    queued: { label: txt.statusQueued, className: "bg-surface-muted text-ink-body border-line" },
     sending: { label: txt.statusSending, className: "bg-amber-50 text-amber-700 border-amber-200" },
     sent: { label: txt.statusSent, className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
     failed: { label: txt.statusFailed, className: "bg-rose-50 text-rose-700 border-rose-200" },
@@ -385,50 +367,78 @@ export default function SmsSettings() {
   return (
     <div className="space-y-6 animate-in fade-in max-w-5xl mx-auto">
       {/* What this is */}
-      <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
-        <h3 className="text-xl font-black text-slate-900 flex items-center gap-3">
-          <MessagesSquare className="text-primary-500" /> {txt.title}
-        </h3>
-        <p className="text-sm font-medium text-slate-500 mt-2 leading-relaxed">{txt.intro}</p>
+      {/* SMS leaves through a phone sitting in the clinic, and that phone can be paired and
+          still not be checking in. When it stops, the queue stops with it and nothing says so
+          until a patient does not turn up. So it is the first thing on the page, not a pill
+          three cards down. */}
+      <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 space-y-2">
+            <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
+              <MessagesSquare size={12} />
+              {txt.title}
+            </p>
+            <p className="text-lg font-bold leading-snug text-white sm:text-xl">{line.headline}</p>
+            <p className="max-w-md text-[13px] leading-relaxed text-white/55">{line.detail}</p>
+          </div>
 
-        {/* The costs, stated before the switch rather than after the phone bill. */}
-        <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-          <p className="text-xs font-black uppercase tracking-widest text-amber-700 flex items-center gap-2">
-            <AlertTriangle size={14} /> {txt.costWarnTitle}
-          </p>
-          <ul className="mt-2.5 space-y-1.5">
-            {[txt.costWarn1, txt.costWarn2, txt.costWarn3, txt.costWarn4].map((line) => (
-              <li key={line} className="text-xs font-bold text-amber-900 leading-relaxed flex gap-2">
-                <span className="text-amber-500 shrink-0">•</span>
-                {line}
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <label className="mt-5 flex items-center justify-between gap-4 cursor-pointer rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3.5">
-          <span className="text-sm font-black text-slate-800 flex items-center gap-2">
-            <Smartphone size={16} className="text-slate-400" /> {txt.enable}
-          </span>
-          <button
-            type="button"
-            onClick={() => void save({ ...settings, enabled: !settings.enabled })}
-            className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors shrink-0 ${
-              settings.enabled ? "bg-primary-500" : "bg-slate-200"
-            }`}
-          >
+          <div className="flex items-center gap-4 sm:flex-col sm:items-end sm:gap-2">
             <span
-              className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${
-                settings.enabled ? "translate-x-7" : "translate-x-1"
+              className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] ${
+                line.live ? "bg-white/12 text-white" : "bg-amber-400/20 text-amber-200"
               }`}
-            />
-          </button>
-        </label>
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${line.live ? "bg-emerald-400" : "bg-amber-400"}`} />
+              {line.badge}
+            </span>
+            {queuedCount > 0 && (
+              <span className="text-[11px] font-semibold text-white/45">
+                <span className="font-figure text-[15px] text-white/80">{queuedCount}</span>{" "}
+                {txt.railWaiting}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
 
+      {/* Cost, stated before the switch rather than after the phone bill. Amber means the same
+          thing here as on the WhatsApp page: a consequence that costs you. */}
+      <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+        <p className="text-xs font-black uppercase tracking-widest text-amber-700 flex items-center gap-2">
+          <AlertTriangle size={14} /> {txt.costWarnTitle}
+        </p>
+        <ul className="mt-2.5 space-y-1.5">
+          {[txt.costWarn1, txt.costWarn2, txt.costWarn3, txt.costWarn4].map((line) => (
+            <li key={line} className="text-xs font-bold text-amber-900 leading-relaxed flex gap-2">
+              <span className="text-amber-500 shrink-0">•</span>
+              {line}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <label className="mt-5 flex items-center justify-between gap-4 cursor-pointer rounded-2xl border border-line bg-slate-50/80 px-4 py-3.5">
+        <span className="text-sm font-black text-slate-800 flex items-center gap-2">
+          <Smartphone size={16} className="text-slate-400" /> {txt.enable}
+        </span>
+        <button
+          type="button"
+          onClick={() => void save({ ...settings, enabled: !settings.enabled })}
+          className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors shrink-0 ${
+            settings.enabled ? "bg-primary-500" : "bg-slate-200"
+          }`}
+        >
+          <span
+            className={`inline-block h-6 w-6 transform rounded-full bg-surface transition-transform ${
+              settings.enabled ? "translate-x-7" : "translate-x-1"
+            }`}
+          />
+        </button>
+      </label>
+
       {/* Channel */}
-      <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
-        <h3 className="text-lg font-black text-slate-900 flex items-center gap-3">
+      <section className="space-y-1">
+        <h3 className="text-lg font-black text-ink flex items-center gap-3">
           <MessageCircle className="text-primary-500" size={20} /> {txt.channelTitle}
         </h3>
 
@@ -449,10 +459,10 @@ export default function SmsSettings() {
                 className={`p-5 rounded-3xl border-2 text-center transition-all ${
                   active
                     ? "border-primary-500 bg-primary-50 shadow-md scale-[1.02]"
-                    : "border-slate-100 bg-slate-50 hover:border-slate-300 hover:bg-white"
+                    : "border-slate-100 bg-surface-subtle hover:border-line-strong hover:bg-surface"
                 }`}
               >
-                <span className={`block text-sm font-black ${active ? "text-primary-700" : "text-slate-600"}`}>{label}</span>
+                <span className={`block text-sm font-black ${active ? "text-primary-700" : "text-ink-body"}`}>{label}</span>
                 <span className="block text-xs font-bold text-slate-400 mt-2 leading-relaxed">{hint}</span>
               </button>
             );
@@ -472,20 +482,20 @@ export default function SmsSettings() {
             {txt.noDevices}
           </p>
         )}
-      </div>
+      </section>
 
       {/* When the reminder goes out */}
-      <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
-        <h3 className="text-lg font-black text-slate-900 flex items-center gap-3">
+      <section className="space-y-1">
+        <h3 className="text-lg font-black text-ink flex items-center gap-3">
           <Clock className="text-primary-500" size={20} /> {txt.hourTitle}
         </h3>
-        <p className="text-xs font-bold text-slate-500 mt-2 leading-relaxed">{txt.hourHint}</p>
+        <p className="text-xs font-bold text-ink-muted mt-2 leading-relaxed">{txt.hourHint}</p>
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <select
             value={settings.sendHour}
             onChange={(e) => void save({ ...settings, sendHour: Number(e.target.value) })}
-            className="py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-black text-slate-800 outline-none focus:bg-white focus:border-primary-500"
+            className="py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-black text-slate-800 outline-none focus:bg-surface focus:border-primary-500"
           >
             {Array.from({ length: MAX_SEND_HOUR - MIN_SEND_HOUR + 1 }, (_, i) => MIN_SEND_HOUR + i).map((hour) => (
               <option key={hour} value={hour}>
@@ -495,11 +505,11 @@ export default function SmsSettings() {
           </select>
           <span className="text-xs font-bold text-slate-400 flex-1 min-w-[14rem] leading-relaxed">{txt.hourLate}</span>
         </div>
-      </div>
+      </section>
 
       {/* Which messages, and what they say */}
-      <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
-        <h3 className="text-lg font-black text-slate-900 flex items-center gap-3">
+      <section className="space-y-1">
+        <h3 className="text-lg font-black text-ink flex items-center gap-3">
           <Wallet className="text-primary-500" size={20} /> {txt.templateTitle}
         </h3>
         <p className="text-xs font-bold text-slate-400 mt-2 leading-relaxed">{txt.templateHint}</p>
@@ -523,7 +533,7 @@ export default function SmsSettings() {
               onChange={(e) => void save({ ...settings, optOutFooterEnabled: e.target.checked })}
             />
           </label>
-          <p className="text-xs font-bold text-slate-600 leading-relaxed">{txt.optOutHint}</p>
+          <p className="text-xs font-bold text-ink-body leading-relaxed">{txt.optOutHint}</p>
           <p className="text-xs text-amber-900 leading-relaxed">{txt.optOutCost}</p>
         </div>
 
@@ -535,12 +545,12 @@ export default function SmsSettings() {
               <div
                 key={type}
                 className={`rounded-2xl border p-4 transition-colors ${
-                  on ? "border-slate-200 bg-white" : "border-slate-100 bg-slate-50/70"
+                  on ? "border-line bg-surface" : "border-slate-100 bg-slate-50/70"
                 }`}
               >
                 <div className="flex items-center gap-3">
                   <div className="min-w-0 flex-1">
-                    <p className={`text-sm font-black ${on ? "text-slate-900" : "text-slate-500"}`}>
+                    <p className={`text-sm font-black ${on ? "text-ink" : "text-ink-muted"}`}>
                       {eventMeta[type].label}
                     </p>
                     <p className="text-[11px] font-bold text-slate-400 mt-0.5 leading-relaxed">{eventMeta[type].hint}</p>
@@ -554,7 +564,7 @@ export default function SmsSettings() {
                     }`}
                   >
                     <span
-                      className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                      className={`inline-block h-5 w-5 transform rounded-full bg-surface transition-transform ${
                         on ? "translate-x-6" : "translate-x-1"
                       }`}
                     />
@@ -570,7 +580,7 @@ export default function SmsSettings() {
                         setSettings({ ...settings, templates: { ...settings.templates, [type]: e.target.value } })
                       }
                       rows={2}
-                      className="mt-3 w-full py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-primary-500 resize-y"
+                      className="mt-3 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-primary-500 resize-y"
                     />
                     {/* Live cost, because it is otherwise invisible until the bill arrives. */}
                     <div className="mt-2 flex flex-wrap items-center gap-3">
@@ -594,7 +604,7 @@ export default function SmsSettings() {
                             templates: { ...settings.templates, [type]: DEFAULT_SMS_TEMPLATES[type] },
                           })
                         }
-                        className="text-xs font-black text-slate-500 hover:text-slate-800 underline underline-offset-2"
+                        className="text-xs font-black text-ink-muted hover:text-slate-800 underline underline-offset-2"
                       >
                         {txt.resetTemplate}
                       </button>
@@ -614,11 +624,11 @@ export default function SmsSettings() {
         >
           {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} {txt.save}
         </button>
-      </div>
+      </section>
 
       {/* Devices */}
-      <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
-        <h3 className="text-lg font-black text-slate-900 flex items-center gap-3">
+      <section className="space-y-1">
+        <h3 className="text-lg font-black text-ink flex items-center gap-3">
           <Smartphone className="text-primary-500" size={20} /> {txt.devicesTitle}
         </h3>
 
@@ -628,7 +638,7 @@ export default function SmsSettings() {
               <p className="text-4xl font-black tracking-[0.35em] text-primary-800 select-all" dir="ltr">
                 {pairingCode}
               </p>
-              <p className="mt-3 text-xs font-bold text-slate-600 leading-relaxed">{txt.pairIntro}</p>
+              <p className="mt-3 text-xs font-bold text-ink-body leading-relaxed">{txt.pairIntro}</p>
               <p className="mt-2 text-[11px] font-black uppercase tracking-widest text-primary-600 animate-pulse">
                 {txt.pairWaiting}
               </p>
@@ -645,7 +655,7 @@ export default function SmsSettings() {
           )}
         </div>
 
-        <p className="mt-3 text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 leading-relaxed">
+        <p className="mt-3 text-xs font-bold text-ink-body bg-surface-subtle border border-line rounded-xl px-4 py-3 leading-relaxed">
           {txt.howToAdd}
         </p>
 
@@ -657,18 +667,18 @@ export default function SmsSettings() {
               <div
                 key={device.deviceId}
                 className={`flex items-center gap-4 rounded-2xl border p-4 ${
-                  device.enabled ? "border-slate-200 bg-white" : "border-slate-200 bg-slate-50 opacity-60"
+                  device.enabled ? "border-line bg-surface" : "border-line bg-surface-subtle opacity-60"
                 }`}
               >
                 <Smartphone size={20} className={device.alive ? "text-primary-500" : "text-slate-300"} />
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-black text-slate-900 truncate">
+                  <p className="text-sm font-black text-ink truncate">
                     {device.name}
                     {/* Three states, not two. A phone can be switched on and still not be
                         checking in — flat, out of signal, or killed by battery saver — and that
                         is the case worth surfacing, because the queue silently stops moving. */}
                     {!device.enabled ? (
-                      <span className="ms-2 text-[10px] font-black px-2 py-0.5 rounded-md bg-slate-200 text-slate-500">
+                      <span className="ms-2 text-[10px] font-black px-2 py-0.5 rounded-md bg-slate-200 text-ink-muted">
                         {txt.revoked}
                       </span>
                     ) : device.alive ? (
@@ -713,11 +723,11 @@ export default function SmsSettings() {
             ))
           )}
         </div>
-      </div>
+      </section>
 
       {/* Queue */}
-      <div className="bg-white p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
-        <h3 className="text-lg font-black text-slate-900 flex items-center gap-3">
+      <section className="space-y-1">
+        <h3 className="text-lg font-black text-ink flex items-center gap-3">
           <Clock className="text-primary-500" size={20} /> {txt.queueTitle}
         </h3>
         <p className="text-xs font-bold text-slate-400 mt-2 leading-relaxed">{txt.queueNote}</p>
@@ -727,7 +737,7 @@ export default function SmsSettings() {
             <p className="text-sm font-bold text-slate-400 text-center py-6">{txt.queueEmpty}</p>
           ) : (
             messages.map((message) => (
-              <div key={message.id} className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
+              <div key={message.id} className="flex items-center gap-3 rounded-xl border border-line bg-slate-50/60 px-4 py-3">
                 <span className={`text-[10px] font-black px-2 py-1 rounded-md border shrink-0 ${badgeFor(message).className}`}>
                   {badgeFor(message).label}
                 </span>
@@ -745,8 +755,19 @@ export default function SmsSettings() {
               </div>
             ))
           )}
+
+          {olderCursor && (
+            <button
+              type="button"
+              onClick={() => void loadOlder()}
+              disabled={loadingOlder}
+              className="w-full rounded-xl border border-line py-3 text-[13px] font-bold text-ink-body transition-colors hover:bg-surface-subtle hover:text-ink disabled:opacity-50"
+            >
+              {loadingOlder ? txt.queueLoadingOlder : txt.queueShowOlder}
+            </button>
+          )}
         </div>
-      </div>
+      </section>
     </div>
   );
 }

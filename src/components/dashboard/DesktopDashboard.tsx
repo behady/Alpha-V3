@@ -442,7 +442,9 @@ export default function DesktopDashboard() {
   // 2. Live lists (patients, doctors, services) so dashboard actions sync without refresh.
   useEffect(() => {
     const unsubPatients = onSnapshot(
-      query(getClinicCollection("patients"), orderBy("name")),
+      // Feeds the booking picker, which filters by name in the browser. Capped like the
+      // patients screen's own name search, so it cannot grow into an unbounded read.
+      query(getClinicCollection("patients"), orderBy("name"), limit(2500)),
       (snap) => setPatientsList(snap.docs.map((d) => ({ id: d.id, name: d.data().name, phone: d.data().phone })))
     );
     const unsubDoctors = onSnapshot(getClinicCollection("staff"), (snap) => {
@@ -873,7 +875,7 @@ export default function DesktopDashboard() {
   }, [scheduleViewDate, language]);
 
   return (
-    <div className={`min-h-screen lg:min-h-0 lg:h-full relative overflow-hidden pb-24 lg:pb-0 font-sans text-[#1E293B] lg:text-white ${isRTL ? 'text-right' : 'text-left'}`}>
+    <div className={`min-h-screen lg:min-h-0 lg:h-full relative overflow-hidden pb-24 lg:pb-0 font-sans text-ink-slab lg:text-white ${isRTL ? 'text-right' : 'text-left'}`}>
       <div className="relative z-10 w-full max-w-[1920px] mx-auto p-4 md:p-6 md:pt-8 lg:p-4 lg:pt-3 space-y-3 md:space-y-4 lg:space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:h-full lg:flex lg:flex-col">
         
         {/* === DESKTOP: Compact Command Bar (greeting + stats + actions in one strip) === */}
@@ -883,9 +885,9 @@ export default function DesktopDashboard() {
             {/* Greeting */}
             <div className="flex flex-col min-w-0 shrink">
               <h1 className="text-2xl xl:text-[1.75rem] font-light text-slate-800 tracking-tight leading-tight truncate">
-                {language === 'ar' ? 'أهلاً بك،' : 'Welcome in,'} <span className="font-semibold text-slate-900">{getWelcomeName(user?.name)}</span>
+                {language === 'ar' ? 'أهلاً بك،' : 'Welcome in,'} <span className="font-semibold text-ink">{getWelcomeName(user?.name)}</span>
               </h1>
-              <p className="flex items-center gap-2 text-xs font-medium text-slate-500 mt-0.5 whitespace-nowrap">
+              <p className="flex items-center gap-2 text-xs font-medium text-ink-muted mt-0.5 whitespace-nowrap">
                 <span className="flex items-center gap-1"><Calendar size={13} className="text-slate-400" /> {currentTime.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
                 <span className="w-1 h-1 rounded-full bg-slate-300"></span>
                 <span className="flex items-center gap-1"><Clock size={13} className="text-slate-400" /> {currentTime.toLocaleTimeString(language === 'ar' ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>
@@ -979,7 +981,7 @@ export default function DesktopDashboard() {
                 title={language === 'ar' ? 'مريض جديد' : 'New Patient'}
                 className="group flex items-center gap-2 bg-white/90 backdrop-blur-md text-slate-700 font-bold text-sm px-4 py-2.5 rounded-2xl hover:-translate-y-0.5 transition-all duration-300 shadow-[0_4px_20px_rgb(0,0,0,0.04)] border border-white/50"
               >
-                <Plus size={18} strokeWidth={2.5} className="text-slate-500 group-hover:text-ink-strong transition-colors shrink-0" />
+                <Plus size={18} strokeWidth={2.5} className="text-ink-muted group-hover:text-ink-strong transition-colors shrink-0" />
                 <span className="hidden xl:inline whitespace-nowrap">{language === 'ar' ? 'مريض جديد' : 'New Patient'}</span>
               </button>
               <button
@@ -1000,15 +1002,15 @@ export default function DesktopDashboard() {
           <div className="grid grid-cols-2 gap-4 lg:hidden">
             {/* 1. LIVE DATE WIDGET (1x1, Top Left) */}
             {/* 1. LIVE DATE WIDGET (1x1, Top Left) */}
-            <div className="col-span-1 row-span-1 bg-white text-slate-800 rounded-2xl p-4 shadow-[0_8px_20px_rgb(0,0,0,0.08)] flex flex-col justify-center items-center text-center">
+            <div className="col-span-1 row-span-1 bg-surface text-slate-800 rounded-2xl p-4 shadow-[0_8px_20px_rgb(0,0,0,0.08)] flex flex-col justify-center items-center text-center">
                 <span className="text-4xl md:text-5xl lg:text-7xl font-black tracking-tighter leading-none">
                     {currentTime.getDate()}
                 </span>
                 <div className="flex flex-col mt-2">
-                    <span className="text-[10px] md:text-xs lg:text-sm font-extrabold text-slate-500 lg:text-slate-600 uppercase tracking-widest">
+                    <span className="text-[10px] md:text-xs lg:text-sm font-extrabold text-ink-muted lg:text-ink-body uppercase tracking-widest">
                         {currentTime.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { month: 'short' })}
                     </span>
-                    <span className="text-[10px] md:text-xs lg:text-sm font-extrabold text-slate-500 lg:text-slate-600">
+                    <span className="text-[10px] md:text-xs lg:text-sm font-extrabold text-ink-muted lg:text-ink-body">
                         {currentTime.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { weekday: 'long' })}
                     </span>
                 </div>
@@ -1036,7 +1038,7 @@ export default function DesktopDashboard() {
                         <span className="text-[10px] md:text-xs lg:text-sm font-extrabold text-slate-600 lg:text-slate-700">{language === 'ar' ? 'دفع' : 'Pay'}</span>
                     </button>
                     <div className="flex flex-col items-center justify-center gap-1.5 lg:gap-2 hover:scale-[1.05] transition-transform group relative">
-                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-[#fff4e6] text-[#f39c12] flex items-center justify-center group-hover:bg-[#f39c12] group-hover:text-white transition-colors shadow-sm relative z-10">
+                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-warn-tint text-warn flex items-center justify-center group-hover:bg-warn group-hover:text-white transition-colors shadow-sm relative z-10">
                             <div className="opacity-0 absolute inset-0"><ReceptionSummonPanel /></div>
                             <Bell size={28} className="scale-75 lg:scale-100" strokeWidth={2.5} />
                         </div>
@@ -1067,26 +1069,26 @@ export default function DesktopDashboard() {
             </div>
 
             {/* 4. QUICK SUMMARY WIDGET (1x1, Middle Right) */}
-            <div className="col-span-1 row-span-1 bg-[#E8F1FA] text-[#4A90E2] rounded-2xl p-4 shadow-[0_8px_20px_rgb(0,0,0,0.08)] flex items-center">
+            <div className="col-span-1 row-span-1 bg-info-tint text-info rounded-2xl p-4 shadow-[0_8px_20px_rgb(0,0,0,0.08)] flex items-center">
                 <div className="w-full flex flex-col gap-3 justify-center h-full">
                     <div className="flex items-center justify-between w-full">
                         <div className="flex items-center gap-3">
                             <div className="w-8 h-8 lg:w-10 lg:h-10 rounded-full bg-emerald-100 lg:bg-emerald-50 lg:border lg:border-emerald-100 flex items-center justify-center"><div className="w-3 h-3 lg:w-4 lg:h-4 rounded-full bg-emerald-500"></div></div>
-                            <span className="text-[10px] lg:text-xs font-extrabold text-slate-500 lg:text-slate-600 uppercase tracking-wide">{language === 'ar' ? 'مؤكد' : 'Confirmed'}</span>
+                            <span className="text-[10px] lg:text-xs font-extrabold text-ink-muted lg:text-ink-body uppercase tracking-wide">{language === 'ar' ? 'مؤكد' : 'Confirmed'}</span>
                         </div>
                         <span className="text-lg lg:text-2xl font-black">{summaryStats.confirmed}</span>
                     </div>
                     <div className="flex items-center justify-between w-full">
                         <div className="flex items-center gap-3">
                             <div className="w-8 h-8 lg:w-10 lg:h-10 rounded-full bg-amber-100 lg:bg-amber-50 lg:border lg:border-amber-100 flex items-center justify-center"><div className="w-3 h-3 lg:w-4 lg:h-4 rounded-full bg-amber-500"></div></div>
-                            <span className="text-[10px] lg:text-xs font-extrabold text-slate-500 lg:text-slate-600 uppercase tracking-wide">{language === 'ar' ? 'متأخر' : 'Delayed'}</span>
+                            <span className="text-[10px] lg:text-xs font-extrabold text-ink-muted lg:text-ink-body uppercase tracking-wide">{language === 'ar' ? 'متأخر' : 'Delayed'}</span>
                         </div>
                         <span className="text-lg lg:text-2xl font-black">{summaryStats.delayed}</span>
                     </div>
                     <div className="flex items-center justify-between w-full">
                         <div className="flex items-center gap-3">
                             <div className="w-8 h-8 lg:w-10 lg:h-10 rounded-full bg-rose-100 lg:bg-rose-50 lg:border lg:border-rose-100 flex items-center justify-center"><div className="w-3 h-3 lg:w-4 lg:h-4 rounded-full bg-rose-500"></div></div>
-                            <span className="text-[10px] lg:text-xs font-extrabold text-slate-500 lg:text-slate-600 uppercase tracking-wide">{language === 'ar' ? 'ملغي' : 'Canceled'}</span>
+                            <span className="text-[10px] lg:text-xs font-extrabold text-ink-muted lg:text-ink-body uppercase tracking-wide">{language === 'ar' ? 'ملغي' : 'Canceled'}</span>
                         </div>
                         <span className="text-lg lg:text-2xl font-black">{summaryStats.canceled}</span>
                     </div>
@@ -1113,7 +1115,7 @@ export default function DesktopDashboard() {
                             d.setDate(d.getDate() - (viewMode === 'week' ? 7 : 1));
                             setScheduleViewDate(d.toISOString().split("T")[0]);
                           }}
-                          className="p-1.5 rounded-lg text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm transition-all"
+                          className="p-1.5 rounded-lg text-ink-muted hover:bg-surface hover:text-slate-800 hover:shadow-sm transition-all"
                           aria-label={viewMode === 'week' ? (language === 'ar' ? 'الأسبوع السابق' : 'Previous Week') : (language === 'ar' ? 'اليوم السابق' : 'Previous Day')}
                         >
                           <ChevronLeft size={16} className={isRTL ? "rotate-180" : ""} />
@@ -1125,7 +1127,7 @@ export default function DesktopDashboard() {
                             d.setDate(d.getDate() + (viewMode === 'week' ? 7 : 1));
                             setScheduleViewDate(d.toISOString().split("T")[0]);
                           }}
-                          className="p-1.5 rounded-lg text-slate-500 hover:bg-white hover:text-slate-800 hover:shadow-sm transition-all"
+                          className="p-1.5 rounded-lg text-ink-muted hover:bg-surface hover:text-slate-800 hover:shadow-sm transition-all"
                           aria-label={viewMode === 'week' ? (language === 'ar' ? 'الأسبوع التالي' : 'Next Week') : (language === 'ar' ? 'اليوم التالي' : 'Next Day')}
                         >
                           <ChevronRight size={16} className={isRTL ? "rotate-180" : ""} />
@@ -1151,7 +1153,7 @@ export default function DesktopDashboard() {
                           <span className="text-lg font-light tracking-widest text-slate-800">
                             {language === 'ar' ? 'جدول المواعيد' : 'Schedule'}
                           </span>
-                          <span className="text-xs font-bold text-ink-muted lg:text-slate-600 mt-0.5">
+                          <span className="text-xs font-bold text-ink-muted lg:text-ink-body mt-0.5">
                             {scheduleViewDate}
                             {scheduleViewDate === getLocalDateKey()
                               ? language === "ar"
@@ -1186,14 +1188,14 @@ export default function DesktopDashboard() {
                         <button
                           type="button"
                           onClick={() => setViewMode("day")}
-                          className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${viewMode === 'day' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                          className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${viewMode === 'day' ? 'bg-surface text-slate-800 shadow-sm' : 'text-ink-muted hover:text-slate-800'}`}
                         >
                           {language === 'ar' ? 'يومي' : 'Day'}
                         </button>
                         <button
                           type="button"
                           onClick={() => setViewMode("week")}
-                          className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${viewMode === 'week' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                          className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${viewMode === 'week' ? 'bg-surface text-slate-800 shadow-sm' : 'text-ink-muted hover:text-slate-800'}`}
                         >
                           {language === 'ar' ? 'أسبوعي' : 'Week'}
                         </button>
@@ -1203,7 +1205,7 @@ export default function DesktopDashboard() {
                       <button
                         type="button"
                         onClick={() => setIsFullScreen(!isFullScreen)}
-                        className={`ml-2 p-1.5 rounded-lg transition-all ${isFullScreen ? 'bg-primary-100 text-primary-700 shadow-inner' : 'bg-slate-100/80 text-slate-500 hover:text-slate-800 hover:bg-slate-200'}`}
+                        className={`ml-2 p-1.5 rounded-lg transition-all ${isFullScreen ? 'bg-primary-100 text-primary-700 shadow-inner' : 'bg-slate-100/80 text-ink-muted hover:text-slate-800 hover:bg-slate-200'}`}
                         aria-label="Toggle Full Screen"
                       >
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1225,12 +1227,12 @@ export default function DesktopDashboard() {
                       <button
                         type="button"
                         onClick={() => setPrescriptionFinderOpen(true)}
-                        className="flex items-center gap-1.5 rounded-full bg-ink-strong px-5 py-2 text-xs font-bold text-white transition hover:bg-[#1A202C] shadow-sm hover:shadow-md"
+                        className="flex items-center gap-1.5 rounded-full bg-ink-strong px-5 py-2 text-xs font-bold text-white transition hover:bg-ink-slab shadow-sm hover:shadow-md"
                       >
                         <Pill size={14} />
                         {language === "ar" ? "طباعة وصفة" : "Print Rx"}
                       </button>
-                      <Link href="/appointments" className="flex items-center gap-1 rounded-full bg-white border border-slate-200 px-3 lg:px-4 py-1.5 lg:py-2 text-[10px] lg:text-xs font-bold text-slate-600 transition hover:bg-slate-50 hover:shadow-sm">
+                      <Link href="/appointments" className="flex items-center gap-1 rounded-full bg-surface border border-line px-3 lg:px-4 py-1.5 lg:py-2 text-[10px] lg:text-xs font-bold text-ink-body transition hover:bg-surface-subtle hover:shadow-sm">
                         {language === "ar" ? "عرض الكل" : "View All"}
                         <ChevronRight size={12} className={`lg:w-3.5 lg:h-3.5 ${isRTL ? "rotate-180" : ""}`} />
                       </Link>
@@ -1307,7 +1309,7 @@ export default function DesktopDashboard() {
                                                         setActiveModal('booking');
                                                     }}
                                                 >
-                                                    <div className="absolute left-2 md:left-4 top-0 -translate-y-1/2 bg-white/40 backdrop-blur-md px-3 py-0.5 text-xs font-medium text-slate-500 group-hover/slot:text-slate-900 transition-colors z-0 w-[84px] text-center rounded-full border border-white shadow-sm">
+                                                    <div className="absolute left-2 md:left-4 top-0 -translate-y-1/2 bg-white/40 backdrop-blur-md px-3 py-0.5 text-xs font-medium text-ink-muted group-hover/slot:text-ink transition-colors z-0 w-[84px] text-center rounded-full border border-white shadow-sm">
                                                         {slot.label}
                                                     </div>
                                                 </div>
@@ -1446,7 +1448,7 @@ export default function DesktopDashboard() {
                                                                             {/* Only while looking at every branch at once — inside a single
                                                                                 branch the chip would repeat the same word on every card. */}
                                                                             {activeBranchId === ALL_BRANCHES && apt.branchName && (
-                                                                                <span className="shrink-0 inline-flex items-center gap-1 rounded bg-white/60 px-1.5 py-0.5 text-[10px] font-bold text-slate-600">
+                                                                                <span className="shrink-0 inline-flex items-center gap-1 rounded bg-white/60 px-1.5 py-0.5 text-[10px] font-bold text-ink-body">
                                                                                     <Building2 size={9} />
                                                                                     {apt.branchName}
                                                                                 </span>
@@ -1462,7 +1464,7 @@ export default function DesktopDashboard() {
                                                                             )}
                                                                         </div>
                                                                         {patientsList.find(p => p.id === apt.patientId)?.phone && (
-                                                                            <span className="text-[10px] text-slate-500 font-medium truncate mt-0.5" dir="ltr">
+                                                                            <span className="text-[10px] text-ink-muted font-medium truncate mt-0.5" dir="ltr">
                                                                                 {patientsList.find(p => p.id === apt.patientId)?.phone}
                                                                             </span>
                                                                         )}
@@ -1493,9 +1495,9 @@ export default function DesktopDashboard() {
                                                                           e.stopPropagation(); 
                                                                           setHistoryDrawerPatientId(String(apt.patientId));
                                                                           setHistoryDrawerPatientName(apt.patientName!);
-                                                                        }} className="p-1 text-amber-600 bg-white shadow-sm ring-1 ring-amber-600/20 hover:text-amber-700 hover:bg-amber-50 hover:ring-amber-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'سجل الزيارات' : 'Visit History'}><Clock strokeWidth={2.5} className="w-3.5 h-3.5 lg:w-4 lg:h-4" /></button>
-                                                                        <button onClick={(e) => { e.stopPropagation(); router.push(`/patients/${apt.patientId}`); }} className="p-1 text-blue-600 bg-white shadow-sm ring-1 ring-blue-600/20 hover:text-blue-700 hover:bg-blue-50 hover:ring-blue-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'الملف الشخصي' : 'Profile'}><User strokeWidth={2.5} className="w-3.5 h-3.5 lg:w-4 lg:h-4" /></button>
-                                                                        <button onClick={(e) => { e.stopPropagation(); setPaymentPatient({ id: apt.patientId!, name: apt.patientName! }); setActiveModal('payment'); }} className="p-1 text-emerald-600 bg-white shadow-sm ring-1 ring-emerald-600/20 hover:text-emerald-700 hover:bg-emerald-50 hover:ring-emerald-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'دفع' : 'Pay'}><Wallet strokeWidth={2.5} className="w-3.5 h-3.5 lg:w-4 lg:h-4" /></button>
+                                                                        }} className="p-1 text-amber-600 bg-surface shadow-sm ring-1 ring-amber-600/20 hover:text-amber-700 hover:bg-amber-50 hover:ring-amber-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'سجل الزيارات' : 'Visit History'}><Clock strokeWidth={2.5} className="w-3.5 h-3.5 lg:w-4 lg:h-4" /></button>
+                                                                        <button onClick={(e) => { e.stopPropagation(); router.push(`/patients/${apt.patientId}`); }} className="p-1 text-blue-600 bg-surface shadow-sm ring-1 ring-blue-600/20 hover:text-blue-700 hover:bg-blue-50 hover:ring-blue-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'الملف الشخصي' : 'Profile'}><User strokeWidth={2.5} className="w-3.5 h-3.5 lg:w-4 lg:h-4" /></button>
+                                                                        <button onClick={(e) => { e.stopPropagation(); setPaymentPatient({ id: apt.patientId!, name: apt.patientName! }); setActiveModal('payment'); }} className="p-1 text-emerald-600 bg-surface shadow-sm ring-1 ring-emerald-600/20 hover:text-emerald-700 hover:bg-emerald-50 hover:ring-emerald-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'دفع' : 'Pay'}><Wallet strokeWidth={2.5} className="w-3.5 h-3.5 lg:w-4 lg:h-4" /></button>
                                                                         <button onClick={(e) => {
                                                                             e.stopPropagation();
                                                                             setAppointmentToEdit({
@@ -1508,8 +1510,8 @@ export default function DesktopDashboard() {
                                                                                 discountAmount: apt.discountAmount ?? undefined, notes: apt.notes!, status: apt.status || "Scheduled",
                                                                             });
                                                                             setActiveModal("booking");
-                                                                        }} className="p-1 text-indigo-600 bg-white shadow-sm ring-1 ring-indigo-600/20 hover:text-indigo-700 hover:bg-indigo-50 hover:ring-indigo-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'تعديل' : 'Edit'}><Edit strokeWidth={2.5} className="w-4 h-4 lg:w-4 lg:h-4" /></button>
-                                                                        <button onClick={(e) => handleDeleteAppointment(e, apt.id)} className="p-1 text-rose-600 bg-white shadow-sm ring-1 ring-rose-600/20 hover:text-rose-700 hover:bg-rose-50 hover:ring-rose-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'حذف' : 'Delete'}><Trash2 strokeWidth={2.5} className="w-4 h-4 lg:w-4 lg:h-4" /></button>
+                                                                        }} className="p-1 text-indigo-600 bg-surface shadow-sm ring-1 ring-indigo-600/20 hover:text-indigo-700 hover:bg-indigo-50 hover:ring-indigo-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'تعديل' : 'Edit'}><Edit strokeWidth={2.5} className="w-4 h-4 lg:w-4 lg:h-4" /></button>
+                                                                        <button onClick={(e) => handleDeleteAppointment(e, apt.id)} className="p-1 text-rose-600 bg-surface shadow-sm ring-1 ring-rose-600/20 hover:text-rose-700 hover:bg-rose-50 hover:ring-rose-600/40 hover:shadow rounded-lg transition-all" title={language === 'ar' ? 'حذف' : 'Delete'}><Trash2 strokeWidth={2.5} className="w-4 h-4 lg:w-4 lg:h-4" /></button>
                                                                     </div>
                                                                 </div>
 
@@ -1523,7 +1525,7 @@ export default function DesktopDashboard() {
                                                                          <StarRating rating={apt.rating || 0} onRatingChange={(r) => handleRatingChange(apt.id, r)} size={14} />
                                                                        </div>
                                                                     </div>
-                                                                    <span className={`font-black text-slate-600 lg:text-indigo-950 opacity-80 whitespace-nowrap shrink-0 bg-white/40 px-1.5 py-0.5 rounded-md ${timeFontSize}`}>
+                                                                    <span className={`font-black text-ink-body lg:text-indigo-950 opacity-80 whitespace-nowrap shrink-0 bg-white/40 px-1.5 py-0.5 rounded-md ${timeFontSize}`}>
                                                                         {apt.time} ({durationMinutes}m)
                                                                     </span>
                                                                 </div>
@@ -1672,7 +1674,7 @@ export default function DesktopDashboard() {
             <h3 className="text-xl font-black text-slate-900 mb-2">
               {language === 'ar' ? 'تأجيل الموعد' : 'Delay Appointment'}
             </h3>
-            <p className="text-sm font-medium text-slate-600 mb-6 leading-relaxed">
+            <p className="text-sm font-medium text-ink-body mb-6 leading-relaxed">
               {language === 'ar' 
                 ? 'هل تريد جدولة موعد جديد لهذا المريض الآن، أم تركه غير محدد بعد؟' 
                 : 'Would you like to schedule a new appointment for this patient now, or leave it as not set yet?'}
@@ -1749,13 +1751,13 @@ export default function DesktopDashboard() {
                     setInlineSaving(false);
                   }
                 }}
-                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-black py-3 rounded-xl transition-colors text-sm"
+                className="w-full bg-surface-muted hover:bg-slate-200 text-slate-700 font-black py-3 rounded-xl transition-colors text-sm"
               >
                 {language === 'ar' ? 'غير محدد بعد' : 'Not Set Yet'}
               </button>
               <button
                 onClick={() => setShowDelayPrompt(false)}
-                className="w-full bg-white hover:bg-slate-50 text-slate-500 font-bold py-2.5 rounded-xl border border-slate-200 transition-colors text-sm mt-2"
+                className="w-full bg-surface hover:bg-surface-subtle text-ink-muted font-bold py-2.5 rounded-xl border border-line transition-colors text-sm mt-2"
               >
                 {language === 'ar' ? 'إلغاء' : 'Cancel'}
               </button>

@@ -252,24 +252,24 @@ function PrescriptionStudio() {
     }
   };
 
-  if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50"><Loader2 className="animate-spin text-accent" size={40}/></div>;
+  if (loading) return <div className="h-screen flex items-center justify-center bg-surface-subtle"><Loader2 className="animate-spin text-accent" size={40}/></div>;
   if (!patient) return <div className="p-10 text-center font-black">Patient not found.</div>;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col print:bg-white print:min-h-0">
+    <div className="min-h-screen bg-surface-subtle flex flex-col print:bg-surface print:min-h-0">
       
       {/* --- NON-PRINTABLE HEADER --- */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-40 shadow-sm print:hidden">
+      <header className="bg-surface border-b border-line px-6 py-4 sticky top-0 z-40 shadow-sm print:hidden">
         <div className="max-w-[1600px] mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-4 w-full md:w-auto">
-            <button onClick={() => router.push(`/patients/${id}`)} className="p-2.5 hover:bg-slate-100 rounded-2xl transition-colors text-slate-500 shrink-0">
+            <button onClick={() => router.push(`/patients/${id}`)} className="p-2.5 hover:bg-surface-muted rounded-2xl transition-colors text-ink-muted shrink-0">
               <ArrowLeft size={24} />
             </button>
             <div>
-               <h1 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+               <h1 className="text-2xl font-black text-ink tracking-tight flex items-center gap-2">
                  <Pill className="text-accent-soft" size={24}/> Prescription Studio
                </h1>
-               <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Generating Rx for: <span className="text-accent">{patient.name}</span></p>
+               <p className="text-xs font-bold text-ink-muted uppercase tracking-widest mt-1">Generating Rx for: <span className="text-accent">{patient.name}</span></p>
             </div>
           </div>
 
@@ -296,7 +296,7 @@ function PrescriptionStudio() {
                 type="button"
                 onClick={handlePrint}
                 disabled={isPrinting || rxItems.length === 0}
-                className="flex-1 md:flex-none bg-slate-900 text-white hover:bg-slate-800 px-5 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:opacity-50"
+                className="flex-1 md:flex-none bg-accent text-ink-on-accent hover:bg-accent-strong px-5 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:opacity-50"
              >
                 {isPrinting ? <Loader2 size={18} className="animate-spin"/> : <Printer size={18}/>}
                 Print
@@ -312,12 +312,12 @@ function PrescriptionStudio() {
         <div className="w-full lg:w-[400px] xl:w-[500px] shrink-0 space-y-6 print:hidden">
             
             {/* Meta Data */}
-            <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm space-y-5">
-               <h3 className="font-black text-slate-900 text-lg border-b border-slate-100 pb-3">Prescription Details</h3>
+            <div className="bg-surface p-6 rounded-3xl border border-slate-200/60 shadow-sm space-y-5">
+               <h3 className="font-black text-ink text-lg border-b border-slate-100 pb-3">Prescription Details</h3>
                
                <div className="space-y-1.5">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Attending Doctor</label>
-                  <select value={selectedDoctor} onChange={e => setSelectedDoctor(e.target.value)} className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all cursor-pointer">
+                  <select value={selectedDoctor} onChange={e => setSelectedDoctor(e.target.value)} className="w-full px-4 py-3.5 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all cursor-pointer">
                      {doctors.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
                      {doctors.length === 0 && <option value="">No Doctors Found</option>}
                   </select>
@@ -325,13 +325,13 @@ function PrescriptionStudio() {
 
                <div className="space-y-1.5">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Diagnosis / CC (Optional)</label>
-                  <input value={diagnosis} onChange={e => setDiagnosis(e.target.value)} placeholder="e.g. Acute Pulpitis..." className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all"/>
+                  <input value={diagnosis} onChange={e => setDiagnosis(e.target.value)} placeholder="e.g. Acute Pulpitis..." className="w-full px-4 py-3.5 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all"/>
                </div>
             </div>
 
             {/* Drug Adder */}
-            <div className="bg-white p-6 rounded-3xl border border-slate-200/60 shadow-sm space-y-5">
-               <h3 className="font-black text-slate-900 text-lg border-b border-slate-100 pb-3 flex items-center justify-between">
+            <div className="bg-surface p-6 rounded-3xl border border-slate-200/60 shadow-sm space-y-5">
+               <h3 className="font-black text-ink text-lg border-b border-slate-100 pb-3 flex items-center justify-between">
                   Add Medication
                   <span className="bg-accent-tint text-accent px-2 py-1 rounded-lg text-[10px] uppercase">
                     {rxItems.length} in Rx · {drugDb.length} shortcuts
@@ -340,7 +340,7 @@ function PrescriptionStudio() {
                
                <div className="space-y-1.5">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Select from Database</label>
-                  <select value={selectedDrugId} onChange={handleDrugSelect} className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all cursor-pointer">
+                  <select value={selectedDrugId} onChange={handleDrugSelect} className="w-full px-4 py-3.5 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all cursor-pointer">
                      <option value="">-- Manual Entry --</option>
                      {drugDb.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                   </select>
@@ -359,13 +359,13 @@ function PrescriptionStudio() {
                           if (selectedDrugId) setSelectedDrugId("");
                         }} 
                         placeholder="e.g. Amoxicillin 500mg" 
-                        className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all"
+                        className="w-full px-4 py-3.5 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all"
                      />
                   </div>
 
                   <div className="space-y-1.5 md:col-span-2">
                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Dose / Frequency</label>
-                     <input value={currentDose} onChange={e => setCurrentDose(e.target.value)} placeholder="e.g. 1 tablet every 12 hours" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all"/>
+                     <input value={currentDose} onChange={e => setCurrentDose(e.target.value)} placeholder="e.g. 1 tablet every 12 hours" className="w-full px-4 py-3.5 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all"/>
                   </div>
                   
                   <div className="space-y-1.5 md:col-span-2">
@@ -374,7 +374,7 @@ function PrescriptionStudio() {
                   </div>
                </div>
 
-               <button data-tour="rx-add-drug" onClick={addDrugToRx} disabled={!customDrugName.trim()} className="w-full bg-slate-900 text-white py-4 rounded-xl font-black text-sm shadow-md mt-2 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:active:scale-100">
+               <button data-tour="rx-add-drug" onClick={addDrugToRx} disabled={!customDrugName.trim()} className="w-full bg-accent text-ink-on-accent py-4 rounded-xl font-black text-sm shadow-md mt-2 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:active:scale-100">
                   <Plus size={18}/> Add to Prescription
                </button>
             </div>
@@ -385,35 +385,35 @@ function PrescriptionStudio() {
             {/* The actual A5 Paper Container */}
             <div
                 id="prescription-pdf-source"
-                className="bg-white w-full max-w-[148mm] min-h-[210mm] shadow-2xl border border-slate-200/50 p-8 flex flex-col relative print:shadow-none print:border-none print:w-full print:h-full print:p-6 print:m-0"
+                className="bg-surface w-full max-w-[148mm] min-h-[210mm] shadow-2xl border border-slate-200/50 p-8 flex flex-col relative print:shadow-none print:border-none print:w-full print:h-full print:p-6 print:m-0"
             >
                 
                 {/* 1. Professional Header */}
                 <div className="border-b-2 border-slate-900 pb-6 mb-6">
                     <div className="flex justify-between items-start">
                         <div className="w-2/3">
-                            <h2 className="text-2xl font-black text-slate-900 mb-2 uppercase tracking-tight">{clinicInfo?.name || "Dental Clinic"}</h2>
-                            <p className="text-xs font-bold text-slate-600 whitespace-pre-wrap leading-relaxed">{clinicInfo?.rxHeader || `Dr. ${selectedDoctor}`}</p>
+                            <h2 className="text-2xl font-black text-ink mb-2 uppercase tracking-tight">{clinicInfo?.name || "Dental Clinic"}</h2>
+                            <p className="text-xs font-bold text-ink-body whitespace-pre-wrap leading-relaxed">{clinicInfo?.rxHeader || `Dr. ${selectedDoctor}`}</p>
                         </div>
                         <div className="text-right w-1/3 space-y-1">
-                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Date</p>
-                            <p className="text-sm font-black text-slate-900">{new Date().toLocaleDateString('en-GB')}</p>
+                            <p className="text-[10px] font-bold text-ink-muted uppercase tracking-widest">Date</p>
+                            <p className="text-sm font-black text-ink">{new Date().toLocaleDateString('en-GB')}</p>
                         </div>
                     </div>
                 </div>
 
                 {/* 2. Patient Demographics Block */}
-                <div className="bg-slate-50 p-4 rounded-xl mb-8 flex flex-wrap justify-between gap-y-3 border border-slate-100 print:border-slate-300 print:bg-transparent">
+                <div className="bg-surface-subtle p-4 rounded-xl mb-8 flex flex-wrap justify-between gap-y-3 border border-slate-100 print:border-line-strong print:bg-transparent">
                     <div>
                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Patient Name</p>
-                       <p className="text-sm font-black text-slate-900">{patient.name}</p>
+                       <p className="text-sm font-black text-ink">{patient.name}</p>
                     </div>
                     <div className="text-right">
                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Age / Sex</p>
                        <p className="text-sm font-bold text-slate-700">{calculateAge(patient.dateOfBirth || patient.age)} Y / {patient.gender?.charAt(0) || "U"}</p>
                     </div>
                     {diagnosis && (
-                      <div className="w-full mt-1 pt-3 border-t border-slate-200">
+                      <div className="w-full mt-1 pt-3 border-t border-line">
                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Diagnosis</p>
                          <p className="text-sm font-bold text-slate-700">{diagnosis}</p>
                       </div>
@@ -422,7 +422,7 @@ function PrescriptionStudio() {
 
                 {/* 3. The Rx Symbol */}
                 <div className="mb-6">
-                   <span className="text-4xl font-serif font-black text-slate-900 italic">Rx</span>
+                   <span className="text-4xl font-serif font-black text-ink italic">Rx</span>
                 </div>
 
                 {/* 4. Medications List */}
@@ -430,7 +430,7 @@ function PrescriptionStudio() {
                     {rxItems.length === 0 && (
                         <div className="text-center py-10 opacity-30 print:hidden">
                             <Pill size={40} className="mx-auto mb-2 text-slate-400"/>
-                            <p className="font-bold text-slate-500 text-sm">Add medications from the left panel.</p>
+                            <p className="font-bold text-ink-muted text-sm">Add medications from the left panel.</p>
                         </div>
                     )}
                     {rxItems.map((item, index) => (
@@ -438,27 +438,27 @@ function PrescriptionStudio() {
                             {/* Hover Delete Button (Hidden on Print) */}
                             <button onClick={() => removeDrug(item.id)} className="absolute -left-6 top-1 text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity print:hidden"><Trash2 size={16}/></button>
                             
-                            <div className="pl-2 border-l-2 border-slate-200">
-                               <p className="font-black text-slate-900 text-base mb-1">
+                            <div className="pl-2 border-l-2 border-line">
+                               <p className="font-black text-ink text-base mb-1">
                                   <span className="text-slate-400 mr-2">{index + 1}.</span>{item.name}
                                </p>
                                {item.dose && <p className="text-sm font-bold text-slate-700 pl-6">• {item.dose}</p>}
-                               {item.note && <p className="text-xs font-semibold text-slate-500 pl-6 mt-0.5">Note: {item.note}</p>}
+                               {item.note && <p className="text-xs font-semibold text-ink-muted pl-6 mt-0.5">Note: {item.note}</p>}
                             </div>
                         </div>
                     ))}
                 </div>
 
                 {/* 5. Footer & Signature */}
-                <div className="mt-12 pt-6 border-t border-slate-200 flex justify-between items-end">
-                    <div className="text-xs font-semibold text-slate-500 space-y-1">
+                <div className="mt-12 pt-6 border-t border-line flex justify-between items-end">
+                    <div className="text-xs font-semibold text-ink-muted space-y-1">
                         <p className="flex items-center gap-1.5"><MapPin size={12}/> {clinicInfo?.address || "Clinic Address"}</p>
                         <p className="flex items-center gap-1.5"><Phone size={12}/> {clinicInfo?.phone || "Clinic Phone"}</p>
                     </div>
                     <div className="text-center w-48">
-                        <div className="border-b-2 border-slate-300 border-dashed h-8 mb-2"></div>
+                        <div className="border-b-2 border-line-strong border-dashed h-8 mb-2"></div>
                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Doctor's Signature</p>
-                        <p className="text-sm font-black text-slate-900 mt-1">{selectedDoctor}</p>
+                        <p className="text-sm font-black text-ink mt-1">{selectedDoctor}</p>
                     </div>
                 </div>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { Globe, Palette, Check, Loader2, Lock } from "lucide-react";
+import { useSettingsText } from "@/lib/useSettingsText";
 import { useLanguage } from "@/context/LanguageContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -21,24 +22,8 @@ export default function AppearanceSettings() {
   const { presetId, resolved, saving, canEdit, setPreset } = useTheme();
   const isAr = language === "ar";
 
-  const txt = {
-    langSettings: isAr ? "إعدادات اللغة" : "Language Settings",
-    switchLang: isAr ? "Switch System to English" : "تغيير النظام إلى العربية",
-    themeSettings: isAr ? "مظهر العيادة" : "Clinic Appearance",
-    themeHint: isAr
-      ? "يظهر هذا المظهر لكل من يعمل في العيادة، على كل جهاز."
-      : "This applies to everyone in the clinic, on every device.",
-    adminOnly: isAr
-      ? "المدير أو المالك فقط يمكنه تغيير المظهر."
-      : "Only an owner or admin can change the appearance.",
-    expired: isAr
-      ? "اشتراك العيادة منتهي — لا يمكن حفظ التغييرات."
-      : "This clinic's subscription has expired, so changes cannot be saved.",
-    suspended: isAr
-      ? "العيادة موقوفة — لا يمكن حفظ التغييرات."
-      : "This clinic is suspended, so changes cannot be saved.",
-    current: isAr ? "الحالي" : "Current",
-  };
+
+  const txt = useSettingsText("appearance");
 
   const lockReason =
     readOnlyReason === "expired" ? txt.expired
@@ -49,25 +34,25 @@ export default function AppearanceSettings() {
   return (
     <div className="space-y-8 animate-in fade-in max-w-5xl mx-auto">
       {/* LANGUAGE */}
-      <div className="bg-white p-8 md:p-10 rounded-3xl border border-slate-200/50 shadow-sm">
-        <h3 className="text-xl font-black text-slate-900 mb-8 flex items-center gap-3">
+      <div className="bg-surface p-8 md:p-10 rounded-3xl border border-slate-200/50 shadow-sm">
+        <h3 className="text-xl font-black text-ink mb-8 flex items-center gap-3">
           <Globe className="text-accent" /> {txt.langSettings}
         </h3>
         <button
           onClick={toggleLanguage}
-          className="w-full sm:w-auto bg-slate-50 border border-slate-200 px-10 py-5 rounded-2xl font-bold text-base flex items-center justify-center gap-3 hover:bg-white hover:border-accent-soft transition-all shadow-sm active:scale-95"
+          className="w-full sm:w-auto bg-surface-subtle border border-line px-10 py-5 rounded-2xl font-bold text-base flex items-center justify-center gap-3 hover:bg-surface hover:border-accent-soft transition-all shadow-sm active:scale-95"
         >
           <Globe size={24} className="text-accent-strong" /> {txt.switchLang}
         </button>
       </div>
 
       {/* THEME */}
-      <div className="bg-white p-8 md:p-10 rounded-3xl border border-slate-200/50 shadow-sm">
+      <div className="bg-surface p-8 md:p-10 rounded-3xl border border-slate-200/50 shadow-sm">
         <div className="mb-2 flex items-center gap-3">
           <Palette className="text-accent" />
-          <h3 className="text-xl font-black text-slate-900">{txt.themeSettings}</h3>
+          <h3 className="text-xl font-black text-ink">{txt.themeSettings}</h3>
         </div>
-        <p className="text-sm font-medium text-slate-500 mb-6">{txt.themeHint}</p>
+        <p className="text-sm font-medium text-ink-muted mb-6">{txt.themeHint}</p>
 
         {lockReason && (
           <div className="mb-6 flex items-center gap-2.5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
@@ -150,8 +135,8 @@ function PresetCard({
         </div>
       </div>
 
-      <p className="text-base font-black text-slate-900">{isAr ? preset.nameAr : preset.nameEn}</p>
-      <p className="mt-1 text-xs font-semibold leading-relaxed text-slate-500">
+      <p className="text-base font-black text-ink">{isAr ? preset.nameAr : preset.nameEn}</p>
+      <p className="mt-1 text-xs font-semibold leading-relaxed text-ink-muted">
         {isAr ? preset.descAr : preset.descEn}
       </p>
     </button>

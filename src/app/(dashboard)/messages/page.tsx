@@ -138,7 +138,7 @@ export default function MessagesPage() {
                 <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
                   {isAr ? "رسائل للإرسال" : "Messages to send"}
                 </h1>
-                <p className="text-xs text-slate-500 font-bold">
+                <p className="text-xs text-ink-muted font-bold">
                   {isAr
                     ? "الرسايل جاهزة — اضغط وابعت من واتساب ويب"
                     : "Written and ready — click to send from WhatsApp Web"}
@@ -147,7 +147,7 @@ export default function MessagesPage() {
             </div>
             <button
               onClick={() => setShowSent((v) => !v)}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-slate-200 text-xs font-black uppercase tracking-wide text-slate-600 hover:bg-slate-50 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-surface border border-line text-xs font-black uppercase tracking-wide text-ink-body hover:bg-surface-subtle transition-colors"
             >
               {showSent ? <Inbox size={14} /> : <RotateCcw size={14} />}
               {showSent ? (isAr ? "المنتظرة" : "Waiting") : (isAr ? "المرسلة" : "Sent")}
@@ -168,7 +168,7 @@ export default function MessagesPage() {
               <Loader2 className="w-6 h-6 text-slate-400 animate-spin" />
             </div>
           ) : visible.length === 0 ? (
-            <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-slate-200">
+            <div className="text-center py-16 bg-surface rounded-2xl border border-dashed border-line">
               <p className="text-slate-400 font-bold text-sm">
                 {showSent
                   ? isAr ? "مفيش رسايل اتبعتت لسه." : "Nothing sent yet."
@@ -180,22 +180,22 @@ export default function MessagesPage() {
               {visible.map((m) => (
                 <div
                   key={m.id}
-                  className="bg-white rounded-2xl border border-slate-100 shadow-sm p-3 sm:p-4 flex items-start gap-3"
+                  className="bg-surface rounded-2xl border border-slate-100 shadow-sm p-3 sm:p-4 flex items-start gap-3"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-extrabold text-slate-900 text-sm truncate">
+                      <h3 className="font-extrabold text-ink text-sm truncate">
                         {m.patientName || m.to}
                       </h3>
-                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-surface-muted text-ink-body">
                         {typeLabel(m.type, isAr)}
                       </span>
                       <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
                         <Clock size={10} /> {ago(m.createdAt, isAr)}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-500 font-bold mt-0.5" dir="ltr">{m.to}</p>
-                    <p className="text-xs text-slate-600 font-medium mt-1.5 whitespace-pre-wrap line-clamp-4 bg-slate-50 rounded-xl px-3 py-2">
+                    <p className="text-xs text-ink-muted font-bold mt-0.5" dir="ltr">{m.to}</p>
+                    <p className="text-xs text-ink-body font-medium mt-1.5 whitespace-pre-wrap line-clamp-4 bg-surface-subtle rounded-xl px-3 py-2">
                       {m.text}
                     </p>
                   </div>
@@ -218,7 +218,7 @@ export default function MessagesPage() {
                       <button
                         onClick={() => void markSent(m)}
                         disabled={busyId === m.id}
-                        className="text-[10px] font-bold text-slate-400 hover:text-slate-700 px-2 py-1 rounded-lg hover:bg-slate-50 transition-colors"
+                        className="text-[10px] font-bold text-slate-400 hover:text-slate-700 px-2 py-1 rounded-lg hover:bg-surface-subtle transition-colors"
                       >
                         {isAr ? "شيلها" : "Dismiss"}
                       </button>

@@ -91,14 +91,14 @@ export function AnalyticsTab({ clinics }: AnalyticsTabProps) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
         {/* Signups Chart */}
-        <div className="bg-white p-6 rounded-[2rem] border border-slate-200/60 shadow-sm">
+        <div className="bg-surface p-6 rounded-[2rem] border border-slate-200/60 shadow-sm">
           <div className="flex items-center gap-3 mb-6">
             <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
               <TrendingUp size={20} />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-slate-900">Clinic Growth</h3>
-              <p className="text-sm text-slate-500 font-medium">New signups over last 6 months</p>
+              <h3 className="text-lg font-bold text-ink">Clinic Growth</h3>
+              <p className="text-sm text-ink-muted font-medium">New signups over last 6 months</p>
             </div>
           </div>
           <div className="h-64">
@@ -118,14 +118,14 @@ export function AnalyticsTab({ clinics }: AnalyticsTabProps) {
         </div>
 
         {/* Revenue Donut */}
-        <div className="bg-white p-6 rounded-[2rem] border border-slate-200/60 shadow-sm">
+        <div className="bg-surface p-6 rounded-[2rem] border border-slate-200/60 shadow-sm">
           <div className="flex items-center gap-3 mb-6">
             <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
               <div className="font-bold">$</div>
             </div>
             <div>
-              <h3 className="text-lg font-bold text-slate-900">MRR Breakdown</h3>
-              <p className="text-sm text-slate-500 font-medium">Revenue distribution by tier</p>
+              <h3 className="text-lg font-bold text-ink">MRR Breakdown</h3>
+              <p className="text-sm text-ink-muted font-medium">Revenue distribution by tier</p>
             </div>
           </div>
           <div className="h-64 flex justify-center">
@@ -160,14 +160,14 @@ export function AnalyticsTab({ clinics }: AnalyticsTabProps) {
       </div>
 
       {/* Top Clinics */}
-      <div className="bg-white p-6 rounded-[2rem] border border-slate-200/60 shadow-sm">
+      <div className="bg-surface p-6 rounded-[2rem] border border-slate-200/60 shadow-sm">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
             <Users size={20} />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-slate-900">Top Clinics</h3>
-            <p className="text-sm text-slate-500 font-medium">Highest tier active clinics</p>
+            <h3 className="text-lg font-bold text-ink">Top Clinics</h3>
+            <p className="text-sm text-ink-muted font-medium">Highest tier active clinics</p>
           </div>
         </div>
         <div className="divide-y divide-slate-100">
@@ -179,13 +179,13 @@ export function AnalyticsTab({ clinics }: AnalyticsTabProps) {
                 <div className="flex items-center gap-4">
                   <div className="text-slate-300 font-black text-xl w-6">{idx + 1}</div>
                   <div>
-                    <h4 className="font-bold text-slate-900">{clinic.name}</h4>
-                    <span className="text-xs text-slate-500">ID: {clinic.id}</span>
+                    <h4 className="font-bold text-ink">{clinic.name}</h4>
+                    <span className="text-xs text-ink-muted">ID: {clinic.id}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
                   <span className={`px-3 py-1 text-xs font-bold rounded-lg ${
-                    clinic.status === 'Active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                    clinic.status === 'Active' ? 'bg-emerald-50 text-emerald-700' : 'bg-surface-muted text-ink-body'
                   }`}>
                     {clinic.status}
                   </span>

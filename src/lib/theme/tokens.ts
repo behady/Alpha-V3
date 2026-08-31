@@ -17,6 +17,28 @@
  * needs `bg-white` migrated to `bg-surface` first; until then, themes move the roles below and
  * leave white alone.
  */
+/**
+ * WHAT IS DELIBERATELY NOT A TOKEN, so the next person does not "finish the job".
+ *
+ * Colour that must never follow a clinic's theme:
+ *
+ *   src/components/SourceIcon.tsx      Facebook blue, WhatsApp green, the four Google colours.
+ *                                      Other companies' marks. Recolouring them would be wrong
+ *                                      and is not ours to do.
+ *   src/lib/dentalIconArt.tsx,         Teeth, roots, and diagnosis colours. Anatomy and clinical
+ *   toothTreatments, diagnosisCatalog  meaning; a tooth is the colour a tooth is, and a
+ *                                      diagnosis colour is a stored value patients' records key
+ *                                      off.
+ *   src/components/reports/            Spreadsheet fill colours, consumed by a spreadsheet
+ *     reportExcelUtils.ts              writer. var() is not a colour to it.
+ *   the *PdfHtml / *Pdf builders       Printed documents render inside their own detached
+ *                                      document, where :root here does not reach. Patient
+ *                                      paperwork also stays neutral by decision.
+ *
+ * And three in-app colours left as literals on purpose: the call-to-action yellow (#FACC15 with
+ * its #EAB308 hover) and the briefing gold (#C8A24A). They are deliberate one-off accents rather
+ * than roles, and folding them into --warn would make a primary action look like a warning.
+ */
 export const ROLE_TOKENS = [
   "surface-page", "surface", "surface-subtle", "surface-muted", "surface-accent",
   "line", "line-strong",

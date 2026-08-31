@@ -38,28 +38,28 @@
   --ink-strong:       #2D3748;
   --ink-body:         #475569;
   --ink-muted:        #64748B;
-  --ink-faint:        #94A3B8;
+  --ink-faint:        #78899F;
   --ink-on-accent:    #FFFFFF;
 
   /* Accent. The product has drifted into two greens, #27AE60 across 131 usages
      and #60D297 across 105, neither of which appears in the palette below.
      Both are kept so the migration can be literal; a theme can collapse them
      deliberately later rather than by accident now. */
-  --accent:           #27AE60;
-  --accent-strong:    #059669;
+  --accent:           #1D7F46;
+  --accent-strong:    #046B4C;
   --accent-soft:      #60D297;
   --accent-tint:      #E8F7F0;
 
   /* Status. Deliberately separate from the accent: "this succeeded" and "this
      is the brand" must not be one colour, or a theme change silently restyles
      every confirmation in the product. */
-  --ok:               #059669;
+  --ok:               #05603A;
   --ok-tint:          #ECFDF5;
-  --warn:             #EA580C;
+  --warn:             #C44A0A;
   --warn-tint:        #FFF7ED;
-  --danger:           #DC2626;
+  --danger:           #C51F1F;
   --danger-tint:      #FEF2F2;
-  --info:             #2563EB;
+  --info:             #1D4FD8;
   --info-tint:        #EFF6FF;
 }
 

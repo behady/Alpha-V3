@@ -238,7 +238,10 @@ export default function AppointmentsPage() {
   // Fetch Patients, Doctors, Services for BookingModal
   useEffect(() => {
     if (!user) return;
-    const unsubPatients = onSnapshot(getClinicCollection("patients"), (snap) => {
+    // Feeds BookingModal's patient picker, which filters by name in the browser.
+    const unsubPatients = onSnapshot(
+      query(getClinicCollection("patients"), orderBy("name"), limit(2500)),
+      (snap) => {
       setPatientsList(snap.docs.map((d) => ({ id: d.id, name: d.data().name, phone: d.data().phone })));
     });
     const unsubDoctors = onSnapshot(getClinicCollection("staff"), (snap) => {
@@ -913,12 +916,12 @@ export default function AppointmentsPage() {
                         <Globe className="w-3 h-3" />
                       </div>
                     )}
-                    <h4 className={`font-extrabold text-slate-900 truncate drop-shadow-sm ${nameFontSize}`}>
+                    <h4 className={`font-extrabold text-ink truncate drop-shadow-sm ${nameFontSize}`}>
                       {appt.patientName}
                     </h4>
                   </div>
                   {patientMap.get(String(appt.patientId))?.phone && (
-                    <span className="text-[10px] text-slate-500 font-medium truncate mt-0.5" dir="ltr">
+                    <span className="text-[10px] text-ink-muted font-medium truncate mt-0.5" dir="ltr">
                       {patientMap.get(String(appt.patientId))?.phone}
                     </span>
                   )}
@@ -928,7 +931,7 @@ export default function AppointmentsPage() {
                     e.stopPropagation(); 
                     setHistoryDrawerPatientId(appt.patientId);
                     setHistoryDrawerPatientName(appt.patientName);
-                  }} className="p-1 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-md transition-colors" title={language === 'ar' ? 'سجل الزيارات' : 'Visit History'}><Clock className="w-3.5 h-3.5 lg:w-4 lg:h-4" /></button>
+                  }} className="p-1 text-ink-muted hover:text-slate-800 hover:bg-surface-muted rounded-md transition-colors" title={language === 'ar' ? 'سجل الزيارات' : 'Visit History'}><Clock className="w-3.5 h-3.5 lg:w-4 lg:h-4" /></button>
                   <button onClick={(e) => { e.stopPropagation(); router.push(`/patients/${appt.patientId}`); }} className="p-1 text-blue-600 hover:bg-blue-50 rounded-md transition-colors" title={language === 'ar' ? 'الملف الشخصي' : 'Profile'}><User className="w-3.5 h-3.5 lg:w-4 lg:h-4" /></button>
                   <button onClick={(e) => {
                     e.stopPropagation();
@@ -960,7 +963,7 @@ export default function AppointmentsPage() {
                     <StarRating rating={appt.rating || 0} onRatingChange={(r) => handleRatingChange(appt.id, r)} size={14} />
                   </div>
                 </div>
-                <span className={`font-black text-slate-600 lg:text-indigo-950 opacity-80 whitespace-nowrap shrink-0 bg-white/40 px-1.5 py-0.5 rounded-md ${timeFontSize}`}>
+                <span className={`font-black text-ink-body lg:text-indigo-950 opacity-80 whitespace-nowrap shrink-0 bg-white/40 px-1.5 py-0.5 rounded-md ${timeFontSize}`}>
                   {language === 'ar' ? appt.time?.replace('AM', 'ص').replace('PM', 'م') : appt.time} ({durationMins}m)
                 </span>
               </div>
@@ -969,7 +972,7 @@ export default function AppointmentsPage() {
               {latestNotes[appt.patientId] && durationMins >= 30 && (
                 <div className="w-full mt-0.5 pt-0.5 border-t border-slate-200/50 flex items-center gap-1 overflow-hidden min-w-0 shrink-0">
                   <FileText size={10} className="shrink-0 text-slate-400" />
-                  <p className="text-[9px] lg:text-[10px] text-slate-500 truncate italic min-w-0 flex-1">
+                  <p className="text-[9px] lg:text-[10px] text-ink-muted truncate italic min-w-0 flex-1">
                     <span className="font-semibold">{latestNotes[appt.patientId].procedure}:</span> {latestNotes[appt.patientId].note}
                   </p>
                 </div>
@@ -984,7 +987,7 @@ export default function AppointmentsPage() {
 
   return (
     <PermissionGuard permission="access.appointments">
-      <div className="flex flex-col lg:flex-row h-full w-full gap-4 md:gap-5 lg:gap-5 p-4 lg:p-4 xl:p-5 bg-[#EEF2F6] min-h-0 overflow-hidden">
+      <div className="flex flex-col lg:flex-row h-full w-full gap-4 md:gap-5 lg:gap-5 p-4 lg:p-4 xl:p-5 bg-surface-muted min-h-0 overflow-hidden">
          
          {/* --- LEFT PANEL --- */}
          <div id="left-panel-container" className={`w-full ${(selectedAppt || isBookingModalOpen) ? 'lg:w-[400px] xl:w-[450px]' : 'lg:w-[260px]'} shrink-0 flex flex-col gap-4 md:gap-5 overflow-y-auto no-scrollbar pt-2 ${!selectedAppt ? 'order-2 lg:order-1' : 'order-1'} transition-all duration-300`}>
@@ -1087,7 +1090,7 @@ export default function AppointmentsPage() {
 
             {/* Filters */}
             <details className="group bg-slate-50/50 lg:bg-transparent p-3 lg:p-0 rounded-2xl lg:rounded-none">
-               <summary className="font-black text-slate-800 lg:mb-2 text-sm lg:text-base cursor-pointer list-none flex justify-between items-center py-1 lg:py-2 hover:bg-slate-50 lg:px-3 lg:-mx-3 rounded-xl transition-colors [&::-webkit-details-marker]:hidden">
+               <summary className="font-black text-slate-800 lg:mb-2 text-sm lg:text-base cursor-pointer list-none flex justify-between items-center py-1 lg:py-2 hover:bg-surface-subtle lg:px-3 lg:-mx-3 rounded-xl transition-colors [&::-webkit-details-marker]:hidden">
                   {language === 'ar' ? 'تصفية' : 'Filters'}
                   <ChevronDown size={18} className="text-slate-400 group-open:rotate-180 transition-transform" />
                </summary>
@@ -1171,14 +1174,14 @@ export default function AppointmentsPage() {
          </div>
 
          {/* --- RIGHT PANEL (Main Grid) --- */}
-         <div className={`flex-1 flex flex-col min-w-0 bg-white border border-slate-100 rounded-2xl lg:rounded-2xl overflow-hidden shadow-sm ${!selectedAppt ? 'order-1 lg:order-2' : 'order-2 lg:order-2'} min-h-[500px]`}>
+         <div className={`flex-1 flex flex-col min-w-0 bg-surface border border-slate-100 rounded-2xl lg:rounded-2xl overflow-hidden shadow-sm ${!selectedAppt ? 'order-1 lg:order-2' : 'order-2 lg:order-2'} min-h-[500px]`}>
              {/* Header */}
              <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between p-3 sm:p-4 border-b border-slate-50 gap-2 sm:gap-3">
                   <div className="flex items-center gap-2 sm:gap-3 w-full xl:w-auto min-w-0">
-                      <button onClick={() => handleNavigate(-1)} className="text-slate-400 hover:text-slate-800 transition-colors bg-slate-50 p-1.5 rounded-xl shrink-0"><ChevronLeft size={20}/></button>
+                      <button onClick={() => handleNavigate(-1)} className="text-slate-400 hover:text-slate-800 transition-colors bg-surface-subtle p-1.5 rounded-xl shrink-0"><ChevronLeft size={20}/></button>
                       <h1 className="text-base sm:text-xl font-black text-slate-800 truncate min-w-0 flex-1 xl:flex-none text-center xl:text-start">{weekTitle}</h1>
-                      <button onClick={() => handleNavigate(1)} className="text-slate-400 hover:text-slate-800 transition-colors bg-slate-50 p-1.5 rounded-xl shrink-0"><ChevronRight size={20}/></button>
-                      <button onClick={() => { setCurrentDate(new Date()); setMiniCalendarDate(new Date()); }} className="text-xs font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-colors shrink-0">{language === 'ar' ? 'اليوم' : 'Today'}</button>
+                      <button onClick={() => handleNavigate(1)} className="text-slate-400 hover:text-slate-800 transition-colors bg-surface-subtle p-1.5 rounded-xl shrink-0"><ChevronRight size={20}/></button>
+                      <button onClick={() => { setCurrentDate(new Date()); setMiniCalendarDate(new Date()); }} className="text-xs font-bold text-ink-body hover:text-ink bg-surface-muted hover:bg-slate-200 px-3 py-1.5 rounded-lg transition-colors shrink-0">{language === 'ar' ? 'اليوم' : 'Today'}</button>
                   </div>
 
                   <div className="flex items-center gap-2 sm:gap-3 w-full xl:w-auto justify-between xl:justify-end flex-wrap">
@@ -1201,7 +1204,7 @@ export default function AppointmentsPage() {
                      )}
 
                      {/* View Toggle: Week / Day / Doctors / List */}
-                     <div className="flex bg-slate-100 p-1 rounded-xl gap-1 overflow-x-auto no-scrollbar max-w-full">
+                     <div className="flex bg-surface-muted p-1 rounded-xl gap-1 overflow-x-auto no-scrollbar max-w-full">
                         {([
                            { id: "week", label: language === "ar" ? "أسبوع" : "Week" },
                            { id: "day", label: language === "ar" ? "يوم" : "Day" },
@@ -1211,7 +1214,7 @@ export default function AppointmentsPage() {
                            <button
                               key={v.id}
                               onClick={() => setViewMode(v.id)}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${viewMode === v.id ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${viewMode === v.id ? 'bg-surface text-slate-800 shadow-sm' : 'text-ink-muted hover:text-slate-800'}`}
                            >
                               {v.label}
                            </button>
@@ -1221,14 +1224,14 @@ export default function AppointmentsPage() {
                      <div className="hidden lg:flex gap-2">
                         <button 
                            onClick={() => setIsNewPatientModalOpen(true)}
-                           className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2.5 rounded-xl transition-all"
+                           className="bg-surface-muted hover:bg-slate-200 text-slate-700 font-bold px-4 py-2.5 rounded-xl transition-all"
                         >
                            {language === 'ar' ? 'إضافة مريض' : 'Add Patient'}
                         </button>
                         <Protect permission="appointments.add">
                           <button 
                              onClick={() => handleOpenBooking()}
-                             data-tour="appointment-add" className="bg-[#FACC15] hover:bg-[#EAB308] text-slate-900 font-black px-5 py-2.5 rounded-xl shadow-sm shadow-yellow-200 flex items-center gap-2 transition-all active:scale-95"
+                             data-tour="appointment-add" className="bg-[#FACC15] hover:bg-[#EAB308] text-ink font-black px-5 py-2.5 rounded-xl shadow-sm shadow-yellow-200 flex items-center gap-2 transition-all active:scale-95"
                           >
                              <Plus size={18} strokeWidth={3}/> {language === 'ar' ? 'إضافة موعد' : 'Add Appointment'}
                           </button>
@@ -1239,13 +1242,13 @@ export default function AppointmentsPage() {
 
              {/* The Grid Area (calendar views) or the Agenda (list view) */}
              {viewMode === 'list' ? (
-               <div className="flex-1 overflow-y-auto custom-scrollbar bg-white p-3 sm:p-4">
+               <div className="flex-1 overflow-y-auto custom-scrollbar bg-surface p-3 sm:p-4">
                   {/* Group-by control: the same day's appointments, arranged by time, dentist, or service */}
                   <div className="flex items-center gap-2 mb-4 flex-wrap">
                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
                         {language === 'ar' ? 'عرض حسب' : 'Group by'}
                      </span>
-                     <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
+                     <div className="flex bg-surface-muted p-1 rounded-xl gap-1">
                         {([
                            { id: "time", label: language === 'ar' ? 'الوقت' : 'Time' },
                            { id: "doctor", label: language === 'ar' ? 'الدكتور' : 'Doctor' },
@@ -1254,7 +1257,7 @@ export default function AppointmentsPage() {
                            <button
                               key={g.id}
                               onClick={() => setListGroupBy(g.id)}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${listGroupBy === g.id ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${listGroupBy === g.id ? 'bg-surface text-slate-800 shadow-sm' : 'text-ink-muted hover:text-slate-800'}`}
                            >
                               {g.label}
                            </button>
@@ -1274,7 +1277,7 @@ export default function AppointmentsPage() {
                                  <h3 className="flex items-center gap-2 text-sm font-black text-slate-700 mb-2 px-1">
                                     {listGroupBy === 'doctor' ? <Stethoscope size={14} className="text-teal-600" /> : <BriefcaseMedical size={14} className="text-indigo-500" />}
                                     {group.label}
-                                    <span className="text-[10px] font-bold text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{group.appts.length}</span>
+                                    <span className="text-[10px] font-bold text-slate-400 bg-surface-muted rounded-full px-2 py-0.5">{group.appts.length}</span>
                                  </h3>
                               )}
                               <div className="space-y-2">
@@ -1284,9 +1287,9 @@ export default function AppointmentsPage() {
                                        <button
                                           key={appt.id}
                                           onClick={() => setSelectedAppt(appt)}
-                                          className={`w-full text-start rounded-2xl border border-slate-100 bg-white shadow-sm hover:shadow-md transition-all p-3 flex items-center gap-3 ${selectedAppt?.id === appt.id ? 'ring-2 ring-primary-500' : ''} ${isAppointmentLate(appt) ? 'ring-2 ring-rose-500 animate-pulse' : ''}`}
+                                          className={`w-full text-start rounded-2xl border border-slate-100 bg-surface shadow-sm hover:shadow-md transition-all p-3 flex items-center gap-3 ${selectedAppt?.id === appt.id ? 'ring-2 ring-primary-500' : ''} ${isAppointmentLate(appt) ? 'ring-2 ring-rose-500 animate-pulse' : ''}`}
                                        >
-                                          <div className="flex flex-col items-center justify-center bg-slate-50 rounded-xl px-2.5 py-2 shrink-0 min-w-[64px]">
+                                          <div className="flex flex-col items-center justify-center bg-surface-subtle rounded-xl px-2.5 py-2 shrink-0 min-w-[64px]">
                                              <span className="text-xs font-black text-slate-800 whitespace-nowrap" dir="ltr">
                                                 {language === 'ar' ? appt.time?.replace('AM', 'ص').replace('PM', 'م') : appt.time}
                                              </span>
@@ -1297,9 +1300,9 @@ export default function AppointmentsPage() {
                                                 {(appt.source === 'online' || appt.source === 'Online Booking Request' || appt.source === 'Online Booking') && (
                                                    <Globe className="w-3 h-3 text-indigo-500 shrink-0" />
                                                 )}
-                                                <span className="font-extrabold text-sm text-slate-900 truncate">{appt.patientName}</span>
+                                                <span className="font-extrabold text-sm text-ink truncate">{appt.patientName}</span>
                                              </div>
-                                             <p className="text-xs text-slate-500 font-bold truncate mt-0.5">
+                                             <p className="text-xs text-ink-muted font-bold truncate mt-0.5">
                                                 {appt.treatment || 'Consultation'} <span className="text-slate-300 mx-0.5">•</span> Dr. {appt.doctor?.split(' ')[1] || appt.doctor}
                                              </p>
                                              {(appt.roomName || appt.branchName) && (
@@ -1322,16 +1325,16 @@ export default function AppointmentsPage() {
                   )}
                </div>
              ) : (
-             <div className="flex-1 overflow-x-auto overflow-y-auto custom-scrollbar bg-white flex flex-col relative">
+             <div className="flex-1 overflow-x-auto overflow-y-auto custom-scrollbar bg-surface flex flex-col relative">
                 <div className={`${viewMode === 'week' ? '' : 'min-w-full'} lg:min-w-0 flex-1 flex flex-col relative`} style={viewMode === 'week' || (viewMode === 'doctor' && gridColumns.length > 2) ? { minWidth: `${gridColumns.length * (viewMode === 'doctor' ? 260 : 308) + 64}px` } : undefined}>
                   {/* Column Headers: days of the week, or one day's dentists */}
-                  <div className="flex shrink-0 sticky top-0 bg-white z-30 border-b border-slate-50">
-                     <div className="w-12 md:w-16 shrink-0 sticky start-0 bg-white z-40 border-b border-slate-50"></div>
+                  <div className="flex shrink-0 sticky top-0 bg-surface z-30 border-b border-slate-50">
+                     <div className="w-12 md:w-16 shrink-0 sticky start-0 bg-surface z-40 border-b border-slate-50"></div>
                      <div className="flex flex-1">
                         {gridColumns.map(colObj => (
                             <div key={colObj.key}
                                  onClick={() => { if(canAddAppointment) handleOpenBooking(colObj.dateStr, undefined, colObj.doctorName && colObj.doctorName !== "__unassigned__" ? colObj.doctorName : undefined) }}
-                                 className={`flex-1 text-center py-2 backdrop-blur-md transition-colors border-e border-transparent min-w-0 ${canAddAppointment ? 'cursor-pointer' : 'cursor-default'} ${colObj.isOffDay ? 'bg-red-50/80 hover:bg-red-100 hover:border-red-200' : 'bg-white/90 hover:bg-slate-50 hover:border-slate-100'}`}>
+                                 className={`flex-1 text-center py-2 backdrop-blur-md transition-colors border-e border-transparent min-w-0 ${canAddAppointment ? 'cursor-pointer' : 'cursor-default'} ${colObj.isOffDay ? 'bg-red-50/80 hover:bg-red-100 hover:border-red-200' : 'bg-white/90 hover:bg-surface-subtle hover:border-slate-100'}`}>
                                {colObj.doctorName ? (
                                   <>
                                      <span className={`font-bold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1 ${colObj.isOffDay ? 'text-red-400' : 'text-slate-400'}`}>
@@ -1356,8 +1359,8 @@ export default function AppointmentsPage() {
                      {timeSlots.map((slot, i) => {
                        return (
                           <div key={i} className="absolute w-full flex" style={{ top: `${i * SLOT_HEIGHT}px`, height: `${SLOT_HEIGHT}px` }}>
-                             <div className="w-12 md:w-16 shrink-0 text-end pe-2 md:pe-4 pt-1 sticky start-0 bg-white z-20">
-                                <span className="text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-wider">{language === 'ar' ? slot.timeLabel.replace('AM', 'ص').replace('PM', 'م') : slot.timeLabel}</span>
+                             <div className="w-12 md:w-16 shrink-0 text-end pe-2 md:pe-4 pt-1 sticky start-0 bg-surface z-20">
+                                <span className="text-[10px] md:text-xs font-bold text-ink-muted uppercase tracking-wider">{language === 'ar' ? slot.timeLabel.replace('AM', 'ص').replace('PM', 'م') : slot.timeLabel}</span>
                              </div>
                             <div className="flex-1 border-t border-slate-200/80"></div>
                          </div>
@@ -1430,7 +1433,7 @@ export default function AppointmentsPage() {
             <h3 className="text-xl font-extrabold text-slate-800 mb-2">
               {language === 'ar' ? 'تأجيل الموعد' : 'Delay Appointment'}
             </h3>
-            <p className="text-sm text-slate-500 mb-6 font-medium">
+            <p className="text-sm text-ink-muted mb-6 font-medium">
               {language === 'ar' 
                 ? 'هل تريد تحديد موعد جديد الآن أم تركه غير محدد؟' 
                 : 'Do you want to schedule a new appointment now or leave it unspecified?'}
@@ -1493,14 +1496,14 @@ export default function AppointmentsPage() {
                     showToast("Error updating status", "error");
                   }
                 }}
-                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3 px-4 rounded-xl transition-colors"
+                className="w-full bg-surface-muted hover:bg-slate-200 text-slate-700 font-bold py-3 px-4 rounded-xl transition-colors"
               >
                 {language === 'ar' ? 'غير محدد بعد' : 'Not Set Yet'}
               </button>
 
               <button
                 onClick={() => setShowDelayPrompt(false)}
-                className="w-full text-slate-400 hover:text-slate-600 font-bold py-2 px-4 rounded-xl mt-2 transition-colors text-sm"
+                className="w-full text-slate-400 hover:text-ink-body font-bold py-2 px-4 rounded-xl mt-2 transition-colors text-sm"
               >
                 {language === 'ar' ? 'إلغاء' : 'Cancel'}
               </button>
@@ -1572,7 +1575,7 @@ export default function AppointmentsPage() {
       {/* Mobile FAB */}
       <button 
         onClick={() => handleOpenBooking()}
-        data-tour="appointment-add" className="lg:hidden fixed bottom-6 end-6 z-50 bg-[#FACC15] text-slate-900 p-4 rounded-full shadow-xl hover:bg-[#EAB308] transition active:scale-95"
+        data-tour="appointment-add" className="lg:hidden fixed bottom-6 end-6 z-50 bg-[#FACC15] text-ink p-4 rounded-full shadow-xl hover:bg-[#EAB308] transition active:scale-95"
       >
         <Plus size={24} />
       </button>

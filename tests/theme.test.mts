@@ -129,9 +129,157 @@ const poisoned = JSON.stringify({
 out = runBoot({ "alpha.theme.v1": poisoned }, {});
 ok("boot refuses a non-colour value", out["--accent"] === undefined && out["--ink"] === "#112233");
 
+/* ------------------------------------------------------------- contrast
+
+   Contrast is arithmetic, so it belongs in a test rather than in someone's judgement. The default
+   theme shipped with eight failures for a long time -- including white button labels at 2.87 -- and
+   nothing caught it, because nobody re-measures a colour once it is chosen.
+*/
+
+function srgbToLinear(c: number): number {
+  const v = c / 255;
+  return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+}
+function luminance(hex: string): number {
+  const h = hex.replace("#", "");
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+  return 0.2126 * srgbToLinear(r) + 0.7152 * srgbToLinear(g) + 0.0722 * srgbToLinear(b);
+}
+function contrast(a: string, b: string): number {
+  const [x, y] = [luminance(a), luminance(b)];
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+
+function hueDistance(a: string, b: string): number {
+  const hue = (hex: string) => {
+    const h = hex.replace("#", "");
+    const [r, g, bl] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+    const mx = Math.max(r, g, bl), mn = Math.min(r, g, bl), d = mx - mn;
+    if (d === 0) return 0;
+    const deg = mx === r ? ((g - bl) / d) % 6 : mx === g ? (bl - r) / d + 2 : (r - g) / d + 4;
+    return (deg * 60 + 360) % 360;
+  };
+  const d = Math.abs(hue(a) - hue(b));
+  return Math.min(d, 360 - d);
+}
+
+/** [label, foreground token, background token, minimum ratio] */
+const PAIRS: [string, string, string, number][] = [
+  ["body text",           "ink",           "surface",       4.5],
+  ["body on backdrop",    "ink",           "surface-page",  4.5],
+  ["secondary text",      "ink-body",      "surface",       4.5],
+  ["muted text",          "ink-muted",     "surface",       4.5],
+  ["faint text",          "ink-faint",     "surface",       3.0],
+  ["faint on muted card", "ink-faint",     "surface-muted", 3.0],
+  ["button label",        "ink-on-accent", "accent",        4.5],
+  ["accent as icon",      "accent",        "surface",       3.0],
+  ["ok text",             "ok",            "surface",       3.0],
+  ["warn text",           "warn",          "surface",       3.0],
+  ["danger text",         "danger",        "surface",       3.0],
+  ["info text",           "info",          "surface",       3.0],
+  ["ok on its tint",      "ok",            "ok-tint",       4.5],
+  ["warn on its tint",    "warn",          "warn-tint",     4.5],
+  ["danger on its tint",  "danger",        "danger-tint",   4.5],
+  ["accent on its tint",  "accent",        "accent-tint",   4.5],
+  ["hairline on card",    "line",          "surface",       1.2],
+];
+
+for (const preset of THEME_PRESETS) {
+  for (const [label, fg, bg, need] of PAIRS) {
+    const got = contrast(preset.tokens[fg], preset.tokens[bg]);
+    ok(
+      `${preset.id}: ${label} clears ${need}`,
+      got >= need,
+      `${preset.tokens[fg]} on ${preset.tokens[bg]} = ${got.toFixed(2)}`,
+    );
+  }
+  /**
+   * The brand and "this succeeded" must not read as one colour.
+   *
+   * Two ways to be distinguishable, and a colour needs only one: a different hue, or a different
+   * weight. Checking contrast alone was wrong and this test failed damson for it -- a plum accent
+   * and a green tick are 157 degrees apart and could not be confused by anyone, yet they sit at a
+   * contrast ratio of 1.25 because they happen to share a lightness. Only the default theme, where
+   * both really are green, has to earn its separation by weight.
+   */
+  const dHue = hueDistance(preset.tokens["accent"], preset.tokens["ok"]);
+  const sep = contrast(preset.tokens["accent"], preset.tokens["ok"]);
+  ok(
+    `${preset.id}: accent is distinguishable from ok`,
+    dHue >= 30 || sep >= 1.4,
+    `hue apart ${dHue.toFixed(0)}deg, contrast ${sep.toFixed(2)}`,
+  );
+}
+
 /* --------------------------------------------------------------- report */
 
 console.log(`\n  ${pass} passed, ${fail.length} failed\n`);
+/* --------------------------------------- the legacy-palette migration stays equivalent
+
+   Roughly 3,100 Tailwind slate classes were moved onto these tokens so a preset can repaint the
+   whole app rather than only its accent — the migration `presets.ts` names as the condition for
+   shipping `graphite`.
+
+   It was safe to do mechanically only because each token is, on the default theme, the same
+   colour as the class it replaced. That is what these cases hold: retune one of these tokens in
+   globals.css and every converted usage silently drifts away from what it was, everywhere, with
+   nothing on screen to explain it. A deliberate retune should update the pair here and say so.
+
+   Tailwind v4 states its palette in oklch, and its slate scale is very slightly different from
+   the v3 values these tokens were originally transcribed from — hence a tolerance rather than
+   equality. Three per channel is well inside what an eye can pick out on a flat fill. */
+
+const MIGRATED_PAIRS: [string, string, string][] = [
+  // token,          replaced Tailwind class, that class's v4 hex
+  ["surface", "bg-white", "#ffffff"],
+  ["surface-subtle", "bg-slate-50", "#f8fafc"],
+  ["surface-muted", "bg-slate-100", "#f1f5f9"],
+  ["line", "border-slate-200", "#e2e8f0"],
+  ["line-strong", "border-slate-300", "#cad5e2"],
+  ["ink-muted", "text-slate-500", "#62748e"],
+  ["ink-body", "text-slate-600", "#45556c"],
+  ["ink", "text-slate-900", "#0f172b"],
+];
+
+const CHANNEL_TOLERANCE = 3;
+
+function channels(hex: string): [number, number, number] {
+  const v = hex.replace("#", "");
+  return [
+    parseInt(v.slice(0, 2), 16),
+    parseInt(v.slice(2, 4), 16),
+    parseInt(v.slice(4, 6), 16),
+  ];
+}
+
+const mintTokens = getPreset(DEFAULT_PRESET_ID)!.tokens as Record<string, string>;
+
+for (const [token, replacedClass, replacedHex] of MIGRATED_PAIRS) {
+  const tokenHex = mintTokens[token];
+  if (!tokenHex) {
+    ok(`migrated token "${token}" exists`, false, "not in the default preset");
+    continue;
+  }
+  const a = channels(tokenHex);
+  const b = channels(replacedHex);
+  const worst = Math.max(...a.map((v, i) => Math.abs(v - b[i])));
+  ok(
+    `${token} still matches the ${replacedClass} it replaced`,
+    worst <= CHANNEL_TOLERANCE,
+    `${tokenHex} vs ${replacedHex} — off by ${worst}/255 per channel`
+  );
+}
+
+/* `white` is deliberately absent from ROLE_TOKENS: it does two jobs, a card's surface and ink on
+   a coloured slab, and repainting it would turn button labels the colour of their own button.
+   The migration moved the surface half onto `bg-surface` and left `text-white` alone, so that
+   exclusion has to stay for the second half to keep working. */
+ok(
+  "white is still not a role token",
+  !ROLE_TOKENS.includes("white" as (typeof ROLE_TOKENS)[number]),
+  "adding it would repaint every text-white label"
+);
+
 if (fail.length) {
   for (const f of fail) console.error("  x " + f);
   process.exit(1);

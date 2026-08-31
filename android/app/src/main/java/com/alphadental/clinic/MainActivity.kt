@@ -122,10 +122,19 @@ class MainActivity : ComponentActivity() {
 
     /** A tapped notification lands here — cold start or already running. */
     private fun takeScreenRequest(intent: android.content.Intent?) {
-        intent?.getStringExtra("screen")?.let {
-            com.alphadental.clinic.push.PushNav.requested.value = it
-            intent.removeExtra("screen")
-        }
+        if (intent == null) return
+        val target = com.alphadental.clinic.push.PushTarget(
+            screen = intent.getStringExtra("screen"),
+            appointmentId = intent.getStringExtra("appointmentId"),
+            patientId = intent.getStringExtra("patientId"),
+        )
+        if (target.isEmpty) return
+        com.alphadental.clinic.push.PushNav.requested.value = target
+        // Cleared so a rotation or a return from the background does not replay the
+        // same jump the person already made.
+        intent.removeExtra("screen")
+        intent.removeExtra("appointmentId")
+        intent.removeExtra("patientId")
     }
 
     override fun onNewIntent(intent: android.content.Intent) {
@@ -214,6 +223,16 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbars = remember { SnackbarHostState() }
     var openAppointment by remember { mutableStateOf<Appointment?>(null) }
+
+    // A notification named an appointment; the view model has now read it. Handing
+    // it to the same sheet a tap on the day list opens means there is one sheet to
+    // maintain rather than a second, thinner one for notifications.
+    LaunchedEffect(state.pushAppointment) {
+        state.pushAppointment?.let {
+            openAppointment = it
+            viewModel.pushAppointmentShown()
+        }
+    }
     // Device-local, not clinic data: it never leaves the phone, so it does not
     // belong in the shared view-model state.
     var appearanceOpen by rememberSaveable { mutableStateOf(false) }
@@ -272,15 +291,25 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
             LaunchedEffect(session.uid) { viewModel.refreshBriefing() }
 
             LaunchedEffect(session.uid) {
-                com.alphadental.clinic.push.PushNav.requested.collect { screen ->
-                    if (screen != null) {
+                com.alphadental.clinic.push.PushNav.requested.collect { target ->
+                    if (target != null) {
                         com.alphadental.clinic.push.PushNav.requested.value = null
-                        when (screen) {
-                            "day" -> viewModel.selectTab(Tab.DAY)
-                            "money" -> if (session.isAdmin || session.isReception) viewModel.selectTab(Tab.MONEY)
-                            "leads" -> if (session.isAdmin || session.isReception) viewModel.openLeads()
-                            "patients" -> viewModel.selectTab(Tab.PATIENTS)
-                            "inventory" -> viewModel.openInventory()
+                        // The record the notification is about wins over the screen it
+                        // lives on: "Dina booked 09:00" should open Dina's booking, not
+                        // drop you on a day list to find her yourself.
+                        when {
+                            target.appointmentId != null -> viewModel.openAppointmentById(target.appointmentId)
+                            target.patientId != null -> viewModel.openPatient(target.patientId)
+                            else -> when (target.screen) {
+                                "day" -> viewModel.selectTab(Tab.DAY)
+                                "money" -> if (session.isAdmin || session.isReception) viewModel.selectTab(Tab.MONEY)
+                                "leads" -> if (session.isAdmin || session.isReception) viewModel.openLeads()
+                                "patients" -> viewModel.selectTab(Tab.PATIENTS)
+                                "inventory" -> viewModel.openInventory()
+                                // The website has screens this app does not. Landing on
+                                // the day is a better answer than a tap that does nothing.
+                                "marketing", "reviews" -> viewModel.selectTab(Tab.DAY)
+                            }
                         }
                     }
                 }
@@ -496,6 +525,18 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         openAppointment = null
                         viewModel.openPatient(selected.patientId)
                     },
+                    // Same roles the patient file offers it to, and only once the
+                    // visit belongs to a file — a walk-in with no record has no
+                    // ledger to pay into.
+                    onTakePayment = if (
+                        selected.patientId.isNotBlank() &&
+                        (session.isAdmin || session.isDentist || session.role == "Receptionist")
+                    ) {
+                        {
+                            openAppointment = null
+                            viewModel.openPaymentForPatient(selected.patientId)
+                        }
+                    } else null,
                     onDismiss = { openAppointment = null },
                 )
             }
@@ -609,6 +650,13 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     loading = state.loadingLeads,
                     arabic = state.arabic,
                     onSetStage = viewModel::setLeadStage,
+                    // Creating a patient file, so the same roles the register lets
+                    // add one. The rules would refuse the write anyway; offering a
+                    // button that fails is worse than not offering it.
+                    onConvert = if (session.isAdmin || session.isDentist || session.role == "Receptionist") {
+                        viewModel::convertLead
+                    } else null,
+                    convertingLeadId = state.convertingLeadId,
                     onAdd = viewModel::openLeadAdd,
                     onClose = viewModel::closeLeads,
                 )
@@ -961,6 +1009,29 @@ private fun MoreScreen(
                 Text(email, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Alpha.Slate500)
                 Spacer(Modifier.height(6.dp))
                 Text(role, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = Alpha.Green)
+
+                // A role the app does not recognise passes every gate as "no", so the
+                // dashboard quietly arrives with its tools stripped out and nothing
+                // says why. Naming it here is the difference between a five-minute
+                // fix in Settings and an afternoon of guessing.
+                if (role !in RECOGNISED_ROLES) {
+                    Spacer(Modifier.height(10.dp))
+                    Surface(shape = Alpha.CardShape, color = Alpha.WarnBg, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            if (arabic) {
+                                "الدور \"$role\" غير معروف للتطبيق، لذلك أغلبية الأدوات مخفية. " +
+                                    "صحّح الدور من إعدادات المستخدمين على الموقع."
+                            } else {
+                                "The app does not recognise the role \"$role\", so most tools are " +
+                                    "hidden. Fix this account's role in Settings → Users on the website."
+                            },
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Alpha.WarnText,
+                            modifier = Modifier.padding(12.dp),
+                        )
+                    }
+                }
             }
         }
 
@@ -1072,6 +1143,9 @@ private fun MoreScreen(
         )
     }
 }
+
+/** The roles every gate in the app is written against. */
+private val RECOGNISED_ROLES = setOf("Owner", "Admin", "Dentist", "Receptionist", "Assistant")
 
 private class ToolSpec(
     val icon: ImageVector,

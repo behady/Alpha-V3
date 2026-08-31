@@ -60,6 +60,35 @@ export interface Lead {
     error?: string;
   } | null;
 
+  /**
+   * Stamped by the Meta webhook: which page, form, ad and campaign this lead arrived through.
+   * `adName`/`campaignName` stay null unless the connected token carries an ads permission —
+   * Meta simply omits those fields otherwise, rather than erroring.
+   */
+  meta?: {
+    leadgenId?: string;
+    pageId?: string;
+    pageName?: string | null;
+    formId?: string;
+    adName?: string | null;
+    campaignName?: string | null;
+    createdTime?: string | null;
+    fetchFailed?: boolean;
+  } | null;
+
+  /**
+   * Who is chasing this lead. Null is a real state and is shown as such: a lead that belongs to
+   * everyone is the one nobody calls, which is what an inbox of eight untouched ad leads looks
+   * like from the inside. The name is denormalised so the row reads without a second lookup.
+   */
+  assignedToUid?: string | null;
+  assignedToName?: string | null;
+
+  /** Set once the 15-minute nudge has gone out, so it is a nudge and not a drip. */
+  speedAlertAt?: { seconds: number } | null;
+  /** Set once the lead was escalated over the floor's head. See leadSpeedAlerts. */
+  escalatedAt?: { seconds: number } | null;
+
   /** First moment this lead stopped being untouched — the clock behind time-to-contact. */
   firstContactedAt?: { seconds: number } | null;
   /** Last stage movement, so a lead nobody has touched in a month can say so. */
@@ -102,7 +131,7 @@ export function leadStageStyles(stage: string): { pill: string; dot: string } {
     case "lost":
       return { pill: "bg-rose-100 text-rose-600", dot: "bg-rose-400" };
     default:
-      return { pill: "bg-slate-100 text-slate-600", dot: "bg-slate-400" };
+      return { pill: "bg-surface-muted text-ink-body", dot: "bg-slate-400" };
   }
 }
 

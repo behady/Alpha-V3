@@ -179,9 +179,17 @@ data class AppState(
     val aiPending: AiClient.PendingAction? = null,
     /** A reply waiting to be read aloud. One-shot: the screen speaks it and calls aiSpoken(). */
     val aiSpeak: String? = null,
+    /**
+     * An appointment a tapped notification asked for, waiting to be shown.
+     *
+     * One-shot: the screen opens its sheet on it and calls pushAppointmentShown().
+     */
+    val pushAppointment: Appointment? = null,
     /** The appointment the assistant is acting on — its id and a human label for the chip. */
     val aiAppointmentId: String? = null,
     val aiAppointmentLabel: String = "",
+    /** The lead being turned into a patient, so its button alone shows a spinner. */
+    val convertingLeadId: String = "",
     /** The "what Alpha has learned" screen, and the rules it is showing. */
     val aiMemoryOpen: Boolean = false,
     val aiFacts: List<String> = emptyList(),
@@ -326,6 +334,41 @@ class AppViewModel : ViewModel() {
     }
 
     fun showToday() = showDate(today())
+
+    /**
+     * Open one appointment by id, because a notification asked for it.
+     *
+     * The day behind the sheet is moved to the appointment's own date first — a
+     * booking for tomorrow opened over today's list would put the patient's name
+     * on a day that does not contain them. If it cannot be read (deleted since,
+     * or a different clinic) the day view is still a sane place to land, and
+     * saying so beats a tap that does nothing at all.
+     */
+    fun openAppointmentById(appointmentId: String) {
+        val session = _state.value.session ?: return
+        selectTab(Tab.DAY)
+        viewModelScope.launch {
+            val appointment = runCatching { Repository.loadAppointment(session.clinicId, appointmentId) }
+                .getOrNull()
+            if (appointment == null) {
+                _state.value = _state.value.copy(
+                    message = "That appointment could not be found — it may have been deleted.",
+                )
+                return@launch
+            }
+            if (appointment.date.isNotBlank() && appointment.date != _state.value.date) {
+                showDate(appointment.date)
+            }
+            _state.value = _state.value.copy(pushAppointment = appointment)
+        }
+    }
+
+    /** The sheet has it now; do not re-open it on the next recomposition. */
+    fun pushAppointmentShown() {
+        if (_state.value.pushAppointment != null) {
+            _state.value = _state.value.copy(pushAppointment = null)
+        }
+    }
 
     private fun showDate(date: String) {
         val session = _state.value.session ?: return
@@ -588,6 +631,45 @@ class AppViewModel : ViewModel() {
 
     fun closeLeads() {
         _state.value = _state.value.copy(leadsOpen = false, leadAddOpen = false)
+    }
+
+    /**
+     * Turn a lead into a patient file, which is what winning one means.
+     *
+     * Not optimistic, unlike the stage pills: this creates a record and mints a
+     * file number, and showing "won" before the write lands would be claiming a
+     * patient exists who might not. The reply says which of the two happened — a
+     * new file, or a link to one already there — because "we already knew this
+     * person" is the answer that changes what reception says next.
+     */
+    fun convertLead(lead: com.alphadental.clinic.data.Lead) {
+        val session = _state.value.session ?: return
+        if (_state.value.convertingLeadId.isNotBlank()) return
+
+        _state.value = _state.value.copy(convertingLeadId = lead.id)
+        viewModelScope.launch {
+            Repository.convertLeadToPatient(session.clinicId, lead)
+                .onSuccess { (patientId, existed) ->
+                    _state.value = _state.value.copy(
+                        convertingLeadId = "",
+                        leads = _state.value.leads.map {
+                            if (it.id == lead.id) it.copy(stage = "won", patientId = patientId, hasFirstContact = true)
+                            else it
+                        },
+                        message = if (existed) {
+                            "That number was already on file — the lead is linked to it."
+                        } else {
+                            "Patient file created for " + lead.name.ifBlank { "the lead" } + "."
+                        },
+                    )
+                }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(
+                        convertingLeadId = "",
+                        message = error.message ?: "The lead could not be converted.",
+                    )
+                }
+        }
     }
 
     fun setLeadStage(lead: com.alphadental.clinic.data.Lead, stage: String, lostReason: String? = null) {
@@ -2151,6 +2233,26 @@ class AppViewModel : ViewModel() {
      * on each treatment is the thing being paid against — and a colleague may have taken a payment
      * at the desk since this file was opened.
      */
+    /**
+     * Take a payment for the patient on an appointment, from the appointment itself.
+     *
+     * The sheet used to offer the clinical half of a visit — status, reschedule,
+     * call — and nothing about the money, so collecting a fee meant closing it,
+     * finding the patient in the register and opening their file. Reception does
+     * that at the desk with the patient standing there.
+     *
+     * It opens the file underneath rather than paying against the appointment,
+     * because the payment is recorded against the ledger of a person, not of a
+     * booking, and the file is what the receipt and the balance are computed
+     * from. Closing the payment sheet therefore leaves them on the file, which is
+     * where someone who has just taken money usually wants to be.
+     */
+    fun openPaymentForPatient(patientId: String) {
+        if (patientId.isBlank()) return
+        openPatient(patientId)
+        openPayment()
+    }
+
     fun openPayment() {
         val session = _state.value.session ?: return
         val patientId = _state.value.openPatientId ?: return
@@ -2304,7 +2406,16 @@ class AppViewModel : ViewModel() {
      */
     fun recordPayment(procedure: UnpaidProcedure?, amount: Double) {
         val session = _state.value.session ?: return
-        val patient = _state.value.patientFile?.patient ?: return
+        // Reachable now that the payment sheet can be opened from an appointment,
+        // on top of a file that is still loading. Silently returning would have
+        // looked exactly like a payment that was taken and lost.
+        val patient = _state.value.patientFile?.patient ?: run {
+            _state.value = _state.value.copy(
+                savingPayment = false,
+                message = "Still opening the patient's file — try again in a moment.",
+            )
+            return
+        }
 
         _state.value = _state.value.copy(savingPayment = true)
         viewModelScope.launch {

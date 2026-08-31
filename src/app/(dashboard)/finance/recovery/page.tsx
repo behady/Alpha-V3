@@ -233,10 +233,10 @@ export default function RecoverPaymentsPage() {
   }, [list, search, filter, sortKey, followUps, isAr]);
 
   const statusMeta: Record<FollowUpStatus, { label: string; className: string }> = {
-    open: { label: txt.statusOpen, className: "bg-slate-100 text-slate-600 border-slate-200" },
+    open: { label: txt.statusOpen, className: "bg-surface-muted text-ink-body border-line" },
     promised: { label: txt.statusPromised, className: "bg-amber-50 text-amber-700 border-amber-200" },
     settled: { label: txt.statusSettled, className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-    ignored: { label: txt.statusIgnored, className: "bg-slate-50 text-slate-400 border-slate-200" },
+    ignored: { label: txt.statusIgnored, className: "bg-surface-subtle text-slate-400 border-line" },
   };
 
   return (
@@ -252,8 +252,8 @@ export default function RecoverPaymentsPage() {
                   {isAr ? "المالية" : "Finance"}
                 </span>
               </div>
-              <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight mt-1">{txt.title}</h1>
-              <p className="text-sm font-medium text-slate-500 mt-1 max-w-2xl">{txt.subtitle}</p>
+              <h1 className="text-2xl md:text-3xl font-black text-ink tracking-tight mt-1">{txt.title}</h1>
+              <p className="text-sm font-medium text-ink-muted mt-1 max-w-2xl">{txt.subtitle}</p>
             </div>
 
             <button
@@ -276,20 +276,20 @@ export default function RecoverPaymentsPage() {
           {/* Totals */}
           {list && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm">
+              <div className="bg-surface rounded-3xl border border-line p-5 shadow-sm">
                 <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">{txt.totalOwed}</p>
-                <p className="text-2xl font-black text-slate-900 mt-2">{money(list.totals.totalOwed)}</p>
+                <p className="text-2xl font-black text-ink mt-2">{money(list.totals.totalOwed)}</p>
                 <p className="text-xs font-bold text-slate-400 mt-1">
                   {list.totals.patients} {txt.patients}
                 </p>
               </div>
-              <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm">
+              <div className="bg-surface rounded-3xl border border-line p-5 shadow-sm">
                 <p className="text-[11px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
                   <Wallet size={13} /> {txt.unpaid}
                 </p>
                 <p className="text-2xl font-black text-amber-600 mt-2">{money(list.totals.balance)}</p>
               </div>
-              <div className="bg-white rounded-3xl border border-slate-200 p-5 shadow-sm">
+              <div className="bg-surface rounded-3xl border border-line p-5 shadow-sm">
                 <p className="text-[11px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
                   <FileWarning size={13} /> {txt.neverInvoiced}
                 </p>
@@ -307,7 +307,7 @@ export default function RecoverPaymentsPage() {
             whose file reads BALANCE −1,200 appears on no report in the app.
           */}
           {list && list.misallocations.length > 0 && (
-            <div className="bg-white rounded-3xl border border-amber-200 shadow-sm overflow-hidden">
+            <div className="bg-surface rounded-3xl border border-amber-200 shadow-sm overflow-hidden">
               <div className="bg-amber-50 border-b border-amber-200 px-5 py-4">
                 <p className="text-sm font-black text-amber-900 flex items-center gap-2">
                   <AlertCircle size={16} className="shrink-0" />
@@ -319,8 +319,8 @@ export default function RecoverPaymentsPage() {
                 {list.misallocations.map((mis) => (
                   <div key={`${mis.procedureId}-${mis.paymentIds.join("-")}`} className="px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="font-black text-slate-900 text-sm truncate">{mis.patientName}</p>
-                      <p className="text-xs font-bold text-slate-500 mt-1 leading-relaxed">
+                      <p className="font-black text-ink text-sm truncate">{mis.patientName}</p>
+                      <p className="text-xs font-bold text-ink-muted mt-1 leading-relaxed">
                         <span className="inline-block px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-black uppercase me-1.5">
                           {mis.kind === "orphaned_payment" ? txt.misOrphan : txt.misOver}
                         </span>
@@ -363,9 +363,9 @@ export default function RecoverPaymentsPage() {
 
           {/* Anything the scan could not see or do — said plainly rather than left implied. */}
           {list && list.notes.length > 0 && (
-            <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-1.5">
+            <div className="bg-surface border border-line rounded-2xl p-4 space-y-1.5">
               {list.notes.map((note) => (
-                <p key={note} className="text-xs font-bold text-slate-500 flex items-start gap-2">
+                <p key={note} className="text-xs font-bold text-ink-muted flex items-start gap-2">
                   <AlertCircle size={13} className="text-slate-400 shrink-0 mt-0.5" />
                   {note}
                 </p>
@@ -374,7 +374,7 @@ export default function RecoverPaymentsPage() {
           )}
 
           {/* Controls */}
-          <div className="bg-white rounded-3xl border border-slate-200 p-4 shadow-sm space-y-3">
+          <div className="bg-surface rounded-3xl border border-line p-4 shadow-sm space-y-3">
             <div className="relative">
               <Search
                 size={16}
@@ -384,7 +384,7 @@ export default function RecoverPaymentsPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={txt.searchPlaceholder}
-                className={`w-full py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-white focus:border-teal-500 transition-all ${
+                className={`w-full py-3 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-teal-500 transition-all ${
                   isRTL ? "pr-11 pl-4" : "pl-11 pr-4"
                 }`}
               />
@@ -417,7 +417,7 @@ export default function RecoverPaymentsPage() {
                 <select
                   value={sortKey}
                   onChange={(e) => setSortKey(e.target.value as SortKey)}
-                  className="py-2 px-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-black text-slate-600 outline-none focus:border-teal-500"
+                  className="py-2 px-3 bg-surface-subtle border border-line rounded-xl text-xs font-black text-ink-body outline-none focus:border-teal-500"
                 >
                   <option value="amount">{txt.sortAmount}</option>
                   <option value="age">{txt.sortAge}</option>
@@ -429,14 +429,14 @@ export default function RecoverPaymentsPage() {
 
           {/* List */}
           {loading && !list ? (
-            <div className="bg-white rounded-3xl border border-slate-200 p-12 text-center">
+            <div className="bg-surface rounded-3xl border border-line p-12 text-center">
               <Loader2 size={26} className="text-slate-400 animate-spin mx-auto mb-3" />
-              <p className="text-sm font-bold text-slate-500">{txt.loading}</p>
+              <p className="text-sm font-bold text-ink-muted">{txt.loading}</p>
             </div>
           ) : rows.length === 0 ? (
-            <div className="bg-white rounded-3xl border border-slate-200 border-dashed p-12 text-center">
+            <div className="bg-surface rounded-3xl border border-line border-dashed p-12 text-center">
               <CheckCircle2 size={26} className="text-emerald-500 mx-auto mb-3" />
-              <p className="text-base font-black text-slate-900">
+              <p className="text-base font-black text-ink">
                 {list && list.rows.length > 0 ? txt.noMatch : txt.empty}
               </p>
             </div>
@@ -450,20 +450,20 @@ export default function RecoverPaymentsPage() {
                 return (
                   <div
                     key={row.patientId}
-                    className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden"
+                    className="bg-surface rounded-3xl border border-line shadow-sm overflow-hidden"
                   >
                     <div className="p-4 md:p-5 flex flex-wrap items-center gap-4">
                       {/* Who */}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <p className="font-black text-slate-900 truncate">{row.patientName}</p>
+                          <p className="font-black text-ink truncate">{row.patientName}</p>
                           <span
                             className={`text-[10px] font-black px-2 py-0.5 rounded-md border ${statusMeta[status].className}`}
                           >
                             {statusMeta[status].label}
                           </span>
                           {row.whatsappOptOut && (
-                            <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 border border-slate-200">
+                            <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-surface-muted text-ink-muted border border-line">
                               {txt.optedOut}
                             </span>
                           )}
@@ -474,7 +474,7 @@ export default function RecoverPaymentsPage() {
                             <a
                               href={`tel:${row.phone}`}
                               dir="ltr"
-                              className="text-sm font-bold text-slate-600 hover:text-teal-600 transition-colors inline-flex items-center gap-1.5"
+                              className="text-sm font-bold text-ink-body hover:text-teal-600 transition-colors inline-flex items-center gap-1.5"
                             >
                               <Phone size={13} /> {row.phone}
                             </a>
@@ -493,7 +493,7 @@ export default function RecoverPaymentsPage() {
 
                       {/* How much */}
                       <div className={isRTL ? "text-left" : "text-right"}>
-                        <p className="text-xl font-black text-slate-900">{money(row.totalOwed)}</p>
+                        <p className="text-xl font-black text-ink">{money(row.totalOwed)}</p>
                         <div className="flex items-center gap-2 justify-end mt-0.5 flex-wrap">
                           {row.balance > 0 && (
                             <span className="text-[10px] font-black text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
@@ -521,7 +521,7 @@ export default function RecoverPaymentsPage() {
                           className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black border transition-colors ${
                             row.phone
                               ? "bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100"
-                              : "bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed pointer-events-none"
+                              : "bg-surface-subtle text-slate-300 border-line cursor-not-allowed pointer-events-none"
                           }`}
                         >
                           <Phone size={13} /> {txt.call}
@@ -535,14 +535,14 @@ export default function RecoverPaymentsPage() {
                           }}
                           disabled={!row.phone || row.whatsappOptOut}
                           title={row.whatsappOptOut ? txt.optedOut : txt.whatsapp}
-                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black border bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 disabled:bg-slate-50 disabled:text-slate-300 disabled:border-slate-200 disabled:cursor-not-allowed transition-colors"
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black border bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 disabled:bg-surface-subtle disabled:text-slate-300 disabled:border-line disabled:cursor-not-allowed transition-colors"
                         >
                           <MessageCircle size={13} /> {txt.whatsapp}
                         </button>
 
                         <Link
                           href={`/patients/${row.patientId}?tab=finance`}
-                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black border bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 transition-colors"
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black border bg-surface-subtle text-ink-body border-line hover:bg-surface-muted transition-colors"
                         >
                           {txt.file} <ArrowUpRight size={13} />
                         </Link>
@@ -558,7 +558,7 @@ export default function RecoverPaymentsPage() {
                           className={`text-[11px] font-black px-2.5 py-1 rounded-lg border transition-all ${
                             status === key
                               ? statusMeta[key].className
-                              : "bg-white text-slate-400 border-slate-200 hover:border-slate-300"
+                              : "bg-surface text-slate-400 border-line hover:border-line-strong"
                           }`}
                         >
                           {statusMeta[key].label}
@@ -583,7 +583,7 @@ export default function RecoverPaymentsPage() {
                             <div key={item.noteId} className="flex items-center justify-between gap-3 text-sm">
                               <span className="font-bold text-slate-700 truncate">{item.procedure}</span>
                               <span className="text-xs font-bold text-slate-400 shrink-0">{item.date || "—"}</span>
-                              <span className="font-black text-slate-900 shrink-0">{money(item.cost)}</span>
+                              <span className="font-black text-ink shrink-0">{money(item.cost)}</span>
                             </div>
                           ))}
                         </div>

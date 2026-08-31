@@ -43,7 +43,7 @@ export default function HelpArticleView({ article, siblings }: Props) {
     <div className="mx-auto max-w-3xl px-4 py-10 md:px-8" dir={isRTL ? "rtl" : "ltr"}>
       <Link
         href="/help"
-        className="mb-8 inline-flex items-center gap-2 text-xs font-bold text-slate-500 transition-colors hover:text-slate-900"
+        className="mb-8 inline-flex items-center gap-2 text-xs font-bold text-ink-muted transition-colors hover:text-ink"
       >
         <Back size={14} />
         {txt.back}
@@ -55,9 +55,9 @@ export default function HelpArticleView({ article, siblings }: Props) {
             {isAr ? section.titleAr : section.titleEn}
           </p>
         ) : null}
-        <h1 className="text-3xl font-black leading-tight tracking-tight text-slate-900">{a.title}</h1>
+        <h1 className="text-3xl font-black leading-tight tracking-tight text-ink">{a.title}</h1>
         {a.summary ? (
-          <p className="mt-3 text-base font-semibold leading-relaxed text-slate-500">{a.summary}</p>
+          <p className="mt-3 text-base font-semibold leading-relaxed text-ink-muted">{a.summary}</p>
         ) : null}
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -69,7 +69,7 @@ export default function HelpArticleView({ article, siblings }: Props) {
           {a.roles.map((r) => (
             <span
               key={r}
-              className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500"
+              className="rounded-lg border border-line bg-surface-subtle px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-ink-muted"
             >
               {r}
             </span>
@@ -77,13 +77,13 @@ export default function HelpArticleView({ article, siblings }: Props) {
         </div>
 
         {showingFallback ? (
-          <p className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-500">
+          <p className="mt-5 rounded-2xl border border-line bg-surface-subtle px-4 py-3 text-xs font-bold text-ink-muted">
             {txt.fallback}
           </p>
         ) : null}
       </header>
 
-      <article className="rounded-[2rem] border border-slate-200/60 bg-white p-6 shadow-sm md:p-10">
+      <article className="rounded-[2rem] border border-slate-200/60 bg-surface p-6 shadow-sm md:p-10">
         <HelpMarkdown body={a.body} isRTL={showingFallback ? false : isRTL} />
       </article>
 
@@ -92,12 +92,12 @@ export default function HelpArticleView({ article, siblings }: Props) {
           {nav.prev ? (
             <Link
               href={`/help/${nav.prev.slug}`}
-              className="group rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-all hover:border-slate-300 hover:shadow-md"
+              className="group rounded-2xl border border-slate-200/60 bg-surface p-5 shadow-sm transition-all hover:border-line-strong hover:shadow-md"
             >
               <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-slate-400">
                 <Back size={12} /> {txt.prev}
               </span>
-              <span className="mt-1.5 block text-sm font-black text-slate-900">{nav.prev.title}</span>
+              <span className="mt-1.5 block text-sm font-black text-ink">{nav.prev.title}</span>
             </Link>
           ) : (
             <span className="hidden sm:block" />
@@ -105,7 +105,7 @@ export default function HelpArticleView({ article, siblings }: Props) {
           {nav.next ? (
             <Link
               href={`/help/${nav.next.slug}`}
-              className={`group rounded-2xl border border-slate-200/60 bg-white p-5 shadow-sm transition-all hover:border-slate-300 hover:shadow-md ${
+              className={`group rounded-2xl border border-slate-200/60 bg-surface p-5 shadow-sm transition-all hover:border-line-strong hover:shadow-md ${
                 isRTL ? "sm:text-left" : "sm:text-right"
               }`}
             >
@@ -116,7 +116,7 @@ export default function HelpArticleView({ article, siblings }: Props) {
               >
                 {txt.next} <Fwd size={12} />
               </span>
-              <span className="mt-1.5 block text-sm font-black text-slate-900">{nav.next.title}</span>
+              <span className="mt-1.5 block text-sm font-black text-ink">{nav.next.title}</span>
             </Link>
           ) : null}
         </nav>

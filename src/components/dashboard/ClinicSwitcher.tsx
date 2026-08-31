@@ -96,16 +96,16 @@ export default function ClinicSwitcher({ expanded = false }: { expanded?: boolea
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className={`absolute top-0 z-[250] w-64 bg-white rounded-2xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.15)] border border-slate-100 overflow-hidden ${isRTL ? 'right-full mr-4' : 'left-full ml-4'}`}>
-          <div className="bg-slate-50 px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">{language === 'ar' ? 'مساحات العمل' : 'Workspaces'}</span>
+        <div className={`absolute top-0 z-[250] w-64 bg-surface rounded-2xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.15)] border border-slate-100 overflow-hidden ${isRTL ? 'right-full mr-4' : 'left-full ml-4'}`}>
+          <div className="bg-surface-subtle px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+             <span className="text-xs font-bold text-ink-muted uppercase tracking-wider">{language === 'ar' ? 'مساحات العمل' : 'Workspaces'}</span>
           </div>
           <div className="max-h-60 overflow-y-auto py-2">
             {clinics.map(c => (
               <button
                 key={c.id}
                 onClick={() => handleSwitch(c.id)}
-                className={`w-full text-left flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors ${clinicId === c.id ? 'bg-indigo-50/50' : ''}`}
+                className={`w-full text-left flex items-center justify-between px-4 py-3 hover:bg-surface-subtle transition-colors ${clinicId === c.id ? 'bg-indigo-50/50' : ''}`}
                 dir={isRTL ? 'rtl' : 'ltr'}
               >
                 <span className={`font-semibold text-sm ${clinicId === c.id ? 'text-indigo-700' : 'text-slate-700'}`}>

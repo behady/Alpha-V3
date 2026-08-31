@@ -12,10 +12,10 @@ export const metadata: Metadata = {
  */
 export default function PrivacyPage() {
   return (
-    <main className="min-h-screen bg-slate-50 py-10 px-4">
-      <div className="max-w-2xl mx-auto bg-white rounded-3xl border border-slate-200 shadow-sm p-8 space-y-10">
+    <main className="min-h-screen bg-surface-subtle py-10 px-4">
+      <div className="max-w-2xl mx-auto bg-surface rounded-3xl border border-line shadow-sm p-8 space-y-10">
         <section>
-          <h1 className="text-2xl font-black text-slate-900 mb-1">Privacy Policy</h1>
+          <h1 className="text-2xl font-black text-ink mb-1">Privacy Policy</h1>
           <p className="text-xs text-slate-400 font-semibold mb-6">Alpha Dental — last updated 17 August 2026</p>
 
           <div className="space-y-4 text-sm text-slate-700 leading-relaxed">
@@ -38,7 +38,7 @@ export default function PrivacyPage() {
         </section>
 
         <section dir="rtl">
-          <h2 className="text-2xl font-black text-slate-900 mb-1">سياسة الخصوصية</h2>
+          <h2 className="text-2xl font-black text-ink mb-1">سياسة الخصوصية</h2>
           <p className="text-xs text-slate-400 font-semibold mb-6">ألفا دنتال — آخر تحديث ١٧ أغسطس ٢٠٢٦</p>
 
           <div className="space-y-4 text-sm text-slate-700 leading-relaxed">

@@ -229,11 +229,11 @@ export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, p
                             <Wallet size={24} />
                         </div>
                         <div>
-                            <h2 className="text-xl font-black text-slate-900 leading-none">{t.title}</h2>
+                            <h2 className="text-xl font-black text-ink leading-none">{t.title}</h2>
                             <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-widest">{t.subtitle}</p>
                         </div>
                     </div>
-                    <button onClick={onClose} className="p-3 bg-slate-50 hover:bg-slate-100 rounded-2xl text-slate-400 transition-colors"><X size={20}/></button>
+                    <button onClick={onClose} className="p-3 bg-surface-subtle hover:bg-surface-muted rounded-2xl text-slate-400 transition-colors"><X size={20}/></button>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-slate-50/50">
@@ -245,7 +245,7 @@ export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, p
                                 <Search className="absolute start-4 top-1/2 -translate-y-1/2 text-emerald-500" size={22}/>
                                 <input 
                                     autoFocus
-                                    className="w-full bg-white border border-slate-200 rounded-2xl py-4 ps-12 pe-4 text-sm font-bold text-slate-900 outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all shadow-sm"
+                                    className="w-full bg-surface border border-line rounded-2xl py-4 ps-12 pe-4 text-sm font-bold text-ink outline-none focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 transition-all shadow-sm"
                                     placeholder={t.searchPlaceholder}
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
@@ -253,10 +253,10 @@ export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, p
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
                                 {patients.filter((p:any) => patientMatchesSearch(searchQuery, p.name, p.phone)).slice(0, 6).map((p: any) => (
-                                    <button key={p.id} onClick={() => handleSelectPatient(p)} className="flex items-center gap-4 p-4 bg-white hover:bg-emerald-50 rounded-2xl border border-slate-100 hover:border-emerald-200 transition-all shadow-sm group text-start">
-                                        <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center font-black text-slate-400 group-hover:bg-emerald-100 group-hover:text-emerald-600 transition-colors shrink-0">{p.name[0]}</div>
+                                    <button key={p.id} onClick={() => handleSelectPatient(p)} className="flex items-center gap-4 p-4 bg-surface hover:bg-emerald-50 rounded-2xl border border-slate-100 hover:border-emerald-200 transition-all shadow-sm group text-start">
+                                        <div className="w-10 h-10 bg-surface-subtle rounded-xl flex items-center justify-center font-black text-slate-400 group-hover:bg-emerald-100 group-hover:text-emerald-600 transition-colors shrink-0">{p.name[0]}</div>
                                         <div className="overflow-hidden">
-                                            <p className="font-bold text-slate-900 text-sm truncate">{p.name}</p>
+                                            <p className="font-bold text-ink text-sm truncate">{p.name}</p>
                                             <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{p.phone}</p>
                                         </div>
                                     </button>
@@ -325,7 +325,7 @@ export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, p
                                             <>
                                                 <div className="flex items-center gap-2 my-2 opacity-50">
                                                     <div className="flex-1 h-px bg-slate-300"></div>
-                                                    <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">{t.orPayBill}</span>
+                                                    <span className="text-[9px] font-black uppercase tracking-widest text-ink-muted">{t.orPayBill}</span>
                                                     <div className="flex-1 h-px bg-slate-300"></div>
                                                 </div>
 
@@ -334,10 +334,10 @@ export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, p
                                                         <button 
                                                             key={proc.id} 
                                                             onClick={() => handleSelectProcedure(proc)}
-                                                            className={`w-full text-start p-4 rounded-2xl border-2 transition-all ${selectedProcedure?.id === proc.id ? 'bg-orange-50 border-orange-500 shadow-md' : 'bg-white border-slate-100 hover:border-orange-200'}`}
+                                                            className={`w-full text-start p-4 rounded-2xl border-2 transition-all ${selectedProcedure?.id === proc.id ? 'bg-orange-50 border-orange-500 shadow-md' : 'bg-surface border-slate-100 hover:border-orange-200'}`}
                                                         >
                                                             <div className="flex justify-between items-start mb-2">
-                                                                <span className="font-bold text-sm text-slate-900 line-clamp-2">{proc.description}</span>
+                                                                <span className="font-bold text-sm text-ink line-clamp-2">{proc.description}</span>
                                                             </div>
                                                             <div className="flex justify-between items-center text-[11px] font-black">
                                                                 <span className="text-slate-400">{proc.date}</span>
@@ -353,11 +353,11 @@ export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, p
                                     {/* RIGHT: PAYMENT INPUT */}
                                     <div>
                                         {selectedProcedure ? (
-                                            <div className={`bg-white border rounded-[2rem] p-5 shadow-sm sticky top-0 animate-in ${isRTL ? 'slide-in-from-left-4' : 'slide-in-from-right-4'} ${selectedProcedure.id === 'general_payment' ? 'border-emerald-200' : 'border-slate-200'}`}>
+                                            <div className={`bg-surface border rounded-[2rem] p-5 shadow-sm sticky top-0 animate-in ${isRTL ? 'slide-in-from-left-4' : 'slide-in-from-right-4'} ${selectedProcedure.id === 'general_payment' ? 'border-emerald-200' : 'border-line'}`}>
                                                 
                                                 <div className="mb-6 pb-4 border-b border-slate-100">
                                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{t.payingToward}</p>
-                                                    <p className="font-bold text-slate-900 text-sm">{selectedProcedure.id === 'general_payment' && language === 'ar' ? GENERAL_PAYMENT.descriptionAr : selectedProcedure.description}</p>
+                                                    <p className="font-bold text-ink text-sm">{selectedProcedure.id === 'general_payment' && language === 'ar' ? GENERAL_PAYMENT.descriptionAr : selectedProcedure.description}</p>
                                                     
                                                     {selectedProcedure.id !== 'general_payment' && (
                                                         <div className="flex gap-4 mt-3">
@@ -374,7 +374,7 @@ export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, p
                                                 </div>
 
                                                 <div>
-                                                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">{t.amountPayingNow}</label>
+                                                    <label className="text-[10px] font-black text-ink-muted uppercase tracking-widest block mb-2">{t.amountPayingNow}</label>
                                                     <div className="relative">
                                                         <span className="absolute start-4 top-1/2 -translate-y-1/2 text-slate-400 font-black">{t.currency}</span>
                                                         <input 
@@ -382,7 +382,7 @@ export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, p
                                                             type="number" 
                                                             value={payAmount} 
                                                             onChange={(e) => setPayAmount(e.target.value ? Number(e.target.value) : "")} 
-                                                            className={`w-full bg-slate-50 border rounded-xl py-4 ps-14 pe-4 text-2xl font-black outline-none focus:ring-4 transition-all ${selectedProcedure.id === 'general_payment' ? 'focus:border-emerald-500 focus:ring-emerald-500/10 text-emerald-600 border-slate-200' : 'focus:border-orange-500 focus:ring-orange-500/10 text-orange-600 border-slate-200'}`}
+                                                            className={`w-full bg-surface-subtle border rounded-xl py-4 ps-14 pe-4 text-2xl font-black outline-none focus:ring-4 transition-all ${selectedProcedure.id === 'general_payment' ? 'focus:border-emerald-500 focus:ring-emerald-500/10 text-emerald-600 border-line' : 'focus:border-orange-500 focus:ring-orange-500/10 text-orange-600 border-line'}`}
                                                         />
                                                     </div>
                                                     {selectedProcedure.id !== 'general_payment' && Number(payAmount) > selectedProcedure.remaining && (
@@ -391,9 +391,9 @@ export default function QuickPaymentModal({ isOpen, onClose, onSave, patients, p
                                                 </div>
                                             </div>
                                         ) : (
-                                            <div className="h-full flex flex-col items-center justify-center text-center p-6 border-2 border-dashed border-slate-200 rounded-[2rem] bg-slate-50/50">
+                                            <div className="h-full flex flex-col items-center justify-center text-center p-6 border-2 border-dashed border-line rounded-[2rem] bg-slate-50/50">
                                                 <Receipt size={32} className="text-slate-300 mb-3" />
-                                                <p className="text-sm font-bold text-slate-500">{t.selectPrompt}</p>
+                                                <p className="text-sm font-bold text-ink-muted">{t.selectPrompt}</p>
                                             </div>
                                         )}
                                     </div>

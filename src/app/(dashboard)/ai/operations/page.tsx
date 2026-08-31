@@ -72,10 +72,10 @@ export default function OperationsPage() {
                 {isAr ? "ذكاء ألفا" : "Alpha Intelligence"}
               </span>
             </div>
-            <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight mt-1">
+            <h1 className="text-2xl md:text-3xl font-black text-ink tracking-tight mt-1">
               {isAr ? "متابعات ومخزون" : "Recalls & Stock"}
             </h1>
-            <p className="text-sm font-medium text-slate-500 mt-1 max-w-2xl">
+            <p className="text-sm font-medium text-ink-muted mt-1 max-w-2xl">
               {isAr
                 ? "المرضى المستحقون للكشف الدوري، والأصناف التي أوشكت على النفاد."
                 : "Patients due for a check-up, and supplies running low."}
@@ -83,17 +83,17 @@ export default function OperationsPage() {
           </div>
 
           {loading ? (
-            <div className="bg-white rounded-3xl border border-slate-200 p-12 flex justify-center">
+            <div className="bg-surface rounded-3xl border border-line p-12 flex justify-center">
               <Loader2 size={24} className="animate-spin text-slate-300" />
             </div>
           ) : (
             <>
               {/* --- Recalls --- */}
-              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="bg-surface rounded-3xl border border-line shadow-sm overflow-hidden">
                 <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <CalendarClock size={16} className="text-violet-600" />
-                    <h2 className="text-sm font-black text-slate-900 uppercase tracking-widest">
+                    <h2 className="text-sm font-black text-ink uppercase tracking-widest">
                       {isAr ? "مستحقون للمتابعة" : "Due for check-up"}
                     </h2>
                   </div>
@@ -108,10 +108,10 @@ export default function OperationsPage() {
                     <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center mx-auto mb-4">
                       <AlertCircle size={22} />
                     </div>
-                    <p className="text-sm font-black text-slate-900">
+                    <p className="text-sm font-black text-ink">
                       {isAr ? "لم يتم ضبط فترة المتابعة" : "No recall interval set"}
                     </p>
-                    <p className="text-[13px] font-medium text-slate-500 mt-2 max-w-md mx-auto leading-relaxed">
+                    <p className="text-[13px] font-medium text-ink-muted mt-2 max-w-md mx-auto leading-relaxed">
                       {isAr
                         ? "لا يمكن تحديد المرضى المتأخرين قبل أن تحدد سياسة عيادتك. لن نفترض رقماً نيابةً عنك."
                         : "Nobody can be flagged as overdue until you state your clinic's policy. We will not assume a number on your behalf."}
@@ -131,7 +131,7 @@ export default function OperationsPage() {
                 ) : recalls && recalls.patients.length === 0 ? (
                   <div className="p-10 text-center">
                     <Check size={24} className="text-emerald-500 mx-auto mb-3" />
-                    <p className="text-sm font-bold text-slate-600">
+                    <p className="text-sm font-bold text-ink-body">
                       {isAr ? "لا يوجد مرضى متأخرون." : "Nobody is overdue."}
                     </p>
                   </div>
@@ -142,12 +142,12 @@ export default function OperationsPage() {
                         <div className="min-w-0">
                           <Link
                             href={`/patients/${p.patientId}`}
-                            className="inline-flex items-center gap-1.5 font-bold text-slate-900 hover:text-violet-600 transition-colors"
+                            className="inline-flex items-center gap-1.5 font-bold text-ink hover:text-violet-600 transition-colors"
                           >
                             {p.patientName}
                             <ArrowUpRight size={13} />
                           </Link>
-                          <p className="text-[12px] font-medium text-slate-500 mt-0.5">
+                          <p className="text-[12px] font-medium text-ink-muted mt-0.5">
                             {isAr
                               ? `آخر زيارة ${p.lastVisitDate}`
                               : `Last visit ${p.lastVisitDate}`}
@@ -171,7 +171,7 @@ export default function OperationsPage() {
                 )}
 
                 {recalls && recalls.notes.length > 0 && (
-                  <div className="px-6 py-3 bg-slate-50 border-t border-slate-100">
+                  <div className="px-6 py-3 bg-surface-subtle border-t border-slate-100">
                     {recalls.notes.map((n, i) => (
                       <p key={i} className="text-[11px] font-medium text-slate-400 leading-relaxed">
                         {n}
@@ -182,11 +182,11 @@ export default function OperationsPage() {
               </div>
 
               {/* --- Inventory --- */}
-              <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="bg-surface rounded-3xl border border-line shadow-sm overflow-hidden">
                 <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <Package size={16} className="text-violet-600" />
-                    <h2 className="text-sm font-black text-slate-900 uppercase tracking-widest">
+                    <h2 className="text-sm font-black text-ink uppercase tracking-widest">
                       {isAr ? "مخزون منخفض" : "Running low"}
                     </h2>
                   </div>
@@ -196,7 +196,7 @@ export default function OperationsPage() {
                 {inventory && inventory.lowStock.length === 0 ? (
                   <div className="p-10 text-center">
                     <Check size={24} className="text-emerald-500 mx-auto mb-3" />
-                    <p className="text-sm font-bold text-slate-600">
+                    <p className="text-sm font-bold text-ink-body">
                       {inventory.counts.total === 0
                         ? isAr ? "لا توجد أصناف مسجلة بعد." : "No inventory items recorded yet."
                         : isAr ? "لا يوجد نقص في المخزون." : "Nothing is running low."}
@@ -207,11 +207,11 @@ export default function OperationsPage() {
                     {inventory?.lowStock.map((item) => (
                       <div key={item.itemId} className="px-6 py-4 flex flex-wrap items-center justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="font-bold text-slate-900">{item.name}</p>
-                          <p className="text-[12px] font-medium text-slate-500 mt-0.5">{item.category}</p>
+                          <p className="font-bold text-ink">{item.name}</p>
+                          <p className="text-[12px] font-medium text-ink-muted mt-0.5">{item.category}</p>
                         </div>
                         <div className="flex items-center gap-3">
-                          <span className="text-[12px] font-bold text-slate-500 tabular-nums">
+                          <span className="text-[12px] font-bold text-ink-muted tabular-nums">
                             {item.stock}
                             {item.isPercentage ? "%" : ` ${item.unit}`}
                             <span className="text-slate-300"> / {item.minStock}</span>

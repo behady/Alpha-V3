@@ -16,10 +16,7 @@ import LeadFunnelReport from "@/components/reports/LeadFunnelReport";
 import { DEFAULT_LEAD_SOURCES } from "@/lib/leads";
 import DesignStudio, { type DesignInput } from "@/components/marketing/DesignStudio";
 import CasesTab from "@/components/marketing/CasesTab";
-import {
-  onSnapshot, orderBy, query, addDoc, updateDoc, deleteDoc, serverTimestamp,
-  getDocs, setDoc, where,
-} from "firebase/firestore";
+import { addDoc, deleteDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { auth } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { useLanguage } from "@/context/LanguageContext";
@@ -150,12 +147,16 @@ export default function MarketingPage() {
     if (!user || !designUnlocked) return;
     getDocs(query(getClinicCollection("settings")))
       .then((snap) => {
-        const doc_ = snap.docs.find((d) => d.id === "clinicProfile");
-        const d = (doc_?.data() || {}) as Record<string, unknown>;
+        // clinic_info first, then the retired `clinicProfile` document for a clinic that has not
+        // saved its profile since the two were merged. The logo is the field that still lives
+        // only on the old one for those clinics, and a marketing post without it looks broken.
+        const current = (snap.docs.find((d) => d.id === "clinic_info")?.data() || {}) as Record<string, unknown>;
+        const legacy = (snap.docs.find((d) => d.id === "clinicProfile")?.data() || {}) as Record<string, unknown>;
+        const pick = (field: string) => String(current[field] || legacy[field] || "");
         setProfileLite({
-          clinicName: String(d.clinicName || clinic?.name || ""),
-          phone: String(d.phone || ""),
-          logoUrl: String(d.logoUrl || ""),
+          clinicName: String(current.name || current.clinicName || legacy.clinicName || clinic?.name || ""),
+          phone: pick("phone"),
+          logoUrl: pick("logoUrl"),
         });
       })
       .catch(() => setProfileLite({ clinicName: clinic?.name || "", phone: "", logoUrl: "" }));
@@ -1003,10 +1004,27 @@ export default function MarketingPage() {
   useEffect(() => {
     if (tab !== "results" || resRaw || resLoading || !user || !unlocked) return;
     setResLoading(true);
+    // The month on screen, asked for as the month on screen. This read the ENTIRE ledger, every
+    // lead and every patient, then filtered to one month in the browser — so a clinic three years
+    // in paid for three years of rows to look at April. `date` is uniformly "YYYY-MM-DD" on
+    // ledger rows and `createdAt` is uniformly a Timestamp on leads (checked with
+    // scripts/probe-date-fields.mjs), so neither range can quietly drop a row.
+    const monthStart = `${resMonth.y}-${pad(resMonth.m + 1)}-01`;
+    const monthEnd = toYmd(new Date(resMonth.y, resMonth.m + 1, 0));
     Promise.all([
-      getDocs(getClinicCollection("ledger")),
-      getDocs(getClinicCollection("leads")),
-      getDocs(getClinicCollection("patients")),
+      getDocs(query(
+        getClinicCollection("ledger"),
+        where("date", ">=", monthStart),
+        where("date", "<=", monthEnd),
+      )),
+      getDocs(query(
+        getClinicCollection("leads"),
+        where("createdAt", ">=", new Date(`${monthStart}T00:00:00`)),
+        where("createdAt", "<=", new Date(`${monthEnd}T23:59:59.999`)),
+      )),
+      // Not date-filtered: this list backs the referral search box, which looks patients up by
+      // name. Capped instead, the same way the patients screen caps its own name search.
+      getDocs(query(getClinicCollection("patients"), orderBy("name"), limit(2500))),
     ])
       .then(([ledgerSnap, leadsSnap, patientsSnap]) => {
         setResRaw({
@@ -1252,14 +1270,14 @@ export default function MarketingPage() {
     : ["Sat", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri"];
 
   const selectCls =
-    "w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400";
-  const labelCls = "block text-xs font-black text-slate-500 mb-1.5";
+    "w-full bg-surface border border-line rounded-xl px-3 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-emerald-400";
+  const labelCls = "block text-xs font-black text-ink-muted mb-1.5";
 
   const variantCard = (v: MarketingVariant, i: number) => {
     const bodyValue = variantEdits[i] ?? v.body;
     const saved = savedVariants[i];
     return (
-      <div key={i} className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-col gap-3">
+      <div key={i} className="bg-surface rounded-2xl border border-line p-4 flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2">
             <KindChip kind={genKind} isAr={isAr} />
@@ -1277,7 +1295,7 @@ export default function MarketingPage() {
           onChange={(e) => setVariantEdits((p) => ({ ...p, [i]: e.target.value }))}
           rows={Math.min(10, Math.max(4, bodyValue.split("\n").length + 1))}
           dir="auto"
-          className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm text-slate-800 leading-relaxed outline-none focus:border-emerald-400 resize-y"
+          className="w-full bg-surface-subtle border border-line rounded-xl p-3 text-sm text-slate-800 leading-relaxed outline-none focus:border-emerald-400 resize-y"
         />
 
         {v.scenes && v.scenes.length > 0 && (
@@ -1329,7 +1347,7 @@ export default function MarketingPage() {
         <div className="flex items-center gap-2 flex-wrap pt-1">
           <button
             onClick={() => copyText(`v${i}`, fullText({ body: bodyValue, hashtags: v.hashtags }))}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-black transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-surface-muted hover:bg-slate-200 text-slate-700 text-xs font-black transition-colors"
           >
             {copiedKey === `v${i}` ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
             {isAr ? "نسخ" : "Copy"}
@@ -1348,7 +1366,7 @@ export default function MarketingPage() {
                 showToast(e instanceof Error ? e.message : String(e), "error");
               }
             }}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-slate-200 hover:border-slate-300 text-slate-700 text-xs font-black transition-colors disabled:opacity-40"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-surface border border-line hover:border-line-strong text-slate-700 text-xs font-black transition-colors disabled:opacity-40"
           >
             <FolderOpen size={14} /> {isAr ? "حفظ كمسودة" : "Save draft"}
           </button>
@@ -1392,7 +1410,7 @@ export default function MarketingPage() {
           className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-black border transition-colors ${
             item.starred
               ? "bg-amber-100 border-amber-300 text-amber-700"
-              : "bg-white border-slate-200 text-slate-400 hover:text-amber-600 hover:border-amber-200"
+              : "bg-surface border-line text-slate-400 hover:text-amber-600 hover:border-amber-200"
           }`}
         >
           <Star size={12} fill={item.starred ? "currentColor" : "none"} />
@@ -1401,7 +1419,7 @@ export default function MarketingPage() {
       )}
       <button
         onClick={() => copyText(item.id, fullText(item))}
-        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-black transition-colors"
+        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-surface-muted hover:bg-slate-200 text-slate-700 text-[11px] font-black transition-colors"
       >
         {copiedKey === item.id ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
         {isAr ? "نسخ" : "Copy"}
@@ -1433,14 +1451,14 @@ export default function MarketingPage() {
       {item.status === "scheduled" && (
         <button
           onClick={() => unschedule(item)}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 hover:border-slate-300 text-slate-600 text-[11px] font-black transition-colors"
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-surface border border-line hover:border-line-strong text-ink-body text-[11px] font-black transition-colors"
         >
           <Clock size={12} /> {isAr ? "إلغاء الجدولة" : "Unschedule"}
         </button>
       )}
       <button
         onClick={() => removeItem(item)}
-        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-rose-100 hover:bg-rose-50 text-rose-500 text-[11px] font-black transition-colors"
+        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-surface border border-rose-100 hover:bg-rose-50 text-rose-500 text-[11px] font-black transition-colors"
       >
         <Trash2 size={12} />
       </button>
@@ -1482,7 +1500,7 @@ export default function MarketingPage() {
               {isAr ? `صحة التسويق ${health.score}٪` : `Marketing health ${health.score}%`}
             </div>
             {/* Credits */}
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-black text-slate-600">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-surface border border-line text-xs font-black text-ink-body">
               <Wand2 size={14} className="text-emerald-500" />
               {isAr ? `التوليدات: ${creditsUsed} / ${creditLimit}` : `Generations: ${creditsUsed} / ${creditLimit}`}
             </div>
@@ -1491,7 +1509,7 @@ export default function MarketingPage() {
               <button
                 onClick={() => setBrandOpen(true)}
                 title={isAr ? "هوية العيادة — الثيم والألوان للتصاميم" : "Brand kit — theme and colors for designs"}
-                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-slate-200 hover:border-emerald-300 text-xs font-black text-slate-600 transition-colors"
+                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-surface border border-line hover:border-emerald-300 text-xs font-black text-ink-body transition-colors"
               >
                 <Palette size={14} className="text-slate-400" />
                 {isAr ? "هوية العيادة" : "Brand kit"}
@@ -1501,7 +1519,7 @@ export default function MarketingPage() {
             <button
               onClick={openWizard}
               title={isAr ? "صوت العيادة — كيف يكتب الذكاء الاصطناعي باسمكم" : "Clinic voice — how the AI writes as you"}
-              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-slate-200 hover:border-emerald-300 text-xs font-black text-slate-600 transition-colors"
+              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-surface border border-line hover:border-emerald-300 text-xs font-black text-ink-body transition-colors"
             >
               <SlidersHorizontal size={14} className="text-slate-400" />
               {isAr ? "صوت العيادة" : "Clinic voice"}
@@ -1536,7 +1554,7 @@ export default function MarketingPage() {
 
         {/* Next best action */}
         {health.next && (
-          <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-2xl px-4 py-3 mb-5 text-sm font-bold text-slate-600">
+          <div className="flex items-center gap-2 bg-surface border border-line rounded-2xl px-4 py-3 mb-5 text-sm font-bold text-ink-body">
             <AlertTriangle size={16} className="text-amber-500 shrink-0" />
             <span>
               {isAr ? "الخطوة التالية: " : "Next step: "}
@@ -1546,7 +1564,7 @@ export default function MarketingPage() {
         )}
 
         {/* Tabs */}
-        <div className="flex items-center gap-1.5 mb-6 bg-white border border-slate-200 rounded-2xl p-1.5 w-fit max-w-full overflow-x-auto">
+        <div className="flex items-center gap-1.5 mb-6 bg-surface border border-line rounded-2xl p-1.5 w-fit max-w-full overflow-x-auto">
           {tabs.map((t) => (
             <button
               key={t.id}
@@ -1564,7 +1582,7 @@ export default function MarketingPage() {
         {tab === "create" && (
           <div className="grid lg:grid-cols-[360px_1fr] gap-5 items-start">
             {/* Guided form */}
-            <div className="bg-white rounded-3xl border border-slate-200 p-5 space-y-4">
+            <div className="bg-surface rounded-3xl border border-line p-5 space-y-4">
               <div>
                 <label className={labelCls}>{isAr ? "نوع المحتوى" : "Content type"}</label>
                 <div className="grid grid-cols-3 gap-1.5">
@@ -1675,7 +1693,7 @@ export default function MarketingPage() {
               <button
                 onClick={runGenerate}
                 disabled={generating}
-                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-slate-900 hover:bg-emerald-600 text-white font-black text-sm transition-colors disabled:opacity-60"
+                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-accent hover:bg-emerald-600 text-ink-on-accent font-black text-sm transition-colors disabled:opacity-60"
               >
                 {generating ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
                 {generating
@@ -1687,9 +1705,9 @@ export default function MarketingPage() {
             {/* Variants */}
             <div className="space-y-4">
               {variants.length === 0 && !generating && (
-                <div className="bg-white/60 border border-dashed border-slate-300 rounded-3xl p-10 text-center">
+                <div className="bg-white/60 border border-dashed border-line-strong rounded-3xl p-10 text-center">
                   <Wand2 size={28} className="mx-auto text-slate-300 mb-3" />
-                  <p className="text-sm font-black text-slate-500">
+                  <p className="text-sm font-black text-ink-muted">
                     {isAr ? "اختر من القوائم واضغط توليد — ستحصل على ٣ صياغات مختلفة تختار منها" : "Pick from the lists and hit Generate — you'll get 3 different takes to choose from"}
                   </p>
                   <p className="text-xs font-bold text-slate-400 mt-1">
@@ -1698,9 +1716,9 @@ export default function MarketingPage() {
                 </div>
               )}
               {generating && (
-                <div className="bg-white rounded-3xl border border-slate-200 p-10 text-center">
+                <div className="bg-surface rounded-3xl border border-line p-10 text-center">
                   <Loader2 size={28} className="mx-auto text-emerald-500 animate-spin mb-3" />
-                  <p className="text-sm font-black text-slate-600">
+                  <p className="text-sm font-black text-ink-body">
                     {isAr ? "الذكاء الاصطناعي يكتب ٣ اختيارات…" : "The AI is writing 3 options…"}
                   </p>
                 </div>
@@ -1715,7 +1733,7 @@ export default function MarketingPage() {
           <div className="space-y-5">
             {/* Empty-chair alert */}
             {emptyChair && !campSegment && (
-              <div className="flex items-center gap-3 bg-white border border-amber-200 rounded-2xl px-4 py-3.5">
+              <div className="flex items-center gap-3 bg-surface border border-amber-200 rounded-2xl px-4 py-3.5">
                 <div className="w-10 h-10 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center shrink-0">
                   <Armchair size={18} />
                 </div>
@@ -1759,9 +1777,9 @@ export default function MarketingPage() {
             )}
 
             {campScanning && (
-              <div className="bg-white rounded-3xl border border-slate-200 p-10 text-center">
+              <div className="bg-surface rounded-3xl border border-line p-10 text-center">
                 <Loader2 size={28} className="mx-auto text-emerald-500 animate-spin mb-3" />
-                <p className="text-sm font-black text-slate-600">
+                <p className="text-sm font-black text-ink-body">
                   {isAr ? "جارٍ فحص سجلات المرضى…" : "Scanning patient records…"}
                 </p>
               </div>
@@ -1770,14 +1788,14 @@ export default function MarketingPage() {
             {/* Compose + recipients */}
             {campSegment && campRecipients && (
               <div className="grid lg:grid-cols-[1fr_340px] gap-5 items-start">
-                <div className="bg-white rounded-3xl border border-slate-200 p-5 space-y-4">
+                <div className="bg-surface rounded-3xl border border-line p-5 space-y-4">
                   <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-black text-slate-900">
+                    <h3 className="text-sm font-black text-ink">
                       {isAr ? "رسالة الحملة" : "Campaign message"}
                     </h3>
                     <button
                       onClick={() => { setCampSegment(null); setCampRecipients(null); }}
-                      className="text-xs font-black text-slate-400 hover:text-slate-600"
+                      className="text-xs font-black text-slate-400 hover:text-ink-body"
                     >
                       {isAr ? "← رجوع للقوائم" : "← back to audiences"}
                     </button>
@@ -1804,7 +1822,7 @@ export default function MarketingPage() {
                     <button
                       onClick={writeCampaignMessage}
                       disabled={campAiBusy}
-                      className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-emerald-600 text-white text-xs font-black transition-colors disabled:opacity-60"
+                      className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-accent hover:bg-emerald-600 text-ink-on-accent text-xs font-black transition-colors disabled:opacity-60"
                     >
                       {campAiBusy ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
                       {isAr ? `اكتبها بالذكاء الاصطناعي (${MARKETING_CREDIT_COST.single} رصيد)` : `AI write it (${MARKETING_CREDIT_COST.single} credit)`}
@@ -1832,7 +1850,7 @@ export default function MarketingPage() {
                       onChange={(e) => setCampBody(e.target.value)}
                       rows={6}
                       dir="auto"
-                      className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm text-slate-800 leading-relaxed outline-none focus:border-emerald-400 resize-y"
+                      className="w-full bg-surface-subtle border border-line rounded-xl p-3 text-sm text-slate-800 leading-relaxed outline-none focus:border-emerald-400 resize-y"
                     />
                   </div>
 
@@ -1854,8 +1872,8 @@ export default function MarketingPage() {
                 </div>
 
                 {/* Recipients */}
-                <div className="bg-white rounded-3xl border border-slate-200 p-5">
-                  <h3 className="text-sm font-black text-slate-900 mb-3">
+                <div className="bg-surface rounded-3xl border border-line p-5">
+                  <h3 className="text-sm font-black text-ink mb-3">
                     {isAr ? `المستلمون (${campRecipients.length})` : `Recipients (${campRecipients.length})`}
                   </h3>
                   {campRecipients.length === 0 ? (
@@ -1865,7 +1883,7 @@ export default function MarketingPage() {
                   ) : (
                     <div className="space-y-1.5 max-h-[420px] overflow-y-auto">
                       {campRecipients.map((r) => (
-                        <label key={r.patientId} className="flex items-center gap-2.5 px-2.5 py-2 rounded-xl hover:bg-slate-50 cursor-pointer">
+                        <label key={r.patientId} className="flex items-center gap-2.5 px-2.5 py-2 rounded-xl hover:bg-surface-subtle cursor-pointer">
                           <input
                             type="checkbox"
                             checked={!!campSelected[r.patientId]}
@@ -1888,23 +1906,23 @@ export default function MarketingPage() {
 
             {/* Review queue */}
             {pendingCampaignDrafts.length > 0 && (
-              <div className="bg-white rounded-3xl border border-slate-200 p-5">
+              <div className="bg-surface rounded-3xl border border-line p-5">
                 <div className="flex items-center gap-2 mb-4">
                   <div className="w-8 h-8 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
                     <Send size={15} />
                   </div>
-                  <h3 className="text-sm font-black text-slate-900">
+                  <h3 className="text-sm font-black text-ink">
                     {isAr ? `رسائل تنتظر الإرسال (${pendingCampaignDrafts.length})` : `Messages waiting to send (${pendingCampaignDrafts.length})`}
                   </h3>
                 </div>
                 <div className="space-y-3">
                   {pendingCampaignDrafts.map((d) => (
-                    <div key={d.id} className="border border-slate-200 rounded-2xl p-3.5">
+                    <div key={d.id} className="border border-line rounded-2xl p-3.5">
                       <div className="flex items-center gap-2 flex-wrap mb-2">
                         <span dir="auto" className="text-xs font-black text-slate-800">{d.patientName}</span>
                         <span className="text-[10px] font-bold text-slate-400" dir="ltr">{d.phone}</span>
                         {d.context?.campaignName && (
-                          <span className="text-[10px] font-black text-slate-400 bg-slate-50 border border-slate-100 rounded px-1.5 py-0.5">
+                          <span className="text-[10px] font-black text-slate-400 bg-surface-subtle border border-slate-100 rounded px-1.5 py-0.5">
                             {d.context.campaignName}
                           </span>
                         )}
@@ -1914,7 +1932,7 @@ export default function MarketingPage() {
                         onChange={(e) => setCampDraftEdits((p) => ({ ...p, [d.id]: e.target.value }))}
                         rows={3}
                         dir="auto"
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 leading-relaxed outline-none focus:border-emerald-400 resize-y mb-2"
+                        className="w-full bg-surface-subtle border border-line rounded-xl p-2.5 text-xs text-slate-800 leading-relaxed outline-none focus:border-emerald-400 resize-y mb-2"
                       />
                       <div className="flex items-center gap-2">
                         <button
@@ -1928,7 +1946,7 @@ export default function MarketingPage() {
                         <button
                           onClick={() => void resolveCampaignDraft(d, "reject")}
                           disabled={busyDraft === d.id}
-                          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white border border-slate-200 hover:border-rose-200 hover:text-rose-500 text-slate-500 text-xs font-black transition-colors disabled:opacity-50"
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-surface border border-line hover:border-rose-200 hover:text-rose-500 text-ink-muted text-xs font-black transition-colors disabled:opacity-50"
                         >
                           <ThumbsDown size={13} /> {isAr ? "استبعاد" : "Dismiss"}
                         </button>
@@ -1941,8 +1959,8 @@ export default function MarketingPage() {
 
             {/* Past campaigns */}
             {campaigns.length > 0 && (
-              <div className="bg-white rounded-3xl border border-slate-200 p-5">
-                <h3 className="text-sm font-black text-slate-900 mb-3">{isAr ? "الحملات" : "Campaigns"}</h3>
+              <div className="bg-surface rounded-3xl border border-line p-5">
+                <h3 className="text-sm font-black text-ink mb-3">{isAr ? "الحملات" : "Campaigns"}</h3>
                 <div className="space-y-2">
                   {campaigns.map((c) => {
                     const prog = campaignProgress.get(c.id) || { sent: 0, pending: 0, rejected: 0 };
@@ -1964,7 +1982,7 @@ export default function MarketingPage() {
                           <span className="px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700">{prog.sent} {isAr ? "أُرسلت" : "sent"}</span>
                           <span className="px-2 py-1 rounded-lg bg-amber-50 text-amber-700">{prog.pending} {isAr ? "بالانتظار" : "waiting"}</span>
                           {prog.rejected > 0 && (
-                            <span className="px-2 py-1 rounded-lg bg-slate-100 text-slate-500">{prog.rejected} {isAr ? "مستبعدة" : "dismissed"}</span>
+                            <span className="px-2 py-1 rounded-lg bg-surface-muted text-ink-muted">{prog.rejected} {isAr ? "مستبعدة" : "dismissed"}</span>
                           )}
                         </div>
                       </div>
@@ -1976,12 +1994,12 @@ export default function MarketingPage() {
 
             {/* Automations — the robots that fill the queue by themselves */}
             {isAdmin && !campSegment && (
-              <div className="bg-white rounded-3xl border border-slate-200 p-5">
+              <div className="bg-surface rounded-3xl border border-line p-5">
                 <div className="flex items-center gap-2 mb-1">
-                  <div className="w-8 h-8 bg-slate-100 text-slate-600 rounded-xl flex items-center justify-center">
+                  <div className="w-8 h-8 bg-surface-muted text-ink-body rounded-xl flex items-center justify-center">
                     <Sparkles size={15} />
                   </div>
-                  <h3 className="text-sm font-black text-slate-900">{isAr ? "التشغيل التلقائي" : "Automations"}</h3>
+                  <h3 className="text-sm font-black text-ink">{isAr ? "التشغيل التلقائي" : "Automations"}</h3>
                 </div>
                 <p className="text-[11px] font-bold text-slate-400 mb-4">
                   {isAr
@@ -2009,7 +2027,7 @@ export default function MarketingPage() {
                       }`}
                     >
                       <div
-                        className={`w-5 h-5 bg-white rounded-full absolute top-0.5 shadow transition-transform ${
+                        className={`w-5 h-5 bg-surface rounded-full absolute top-0.5 shadow transition-transform ${
                           automations.reviewEnabled === true ? "translate-x-5 rtl:-translate-x-5" : "translate-x-0.5 rtl:-translate-x-0.5"
                         }`}
                       />
@@ -2034,7 +2052,7 @@ export default function MarketingPage() {
                         }`}
                       >
                         <div
-                          className={`w-5 h-5 bg-white rounded-full absolute top-0.5 shadow transition-transform ${
+                          className={`w-5 h-5 bg-surface rounded-full absolute top-0.5 shadow transition-transform ${
                             automations.birthdayEnabled === true ? "translate-x-5 rtl:-translate-x-5" : "translate-x-0.5 rtl:-translate-x-0.5"
                           }`}
                         />
@@ -2052,7 +2070,7 @@ export default function MarketingPage() {
                             ? "اتركه فارغاً للرسالة الافتراضية — {{patient_name}} و {{clinic_name}} يتبدلان تلقائياً"
                             : "Leave empty for the default message — {{patient_name}} and {{clinic_name}} are filled automatically"
                         }
-                        className="w-full mt-3 bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-xs text-slate-800 leading-relaxed outline-none focus:border-emerald-400 resize-y"
+                        className="w-full mt-3 bg-surface-subtle border border-line rounded-xl p-2.5 text-xs text-slate-800 leading-relaxed outline-none focus:border-emerald-400 resize-y"
                       />
                     )}
                   </div>
@@ -2074,7 +2092,7 @@ export default function MarketingPage() {
                       }`}
                     >
                       <div
-                        className={`w-5 h-5 bg-white rounded-full absolute top-0.5 shadow transition-transform ${
+                        className={`w-5 h-5 bg-surface rounded-full absolute top-0.5 shadow transition-transform ${
                           automations.leadAlerts !== false ? "translate-x-5 rtl:-translate-x-5" : "translate-x-0.5 rtl:-translate-x-0.5"
                         }`}
                       />
@@ -2121,7 +2139,7 @@ export default function MarketingPage() {
                 { label: isAr ? "راضون → جوجل" : "Happy → Google", value: reviewStats.happy, cls: "text-emerald-600" },
                 { label: isAr ? "غير راضين" : "Unhappy", value: reviewStats.unhappy, cls: reviewStats.unhandled > 0 ? "text-rose-600" : "text-slate-800" },
               ].map((s) => (
-                <div key={s.label} className="bg-white rounded-2xl border border-slate-200 px-4 py-3.5">
+                <div key={s.label} className="bg-surface rounded-2xl border border-line px-4 py-3.5">
                   <p className={`text-xl font-black tabular-nums ${s.cls}`}>{s.value}</p>
                   <p className="text-[11px] font-black text-slate-400">{s.label}</p>
                 </div>
@@ -2139,9 +2157,9 @@ export default function MarketingPage() {
 
             {/* History list */}
             {reviews.length === 0 ? (
-              <div className="bg-white/60 border border-dashed border-slate-300 rounded-3xl p-10 text-center">
+              <div className="bg-white/60 border border-dashed border-line-strong rounded-3xl p-10 text-center">
                 <Star size={28} className="mx-auto text-slate-300 mb-3" />
-                <p className="text-sm font-black text-slate-500">
+                <p className="text-sm font-black text-ink-muted">
                   {isAr
                     ? "لا توجد طلبات تقييم بعد — فعّل «طلبات التقييم بعد الزيارة» في تبويب الحملات، وستظهر هنا تلقائياً"
                     : "No review requests yet — switch on post-visit review requests in the Campaigns tab and they'll appear here automatically"}
@@ -2154,8 +2172,8 @@ export default function MarketingPage() {
                   return (
                     <div
                       key={r.id}
-                      className={`bg-white rounded-2xl border p-4 ${
-                        isUnhappy && !r.handled ? "border-rose-200 ring-1 ring-rose-100" : "border-slate-200"
+                      className={`bg-surface rounded-2xl border p-4 ${
+                        isUnhappy && !r.handled ? "border-rose-200 ring-1 ring-rose-100" : "border-line"
                       }`}
                     >
                       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -2173,7 +2191,7 @@ export default function MarketingPage() {
                                 ))}
                               </span>
                             ) : (
-                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
+                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-surface-muted text-ink-muted">
                                 {isAr ? "في انتظار الرد" : "awaiting answer"}
                               </span>
                             )}
@@ -2192,7 +2210,7 @@ export default function MarketingPage() {
                               </button>
                             )}
                             {isUnhappy && r.handled && (
-                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 flex items-center gap-1">
+                              <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-surface-muted text-ink-muted flex items-center gap-1">
                                 <Check size={10} /> {isAr ? "تمت المعالجة" : "handled"}
                               </span>
                             )}
@@ -2203,7 +2221,7 @@ export default function MarketingPage() {
                           </p>
                           {r.feedback && (
                             <p dir="auto" className={`mt-2 text-xs leading-relaxed rounded-xl px-3 py-2.5 ${
-                              isUnhappy ? "bg-rose-50 text-rose-800 font-bold" : "bg-slate-50 text-slate-600"
+                              isUnhappy ? "bg-rose-50 text-rose-800 font-bold" : "bg-surface-subtle text-ink-body"
                             }`}>
                               &ldquo;{r.feedback}&rdquo;
                             </p>
@@ -2228,7 +2246,7 @@ export default function MarketingPage() {
                                   });
                                   showToast(isAr ? "تم — أحسنت 👏" : "Marked handled 👏", "success");
                                 }}
-                                className="px-3 py-2 rounded-xl bg-white border border-slate-200 hover:border-emerald-300 text-slate-600 text-[11px] font-black transition-colors"
+                                className="px-3 py-2 rounded-xl bg-surface border border-line hover:border-emerald-300 text-ink-body text-[11px] font-black transition-colors"
                               >
                                 {isAr ? "تمت المعالجة" : "Mark handled"}
                               </button>
@@ -2248,26 +2266,26 @@ export default function MarketingPage() {
         {tab === "results" && (
           <div className="space-y-5">
             {/* Month picker */}
-            <div className="flex items-center justify-between bg-white rounded-2xl border border-slate-200 px-4 py-3">
+            <div className="flex items-center justify-between bg-surface rounded-2xl border border-line px-4 py-3">
               <button
                 onClick={() => setResMonth((p) => (p.m === 0 ? { y: p.y - 1, m: 11 } : { y: p.y, m: p.m - 1 }))}
-                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+                className="p-2 rounded-xl bg-surface-muted hover:bg-slate-200 text-ink-body transition-colors"
               >
                 {isAr ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
               </button>
-              <h2 className="text-sm font-black text-slate-900">
+              <h2 className="text-sm font-black text-ink">
                 {new Date(resMonth.y, resMonth.m, 1).toLocaleDateString(isAr ? "ar-EG" : "en-US", { month: "long", year: "numeric" })}
               </h2>
               <button
                 onClick={() => setResMonth((p) => (p.m === 11 ? { y: p.y + 1, m: 0 } : { y: p.y, m: p.m + 1 }))}
-                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+                className="p-2 rounded-xl bg-surface-muted hover:bg-slate-200 text-ink-body transition-colors"
               >
                 {isAr ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
               </button>
             </div>
 
             {resLoading && (
-              <div className="bg-white rounded-3xl border border-slate-200 p-10 text-center">
+              <div className="bg-surface rounded-3xl border border-line p-10 text-center">
                 <Loader2 size={24} className="mx-auto text-emerald-500 animate-spin" />
               </div>
             )}
@@ -2275,12 +2293,12 @@ export default function MarketingPage() {
             {resRaw && (
               <>
                 {/* Spend & ROI */}
-                <div className="bg-white rounded-3xl border border-slate-200 p-5">
+                <div className="bg-surface rounded-3xl border border-line p-5">
                   <div className="flex items-center gap-2 mb-1">
                     <div className="w-8 h-8 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center">
                       <TrendingUp size={15} />
                     </div>
-                    <h3 className="text-sm font-black text-slate-900">
+                    <h3 className="text-sm font-black text-ink">
                       {isAr ? "الإنفاق والعائد لكل قناة" : "Spend & return per channel"}
                     </h3>
                   </div>
@@ -2319,13 +2337,13 @@ export default function MarketingPage() {
                                 }}
                                 placeholder="0"
                                 disabled={!isAdmin}
-                                className="w-24 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-center text-xs font-bold text-slate-700 outline-none focus:border-emerald-400 disabled:opacity-50"
+                                className="w-24 bg-surface-subtle border border-line rounded-lg px-2 py-1.5 text-center text-xs font-bold text-slate-700 outline-none focus:border-emerald-400 disabled:opacity-50"
                               />
                             </td>
-                            <td className="py-2.5 px-2 text-center font-bold text-slate-600">{r.leads}</td>
+                            <td className="py-2.5 px-2 text-center font-bold text-ink-body">{r.leads}</td>
                             <td className="py-2.5 px-2 text-center font-bold text-emerald-600">{r.won}</td>
                             <td className="py-2.5 px-2 text-center font-black text-slate-800">{r.revenue.toLocaleString()}</td>
-                            <td className="py-2.5 px-2 text-center font-bold text-slate-500">
+                            <td className="py-2.5 px-2 text-center font-bold text-ink-muted">
                               {r.costPerPatient !== null ? r.costPerPatient.toLocaleString() : "—"}
                             </td>
                             <td className="py-2.5 ps-2 text-center">
@@ -2360,12 +2378,12 @@ export default function MarketingPage() {
 
                 {/* Referral cards */}
                 <div className="grid lg:grid-cols-2 gap-5 items-start">
-                  <div className="bg-white rounded-3xl border border-slate-200 p-5">
+                  <div className="bg-surface rounded-3xl border border-line p-5">
                     <div className="flex items-center gap-2 mb-1">
                       <div className="w-8 h-8 bg-violet-50 text-violet-600 rounded-xl flex items-center justify-center">
                         <QrCode size={15} />
                       </div>
-                      <h3 className="text-sm font-black text-slate-900">{isAr ? "كروت الترشيح" : "Referral cards"}</h3>
+                      <h3 className="text-sm font-black text-ink">{isAr ? "كروت الترشيح" : "Referral cards"}</h3>
                     </div>
                     <p className="text-[11px] font-bold text-slate-400 mb-3">
                       {isAr
@@ -2380,7 +2398,7 @@ export default function MarketingPage() {
                         onChange={(e) => { setRefSearch(e.target.value); setRefSelected(null); }}
                         dir="auto"
                         placeholder={isAr ? "ابحث باسم المريض أو رقمه…" : "Search patient name or phone…"}
-                        className="w-full ps-9 pe-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-emerald-400"
+                        className="w-full ps-9 pe-3 py-2.5 bg-surface-subtle border border-line rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-emerald-400"
                       />
                     </div>
                     {!refSelected && refMatches.length > 0 && (
@@ -2407,14 +2425,14 @@ export default function MarketingPage() {
                         <div className="flex items-center justify-center gap-2 flex-wrap">
                           <button
                             onClick={() => copyText("reflink", referralLink)}
-                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-black transition-colors"
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-surface-muted hover:bg-slate-200 text-slate-700 text-xs font-black transition-colors"
                           >
                             {copiedKey === "reflink" ? <Check size={13} className="text-emerald-600" /> : <Link2 size={13} />}
                             {isAr ? "نسخ الرابط (للواتساب)" : "Copy link (for WhatsApp)"}
                           </button>
                           <button
                             onClick={printReferralCard}
-                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-700 text-white text-xs font-black transition-colors"
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-accent hover:bg-accent-strong text-ink-on-accent text-xs font-black transition-colors"
                           >
                             <Printer size={13} /> {isAr ? "طباعة الكارت" : "Print card"}
                           </button>
@@ -2424,8 +2442,8 @@ export default function MarketingPage() {
                   </div>
 
                   {/* Top referrers */}
-                  <div className="bg-white rounded-3xl border border-slate-200 p-5">
-                    <h3 className="text-sm font-black text-slate-900 mb-3">
+                  <div className="bg-surface rounded-3xl border border-line p-5">
+                    <h3 className="text-sm font-black text-ink mb-3">
                       {isAr ? "أبطال الترشيح 🏆" : "Referral champions 🏆"}
                     </h3>
                     {topReferrers.length === 0 ? (
@@ -2441,7 +2459,7 @@ export default function MarketingPage() {
                             <p dir="auto" className="text-xs font-black text-slate-800 truncate">
                               {i === 0 ? "🥇 " : i === 1 ? "🥈 " : i === 2 ? "🥉 " : ""}{r.name}
                             </p>
-                            <p className="text-[11px] font-bold text-slate-500 shrink-0">
+                            <p className="text-[11px] font-bold text-ink-muted shrink-0">
                               {isAr
                                 ? `${r.total} ترشيح · ${r.won} وصلوا`
                                 : `${r.total} referred · ${r.won} in the chair`}
@@ -2472,18 +2490,18 @@ export default function MarketingPage() {
 
         {/* ============================== CALENDAR ============================== */}
         {tab === "calendar" && (
-          <div className="bg-white rounded-3xl border border-slate-200 p-4 sm:p-6">
+          <div className="bg-surface rounded-3xl border border-line p-4 sm:p-6">
             <div className="flex items-center justify-between mb-4">
               <button
                 onClick={() => setCalMonth((p) => (p.m === 0 ? { y: p.y - 1, m: 11 } : { y: p.y, m: p.m - 1 }))}
-                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+                className="p-2 rounded-xl bg-surface-muted hover:bg-slate-200 text-ink-body transition-colors"
               >
                 {isAr ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
               </button>
-              <h2 className="text-base sm:text-lg font-black text-slate-900">{monthName}</h2>
+              <h2 className="text-base sm:text-lg font-black text-ink">{monthName}</h2>
               <button
                 onClick={() => setCalMonth((p) => (p.m === 11 ? { y: p.y + 1, m: 0 } : { y: p.y, m: p.m + 1 }))}
-                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+                className="p-2 rounded-xl bg-surface-muted hover:bg-slate-200 text-ink-body transition-colors"
               >
                 {isAr ? <ChevronLeft size={18} /> : <ChevronRight size={18} />}
               </button>
@@ -2508,11 +2526,11 @@ export default function MarketingPage() {
                       isToday
                         ? "border-emerald-400 bg-emerald-50/50"
                         : dayItems.length
-                          ? "border-slate-200 bg-white hover:border-emerald-300"
-                          : "border-slate-100 bg-slate-50/50 hover:bg-white hover:border-slate-200"
+                          ? "border-line bg-surface hover:border-emerald-300"
+                          : "border-slate-100 bg-slate-50/50 hover:bg-surface hover:border-line"
                     }`}
                   >
-                    <span className={`text-[11px] sm:text-xs font-black ${isToday ? "text-emerald-600" : "text-slate-500"}`}>
+                    <span className={`text-[11px] sm:text-xs font-black ${isToday ? "text-emerald-600" : "text-ink-muted"}`}>
                       {Number(date.slice(8))}
                     </span>
                     <div className="flex flex-col gap-0.5 overflow-hidden">
@@ -2568,22 +2586,22 @@ export default function MarketingPage() {
             </div>
 
             {loading && (
-              <div className="bg-white rounded-3xl border border-slate-200 p-10 text-center">
+              <div className="bg-surface rounded-3xl border border-line p-10 text-center">
                 <Loader2 size={24} className="mx-auto text-slate-300 animate-spin" />
               </div>
             )}
 
             {!loading && libItems.length === 0 && (
-              <div className="bg-white/60 border border-dashed border-slate-300 rounded-3xl p-10 text-center">
+              <div className="bg-white/60 border border-dashed border-line-strong rounded-3xl p-10 text-center">
                 <FolderOpen size={28} className="mx-auto text-slate-300 mb-3" />
-                <p className="text-sm font-black text-slate-500">
+                <p className="text-sm font-black text-ink-muted">
                   {isAr ? "لا يوجد محتوى هنا بعد — ابدأ من تبويب الإنشاء" : "Nothing here yet — start from the Create tab"}
                 </p>
               </div>
             )}
 
             {libItems.map((item) => (
-              <div key={item.id} className="bg-white rounded-2xl border border-slate-200 p-4">
+              <div key={item.id} className="bg-surface rounded-2xl border border-line p-4">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap mb-1.5">
@@ -2595,7 +2613,7 @@ export default function MarketingPage() {
                       {item.channels?.map((c) => {
                         const ch = MARKETING_CHANNELS.find((x) => x.id === c);
                         return ch ? (
-                          <span key={c} className="text-[10px] font-bold text-slate-400 bg-slate-50 border border-slate-100 rounded px-1.5 py-0.5">
+                          <span key={c} className="text-[10px] font-bold text-slate-400 bg-surface-subtle border border-slate-100 rounded px-1.5 py-0.5">
                             {isAr ? ch.ar : ch.en}
                           </span>
                         ) : null;
@@ -2610,7 +2628,7 @@ export default function MarketingPage() {
                           onChange={(e) => setEditingBody(e.target.value)}
                           rows={6}
                           dir="auto"
-                          className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm text-slate-800 leading-relaxed outline-none focus:border-emerald-400 resize-y"
+                          className="w-full bg-surface-subtle border border-line rounded-xl p-3 text-sm text-slate-800 leading-relaxed outline-none focus:border-emerald-400 resize-y"
                         />
                         <div className="flex gap-2">
                           <button
@@ -2628,7 +2646,7 @@ export default function MarketingPage() {
                           </button>
                           <button
                             onClick={() => setEditingItem(null)}
-                            className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-600 text-xs font-black"
+                            className="px-3 py-1.5 rounded-lg bg-surface-muted text-ink-body text-xs font-black"
                           >
                             {isAr ? "إلغاء" : "Cancel"}
                           </button>
@@ -2641,7 +2659,7 @@ export default function MarketingPage() {
                           setEditingItem(item.id);
                           setEditingBody(item.body);
                         }}
-                        className="mt-1 text-xs text-slate-500 leading-relaxed line-clamp-3 whitespace-pre-line cursor-text hover:text-slate-700"
+                        className="mt-1 text-xs text-ink-muted leading-relaxed line-clamp-3 whitespace-pre-line cursor-text hover:text-slate-700"
                         title={isAr ? "اضغط للتعديل" : "Click to edit"}
                       >
                         {item.body}
@@ -2703,14 +2721,14 @@ export default function MarketingPage() {
                     </div>
                   </div>
                   {!wizardForced && (
-                    <button onClick={() => setWizardOpen(false)} className="p-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500">
+                    <button onClick={() => setWizardOpen(false)} className="p-1.5 rounded-full bg-surface-muted hover:bg-slate-200 text-ink-muted">
                       <X size={16} />
                     </button>
                   )}
                 </div>
                 <div className="flex gap-1.5 mt-4">
                   {[0, 1, 2].map((s) => (
-                    <div key={s} className={`h-1.5 flex-1 rounded-full ${s <= wizardStep ? "bg-emerald-500" : "bg-slate-100"}`} />
+                    <div key={s} className={`h-1.5 flex-1 rounded-full ${s <= wizardStep ? "bg-emerald-500" : "bg-surface-muted"}`} />
                   ))}
                 </div>
               </div>
@@ -2889,7 +2907,7 @@ export default function MarketingPage() {
                 {wizardStep > 0 ? (
                   <button
                     onClick={() => setWizardStep((s) => s - 1)}
-                    className="px-4 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-black text-sm transition-colors"
+                    className="px-4 py-3 rounded-2xl bg-surface-muted hover:bg-slate-200 text-ink-body font-black text-sm transition-colors"
                   >
                     {isAr ? "رجوع" : "Back"}
                   </button>
@@ -2897,7 +2915,7 @@ export default function MarketingPage() {
                   <button
                     onClick={() => saveVoice(true)}
                     disabled={wizardSaving}
-                    className="px-4 py-3 rounded-2xl text-slate-400 hover:text-slate-600 font-black text-sm transition-colors"
+                    className="px-4 py-3 rounded-2xl text-slate-400 hover:text-ink-body font-black text-sm transition-colors"
                   >
                     {isAr ? "لاحقاً" : "Later"}
                   </button>
@@ -2935,18 +2953,18 @@ export default function MarketingPage() {
                 <h3 className="text-base font-black text-slate-900">
                   {isAr ? `🎥 فيديو تقييم — ${interviewFor.patientName}` : `🎥 Video review — ${interviewFor.patientName}`}
                 </h3>
-                <button onClick={() => setInterviewFor(null)} className="p-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500">
+                <button onClick={() => setInterviewFor(null)} className="p-1.5 rounded-full bg-surface-muted hover:bg-slate-200 text-ink-muted">
                   <X size={16} />
                 </button>
               </div>
-              <p className="text-xs font-bold text-slate-500 leading-relaxed mb-3">
+              <p className="text-xs font-bold text-ink-muted leading-relaxed mb-3">
                 {isAr
                   ? "المريض أعطى ٥ نجوم — أفضل لحظة تطلب فيها فيديو قصير. صوّر بالموبايل عمودياً، واسأل الأسئلة دي واحداً واحداً، وسيب المريض يرد بكلامه هو (ممنوع تلقينه):"
                   : "They gave 5 stars — the perfect moment to ask for a short video. Film vertical on a phone, ask these one by one, and let the patient answer in their own words (never script them):"}
               </p>
               <ol className="space-y-2 mb-4">
                 {INTERVIEW_QUESTIONS.map((q, i) => (
-                  <li key={i} className="flex gap-2 text-sm font-bold text-slate-700 bg-slate-50 border border-slate-100 rounded-xl px-3.5 py-2.5">
+                  <li key={i} className="flex gap-2 text-sm font-bold text-slate-700 bg-surface-subtle border border-slate-100 rounded-xl px-3.5 py-2.5">
                     <span className="font-black text-violet-500">{i + 1}.</span> {q}
                   </li>
                 ))}
@@ -2975,7 +2993,7 @@ export default function MarketingPage() {
                     {isAr ? "كل تصميم يخرج بهذه الهوية تلقائياً" : "Every design comes out in this identity automatically"}
                   </p>
                 </div>
-                <button onClick={() => setBrandOpen(false)} className="p-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500">
+                <button onClick={() => setBrandOpen(false)} className="p-1.5 rounded-full bg-surface-muted hover:bg-slate-200 text-ink-muted">
                   <X size={16} />
                 </button>
               </div>
@@ -2989,7 +3007,7 @@ export default function MarketingPage() {
                         key={t.id}
                         onClick={() => void saveBrand({ theme: t.id })}
                         className={`w-full flex items-center gap-3.5 p-3.5 rounded-2xl border text-start transition-colors ${
-                          brand.theme === t.id ? "border-emerald-400 ring-1 ring-emerald-200 bg-emerald-50/40" : "border-slate-200 hover:border-slate-300"
+                          brand.theme === t.id ? "border-emerald-400 ring-1 ring-emerald-200 bg-emerald-50/40" : "border-line hover:border-line-strong"
                         }`}
                       >
                         {/* Mini style preview — pointing beats describing. */}
@@ -3004,7 +3022,7 @@ export default function MarketingPage() {
                           </div>
                         </div>
                         <div className="min-w-0">
-                          <p className="text-sm font-black text-slate-900">{isAr ? t.ar : t.en}</p>
+                          <p className="text-sm font-black text-ink">{isAr ? t.ar : t.en}</p>
                           <p className="text-[11px] font-bold text-slate-400 leading-relaxed">{isAr ? t.descAr : t.descEn}</p>
                         </div>
                       </button>
@@ -3020,12 +3038,12 @@ export default function MarketingPage() {
                         type="color"
                         value={brand.accent || MARKETING_THEMES.find((t) => t.id === brand.theme)?.accent || "#10b981"}
                         onChange={(e) => void saveBrand({ accent: e.target.value })}
-                        className="w-10 h-10 rounded-xl border border-slate-200 cursor-pointer"
+                        className="w-10 h-10 rounded-xl border border-line cursor-pointer"
                       />
                       {brand.accent && (
                         <button
                           onClick={() => void saveBrand({ accent: "" })}
-                          className="text-[11px] font-black text-slate-400 hover:text-slate-600"
+                          className="text-[11px] font-black text-slate-400 hover:text-ink-body"
                         >
                           {isAr ? "استخدم لون الثيم" : "Use theme color"}
                         </button>
@@ -3041,7 +3059,7 @@ export default function MarketingPage() {
                       }`}
                     >
                       <div
-                        className={`w-5 h-5 bg-white rounded-full absolute top-0.5 shadow transition-transform ${
+                        className={`w-5 h-5 bg-surface rounded-full absolute top-0.5 shadow transition-transform ${
                           brand.showPhone !== false ? "translate-x-5 rtl:-translate-x-5" : "translate-x-0.5 rtl:-translate-x-0.5"
                         }`}
                       />
@@ -3283,7 +3301,7 @@ export default function MarketingPage() {
                     weekday: "long", day: "numeric", month: "long",
                   })}
                 </h3>
-                <button onClick={() => setDayPanel(null)} className="p-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500">
+                <button onClick={() => setDayPanel(null)} className="p-1.5 rounded-full bg-surface-muted hover:bg-slate-200 text-ink-muted">
                   <X size={16} />
                 </button>
               </div>
@@ -3294,13 +3312,13 @@ export default function MarketingPage() {
                   </p>
                 )}
                 {(scheduledByDate.get(dayPanel) || []).map((item) => (
-                  <div key={item.id} className="border border-slate-200 rounded-2xl p-4">
+                  <div key={item.id} className="border border-line rounded-2xl p-4">
                     <div className="flex items-center gap-2 flex-wrap mb-2">
                       <KindChip kind={item.kind} isAr={isAr} />
                       <StatusChip status={item.status} isAr={isAr} />
                       <span dir="auto" className="text-sm font-black text-slate-800">{item.title}</span>
                     </div>
-                    <p dir="auto" className="text-xs text-slate-600 leading-relaxed whitespace-pre-line mb-2">{item.body}</p>
+                    <p dir="auto" className="text-xs text-ink-body leading-relaxed whitespace-pre-line mb-2">{item.body}</p>
                     {item.hashtags && item.hashtags.length > 0 && (
                       <p dir="auto" className="text-xs font-bold text-sky-600 mb-2">{item.hashtags.join(" ")}</p>
                     )}
@@ -3337,7 +3355,7 @@ export default function MarketingPage() {
                     return pb ? (isAr ? pb.ar : pb.en) : "";
                   })()}
                 </h3>
-                <button onClick={() => setPbOpen(null)} className="p-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500">
+                <button onClick={() => setPbOpen(null)} className="p-1.5 rounded-full bg-surface-muted hover:bg-slate-200 text-ink-muted">
                   <X size={16} />
                 </button>
               </div>
@@ -3416,13 +3434,13 @@ export default function MarketingPage() {
 
                 {pbEntries && (
                   <div className="space-y-3">
-                    <p className="text-xs font-bold text-slate-500">
+                    <p className="text-xs font-bold text-ink-muted">
                       {isAr
                         ? "راجع الخطة — ألغِ تحديد ما لا يعجبك، ثم أضِف الباقي للتقويم."
                         : "Review the plan — untick what you don't like, then add the rest to the calendar."}
                     </p>
                     {pbEntries.map((entry, i) => (
-                      <label key={i} className="flex items-start gap-3 border border-slate-200 rounded-2xl p-3.5 cursor-pointer hover:border-emerald-300 transition-colors">
+                      <label key={i} className="flex items-start gap-3 border border-line rounded-2xl p-3.5 cursor-pointer hover:border-emerald-300 transition-colors">
                         <input
                           type="checkbox"
                           checked={!!pbSelected[i]}
@@ -3431,13 +3449,13 @@ export default function MarketingPage() {
                         />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 flex-wrap mb-1">
-                            <span className="text-[11px] font-black text-slate-400 bg-slate-50 border border-slate-100 rounded px-1.5 py-0.5">
+                            <span className="text-[11px] font-black text-slate-400 bg-surface-subtle border border-slate-100 rounded px-1.5 py-0.5">
                               {pbStart ? addDaysYmd(pbStart, entry.dayOffset) : `+${entry.dayOffset}`}
                             </span>
                             <KindChip kind={entry.kind} isAr={isAr} />
                             <span dir="auto" className="text-xs font-black text-slate-800">{entry.title}</span>
                           </div>
-                          <p dir="auto" className="text-[11px] text-slate-500 leading-relaxed line-clamp-3 whitespace-pre-line">{entry.body}</p>
+                          <p dir="auto" className="text-[11px] text-ink-muted leading-relaxed line-clamp-3 whitespace-pre-line">{entry.body}</p>
                         </div>
                       </label>
                     ))}
@@ -3454,7 +3472,7 @@ export default function MarketingPage() {
                       </button>
                       <button
                         onClick={() => setPbEntries(null)}
-                        className="px-4 py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-black text-sm transition-colors"
+                        className="px-4 py-3 rounded-2xl bg-surface-muted hover:bg-slate-200 text-ink-body font-black text-sm transition-colors"
                       >
                         {isAr ? "رجوع" : "Back"}
                       </button>

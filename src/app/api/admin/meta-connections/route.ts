@@ -58,8 +58,14 @@ async function listClinics() {
       const doc = await ref.get();
       let name = doc.exists ? String(doc.data()?.name || "") : "";
       if (!name) {
-        const profile = await db.doc(`clinics/${ref.id}/settings/clinicProfile`).get();
-        name = profile.exists ? String(profile.data()?.name || profile.data()?.clinicName || "") : "";
+        // clinic_info holds the clinic's own details now; clinicProfile is only still consulted
+        // for clinics that have not saved their profile since the two documents were merged.
+        const info = await db.doc(`clinics/${ref.id}/settings/clinic_info`).get();
+        name = info.exists ? String(info.data()?.name || info.data()?.clinicName || "") : "";
+        if (!name) {
+          const legacy = await db.doc(`clinics/${ref.id}/settings/clinicProfile`).get();
+          name = legacy.exists ? String(legacy.data()?.clinicName || "") : "";
+        }
       }
       return { id: ref.id, name: name || ref.id };
     })

@@ -120,7 +120,7 @@ export const KNOWN_CLINIC_COLLECTIONS = new Set([
   "whatsapp_outbox",
   // Named only in the rules' permission maps; governed by the blanket subcollection grant.
   "appointments", "categories", "inventory_transactions", "marketing_campaigns", "marketing_cases",
-  "marketing_consents", "marketing_settings", "ortho_cases", "ortho_sessions", "lab_cases",
+  "marketing_consents", "marketing_settings", "ortho_cases", "ortho_sessions", "lab_cases", "lab_payments",
   // The per-branch lab case counter. Named nowhere in firestore.rules on purpose: leaving it out
   // of the permission maps means a member who cannot create a lab case fails on the CASE write,
   // which names the thing they were actually doing, rather than on a counter bump they never

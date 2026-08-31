@@ -127,7 +127,7 @@ export default function NotificationBell() {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-3 w-80 md:w-96 bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden z-50 animate-in slide-in-from-top-4">
+        <div className="absolute right-0 mt-3 w-80 md:w-96 bg-surface rounded-3xl shadow-2xl border border-gray-100 overflow-hidden z-50 animate-in slide-in-from-top-4">
           <div className="bg-gray-50 px-5 py-4 border-b border-gray-100 flex justify-between items-center">
             <h3 className="font-black text-gray-900">{language === 'ar' ? 'الإشعارات' : 'Notifications'}</h3>
             {notifications.length > 0 && (

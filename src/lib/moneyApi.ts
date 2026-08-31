@@ -204,6 +204,23 @@ export function setPaymentCommission(id: string, commissionPercentage: number, c
   return post("/api/finance/ledger", { action: "set-commission", id, commissionPercentage, clinicId });
 }
 
+/**
+ * Correct what a treatment was charged for its lab work, from what the lab actually agreed.
+ *
+ * The price list's estimate is what came off the top when the treatment was saved. This replaces
+ * it and rebalances every payment already recorded against the charge, so the dentist's commission
+ * and the clinic's profit reflect the real cost rather than a guess. Audited, because it changes a
+ * figure a dentist may already have seen.
+ */
+export function setProcedureLabFee(
+  id: string,
+  labFee: number,
+  reason?: string,
+  clinicId?: string | null
+): Promise<{ id: string; previousLabFee: number; labFee: number }> {
+  return post("/api/finance/ledger", { action: "set-lab-fee", id, labFee, reason, clinicId });
+}
+
 // --- clinical procedures -------------------------------------------------------------------------
 
 export type ProcedureWriteArgs = {

@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { getDoc } from "firebase/firestore";
 import {
   AlertCircle,
   ArrowUpRight,
@@ -21,7 +20,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { auth } from "@/lib/firebase";
-import { getClinicDoc } from "@/lib/db-utils";
+import { getClinicProfile } from "@/lib/clinicProfile";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { printBriefing } from "@/lib/briefingPdfHtml";
@@ -70,11 +69,11 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <section className="bg-white rounded-[2rem] border border-slate-200/60 shadow-sm p-5 md:p-6">
+    <section className="bg-surface rounded-[2rem] border border-slate-200/60 shadow-sm p-5 md:p-6">
       <div className="flex items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-2 text-slate-400">
           {icon}
-          <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-500">{title}</h2>
+          <h2 className="text-[10px] font-black uppercase tracking-widest text-ink-muted">{title}</h2>
         </div>
         {action}
       </div>
@@ -85,9 +84,9 @@ function Card({
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: React.ReactNode }) {
   return (
-    <div className="rounded-2xl bg-slate-50 border border-slate-200/60 px-4 py-3">
+    <div className="rounded-2xl bg-surface-subtle border border-slate-200/60 px-4 py-3">
       <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{label}</p>
-      <p className="font-figure text-[22px] leading-tight text-slate-900 mt-1">{value}</p>
+      <p className="font-figure text-[22px] leading-tight text-ink mt-1">{value}</p>
       {sub ? <div className="mt-0.5">{sub}</div> : null}
     </div>
   );
@@ -108,7 +107,7 @@ function KeyValue({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline gap-2">
       <span className="text-[11px] font-bold text-slate-400">{label}</span>
-      <span className="font-figure text-[14px] text-slate-900">{value}</span>
+      <span className="font-figure text-[14px] text-ink">{value}</span>
     </div>
   );
 }
@@ -125,9 +124,9 @@ function ActionList({
   if (count === 0) return null;
   return (
     <div className="rounded-2xl border border-slate-200/60 overflow-hidden">
-      <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200/60 flex items-center justify-between gap-2">
-        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">{title}</span>
-        <span className="font-figure text-[13px] text-slate-900 bg-white border border-slate-200 rounded-full px-2 leading-5">
+      <div className="px-4 py-2.5 bg-surface-subtle border-b border-slate-200/60 flex items-center justify-between gap-2">
+        <span className="text-[10px] font-black uppercase tracking-widest text-ink-muted">{title}</span>
+        <span className="font-figure text-[13px] text-ink bg-surface border border-line rounded-full px-2 leading-5">
           {count}
         </span>
       </div>
@@ -212,20 +211,15 @@ export default function BriefingView({ period }: { period: Period }) {
     let cancelled = false;
     (async () => {
       try {
-        const [infoSnap, profileSnap] = await Promise.all([
-          getDoc(getClinicDoc("settings", "clinic_info")),
-          getDoc(getClinicDoc("settings", "clinicProfile")),
-        ]);
+        // One read through the shared helper, which knows where the clinic's details live and
+        // still falls back to the retired `clinicProfile` document for a clinic that has not
+        // saved its profile since the two were merged.
+        const profile = await getClinicProfile();
         if (cancelled) return;
-        const info = (infoSnap.exists() ? infoSnap.data() : {}) as Record<string, unknown>;
-        const profile = (profileSnap.exists() ? profileSnap.data() : {}) as Record<string, unknown>;
         setClinicInfo({
-          name:
-            (typeof info.name === "string" && info.name.trim()) ||
-            (typeof profile.clinicName === "string" && profile.clinicName.trim()) ||
-            "Alpha Dental",
-          logoUrl: typeof profile.logoUrl === "string" ? profile.logoUrl : "",
-          currency: typeof info.currency === "string" && info.currency.trim() ? info.currency.trim() : "EGP",
+          name: profile?.clinicName?.trim() || "Alpha Dental",
+          logoUrl: profile?.logoUrl || "",
+          currency: profile?.currency?.trim() || "EGP",
         });
       } catch {
         /* keeps the defaults */
@@ -322,7 +316,7 @@ export default function BriefingView({ period }: { period: Period }) {
             </button>
             <button
               onClick={onPrint}
-              className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-bold text-ink-slab hover:bg-white/90 transition-colors"
+              className="inline-flex items-center gap-2 rounded-full bg-surface px-4 py-2 text-xs font-bold text-ink-slab hover:bg-white/90 transition-colors"
             >
               <Printer size={14} />
               {isAr ? "طباعة PDF" : "Print PDF"}
@@ -408,8 +402,8 @@ export default function BriefingView({ period }: { period: Period }) {
 
           {b.trend.topProcedures.length > 0 && (
             <div className="mt-5 rounded-2xl border border-slate-200/60 overflow-hidden">
-              <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200/60">
-                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+              <div className="px-4 py-2.5 bg-surface-subtle border-b border-slate-200/60">
+                <span className="text-[10px] font-black uppercase tracking-widest text-ink-muted">
                   {isAr ? "الأكثر إجراءً" : "Most done"}
                 </span>
               </div>
@@ -419,7 +413,7 @@ export default function BriefingView({ period }: { period: Period }) {
                     key={proc.name}
                     name={proc.name}
                     meta={
-                      <span className="font-figure text-[13px] text-slate-900">
+                      <span className="font-figure text-[13px] text-ink">
                         {num(proc.count)}
                         {proc.revenue !== null ? (
                           <span className="text-slate-400"> · {money(proc.revenue)}</span>
@@ -483,7 +477,7 @@ export default function BriefingView({ period }: { period: Period }) {
                   <Row
                     key={s.method}
                     name={s.method}
-                    meta={<span className="font-figure text-[13px] text-slate-900">{money(s.amount)}</span>}
+                    meta={<span className="font-figure text-[13px] text-ink">{money(s.amount)}</span>}
                   />
                 ))}
               </ActionList>
@@ -497,7 +491,7 @@ export default function BriefingView({ period }: { period: Period }) {
                   <Row
                     key={s.category}
                     name={s.category}
-                    meta={<span className="font-figure text-[13px] text-slate-900">{money(s.amount)}</span>}
+                    meta={<span className="font-figure text-[13px] text-ink">{money(s.amount)}</span>}
                   />
                 ))}
               </ActionList>
@@ -565,19 +559,19 @@ export default function BriefingView({ period }: { period: Period }) {
                   {b.production.doctors.map((d) => (
                     <tr key={d.key}>
                       <td className="py-2 px-1 text-[13px] font-bold text-slate-800">{d.name}</td>
-                      <td className={`py-2 px-1 font-figure text-[13px] text-slate-900 ${isRTL ? "text-left" : "text-right"}`}>
+                      <td className={`py-2 px-1 font-figure text-[13px] text-ink ${isRTL ? "text-left" : "text-right"}`}>
                         {num(d.patientsSeen)}
                       </td>
-                      <td className={`py-2 px-1 font-figure text-[13px] text-slate-900 ${isRTL ? "text-left" : "text-right"}`}>
+                      <td className={`py-2 px-1 font-figure text-[13px] text-ink ${isRTL ? "text-left" : "text-right"}`}>
                         {num(d.procedures)}
                       </td>
-                      <td className={`py-2 px-1 font-figure text-[13px] text-slate-900 ${isRTL ? "text-left" : "text-right"}`}>
+                      <td className={`py-2 px-1 font-figure text-[13px] text-ink ${isRTL ? "text-left" : "text-right"}`}>
                         {money(d.collected)}
                       </td>
-                      <td className={`py-2 px-1 font-figure text-[13px] text-slate-500 ${isRTL ? "text-left" : "text-right"}`}>
+                      <td className={`py-2 px-1 font-figure text-[13px] text-ink-muted ${isRTL ? "text-left" : "text-right"}`}>
                         {money(d.commission)}
                       </td>
-                      <td className={`py-2 px-1 font-figure text-[13px] text-slate-900 ${isRTL ? "text-left" : "text-right"}`}>
+                      <td className={`py-2 px-1 font-figure text-[13px] text-ink ${isRTL ? "text-left" : "text-right"}`}>
                         {money(d.clinicProfit)}
                       </td>
                     </tr>
@@ -640,7 +634,7 @@ export default function BriefingView({ period }: { period: Period }) {
                         ))}
                       </div>
                     </td>
-                    <td className={`py-2 px-1 font-figure text-[13px] text-slate-900 ${isRTL ? "text-left" : "text-right"}`}>
+                    <td className={`py-2 px-1 font-figure text-[13px] text-ink ${isRTL ? "text-left" : "text-right"}`}>
                       {hours(s.minutesWorked)}
                     </td>
                     <td className={`py-2 px-1 font-figure text-[13px] ${s.lateDays > 0 ? "text-amber-600" : "text-slate-300"} ${isRTL ? "text-left" : "text-right"}`}>
@@ -649,12 +643,12 @@ export default function BriefingView({ period }: { period: Period }) {
                     <td className={`py-2 px-1 font-figure text-[13px] ${s.absentDays > 0 ? "text-rose-600" : "text-slate-300"} ${isRTL ? "text-left" : "text-right"}`}>
                       {s.absentDays > 0 ? num(s.absentDays) : "—"}
                     </td>
-                    <td className={`py-2 px-1 font-figure text-[13px] text-slate-500 ${isRTL ? "text-left" : "text-right"}`}>
+                    <td className={`py-2 px-1 font-figure text-[13px] text-ink-muted ${isRTL ? "text-left" : "text-right"}`}>
                       {s.overtimeApprovedMinutes + s.overtimePendingMinutes > 0
                         ? hours(s.overtimeApprovedMinutes + s.overtimePendingMinutes)
                         : "—"}
                     </td>
-                    <td className={`py-2 px-1 font-figure text-[13px] text-slate-900 ${isRTL ? "text-left" : "text-right"}`}>
+                    <td className={`py-2 px-1 font-figure text-[13px] text-ink ${isRTL ? "text-left" : "text-right"}`}>
                       {s.estimatedPay > 0 ? money(s.estimatedPay) : "—"}
                     </td>
                   </tr>
@@ -720,7 +714,7 @@ export default function BriefingView({ period }: { period: Period }) {
                 name={i.patientName}
                 meta={
                   i.amount !== undefined ? (
-                    <span className="font-figure text-[13px] text-slate-900">{money(i.amount)}</span>
+                    <span className="font-figure text-[13px] text-ink">{money(i.amount)}</span>
                   ) : null
                 }
               />
@@ -756,7 +750,7 @@ export default function BriefingView({ period }: { period: Period }) {
                 href={`/patients/${i.patientId}?tab=finance`}
                 name={i.patientName}
                 meta={
-                  <span className="font-figure text-[13px] text-slate-900">
+                  <span className="font-figure text-[13px] text-ink">
                     {money(i.balance)}
                     <span className="text-amber-600">
                       {" "}
@@ -798,9 +792,9 @@ export default function BriefingView({ period }: { period: Period }) {
               {b.growth.leadsBySource.map((s) => (
                 <span
                   key={s.source}
-                  className="text-[11px] font-bold text-slate-500 bg-slate-50 border border-slate-200/60 rounded-full px-3 py-1"
+                  className="text-[11px] font-bold text-ink-muted bg-surface-subtle border border-slate-200/60 rounded-full px-3 py-1"
                 >
-                  {s.source} <span className="font-figure text-slate-900">{num(s.count)}</span>
+                  {s.source} <span className="font-figure text-ink">{num(s.count)}</span>
                 </span>
               ))}
             </div>
@@ -882,7 +876,7 @@ export default function BriefingView({ period }: { period: Period }) {
 
       {/* --- Notes --- */}
       {b.notes.length > 0 && (
-        <div className="bg-white rounded-[2rem] border border-slate-200/60 p-5 md:p-6">
+        <div className="bg-surface rounded-[2rem] border border-slate-200/60 p-5 md:p-6">
           <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">
             {isAr ? "ملاحظات مهمة" : "Worth knowing"}
           </p>
@@ -890,9 +884,9 @@ export default function BriefingView({ period }: { period: Period }) {
             {b.notes.map((n, i) => (
               <li
                 key={i}
-                className={`text-[11px] font-medium text-slate-500 leading-relaxed ${
+                className={`text-[11px] font-medium text-ink-muted leading-relaxed ${
                   isRTL ? "border-r-2 pr-3" : "border-l-2 pl-3"
-                } border-slate-200`}
+                } border-line`}
               >
                 {n}
               </li>

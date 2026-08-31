@@ -132,14 +132,14 @@ export default function ReceptionSummonPanel() {
       ? "border-amber-400 bg-amber-50 ring-2 ring-amber-200"
       : uiState === "seen"
         ? "border-emerald-400 bg-emerald-50 ring-2 ring-emerald-200"
-        : "border-slate-200 hover:bg-violet-50 hover:border-violet-300";
+        : "border-line hover:bg-violet-50 hover:border-violet-300";
 
   return (
     <>
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className={`bg-white border rounded-xl px-2 flex flex-col items-center justify-center gap-1.5 active:scale-[0.98] transition-all shadow-sm h-full min-h-[5.5rem] lg:min-h-0 relative ${buttonHighlight}`}
+        className={`bg-surface border rounded-xl px-2 flex flex-col items-center justify-center gap-1.5 active:scale-[0.98] transition-all shadow-sm h-full min-h-[5.5rem] lg:min-h-0 relative ${buttonHighlight}`}
         title={txt.title}
       >
         <BellRing
@@ -152,7 +152,7 @@ export default function ReceptionSummonPanel() {
                 : "text-violet-600"
           }
         />
-        <span className="text-sm font-black uppercase text-slate-500 tracking-wide">{txt.button}</span>
+        <span className="text-sm font-black uppercase text-ink-muted tracking-wide">{txt.button}</span>
         {uiState === "calling" && (
           <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500 animate-ping" />
         )}
@@ -165,21 +165,21 @@ export default function ReceptionSummonPanel() {
           onClick={() => setOpen(false)}
         >
           <div
-            className="w-full max-w-sm rounded-2xl bg-white shadow-2xl border border-violet-100 overflow-hidden animate-in zoom-in-95 duration-200"
+            className="w-full max-w-sm rounded-2xl bg-surface shadow-2xl border border-violet-100 overflow-hidden animate-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 bg-violet-50">
               <div className="flex items-center gap-2">
                 <BellRing size={20} className="text-violet-700" />
                 <div>
-                  <h3 className="text-sm font-black text-slate-900">{txt.title}</h3>
-                  <p className="text-[10px] font-bold text-slate-500">{txt.hint}</p>
+                  <h3 className="text-sm font-black text-ink">{txt.title}</h3>
+                  <p className="text-[10px] font-bold text-ink-muted">{txt.hint}</p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="p-2 rounded-full hover:bg-white text-slate-400"
+                className="p-2 rounded-full hover:bg-surface text-slate-400"
                 aria-label={txt.close}
               >
                 <X size={18} />
@@ -209,7 +209,7 @@ export default function ReceptionSummonPanel() {
                   <Loader2 className="animate-spin text-violet-500" size={24} />
                 </div>
               ) : receptionists.length === 0 ? (
-                <p className="text-xs font-bold text-slate-500 text-center py-6 px-2">{txt.noStaff}</p>
+                <p className="text-xs font-bold text-ink-muted text-center py-6 px-2">{txt.noStaff}</p>
               ) : (
                 receptionists.map((r) => (
                   <button

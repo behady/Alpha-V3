@@ -219,11 +219,61 @@ export async function ackSms(clinicId: string, deviceId: string, acks: SmsAck[])
   return { sent, failed, requeued };
 }
 
-/** Recent queue activity for the settings screen, newest first. */
-export async function recentSms(clinicId: string, limit = 30): Promise<SmsMessage[]> {
-  const snap = await adminClinicCollection(clinicId, COLLECTION).get();
-  return snap.docs
-    .map((d) => toMessage(d.id, d.data() || {}))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .slice(0, limit);
+/** One page of queue activity, newest first, plus the cursor for the next page. */
+export interface SmsPage {
+  messages: SmsMessage[];
+  /** Pass back as `cursor` for the next page. Null when this is the last one. */
+  nextCursor: string | null;
+}
+
+/**
+ * A page of queue activity for the settings screen, newest first.
+ *
+ * This used to read the WHOLE collection, sort it in memory and keep thirty — so the `limit`
+ * argument capped what was returned, not what was fetched. Every time anyone opened the SMS
+ * settings screen, the clinic paid a document read for every text message it had ever sent, and
+ * the page got slower every day it was used. A clinic a year in would have been fetching tens of
+ * thousands of documents to show thirty rows.
+ *
+ * Ordering is done by Firestore now, on `createdAt`, which every message carries because
+ * `enqueue()` is the only way one is ever written.
+ *
+ * The cursor is a document id rather than a timestamp: two messages enqueued in the same
+ * millisecond — which a batch of reminders does routinely — would otherwise land on the same
+ * timestamp and a paging boundary between them would skip or repeat one. Resolving the document
+ * costs one read and removes the whole class of problem.
+ */
+export async function recentSms(clinicId: string, pageSize = 30, cursor?: string): Promise<SmsPage> {
+  const collection = adminClinicCollection(clinicId, COLLECTION);
+  let query = collection.orderBy("createdAt", "desc").limit(pageSize + 1);
+
+  if (cursor) {
+    const after = await collection.doc(cursor).get();
+    // A cursor whose message has since been deleted would otherwise silently restart the list
+    // from the top, which reads as "the older ones are gone".
+    if (after.exists) query = query.startAfter(after);
+  }
+
+  const snap = await query.get();
+  // One more than asked for, purely to learn whether another page exists without a second query.
+  const page = snap.docs.slice(0, pageSize);
+  return {
+    messages: page.map((d) => toMessage(d.id, d.data() || {})),
+    nextCursor: snap.docs.length > pageSize ? page[page.length - 1].id : null,
+  };
+}
+
+/**
+ * How many messages are actually waiting to go out.
+ *
+ * Counted rather than derived from the page above: the page is thirty rows and the queue can be
+ * longer, so "12 waiting" read off a page length would quietly cap at thirty and be wrong exactly
+ * when it matters — when a stalled phone has let the queue build up.
+ */
+export async function queuedSmsCount(clinicId: string): Promise<number> {
+  const snap = await adminClinicCollection(clinicId, COLLECTION)
+    .where("status", "==", "queued")
+    .count()
+    .get();
+  return snap.data().count;
 }

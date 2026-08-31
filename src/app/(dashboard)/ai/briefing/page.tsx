@@ -39,17 +39,17 @@ export default function BriefingPage() {
                 {isAr ? "ذكاء ألفا" : "Alpha Intelligence"}
               </span>
             </div>
-            <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight mt-1">
+            <h1 className="text-2xl md:text-3xl font-black text-ink tracking-tight mt-1">
               {isAr ? "الملخص" : "The Brief"}
             </h1>
-            <p className="text-sm font-medium text-slate-500 mt-1 max-w-2xl">
+            <p className="text-sm font-medium text-ink-muted mt-1 max-w-2xl">
               {isAr
                 ? "الأرقام والأسماء التي تحتاجها لإدارة اليوم: الحسابات، الإنتاج، فريق العمل، وما سيضيع إن لم يتحرك أحد. كل رقم مقروء من سجلاتك، وليس تقديراً."
                 : "The numbers and names it takes to run the place: money, production, the floor, and what slips if nobody acts. Every figure is read from your records — nothing is estimated."}
             </p>
           </div>
 
-          <div className="inline-flex items-center gap-1 rounded-full bg-white border border-slate-200/60 p-1 shadow-sm">
+          <div className="inline-flex items-center gap-1 rounded-full bg-surface border border-slate-200/60 p-1 shadow-sm">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const active = period === tab.key;
