@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { useSettingsText } from "@/lib/useSettingsText";
 import { onSnapshot } from "firebase/firestore";
 import { Badge, Lock, Mail, Save, User, X } from "lucide-react";
 import UserManagement from "@/components/settings/UserManagement";
@@ -58,19 +59,8 @@ export default function UsersHost() {
     isDentist: false,
   });
 
-  const txt = {
-    title: language === "ar" ? "إضافة عضو للفريق" : "Invite Team Member",
-    fullName: language === "ar" ? "الاسم الكامل" : "Full Name",
-    email: language === "ar" ? "البريد الإلكتروني" : "Email Address",
-    password: language === "ar" ? "كلمة السر الأولية" : "Initial Password",
-    passwordHint: language === "ar" ? "6 حروف على الأقل" : "Minimum 6 characters",
-    role: language === "ar" ? "دور النظام" : "System Role",
-    roleDentist: language === "ar" ? "طبيب" : "Dentist",
-    roleAssistant: language === "ar" ? "مساعد" : "Assistant",
-    roleReceptionist: language === "ar" ? "استقبال" : "Receptionist",
-    roleAdmin: language === "ar" ? "مدير" : "Admin",
-    submit: language === "ar" ? "إنشاء حساب الدخول" : "Create System Login",
-  };
+
+  const txt = useSettingsText("users");
 
   useEffect(() => {
     const unsub = onSnapshot(getClinicCollection("staff"), (snap) => {
@@ -160,7 +150,7 @@ export default function UsersHost() {
               <h2 className="text-xl font-bold text-slate-900 tracking-tight">{txt.title}</h2>
               <button
                 onClick={() => setIsModalOpen(false)}
-                aria-label={language === "ar" ? "إغلاق" : "Close"}
+                aria-label={txt.close}
                 className="text-slate-400 hover:text-red-500 bg-surface-subtle hover:bg-red-50 p-2 rounded-full transition-colors"
               >
                 <X size={20} />
@@ -242,9 +232,7 @@ export default function UsersHost() {
                     className="mt-0.5 w-4 h-4 rounded border-line-strong text-accent"
                   />
                   <span className="text-sm font-semibold text-slate-700 leading-snug">
-                    {language === "ar"
-                      ? "يعمل أيضاً كطبيب (يظهر في قوائم الأطباء والمواعيد)"
-                      : "Also works as dentist (shows in doctor lists & appointments)"}
+                    {txt.alsoDentist}
                   </span>
                 </label>
               )}

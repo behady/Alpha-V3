@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useSettingsText } from "@/lib/useSettingsText";
 import { X, Search, ChevronDown, ChevronRight, Info, Shield, Check, Crown, RotateCcw, ArrowRightLeft } from "lucide-react";
 import { PERMISSIONS_CATALOG, getAllPermissionIds, type PermissionCatalogGroup } from "@/config/permissionsCatalog";
 import { ASSIGNABLE_ROLES, isFullAccessRole, isOwnerRole, presetDiff, rolePreset } from "@/lib/permissions";
@@ -100,38 +101,19 @@ export default function UserAccessModal({
   const roleName = user.role || "Assistant";
   const presetSize = presetKeys.size;
 
+
   const txt = {
-    title: isAr ? "إدارة الصلاحيات" : "Manage Access",
-    systemRole: isAr ? "دور النظام الأساسي" : "Primary System Role",
-    alsoDentist: isAr ? "يعمل أيضاً كطبيب (يظهر في المواعيد)" : "Also acts as Dentist (Shows in appointments)",
-    adminBypass: isAr
-      ? "دور المدير (Admin) يتجاوز جميع هذه الصلاحيات تلقائياً، فهي معروضة للاطلاع فقط."
-      : "The Admin role bypasses every switch below, so they're shown for reference only.",
-    ownerBypass: isAr
-      ? "مالك العيادة يتجاوز جميع الصلاحيات. مفيش مدير تاني يقدر يغيّر دوره أو يحذفه أو يغيّر كلمة مروره."
-      : "The clinic owner bypasses every switch. No other admin can change their role, remove them, or reset their password.",
-    ownerLocked: isAr ? "مالك العيادة" : "Clinic owner",
-    ownerLockedHint: isAr
-      ? "المالك واحد بس لكل عيادة. عشان تغيّره استخدم «نقل الملكية»."
-      : "One owner per clinic. Use Transfer ownership to change who it is.",
-    searchPlaceholder: isAr ? "بحث في الصلاحيات..." : "Search permissions...",
-    selectAll: isAr ? "تحديد الكل" : "Select All",
-    deselectAll: isAr ? "إلغاء الكل" : "Deselect All",
+
+    ...useSettingsText("userAccess"),
+
     presetLabel: isAr ? `الإعداد الجاهز لدور ${roleName}` : `${roleName} preset`,
+
     presetSwitches: isAr ? `${presetSize} صلاحية` : `${presetSize} switches`,
-    presetMatches: isAr ? "مطابق للإعداد الجاهز" : "matches the preset",
-    presetUnset: isAr ? "لسه متسجّلش — اضغط إعادة الضبط" : "not recorded yet — press Reset to preset",
+
     presetAdded: (n: number) => (isAr ? `${n} مضافة` : `${n} added`),
+
     presetRemoved: (n: number) => (isAr ? `${n} مُزالة` : `${n} removed`),
-    applyPreset: isAr ? "إعادة الضبط" : "Reset to preset",
-    applyPresetHint: isAr
-      ? "يرجّع المفاتيح لما يبدأ به الدور ده، ويلغي أي تعديل يدوي."
-      : "Puts the switches back to what this role starts with, discarding hand-made changes.",
-    transfer: isAr ? "نقل ملكية العيادة" : "Transfer clinic ownership",
-    transferHint: isAr
-      ? "يخلي الشخص ده مالك العيادة، وإنت تبقى مدير (Admin)."
-      : "Makes this person the owner. You become an Admin.",
-    always: isAr ? "دائماً" : "Always",
+
   };
 
   return (

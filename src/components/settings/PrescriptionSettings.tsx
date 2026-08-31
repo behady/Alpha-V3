@@ -1,6 +1,7 @@
 "use client";
 
 import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
+import { useSettingsText } from "@/lib/useSettingsText";
 import { useClinic } from "@/context/ClinicContext";
 import { useState, useEffect } from "react";
 import { Pill, Plus, Trash2, X, Save } from "lucide-react";
@@ -19,12 +20,8 @@ export default function PrescriptionSettings() {
   const [newDrugName, setNewDrugName] = useState("");
   const [newDrugDose, setNewDrugDose] = useState("");
 
-  const txt = {
-    drugDbTitle: language === 'ar' ? "قاعدة بيانات الأدوية" : "Drug Database",
-    drugDbSub: language === 'ar' ? "اختصارات لكتابة الوصفات الطبية." : "Shortcuts for writing Prescriptions.",
-    addDrug: language === 'ar' ? "إضافة دواء" : "Add Drug",
-    noDrugs: language === 'ar' ? "لم يتم حفظ أي أدوية بعد." : "No drugs saved yet.",
-  };
+
+  const txt = useSettingsText("prescriptions");
 
   useEffect(() => {
     const q = query(getClinicCollection("drugs"), orderBy("name"));

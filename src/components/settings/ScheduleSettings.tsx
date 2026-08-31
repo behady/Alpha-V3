@@ -1,21 +1,15 @@
 "use client";
 
 import { Save, Clock } from "lucide-react";
+import { useSettingsText } from "@/lib/useSettingsText";
 import { useLanguage } from "@/context/LanguageContext";
 
 export default function ScheduleSettings({ schedule, setSchedule, handleSaveClinic }: any) {
   const { language, isRTL } = useLanguage();
   const DAYS_OF_WEEK = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-  const txt = {
-    scheduleTitle: language === 'ar' ? "جدول العيادة" : "Clinic Schedule",
-    scheduleSub: language === 'ar' ? "تعيين ساعات العمل للتقويم." : "Set operating hours for the calendar.",
-    openTime: language === 'ar' ? "وقت الفتح" : "Opening Time",
-    closeTime: language === 'ar' ? "وقت الإغلاق" : "Closing Time",
-    slotDuration: language === 'ar' ? "مدة الموعد" : "Slot Duration",
-    weekend: language === 'ar' ? "أيام العطلة (نهاية الأسبوع)" : "Days Off (Weekend)",
-    saveSchedule: language === 'ar' ? "حفظ الجدول" : "Save Schedule",
-  };
+
+  const txt = useSettingsText("schedule");
 
   const toggleOffDay = (day: string) => {
     setSchedule((prev: any) => {

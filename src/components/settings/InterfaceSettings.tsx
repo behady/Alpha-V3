@@ -6,6 +6,7 @@ import {
   UserCircle,
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
+import { useSettingsText } from "@/lib/useSettingsText";
 import { useUI } from "@/context/UIContext";
 
 export default function InterfaceSettings() {
@@ -50,44 +51,18 @@ export default function InterfaceSettings() {
     </button>
   );
 
+
   const txt = {
-    title: language === 'ar' ? "واجهة الاستخدام" : "Interface Settings",
-    followsYou: language === 'ar'
-      ? "هذه الاختيارات محفوظة على حسابك، فتنتقل معك لأي جهاز تسجّل الدخول منه — الكمبيوتر، التابلت، أو الموبايل."
-      : "These choices are saved to your account, so they follow you to any device you sign in on — desktop, tablet or phone.",
-    clinicalEditorLabel: language === 'ar' ? "محرر الإجراءات السريرية" : "Clinical Editor Mode",
+
+    ...useSettingsText("interface"),
+
     // The third option is the layout desktop has been using all along. It was not on this screen,
     // and the Clinical tab ignored this setting entirely above 1024px — so choosing a mode on a
     // laptop did nothing at all and looked like a bug in the feature rather than in the setting.
     clinicalEditorDesc: language === 'ar'
       ? "اختر شكل محرر الإجراءات. اختيارك بينطبق على كل الأجهزة. «داخل الصفحة» بيحتاج شاشة عريضة، وعلى الموبايل بيرجع تلقائياً لنافذة منبثقة."
       : "Choose how the procedure editor opens. Your choice applies on every device. \"On the page\" needs a wide screen — on a phone it falls back to the pop-up.",
-    inline: language === 'ar' ? "داخل الصفحة" : "On the page",
-    inlineHint: language === 'ar'
-      ? "المخطط فوق والنموذج تحته، من غير نافذة. يحتاج شاشة عريضة."
-      : "Chart on top, form beneath it, no overlay. Needs a wide screen.",
-    modalHint: language === 'ar'
-      ? "نافذة فوق الصفحة، وبداخلها مخطط الأسنان."
-      : "A window over the page, with the teeth chart inside it.",
-    drawerHint: language === 'ar'
-      ? "لوح بينزلق من الجانب."
-      : "A panel that slides in from the side.",
-    appointmentEditorLabel: language === 'ar' ? "محرر المواعيد" : "Appointment Booking Mode",
-    appointmentEditorDesc: language === 'ar' ? "اختر كيف تريد عرض نموذج حجز وتعديل المواعيد." : "Choose how you want to display the appointment booking and editing form.",
-    modal: language === 'ar' ? "نافذة منبثقة" : "Pop-up Modal",
-    drawer: language === 'ar' ? "شريط جانبي" : "Side Drawer",
-    panelModeLabel: language === 'ar' ? "لوحة الموعد المحدد" : "Selected Appointment Panel",
-    panelModeDesc: language === 'ar'
-      ? "عند اختيار موعد، اختر ما يظهر بجانب الجدول: نموذج التعديل أم مساعد الاستقبال الذكي. يمكنك التبديل بينهما في أي وقت من زر أعلى اللوحة."
-      : "When you click an appointment, choose what appears beside the schedule: the edit form, or the AI reception assistant. You can flip between them at any time from a button at the top of the panel.",
-    panelEditor: language === 'ar' ? "محرر التفاصيل" : "Details Editor",
-    panelEditorHint: language === 'ar'
-      ? "الحقول والسجل المالي وزر الدفع، كما هو."
-      : "The fields, ledger and payment button, exactly as now.",
-    panelAvatar: language === 'ar' ? "مساعد الاستقبال" : "Reception Assistant",
-    panelAvatarHint: language === 'ar'
-      ? "اسأله عن المريض، أو اطلب منه الحضور والتغيير والدفع — بتأكيدك دائماً."
-      : "Ask about the patient, or have it check in, reschedule, take a payment or message them — always on your confirmation.",
+
   };
 
   return (

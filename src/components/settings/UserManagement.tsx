@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSettingsText } from "@/lib/useSettingsText";
 import { Users, Shield, Trash2, AlertCircle, Plus, KeyRound, X, Save, Lock, Loader2, Search, ChevronDown, ChevronRight, Info, Stethoscope, Headset, HeartHandshake, Crown } from "lucide-react";
 import { formatStaffRoleLabel, isDentistStaff } from "@/lib/staffRoles";
 import { isFullAccessRole, isOwnerRole, rolePreset } from "@/lib/permissions";
@@ -91,56 +92,26 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
     })();
   }, [clinicId, isAr, showToast]);
 
+
   const txt = {
-    title: isAr ? "إدارة المستخدمين والموظفين" : "User & Staff Management",
-    sub: isAr ? "إدارة عمليات تسجيل الدخول والأدوار والصلاحيات." : "Manage logins, roles, and granular permissions.",
-    addBtn: isAr ? "إضافة عضو للفريق" : "Add Team Member",
-    clinicIdTitle: isAr ? "معرّف العيادة" : "Clinic ID",
-    clinicIdHelp: isAr
-      ? "ابعت المعرّف ده لأي زميل عايز ينضم للعيادة. هيحطه في شاشة «انضم لعيادة موجودة» بعد ما يعمل حساب، وهيوصلك طلبه في تبويب «طلبات الانضمام»."
-      : "Send this to a colleague who needs to join. They enter it on the \"Join an existing clinic\" screen after creating an account, and their request lands in the Join Requests tab.",
-    clinicIdCopy: isAr ? "نسخ" : "Copy",
-    clinicIdCopied: isAr ? "تم نسخ معرّف العيادة" : "Clinic ID copied",
-    clinicIdCopyFailed: isAr ? "تعذّر النسخ — حدّد النص وانسخه يدوياً" : "Couldn't copy — select the text and copy it manually",
-    broken: isAr ? "ملف غير مكتمل" : "Broken Profile",
-    unnamed: isAr ? "مستخدم بدون اسم" : "Unnamed User",
-    unknown: isAr ? "غير معروف" : "Unknown",
-    deleteMsg: isAr
-      ? "هل أنت متأكد من حذف هذا المستخدم نهائياً؟ سيتم إزالته من جميع جداول النظام."
-      : "Permanently delete this user? They will be removed from all logins and schedules.",
-    accessControl: isAr ? "صلاحيات الوصول" : "Permissions",
-    authStatus: isAr ? "تسجيل الدخول:" : "Auth Login:",
-    staffStatus: isAr ? "ملف الموظف:" : "Staff Profile:",
-    active: isAr ? "نشط" : "Active",
-    missing: isAr ? "مفقود! (احذف وأعد الإنشاء)" : "Missing! (Delete & Recreate)",
-    successMsg: isAr ? "تم تحديث الصلاحيات" : "Permission updated",
-    errorMsg: isAr ? "فشل التحديث" : "Update failed",
-    resetBtnTitle: isAr ? "تغيير كلمة المرور" : "Direct Password Override",
-    searchPlaceholder: isAr ? "بحث في الصلاحيات..." : "Search permissions...",
-    permCount: isAr ? "مفعّل" : "enabled",
-    of: isAr ? "من" : "of",
-    sidebarNote: isAr
-      ? "القائمة: يظهر كل قسم إذا وُجد access.اسم_الصفحة أو أي مفتاح قديم مثل patients.add. الإعدادات: settings أو access.settings."
-      : "Sidebar: each item shows if you grant access.<page> or a legacy action key (e.g. patients.add). Settings icon: settings or access.settings.",
-    adminBypass: isAr ? "المدير Admin يتجاوز كل القيود تلقائياً." : "Admin role bypasses all permission checks.",
-    systemRole: isAr ? "دور النظام" : "System role",
-    alsoDentist: isAr ? "يعمل أيضاً كطبيب (يظهر في المواعيد والتقارير)" : "Also works as dentist (appointments & reports)",
-    roleUpdated: isAr ? "تم تحديث الدور" : "Role updated",
+
+    ...useSettingsText("userManagement"),
+
     roleChangeWarn: (role: string, n: number) =>
       isAr
         ? `تغيير الدور لـ ${role} هيعيد ضبط صلاحيات الشخص ده على الإعداد الجاهز للدور (${n} صلاحية) وهيلغي أي تعديل يدوي. تكمل؟`
         : `Changing the role to ${role} re-deals this person's switches from the ${role} preset (${n} switches) and discards anything tuned by hand. Continue?`,
-    presetApplied: isAr ? "تمت إعادة الضبط على الإعداد الجاهز" : "Reset to the role preset",
+
     presetConfirm: (role: string, n: number) =>
       isAr
         ? `إعادة ضبط الصلاحيات على الإعداد الجاهز لدور ${role} (${n} صلاحية)؟ أي تعديل يدوي هيتلغي.`
         : `Reset the switches to the ${role} preset (${n} switches)? Anything tuned by hand is discarded.`,
+
     transferConfirm: (name: string) =>
       isAr
         ? `نقل ملكية العيادة لـ ${name}؟ هو هيبقى المالك وإنت هتبقى مدير (Admin). مش هتقدر تتراجع بنفسك — هو وحده اللي يقدر يرجّعها لك.`
         : `Hand this clinic to ${name}? They become the owner and you become an Admin. You can't undo this yourself — only they can hand it back.`,
-    transferred: isAr ? "تم نقل ملكية العيادة" : "Clinic ownership transferred",
-    dentistFlagUpdated: isAr ? "تم تحديث إعداد الطبيب" : "Dentist setting updated",
+
   };
 
   const ROLES = ["Admin", "Dentist", "Assistant", "Receptionist"] as const;

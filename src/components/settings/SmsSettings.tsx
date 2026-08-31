@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSettingsText } from "@/lib/useSettingsText";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -91,105 +92,8 @@ export default function SmsSettings() {
     return out;
   }, [settings.templates, settings.optOutFooterEnabled]);
 
-  const txt = {
-    title: isAr ? "الرسائل النصية من هاتف العيادة" : "SMS from the clinic's phone",
-    intro: isAr
-      ? "يرسل هاتف العيادة تذكيرات المواعيد كرسائل نصية عادية من شريحته، دون الحاجة إلى بوابة رسائل أو أوراق رسمية. النظام يجهّز الرسالة، والهاتف يرسلها."
-      : "The clinic's own phone sends appointment reminders as ordinary text messages from its SIM — no messaging gateway, no paperwork. The system prepares each message; the phone sends it.",
-    costWarnTitle: isAr ? "اقرأ هذا قبل التفعيل" : "Read this before turning it on",
-    costWarn1: isAr
-      ? "كل رسالة تُحتسب على رصيد الشريحة. هذه الخاصية ليست مجانية مثل واتساب."
-      : "Every message is billed to the SIM. This is not free the way WhatsApp is.",
-    costWarn2: isAr
-      ? "يجب أن يظل الهاتف مفتوحاً، متصلاً بالشبكة، والتطبيق غير موقوف من إعدادات توفير البطارية."
-      : "The phone must stay on, in signal, and the app must not be killed by battery saver.",
-    costWarn3: isAr
-      ? "الرسالة التي تحتوي على حرف عربي واحد تُحتسب ٧٠ حرفاً بدل ١٦٠ — النص الطويل يعني رسائل متعددة."
-      : "A message containing a single Arabic character fits 70 characters instead of 160 — a long body means several billed messages.",
-    costWarn4: isAr
-      ? "شركات المحمول قد تقيّد الشرائح العادية التي ترسل رسائل كثيرة متشابهة."
-      : "Carriers may restrict a consumer SIM that sends a lot of similar messages.",
-    enable: isAr ? "تفعيل الإرسال من الهاتف" : "Send from the clinic phone",
-    optOutTitle: isAr ? "سطر إيقاف الرسائل" : "Opt-out line",
-    optOutToggle: isAr
-      ? "إضافة «للإيقاف أرسل إيقاف» في آخر كل رسالة نصية"
-      : "Add \"reply to stop\" to the end of every text message",
-    optOutHint: isAr
-      ? "لما المريض يرد بكلمة «إيقاف» بتتوقف عنه رسائل الواتساب والنصية مع بعض."
-      : "A patient who replies with the stop word is switched off for both SMS and WhatsApp together.",
-    optOutCost: isAr
-      ? "انتبه: القوالب الافتراضية مكتوبة لتدخل في رسالة واحدة (٧٠ حرفاً). السطر ده بيزوّدها لرسالتين — يعني ضعف الفاتورة. شوف عدّاد الرسائل تحت بعد ما تفعّله."
-      : "Careful: the default bodies are written to fit one billed message (70 characters). This line pushes them into two — double the bill. Watch the segment counter below after you switch it on.",
-    channelTitle: isAr ? "كيف تصل رسائل العيادة للمريض" : "How the clinic's messages reach the patient",
-    channelWhatsapp: isAr ? "واتساب فقط" : "WhatsApp only",
-    channelWhatsappHint: isAr ? "الوضع الحالي. لا تُرسل أي رسالة نصية." : "What happens today. No text messages are sent.",
-    channelSms: isAr ? "رسالة نصية فقط" : "SMS only",
-    channelSmsHint: isAr ? "لكل مريض، حتى من لا يستخدم واتساب." : "Reaches every patient, including those with no WhatsApp.",
-    channelBoth: isAr ? "الاثنان معاً" : "Both",
-    channelBothHint: isAr
-      ? "المريض يستقبل رسالتين عن نفس الموعد، وتُحتسب تكلفة الرسالة النصية."
-      : "The patient gets two messages about the same appointment, and you pay for the SMS.",
-    templateTitle: isAr ? "متى تُرسل الرسائل ونصها" : "Which messages go out, and what they say",
-    templateHint: isAr
-      ? "المتغيرات المتاحة: {{patient_name}} و {{clinic_name}} و {{date}} و {{time}} و {{doctor}}. لرسالة الدفع أيضاً {{amount}} و {{balance}}."
-      : "Placeholders: {{patient_name}}, {{clinic_name}}, {{date}}, {{time}}, {{doctor}}. The payment message also has {{amount}} and {{balance}}.",
-    resetTemplate: isAr ? "استعادة النص الافتراضي" : "Reset to default",
-    hourTitle: isAr ? "ساعة إرسال التذكير" : "When the reminder goes out",
-    hourHint: isAr
-      ? "يجهّز النظام تذكيرات الغد فجراً، ويحتفظ بها الهاتف حتى الساعة التي تختارها. هذا يخصّ التذكير فقط — رسائل الحجز والتغيير والإلغاء والدفع تُرسل فور حدوثها."
-      : "The system prepares tomorrow's reminders before dawn, and the phone holds them until the hour you pick. This applies to the reminder only — booking, change, cancellation and payment messages go out the moment they happen.",
-    hourLate: isAr
-      ? "الهاتف يفحص القائمة كل ١٥ دقيقة، لذلك قد تصل الرسالة بعد الساعة المختارة بدقائق."
-      : "The phone checks the queue every 15 minutes, so a message may land a few minutes after the hour you picked.",
-    eventOn: isAr ? "مفعّلة" : "On",
-    eventOff: isAr ? "متوقفة" : "Off",
-    allOff: isAr
-      ? "لم تختر أي رسالة — لن يُرسل الهاتف شيئاً."
-      : "No message is switched on — the phone has nothing to send.",
-    save: isAr ? "حفظ" : "Save",
-    saved: isAr ? "تم الحفظ" : "Saved",
-    segments: isAr ? "رسالة مُحتسبة" : "billed messages",
-    characters: isAr ? "حرف" : "characters",
-    devicesTitle: isAr ? "الهواتف المُرسِلة" : "Sending phones",
-    noDevices: isAr
-      ? "لا يوجد هاتف يرسل حالياً. لن تُرسل أي رسالة نصية حتى تُفعّل الإرسال على هاتف العيادة."
-      : "No phone is sending. No text messages will go out until you turn the sender on, on the clinic phone.",
-    pairButton: isAr ? "ربط هاتف بكود" : "Pair a phone with a code",
-    pairIntro: isAr
-      ? "اكتب هذا الكود في تطبيق ألفا على هاتف العيادة: المزيد ← الرسائل النصية ← «ربط بالكود». صالح لمدة ١٠ دقائق ولمرة واحدة."
-      : "Type this code into the Alpha app on the clinic phone: More → Text messages → \"Pair with code\". Valid for 10 minutes, one use.",
-    pairWaiting: isAr ? "في انتظار الهاتف…" : "Waiting for the phone…",
-    howToAdd: isAr
-      ? "لإضافة هاتف: افتح تطبيق ألفا على هاتف العيادة، ثم «المزيد»، وفعّل «هذا الهاتف يرسل التذكيرات». سيظهر هنا خلال دقائق."
-      : "To add a phone: open the Alpha app on the clinic phone, go to More, and switch on \"Send reminders from this phone\". It appears here within a few minutes.",
-    unpair: isAr ? "إيقاف" : "Stop",
-    unpairConfirm: isAr
-      ? "إيقاف هذا الهاتف عن الإرسال؟"
-      : "Stop this phone from sending?",
-    revoked: isAr ? "موقوف" : "Stopped",
-    aliveNow: isAr ? "يعمل الآن" : "Sending",
-    notSeen: isAr ? "غير متصل" : "Not checking in",
-    lastSeen: isAr ? "آخر اتصال" : "Last checked in",
-    instantOn: isAr ? "إرسال فوري" : "Instant",
-    instantOff: isAr ? "كل ١٥ دقيقة" : "Every 15 min",
-    instantOffHint: isAr
-      ? "هذا الهاتف يحتاج تحديث التطبيق (٤.٨ أو أحدث). بعد التحديث انتظر فحصاً واحداً ليصبح الإرسال فورياً."
-      : "This phone needs app 4.8 or newer. After updating, wait for one check-in and sending becomes instant.",
-    never: isAr ? "لم يحدث" : "never",
-    queueTitle: isAr ? "آخر الرسائل" : "Recent messages",
-    queueEmpty: isAr ? "لا توجد رسائل بعد." : "Nothing in the queue yet.",
-    statusQueued: isAr ? "في الانتظار" : "Waiting",
-    statusSending: isAr ? "مع الهاتف" : "With the phone",
-    statusSent: isAr ? "أُرسلت" : "Sent",
-    statusFailed: isAr ? "فشلت" : "Failed",
-    statusRetrying: isAr ? "إعادة المحاولة" : "Retrying",
-    queueNote: isAr
-      ? "«في الانتظار» تعني أن النظام جهّز الرسالة ولم يحاول الهاتف إرسالها بعد. «إعادة المحاولة» تعني أنه حاول ورفضتها الشبكة، وسيحاول مرة أخرى — والسبب مكتوب تحت الرسالة. لا تُعتبر مُرسلة إلا عندما يؤكد الهاتف ذلك."
-      : "\"Waiting\" means the phone has not tried yet. \"Retrying\" means it tried, the network refused, and it will try again — the reason is written under the message. It only counts as sent once the phone confirms it.",
-    inAppHint: isAr
-      ? "أنت تفتح النظام من داخل تطبيق ألفا على هذا الهاتف، لذلك يمكنك ربطه مباشرة."
-      : "You are viewing this inside the Alpha app on this phone, so you can pair it directly.",
-  };
+
+  const txt = useSettingsText("sms");
 
   const authedFetch = useCallback(async (url: string, init?: RequestInit) => {
     const token = await auth.currentUser?.getIdToken();

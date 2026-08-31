@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSettingsText } from "@/lib/useSettingsText";
 import { Save, MapPin, Loader2 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
@@ -10,15 +11,8 @@ export default function AttendanceSettings({ clinicData, setClinicData, handleSa
   const { showToast } = useUI();
   const [loading, setLoading] = useState(false);
 
-  const txt = {
-    attendanceTitle: language === 'ar' ? "نطاق الحضور الجغرافي" : "Attendance Geofencing",
-    attendanceSub: language === 'ar' ? "تقييد تسجيل الدخول عبر الهاتف بهذا الموقع الفعلي." : "Restrict mobile clock-ins to this exact physical location.",
-    autoGPS: language === 'ar' ? "التقاط GPS تلقائياً" : "Auto-Capture GPS",
-    lat: language === 'ar' ? "خط العرض (Latitude)" : "Latitude",
-    lng: language === 'ar' ? "خط الطول (Longitude)" : "Longitude",
-    radius: language === 'ar' ? "النطاق المسموح (بالمتر)" : "Allowed Radius (Meters)",
-    saveGeofence: language === 'ar' ? "حفظ النطاق الجغرافي" : "Save Geofence",
-  };
+
+  const txt = useSettingsText("attendance");
 
   const handleGetLocation = () => {
     if (!navigator.geolocation) { showToast("Geolocation is not supported", "error"); return; }

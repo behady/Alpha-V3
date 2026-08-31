@@ -1,6 +1,7 @@
 "use client";
 
 import { Save, Bell, AppWindow } from "lucide-react";
+import { useSettingsText } from "@/lib/useSettingsText";
 import { useLanguage } from "@/context/LanguageContext";
 
 const ToggleSwitch = ({
@@ -33,21 +34,8 @@ const ToggleSwitch = ({
 export default function NotificationSettings({ clinicData, setClinicData, handleSaveClinic }: any) {
   const { language } = useLanguage();
 
-  const txt = {
-    title: language === "ar" ? "إعدادات التنبيهات" : "Alerts & Notifications",
-    subtitle:
-      language === "ar"
-        ? "إدارة التوجيه الدقيق لتنبيهات النظام والمراسلات."
-        : "Manage precise routing for system alerts and messaging.",
-    save: language === "ar" ? "حفظ إعدادات التنبيهات" : "Save Alert Preferences",
 
-    inAppTitle: language === "ar" ? "تنبيهات النظام الداخلي (In-App)" : "In-App Clinical Alerts",
-    inAppSub:
-      language === "ar" ? "إشعارات تظهر للأطباء وموظفي الاستقبال." : "Push notifications visible to doctors and front desk.",
-
-    eventPatientArrival: language === "ar" ? "وصول المريض للعيادة" : "Patient Arrived (Waiting Area)",
-    eventLabReady: language === "ar" ? "استلام حالات المعمل" : "Lab Cases Received"
-  };
+  const txt = useSettingsText("alerts");
 
   const prefs = clinicData.alertPreferences || {
     email: { dailyRevenue: false, weeklyReport: false, lowInventory: false },

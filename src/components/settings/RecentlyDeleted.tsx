@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSettingsText } from "@/lib/useSettingsText";
 import { Trash2, RotateCcw, Loader2, Search, ShieldAlert, ImageIcon, Info } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
@@ -49,30 +50,8 @@ export default function RecentlyDeleted() {
   const [search, setSearch] = useState("");
   const [collectionFilter, setCollectionFilter] = useState("all");
 
-  const t = {
-    title: ar ? "المحذوفات مؤخراً" : "Recently Deleted",
-    sub: ar
-      ? "السجلات المحذوفة تُحفظ هنا حتى تستعيدها أو تحذفها نهائياً."
-      : "Deleted records are kept here until you restore them or remove them for good.",
-    empty: ar ? "لا يوجد شيء محذوف." : "Nothing has been deleted.",
-    noAccess: ar
-      ? "ليس لديك صلاحية حذف أي نوع من السجلات، فلا يوجد ما تراه هنا."
-      : "You have no delete permissions, so there is nothing here for you to see.",
-    search: ar ? "بحث..." : "Search…",
-    all: ar ? "كل الأنواع" : "All types",
-    restore: ar ? "استعادة" : "Restore",
-    purge: ar ? "حذف نهائي" : "Delete permanently",
-    deletedBy: ar ? "حذفها" : "Deleted by",
-    restored: ar ? "تمت الاستعادة" : "Restored",
-    purged: ar ? "تم الحذف نهائياً" : "Permanently deleted",
-    filesNote: ar
-      ? "حذف السجل ليس محواً: ملفات الصور يُحتفظ بها. للمحو النهائي استخدم الحذف النهائي."
-      : "Deleting a record is not erasure — image files are retained. For a true erasure request, use Delete permanently.",
-    hasFiles: ar ? "يحتوي على ملفات" : "has files",
-    purgeConfirm: ar
-      ? "سيُحذف هذا السجل نهائياً ولا يمكن استعادته بعدها. متأكد؟"
-      : "This removes the record for good and it cannot be restored afterwards. Are you sure?",
-  };
+
+  const t = useSettingsText("recentlyDeleted");
 
   const load = useCallback(async () => {
     if (!clinicId) return;

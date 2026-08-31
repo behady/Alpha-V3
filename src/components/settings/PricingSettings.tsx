@@ -1,6 +1,7 @@
 "use client";
 
 import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
+import { useSettingsText } from "@/lib/useSettingsText";
 import { useClinic } from "@/context/ClinicContext";
 import { useState, useEffect, useMemo } from "react";
 import { Search, Plus, Edit2, Trash2, X, Save, Clock, FlaskConical, AlertTriangle } from "lucide-react";
@@ -78,30 +79,15 @@ export default function PricingSettings({ currency }: { currency: string }) {
   const [iconTouched, setIconTouched] = useState(false);
 
   const ar = language === "ar";
+
   const txt = {
-    title: ar ? "الخدمات والأسعار" : "Services & Prices",
-    subtitle: ar
-      ? "كل خدمة لها فئة وأيقونة تظهران في كل مكان تُختار فيه."
-      : "Each service has a category and an icon, shown everywhere services are picked.",
-    searchTreatments: ar ? "البحث في العلاجات..." : "Search treatments...",
-    addTreatment: ar ? "إضافة علاج" : "Add treatment",
-    noTreatments: ar ? "لم يتم العثور على علاجات" : "No treatments found",
-    all: ar ? "الكل" : "All",
-    name: ar ? "اسم العلاج" : "Treatment name",
-    price: ar ? "السعر" : "Price",
-    category: ar ? "الفئة" : "Category",
-    icon: ar ? "الأيقونة" : "Icon",
-    suggested: ar ? "مقترحة" : "suggested",
-    duration: ar ? "المدة المعتادة (دقائق) — اختياري" : "Typical duration (minutes) — optional",
-    durationHint: ar
-      ? "تُسجل للجدولة. اتركها فارغة إذا كانت تختلف."
-      : "Recorded for scheduling. Leave blank if it varies.",
-    billing: ar ? "طريقة حساب السعر" : "How the price is charged",
+    ...useSettingsText("pricing"),
     billingModes: {
       per_tooth: ar ? "لكل سن" : "Per tooth",
       flat: ar ? "سعر ثابت" : "Flat fee",
       per_arch: ar ? "لكل فك" : "Per arch",
-    } as Record<PricingMode, string>,
+    } as Record<PricingMode,
+    string>,
     billingHint: {
       per_tooth: ar
         ? "السعر يتضرب في عدد الأسنان المختارة. مناسب للحشو والتيجان والخلع."
@@ -112,15 +98,8 @@ export default function PricingSettings({ currency }: { currency: string }) {
       per_arch: ar
         ? "السعر يتضرب في عدد الفكوك المختارة (واحد أو اتنين)."
         : "The price is multiplied by how many arches are selected (one or two).",
-    } as Record<PricingMode, string>,
-    ruleNotSet: ar ? "طريقة الحساب لم تُحدد" : "Billing rule not set",
-    lab: ar ? "يحتاج معمل خارجي" : "Needs external lab work",
-    labFee: ar ? "رسوم المعمل التقديرية" : "Estimated lab fee",
-    newTreatment: ar ? "علاج جديد" : "New treatment",
-    editTreatment: ar ? "تعديل العلاج" : "Edit treatment",
-    save: ar ? "حفظ" : "Save",
-    update: ar ? "تحديث" : "Update",
-    minutes: ar ? "د" : "min",
+    } as Record<PricingMode,
+    string>,
   };
 
   useEffect(() => {

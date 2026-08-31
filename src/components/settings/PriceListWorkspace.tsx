@@ -25,6 +25,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { useSettingsText } from "@/lib/useSettingsText";
 import {
   ArrowLeft,
   Check,
@@ -120,8 +121,11 @@ export default function PriceListWorkspace({
     [drafts, stored]
   );
 
+
   const txt = {
-    back: ar ? "رجوع" : "Back to lists",
+
+    ...useSettingsText("priceListWorkspace"),
+
     sub: isStandard
       ? ar
         ? "دي الأسعار الأساسية. أي قائمة تانية بتاخد السعر ده لو مالهاش سعر خاص."
@@ -129,41 +133,21 @@ export default function PriceListWorkspace({
       : ar
         ? "سيب الخانة فاضية عشان تتحاسب بالسعر الأساسي. املا بس العلاجات اللي بتتسعّر مختلف."
         : "Leave a cell blank to charge the standard price. Fill in only the treatments this list charges differently.",
-    search: ar ? "ابحث عن علاج..." : "Search treatments...",
-    all: ar ? "الكل" : "All",
-    treatment: ar ? "العلاج" : "Treatment",
-    standard: ar ? "السعر الأساسي" : "Standard",
-    onThisList: ar ? "على القائمة دي" : "On this list",
-    patientPays: ar ? "المريض يدفع" : "Patient pays",
-    sameAsStandard: ar ? "زي الأساسي" : "same as standard",
-    save: ar ? "حفظ" : "Save",
+
     saveCount: (n: number) => (ar ? `حفظ ${n} تغيير` : `Save ${n} change${n === 1 ? "" : "s"}`),
-    noChanges: ar ? "مفيش تغييرات" : "No changes yet",
-    discard: ar ? "تراجع" : "Discard",
-    saved: ar ? "اتحفظ" : "Saved",
-    failed: ar ? "فشل الحفظ" : "Could not save",
-    none: ar ? "مفيش علاجات" : "No treatments found",
-    bulkTitle: ar ? "تسعير سريع" : "Quick fill",
+
     // Says "shown below" and means it: the search box and the category chips scope this, which is
     // how you price one category at a rate different from the rest. It overwrites cells that
     // already have a number, so the wording must not imply it only touches blank ones.
     bulkBody: ar
       ? "بيحسب سعر كل علاج ظاهر تحت كنسبة خصم من السعر الأساسي، وبيستبدل اللي مكتوب. البحث والفئات بيحددوا اللي هيتغير. مش هيتحفظ غير لما تدوس حفظ."
       : "Prices every treatment shown below at a percentage off its standard price, replacing anything already typed. The search box and category chips narrow what it touches. Nothing is written until you press Save.",
-    bulkApply: ar ? "املا" : "Fill",
-    bulkClear: ar ? "فضّي الكل" : "Clear all",
+
     blanketNote: (pct: number) =>
       ar
         ? `كل خدمة من القائمة دي بتيجي وعليها خصم ${pct}% ظاهر وقابل للتعديل، فوق السعر ده.`
         : `Services picked from this list arrive with a visible, editable ${pct}% discount on top of this price.`,
-    leaveTitle: ar ? "فيه تغييرات مش متحفوظة" : "Unsaved changes",
-    leaveBody: ar
-      ? "لو خرجت دلوقتي التغييرات هتضيع. تخرج؟"
-      : "Leaving now discards what you have typed. Leave anyway?",
-    leaveConfirm: ar ? "اخرج" : "Leave",
-    standardWarning: ar
-      ? "تعديل هنا بيغيّر السعر الأساسي نفسه، اللي كل القوائم التانية بترجع له."
-      : "Editing here changes the standard price itself, which every other list falls back to.",
+
   };
 
   const filtered = useMemo(

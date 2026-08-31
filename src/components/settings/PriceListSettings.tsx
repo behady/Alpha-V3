@@ -15,6 +15,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { useSettingsText } from "@/lib/useSettingsText";
 import { onSnapshot, setDoc, writeBatch, doc, getDocs } from "firebase/firestore";
 import { Check, Loader2, Plus, Star, Tag, Trash2, X, Percent, Copy, SlidersHorizontal, Building2, Layers } from "lucide-react";
 import { db } from "@/lib/firebase";
@@ -109,72 +110,23 @@ export default function PriceListSettings({ currency }: { currency: string }) {
     };
   }, []);
 
+
   const txt = {
-    title: ar ? "قوائم الأسعار" : "Price lists",
-    subtitle: ar
-      ? "طرق مختلفة لتسعير نفس العلاج — تأمين، عرض، سعر عائلة. الخصم العام بيتحط تلقائي وبيفضل ظاهر."
-      : "Different ways of charging for the same treatment. A list's blanket discount is prefilled on each line and stays visible.",
-    addList: ar ? "قائمة جديدة" : "New list",
-    listName: ar ? "اسم القائمة" : "List name",
-    blanket: ar ? "خصم عام" : "Blanket discount",
-    makeDefault: ar ? "اجعلها الافتراضية" : "Make default",
-    isDefault: ar ? "الافتراضية" : "Default",
-    active: ar ? "شغالة" : "Active",
-    inactive: ar ? "موقوفة" : "Inactive",
-    deactivate: ar ? "أوقف" : "Deactivate",
-    activate: ar ? "شغّل" : "Activate",
-    remove: ar ? "احذف" : "Delete",
-    cannotDeactivateDefault: ar
-      ? "مينفعش توقف القائمة الافتراضية. خلي قائمة تانية افتراضية الأول."
-      : "The default list cannot be deactivated. Make another list the default first.",
-    inUse: ar
-      ? "فيه خدمات مسعّرة على القائمة دي، فمينفعش تتحذف. أوقفها بدل الحذف."
-      : "Services are priced on this list, so it cannot be deleted. Deactivate it instead.",
-    confirmBlanketTitle: ar ? "تغيير الخصم العام" : "Change the blanket discount",
+
+    ...useSettingsText("priceLists"),
+
     confirmBlanket: (name: string, pct: number) =>
       ar
         ? `أي خدمة تتاخد من "${name}" من دلوقتي هتيجي وعليها خصم ${pct}% ظاهر وقابل للتعديل. العلاج المسجل قبل كده مش هيتغير.`
         : `Services picked from "${name}" will arrive with a visible, editable ${pct}% discount from now on. Treatments already recorded are not changed.`,
-    confirmDeleteTitle: ar ? "حذف القائمة" : "Delete price list",
+
     confirmDelete: (name: string) =>
       ar ? `تحذف قائمة "${name}" نهائياً؟` : `Permanently delete the price list "${name}"?`,
-    reasonsTitle: ar ? "أسباب الخصم" : "Discount reasons",
-    reasonsSub: ar
-      ? "لازم سبب مع أي خصم — عشان آخر الشهر تعرف الفلوس راحت فين، مش بس إنها راحت."
-      : "A reason is required with every discount, so at month end you can see where the money went, not just that it went.",
-    addReason: ar ? "سبب جديد" : "New reason",
-    capTitle: ar ? "حد الخصم لغير المديرين" : "Discount ceiling for non-Admins",
-    capSub: ar
-      ? "أعلى نسبة يقدر أي حد غير المدير يخصمها. المدير مالوش حد."
-      : "The most anyone who is not an Admin can take off. Admins have no ceiling.",
-    noCap: ar ? "بدون حد" : "No ceiling",
-    saved: ar ? "اتحفظ" : "Saved",
-    failed: ar ? "فشل الحفظ" : "Could not save",
-    editPrices: ar ? "الأسعار" : "Prices",
-    newListTitle: ar ? "قائمة أسعار جديدة" : "New price list",
-    startFrom: ar ? "تبدأ منين؟" : "Start from",
-    fresh: ar ? "من الأول" : "Start fresh",
-    freshHint: ar
-      ? "كل العلاجات هتتحاسب بالسعر الأساسي لحد ما تغيّرها."
-      : "Every treatment charges the standard price until you change it.",
+
     copyOf: (name: string) => (ar ? `نسخة من "${name}"` : `Copy of "${name}"`),
-    copyHint: ar
-      ? "بينسخ كل أسعار القائمة دي، وبعدين تعدّل اللي عايزه."
-      : "Copies that list's prices across, then you edit what differs.",
-    create: ar ? "إنشاء" : "Create list",
-    listNamePlaceholder: ar ? "مثلاً: تأمين مصر" : "e.g. Misr Insurance",
+
     priced: (n: number) => (ar ? `${n} علاج مسعّر` : `${n} priced`),
-    pricedNone: ar ? "بالسعر الأساسي" : "all at standard price",
-    clinicWide: ar ? "كل الفروع" : "All branches",
-    branchInherits: ar
-      ? "الفرع ده بيحاسب بأسعار العيادة العامة. اعمل له قائمة لو أسعاره مختلفة."
-      : "This branch charges the clinic-wide prices. Give it a list of its own if it charges differently.",
-    orphaned: ar ? "فروع محذوفة" : "Lists on a deleted branch",
-    branchLabel: ar ? "الفرع" : "Branch",
-    branchAll: ar ? "كل الفروع" : "All branches (clinic-wide)",
-    branchHint: ar
-      ? "القائمة دي هتظهر بس في الفرع ده. سيبها على كل الفروع لو الأسعار واحدة."
-      : "The list is only offered at that branch. Leave it clinic-wide if every branch charges it.",
+
   };
 
   const clinicWideActiveCount = useMemo(

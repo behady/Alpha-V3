@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSettingsText } from "@/lib/useSettingsText";
 import { Sparkles, MessageCircle, Stethoscope, ClipboardList, Languages, Megaphone, HelpCircle, User } from "lucide-react";
 import { onSnapshot, query, orderBy, limit } from "firebase/firestore";
 import { getClinicCollection } from "@/lib/db-utils";
@@ -45,30 +46,15 @@ export default function AiCreditsSettings() {
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey);
   const [logRows, setLogRows] = useState<LogRow[]>([]);
 
+
   const txt = {
-    title: ar ? "رصيد الذكاء الاصطناعي" : "AI Credits",
-    subtitle: ar
-      ? "كل استخدام للذكاء الاصطناعي بيتسجل هنا — مين استخدم إيه، ولمين، وكلّف كام."
-      : "Every AI action is logged here — who used what, for which patient, and what it cost.",
-    used: ar ? "المستخدم" : "Used",
-    limit: ar ? "الحد الشهري" : "Monthly limit",
-    remaining: ar ? "المتبقي" : "Remaining",
-    unlimited: ar ? "غير محدود" : "Unlimited",
-    credits: ar ? "رصيد" : "credits",
-    credit: ar ? "رصيد" : "credit",
-    breakdown: ar ? "التوزيع حسب الخدمة" : "Breakdown by feature",
-    unitemized: ar ? "غير مفصّل (قبل تفعيل السجل)" : "Not itemized (before logging started)",
-    log: ar ? "سجل الاستخدام" : "Usage log",
+
+    ...useSettingsText("aiCredits"),
+
     logNote: ar
       ? `أحدث ${LOG_FETCH_LIMIT} عملية. العمليات الأقدم من تفعيل السجل مش هتظهر هنا لكنها محسوبة في الإجمالي.`
       : `Latest ${LOG_FETCH_LIMIT} events. Actions from before logging started are counted in the totals but have no rows here.`,
-    empty: ar ? "لا يوجد استخدام مسجل في هذا الشهر بعد" : "No logged usage for this month yet",
-    when: ar ? "الوقت" : "When",
-    feature: ar ? "الخدمة" : "Feature",
-    patient: ar ? "المريض" : "Patient",
-    byWho: ar ? "بواسطة" : "By",
-    cost: ar ? "التكلفة" : "Cost",
-    resetNote: ar ? "الرصيد بيتجدد أول كل شهر." : "Credits reset on the 1st of every month.",
+
   };
 
   const FEATURE_META: Record<string, { label: string; icon: typeof Sparkles; color: string }> = {

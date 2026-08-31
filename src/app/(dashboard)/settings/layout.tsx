@@ -18,6 +18,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSettingsText } from "@/lib/useSettingsText";
 import { usePathname, useRouter } from "next/navigation";
 import { ChevronDown, Search, Settings2, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
@@ -120,20 +121,8 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
     [confirmLeave, pathname, router]
   );
 
-  const txt = {
-    title: language === "ar" ? "الإعدادات" : "Settings",
-    subtitle:
-      language === "ar"
-        ? "كل ما يمكن ضبطه في العيادة، في مكان واحد."
-        : "Everything you can configure, in one place.",
-    search: language === "ar" ? "ابحث في الإعدادات" : "Search settings",
-    noResults: language === "ar" ? "لا يوجد قسم بهذا الاسم" : "No section by that name",
-    clear: language === "ar" ? "امسح البحث" : "Clear search",
-    readOnly:
-      language === "ar"
-        ? "اشتراك العيادة منتهي — يمكنك الاطلاع دون حفظ."
-        : "This clinic's subscription has ended — you can look, but not save.",
-  };
+
+  const txt = useSettingsText("shell");
 
   const ActiveIcon = active ? (SETTINGS_ICONS[active.id] ?? Settings2) : Settings2;
   const activeLabel = active

@@ -1,6 +1,7 @@
 "use client";
 
 import { Globe, Palette, Check, Loader2, Lock } from "lucide-react";
+import { useSettingsText } from "@/lib/useSettingsText";
 import { useLanguage } from "@/context/LanguageContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -21,24 +22,8 @@ export default function AppearanceSettings() {
   const { presetId, resolved, saving, canEdit, setPreset } = useTheme();
   const isAr = language === "ar";
 
-  const txt = {
-    langSettings: isAr ? "إعدادات اللغة" : "Language Settings",
-    switchLang: isAr ? "Switch System to English" : "تغيير النظام إلى العربية",
-    themeSettings: isAr ? "مظهر العيادة" : "Clinic Appearance",
-    themeHint: isAr
-      ? "يظهر هذا المظهر لكل من يعمل في العيادة، على كل جهاز."
-      : "This applies to everyone in the clinic, on every device.",
-    adminOnly: isAr
-      ? "المدير أو المالك فقط يمكنه تغيير المظهر."
-      : "Only an owner or admin can change the appearance.",
-    expired: isAr
-      ? "اشتراك العيادة منتهي — لا يمكن حفظ التغييرات."
-      : "This clinic's subscription has expired, so changes cannot be saved.",
-    suspended: isAr
-      ? "العيادة موقوفة — لا يمكن حفظ التغييرات."
-      : "This clinic is suspended, so changes cannot be saved.",
-    current: isAr ? "الحالي" : "Current",
-  };
+
+  const txt = useSettingsText("appearance");
 
   const lockReason =
     readOnlyReason === "expired" ? txt.expired

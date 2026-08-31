@@ -36,6 +36,7 @@ import {
   type SettingsSection,
 } from "../src/config/settingsRegistry";
 import { getAllPermissionIds } from "../src/config/permissionsCatalog";
+import { SETTINGS_TEXT, settingsText } from "../src/config/settingsText";
 
 // fileURLToPath, not .pathname: on Windows the latter yields "/C:/Users/..." and every join()
 // below then builds "C:\C:\Users\...".
@@ -804,6 +805,86 @@ assert.deepEqual(
   "ClinicalEditorMode is declared in UIContext and again in lib/uiPreferences. They must list the " +
     "same modes, or a stored preference silently fails validation and resets to the default."
 );
+
+// --- 14. Every label exists in both languages ---------------------------------------------------
+//
+// The settings screens spliced their Arabic and English into the markup one string at a time,
+// hundreds of times over. Nobody could read the Arabic without reading the components, so nobody
+// ever did — and a label that had quietly lost one language looked like a broken screen rather
+// than an untranslated one. They live in src/config/settingsText.ts now, and these cases are what
+// keep that file trustworthy.
+
+let labels = 0;
+for (const [section, entries] of Object.entries(SETTINGS_TEXT)) {
+  for (const [key, pair] of Object.entries(entries as Record<string, { en: string; ar: string }>)) {
+    labels++;
+    ok(
+      typeof pair.en === "string" && pair.en.trim().length > 0,
+      `settingsText.${section}.${key} has no English`
+    );
+    ok(
+      typeof pair.ar === "string" && pair.ar.trim().length > 0,
+      `settingsText.${section}.${key} has no Arabic — it would render as nothing at all, which ` +
+        `reads as a bug rather than a missing translation`
+    );
+    // The commonest way an Arabic entry goes wrong is being left as a copy of the English.
+    ok(
+      pair.ar !== pair.en || /^[^A-Za-z]*$/.test(pair.en) || pair.en.length <= 3,
+      `settingsText.${section}.${key} is identical in both languages ("${pair.en}") — either it ` +
+        `was never translated, or it is a symbol that needs no translation and can be spelled the same`
+    );
+  }
+}
+ok(labels > 250, `expected the bulk of the settings labels here, found ${labels}`);
+
+// Resolving a section must return a plain string per key in both languages, so a missing key is a
+// compile error at the call site rather than a blank label found by a clinic.
+for (const language of ["en", "ar"]) {
+  const resolved = settingsText("sms", language) as Record<string, string>;
+  ok(
+    Object.keys(resolved).length === Object.keys(SETTINGS_TEXT.sms).length,
+    `settingsText("sms", "${language}") dropped keys`
+  );
+  ok(
+    Object.values(resolved).every((v) => typeof v === "string" && v.length > 0),
+    `settingsText("sms", "${language}") produced a blank label`
+  );
+}
+
+// Arabic and English must actually differ per language, or the resolver is ignoring its argument.
+ok(
+  (settingsText("sms", "ar") as Record<string, string>).title !==
+    (settingsText("sms", "en") as Record<string, string>).title,
+  "settingsText returns the same text whatever the language — the resolver is ignoring it"
+);
+
+/**
+ * The panels must not start splicing languages inline again beside the dictionary. Checked on the
+ * files that were converted: a mixture is worse than either, because half the strings are then
+ * invisible to whoever is proofreading the file.
+ */
+const CONVERTED = [
+  "src/components/settings/SmsSettings.tsx",
+  "src/components/settings/ScheduleSettings.tsx",
+  "src/components/settings/NotificationSettings.tsx",
+  "src/components/settings/AttendanceSettings.tsx",
+  "src/components/settings/AppearanceSettings.tsx",
+  "src/components/settings/RecentlyDeleted.tsx",
+  "src/components/settings/hosts/UsersHost.tsx",
+];
+for (const file of CONVERTED) {
+  const text = stripComments(readFileSync(join(REPO, file), "utf8"));
+  ok(
+    text.includes("useSettingsText("),
+    `${file} no longer reads its labels from settingsText.ts`
+  );
+  const inline = text.match(/language === ["']ar["']\s*\?/g) ?? [];
+  ok(
+    inline.length === 0,
+    `${file} has ${inline.length} label(s) spliced inline again. Put them in ` +
+      `src/config/settingsText.ts so all the Arabic stays readable in one place.`
+  );
+}
 
 console.log(`settingsRegistry: ${checks} checks passed across ${SETTINGS_SECTIONS.length} sections`);
 console.log(`  settings documents guarded: ${docIds.join(", ")}`);

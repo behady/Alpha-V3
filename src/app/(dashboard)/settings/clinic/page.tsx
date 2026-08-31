@@ -1,5 +1,6 @@
 "use client";
 import { clinicLogoPath } from "@/lib/storagePaths";
+import { useSettingsText } from "@/lib/useSettingsText";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -73,47 +74,8 @@ export default function ClinicProfileSettingsPage() {
     !loading && (logoFile !== null || JSON.stringify(form) !== JSON.stringify(saved))
   );
 
-  const txt = {
-    back: language === "ar" ? "الإعدادات" : "Settings",
-    title: language === "ar" ? "العيادة" : "Clinic profile",
-    subtitle:
-      language === "ar"
-        ? "الاسم، الشعار، التواصل، رابط الخرائط، ورابط التقييم على جوجل."
-        : "Name, logo, contact details, Maps location, and a direct Google review link.",
-    name: language === "ar" ? "اسم العيادة" : "Clinic name",
-    phone: language === "ar" ? "هاتف العيادة" : "Clinic phone",
-    address: language === "ar" ? "العنوان" : "Address",
-    maps: language === "ar" ? "رابط خرائط جوجل (الموقع)" : "Google Maps URL (location)",
-    mapsHint:
-      language === "ar"
-        ? "للمريض للوصول للعيادة — ليس بالضرورة رابط كتابة التقييم."
-        : "For directions to the clinic — not necessarily the write-a-review URL.",
-    review: language === "ar" ? "رابط تقييم جوجل (مباشر)" : "Google review link (direct)",
-    reviewHint:
-      language === "ar"
-        ? "رابط يفتح صفحة ترك تقييم (مثلاً من ملف النشاط التجاري أو g.page). يُستخدم في واتساب {{google_link}}."
-        : "URL that opens Google’s review form for your clinic (Business Profile or short link). Used for WhatsApp {{google_link}}.",
-    currency: language === "ar" ? "العملة" : "Currency",
-    currencyHint:
-      language === "ar"
-        ? "تظهر بجانب كل سعر وعلى خطط العلاج والتقارير. مثال: EGP أو SAR."
-        : "Shown beside every price, and on treatment plans and reports. For example EGP or SAR.",
-    rxHeader: language === "ar" ? "ترويسة الروشتة" : "Prescription header",
-    rxHeaderPlaceholder:
-      language === "ar" ? "د. أحمد محمود — أخصائي تجميل الأسنان" : "Dr. Sarah Ahmed — Prosthodontist",
-    rxHeaderHint:
-      language === "ar"
-        ? "السطر أسفل اسم العيادة في كل روشتة. اتركه فارغاً ليظهر اسم الطبيب المعالج."
-        : "The line under the clinic name on every prescription. Leave it blank to print the treating dentist's name.",
-    logo: language === "ar" ? "الشعار" : "Logo",
-    logoHint:
-      language === "ar" ? "PNG أو JPG — يُرفع إلى التخزين السحابي." : "PNG or JPG — stored in Firebase Storage.",
-    save: language === "ar" ? "حفظ" : "Save",
-    saved: language === "ar" ? "تم الحفظ" : "Saved",
-    failed: language === "ar" ? "فشل الحفظ" : "Save failed",
-    uploadFail: language === "ar" ? "فشل رفع الصورة" : "Upload failed",
-    needAuth: language === "ar" ? "سجّل الدخول" : "Sign in required",
-  };
+
+  const txt = useSettingsText("clinicProfile");
 
   useEffect(() => {
     let cancelled = false;
