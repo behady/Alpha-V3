@@ -221,15 +221,32 @@ export default function WhatsAppSettings() {
 
   const txt = useMemo(
     () => ({
+      railLiveBadge: language === "ar" ? "يعمل" : "Sending",
+      railManualBadge: language === "ar" ? "يدوي" : "Manual",
+      railOffBadge: language === "ar" ? "متوقف" : "Not sending",
+      railLiveMeta: language === "ar"
+        ? "الرسائل تُرسل تلقائياً من قناة واتساب الرسمية."
+        : "Messages send automatically through the official WhatsApp channel.",
+      railLiveOwn: language === "ar"
+        ? "الرسائل تُرسل تلقائياً من رقم العيادة."
+        : "Messages send automatically from the clinic's own number.",
+      railManualMeta: language === "ar"
+        ? "متصل، لكن كل رسالة تفتح في واتساب لترسلها بنفسك."
+        : "Connected, but every message opens in WhatsApp for you to send.",
+      railManualOwn: language === "ar"
+        ? "متصل برقم العيادة، وكل رسالة تفتح لترسلها بنفسك."
+        : "Connected to the clinic's number, but every message opens for you to send.",
+      railOff: language === "ar" ? "لا يمكن إرسال أي رسالة الآن." : "No messages can be sent yet.",
+      railOffDetail: language === "ar"
+        ? "اربط قناة من تبويب الاتصال لتبدأ الرسائل في الوصول."
+        : "Connect a channel under Connection and messages will start going out.",
+      savingNow: language === "ar" ? "جارٍ الحفظ..." : "Saving...",
+      savedAll: language === "ar" ? "كل التغييرات محفوظة" : "All changes saved",
       tab_connection: language === "ar" ? "الاتصال" : "Connection",
       tab_messages: language === "ar" ? "الرسائل" : "Messages",
       tab_wording: language === "ar" ? "الصياغة" : "Wording",
       tab_incoming: language === "ar" ? "الوارد" : "Incoming",
       title: language === "ar" ? "واتساب" : "WhatsApp",
-      subtitle:
-        language === "ar"
-          ? "أتمتة رسائل المرضى وتنبيهات المالك"
-          : "Patient automation & owner alerts",
       patientCard: language === "ar" ? "أتمتة رسائل المرضى" : "Patient automation",
     saveRefused:
       language === "ar"
@@ -391,7 +408,6 @@ export default function WhatsAppSettings() {
       ownerNumber: language === "ar" ? "رقم واتساب المالك" : "Owner WhatsApp number",
       ownerHint: language === "ar" ? "صيغة دولية مفضلة (+2010...)" : "Prefer E.164 format (+2010...)",
       alertGrid: language === "ar" ? "قواعد التنبيه" : "Alert rules",
-      saveAll: language === "ar" ? "حفظ الإعدادات" : "Save settings",
       saved: language === "ar" ? "تم الحفظ" : "Saved",
       failed: language === "ar" ? "فشل الحفظ" : "Save failed",
       templateSaved: language === "ar" ? "تم تحديث القالب" : "Template updated",
@@ -766,12 +782,54 @@ export default function WhatsAppSettings() {
     showToast(txt.packApplied, "success");
   };
 
+  /**
+   * Saves on change, like every other switch here.
+   *
+   * This was the one control on the page that did not, which is the entire reason a page-wide
+   * Save button existed — and why it sat at the bottom of a very long scroll, minutes away from
+   * the checkbox that needed it.
+   */
   const toggleOwnerAlert = (key: OwnerAlertKey, value: boolean) => {
-    setState((prev) => ({
-      ...prev,
-      ownerAlerts: { ...prev.ownerAlerts, [key]: value },
-    }));
+    setState((prev) => {
+      const next = { ...prev, ownerAlerts: { ...prev.ownerAlerts, [key]: value } };
+      void persist(next, "silent");
+      return next;
+    });
   };
+
+  /**
+   * What the rail says. Plain language, and the manual case is a first-class answer rather than a
+   * footnote: a clinic on manual delivery IS connected, but nothing leaves without someone
+   * pressing send, and not knowing that is how a day of reminders quietly goes nowhere.
+   */
+  const channel = (() => {
+    const manual = state.deliveryMode === "manual";
+    if (metaStatus?.configured) {
+      return {
+        live: true,
+        badge: manual ? txt.railManualBadge : txt.railLiveBadge,
+        headline: manual ? txt.railManualMeta : txt.railLiveMeta,
+        number: metaStatus.phoneNumberId ? `ID ${metaStatus.phoneNumberId}` : "",
+        detail: "",
+      };
+    }
+    if (wapilotStatus?.configured) {
+      return {
+        live: true,
+        badge: manual ? txt.railManualBadge : txt.railLiveBadge,
+        headline: manual ? txt.railManualOwn : txt.railLiveOwn,
+        number: wapilotStatus.connectedPhoneHint ? String(wapilotStatus.connectedPhoneHint) : "",
+        detail: "",
+      };
+    }
+    return {
+      live: false,
+      badge: txt.railOffBadge,
+      headline: txt.railOff,
+      number: "",
+      detail: txt.railOffDetail,
+    };
+  })();
 
   const handleSendTest = async () => {
     const e164 = testE164Preview;
@@ -821,36 +879,67 @@ export default function WhatsAppSettings() {
   }
 
   return (
-    <div className="space-y-6" dir={isRTL ? "rtl" : "ltr"}>
-      <div className="flex items-start gap-4">
-        <div className="bg-primary-50 p-3 rounded-2xl text-primary-600 border border-primary-100 shrink-0">
-          <MessageCircle size={24} />
-        </div>
-        <div>
-          <h2 className="text-xl font-black text-ink tracking-tight">{txt.title}</h2>
-          <p className="text-sm text-ink-muted font-medium mt-1">{txt.subtitle}</p>
+    <div className="mx-auto w-full max-w-3xl space-y-10 pb-4" dir={isRTL ? "rtl" : "ltr"}>
+      {/* The one question this screen exists to answer, answered before anything else: can the
+          clinic send right now, through what, and from which number. The old page made you read
+          two gateway cards and decode two status pills to work it out. The number is set in the
+          figure face — the treatment money and counts get elsewhere — because it is a stated fact,
+          not form data. */}
+      <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 space-y-2">
+            <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
+              <MessageCircle size={12} />
+              {txt.title}
+            </p>
+            <p className="text-lg font-bold leading-snug text-white sm:text-xl">{channel.headline}</p>
+            {channel.number ? (
+              <p className="font-figure text-[15px] tracking-tight text-white/70" dir="ltr">
+                {channel.number}
+              </p>
+            ) : (
+              <p className="max-w-md text-[13px] leading-relaxed text-white/55">{channel.detail}</p>
+            )}
+          </div>
+
+          <div className="flex items-center gap-3 sm:flex-col sm:items-end sm:gap-2">
+            <span
+              className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] ${
+                channel.live ? "bg-white/12 text-white" : "bg-amber-400/20 text-amber-200"
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${channel.live ? "bg-emerald-400" : "bg-amber-400"}`}
+              />
+              {channel.badge}
+            </span>
+            {/* Saving is reported here, where it is always in view, instead of by a button at the
+                bottom of a long scroll. Everything on this page writes as you change it. */}
+            <span className="text-[11px] font-semibold text-white/45">
+              {saveError ? txt.saveRefused : saving ? txt.savingNow : txt.savedAll}
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* Four jobs, four tabs. One 382-line card used to hold six unrelated settings with no
-          hierarchy between them, which is why nothing on this page read as more important than
-          anything else. */}
-      <div className="flex flex-wrap gap-1 rounded-2xl bg-surface-subtle border border-line p-1">
-        {WHATSAPP_TABS.map((id) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setTab(id)}
-            aria-current={tab === id ? "page" : undefined}
-            className={`flex-1 min-w-[7rem] rounded-xl px-4 py-2.5 text-xs font-black uppercase tracking-wider transition-all ${
-              tab === id
-                ? "bg-surface text-ink shadow-sm border border-line"
-                : "text-ink-muted hover:text-ink border border-transparent"
-            }`}
-          >
-            {txt[`tab_${id}` as keyof typeof txt] as string}
-          </button>
-        ))}
+      <div className="border-b border-line">
+        <div className="-mb-px flex gap-6 overflow-x-auto no-scrollbar">
+          {WHATSAPP_TABS.map((id) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTab(id)}
+              aria-current={tab === id ? "page" : undefined}
+              className={`whitespace-nowrap border-b-2 pb-3 text-[13px] font-bold transition-colors ${
+                tab === id
+                  ? "border-accent text-ink"
+                  : "border-transparent text-ink-muted hover:text-ink-body"
+              }`}
+            >
+              {txt[`tab_${id}` as keyof typeof txt] as string}
+            </button>
+          ))}
+        </div>
       </div>
 
       {tab === "connection" && (
@@ -960,7 +1049,7 @@ export default function WhatsAppSettings() {
         {/* Official Meta Cloud API. Above the two-column grid, beside Wapilot's card: they are the
             same decision — how this clinic's messages leave — and reading one without seeing the
             other is how a clinic ends up configured twice or not at all. */}
-        <section className="rounded-2xl xl:rounded-3xl bg-surface border border-emerald-200/80 shadow-sm ring-1 ring-emerald-100 p-5 xl:p-6 space-y-4">
+        <section className="rounded-2xl xl:rounded-3xl bg-surface border border-line shadow-sm ring-1 ring-line p-5 xl:p-6 space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="flex items-center gap-2 text-emerald-700">
               <MessageCircle size={18} />
@@ -1037,7 +1126,7 @@ export default function WhatsAppSettings() {
           </button>
         </section>
 
-        <section className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 shadow-sm ring-1 ring-slate-100 p-5 xl:p-6 flex flex-col gap-4">
+        <section className="rounded-2xl xl:rounded-3xl bg-surface border border-line shadow-sm ring-1 ring-line p-5 xl:p-6 flex flex-col gap-4">
           <div className="flex items-center gap-2 text-primary-600">
             <Send size={18} />
             <h3 className="text-sm font-black uppercase tracking-wider text-slate-800">{txt.testCard}</h3>
@@ -1100,7 +1189,7 @@ export default function WhatsAppSettings() {
       )}
 
       {tab === "messages" && (
-      <section className="rounded-2xl xl:rounded-3xl bg-surface border border-line shadow-sm ring-1 ring-line p-5 xl:p-6 flex flex-col gap-5">
+      <div className="flex flex-col gap-8">
         <label className="flex items-center justify-between gap-4 cursor-pointer rounded-xl border border-line bg-slate-50/80 px-4 py-3">
           <span className="text-sm font-bold text-slate-700">{txt.patientToggle}</span>
           <input
@@ -1256,11 +1345,11 @@ export default function WhatsAppSettings() {
           <p className="text-xs text-amber-900 leading-relaxed">{txt.optOutWarning}</p>
         </div>
 
-      </section>
+      </div>
       )}
 
       {tab === "wording" && (
-      <section className="rounded-2xl xl:rounded-3xl bg-surface border border-line shadow-sm ring-1 ring-line p-5 xl:p-6 flex flex-col gap-5">
+      <div className="flex flex-col gap-8">
         {/* Which built-in wording the templates start from. */}
         <div className="space-y-3">
           <p className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.packTitle}</p>
@@ -1354,16 +1443,16 @@ export default function WhatsAppSettings() {
             {txt.saveTemplate}
           </button>
         </div>
-      </section>
+      </div>
       )}
 
       {tab === "incoming" && (
         <div className="space-y-6">
-      <section className="rounded-2xl xl:rounded-3xl bg-surface border border-line shadow-sm ring-1 ring-line p-5 xl:p-6 flex flex-col gap-5">
+      <div className="flex flex-col gap-8">
         {/* Answering inbound messages. Sits under the opt-out card because it shares the same
             risk: this is the one feature that talks to a patient with no staff member deciding
             to, so its off-switch and its limits belong where they can be read together. */}
-        <div className="rounded-xl border border-line bg-surface-subtle p-4 space-y-3">
+        <div className="space-y-3">
           <p className="text-[11px] font-black uppercase tracking-widest text-ink-body">{txt.botTitle}</p>
           <label className="flex items-center justify-between gap-4 cursor-pointer">
             <span className="text-sm font-black text-ink leading-relaxed">{txt.botToggle}</span>
@@ -1491,9 +1580,9 @@ export default function WhatsAppSettings() {
           )}
         </div>
 
-      </section>
+      </div>
         {/* Owner alerts */}
-        <section className="rounded-2xl xl:rounded-3xl bg-surface border border-slate-200/80 shadow-sm ring-1 ring-slate-100 p-5 xl:p-6 flex flex-col gap-5">
+        <section className="rounded-2xl xl:rounded-3xl bg-surface border border-line shadow-sm ring-1 ring-line p-5 xl:p-6 flex flex-col gap-5">
           <h3 className="text-sm font-black uppercase tracking-wider text-slate-800">{txt.ownerCard}</h3>
 
           <label className="block">
@@ -1550,19 +1639,6 @@ export default function WhatsAppSettings() {
         </div>
       )}
 
-      {tab !== "connection" && (
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => void persist(state)}
-            disabled={saving}
-            className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-primary-600 text-white text-xs font-black uppercase tracking-widest hover:bg-primary-700 shadow-md shadow-primary-600/20 disabled:opacity-50 transition-all"
-          >
-            {saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
-            {txt.saveAll}
-          </button>
-        </div>
-      )}
     </div>
   );
 }
