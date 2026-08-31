@@ -699,8 +699,14 @@ function sectionSource(sectionId: string): string {
   return text;
 }
 
+/**
+ * A CALL, not an import. Matching the import line meant a panel could keep the import, lose the
+ * call, and still pass — which is exactly what a mutation test of this check turned up.
+ */
 const isGuarded = (sectionId: string) =>
-  /useSettingsDraft|useDirtyFlag/.test(sectionSource(sectionId));
+  /useSettingsDraft\s*[<(]|useDirtyFlag\s*\(/.test(
+    stripComments(sectionSource(sectionId)).replace(/^import[^;]*;$/gm, "")
+  );
 
 /**
  * Correctly unguarded: nothing on these screens is ever half-finished. They either only read, or
@@ -715,12 +721,15 @@ const NO_PENDING_EDITS = new Set([
 ]);
 
 /**
- * Still to convert. Each has a Save button and real pending state, so leaving one of these mid-edit
- * still loses it silently. Both are large panels with several independent save buttons, which is
- * why they were left rather than rushed — WhatsAppSettings alone is over 1,500 lines with six.
- * Delete an entry from this list when it is converted; the check below then requires it.
+ * Empty, and worth keeping so the next unconverted panel has somewhere honest to sit.
+ *
+ * WhatsApp, SMS and Profile were the last three. None took the full draft contract, because most
+ * of what those screens hold saves the moment it is clicked — treating the whole document as a
+ * draft would have reported unsaved work permanently. They report the parts that genuinely wait
+ * for a button instead: a message template being typed, an SMS body being rewritten, a bio, and
+ * the access tokens in the WhatsApp connection forms.
  */
-const AWAITING_CONVERSION = new Set(["whatsapp", "sms", "general"]);
+const AWAITING_CONVERSION = new Set<string>([]);
 
 for (const section of SETTINGS_SECTIONS) {
   const guarded = isGuarded(section.id);

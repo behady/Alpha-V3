@@ -11,6 +11,7 @@ import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
 import { hasFeature } from "@/lib/subscriptions";
 import { logActivity } from "@/lib/logger";
+import { useDirtyFlag } from "@/context/UnsavedChangesContext";
 import type {
   OwnerAlertKey,
   WhatsAppMessageTemplate,
@@ -652,6 +653,25 @@ export default function WhatsAppSettings() {
   useEffect(() => {
     syncDraftFromType(templateType, state.templates);
   }, [templateType, state.templates, syncDraftFromType]);
+
+  /**
+   * What is actually unsaved on this screen.
+   *
+   * Not the whole document: the toggles here persist the moment they are clicked, so treating the
+   * settings object as a draft would report unsaved work permanently. The two things that really
+   * do wait for a button are the message template being typed, and the credentials in the
+   * connection forms — and a half-entered access token lost to a stray click means fetching it
+   * from Meta again.
+   */
+  const storedTemplate = state.templates.find((t) => t.type === templateType);
+  const templateDirty =
+    hasLoaded &&
+    (draftMessage !== (storedTemplate?.message ?? "") ||
+      draftActive !== (storedTemplate?.isActive ?? true));
+  const connectionDirty = Boolean(
+    metaTokenDraft.trim() || wapilotTokenDraft.trim() || metaPhoneNumberId.trim() !== (metaStatus?.phoneNumberId ?? "")
+  );
+  useDirtyFlag("whatsapp", templateDirty || connectionDirty);
 
   const persist = async (next: WhatsAppSettingsDocument, toastMode: "default" | "template" | "silent" | "none" = "default") => {
     setSaving(true);

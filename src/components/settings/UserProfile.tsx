@@ -14,6 +14,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { useDirtyFlag } from "@/context/UnsavedChangesContext";
 import {
   DEFAULT_COUNTRY_CODE,
   COUNTRY_CODE_OPTIONS,
@@ -42,6 +43,15 @@ export default function UserProfile() {
     bio: "",
     photoURL: ""
   });
+  /** What is stored, so a half-edited name or bio can be told apart from a saved one. */
+  const [storedProfile, setStoredProfile] = useState<typeof profileData | null>(null);
+
+  // The photo saves on upload; everything else waits for the Save button, so leaving with a
+  // rewritten bio used to discard it without a word.
+  useDirtyFlag(
+    "general",
+    storedProfile !== null && JSON.stringify(profileData) !== JSON.stringify(storedProfile)
+  );
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -59,7 +69,7 @@ export default function UserProfile() {
         
         if (docSnap.exists()) {
           const data = docSnap.data();
-          setProfileData({
+          const loaded = {
             name: data.name || "",
             nickname: data.nickname || "",
             phone: splitE164ToCountryAndLocal(String(data.phone || "")).localNumber,
@@ -67,7 +77,9 @@ export default function UserProfile() {
             role: data.role || "Staff", 
             bio: data.bio || "",
             photoURL: data.photoURL || auth.currentUser?.photoURL || ""
-          });
+          };
+          setProfileData(loaded);
+          setStoredProfile(loaded);
           setCountryCode(splitE164ToCountryAndLocal(String(data.phone || "")).countryCode);
         }
       } catch (error) {
@@ -148,6 +160,7 @@ export default function UserProfile() {
 
       await updateProfile(auth.currentUser as any, { displayName: profileData.name });
 
+      setStoredProfile(profileData);
       showToast(language === 'ar' ? "تم تحديث الملف الشخصي!" : "Profile updated successfully!", "success");
     } catch (error) {
       console.error("Save error:", error);

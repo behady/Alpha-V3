@@ -19,6 +19,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
 import { getClinicDoc } from "@/lib/db-utils";
+import { useDirtyFlag } from "@/context/UnsavedChangesContext";
 import {
   DEFAULT_SMS_SETTINGS,
   DEFAULT_SMS_TEMPLATES,
@@ -68,6 +69,8 @@ export default function SmsSettings() {
   const isAr = language === "ar";
 
   const [settings, setSettings] = useState<SmsSettingsShape>(DEFAULT_SMS_SETTINGS);
+  /** What is stored, so an edited message body can be told apart from a saved one. */
+  const [storedSettings, setStoredSettings] = useState<SmsSettingsShape | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -218,7 +221,13 @@ export default function SmsSettings() {
         // The same parser the server uses, so this screen can never show a clinic something
         // different from what the nightly job will act on — including the migration of a
         // hand-edited reminder saved before per-event templates existed.
-        if (snap.exists()) setSettings(parseSmsSettings(snap.data() || {}));
+        if (snap.exists()) {
+          const parsed = parseSmsSettings(snap.data() || {});
+          setSettings(parsed);
+          setStoredSettings(parsed);
+        } else {
+          setStoredSettings(DEFAULT_SMS_SETTINGS);
+        }
       } catch (e) {
         console.error("Could not load SMS settings", e);
       } finally {
@@ -227,6 +236,16 @@ export default function SmsSettings() {
       void loadDevices();
     })();
   }, [clinicId, loadDevices]);
+
+  /**
+   * Every switch on this screen saves the moment it is clicked; only the message bodies wait for
+   * the Save button. So the unsaved state is exactly the difference between what is typed and
+   * what is stored — an SMS body rewritten and then abandoned is real work lost.
+   */
+  useDirtyFlag(
+    "sms",
+    storedSettings !== null && JSON.stringify(settings) !== JSON.stringify(storedSettings)
+  );
 
   const save = async (next: SmsSettingsShape) => {
     setSaving(true);
@@ -244,6 +263,7 @@ export default function SmsSettings() {
         { merge: true }
       );
       setSettings(next);
+      setStoredSettings(next);
       showToast(txt.saved, "success");
     } catch (e) {
       console.error("Could not save SMS settings", e);
