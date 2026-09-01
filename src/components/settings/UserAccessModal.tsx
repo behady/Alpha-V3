@@ -125,9 +125,9 @@ export default function UserAccessModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-ink/40 backdrop-blur-sm z-[110] flex items-center justify-end p-0 sm:p-4 transition-all duration-300">
+    <div className="fixed inset-0 bg-ink/40 backdrop-blur-sm z-[110] flex items-center justify-center p-0 sm:p-4 transition-all duration-300">
       <div 
-        className="bg-surface w-full h-full sm:h-auto sm:max-h-[90vh] sm:w-[600px] sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right-8 sm:slide-in-from-bottom-8 duration-300"
+        className="bg-surface w-full h-full sm:h-auto sm:max-h-[90vh] sm:w-[600px] sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200"
         dir={isRTL ? "rtl" : "ltr"}
       >
         {/* Header */}

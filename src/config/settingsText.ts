@@ -367,6 +367,7 @@ export const SETTINGS_TEXT = {
     always: { en: "Always", ar: "دائماً" },
   },
   userManagement: {
+    noEmail: { en: "no email address on record", ar: "مفيش إيميل مسجل" },
     title: { en: "User & Staff Management", ar: "إدارة المستخدمين والموظفين" },
     sub: { en: "Manage logins, roles, and granular permissions.", ar: "إدارة عمليات تسجيل الدخول والأدوار والصلاحيات." },
     addBtn: { en: "Add Team Member", ar: "إضافة عضو للفريق" },

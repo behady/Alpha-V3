@@ -511,7 +511,7 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
           return (
             <li
               key={u.id}
-              className={`flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 transition-colors ${
+              className={`flex flex-col gap-3 rounded-2xl border px-4 py-3 transition-colors sm:flex-row sm:items-center ${
                 isOrphan
                   ? "border-danger/30 bg-danger-tint"
                   : isUpdating
@@ -519,6 +519,7 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
                     : "border-line bg-surface-subtle hover:border-line-strong"
               }`}
             >
+              <div className="flex min-w-0 flex-1 items-center gap-3">
               <span
                 className={`flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border ${
                   isOrphan ? "border-danger/30 bg-surface text-danger" : "border-line bg-surface"
@@ -550,7 +551,9 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
                     className={`inline-flex items-center gap-1 rounded-lg border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
                       isOwnerRole(u.role)
                         ? "border-accent/30 bg-accent-tint text-accent"
-                        : "border-line bg-surface text-ink-body"
+                        : u.role
+                          ? "border-line bg-surface text-ink-body"
+                          : "border-dashed border-line-strong bg-transparent text-ink-muted"
                     }`}
                   >
                     {isOwnerRole(u.role) && <Crown size={10} />}
@@ -570,48 +573,63 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
                 <p className="mt-0.5 truncate text-[11px] font-medium text-ink-muted">
                   {isOrphan
                     ? `${txt.authStatus} ${txt.active} · ${txt.staffStatus} ${txt.missing}`
-                    : u.email}
+                    : u.email || txt.noEmail}
                 </p>
               </div>
+              </div>
 
-              {!isOrphan && (
-                <span className="flex shrink-0 items-center gap-1.5 text-ink-muted" title={txt.accessControl}>
-                  <Shield size={13} />
-                  <span className="font-figure text-sm font-bold text-ink-body">
-                    {enabled}
-                    <span className="text-ink-muted">/{totalAssignable}</span>
-                  </span>
-                </span>
-              )}
-
-              <div className="flex shrink-0 items-center gap-1">
+              {/* Every slot from here to the row's end holds its width whether or not it has
+                  something in it. These buttons are conditional — an owner cannot be deleted, an
+                  account with no login has no password to reset — and letting the row pack them
+                  tight put each colleague's Access button at a different distance from the edge. */}
+              <div className="flex shrink-0 items-center justify-end gap-2">
+              <span
+                className="flex w-[4.75rem] shrink-0 items-center justify-end gap-1.5 text-ink-muted"
+                title={txt.accessControl}
+              >
                 {!isOrphan && (
-                  <button
-                    type="button"
-                    onClick={() => void openAccessModal(u)}
-                    disabled={isUpdating}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-[11px] font-bold text-ink-on-accent transition hover:bg-accent-strong disabled:opacity-50"
-                  >
-                    <Shield size={13} className={isUpdating ? "animate-pulse" : ""} />
-                    {isAr ? "الصلاحيات" : "Access"}
-                  </button>
+                  <>
+                    <Shield size={13} className="shrink-0" />
+                    <span className="font-figure text-sm font-bold text-ink-body">
+                      {enabled}
+                      <span className="text-ink-muted">/{totalAssignable}</span>
+                    </span>
+                  </>
                 )}
+              </span>
+
+              <div className="flex items-center gap-1">
+                <span className="flex w-[6.25rem]">
+                  {!isOrphan && (
+                    <button
+                      type="button"
+                      onClick={() => void openAccessModal(u)}
+                      disabled={isUpdating}
+                      className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-[11px] font-bold text-ink-on-accent transition hover:bg-accent-strong disabled:opacity-50"
+                    >
+                      <Shield size={13} className={isUpdating ? "animate-pulse" : ""} />
+                      {isAr ? "الصلاحيات" : "Access"}
+                    </button>
+                  )}
+                </span>
 
                 {/* The owner's password is theirs alone — the API refuses this too. */}
-                {u.uid && !(isOwnerRole(u.role) && u.uid !== currentUser?.uid) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setResetTarget({ uid: u.uid!, name: u.name || "User" });
-                      setNewPassword("");
-                    }}
-                    title={txt.resetBtnTitle}
-                    aria-label={txt.resetBtnTitle}
-                    className="rounded-lg p-2 text-ink-muted transition-all hover:bg-surface-muted hover:text-ink"
-                  >
-                    <KeyRound size={15} />
-                  </button>
-                )}
+                <span className="flex w-9 justify-center">
+                  {u.uid && !(isOwnerRole(u.role) && u.uid !== currentUser?.uid) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResetTarget({ uid: u.uid!, name: u.name || "User" });
+                        setNewPassword("");
+                      }}
+                      title={txt.resetBtnTitle}
+                      aria-label={txt.resetBtnTitle}
+                      className="rounded-lg p-2 text-ink-muted transition-all hover:bg-surface-muted hover:text-ink"
+                    >
+                      <KeyRound size={15} />
+                    </button>
+                  )}
+                </span>
 
                 {/*
                   The owner is not removable, by anyone — including themselves. Their way out is
@@ -619,17 +637,20 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
                   with an `ownerId` pointing at an account that no longer runs it. The API refuses
                   this too; hiding the button just stops it being a dead end.
                 */}
-                {u.uid !== currentUser?.uid && !isOwnerRole(u.role) && (
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteUser(u.id, u.uid, u.staffId)}
-                    title={isAr ? "إزالة المستخدم" : "Remove user"}
-                    aria-label={isAr ? "إزالة المستخدم" : "Remove user"}
-                    className="rounded-lg p-2 text-ink-muted transition-all hover:bg-danger-tint hover:text-danger"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                )}
+                <span className="flex w-9 justify-center">
+                  {u.uid !== currentUser?.uid && !isOwnerRole(u.role) && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteUser(u.id, u.uid, u.staffId)}
+                      title={isAr ? "إزالة المستخدم" : "Remove user"}
+                      aria-label={isAr ? "إزالة المستخدم" : "Remove user"}
+                      className="rounded-lg p-2 text-ink-muted transition-all hover:bg-danger-tint hover:text-danger"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  )}
+                </span>
+              </div>
               </div>
             </li>
           );
