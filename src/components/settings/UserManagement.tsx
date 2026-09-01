@@ -12,6 +12,7 @@ import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { logActivity } from "@/lib/logger";
 import { getAllPermissionIds } from "@/config/permissionsCatalog";
+import { countedNoun } from "@/lib/arabicCount";
 import UserAccessModal from "./UserAccessModal";
 type UserRow = {
   id: string;
@@ -414,10 +415,23 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
   const fullAccessCount = usersList.filter((u) => isFullAccessRole(u.role)).length;
   const brokenCount = usersList.filter((u) => !u.name).length;
 
+  const people = countedNoun(usersList.length, isAr, {
+    one: txt.signedInPersonOne,
+    two: txt.signedInPersonTwo,
+    few: txt.signedInPersonFew,
+    many: txt.signedInPersonMany,
+  });
+
+  // The verb agrees with the count as well as the noun, and "one of them" is not a number
+  // in Arabic — so the second clause is written out rather than interpolated.
   const headline = isAr
-    ? `${usersList.length} حد يقدر يدخل العيادة دي، منهم ${fullAccessCount} يقدروا يغيّروا أي حاجة.`
-    : `${usersList.length} ${usersList.length === 1 ? "person" : "people"} can sign in to this clinic. ` +
-      `${fullAccessCount} of them can change anything.`;
+    ? `${people} ${usersList.length === 1 ? "يقدر يدخل" : "يقدروا يدخلوا"} العيادة دي، ` +
+      (fullAccessCount === 0
+        ? "ومحدش فيهم يقدر يغيّر أي حاجة."
+        : fullAccessCount === 1
+          ? "منهم واحد يقدر يغيّر أي حاجة."
+          : `منهم ${fullAccessCount} يقدروا يغيّروا أي حاجة.`)
+    : `${people} can sign in to this clinic. ${fullAccessCount} of them can change anything.`;
 
   const copyClinicId = async () => {
     if (!clinicId) return;
@@ -483,7 +497,12 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
                 className={`h-1.5 w-1.5 rounded-full ${brokenCount > 0 ? "bg-amber-400" : "bg-emerald-400"}`}
               />
               {brokenCount > 0
-                ? `${brokenCount} ${txt.broken}`
+                ? countedNoun(brokenCount, isAr, {
+                    one: txt.brokenProfileOne,
+                    two: txt.brokenProfileTwo,
+                    few: txt.brokenProfileFew,
+                    many: txt.brokenProfileMany,
+                  })
                 : isAr
                   ? "كل الحسابات سليمة"
                   : "All accounts linked"}

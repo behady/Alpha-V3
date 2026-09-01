@@ -20,6 +20,7 @@ import PriceListSettings from "@/components/settings/PriceListSettings";
 import PriceListWorkspace from "@/components/settings/PriceListWorkspace";
 import PricingSettings, { type ServiceRow } from "@/components/settings/PricingSettings";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { countedNoun } from "@/lib/arabicCount";
 import { isPricingMode } from "@/components/clinical-notes/utils";
 import { useLanguage } from "@/context/LanguageContext";
 import { useSettingsText } from "@/lib/useSettingsText";
@@ -100,8 +101,18 @@ export default function PricesHost() {
       : `${txt.ceilingUpTo} ${discounts.maxDiscountPercentNonAdmin}%`;
 
   const facts = [
-    `${services.length} ${services.length === 1 ? txt.treatmentOne : txt.treatmentMany}`,
-    `${activeLists.length} ${activeLists.length === 1 ? txt.listOne : txt.listMany}`,
+    countedNoun(services.length, ar, {
+      one: txt.treatmentOne,
+      two: txt.treatmentTwo,
+      few: txt.treatmentFew,
+      many: txt.treatmentMany,
+    }),
+    countedNoun(activeLists.length, ar, {
+      one: txt.listOne,
+      two: txt.listTwo,
+      few: txt.listFew,
+      many: txt.listMany,
+    }),
     ceiling,
   ].join(" · ");
 
