@@ -328,6 +328,15 @@ data class Appearance(
     val themeId: String = "green",
     val followPhone: Boolean = true,
     val dark: Boolean = false,
+    /**
+     * Whether the interface is in Arabic.
+     *
+     * Kept here rather than in the view model because the view model is rebuilt
+     * with every process, and a preference that lives only there is a preference
+     * the person re-states every single morning — which is exactly what was
+     * happening.
+     */
+    val arabic: Boolean = false,
 )
 
 object AppearanceStore {
@@ -336,6 +345,7 @@ object AppearanceStore {
     private const val KEY_THEME = "theme_id"
     private const val KEY_FOLLOW = "follow_phone"
     private const val KEY_DARK = "dark_mode"
+    private const val KEY_ARABIC = "arabic"
 
     private var prefs: android.content.SharedPreferences? = null
 
@@ -349,6 +359,13 @@ object AppearanceStore {
             themeId = store.getString(KEY_THEME, null) ?: "green",
             followPhone = store.getBoolean(KEY_FOLLOW, true),
             dark = store.getBoolean(KEY_DARK, false),
+            // Until someone chooses, follow the phone. A clinic whose staff run
+            // their phones in Arabic should not have to switch the app over on
+            // first run to read it in the language they already asked for.
+            arabic = store.getBoolean(
+                KEY_ARABIC,
+                java.util.Locale.getDefault().language == "ar",
+            ),
         )
     }
 
@@ -359,6 +376,8 @@ object AppearanceStore {
     /** Only meaningful while not following the phone. */
     fun setDark(dark: Boolean) = update { it.copy(dark = dark, followPhone = false) }
 
+    fun setArabic(arabic: Boolean) = update { it.copy(arabic = arabic) }
+
     private fun update(change: (Appearance) -> Appearance) {
         val next = change(state.value)
         state.value = next
@@ -366,6 +385,7 @@ object AppearanceStore {
             ?.putString(KEY_THEME, next.themeId)
             ?.putBoolean(KEY_FOLLOW, next.followPhone)
             ?.putBoolean(KEY_DARK, next.dark)
+            ?.putBoolean(KEY_ARABIC, next.arabic)
             ?.apply()
     }
 }

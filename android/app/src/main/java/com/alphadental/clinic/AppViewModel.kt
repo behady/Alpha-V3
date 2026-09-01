@@ -225,6 +225,13 @@ class AppViewModel : ViewModel() {
     private var cursor: DocumentSnapshot? = null
 
     init {
+        // The remembered language, before anything is drawn. AppearanceStore is
+        // initialised in Application.onCreate, so this is always the stored value
+        // rather than the data class default.
+        _state.value = _state.value.copy(
+            arabic = com.alphadental.clinic.ui.AppearanceStore.state.value.arabic,
+        )
+
         // A signed-in user should never see the login screen again just because the
         // app was closed — Firebase keeps the session, so restore it silently.
         if (Repository.isSignedIn()) {
@@ -323,8 +330,18 @@ class AppViewModel : ViewModel() {
         if (tab == Tab.MONEY) loadFinance()
     }
 
+    /**
+     * Switch the interface between English and Arabic, and remember it.
+     *
+     * The flag used to live only in this view model, which Android rebuilds with
+     * every process — so the choice survived exactly as long as the app stayed in
+     * memory, and an Arabic-speaking clinic re-picked Arabic every morning. It is
+     * stored beside the theme now, and read back before the first screen is drawn.
+     */
     fun toggleLanguage() {
-        _state.value = _state.value.copy(arabic = !_state.value.arabic)
+        val next = !_state.value.arabic
+        com.alphadental.clinic.ui.AppearanceStore.setArabic(next)
+        _state.value = _state.value.copy(arabic = next)
     }
 
     fun shiftDay(days: Int) {
