@@ -402,16 +402,22 @@ for (const route of [...aiNav.matchAll(/"(\/settings\/[a-z-]+)"/g)].map((m) => m
 // that opens it, and the panel is the only thing on screen. This has happened once already.
 for (const file of sourceFiles(join(REPO, "src/components/settings"))) {
   const src = readFileSync(file, "utf8");
-  const hookAt = src.indexOf("useSettingsText(");
-  if (hookAt === -1) continue;
-  // A top-level guard clause: two spaces of indent, so nested helpers are not mistaken for one.
-  const guard = /\n {2}if \([^\n]*\) return null;/.exec(src);
-  ok(
-    !guard || guard.index > hookAt,
-    `${file.split(/[\\/]/).pop()} calls useSettingsText() below an early "return null". React ` +
-      `counts hooks per render, so this panel renders a different number of them open than ` +
-      `closed and throws on the render that opens it. Hoist the hook above the guard clause`
-  );
+  if (!src.includes("useSettingsText(")) continue;
+  // Per function body, not per file: a module-level helper that returns null says nothing about
+  // the component below it. Segmenting on top-level `function` declarations is enough for these
+  // panels, which all declare their components that way rather than as arrow constants.
+  for (const body of src.split(/^(?=(?:export default )?function )/m)) {
+    const hookAt = body.indexOf("useSettingsText(");
+    if (hookAt === -1) continue;
+    const guard = /\n {2}if \([^\n]*\) return null;/.exec(body);
+    ok(
+      !guard || guard.index > hookAt,
+      `${file.split(sep).pop()} calls useSettingsText() below an early "return null" in the ` +
+        `same function. React counts hooks per render, so this panel renders a different number ` +
+        `of them open than closed and throws on the render that opens it. Hoist the hook above ` +
+        `the guard clause`
+    );
+  }
 }
 
 // (e) Every settings document id must still be referenced by the app. Renaming one is silent:

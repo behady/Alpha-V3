@@ -61,6 +61,9 @@ export const SETTINGS_TEXT = {
     byWho: { en: "By", ar: "بواسطة" },
     cost: { en: "Cost", ar: "التكلفة" },
     resetNote: { en: "Credits reset on the 1st of every month.", ar: "الرصيد بيتجدد أول كل شهر." },
+    leftThisMonth: { en: "left this month", ar: "متبقي الشهر ده" },
+    usedShort: { en: "used", ar: "مستخدم" },
+    runningLow: { en: "Running low", ar: "الرصيد قرب يخلص" },
   },
   alerts: {
     title: { en: "Alerts & Notifications", ar: "إعدادات التنبيهات" },
