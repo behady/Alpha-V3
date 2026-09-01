@@ -40,8 +40,39 @@ import {
   parseDentalLabs,
   parseLabPaper,
   serializeDentalLabs,
+  setLabPrice,
 } from "../src/lib/dentalLabs.ts";
 import { buildLabOrderSrcDoc } from "../src/lib/labOrderHtml.ts";
+
+// --- clearing a lab price actually clears it ----------------------------------------------------
+// The settings screen renders each box as `prices[id] ?? ""`, so a cleared price must be an absent
+// key and not a zero. Writing zero made the box refill itself with "0" the moment it was emptied,
+// which read as a display quirk and behaved like a field you could not take a price back out of.
+{
+  const priced = { crown: 450, veneer: 800 };
+
+  assert.deepEqual(setLabPrice(priced, "crown", ""), { veneer: 800 }, "clearing removes the key");
+  assert.equal("crown" in setLabPrice(priced, "crown", ""), false, "not present with a zero in it");
+  assert.equal(
+    setLabPrice(priced, "crown", "")["crown"] ?? "",
+    "",
+    "so the box the screen renders comes back empty"
+  );
+  assert.deepEqual(setLabPrice(priced, "crown", "  "), { veneer: 800 }, "whitespace counts as cleared");
+  assert.deepEqual(setLabPrice(priced, "crown", "500"), { crown: 500, veneer: 800 }, "a number is stored");
+  assert.deepEqual(setLabPrice(undefined, "crown", "500"), { crown: 500 }, "a lab with no prices yet");
+  assert.notDeepEqual(setLabPrice(priced, "crown", ""), { crown: 0, veneer: 800 }, "the bug this replaces");
+
+  // A deliberate zero is still a real answer — a remake the lab does not charge for — and it must
+  // survive the round trip as far as serialisation, which is where it is dropped on purpose.
+  assert.deepEqual(setLabPrice(priced, "crown", "0"), { crown: 0, veneer: 800 }, "typed zero is kept in the draft");
+  assert.deepEqual(
+    serializeDentalLabs([{ id: "l1", name: "Lab", prices: { crown: 0, veneer: 800 } }])[0].prices,
+    { veneer: 800 },
+    "and dropped on the way to the database, where an absent price means the same thing"
+  );
+}
+
 import { buildLabStatementSrcDoc } from "../src/lib/labStatementHtml.ts";
 import {
   buildStatement,

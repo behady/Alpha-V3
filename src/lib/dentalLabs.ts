@@ -126,6 +126,27 @@ export function labPriceFor(
 }
 
 /** How many kinds of work this lab has a price for — for the collapsed summary line. */
+/**
+ * One work type's price, set or cleared.
+ *
+ * Clearing DELETES the key. Writing zero instead is what the settings screen used to do, and
+ * because a price box reads `prices[id] ?? ""`, zero is a number rather than an absence — so the
+ * box refilled itself with "0" the instant it was emptied and a price agreed by mistake could not
+ * be taken back off the list. The stored document was never wrong, because serializeDentalLabs
+ * drops non-positive prices on the way out; that is exactly why it survived, looking like a
+ * display quirk while behaving like a locked field.
+ */
+export function setLabPrice(
+  prices: Record<string, number> | undefined,
+  workId: string,
+  raw: string
+): Record<string, number> {
+  const next = { ...(prices || {}) };
+  if (raw.trim() === "") delete next[workId];
+  else next[workId] = Number(raw);
+  return next;
+}
+
 export function labPricedCount(lab: DentalLab | null | undefined): number {
   if (!lab?.prices) return 0;
   return Object.values(lab.prices).filter((v) => Number(v) > 0).length;
