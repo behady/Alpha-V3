@@ -416,6 +416,27 @@ const appSource = sourceFiles(join(REPO, "src"))
   .map((f) => readFileSync(f, "utf8"))
   .join("\n");
 
+// Every in-page anchor a lesson rings must exist in the markup. A step whose anchor has been
+// renamed — or moved behind a tab that the lesson never opens — is skipped rather than
+// reported, so the walkthrough silently teaches one step less than it claims to.
+// Anchors the markup builds rather than writes, each with the file that builds it. A prefix here
+// is an admission that this check cannot see the anchor, not a licence to add more of them.
+const COMPUTED_ANCHORS = [
+  "nav-", // (dashboard)/layout.tsx and DesktopSidebar.tsx: data-tour={`nav-${href}`}
+  "patient-tab-", // patients/[id]/page.tsx: data-tour={`patient-tab-${tb.id}`}
+];
+for (const step of [...tutorials.matchAll(/anchor:\s*"([a-z0-9-]+)"/g)].map((m) => m[1])) {
+  if (step.startsWith("settings-")) continue; // covered above, against the registry
+  if (COMPUTED_ANCHORS.some((prefix) => step.startsWith(prefix))) continue;
+  // Either written out, or chosen inside the attribute — `data-tour={cond ? "x" : undefined}`.
+  const rendered = new RegExp(`data-tour=(?:"${step}"|\{[^{}]*"${step}"[^{}]*\})`);
+  ok(
+    rendered.test(appSource),
+    `a tutorial step rings "${step}", which nothing in src renders. The lesson will skip the ` +
+      `step instead of failing, so the walkthrough quietly teaches less than it promises`
+  );
+}
+
 for (const docId of settingsDocIds()) {
   ok(
     docId.length > 0 && !docId.includes("/"),

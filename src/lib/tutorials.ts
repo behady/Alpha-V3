@@ -558,12 +558,20 @@ export const TUTORIALS: Tutorial[] = [
         },
       },
       {
+        anchor: "price-lists-tab",
+        optional: true,
+        text: {
+          en: "One more thing: open Price lists. A second list is how the same treatments get charged at a different rate — insurance, or another branch.",
+          ar: "حاجة كمان: افتح قوائم الأسعار. القائمة التانية هي اللي بتخلي نفس العلاجات تتحاسب بسعر مختلف — تأمين، أو فرع تاني.",
+        },
+      },
+      {
         anchor: "price-new-list",
         advanceOn: "next",
         optional: true,
         text: {
-          en: "One more thing: the New list button up here creates a second price list (for another branch, or insurance rates) with its own prices per treatment.",
-          ar: "حاجة كمان: زرار قائمة جديدة اللي فوق بيعمل قائمة أسعار تانية (لفرع تاني، أو أسعار تأمين) بأسعارها الخاصة لكل علاج.",
+          en: "New list creates one, with its own price for every treatment. Start it as a copy of a list you already have and change only what differs.",
+          ar: "زرار قائمة جديدة بيعملها، بسعرها الخاص لكل علاج. ابدأها كنسخة من قائمة موجودة وعدّل اللي مختلف بس.",
         },
       },
     ],
