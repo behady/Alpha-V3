@@ -397,6 +397,23 @@ for (const route of [...aiNav.matchAll(/"(\/settings\/[a-z-]+)"/g)].map((m) => m
   );
 }
 
+// No settings panel may call its text hook below an early return. React counts hooks per render;
+// a panel that returns null while closed and calls one more hook while open throws on the click
+// that opens it, and the panel is the only thing on screen. This has happened once already.
+for (const file of sourceFiles(join(REPO, "src/components/settings"))) {
+  const src = readFileSync(file, "utf8");
+  const hookAt = src.indexOf("useSettingsText(");
+  if (hookAt === -1) continue;
+  // A top-level guard clause: two spaces of indent, so nested helpers are not mistaken for one.
+  const guard = /\n {2}if \([^\n]*\) return null;/.exec(src);
+  ok(
+    !guard || guard.index > hookAt,
+    `${file.split(/[\\/]/).pop()} calls useSettingsText() below an early "return null". React ` +
+      `counts hooks per render, so this panel renders a different number of them open than ` +
+      `closed and throws on the render that opens it. Hoist the hook above the guard clause`
+  );
+}
+
 // (e) Every settings document id must still be referenced by the app. Renaming one is silent:
 //     ~14 server routes and the Android app read these names directly, and neither goes through
 //     this registry.

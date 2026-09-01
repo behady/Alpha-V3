@@ -43,7 +43,7 @@ type StaffRecord = {
 };
 
 export default function UsersHost() {
-  const { language, isRTL } = useLanguage();
+  const { isRTL } = useLanguage();
   const { user } = useAuth();
   const { clinicId } = useClinic();
   const { showToast } = useUI();
@@ -125,33 +125,32 @@ export default function UsersHost() {
     }
   };
 
-  const fieldClass = `w-full py-3.5 bg-surface-subtle rounded-xl border border-slate-200/60 font-semibold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all ${
+  const fieldClass = `w-full py-3.5 bg-surface-subtle rounded-xl border border-line font-semibold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all ${
     isRTL ? "pr-11 pl-4" : "pl-11 pr-4"
   }`;
   const labelClass = `text-[11px] font-bold text-ink-muted uppercase tracking-wider ${
     isRTL ? "pr-1" : "pl-1"
   }`;
-  const iconClass = `absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? "right-4" : "left-4"}`;
+  const iconClass = `absolute top-1/2 -translate-y-1/2 text-ink-muted ${isRTL ? "right-4" : "left-4"}`;
 
   return (
     <>
       <UserManagement
         usersList={usersList}
-        staffMembers={staffMembers}
         currentUser={user}
         openAddUser={openAddUser}
         clinicId={clinicId}
       />
 
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2rem] p-8 w-full max-w-md shadow-2xl animate-in zoom-in-95 border border-slate-100">
+        <div className="fixed inset-0 bg-ink/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <div className="bg-surface rounded-[2rem] p-8 w-full max-w-md shadow-2xl animate-in zoom-in-95 border border-line">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-slate-900 tracking-tight">{txt.title}</h2>
+              <h2 className="text-xl font-bold text-ink tracking-tight">{txt.title}</h2>
               <button
                 onClick={() => setIsModalOpen(false)}
                 aria-label={txt.close}
-                className="text-slate-400 hover:text-red-500 bg-surface-subtle hover:bg-red-50 p-2 rounded-full transition-colors"
+                className="text-ink-muted bg-surface-subtle hover:bg-danger-tint hover:text-danger p-2 rounded-full transition-colors"
               >
                 <X size={20} />
               </button>
@@ -231,7 +230,7 @@ export default function UsersHost() {
                     onChange={(e) => setForm({ ...form, isDentist: e.target.checked })}
                     className="mt-0.5 w-4 h-4 rounded border-line-strong text-accent"
                   />
-                  <span className="text-sm font-semibold text-slate-700 leading-snug">
+                  <span className="text-sm font-semibold text-ink-body leading-snug">
                     {txt.alsoDentist}
                   </span>
                 </label>
