@@ -97,9 +97,7 @@ export const SETTINGS_TEXT = {
     saveGeofence: { en: "Save Geofence", ar: "حفظ النطاق الجغرافي" },
   },
   clinicProfile: {
-    back: { en: "Settings", ar: "الإعدادات" },
     title: { en: "Clinic profile", ar: "العيادة" },
-    subtitle: { en: "Name, logo, contact details, Maps location, and a direct Google review link.", ar: "الاسم، الشعار، التواصل، رابط الخرائط، ورابط التقييم على جوجل." },
     name: { en: "Clinic name", ar: "اسم العيادة" },
     phone: { en: "Clinic phone", ar: "هاتف العيادة" },
     address: { en: "Address", ar: "العنوان" },
@@ -119,6 +117,13 @@ export const SETTINGS_TEXT = {
     failed: { en: "Save failed", ar: "فشل الحفظ" },
     uploadFail: { en: "Upload failed", ar: "فشل رفع الصورة" },
     needAuth: { en: "Sign in required", ar: "سجّل الدخول" },
+    unnamed: { en: "Your clinic's name", ar: "اسم عيادتك" },
+    railNote: { en: "This is the letterhead on every prescription and receipt, and the name your messages go out under.", ar: "دي الترويسة اللي بتتطبع على كل روشتة وإيصال، والاسم اللي رسايلك بتخرج بيه." },
+    groupIdentity: { en: "Identity", ar: "الهوية" },
+    groupContact: { en: "How patients reach you", ar: "طرق التواصل" },
+    groupPrint: { en: "On printed documents", ar: "في المستندات المطبوعة" },
+    unsaved: { en: "Unsaved changes", ar: "فيه تغييرات مش متحفظة" },
+    discard: { en: "Discard", ar: "تجاهل" },
   },
   interface: {
     title: { en: "Interface Settings", ar: "واجهة الاستخدام" },
