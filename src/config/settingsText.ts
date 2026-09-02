@@ -471,6 +471,17 @@ export const SETTINGS_TEXT = {
     restore: { en: "Restore", ar: "استعادة" },
     purge: { en: "Delete permanently", ar: "حذف نهائي" },
     deletedBy: { en: "Deleted by", ar: "حذفها" },
+    keptUntil: { en: "Nothing leaves on its own — a record stays until you restore it or remove it for good.", ar: "مفيش حاجة بتمشي لوحدها — السجل بيفضل لحد ما تسترجعه أو تحذفه نهائي." },
+    // Four shapes, because Arabic counts in four: see src/lib/arabicCount.ts. Bare nouns —
+    // countedNoun supplies the digit in English, and the sentence after them stands alone,
+    // so there is no verb here to agree with the count.
+    itemOne: { en: "deleted record", ar: "سجل واحد محذوف" },
+    itemTwo: { en: "deleted records", ar: "سجلين محذوفين" },
+    itemFew: { en: "deleted records", ar: "سجلات محذوفة" },
+    itemMany: { en: "deleted records", ar: "سجل محذوف" },
+    loadFailed: { en: "Could not load the bin", ar: "تعذر تحميل المحذوفات" },
+    restoreFailed: { en: "Could not restore", ar: "تعذرت الاستعادة" },
+    purgeFailed: { en: "Could not delete", ar: "تعذر الحذف" },
     restored: { en: "Restored", ar: "تمت الاستعادة" },
     purged: { en: "Permanently deleted", ar: "تم الحذف نهائياً" },
     filesNote: { en: "Deleting a record is not erasure — image files are retained. For a true erasure request, use Delete permanently.", ar: "حذف السجل ليس محواً: ملفات الصور يُحتفظ بها. للمحو النهائي استخدم الحذف النهائي." },
