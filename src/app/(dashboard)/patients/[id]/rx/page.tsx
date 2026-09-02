@@ -9,6 +9,7 @@ import {
 import { db, auth } from "@/lib/firebase";
 import { doc, getDoc, collection, getDocs, onSnapshot, query, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
 import { useUI } from "@/context/UIContext";
+import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { prescriptionPayloadToPdfBlob } from "@/lib/prescriptionPdfHtml";
 import { isDentistStaff } from "@/lib/staffRoles";
@@ -42,6 +43,7 @@ export default function PrescriptionStudioPage() {
 }
 
 function PrescriptionStudio() {
+  const { t } = useLanguage();
   const params = useParams();
   const router = useRouter();
   const id = (params?.id as string) || "";
@@ -90,7 +92,7 @@ function PrescriptionStudio() {
         if (docs.length > 0) setSelectedDoctor(docs[0].name);
 
       } catch (error) {
-        showToast("Error loading data", "error");
+        showToast(t("rxLoadError"), "error");
       }
       setLoading(false);
     };
@@ -166,19 +168,19 @@ function PrescriptionStudio() {
 
   const handleSave = async () => {
     if (rxItems.length === 0) {
-      showToast("Add at least one drug before saving.", "error");
+      showToast(t("rxNeedDrugSave"), "error");
       return;
     }
     setIsSaving(true);
     try {
       await savePrescriptionToHistory();
       showToast(
-        "Prescription saved. You can print it later from the dashboard schedule.",
+        t("rxSaved"),
         "success"
       );
     } catch (error) {
       console.error(error);
-      showToast("Error saving prescription", "error");
+      showToast(t("rxSaveError"), "error");
     } finally {
       setIsSaving(false);
     }
@@ -186,7 +188,7 @@ function PrescriptionStudio() {
 
   const handlePrint = () => {
     if (rxItems.length === 0) {
-      showToast("Add at least one drug before printing.", "error");
+      showToast(t("rxNeedDrugPrint"), "error");
       return;
     }
     setIsPrinting(true);
@@ -197,11 +199,11 @@ function PrescriptionStudio() {
   };
 
   const handleShare = async () => {
-    if (rxItems.length === 0) return showToast("Add at least one drug before sharing.", "error");
+    if (rxItems.length === 0) return showToast(t("rxNeedDrugShare"), "error");
 
     const u = auth.currentUser;
     if (!u) {
-      showToast("Sign in to send WhatsApp.", "error");
+      showToast(t("rxWhatsappSignIn"), "error");
       return;
     }
 
@@ -212,22 +214,22 @@ function PrescriptionStudio() {
       const ageStr = calculateAge(patient.dateOfBirth || patient.age);
       const ageSex = `${ageStr || "?"} Y / ${patient.gender?.charAt(0) || "U"}`;
       const blob: Blob = await prescriptionPayloadToPdfBlob({
-        clinicName: clinicInfo?.name || "Dental Clinic",
+        clinicName: clinicInfo?.name || t("rxClinicFallback"),
         rxHeader: clinicInfo?.rxHeader || `Dr. ${selectedDoctor}`,
         dateLabel: new Date().toLocaleDateString("en-GB"),
         patientName: patient.name,
         ageSex,
         diagnosis: diagnosis || "",
         doctor: selectedDoctor,
-        address: clinicInfo?.address || "Clinic Address",
-        phone: clinicInfo?.phone || "Clinic Phone",
+        address: clinicInfo?.address || t("rxAddressFallback"),
+        phone: clinicInfo?.phone || t("rxPhoneFallback"),
         rxItems,
       });
 
       const dataUrl: string = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ""));
-        reader.onerror = () => reject(new Error("Failed to read PDF"));
+        reader.onerror = () => reject(new Error(t("rxPdfFailed")));
         reader.readAsDataURL(blob);
       });
       const comma = dataUrl.indexOf(",");
@@ -243,17 +245,17 @@ function PrescriptionStudio() {
       if (!res.ok || !data?.ok) {
         throw new Error(typeof data?.error === "string" ? data.error : "WhatsApp send failed");
       }
-      showToast("Prescription PDF sent on WhatsApp.", "success");
+      showToast(t("rxWhatsappSent"), "success");
     } catch (e) {
       console.error(e);
-      showToast(e instanceof Error ? e.message : "Could not send WhatsApp.", "error");
+      showToast(e instanceof Error ? e.message : t("rxWhatsappFailed"), "error");
     } finally {
       setWhatsappSending(false);
     }
   };
 
   if (loading) return <div className="h-screen flex items-center justify-center bg-surface-subtle"><Loader2 className="animate-spin text-accent" size={40}/></div>;
-  if (!patient) return <div className="p-10 text-center font-black">Patient not found.</div>;
+  if (!patient) return <div className="p-10 text-center font-black">{t("rxPatientNotFound")}</div>;
 
   return (
     <div className="min-h-screen bg-surface-subtle flex flex-col print:bg-surface print:min-h-0">
@@ -269,7 +271,7 @@ function PrescriptionStudio() {
                <h1 className="text-2xl font-black text-ink tracking-tight flex items-center gap-2">
                  <Pill className="text-accent-soft" size={24}/> Prescription Studio
                </h1>
-               <p className="text-xs font-bold text-ink-muted uppercase tracking-widest mt-1">Generating Rx for: <span className="text-accent">{patient.name}</span></p>
+               <p className="text-xs font-bold text-ink-muted uppercase tracking-widest mt-1">{t("rxGeneratingFor")} <span className="text-accent">{patient.name}</span></p>
             </div>
           </div>
 
@@ -313,19 +315,19 @@ function PrescriptionStudio() {
             
             {/* Meta Data */}
             <div className="bg-surface p-6 rounded-3xl border border-slate-200/60 shadow-sm space-y-5">
-               <h3 className="font-black text-ink text-lg border-b border-slate-100 pb-3">Prescription Details</h3>
+               <h3 className="font-black text-ink text-lg border-b border-slate-100 pb-3">{t("rxDetails")}</h3>
                
                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Attending Doctor</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">{t("rxAttendingDoctor")}</label>
                   <select value={selectedDoctor} onChange={e => setSelectedDoctor(e.target.value)} className="w-full px-4 py-3.5 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all cursor-pointer">
                      {doctors.map(d => <option key={d.name} value={d.name}>{d.name}</option>)}
-                     {doctors.length === 0 && <option value="">No Doctors Found</option>}
+                     {doctors.length === 0 && <option value="">{t("rxNoDoctors")}</option>}
                   </select>
                </div>
 
                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Diagnosis / CC (Optional)</label>
-                  <input value={diagnosis} onChange={e => setDiagnosis(e.target.value)} placeholder="e.g. Acute Pulpitis..." className="w-full px-4 py-3.5 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all"/>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">{t("rxDiagnosisOptional")}</label>
+                  <input value={diagnosis} onChange={e => setDiagnosis(e.target.value)} placeholder={t("rxDiagnosisPlaceholder")} className="w-full px-4 py-3.5 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all"/>
                </div>
             </div>
 
@@ -339,7 +341,7 @@ function PrescriptionStudio() {
                </h3>
                
                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Select from Database</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">{t("rxSelectFromDb")}</label>
                   <select value={selectedDrugId} onChange={handleDrugSelect} className="w-full px-4 py-3.5 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all cursor-pointer">
                      <option value="">-- Manual Entry --</option>
                      {drugDb.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
@@ -358,19 +360,19 @@ function PrescriptionStudio() {
                           setCustomDrugName(e.target.value);
                           if (selectedDrugId) setSelectedDrugId("");
                         }} 
-                        placeholder="e.g. Amoxicillin 500mg" 
+                        placeholder={t("rxDrugPlaceholder")} 
                         className="w-full px-4 py-3.5 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all"
                      />
                   </div>
 
                   <div className="space-y-1.5 md:col-span-2">
-                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Dose / Frequency</label>
-                     <input value={currentDose} onChange={e => setCurrentDose(e.target.value)} placeholder="e.g. 1 tablet every 12 hours" className="w-full px-4 py-3.5 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all"/>
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">{t("rxDoseFrequency")}</label>
+                     <input value={currentDose} onChange={e => setCurrentDose(e.target.value)} placeholder={t("rxDosePlaceholder")} className="w-full px-4 py-3.5 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all"/>
                   </div>
                   
                   <div className="space-y-1.5 md:col-span-2">
-                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">Special Instructions (Optional)</label>
-                     <input value={currentNote} onChange={e => setCurrentNote(e.target.value)} placeholder="e.g. Take after meals" className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all"/>
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">{t("rxSpecialInstructions")}</label>
+                     <input value={currentNote} onChange={e => setCurrentNote(e.target.value)} placeholder={t("rxNotePlaceholder")} className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all"/>
                   </div>
                </div>
 
@@ -392,11 +394,11 @@ function PrescriptionStudio() {
                 <div className="border-b-2 border-slate-900 pb-6 mb-6">
                     <div className="flex justify-between items-start">
                         <div className="w-2/3">
-                            <h2 className="text-2xl font-black text-ink mb-2 uppercase tracking-tight">{clinicInfo?.name || "Dental Clinic"}</h2>
+                            <h2 className="text-2xl font-black text-ink mb-2 uppercase tracking-tight">{clinicInfo?.name || t("rxClinicFallback")}</h2>
                             <p className="text-xs font-bold text-ink-body whitespace-pre-wrap leading-relaxed">{clinicInfo?.rxHeader || `Dr. ${selectedDoctor}`}</p>
                         </div>
                         <div className="text-right w-1/3 space-y-1">
-                            <p className="text-[10px] font-bold text-ink-muted uppercase tracking-widest">Date</p>
+                            <p className="text-[10px] font-bold text-ink-muted uppercase tracking-widest">{t("rxDate")}</p>
                             <p className="text-sm font-black text-ink">{new Date().toLocaleDateString('en-GB')}</p>
                         </div>
                     </div>
@@ -405,16 +407,16 @@ function PrescriptionStudio() {
                 {/* 2. Patient Demographics Block */}
                 <div className="bg-surface-subtle p-4 rounded-xl mb-8 flex flex-wrap justify-between gap-y-3 border border-slate-100 print:border-line-strong print:bg-transparent">
                     <div>
-                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Patient Name</p>
+                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">{t("rxPatientName")}</p>
                        <p className="text-sm font-black text-ink">{patient.name}</p>
                     </div>
                     <div className="text-right">
-                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Age / Sex</p>
+                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">{t("rxAgeSex")}</p>
                        <p className="text-sm font-bold text-slate-700">{calculateAge(patient.dateOfBirth || patient.age)} Y / {patient.gender?.charAt(0) || "U"}</p>
                     </div>
                     {diagnosis && (
                       <div className="w-full mt-1 pt-3 border-t border-line">
-                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Diagnosis</p>
+                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">{t("rxDiagnosisLabel")}</p>
                          <p className="text-sm font-bold text-slate-700">{diagnosis}</p>
                       </div>
                     )}
@@ -430,7 +432,7 @@ function PrescriptionStudio() {
                     {rxItems.length === 0 && (
                         <div className="text-center py-10 opacity-30 print:hidden">
                             <Pill size={40} className="mx-auto mb-2 text-slate-400"/>
-                            <p className="font-bold text-ink-muted text-sm">Add medications from the left panel.</p>
+                            <p className="font-bold text-ink-muted text-sm">{t("rxEmptySheet")}</p>
                         </div>
                     )}
                     {rxItems.map((item, index) => (
@@ -452,12 +454,12 @@ function PrescriptionStudio() {
                 {/* 5. Footer & Signature */}
                 <div className="mt-12 pt-6 border-t border-line flex justify-between items-end">
                     <div className="text-xs font-semibold text-ink-muted space-y-1">
-                        <p className="flex items-center gap-1.5"><MapPin size={12}/> {clinicInfo?.address || "Clinic Address"}</p>
-                        <p className="flex items-center gap-1.5"><Phone size={12}/> {clinicInfo?.phone || "Clinic Phone"}</p>
+                        <p className="flex items-center gap-1.5"><MapPin size={12}/> {clinicInfo?.address || t("rxAddressFallback")}</p>
+                        <p className="flex items-center gap-1.5"><Phone size={12}/> {clinicInfo?.phone || t("rxPhoneFallback")}</p>
                     </div>
                     <div className="text-center w-48">
                         <div className="border-b-2 border-line-strong border-dashed h-8 mb-2"></div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Doctor's Signature</p>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t("rxSignature")}</p>
                         <p className="text-sm font-black text-ink mt-1">{selectedDoctor}</p>
                     </div>
                 </div>
