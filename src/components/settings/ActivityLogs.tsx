@@ -101,13 +101,13 @@ export default function ActivityLogs() {
     <div className="mx-auto w-full max-w-5xl space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
       {/* An audit trail's first duty is to say what it is showing you, so that what it is NOT
           showing you is never mistaken for what did not happen. */}
-      <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">
+      <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-ink-on-accent shadow-lg shadow-ink-slab/15 sm:px-8">
         <div className="min-w-0 space-y-2">
-          <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
+          <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-ink-on-accent/45">
             <ClipboardList size={12} />
             {language === "ar" ? "سجل النشاط" : "Activity log"}
           </p>
-          <p className="max-w-xl text-[15px] font-bold leading-relaxed text-white sm:text-base">
+          <p className="max-w-xl text-[15px] font-bold leading-relaxed text-ink-on-accent sm:text-base">
             {language === "ar"
               ? "كل إجراء بيتسجل هنا باسم صاحبه وتاريخه — سواء اتعمل بالإيد أو عن طريق المساعد."
               : "Every action lands here with the person who took it and when — whether by hand or through the assistant."}
@@ -176,7 +176,7 @@ export default function ActivityLogs() {
                 <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">Date</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-line">
               {loading && (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-sm font-semibold text-ink-muted">

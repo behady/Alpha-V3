@@ -91,7 +91,7 @@ function SettingsIndex() {
         if (inGroup.length === 0) return null;
         return (
           <section key={group} className="space-y-4">
-            <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+            <h2 className="text-[10px] font-black uppercase tracking-widest text-ink-muted">
               {SETTINGS_GROUP_LABELS[group][language === "ar" ? "ar" : "en"]}
             </h2>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -101,15 +101,15 @@ function SettingsIndex() {
                   <Link
                     key={section.id}
                     href={section.route}
-                    className="group flex items-center gap-4 rounded-3xl border border-slate-200/60 bg-slate-50/50 p-5 transition-all hover:border-line-strong hover:bg-surface hover:shadow-sm"
+                    className="group flex items-center gap-4 rounded-3xl border border-line bg-surface-subtle p-5 transition-all hover:border-line-strong hover:bg-surface hover:shadow-sm"
                   >
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-slate-400 shadow-sm transition-colors group-hover:text-accent">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-ink-muted shadow-sm transition-colors group-hover:text-accent">
                       <Icon size={20} />
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-sm font-bold text-slate-800">
+                    <span className="min-w-0 flex-1 truncate text-sm font-bold text-ink">
                       {language === "ar" ? section.labelAr : section.labelEn}
                     </span>
-                    <Chevron size={16} className="shrink-0 text-slate-300" />
+                    <Chevron size={16} className="shrink-0 text-ink-muted" />
                   </Link>
                 );
               })}
