@@ -888,11 +888,11 @@ export default function WhatsAppSettings() {
       <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0 space-y-2">
-            <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
+            <p className="flex items-center gap-2 font-display text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
               <MessageCircle size={12} />
               {txt.title}
             </p>
-            <p className="text-lg font-bold leading-snug text-white sm:text-xl">{channel.headline}</p>
+            <p className="font-display text-lg font-bold leading-snug text-white sm:text-xl">{channel.headline}</p>
             {channel.number ? (
               <p className="font-figure text-[15px] tracking-tight text-white/70" dir="ltr">
                 {channel.number}

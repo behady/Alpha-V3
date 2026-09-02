@@ -217,7 +217,7 @@ export default function UserProfile() {
             />
 
             <div className="min-w-0 space-y-1">
-              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/45">{txt.title}</p>
+              <p className="font-display text-[10px] font-black uppercase tracking-[0.22em] text-white/45">{txt.title}</p>
               <p className="truncate text-xl font-bold text-white">{profileData.name || txt.unnamed}</p>
               <p className="truncate text-[13px] text-white/60">
                 {[profileData.nickname && `"${profileData.nickname}"`, profileData.role]
@@ -242,7 +242,7 @@ export default function UserProfile() {
       </div>
 
       <section>
-        <h3 className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">{txt.groupYou}</h3>
+        <h3 className="mb-3 font-display text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">{txt.groupYou}</h3>
         <div className="grid grid-cols-1 gap-5 rounded-2xl border border-line bg-surface p-5 sm:p-6 md:grid-cols-2">
           <label className="block space-y-2">
             <span className="block text-[10px] font-black uppercase tracking-widest text-ink-muted">{txt.name}</span>
@@ -287,7 +287,7 @@ export default function UserProfile() {
       </section>
 
       <section>
-        <h3 className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">{txt.groupReach}</h3>
+        <h3 className="mb-3 font-display text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">{txt.groupReach}</h3>
         <div className="rounded-2xl border border-line bg-surface p-5 sm:p-6">
           <label className="block space-y-2">
             <span className="block text-[10px] font-black uppercase tracking-widest text-ink-muted">{txt.phone}</span>
@@ -321,7 +321,7 @@ export default function UserProfile() {
 
       {/* The two fields that are not yours to change, said once rather than implied by a grey box. */}
       <section>
-        <h3 className="mb-1 text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">{txt.groupClinic}</h3>
+        <h3 className="mb-1 font-display text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">{txt.groupClinic}</h3>
         <p className="mb-3 text-xs font-medium leading-relaxed text-ink-muted">{txt.groupClinicHint}</p>
         <div className="grid grid-cols-1 gap-5 rounded-2xl border border-line bg-surface p-5 sm:p-6 md:grid-cols-2">
           <div className="space-y-2">

@@ -226,11 +226,11 @@ export default function OnlineBookingSettings() {
       <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1 space-y-2">
-            <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
+            <p className="flex items-center gap-2 font-display text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
               <Globe size={12} />
               {txt.title}
             </p>
-            <p className="max-w-xl text-[15px] font-bold leading-relaxed text-white sm:text-base">
+            <p className="max-w-xl font-display text-[15px] font-bold leading-relaxed text-white sm:text-base">
               {settings.enabled ? txt.onNote : txt.offNote}
             </p>
 
@@ -272,7 +272,7 @@ export default function OnlineBookingSettings() {
         <div className="space-y-8 animate-in fade-in slide-in-from-top-2 duration-300">
           {/* Tagged links per channel — feeds the Leads source report automatically */}
           <section>
-            <h3 className="mb-1 text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">
+            <h3 className="mb-1 font-display text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">
               {txt.taggedTitle}
             </h3>
             <p className="mb-3 text-xs font-medium leading-relaxed text-ink-muted">{txt.taggedHint}</p>
@@ -300,7 +300,7 @@ export default function OnlineBookingSettings() {
 
           {/* Hero image */}
           <section>
-            <h3 className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">
+            <h3 className="mb-3 font-display text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">
               {txt.heroTitle}
             </h3>
             <div className="flex flex-col gap-4 rounded-2xl border border-line bg-surface p-5">
@@ -331,7 +331,7 @@ export default function OnlineBookingSettings() {
 
           {/* What the patient gets to choose */}
           <section>
-            <h3 className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">
+            <h3 className="mb-3 font-display text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">
               {txt.choicesTitle}
             </h3>
             <div className="space-y-5 rounded-2xl border border-line bg-surface p-5">

@@ -255,7 +255,7 @@ export default function PriceListWorkspace({
 
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="truncate font-serif text-2xl font-bold tracking-tight text-white">
+            <h3 className="truncate font-display text-2xl font-bold tracking-tight text-white">
               {ar && list.nameAr ? list.nameAr : list.name}
             </h3>
             <p className="mt-1 max-w-prose text-xs font-medium text-white/55">{txt.sub}</p>
@@ -422,7 +422,7 @@ export default function PriceListWorkspace({
                           <span className="truncate text-sm font-bold text-ink">{s.name}</span>
                         </div>
 
-                        <span className="text-end font-serif text-sm font-semibold tabular-nums text-ink-muted">
+                        <span className="text-end font-figure text-sm font-semibold text-ink-muted">
                           {base.toLocaleString()}
                         </span>
 
@@ -435,11 +435,11 @@ export default function PriceListWorkspace({
                             disabled={saving}
                             onChange={(e) => setDrafts({ ...drafts, [s.id]: e.target.value })}
                             placeholder={isStandard ? "0" : `${base} · ${txt.sameAsStandard}`}
-                            className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-end font-serif text-sm font-semibold tabular-nums text-ink outline-none transition focus:border-accent disabled:opacity-60"
+                            className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-end font-figure text-sm font-semibold text-ink outline-none transition focus:border-accent disabled:opacity-60"
                           />
                         </span>
 
-                        <span className="text-end font-serif text-sm font-bold tabular-nums text-ink-body">
+                        <span className="text-end font-figure text-sm font-bold text-ink-body">
                           {list.generalDiscountPercent > 0 ? (
                             <>
                               {afterBlanket.toLocaleString()}{" "}

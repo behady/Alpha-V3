@@ -179,11 +179,11 @@ export default function LocationsSettings() {
       <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0 space-y-2">
-            <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
+            <p className="flex items-center gap-2 font-display text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
               <Building2 size={12} />
               {txt.title}
             </p>
-            <p className="max-w-xl text-[15px] font-bold leading-relaxed text-white sm:text-base">
+            <p className="max-w-xl font-display text-[15px] font-bold leading-relaxed text-white sm:text-base">
               {txt.railNote}
             </p>
             <p className="font-figure text-[13px] tracking-tight text-white/70">{counts}</p>

@@ -185,6 +185,18 @@ body {
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
+/* Headings — the rail headline, a section's name, a clinic's name on its letterhead — in the
+   brand's primary face. Everything a person reads as prose stays in the body face, so the two
+   faces divide the page the way the brand kit intends: Montserrat states, Open Sans explains.
+
+   This replaces five `font-serif` leftovers from before the brand kit arrived. No serif was ever
+   loaded, so those fell through to whatever the machine had — Georgia here, Times there, and in
+   Arabic to a face carrying no Arabic at all. */
+.font-display {
+  font-family: var(--font-figures), "Montserrat", "Segoe UI", Tahoma, sans-serif;
+  letter-spacing: -0.015em;
+}
+
 /* Figures — money, counts, hours — set in the display face with aligned numerals. Labels stay
    in the body face; the contrast is what makes a number read as a stated figure, not form data. */
 .font-figure {

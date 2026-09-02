@@ -143,11 +143,11 @@ export default function RecentlyDeleted() {
       {/* How much is recoverable, and for how long — which on a bin is the whole question. */}
       <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">
         <div className="min-w-0 space-y-2">
-          <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
+          <p className="flex items-center gap-2 font-display text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
             <Trash2 size={12} />
             {t.title}
           </p>
-          <p className="max-w-xl text-[15px] font-bold leading-relaxed text-white sm:text-base">
+          <p className="max-w-xl font-display text-[15px] font-bold leading-relaxed text-white sm:text-base">
             {entries.length === 0
               ? t.empty
               : `${countedNoun(entries.length, ar, {

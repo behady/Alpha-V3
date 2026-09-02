@@ -420,6 +420,38 @@ for (const file of sourceFiles(join(REPO, "src/components/settings"))) {
   }
 }
 
+// Every section needs an icon, and no two may share one. Twenty-two sections were running on
+// seventeen icons — `Users` stood for the team, the join queue and the patient-source list at once
+// — so five entries in the sidebar were indistinguishable from another, and the icon stopped being
+// a way to find anything. A duplicate is not a style question; it is a nav item you cannot see.
+{
+  // Read here rather than reaching for `panelsSource`, which is declared further down the file.
+  const panels = readFileSync(join(REPO, "src/components/settings/panels.tsx"), "utf8");
+  const iconBlock = panels.slice(
+    panels.indexOf("SETTINGS_ICONS"),
+    panels.indexOf("};", panels.indexOf("SETTINGS_ICONS"))
+  );
+  const pairs = [...iconBlock.matchAll(/^\s{2}([a-z_]+):\s*([A-Z][A-Za-z0-9]*)\s*,/gm)];
+  const byIcon = new Map<string, string[]>();
+  for (const [, section, icon] of pairs) {
+    byIcon.set(icon, [...(byIcon.get(icon) ?? []), section]);
+  }
+
+  for (const section of SETTINGS_SECTIONS) {
+    ok(
+      pairs.some(([, id]) => id === section.id),
+      `the "${section.id}" section has no entry in SETTINGS_ICONS, so it renders with no icon`
+    );
+  }
+
+  for (const [icon, sections] of byIcon) {
+    ok(
+      sections.length === 1,
+      `${sections.join(" and ")} both use the ${icon} icon, so they look the same in the sidebar`
+    );
+  }
+}
+
 // (e) Every settings document id must still be referenced by the app. Renaming one is silent:
 //     ~14 server routes and the Android app read these names directly, and neither goes through
 //     this registry.

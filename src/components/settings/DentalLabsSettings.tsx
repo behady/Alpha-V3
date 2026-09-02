@@ -196,11 +196,11 @@ export default function DentalLabsSettings() {
       <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0 space-y-2">
-            <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
+            <p className="flex items-center gap-2 font-display text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
               <FlaskConical size={12} />
               {txt.title}
             </p>
-            <p className="max-w-xl text-[15px] font-bold leading-relaxed text-white sm:text-base">
+            <p className="max-w-xl font-display text-[15px] font-bold leading-relaxed text-white sm:text-base">
               {txt.railNote}
             </p>
             <p className="max-w-xl text-[11px] font-semibold leading-relaxed text-white/45">
@@ -409,7 +409,7 @@ export default function DentalLabsSettings() {
           Below the labs rather than above them, because it is set once and then never touched
           again — putting it first would make the screen open on the thing nobody came for. */}
       <section>
-        <h3 className="mb-3 flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">
+        <h3 className="mb-3 flex items-center gap-2 font-display text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">
           <Printer size={13} /> {txt.paperSize}
         </h3>
         <div className="grid grid-cols-1 gap-2">

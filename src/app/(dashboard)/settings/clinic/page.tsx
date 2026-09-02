@@ -86,7 +86,7 @@ function Field({
 function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h3 className="mb-3 text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">{title}</h3>
+      <h3 className="mb-3 font-display text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">{title}</h3>
       <div className="space-y-5 rounded-2xl border border-line bg-surface p-5 sm:p-6">{children}</div>
     </section>
   );
@@ -292,10 +292,10 @@ export default function ClinicProfileSettingsPage() {
               )}
             </span>
             <div className="min-w-0 space-y-1">
-              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
+              <p className="font-display text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
                 {txt.title}
               </p>
-              <p className="truncate font-serif text-xl font-bold text-white">
+              <p className="truncate font-display text-xl font-bold text-white">
                 {form.clinicName?.trim() || txt.unnamed}
               </p>
               {form.rxHeader?.trim() && (
