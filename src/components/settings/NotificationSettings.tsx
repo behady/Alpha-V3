@@ -76,7 +76,7 @@ export default function NotificationSettings({ clinicData, setClinicData, handle
       onSubmit={handleSaveClinic}
       className="space-y-8 animate-in fade-in max-w-3xl"
     >
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 border-b border-slate-100 pb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 border-b border-line pb-6">
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 bg-amber-50 text-amber-500 rounded-2xl flex items-center justify-center shrink-0">
             <Bell size={28} />
@@ -95,14 +95,14 @@ export default function NotificationSettings({ clinicData, setClinicData, handle
       </div>
 
       <div className="space-y-8">
-        <div className="bg-surface-subtle rounded-[2rem] border border-slate-200/60 p-6 md:p-8">
+        <div className="bg-surface-subtle rounded-[2rem] border border-line p-6 md:p-8">
           <div className="flex items-center gap-3 mb-6">
             <div className="bg-emerald-100 p-2 rounded-xl text-emerald-600">
               <AppWindow size={20} />
             </div>
             <div>
               <h4 className="font-black text-ink text-lg">{txt.inAppTitle}</h4>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{txt.inAppSub}</p>
+              <p className="text-[10px] font-bold text-ink-muted uppercase tracking-widest">{txt.inAppSub}</p>
             </div>
           </div>
 

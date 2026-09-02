@@ -52,7 +52,7 @@ export default function PrescriptionSettings() {
 
   return (
     <div className="space-y-6 animate-in fade-in max-w-3xl">
-        <div className="flex items-center justify-between mb-6 border-b border-slate-100 pb-6">
+        <div className="flex items-center justify-between mb-6 border-b border-line pb-6">
             <div className="flex items-center gap-4">
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-tint text-accent"><Pill size={28}/></div>
                 <div>
@@ -67,34 +67,34 @@ export default function PrescriptionSettings() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
             {drugList.map(drug => (
-                <div key={drug.id} className="flex justify-between items-center p-6 bg-surface-subtle rounded-3xl border border-slate-200/60 shadow-sm hover:border-line-strong hover:bg-surface transition-all group">
+                <div key={drug.id} className="flex justify-between items-center p-6 bg-surface-subtle rounded-3xl border border-line shadow-sm hover:border-line-strong hover:bg-surface transition-all group">
                     <div>
                         <p className="font-bold text-ink text-base">{drug.name}</p>
                         <p className="text-sm font-medium text-ink-muted mt-1">{drug.dose}</p>
                     </div>
-                    <button onClick={() => deleteDrug(drug.id, drug.name)} className="text-slate-300 hover:text-red-500 bg-surface hover:bg-red-50 rounded-xl transition-colors opacity-0 group-hover:opacity-100 p-3"><Trash2 size={18}/></button>
+                    <button onClick={() => deleteDrug(drug.id, drug.name)} className="text-ink-muted hover:text-red-500 bg-surface hover:bg-red-50 rounded-xl transition-colors opacity-0 group-hover:opacity-100 p-3"><Trash2 size={18}/></button>
                 </div>
             ))}
-            {drugList.length === 0 && <div className="col-span-full py-16 bg-slate-50 rounded-3xl text-center"><p className="text-slate-400 font-bold text-base">{txt.noDrugs}</p></div>}
+            {drugList.length === 0 && <div className="col-span-full py-16 bg-surface-subtle rounded-3xl text-center"><p className="text-ink-muted font-bold text-base">{txt.noDrugs}</p></div>}
         </div>
 
         {isDrugModalOpen && (
-          <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
-              <div className="bg-white rounded-[2rem] p-8 w-full max-w-md shadow-2xl animate-in zoom-in-95 border border-slate-100">
+          <div className="fixed inset-0 bg-ink/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+              <div className="bg-white rounded-[2rem] p-8 w-full max-w-md shadow-2xl animate-in zoom-in-95 border border-line">
                 <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-xl font-bold text-slate-900 tracking-tight">{txt.addDrug}</h2>
-                    <button onClick={() => setIsDrugModalOpen(false)} className="text-slate-400 hover:text-red-500 bg-slate-50 hover:bg-red-50 p-2 rounded-full transition-colors"><X size={20}/></button>
+                    <h2 className="text-xl font-bold text-ink tracking-tight">{txt.addDrug}</h2>
+                    <button onClick={() => setIsDrugModalOpen(false)} className="text-ink-muted hover:text-red-500 bg-surface-subtle hover:bg-red-50 p-2 rounded-full transition-colors"><X size={20}/></button>
                 </div>
 
                 <form onSubmit={handleSaveDrug} className="space-y-5">
                     <div className="space-y-1.5">
                       <div className="relative">
-                          <Pill size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`}/>
-                          <input autoFocus required value={newDrugName} onChange={e => setNewDrugName(e.target.value)} placeholder={language === 'ar' ? "اسم الدواء (مثال: Augmentin 1gm)" : "e.g. Augmentin 1gm"} className={`w-full py-3.5 bg-surface-subtle rounded-xl border border-slate-200/60 font-semibold text-ink outline-none focus:bg-surface focus:border-primary-500 transition-all placeholder:text-slate-300 ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}/>
+                          <Pill size={18} className={`absolute top-1/2 -translate-y-1/2 text-ink-muted ${isRTL ? 'right-4' : 'left-4'}`}/>
+                          <input autoFocus required value={newDrugName} onChange={e => setNewDrugName(e.target.value)} placeholder={language === 'ar' ? "اسم الدواء (مثال: Augmentin 1gm)" : "e.g. Augmentin 1gm"} className={`w-full py-3.5 bg-surface-subtle rounded-xl border border-line font-semibold text-ink outline-none focus:bg-surface focus:border-accent transition-all placeholder:text-ink-muted ${isRTL ? 'pr-11 pl-4' : 'pl-11 pr-4'}`}/>
                       </div>
                     </div>
                     <div className="space-y-1.5">
-                      <input value={newDrugDose} onChange={e => setNewDrugDose(e.target.value)} placeholder={language === 'ar' ? "الجرعة (مثال: قرص كل 12 ساعة)" : "e.g. 1 tablet every 12 hours"} className={`w-full px-4 py-3.5 bg-slate-50 rounded-xl border border-slate-200/60 font-semibold text-slate-900 outline-none focus:bg-white focus:border-primary-500 transition-all placeholder:text-slate-300`}/>
+                      <input value={newDrugDose} onChange={e => setNewDrugDose(e.target.value)} placeholder={language === 'ar' ? "الجرعة (مثال: قرص كل 12 ساعة)" : "e.g. 1 tablet every 12 hours"} className={`w-full px-4 py-3.5 bg-surface-subtle rounded-xl border border-line font-semibold text-ink outline-none focus:bg-white focus:border-accent transition-all placeholder:text-ink-muted`}/>
                     </div>
 
                     <div className="flex gap-3 pt-4">

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { db } from "@/lib/firebase";
 import { limit, onSnapshot, orderBy, query } from "firebase/firestore";
 import { ClipboardList, Search, ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
@@ -99,43 +98,41 @@ export default function ActivityLogs() {
   }, [queryText, severityFilter, moduleFilter, actorFilter]);
 
   return (
-    <div className="space-y-6 animate-in fade-in" dir={isRTL ? "rtl" : "ltr"}>
-      <div className="bg-surface p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center">
-              <ClipboardList size={28} />
-            </div>
-            <div>
-              <h3 className="text-xl font-bold text-ink">
-                {language === "ar" ? "سجل نشاط المستخدمين" : "User Activity Logs"}
-              </h3>
-              <p className="text-sm font-semibold text-ink-muted mt-1">
-                {language === "ar"
-                  ? "سجل كامل لكل مستخدم والإجراء المنفذ مع التاريخ والوقت."
-                  : "Track each user action with date and time."}
-              </p>
-            </div>
-          </div>
+    <div className="mx-auto w-full max-w-5xl space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
+      {/* An audit trail's first duty is to say what it is showing you, so that what it is NOT
+          showing you is never mistaken for what did not happen. */}
+      <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">
+        <div className="min-w-0 space-y-2">
+          <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
+            <ClipboardList size={12} />
+            {language === "ar" ? "سجل النشاط" : "Activity log"}
+          </p>
+          <p className="max-w-xl text-[15px] font-bold leading-relaxed text-white sm:text-base">
+            {language === "ar"
+              ? "كل إجراء بيتسجل هنا باسم صاحبه وتاريخه — سواء اتعمل بالإيد أو عن طريق المساعد."
+              : "Every action lands here with the person who took it and when — whether by hand or through the assistant."}
+          </p>
         </div>
+      </div>
 
+      <div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
           <div className="relative md:col-span-1">
             <Search
               size={16}
-              className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? "right-4" : "left-4"}`}
+              className="absolute start-4 top-1/2 -translate-y-1/2 text-ink-muted"
             />
             <input
               value={queryText}
               onChange={(e) => setQueryText(e.target.value)}
               placeholder={language === "ar" ? "بحث باسم المستخدم أو الإجراء..." : "Search by user or action..."}
-              className={`w-full py-3 bg-surface-subtle rounded-xl border border-slate-200/60 font-semibold text-ink outline-none focus:bg-surface focus:border-primary-500 transition-all ${isRTL ? "pr-10 pl-4" : "pl-10 pr-4"}`}
+              className="w-full rounded-xl border border-line bg-surface-subtle py-3 pe-4 ps-10 font-semibold text-ink outline-none transition-all focus:border-accent focus:bg-surface"
             />
           </div>
           <select
             value={moduleFilter}
             onChange={(e) => setModuleFilter(e.target.value)}
-            className="py-3 px-4 bg-surface-subtle rounded-xl border border-slate-200/60 font-semibold text-ink outline-none focus:bg-surface focus:border-primary-500 transition-all"
+            className="py-3 px-4 bg-surface-subtle rounded-xl border border-line font-semibold text-ink outline-none focus:bg-surface focus:border-accent transition-all"
           >
             <option value="all">{language === "ar" ? "كل الوحدات" : "All Modules"}</option>
             {modules.map((module) => (
@@ -147,7 +144,7 @@ export default function ActivityLogs() {
           <select
             value={actorFilter}
             onChange={(e) => setActorFilter(e.target.value)}
-            className="py-3 px-4 bg-surface-subtle rounded-xl border border-slate-200/60 font-semibold text-ink outline-none focus:bg-surface focus:border-primary-500 transition-all"
+            className="py-3 px-4 bg-surface-subtle rounded-xl border border-line font-semibold text-ink outline-none focus:bg-surface focus:border-accent transition-all"
           >
             <option value="all">{language === "ar" ? "الكل" : "Everyone"}</option>
             <option value="staff">{language === "ar" ? "إجراءات يدوية" : "Done manually"}</option>
@@ -156,7 +153,7 @@ export default function ActivityLogs() {
           <select
             value={severityFilter}
             onChange={(e) => setSeverityFilter(e.target.value)}
-            className="py-3 px-4 bg-surface-subtle rounded-xl border border-slate-200/60 font-semibold text-ink outline-none focus:bg-surface focus:border-primary-500 transition-all"
+            className="py-3 px-4 bg-surface-subtle rounded-xl border border-line font-semibold text-ink outline-none focus:bg-surface focus:border-accent transition-all"
           >
             <option value="all">{language === "ar" ? "كل الدرجات" : "All Severities"}</option>
             <option value="LOW">LOW</option>
@@ -166,9 +163,9 @@ export default function ActivityLogs() {
           </select>
         </div>
 
-        <div className="overflow-x-auto rounded-2xl border border-slate-200/60">
+        <div className="overflow-x-auto rounded-2xl border border-line">
           <table className="w-full text-left">
-            <thead className="bg-surface-subtle border-b border-slate-200/60">
+            <thead className="bg-surface-subtle border-b border-line">
               <tr>
                 <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">User</th>
                 <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">Role</th>
@@ -200,14 +197,14 @@ export default function ActivityLogs() {
                 paginatedLogs.map((log) => {
                   const when = log.timestamp?.toDate ? log.timestamp.toDate() : null;
                   return (
-                    <tr key={log.id} className="bg-surface hover:bg-slate-50/50">
+                    <tr key={log.id} className="bg-surface hover:bg-surface-subtle">
                       <td className="px-4 py-3 text-sm font-bold text-ink">
                         <span className="flex items-center gap-2">
                           {log.userName || log.user || "Unknown"}
                           {log.actor === "ai" && (
                             // The person stays accountable, but it should be obvious at a glance
                             // that the change came through the assistant rather than by hand.
-                            <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-200 text-[9px] font-black uppercase tracking-widest">
+                            <span className="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-info/25 bg-info-tint text-info text-[9px] font-black uppercase tracking-widest">
                               <Sparkles size={9} /> AI
                             </span>
                           )}
@@ -219,17 +216,17 @@ export default function ActivityLogs() {
                         <span
                           className={`px-2 py-1 rounded-lg border ${
                             (log.severity || "LOW") === "HIGH" || (log.severity || "LOW") === "CRITICAL"
-                              ? "bg-rose-50 text-rose-700 border-rose-200"
+                              ? "border-danger/25 bg-danger-tint text-danger"
                               : (log.severity || "LOW") === "MEDIUM"
-                              ? "bg-amber-50 text-amber-700 border-amber-200"
+                              ? "border-warn/25 bg-warn-tint text-warn"
                               : "bg-surface-subtle text-ink-body border-line"
                           }`}
                         >
                           {log.severity || "LOW"}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-xs font-bold text-primary-700">{log.action || "-"}</td>
-                      <td className="px-4 py-3 text-xs text-slate-700">{log.details || "-"}</td>
+                      <td className="px-4 py-3 text-xs font-bold text-ink">{log.action || "-"}</td>
+                      <td className="px-4 py-3 text-xs text-ink-body">{log.details || "-"}</td>
                       <td className="px-4 py-3 text-xs font-semibold text-ink-body">
                         {when
                           ? when.toLocaleString(language === "ar" ? "ar-EG" : "en-US")
@@ -262,7 +259,7 @@ export default function ActivityLogs() {
         )}
 
         {totalPages > 1 && (
-          <div className="flex items-center justify-between mt-4 bg-surface-subtle border border-slate-200/60 p-3 rounded-2xl">
+          <div className="flex items-center justify-between mt-4 bg-surface-subtle border border-line p-3 rounded-2xl">
             <span className="text-sm font-semibold text-ink-muted px-2">
               {language === "ar"
                 ? `صفحة ${currentPage} من ${totalPages}`
