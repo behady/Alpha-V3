@@ -167,9 +167,11 @@ function ToggleRow({
           checked ? "bg-accent" : "bg-surface-muted"
         }`}
       >
+        {/* Positioned on the logical inline-start edge, not translated along a physical axis:
+            `translate-x-7` moves the knob right in Arabic too, where "on" is the left end. */}
         <span
-          className={`inline-block h-6 w-6 transform rounded-full bg-surface shadow-sm transition-transform ${
-            checked ? "translate-x-7" : "translate-x-1"
+          className={`absolute top-1 h-6 w-6 rounded-full bg-surface shadow-sm transition-all ${
+            checked ? "start-7" : "start-1"
           }`}
         />
       </button>

@@ -16,16 +16,26 @@ const ToggleSwitch = ({
   disabled?: boolean;
 }) => (
   <div
-    className={`flex items-center justify-between py-3 border-b border-slate-100 last:border-0 ${disabled ? "opacity-50 pointer-events-none" : ""}`}
+    className={`flex items-center justify-between border-b border-line py-3 last:border-0 ${disabled ? "pointer-events-none opacity-50" : ""}`}
   >
-    <span className="text-sm font-bold text-slate-700">{label}</span>
+    <span className="text-sm font-bold text-ink-body">{label}</span>
     <button
       type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
       onClick={onChange}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${checked ? "bg-amber-500" : "bg-slate-300"}`}
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+        checked ? "bg-accent" : "bg-surface-muted"
+      }`}
     >
+      {/* Positioned on the logical inline-start edge, not translated along a physical axis:
+          `translate-x-6` moves the knob right in Arabic too, where "on" is the left end — far
+          enough that it leaves the track altogether. */}
       <span
-        className={`inline-block h-4 w-4 transform rounded-full bg-surface transition-transform ${checked ? "translate-x-6" : "translate-x-1"}`}
+        className={`absolute top-1 h-4 w-4 rounded-full bg-surface transition-all ${
+          checked ? "start-6" : "start-1"
+        }`}
       />
     </button>
   </div>
