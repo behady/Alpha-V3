@@ -112,11 +112,29 @@ object Repository {
         @Suppress("UNCHECKED_CAST")
         val roles = (snap.get("clinicRoles") as? Map<String, String>).orEmpty()
 
-        // Prefer the user's chosen clinic, fall back to the only one they belong to.
+        // Prefer the user's chosen clinic, then any other the account belongs to.
         // Mirrors resolveUserClinicId() on the server.
-        val clinicId = (snap.getString("defaultClinicId")?.takeIf { it.isNotBlank() && roles.containsKey(it) })
-            ?: roles.keys.firstOrNull()
-            ?: error("This account is not linked to any clinic.")
+        val candidates = buildList {
+            snap.getString("defaultClinicId")
+                ?.takeIf { it.isNotBlank() && roles.containsKey(it) }
+                ?.let { add(it) }
+            addAll(roles.keys)
+        }.distinct()
+        if (candidates.isEmpty()) error("This account is not linked to any clinic.")
+
+        // ...but only one that still exists. Deleting a clinic does not tidy up the
+        // clinicRoles map on the accounts that belonged to it, so a stored
+        // defaultClinicId can outlive the clinic it names by months. The website
+        // survives that because a super admin picks a clinic from a list; the phone
+        // had no such list, opened the dead id, and every read under it came back
+        // empty. That reads as a permission fault — same email, same password, a
+        // dashboard with almost nothing on it - which is exactly how it was
+        // reported, and why the real cause took a round of diagnostics to find.
+        val clinicId = firstLiveClinic(candidates)
+            ?: error(
+                "The clinic linked to this account no longer exists. " +
+                    "Ask an administrator to add you to a current clinic."
+            )
 
         // A platform super admin is an Admin everywhere, which is how the website
         // has always read it — and the phone did not read it at all. An owner whose
@@ -151,6 +169,30 @@ object Repository {
             role = role,
             permissions = permissions,
         )
+    }
+
+    /**
+     * The first clinic in the list whose document is really there.
+     *
+     * Stops at the first hit, so an account with one healthy clinic costs one
+     * extra read. A clinic that cannot be checked at all — no signal, a rules
+     * refusal — counts as a maybe rather than a miss, and is used only once every
+     * candidate has been tried: a flat tyre on the way to the surgery should not
+     * lock the whole practice out of the app, which is what returning null here
+     * would do, because a failed session signs the user straight back out.
+     */
+    private suspend fun firstLiveClinic(candidates: List<String>): String? {
+        var unchecked: String? = null
+        for (id in candidates) {
+            val probe = runCatching {
+                Firebase.db().collection("clinics").document(id).get().await().exists()
+            }
+            when {
+                probe.isFailure -> if (unchecked == null) unchecked = id
+                probe.getOrDefault(false) -> return id
+            }
+        }
+        return unchecked
     }
 
     /**
