@@ -87,6 +87,7 @@ const TeethChartSelector = memo(function TeethChartSelector({
   teethData,
   treatments,
   isAr,
+  narrow,
 }: {
   selected: string[];
   onToggle: (toothCode: string) => void;
@@ -94,6 +95,8 @@ const TeethChartSelector = memo(function TeethChartSelector({
   teethData: Record<string, ToothData>;
   treatments: Record<string, ToothTreatment[]>;
   isAr: boolean;
+  /** True in the side sheet, where the panel is 672px however wide the monitor is. */
+  narrow: boolean;
 }) {
     // Convert string array to number array for TeethChart
     const selectedNumbers = selected.map(s => parseInt(s, 10)).filter(n => !isNaN(n));
@@ -162,6 +165,7 @@ const TeethChartSelector = memo(function TeethChartSelector({
             selectionMode={true}
             compactMode={true}
             dense
+            narrow={narrow}
             selectedTeeth={selectedNumbers}
             onToggleTooth={(id) => onToggle(id.toString())}
             onSelectArch={handleSelectArch}
@@ -812,11 +816,17 @@ export default function ServiceEditorDrawer({
         * Save button was two more scrolls below that. Lifting it out of the scroll area costs
         * nothing and means the chart and the button are on screen together.
         *
-        * Side by side once there is width for it, stacked when there is not.
+        * Always stacked: chart on top, form scrolling underneath it.
+        *
+        * It used to go side by side at `lg` — but `lg` measures the SCREEN, and this panel is
+        * 672px as a side sheet or 896px as a modal. So on any ordinary monitor it split into a
+        * fixed 420px chart column, too narrow for sixteen teeth, beside a ~200px form column that
+        * truncated every label and control in it. Neither panel is ever wide enough for two real
+        * columns, so there was nothing to win by pretending otherwise.
         */}
-      <div className={`flex-1 min-h-0 flex flex-col ${!hideTeethSelector ? "lg:flex-row" : ""}`}>
+      <div className="flex-1 min-h-0 flex flex-col">
         {!hideTeethSelector && (
-          <div className={`shrink-0 lg:w-[420px] lg:overflow-y-auto custom-scrollbar ${!inline ? "px-6 pt-6 lg:pb-6" : "px-4 pt-4"}`}>
+          <div className={`shrink-0 ${!inline ? "px-6 pt-6" : "px-4 pt-4"}`}>
             <TeethChartSelector
               selected={selectedTeeth}
               onToggle={toggleSelectedTooth}
@@ -824,6 +834,7 @@ export default function ServiceEditorDrawer({
               teethData={teethData}
               treatments={treatments}
               isAr={isAr}
+              narrow={clinicalEditorMode !== 'modal'}
             />
           </div>
         )}

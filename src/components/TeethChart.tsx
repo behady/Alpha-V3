@@ -83,6 +83,19 @@ interface TeethChartProps {
    * save the same height and cost the thing the chart is for.
    */
   dense?: boolean;
+  /**
+   * The chart is in a narrow CONTAINER, which is not the same thing as a narrow screen.
+   *
+   * Every size below is picked off a `md:`/`lg:` breakpoint, and a breakpoint reads the monitor.
+   * So a 672px side sheet on a 1440px monitor was handed the desktop tooth: sixteen 46px teeth
+   * asking for ~736px inside a ~580px card. The flex row squashed them and the card's
+   * `overflow-hidden` sliced the ends off both arches — 18 and 28 simply were not drawn.
+   *
+   * This holds the small tooth whatever the screen is doing, floors the width at what sixteen of
+   * them actually need, and stops the row shrinking, so a chart that still does not fit scrolls
+   * rather than being cut.
+   */
+  narrow?: boolean;
 }
 
 export type { ToothData };
@@ -103,6 +116,7 @@ export default function TeethChart({
   onPerioToothClick,
   treatments = {},
   dense = false,
+  narrow = false,
 }: TeethChartProps) {
   const { language, isRTL } = useLanguage();
   const { clinicId } = useClinic();
@@ -374,7 +388,11 @@ export default function TeethChart({
 
         <div
           className={`transition-all duration-200 ${
-            isPrimary
+            narrow
+              // A narrow container is not a wide screen — hold the small tooth here whatever the
+              // monitor says, so all sixteen still fit the card instead of being clipped by it.
+              ? isPrimary ? "w-[26px] h-[34px]" : "w-[28px] h-[38px]"
+              : isPrimary
               ? `w-[28px] h-[36px] sm:w-[28px] sm:h-[36px] md:w-[36px] md:h-[44px] ${wide ? "lg:w-[44px] lg:h-[54px] xl:w-[52px] xl:h-[64px]" : ""}`
               // Sized so 16 teeth plus their margins still fit the card without a scrollbar at
               // each breakpoint: ~48px×16 inside a ~950px card at lg, ~58px×16 at xl and up.
@@ -477,7 +495,7 @@ export default function TeethChart({
         <div className="md:hidden pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-white to-transparent z-20 rounded-l-3xl" />
         <div className="md:hidden pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-white to-transparent z-20 rounded-r-3xl" />
       <div ref={scrollRef} className="w-full overflow-x-auto no-scrollbar" dir="ltr">
-        <div className={`w-full ${wide ? "max-w-none" : "max-w-5xl"} mx-auto ${isPrimary ? "min-w-[440px]" : "min-w-[620px]"} md:min-w-0`}>
+        <div className={`w-full ${wide ? "max-w-none" : "max-w-5xl"} mx-auto ${narrow ? (isPrimary ? "min-w-[380px]" : "min-w-[570px]") : `${isPrimary ? "min-w-[440px]" : "min-w-[620px]"} md:min-w-0`}`}>
           {/* Arch label header */}
           <div className={`${dense ? "hidden" : "flex"} items-center justify-between px-3 mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400`}>
             <span>{language === "ar" ? "يمين" : "Right"}</span>
@@ -504,7 +522,7 @@ export default function TeethChart({
                  <div className="flex flex-row w-full justify-center gap-0.5 md:gap-1 px-1 md:px-2">
                    <div className="flex justify-end gap-0 w-full">
                      { (isPrimary ? ChildQ1 : Q1).map((id, index) => (
-                        <div key={`u-buc-${id}`} style={{ transform: `translateY(${(isPrimary ? 5 - index : 8 - index) * 3}px)` }}>
+                        <div key={`u-buc-${id}`} className={narrow ? "shrink-0" : undefined} style={{ transform: `translateY(${(isPrimary ? 5 - index : 8 - index) * 3}px)` }}>
                           {renderTooth(id, "buccal")}
                         </div>
                      )) }
@@ -512,7 +530,7 @@ export default function TeethChart({
                    <div className="w-1 md:w-2 shrink-0" />
                    <div className="flex justify-start gap-0 w-full">
                      { (isPrimary ? ChildQ2 : Q2).map((id, index) => (
-                        <div key={`u-buc-${id}`} style={{ transform: `translateY(${(index + 1) * 3}px)` }}>
+                        <div key={`u-buc-${id}`} className={narrow ? "shrink-0" : undefined} style={{ transform: `translateY(${(index + 1) * 3}px)` }}>
                           {renderTooth(id, "buccal")}
                         </div>
                      )) }
@@ -523,7 +541,13 @@ export default function TeethChart({
 
 
                {/* Center Numbers / Divider Area */}
-               <div className="absolute top-1/2 left-0 right-0 -translate-y-1/2 flex items-center justify-center z-0 gap-2">
+               {/*
+                 * Dense mode pulls the two arches close together, and this band was absolutely
+                 * centred across them — so the arch buttons landed ON the teeth. Dense gives it a
+                 * row of its own instead; there is no space to steal at full size, so that case
+                 * keeps the overlay.
+                 */}
+               <div className={`${dense ? "relative w-full z-10" : "absolute top-1/2 left-0 right-0 -translate-y-1/2 z-0"} flex items-center justify-center gap-2`}>
                  <div className="flex-1 border-t-2 border-slate-100/80"></div>
                  {selectionMode && onSelectArch && (
                    <div className="flex gap-2">
@@ -557,7 +581,7 @@ export default function TeethChart({
                  <div className="flex flex-row w-full justify-center gap-0.5 md:gap-1 px-1 md:px-2">
                    <div className="flex justify-end gap-0 w-full">
                      { (isPrimary ? ChildQ4 : Q4).map((id, index) => (
-                        <div key={`l-buc-${id}`} style={{ transform: `translateY(-${(isPrimary ? 5 - index : 8 - index) * 3}px)` }}>
+                        <div key={`l-buc-${id}`} className={narrow ? "shrink-0" : undefined} style={{ transform: `translateY(-${(isPrimary ? 5 - index : 8 - index) * 3}px)` }}>
                           {renderTooth(id, "buccal")}
                         </div>
                      )) }
@@ -565,7 +589,7 @@ export default function TeethChart({
                    <div className="w-1 md:w-2 shrink-0" />
                    <div className="flex justify-start gap-0 w-full">
                      { (isPrimary ? ChildQ3 : Q3).map((id, index) => (
-                        <div key={`l-buc-${id}`} style={{ transform: `translateY(-${(index + 1) * 3}px)` }}>
+                        <div key={`l-buc-${id}`} className={narrow ? "shrink-0" : undefined} style={{ transform: `translateY(-${(index + 1) * 3}px)` }}>
                           {renderTooth(id, "buccal")}
                         </div>
                      )) }
