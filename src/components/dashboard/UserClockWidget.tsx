@@ -116,15 +116,18 @@ export default function UserClockWidget({ mobileVariant = false, compact = false
       return (
         <Link
           href="/attendance"
-          title={language === 'ar' ? 'لم تقم بتسجيل الدخول!' : "You haven't clocked in!"}
-          className="flex items-center gap-2 shrink-0 bg-rose-50/90 backdrop-blur-md border border-rose-100 text-rose-600 rounded-2xl px-3 py-2 shadow-[0_8px_30px_rgba(244,63,94,0.08)] hover:-translate-y-0.5 transition-all duration-300"
+          title={language === 'ar' ? 'تنبيه الحضور' : 'Attendance Action Needed'}
+          className="group flex items-center gap-2.5 shrink-0 bg-surface border border-slate-200 text-slate-700 rounded-full px-3.5 py-2 shadow-sm transition-all duration-300 hover:bg-slate-50 active:scale-95"
         >
-          <AlertCircle size={16} className="text-rose-500 animate-pulse shrink-0" />
-          <span className="hidden 2xl:inline text-xs font-bold uppercase tracking-wide whitespace-nowrap">
+          <div className="relative flex h-3 w-3 shrink-0 items-center justify-center">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-200 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+          </div>
+          <span className="hidden 2xl:inline text-xs font-extrabold uppercase tracking-wider whitespace-nowrap drop-shadow-sm text-slate-500">
             {language === 'ar' ? 'لم تسجل الحضور' : 'Not clocked in'}
           </span>
-          <span className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest bg-rose-500 text-white rounded-lg px-2 py-1 shrink-0">
-            <LogIn size={11} /> {language === 'ar' ? 'تسجيل' : 'Clock in'}
+          <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest bg-slate-100 text-slate-600 rounded-full px-3 py-1 shrink-0 group-hover:bg-slate-200 transition-all">
+            <LogIn size={12} strokeWidth={3} /> {language === 'ar' ? 'تسجيل' : 'Clock in'}
           </span>
         </Link>
       );
@@ -171,23 +174,23 @@ export default function UserClockWidget({ mobileVariant = false, compact = false
       <Link
         href="/attendance"
         title={language === 'ar' ? 'الوقت الحالي' : 'Active Shift'}
-        className="flex items-center gap-2.5 shrink-0 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-2xl px-3.5 py-2 shadow-[0_8px_24px_rgba(16,185,129,0.25)] hover:-translate-y-0.5 transition-all duration-300"
+        className="group flex items-center gap-3 shrink-0 bg-surface border border-slate-200 text-slate-700 rounded-full px-4 py-2 shadow-sm transition-all hover:bg-slate-50"
       >
-        <span className="relative flex h-2 w-2 shrink-0">
+        <span className="relative flex h-2.5 w-2.5 shrink-0">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-200 opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-100"></span>
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 m-auto"></span>
         </span>
-        <span className="text-base font-mono font-light tracking-tight leading-none whitespace-nowrap">
+        <span className="text-[17px] font-mono font-bold tracking-tight leading-none whitespace-nowrap text-slate-800">
           {liveDuration || "00:00:00"}
         </span>
-        <span className="hidden 2xl:flex items-center gap-1.5 border-s border-white/25 ps-2.5 text-[11px] font-bold whitespace-nowrap">
-          <Wallet size={13} className="text-emerald-100 shrink-0" />
+        <span className="hidden 2xl:flex items-center gap-2 border-s border-slate-200 ps-3 text-xs font-black whitespace-nowrap bg-slate-50 rounded-e-full py-0.5 pr-2 -mr-1">
+          <Wallet size={14} className="text-slate-400 shrink-0" strokeWidth={2.5} />
           {monthlyIncome === null ? (
-            <Loader2 size={12} className="animate-spin text-emerald-100" />
+            <Loader2 size={12} className="animate-spin text-slate-400" />
           ) : (
             <>
-              {monthlyIncome.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}
-              <span className="font-normal opacity-80">{language === 'ar' ? 'ج.م' : 'EGP'}</span>
+              <span className="text-slate-700">{monthlyIncome.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}</span>
+              <span className="font-medium text-slate-400 text-[10px] uppercase tracking-widest ms-1">{language === 'ar' ? 'ج.م' : 'EGP'}</span>
             </>
           )}
         </span>

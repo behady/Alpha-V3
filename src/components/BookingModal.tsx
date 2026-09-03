@@ -875,7 +875,7 @@ export default function BookingModal({
           </div>
 
           {!editAppointment && !selectedPatient && !isNewPatient && (
-            <p className="rounded-2xl border border-dashed border-line bg-slate-50/90 px-4 py-3 text-[11px] font-semibold leading-relaxed text-ink-body">
+            <p className="rounded-2xl border border-dashed border-line bg-slate-50/90 px-4 py-3 text-xs font-semibold leading-relaxed text-ink-body">
               {txt.pickPatientForBilling}
             </p>
           )}
@@ -911,13 +911,13 @@ export default function BookingModal({
           e.preventDefault();
           setShowAddProcedure(prev => !prev);
         }}
-        className={`w-full text-xs font-bold rounded-xl py-2.5 flex items-center justify-center gap-1.5 transition-colors shadow-sm ${
+        className={`w-full text-sm font-extrabold rounded-xl py-3.5 flex items-center justify-center gap-1.5 transition-colors shadow-sm ${
           showAddProcedure
             ? 'text-ink-body bg-surface-muted border border-line hover:bg-slate-200'
             : 'text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100'
         }`}
       >
-        <Sparkles size={14} className={!showAddProcedure ? 'text-emerald-600' : ''}/> {showAddProcedure ? (language === 'ar' ? 'إلغاء' : 'Cancel') : (language === 'ar' ? 'إضافة إجراء' : 'Add Procedure')}
+        <Sparkles size={16} className={!showAddProcedure ? 'text-emerald-600' : ''}/> {showAddProcedure ? (language === 'ar' ? 'إلغاء' : 'Cancel') : (language === 'ar' ? 'إضافة إجراء' : 'Add Procedure')}
       </button>
 
       {showAddProcedure && (
@@ -926,7 +926,7 @@ export default function BookingModal({
             {/* Price list. Shown above the service, because which list you are on decides what
                 the service costs — answering it afterwards would mean repricing what was picked. */}
             <div>
-              <label className="text-[10px] font-extrabold text-ink-muted uppercase tracking-wider block mb-1">
+              <label className="text-xs font-black text-ink-muted uppercase tracking-wider block mb-1.5">
                 {language === 'ar' ? 'قائمة الأسعار' : 'Price list'}
               </label>
               {activePriceLists.length > 1 ? (
@@ -940,7 +940,7 @@ export default function BookingModal({
                     const svc = servicesList.find(s => String(s.id) === String(procServiceId));
                     if (svc) setProcCost(resolveListPrice(svc, nextId));
                   }}
-                  className="w-full px-3 py-2 text-sm font-bold text-slate-700 border border-line rounded-lg outline-none focus:ring-2 focus:ring-emerald-400 bg-surface"
+                  className="w-full px-3 py-3 text-sm font-bold text-slate-700 border border-line rounded-xl outline-none focus:ring-2 focus:ring-emerald-400 bg-surface"
                 >
                   {activePriceLists.map((list) => (
                     <option key={list.id} value={list.id}>
@@ -950,14 +950,14 @@ export default function BookingModal({
                   ))}
                 </select>
               ) : (
-                <p className="w-full px-3 py-2 text-sm font-bold text-ink-body border border-line rounded-lg bg-surface">
+                <p className="w-full px-3 py-3 text-sm font-bold text-ink-body border border-line rounded-xl bg-surface">
                   {selectedPriceList
                     ? (language === 'ar' && selectedPriceList.nameAr ? selectedPriceList.nameAr : selectedPriceList.name)
                     : (language === 'ar' ? 'الأساسي' : 'Standard')}
                 </p>
               )}
               {selectedPriceList && selectedPriceList.generalDiscountPercent > 0 && (
-                <p className="mt-1 text-[10px] font-bold text-emerald-700">
+                <p className="mt-1 text-xs font-bold text-emerald-700">
                   {language === 'ar'
                     ? `القائمة دي عليها خصم ${selectedPriceList.generalDiscountPercent}% بيتحط عند التسجيل`
                     : `This list runs at ${selectedPriceList.generalDiscountPercent}% off, applied when the treatment is recorded`}
@@ -966,7 +966,7 @@ export default function BookingModal({
             </div>
             {/* Service selector */}
             <div>
-              <label className="text-[10px] font-extrabold text-ink-muted uppercase tracking-wider block mb-1">
+              <label className="text-xs font-black text-ink-muted uppercase tracking-wider block mb-1.5">
                 {language === 'ar' ? 'الخدمة' : 'Service'}
               </label>
               <ServiceCombobox
@@ -986,7 +986,7 @@ export default function BookingModal({
             </div>
             {/* Cost */}
             <div>
-              <label className="text-[10px] font-extrabold text-ink-muted uppercase tracking-wider block mb-1">
+              <label className="text-xs font-black text-ink-muted uppercase tracking-wider block mb-1.5">
                 {language === 'ar' ? 'التكلفة' : 'Cost'}
               </label>
               <div className="relative">
@@ -997,7 +997,7 @@ export default function BookingModal({
                   type="number"
                   value={procCost}
                   onChange={e => setProcCost(e.target.value ? Number(e.target.value) : "")}
-                  className="w-full ps-8 pe-3 py-2 text-sm font-black text-slate-800 border border-line rounded-lg outline-none focus:ring-2 focus:ring-emerald-400 bg-surface"
+                  className="w-full ps-8 pe-3 py-3 text-sm font-black text-slate-800 border border-line rounded-xl outline-none focus:ring-2 focus:ring-emerald-400 bg-surface"
                   placeholder="0"
                 />
               </div>
@@ -1010,7 +1010,7 @@ export default function BookingModal({
                 onChange={e => setAddProcToLedger(e.target.checked)}
                 className="w-4 h-4 rounded border-line-strong text-emerald-600 focus:ring-emerald-500"
               />
-              <span className="text-xs font-bold text-ink-body">
+              <span className="text-sm font-bold text-ink-body">
                 {language === 'ar' ? 'إضافة للسجل المالي' : 'Add to Ledger'}
               </span>
             </label>
@@ -1056,7 +1056,7 @@ export default function BookingModal({
                   setAddingProcedure(false);
                 }
               }}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-[38px] px-4 rounded-lg flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 w-full"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-black py-3.5 px-4 rounded-xl flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 w-full"
             >
               {addingProcedure ? <Loader2 size={16} className="animate-spin"/> : <Check size={16}/>}
               {language === 'ar' ? 'تأكيد الإجراء' : 'Confirm Procedure'}
@@ -1067,7 +1067,7 @@ export default function BookingModal({
 
       {sessionProcedures.length > 0 && (
         <div className="mt-3 flex flex-col gap-2">
-          <label className="text-[10px] font-extrabold text-ink-muted uppercase tracking-wider block">
+          <label className="text-xs font-black text-ink-muted uppercase tracking-wider block">
             {language === 'ar' ? 'الإجراءات المضافة' : 'Added Procedures'}
           </label>
           <div className="bg-surface rounded-xl border border-line divide-y divide-slate-100 overflow-hidden shadow-sm">
@@ -1173,7 +1173,7 @@ export default function BookingModal({
           refused. Naming the missing field turns "the system is broken" into one obvious tap.
         */}
         {blockingReasons.length > 0 && !isChecking && (
-          <p className="px-1 pb-1 text-center text-[11px] font-bold text-amber-700">
+          <p className="px-1 pb-1 text-center text-xs font-bold text-amber-700">
             {txt.stillNeeded} {blockingReasons.join(language === "ar" ? "، " : ", ")}
           </p>
         )}

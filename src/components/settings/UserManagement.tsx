@@ -521,7 +521,7 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
       {/* One row each. Comparing two colleagues' access used to mean looking across two cards in
           different columns; the switch counts line up now. */}
       <ul className="space-y-2">
-        {usersList.map((u) => {
+        {usersList.map((u, index) => {
           const isOrphan = !u.name;
           const perms = u.permissions || [];
           const enabled = activeCount(perms);
@@ -529,7 +529,7 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
 
           return (
             <li
-              key={u.id}
+              key={`${u.id}-${index}`}
               className={`flex flex-col gap-3 rounded-2xl border px-4 py-3 transition-colors sm:flex-row sm:items-center ${
                 isOrphan
                   ? "border-danger/30 bg-danger-tint"

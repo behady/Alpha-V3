@@ -79,47 +79,56 @@ function SettingsIndex() {
   const Chevron = isRTL ? ChevronLeft : ChevronRight;
 
   return (
-    <div className="space-y-7 animate-in fade-in">
-      <p className="max-w-xl text-sm font-semibold text-ink-muted">
-        {language === "ar"
-          ? "اختر قسماً للبدء. ما تراه هنا هو ما تسمح لك صلاحياتك بفتحه."
-          : "Pick a section to get started. You are seeing everything your access lets you open."}
-      </p>
+    <div className="space-y-10 animate-in fade-in duration-500">
+      <div className="max-w-2xl">
+        <p className="text-[15px] font-medium text-ink-muted leading-relaxed">
+          {language === "ar"
+            ? "اختر قسماً للبدء. ما تراه هنا هو ما تسمح لك صلاحياتك بفتحه."
+            : "Pick a section to get started. You are seeing everything your access lets you open."}
+        </p>
+      </div>
 
-      {SETTINGS_GROUP_ORDER.map((group) => {
+      {SETTINGS_GROUP_ORDER.map((group, groupIndex) => {
         const inGroup = sections.filter((section) => section.group === group);
         if (inGroup.length === 0) return null;
+        
         return (
-          <section key={group} className="space-y-2.5">
-            <h2 className="flex items-center gap-2 px-1 font-display text-[11px] font-black uppercase tracking-widest text-ink-muted">
-              {(() => {
-                const GroupIcon = SETTINGS_GROUP_ICONS[group] ?? Settings2;
-                return <GroupIcon size={13} />;
-              })()}
-              {SETTINGS_GROUP_LABELS[group][language === "ar" ? "ar" : "en"]}
-            </h2>
-            {/* One inset group with hairlines between its rows, rather than a grid of separate
-                cards: the rows belong to each other, and a gap says they do not. */}
-            <div className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
-              {inGroup.map((section) => {
+          <section key={group} className="space-y-4 animate-in slide-in-from-bottom-4 duration-500" style={{ animationDelay: `${groupIndex * 75}ms`, animationFillMode: 'both' }}>
+            <div className="flex items-center gap-3 px-1">
+              <span className={`flex h-8 w-8 items-center justify-center rounded-xl ${SETTINGS_GROUP_TONE[group]?.tile ?? "bg-accent text-white"} bg-gradient-to-br from-white/20 to-transparent shadow-sm`}>
+                {(() => {
+                  const GroupIcon = SETTINGS_GROUP_ICONS[group] ?? Settings2;
+                  return <GroupIcon size={14} className="drop-shadow-sm" />;
+                })()}
+              </span>
+              <h2 className="font-display text-[13px] font-bold uppercase tracking-widest text-ink-strong">
+                {SETTINGS_GROUP_LABELS[group][language === "ar" ? "ar" : "en"]}
+              </h2>
+            </div>
+            
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {inGroup.map((section, index) => {
                 const Icon = SETTINGS_ICONS[section.id] ?? Settings2;
                 return (
                   <Link
                     key={section.id}
                     href={section.route}
-                    className="group flex items-center gap-3.5 px-4 py-3 transition-colors hover:bg-surface-subtle"
+                    className="group relative flex items-center gap-4 rounded-[1.25rem] border border-line bg-surface p-4 shadow-[0_2px_10px_rgba(0,0,0,0.02)] transition-all duration-300 hover:-translate-y-1 hover:border-accent/30 hover:shadow-[0_8px_20px_rgba(0,0,0,0.06)] hover:bg-gradient-to-br hover:from-surface hover:to-surface-subtle"
+                    style={{ animationDelay: `${(groupIndex * 100) + (index * 40)}ms`, animationFillMode: 'both' }}
                   >
                     <span
-                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] ${
+                      className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-[14px] transition-transform duration-300 group-hover:scale-110 group-hover:shadow-md ${
                         SETTINGS_GROUP_TONE[group]?.tile ?? "bg-accent text-white"
                       }`}
                     >
-                      <Icon size={17} />
+                      <Icon size={20} />
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-ink">
+                    <span className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink transition-colors duration-300 group-hover:text-accent">
                       {language === "ar" ? section.labelAr : section.labelEn}
                     </span>
-                    <Chevron size={16} className="shrink-0 text-ink-faint" />
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-muted opacity-0 transition-all duration-300 group-hover:bg-accent/10 group-hover:opacity-100">
+                      <Chevron size={16} className="text-accent" />
+                    </span>
                   </Link>
                 );
               })}
