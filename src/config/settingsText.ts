@@ -554,7 +554,6 @@ export const SETTINGS_TEXT = {
   },
   shell: {
     title: { en: "Settings", ar: "الإعدادات" },
-    subtitle: { en: "Everything you can configure, in one place.", ar: "كل ما يمكن ضبطه في العيادة، في مكان واحد." },
     search: { en: "Search settings", ar: "ابحث في الإعدادات" },
     noResults: { en: "No section by that name", ar: "لا يوجد قسم بهذا الاسم" },
     clear: { en: "Clear search", ar: "امسح البحث" },

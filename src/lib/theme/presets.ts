@@ -52,6 +52,10 @@ export const THEME_PRESETS: ThemePreset[] = [
       "accent-tint": "#E8F7F0",
       "ok": "#05603A", "ok-tint": "#ECFDF5", "warn": "#C44A0A", "warn-tint": "#FFF7ED",
       "danger": "#C51F1F", "danger-tint": "#FEF2F2", "info": "#1D4FD8", "info-tint": "#EFF6FF",
+      "tone-personal": "#6B4FBB", "tone-personal-tint": "#F0EBFA",
+      "tone-clinic": "#0E7490", "tone-clinic-tint": "#E3F4F7",
+      "tone-people": "#B03A78", "tone-people-tint": "#FAE8F1",
+      "tone-system": "#2C5F8F", "tone-system-tint": "#E8EEF5",
     },
   },
   {
@@ -73,6 +77,10 @@ export const THEME_PRESETS: ThemePreset[] = [
       "accent-tint": "#ECE8E0",
       "ok": "#2F6B4C", "ok-tint": "#E9F2EC", "warn": "#A05A15", "warn-tint": "#F7EFE2",
       "danger": "#A32A22", "danger-tint": "#F7E9E7", "info": "#2C5A96", "info-tint": "#E8EEF7",
+      "tone-personal": "#5E5480", "tone-personal-tint": "#EEECF2",
+      "tone-clinic": "#3E6B70", "tone-clinic-tint": "#E7EFEF",
+      "tone-people": "#8C4A6A", "tone-people-tint": "#F2E9EE",
+      "tone-system": "#4B5C72", "tone-system-tint": "#E9ECF0",
     },
   },
   {
@@ -94,6 +102,10 @@ export const THEME_PRESETS: ThemePreset[] = [
       "accent-tint": "#F4EAF1",
       "ok": "#12704F", "ok-tint": "#E7F4EF", "warn": "#A34B08", "warn-tint": "#FBF1E6",
       "danger": "#B92D2D", "danger-tint": "#FAEBEA", "info": "#2E5FA8", "info-tint": "#E9EFF9",
+      "tone-personal": "#6E4FB5", "tone-personal-tint": "#F0ECF9",
+      "tone-clinic": "#2A6F7A", "tone-clinic-tint": "#E5F1F3",
+      "tone-people": "#A83D5E", "tone-people-tint": "#F9E9EE",
+      "tone-system": "#3B5E8E", "tone-system-tint": "#E8EEF6",
     },
   },
   {
@@ -115,6 +127,10 @@ export const THEME_PRESETS: ThemePreset[] = [
       "accent-tint": "#E3EFEF",
       "ok": "#376F2C", "ok-tint": "#EEF4E7", "warn": "#A5560A", "warn-tint": "#FAF0E3",
       "danger": "#B3302A", "danger-tint": "#F9E9E6", "info": "#2D5AA6", "info-tint": "#E9EEF8",
+      "tone-personal": "#6A4FB0", "tone-personal-tint": "#EFEBF7",
+      "tone-clinic": "#2E6B9E", "tone-clinic-tint": "#E6EEF5",
+      "tone-people": "#AE4272", "tone-people-tint": "#F8E9EF",
+      "tone-system": "#5B5573", "tone-system-tint": "#EDEBF0",
     },
   },
   {
@@ -138,6 +154,10 @@ export const THEME_PRESETS: ThemePreset[] = [
       // dot beside a brand dot read as two shades of one colour.
       "ok": "#46C08A", "ok-tint": "#12241C", "warn": "#D99038", "warn-tint": "#2A2116",
       "danger": "#F06A63", "danger-tint": "#2E1917", "info": "#7FA9E8", "info-tint": "#16202E",
+      "tone-personal": "#B8A5F0", "tone-personal-tint": "#241F33",
+      "tone-clinic": "#7FCAD8", "tone-clinic-tint": "#14262B",
+      "tone-people": "#E58BB8", "tone-people-tint": "#2E1A25",
+      "tone-system": "#9CB5D8", "tone-system-tint": "#182029",
     },
   },
 ];

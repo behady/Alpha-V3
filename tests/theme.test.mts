@@ -182,6 +182,15 @@ const PAIRS: [string, string, string, number][] = [
   ["danger on its tint",  "danger",        "danger-tint",   4.5],
   ["accent on its tint",  "accent",        "accent-tint",   4.5],
   ["hairline on card",    "line",          "surface",       1.2],
+  // The settings group tones: an icon on a card, and text on its own tint.
+  ["personal tone as icon", "tone-personal", "surface",            3.0],
+  ["personal on its tint",  "tone-personal", "tone-personal-tint", 4.5],
+  ["clinic tone as icon",   "tone-clinic",   "surface",            3.0],
+  ["clinic on its tint",    "tone-clinic",   "tone-clinic-tint",   4.5],
+  ["people tone as icon",   "tone-people",   "surface",            3.0],
+  ["people on its tint",    "tone-people",   "tone-people-tint",   4.5],
+  ["system tone as icon",   "tone-system",   "surface",            3.0],
+  ["system on its tint",    "tone-system",   "tone-system-tint",   4.5],
 ];
 
 for (const preset of THEME_PRESETS) {

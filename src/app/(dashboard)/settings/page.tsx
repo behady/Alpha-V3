@@ -30,7 +30,7 @@ import {
   SETTINGS_GROUP_ORDER,
   SETTINGS_SECTIONS,
 } from "@/config/settingsRegistry";
-import { SETTINGS_ICONS } from "@/components/settings/panels";
+import { SETTINGS_GROUP_TONE, SETTINGS_ICONS } from "@/components/settings/panels";
 import { visibleSections } from "@/lib/settingsAccess";
 import { hasFeature } from "@/lib/subscriptions";
 
@@ -91,7 +91,8 @@ function SettingsIndex() {
         if (inGroup.length === 0) return null;
         return (
           <section key={group} className="space-y-4">
-            <h2 className="text-[10px] font-black uppercase tracking-widest text-ink-muted">
+            <h2 className="flex items-center gap-2 font-display text-[10px] font-black uppercase tracking-widest text-ink-muted">
+              <span className={`h-1.5 w-1.5 rounded-full ${SETTINGS_GROUP_TONE[group]?.dot ?? "bg-accent"}`} />
               {SETTINGS_GROUP_LABELS[group][language === "ar" ? "ar" : "en"]}
             </h2>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -103,7 +104,13 @@ function SettingsIndex() {
                     href={section.route}
                     className="group flex items-center gap-4 rounded-3xl border border-line bg-surface-subtle p-5 transition-all hover:border-line-strong hover:bg-surface hover:shadow-sm"
                   >
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-surface text-ink-muted shadow-sm transition-colors group-hover:text-accent">
+                    {/* The group's tone, so the twenty-two cards read as four families at a glance
+                        instead of twenty-two grey squares. */}
+                    <span
+                      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl shadow-sm transition-transform group-hover:scale-105 ${
+                        SETTINGS_GROUP_TONE[group]?.icon ?? "bg-accent-tint text-accent"
+                      }`}
+                    >
                       <Icon size={20} />
                     </span>
                     <span className="min-w-0 flex-1 truncate text-sm font-bold text-ink">

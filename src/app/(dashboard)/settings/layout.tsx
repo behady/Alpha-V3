@@ -35,7 +35,7 @@ import {
   type SettingsGroup,
   type SettingsSection,
 } from "@/config/settingsRegistry";
-import { SETTINGS_ICONS } from "@/components/settings/panels";
+import { SETTINGS_GROUP_TONE, SETTINGS_ICONS } from "@/components/settings/panels";
 import { visibleSections } from "@/lib/settingsAccess";
 import { hasFeature } from "@/lib/subscriptions";
 
@@ -135,40 +135,38 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
       dir={isRTL ? "rtl" : "ltr"}
     >
       <div className="mb-6 rounded-[2rem] border border-line bg-surface shadow-sm">
-        <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between md:p-6">
-          <div className="flex min-w-0 items-center gap-3.5">
-            <span className="shrink-0 rounded-2xl bg-accent-tint p-3 text-accent">
-              <ActiveIcon size={22} />
-            </span>
-            <div className="min-w-0">
-              <h1 className="truncate text-xl font-black tracking-tight text-ink md:text-2xl">
-                {activeLabel}
-              </h1>
-              <p className="mt-0.5 text-[13px] font-medium text-ink-muted">{txt.subtitle}</p>
-            </div>
+        <div className="flex flex-col gap-3 px-5 pt-4 pb-3 sm:flex-row sm:items-center sm:justify-between md:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            {active && (
+              <span
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
+                  SETTINGS_GROUP_TONE[active.group]?.icon ?? "bg-accent-tint text-accent"
+                }`}
+              >
+                <ActiveIcon size={18} />
+              </span>
+            )}
+            <h1 className="truncate font-display text-xl font-bold tracking-tight text-ink md:text-2xl">
+              {activeLabel}
+            </h1>
           </div>
 
           {/* Search spans every group: "where do I change X" is not a question you can answer by
               picking a group first. */}
           <div className="relative w-full shrink-0 sm:w-64">
-            <Search
-              size={15}
-              className={`absolute top-1/2 -translate-y-1/2 text-ink-faint ${isRTL ? "right-3.5" : "left-3.5"}`}
-            />
+            <Search size={15} className="absolute start-3.5 top-1/2 -translate-y-1/2 text-ink-faint" />
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={txt.search}
               aria-label={txt.search}
-              className={`w-full rounded-xl border border-line bg-surface-subtle py-2.5 text-[13px] font-semibold text-ink outline-none transition-colors focus:border-accent-soft focus:bg-surface ${
-                isRTL ? "pr-9 pl-8" : "pl-9 pr-8"
-              }`}
+              className="w-full rounded-xl border border-line bg-surface-subtle py-2.5 pe-8 ps-9 text-[13px] font-semibold text-ink outline-none transition-colors focus:border-accent focus:bg-surface"
             />
             {query && (
               <button
                 onClick={() => setQuery("")}
                 aria-label={txt.clear}
-                className={`absolute top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink ${isRTL ? "left-2.5" : "right-2.5"}`}
+                className="absolute end-2.5 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink"
               >
                 <X size={14} />
               </button>
@@ -178,34 +176,37 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
 
         {/* Groups. Hidden while searching, because a search already crosses all of them. */}
         {!searching && (
-          <div className="border-t border-line px-5 md:px-6">
-            <div className="-mb-px flex gap-5 overflow-x-auto no-scrollbar">
-              {SETTINGS_GROUP_ORDER.filter((g) => sections.some((s) => s.group === g)).map((group) => (
+          <div className="flex gap-1.5 overflow-x-auto border-t border-line bg-surface-subtle/60 px-3 pt-3 no-scrollbar md:px-6">
+            {SETTINGS_GROUP_ORDER.filter((g) => sections.some((s) => s.group === g)).map((group) => {
+              const tone = SETTINGS_GROUP_TONE[group];
+              const isShown = group === shownGroup;
+              return (
                 <button
                   key={group}
                   onClick={() => setBrowsingGroup(group)}
-                  aria-current={group === shownGroup ? "true" : undefined}
-                  className={`whitespace-nowrap border-b-2 pb-2.5 pt-3 text-[13px] font-bold transition-colors ${
-                    group === shownGroup
-                      ? "border-accent text-ink"
-                      : "border-transparent text-ink-muted hover:text-ink-body"
+                  aria-current={isShown ? "true" : undefined}
+                  className={`inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-3.5 py-1.5 font-display text-[12px] font-bold transition-colors ${
+                    isShown ? tone?.tab ?? "bg-accent-tint text-accent" : "text-ink-muted hover:bg-surface hover:text-ink-body"
                   }`}
                 >
+                  <span className={`h-1.5 w-1.5 rounded-full ${tone?.dot ?? "bg-accent"} ${isShown ? "" : "opacity-60"}`} />
                   {SETTINGS_GROUP_LABELS[group][language === "ar" ? "ar" : "en"]}
                 </button>
-              ))}
-            </div>
+              );
+            })}
           </div>
         )}
 
-        {/* Sections in the open group, or everything the search matched. */}
-        <div className="flex flex-wrap gap-1.5 border-t border-line bg-surface-subtle/60 p-3 md:px-6">
+        {/* Sections in the open group, or everything the search matched. Each chip's icon carries
+            its group's tone, so a search result across groups still says where it lives. */}
+        <div className={`flex flex-wrap gap-1.5 bg-surface-subtle/60 p-3 md:px-6 ${searching ? "border-t border-line" : "pt-2"}`}>
           {listed.length === 0 && (
             <p className="px-2 py-1.5 text-[13px] font-semibold text-ink-muted">{txt.noResults}</p>
           )}
           {listed.map((section) => {
             const Icon = SETTINGS_ICONS[section.id] ?? Settings2;
             const isActive = active?.id === section.id;
+            const tone = SETTINGS_GROUP_TONE[section.group];
             return (
               <button
                 key={section.id}
@@ -214,11 +215,11 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
                 aria-current={isActive ? "page" : undefined}
                 className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-bold transition-all ${
                   isActive
-                    ? "bg-surface text-accent shadow-sm ring-1 ring-line"
+                    ? tone?.chipActive ?? "bg-accent-tint text-accent"
                     : "text-ink-body hover:bg-surface hover:text-ink"
                 }`}
               >
-                <Icon size={15} className={isActive ? "text-accent" : "text-ink-faint"} />
+                <Icon size={15} className={isActive ? "" : tone?.chip ?? "text-ink-faint"} />
                 {language === "ar" ? section.labelAr : section.labelEn}
               </button>
             );
