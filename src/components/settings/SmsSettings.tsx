@@ -331,8 +331,8 @@ export default function SmsSettings() {
 
   const statusMeta: Record<QueueMessage["status"], { label: string; className: string }> = {
     queued: { label: txt.statusQueued, className: "bg-surface-muted text-ink-body border-line" },
-    sending: { label: txt.statusSending, className: "bg-amber-50 text-amber-700 border-amber-200" },
-    sent: { label: txt.statusSent, className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+    sending: { label: txt.statusSending, className: "border-warn/25 bg-warn-tint text-warn" },
+    sent: { label: txt.statusSent, className: "border-ok/25 bg-ok-tint text-ok" },
     failed: { label: txt.statusFailed, className: "border-danger/25 bg-danger-tint text-danger" },
   };
 
@@ -350,7 +350,7 @@ export default function SmsSettings() {
     if (message.status === "queued" && message.attempts > 0) {
       return {
         label: `${txt.statusRetrying} ${message.attempts}/${MAX_SMS_ATTEMPTS}`,
-        className: "bg-amber-50 text-amber-700 border-amber-200",
+        className: "border-warn/25 bg-warn-tint text-warn",
       };
     }
     return statusMeta[message.status];
@@ -365,7 +365,7 @@ export default function SmsSettings() {
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in max-w-5xl mx-auto">
+    <div className="w-full space-y-6 animate-in fade-in">
       {/* What this is */}
       {/* SMS leaves through a phone sitting in the clinic, and that phone can be paired and
           still not be checking in. When it stops, the queue stops with it and nothing says so
@@ -403,14 +403,14 @@ export default function SmsSettings() {
 
       {/* Cost, stated before the switch rather than after the phone bill. Amber means the same
           thing here as on the WhatsApp page: a consequence that costs you. */}
-      <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-        <p className="text-xs font-black uppercase tracking-widest text-amber-700 flex items-center gap-2">
+      <div className="mt-5 rounded-2xl border border-warn/25 bg-warn-tint p-4">
+        <p className="text-xs font-black uppercase tracking-widest text-warn flex items-center gap-2">
           <AlertTriangle size={14} /> {txt.costWarnTitle}
         </p>
         <ul className="mt-2.5 space-y-1.5">
           {[txt.costWarn1, txt.costWarn2, txt.costWarn3, txt.costWarn4].map((line) => (
-            <li key={line} className="text-xs font-bold text-amber-900 leading-relaxed flex gap-2">
-              <span className="text-amber-500 shrink-0">•</span>
+            <li key={line} className="text-xs font-bold text-warn leading-relaxed flex gap-2">
+              <span className="text-warn shrink-0">•</span>
               {line}
             </li>
           ))}
@@ -491,7 +491,7 @@ export default function SmsSettings() {
         <h3 className="text-lg font-black text-ink flex items-center gap-3">
           <Clock className="text-accent" size={20} /> {txt.hourTitle}
         </h3>
-        <p className="text-xs font-bold text-ink-muted mt-2 leading-relaxed">{txt.hourHint}</p>
+        <p className="mt-2 max-w-2xl text-xs font-bold leading-relaxed text-ink-muted">{txt.hourHint}</p>
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <select
@@ -514,7 +514,7 @@ export default function SmsSettings() {
         <h3 className="text-lg font-black text-ink flex items-center gap-3">
           <Wallet className="text-accent" size={20} /> {txt.templateTitle}
         </h3>
-        <p className="text-xs font-bold text-ink-muted mt-2 leading-relaxed">{txt.templateHint}</p>
+        <p className="mt-2 max-w-2xl text-xs font-bold leading-relaxed text-ink-muted">{txt.templateHint}</p>
 
         {settings.enabled && smsSelected && !anyEventOn && (
           <p className="mt-4 text-xs font-bold border border-danger/25 bg-danger-tint text-danger rounded-xl px-4 py-3">
@@ -524,19 +524,19 @@ export default function SmsSettings() {
 
         {/* Above the per-event bodies, because switching it on changes the segment count printed
             against every one of them — and that number is the whole argument. */}
-        <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50/60 p-4 space-y-2">
-          <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">{txt.optOutTitle}</p>
+        <div className="mt-5 rounded-2xl border border-warn/25 bg-warn-tint/60 p-4 space-y-2">
+          <p className="text-[11px] font-black uppercase tracking-widest text-warn">{txt.optOutTitle}</p>
           <label className="flex items-center justify-between gap-4 cursor-pointer">
-            <span className="text-sm font-bold text-amber-950 leading-relaxed">{txt.optOutToggle}</span>
+            <span className="text-sm font-bold text-warn leading-relaxed">{txt.optOutToggle}</span>
             <input
               type="checkbox"
-              className="h-5 w-5 rounded border-amber-300 text-amber-600 focus:ring-amber-500 shrink-0"
+              className="h-5 w-5 rounded border-warn/40 text-warn focus:ring-warn shrink-0"
               checked={settings.optOutFooterEnabled === true}
               onChange={(e) => void save({ ...settings, optOutFooterEnabled: e.target.checked })}
             />
           </label>
           <p className="text-xs font-bold text-ink-body leading-relaxed">{txt.optOutHint}</p>
-          <p className="text-xs text-amber-900 leading-relaxed">{txt.optOutCost}</p>
+          <p className="text-xs text-warn leading-relaxed">{txt.optOutCost}</p>
         </div>
 
         <div className="mt-5 space-y-3">
@@ -589,8 +589,8 @@ export default function SmsSettings() {
                       <span
                         className={`text-xs font-black px-3 py-1.5 rounded-lg border ${
                           cost.segments > 1
-                            ? "bg-amber-50 text-amber-700 border-amber-200"
-                            : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                            ? "border-warn/25 bg-warn-tint text-warn"
+                            : "border-ok/25 bg-ok-tint text-ok"
                         }`}
                       >
                         {cost.segments} {txt.segments}
@@ -684,11 +684,11 @@ export default function SmsSettings() {
                         {txt.revoked}
                       </span>
                     ) : device.alive ? (
-                      <span className="ms-2 text-[10px] font-black px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700">
+                      <span className="ms-2 text-[10px] font-black px-2 py-0.5 rounded-md bg-ok-tint text-ok">
                         {txt.aliveNow}
                       </span>
                     ) : (
-                      <span className="ms-2 text-[10px] font-black px-2 py-0.5 rounded-md bg-amber-100 text-amber-800">
+                      <span className="ms-2 text-[10px] font-black px-2 py-0.5 rounded-md bg-warn-tint text-warn">
                         {txt.notSeen}
                       </span>
                     )}
@@ -699,7 +699,7 @@ export default function SmsSettings() {
                   {device.enabled && device.alive && (
                     <p
                       className={`text-[11px] font-black mt-0.5 ${
-                        device.instant ? "text-emerald-600" : "text-amber-700"
+                        device.instant ? "text-ok" : "text-warn"
                       }`}
                     >
                       {device.instant ? `⚡ ${txt.instantOn}` : `🕒 ${txt.instantOff}`}
@@ -732,7 +732,7 @@ export default function SmsSettings() {
         <h3 className="text-lg font-black text-ink flex items-center gap-3">
           <Clock className="text-accent" size={20} /> {txt.queueTitle}
         </h3>
-        <p className="text-xs font-bold text-ink-muted mt-2 leading-relaxed">{txt.queueNote}</p>
+        <p className="mt-2 max-w-2xl text-xs font-bold leading-relaxed text-ink-muted">{txt.queueNote}</p>
 
         <div className="mt-4 space-y-2">
           {messages.length === 0 ? (
@@ -753,7 +753,7 @@ export default function SmsSettings() {
                 <span className="text-[11px] font-bold text-ink-muted shrink-0">
                   {formatWhen(message.sentAt || message.createdAt)}
                 </span>
-                {message.status === "sent" && <CheckCircle2 size={15} className="text-emerald-500 shrink-0" />}
+                {message.status === "sent" && <CheckCircle2 size={15} className="text-ok shrink-0" />}
               </div>
             ))
           )}

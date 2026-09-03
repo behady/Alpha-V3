@@ -51,7 +51,7 @@ export default function PrescriptionSettings() {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in max-w-3xl">
+    <div className="w-full space-y-6 animate-in fade-in">
         <div className="flex items-center justify-between mb-6 border-b border-line pb-6">
             <div className="flex items-center gap-4">
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-tint text-accent"><Pill size={28}/></div>

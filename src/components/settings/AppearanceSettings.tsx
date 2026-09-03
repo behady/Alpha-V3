@@ -32,7 +32,7 @@ export default function AppearanceSettings() {
           : null;
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-8 pb-4">
+    <div className="w-full space-y-8 pb-4">
       {/* Interface opens by saying its choices are yours and follow you. This screen is the
           other half of that sentence, and it was the half nobody was told. */}
       <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">

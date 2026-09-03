@@ -139,7 +139,7 @@ export default function RecentlyDeleted() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
+    <div className="w-full space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
       {/* How much is recoverable, and for how long — which on a bin is the whole question. */}
       <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">
         <div className="min-w-0 space-y-2">

@@ -190,7 +190,7 @@ export default function DentalLabsSettings() {
   ].filter(Boolean).join(" · ");
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
+    <div className="w-full space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
       {/* What a lab entry buys you, and the one thing about it that surprises people — a case
           keeps the name it was raised under. That note used to be the last line on the page. */}
       <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">

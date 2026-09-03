@@ -98,7 +98,7 @@ export default function ActivityLogs() {
   }, [queryText, severityFilter, moduleFilter, actorFilter]);
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
+    <div className="w-full space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
       {/* An audit trail's first duty is to say what it is showing you, so that what it is NOT
           showing you is never mistaken for what did not happen. */}
       <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-ink-on-accent shadow-lg shadow-ink-slab/15 sm:px-8">

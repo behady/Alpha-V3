@@ -28,16 +28,16 @@ export default function AttendanceSettings({ clinicData, setClinicData, handleSa
   };
 
   return (
-    <form onSubmit={handleSaveClinic} className="space-y-8 animate-in fade-in max-w-3xl">
+    <form onSubmit={handleSaveClinic} className="w-full space-y-8 animate-in fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 border-b border-line pb-6">
           <div className="flex items-center gap-4">
-              <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center"><MapPin size={28}/></div>
+              <div className="w-14 h-14 bg-ok-tint text-ok rounded-2xl flex items-center justify-center"><MapPin size={28}/></div>
               <div>
                   <h3 className="text-xl font-bold text-ink">{txt.attendanceTitle}</h3>
                   <p className="text-sm font-medium text-ink-muted mt-1">{txt.attendanceSub}</p>
               </div>
           </div>
-          <button type="button" onClick={handleGetLocation} disabled={loading} className="bg-emerald-100 text-emerald-700 px-6 py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-emerald-200 transition-all shadow-sm shrink-0">
+          <button type="button" onClick={handleGetLocation} disabled={loading} className="bg-ok-tint text-ok px-6 py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-ok-tint/70 transition-all shadow-sm shrink-0">
               {loading ? <Loader2 size={20} className="animate-spin"/> : <MapPin size={20}/>} {txt.autoGPS}
           </button>
       </div>

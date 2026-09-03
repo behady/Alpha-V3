@@ -90,7 +90,7 @@ export default function NotificationSettings({
   const onCount = [arrivalOn, labOn].filter(Boolean).length;
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
+    <div className="w-full space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
       {/* Who sees these, which is the question the switches cannot answer for themselves. The
           count is the one fact worth reading before the list. */}
       <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">

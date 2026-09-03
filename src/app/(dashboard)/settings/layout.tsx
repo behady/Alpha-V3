@@ -131,7 +131,7 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div
-      className="max-w-[1600px] w-full mx-auto p-4 md:p-8 pb-24 md:pb-10 font-sans animate-in fade-in"
+      className="mx-auto w-full max-w-[1400px] p-4 pb-24 font-sans animate-in fade-in md:p-8 md:pb-10"
       dir={isRTL ? "rtl" : "ltr"}
     >
       <div className="mb-6 rounded-[2rem] border border-line bg-surface shadow-sm">
@@ -233,7 +233,7 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {isReadOnly && (
-        <p className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-bold text-amber-900">
+        <p className="mb-6 rounded-2xl border border-warn/25 bg-warn-tint px-5 py-4 text-sm font-bold text-warn">
           {txt.readOnly}
         </p>
       )}

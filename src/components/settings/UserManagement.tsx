@@ -446,7 +446,7 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
   };
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
+    <div className="w-full space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
       {/* What this screen is for, said before the list: how many people hold a key, how many of
           those keys open everything, and the id a new colleague is waiting on. */}
       <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">

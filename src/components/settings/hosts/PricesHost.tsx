@@ -122,7 +122,7 @@ export default function PricesHost() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
+    <div className="w-full space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
       {/* What this screen says, said once at the top: what a treatment costs when nobody chose a
           list, how much of the catalogue exists, and how far staff may discount it. */}
       <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">

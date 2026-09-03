@@ -125,7 +125,7 @@ export default function NamedList({
   };
 
   return (
-    <div className="max-w-xl space-y-8">
+    <div className="w-full space-y-8">
       <div className="flex items-start gap-3.5">
         <span className="mt-0.5 shrink-0 rounded-2xl bg-accent-tint p-2.5 text-accent">
           <Icon size={18} />

@@ -1031,5 +1031,57 @@ for (const file of sourceFiles(join(REPO, "src"))) {
   );
 }
 
+// Every colour in Settings comes from the theme, and every panel is the same width.
+//
+// Twice I reported this folder clean and twice the search was the thing at fault: the first
+// pattern had no `red|green|orange|yellow|blue` in it at all, and the second excluded amber and
+// emerald wholesale as "deliberate rail colours" — which hid about fifty real ones on the SMS and
+// WhatsApp screens. A raw palette value is invisible to the theme picker: pick Damson and the
+// page still has Tailwind's amber in it.
+//
+// The exception is narrow and deliberate. The dark slab at the top of several panels is a fixed
+// near-black in every preset, so a status on it is chosen against that slab and not against the
+// page — the four classes below are those, and nothing else is allowed.
+const RAIL_LITERALS = /^(bg-amber-400(\/\d+)?|text-amber-200|bg-emerald-400)$/;
+const PALETTE =
+  /\b(?:bg|text|border|ring|shadow|from|to|via|divide|outline|decoration|accent|fill|stroke)-(?:red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}(?:\/\d{1,3})?\b/g;
+
+const settingsFiles = [
+  ...sourceFiles(join(REPO, "src", "components", "settings")),
+  ...sourceFiles(join(REPO, "src", "app", "(dashboard)", "settings")),
+];
+
+for (const file of settingsFiles) {
+  const rel = file.replace(REPO, "").split(sep).join("/");
+  const text = readFileSync(file, "utf8");
+  for (const raw of text.match(PALETTE) ?? []) {
+    // Strip a variant prefix (hover:, focus:, sm:, dark:) before deciding.
+    const bare = raw.slice(raw.lastIndexOf(":") + 1);
+    ok(
+      RAIL_LITERALS.test(bare),
+      `${rel} uses the raw Tailwind class \`${raw}\`. Settings colours come from the theme ` +
+        `tokens — ok / warn / danger / info and their -tint pairs, or accent for an action — so ` +
+        `that changing the preset changes the page. Only the dark rail keeps literals.`
+    );
+  }
+}
+
+// One measure for the whole area, set once by the settings shell. Panels had grown five
+// different caps (3xl, 4xl, 5xl and two with none), so moving between two sections moved the
+// column, and the widest of them still left a third of a large screen empty.
+for (const file of sourceFiles(join(REPO, "src", "components", "settings"))) {
+  const rel = file.replace(REPO, "").split(sep).join("/");
+  const root = /return\s*\(\s*<(?:div|section|form)\s+[^>]*className="([^"]*)"/.exec(
+    readFileSync(file, "utf8")
+  );
+  if (!root) continue;
+  ok(
+    !/\bmax-w-(?:xs|sm|md|lg|xl|\dxl|screen-\w+)\b/.test(root[1]),
+    `${rel} caps its own width (\`${root[1].match(/max-w-\S+/)?.[0]}\`). The shell in ` +
+      `settings/layout.tsx sets the measure for every section; a panel that sets its own makes ` +
+      `the content jump sideways as you move between tabs.`
+  );
+}
+
 console.log(`settingsRegistry: ${checks} checks passed across ${SETTINGS_SECTIONS.length} sections`);
 console.log(`  settings documents guarded: ${docIds.join(", ")}`);

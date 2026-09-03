@@ -185,7 +185,7 @@ export default function UserProfile() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
+    <div className="w-full space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
       {/* The person, as the rest of the clinic sees them. The banner this replaces pulled a
           decorative cube texture from transparenttextures.com on every load — a third-party
           request, on a medical record screen, for a pattern behind an avatar. */}

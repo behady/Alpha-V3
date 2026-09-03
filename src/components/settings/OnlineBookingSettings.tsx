@@ -218,7 +218,7 @@ export default function OnlineBookingSettings() {
   return (
     <form
       onSubmit={handleSave}
-      className="mx-auto w-full max-w-3xl space-y-8 pb-4"
+      className="w-full space-y-8 pb-4"
       dir={isRTL ? "rtl" : "ltr"}
     >
       {/* The link is what this screen is for, so it is the first thing on it — and the switch that

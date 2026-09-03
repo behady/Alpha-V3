@@ -276,7 +276,7 @@ export default function ClinicProfileSettingsPage() {
   return (
     <form
       onSubmit={(e) => void handleSubmit(e)}
-      className="mx-auto w-full max-w-3xl space-y-8 pb-4 animate-in fade-in duration-300"
+      className="w-full space-y-8 pb-4 animate-in fade-in duration-300"
       dir={isRTL ? "rtl" : "ltr"}
     >
       {/* The letterhead, as it will print — the fields below it stop being abstract. */}

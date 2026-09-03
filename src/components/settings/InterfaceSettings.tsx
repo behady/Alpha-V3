@@ -206,7 +206,7 @@ export default function InterfaceSettings() {
   const txt = useSettingsText("interface");
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
+    <div className="w-full space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
       {/* The one thing about this page that is not obvious from looking at it: none of these
           choices belong to the browser or to the clinic. They are the reader's, and they travel. */}
       <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">

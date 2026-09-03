@@ -241,7 +241,7 @@ export default function PriceListWorkspace({
   };
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6 pb-4" dir={ar ? "rtl" : "ltr"}>
+    <div className="w-full space-y-6 pb-4" dir={ar ? "rtl" : "ltr"}>
       {/* The same slab the Prices screen opens with: which list you are pricing, what its
           blanket discount will do to every number below, and the way back. */}
       <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">

@@ -879,7 +879,7 @@ export default function WhatsAppSettings() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-10 pb-4" dir={isRTL ? "rtl" : "ltr"}>
+    <div className="w-full space-y-10 pb-4" dir={isRTL ? "rtl" : "ltr"}>
       {/* The one question this screen exists to answer, answered before anything else: can the
           clinic send right now, through what, and from which number. The old page made you read
           two gateway cards and decode two status pills to work it out. The number is set in the
@@ -956,19 +956,19 @@ export default function WhatsAppSettings() {
             {wapilotLoading ? (
               <Loader2 size={18} className="animate-spin text-ink-muted" />
             ) : wapilotStatus?.source === "clinic" ? (
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full">
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-ok bg-ok-tint border border-ok/25 px-3 py-1.5 rounded-full">
                 <CheckCircle2 size={14} />
                 {txt.statusClinic}
               </span>
             ) : wapilotStatus?.source === "platform" ? (
               // Deliberately not green. Messages do go out, but from a number that is not this
               // clinic's — that is a problem to fix, not a healthy state to reassure someone about.
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-full">
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-warn bg-warn-tint border border-warn/25 px-3 py-1.5 rounded-full">
                 <AlertCircle size={14} />
                 {txt.statusPlatform}
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-full">
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-warn bg-warn-tint border border-warn/25 px-3 py-1.5 rounded-full">
                 <AlertCircle size={14} />
                 {txt.statusNone}
               </span>
@@ -976,7 +976,7 @@ export default function WhatsAppSettings() {
           </div>
 
           {wapilotStatus?.source === "platform" && (
-            <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 leading-relaxed">
+            <p className="text-xs text-warn bg-warn-tint border border-warn/25 rounded-xl px-3 py-2.5 leading-relaxed">
               {txt.sharedWarning}
             </p>
           )}
@@ -1051,7 +1051,7 @@ export default function WhatsAppSettings() {
             other is how a clinic ends up configured twice or not at all. */}
         <section className="rounded-2xl xl:rounded-3xl bg-surface border border-line shadow-sm ring-1 ring-line p-5 xl:p-6 space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="flex items-center gap-2 text-emerald-700">
+            <div className="flex items-center gap-2 text-ok">
               <MessageCircle size={18} />
               <div>
                 <h3 className="text-sm font-black uppercase tracking-wider text-ink">{txt.metaCard}</h3>
@@ -1059,14 +1059,14 @@ export default function WhatsAppSettings() {
               </div>
             </div>
             {metaLoading ? (
-              <Loader2 size={18} className="animate-spin text-emerald-500" />
+              <Loader2 size={18} className="animate-spin text-ok" />
             ) : metaStatus?.configured ? (
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-full">
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-ok bg-ok-tint border border-ok/25 px-3 py-1.5 rounded-full">
                 <CheckCircle2 size={14} />
                 {txt.metaConnected}
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-full">
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-warn bg-warn-tint border border-warn/25 px-3 py-1.5 rounded-full">
                 <AlertCircle size={14} />
                 {txt.metaNotConnected}
               </span>
@@ -1081,7 +1081,7 @@ export default function WhatsAppSettings() {
                 value={metaPhoneNumberId}
                 onChange={(e) => setMetaPhoneNumberId(e.target.value)}
                 placeholder="1142062985667803"
-                className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-ink outline-none focus:bg-surface focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+                className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-ink outline-none focus:bg-surface focus:border-accent focus:ring-2 focus:ring-accent/15"
               />
             </label>
             <label className="block">
@@ -1090,7 +1090,7 @@ export default function WhatsAppSettings() {
                 type="text"
                 value={metaWabaId}
                 onChange={(e) => setMetaWabaId(e.target.value)}
-                className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-ink outline-none focus:bg-surface focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+                className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-ink outline-none focus:bg-surface focus:border-accent focus:ring-2 focus:ring-accent/15"
               />
             </label>
           </div>
@@ -1102,7 +1102,7 @@ export default function WhatsAppSettings() {
               onChange={(e) => setMetaTokenDraft(e.target.value)}
               placeholder={metaStatus?.tokenSet ? txt.metaTokenKept : "EAA..."}
               autoComplete="off"
-              className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-ink outline-none focus:bg-surface focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+              className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-ink outline-none focus:bg-surface focus:border-accent focus:ring-2 focus:ring-accent/15"
             />
           </label>
           <label className="block">
@@ -1112,14 +1112,14 @@ export default function WhatsAppSettings() {
               value={metaTestTo}
               onChange={(e) => setMetaTestTo(e.target.value)}
               placeholder="+2010..."
-              className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-ink outline-none focus:bg-surface focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/15"
+              className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-ink outline-none focus:bg-surface focus:border-accent focus:ring-2 focus:ring-accent/15"
             />
           </label>
           <button
             type="button"
             onClick={() => void handleSaveMetaConnection()}
             disabled={metaSaving || metaLoading}
-            className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-600 text-white text-xs font-black uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-50 transition-all"
+            className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-accent text-ink-on-accent text-xs font-black uppercase tracking-widest hover:bg-accent-strong disabled:opacity-50 transition-all"
           >
             {metaSaving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
             {txt.saveConnection}
@@ -1178,7 +1178,7 @@ export default function WhatsAppSettings() {
               type="button"
               onClick={() => void handleSendTest()}
               disabled={testSending}
-              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-600 text-white text-xs font-black uppercase tracking-widest hover:bg-emerald-700 disabled:opacity-50 transition-all shadow-md shadow-emerald-600/15"
+              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-accent text-ink-on-accent text-xs font-black uppercase tracking-widest hover:bg-accent-strong disabled:opacity-50 transition-all shadow-md shadow-accent/15"
             >
               {testSending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
               {txt.testSend}
@@ -1219,7 +1219,7 @@ export default function WhatsAppSettings() {
           </p>
         )}
 
-        <p className="text-xs text-ink-body bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5 leading-relaxed">
+        <p className="text-xs text-ink-body bg-warn-tint border border-warn/25 rounded-xl px-3 py-2.5 leading-relaxed">
           {txt.paymentAutomationHint}
         </p>
 
@@ -1267,7 +1267,7 @@ export default function WhatsAppSettings() {
                       {mode === "auto" ? txt.deliveryAuto : txt.deliveryManual}
                     </span>
                     {locked && (
-                      <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-100 text-amber-800">
+                      <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-warn-tint text-warn">
                         {txt.deliveryLocked}
                       </span>
                     )}
@@ -1284,23 +1284,23 @@ export default function WhatsAppSettings() {
             })}
           </div>
 
-          <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3">
-            <p className="text-[11px] font-black uppercase tracking-widest text-emerald-700">
+          <div className="rounded-xl border border-ok/25 bg-ok-tint/70 px-4 py-3">
+            <p className="text-[11px] font-black uppercase tracking-widest text-ok">
               {txt.deliveryQueueTitle}
             </p>
-            <p className="text-xs text-emerald-900 mt-1.5 leading-relaxed">{txt.deliveryQueueBody}</p>
+            <p className="text-xs text-ok mt-1.5 leading-relaxed">{txt.deliveryQueueBody}</p>
           </div>
         </div>
 
 
         {/* Leads are strangers, not patients — a separate switch on purpose. A clinic may want
             reminders for its own people and no machine greeting anybody else, or the reverse. */}
-        <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
+        <div className="rounded-xl border border-warn/25 bg-warn-tint/60 p-4 space-y-3">
           <label className="flex items-center justify-between gap-4 cursor-pointer">
-            <span className="text-sm font-black text-amber-950">{txt.leadCard}</span>
+            <span className="text-sm font-black text-warn">{txt.leadCard}</span>
             <input
               type="checkbox"
-              className="h-5 w-5 rounded border-amber-300 text-amber-700 focus:ring-amber-500 shrink-0"
+              className="h-5 w-5 rounded border-warn/40 text-warn focus:ring-warn shrink-0"
               checked={state.isLeadAutoReplyEnabled ?? false}
               onChange={(e) => {
                 const checked = e.target.checked;
@@ -1312,9 +1312,9 @@ export default function WhatsAppSettings() {
               }}
             />
           </label>
-          <p className="text-xs font-bold text-amber-900/80 leading-relaxed">{txt.leadToggle}</p>
+          <p className="text-xs font-bold text-warn/80 leading-relaxed">{txt.leadToggle}</p>
           <p className="text-xs text-ink-body leading-relaxed">{txt.leadHint}</p>
-          <p className="text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 leading-relaxed">
+          <p className="text-xs text-warn bg-warn-tint border border-warn/25 rounded-lg px-3 py-2 leading-relaxed">
             {txt.leadWarning}
           </p>
         </div>
@@ -1323,13 +1323,13 @@ export default function WhatsAppSettings() {
         {/* Opt-out. Sits above the template editor on purpose: it is the setting that decides
             whether the clinic still has a WhatsApp number in six months, and it should be read
             before the wording is fiddled with rather than found underneath it. */}
-        <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
-          <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">{txt.optOutTitle}</p>
+        <div className="rounded-xl border border-warn/25 bg-warn-tint/60 p-4 space-y-3">
+          <p className="text-[11px] font-black uppercase tracking-widest text-warn">{txt.optOutTitle}</p>
           <label className="flex items-center justify-between gap-4 cursor-pointer">
-            <span className="text-sm font-bold text-amber-950 leading-relaxed">{txt.optOutToggle}</span>
+            <span className="text-sm font-bold text-warn leading-relaxed">{txt.optOutToggle}</span>
             <input
               type="checkbox"
-              className="h-5 w-5 rounded border-amber-300 text-amber-600 focus:ring-amber-500 shrink-0"
+              className="h-5 w-5 rounded border-warn/40 text-warn focus:ring-warn shrink-0"
               checked={state.optOutFooterEnabled !== false}
               onChange={(e) => {
                 const checked = e.target.checked;
@@ -1342,7 +1342,7 @@ export default function WhatsAppSettings() {
             />
           </label>
           <p className="text-xs text-ink-body leading-relaxed">{txt.optOutHint}</p>
-          <p className="text-xs text-amber-900 leading-relaxed">{txt.optOutWarning}</p>
+          <p className="text-xs text-warn leading-relaxed">{txt.optOutWarning}</p>
         </div>
 
       </div>
@@ -1475,7 +1475,7 @@ export default function WhatsAppSettings() {
           {state.botEnabled === true && (
             <>
               {(state.deliveryMode ?? (canSendAutomatically ? "auto" : "manual")) !== "auto" && (
-                <p className="text-xs font-bold text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-relaxed">
+                <p className="text-xs font-bold text-warn bg-warn-tint border border-warn/25 rounded-lg px-3 py-2 leading-relaxed">
                   {txt.botNeedsGateway}
                 </p>
               )}
@@ -1495,7 +1495,7 @@ export default function WhatsAppSettings() {
                   }}
                 />
               </label>
-              <p className="text-xs text-ink-muted leading-relaxed">{txt.botStrangersHint}</p>
+              <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botStrangersHint}</p>
               <label className="flex items-center justify-between gap-4 cursor-pointer pt-1">
                 <span className="text-sm font-bold text-ink leading-relaxed">{txt.botAutoConfirm}</span>
                 <input
@@ -1512,7 +1512,7 @@ export default function WhatsAppSettings() {
                   }}
                 />
               </label>
-              <p className="text-xs text-ink-muted leading-relaxed">{txt.botAutoConfirmHint}</p>
+              <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botAutoConfirmHint}</p>
               <label className="flex items-center justify-between gap-4 cursor-pointer pt-1">
                 <span className="text-sm font-bold text-ink leading-relaxed">{txt.botAi}</span>
                 <input
@@ -1529,8 +1529,8 @@ export default function WhatsAppSettings() {
                   }}
                 />
               </label>
-              <p className="text-xs text-ink-muted leading-relaxed">{txt.botAiHint}</p>
-              <p className="text-xs text-ink-muted leading-relaxed">{txt.botLimits}</p>
+              <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botAiHint}</p>
+              <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botLimits}</p>
 
               {/*
                 The answers the system does not otherwise hold.

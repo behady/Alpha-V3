@@ -172,7 +172,7 @@ export default function LocationsSettings() {
   ].join(" · ");
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
+    <div className="w-full space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
       {/* What a branch is for, said once at the top. The two notes this replaces sat at the very
           bottom of the page and inside the empty state, where a clinic that already had branches
           never saw either. */}

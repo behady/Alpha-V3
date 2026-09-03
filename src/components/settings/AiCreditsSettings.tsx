@@ -177,7 +177,7 @@ export default function AiCreditsSettings() {
       : `${n(selected.creditsUsed)} credits used in ${monthLabel(selectedMonth)}. This plan has no monthly limit.`;
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
+    <div className="w-full space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
       {/* The three headline cards this replaces stated used, limit and remaining as three separate
           numbers and left the reader to do the subtraction that matters. One sentence, one bar. */}
       <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">
