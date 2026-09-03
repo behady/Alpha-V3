@@ -62,15 +62,12 @@
   --info:             #1D4FD8;
   --info-tint:        #EFF6FF;
 
-  /* The four settings groups. Which family a screen belongs to, and nothing else. */
+  /* The four settings groups. A solid tile under a white glyph, and nothing else —
+     chrome stays achromatic, so colour only ever names a destination. */
   --tone-personal:      #6B4FBB;
-  --tone-personal-tint: #F0EBFA;
   --tone-clinic:        #0E7490;
-  --tone-clinic-tint:   #E3F4F7;
   --tone-people:        #B03A78;
-  --tone-people-tint:   #FAE8F1;
   --tone-system:        #2C5F8F;
-  --tone-system-tint:   #E8EEF5;
 }
 
 /* `inline` matters: it makes the generated utilities reference --surface and
@@ -110,13 +107,9 @@
   --color-info-tint:      var(--info-tint);
 
   --color-tone-personal:      var(--tone-personal);
-  --color-tone-personal-tint: var(--tone-personal-tint);
   --color-tone-clinic:        var(--tone-clinic);
-  --color-tone-clinic-tint:   var(--tone-clinic-tint);
   --color-tone-people:        var(--tone-people);
-  --color-tone-people-tint:   var(--tone-people-tint);
   --color-tone-system:        var(--tone-system);
-  --color-tone-system-tint:   var(--tone-system-tint);
 }
 
 /* --------------------------------------------------------------------------

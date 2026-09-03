@@ -89,44 +89,17 @@ export const SETTINGS_GROUP_ICONS: Record<string, LucideIcon> = {
 };
 
 /**
- * Each group's colour, as the literal class strings Tailwind has to see at build time.
+ * Each group's tile, as the literal class strings Tailwind has to see at build time.
  *
- * The same tone paints a section's icon on the index page, its group tab, and its chip in the
- * tab bar, so the colour says which family a screen is in before its name does. Nothing else in
- * the product may use these: a tone is a group, not a status and not an action.
+ * One entry, one job: a solid rounded square with a white glyph, which is the only place colour
+ * appears anywhere in Settings. Tabs, chips, labels and chevrons are achromatic on purpose — a
+ * coloured control competes with the tiles for the same meaning and wins neither.
  */
-export const SETTINGS_GROUP_TONE: Record<
-  string,
-  { icon: string; chip: string; chipActive: string; tab: string; dot: string }
-> = {
-  personal: {
-    icon: "bg-tone-personal-tint text-tone-personal",
-    chip: "text-tone-personal",
-    chipActive: "bg-tone-personal-tint text-tone-personal ring-1 ring-tone-personal/20",
-    tab: "bg-tone-personal-tint text-tone-personal",
-    dot: "bg-tone-personal",
-  },
-  clinic: {
-    icon: "bg-tone-clinic-tint text-tone-clinic",
-    chip: "text-tone-clinic",
-    chipActive: "bg-tone-clinic-tint text-tone-clinic ring-1 ring-tone-clinic/20",
-    tab: "bg-tone-clinic-tint text-tone-clinic",
-    dot: "bg-tone-clinic",
-  },
-  people: {
-    icon: "bg-tone-people-tint text-tone-people",
-    chip: "text-tone-people",
-    chipActive: "bg-tone-people-tint text-tone-people ring-1 ring-tone-people/20",
-    tab: "bg-tone-people-tint text-tone-people",
-    dot: "bg-tone-people",
-  },
-  system: {
-    icon: "bg-tone-system-tint text-tone-system",
-    chip: "text-tone-system",
-    chipActive: "bg-tone-system-tint text-tone-system ring-1 ring-tone-system/20",
-    tab: "bg-tone-system-tint text-tone-system",
-    dot: "bg-tone-system",
-  },
+export const SETTINGS_GROUP_TONE: Record<string, { tile: string }> = {
+  personal: { tile: "bg-tone-personal text-white" },
+  clinic: { tile: "bg-tone-clinic text-white" },
+  people: { tile: "bg-tone-people text-white" },
+  system: { tile: "bg-tone-system text-white" },
 };
 
 /** What every panel receives. Most ignore it; the ones that can be read-only do not. */

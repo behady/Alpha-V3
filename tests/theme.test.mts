@@ -202,15 +202,6 @@ const PAIRS: [string, string, string, number][] = [
   ["danger on its tint",  "danger",        "danger-tint",   4.5],
   ["accent on its tint",  "accent",        "accent-tint",   4.5],
   ["hairline on card",    "line",          "surface",       1.2],
-  // The settings group tones: an icon on a card, and text on its own tint.
-  ["personal tone as icon", "tone-personal", "surface",            3.0],
-  ["personal on its tint",  "tone-personal", "tone-personal-tint", 4.5],
-  ["clinic tone as icon",   "tone-clinic",   "surface",            3.0],
-  ["clinic on its tint",    "tone-clinic",   "tone-clinic-tint",   4.5],
-  ["people tone as icon",   "tone-people",   "surface",            3.0],
-  ["people on its tint",    "tone-people",   "tone-people-tint",   4.5],
-  ["system tone as icon",   "tone-system",   "surface",            3.0],
-  ["system on its tint",    "tone-system",   "tone-system-tint",   4.5],
 ];
 
 for (const preset of THEME_PRESETS) {
@@ -231,6 +222,28 @@ for (const preset of THEME_PRESETS) {
    * contrast ratio of 1.25 because they happen to share a lightness. Only the default theme, where
    * both really are green, has to earn its separation by weight.
    */
+  /**
+   * A group tone is a solid tile with a white glyph on it, in every theme including the dark one.
+   * White is deliberately not a role token — it does two jobs and themes must not repaint it — so
+   * it is the literal here, which is exactly what the tile renders.
+   *
+   * The second check is that the tile reads as a shape at all: a fill too close to the card it
+   * sits on is an invisible square with a floating glyph.
+   */
+  for (const group of ["personal", "clinic", "people", "system"]) {
+    const tone = preset.tokens[`tone-${group}`];
+    ok(
+      `${preset.id}: ${group} tile carries a white glyph`,
+      contrast(tone, "#FFFFFF") >= 3.0,
+      `white on ${tone} = ${contrast(tone, "#FFFFFF").toFixed(2)}`,
+    );
+    ok(
+      `${preset.id}: ${group} tile reads against its card`,
+      contrast(tone, preset.tokens["surface"]) >= 1.6,
+      `${tone} on ${preset.tokens["surface"]} = ${contrast(tone, preset.tokens["surface"]).toFixed(2)}`,
+    );
+  }
+
   const dHue = hueDistance(preset.tokens["accent"], preset.tokens["ok"]);
   const sep = contrast(preset.tokens["accent"], preset.tokens["ok"]);
   ok(

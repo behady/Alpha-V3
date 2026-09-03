@@ -139,11 +139,11 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
           <div className="flex min-w-0 items-center gap-3">
             {active && (
               <span
-                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
-                  SETTINGS_GROUP_TONE[active.group]?.icon ?? "bg-accent-tint text-accent"
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] ${
+                  SETTINGS_GROUP_TONE[active.group]?.tile ?? "bg-accent text-white"
                 }`}
               >
-                <ActiveIcon size={18} />
+                <ActiveIcon size={17} />
               </span>
             )}
             <h1 className="truncate font-display text-xl font-bold tracking-tight text-ink md:text-2xl">
@@ -176,25 +176,30 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
 
         {/* Groups. Hidden while searching, because a search already crosses all of them. */}
         {!searching && (
-          <div className="flex justify-center gap-2 overflow-x-auto border-t border-line bg-surface-subtle/60 px-3 pt-3 no-scrollbar md:px-6">
-            {SETTINGS_GROUP_ORDER.filter((g) => sections.some((s) => s.group === g)).map((group) => {
-              const tone = SETTINGS_GROUP_TONE[group];
-              const GroupIcon = SETTINGS_GROUP_ICONS[group] ?? Settings2;
-              const isShown = group === shownGroup;
-              return (
-                <button
-                  key={group}
-                  onClick={() => setBrowsingGroup(group)}
-                  aria-current={isShown ? "true" : undefined}
-                  className={`inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 font-display text-sm font-bold transition-colors ${
-                    isShown ? tone?.tab ?? "bg-accent-tint text-accent" : "text-ink-muted hover:bg-surface hover:text-ink-body"
-                  }`}
-                >
-                  <GroupIcon size={16} className={isShown ? "" : tone?.chip ?? ""} />
-                  {SETTINGS_GROUP_LABELS[group][language === "ar" ? "ar" : "en"]}
-                </button>
-              );
-            })}
+          <div className="flex justify-center border-t border-line bg-surface-subtle/60 px-3 pt-3 md:px-6">
+            {/* A segmented control, not four coloured pills: one grey track, one white segment
+                that moves. The colour it used to carry now lives only in the tiles. */}
+            <div className="inline-flex gap-1 overflow-x-auto rounded-xl bg-surface-muted p-1 no-scrollbar">
+              {SETTINGS_GROUP_ORDER.filter((g) => sections.some((s) => s.group === g)).map((group) => {
+                const GroupIcon = SETTINGS_GROUP_ICONS[group] ?? Settings2;
+                const isShown = group === shownGroup;
+                return (
+                  <button
+                    key={group}
+                    onClick={() => setBrowsingGroup(group)}
+                    aria-current={isShown ? "true" : undefined}
+                    className={`inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg px-4 py-1.5 text-sm transition-all ${
+                      isShown
+                        ? "bg-surface font-semibold text-ink shadow-sm"
+                        : "font-medium text-ink-body hover:text-ink"
+                    }`}
+                  >
+                    <GroupIcon size={15} className={isShown ? "text-ink" : "text-ink-muted"} />
+                    {SETTINGS_GROUP_LABELS[group][language === "ar" ? "ar" : "en"]}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -207,20 +212,19 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
           {listed.map((section) => {
             const Icon = SETTINGS_ICONS[section.id] ?? Settings2;
             const isActive = active?.id === section.id;
-            const tone = SETTINGS_GROUP_TONE[section.group];
             return (
               <button
                 key={section.id}
                 onClick={() => void go(section.route)}
                 data-tour={section.tourAnchor}
                 aria-current={isActive ? "page" : undefined}
-                className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-bold transition-all ${
+                className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-sm transition-all ${
                   isActive
-                    ? tone?.chipActive ?? "bg-accent-tint text-accent"
-                    : "text-ink-body hover:bg-surface hover:text-ink"
+                    ? "bg-surface font-semibold text-ink shadow-sm"
+                    : "font-medium text-ink-body hover:text-ink"
                 }`}
               >
-                <Icon size={16} className={isActive ? "" : tone?.chip ?? "text-ink-faint"} />
+                <Icon size={15} className={isActive ? "text-ink" : "text-ink-muted"} />
                 {language === "ar" ? section.labelAr : section.labelEn}
               </button>
             );

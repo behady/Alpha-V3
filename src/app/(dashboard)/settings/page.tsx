@@ -79,7 +79,7 @@ function SettingsIndex() {
   const Chevron = isRTL ? ChevronLeft : ChevronRight;
 
   return (
-    <div className="space-y-10 animate-in fade-in">
+    <div className="space-y-7 animate-in fade-in">
       <p className="max-w-xl text-sm font-semibold text-ink-muted">
         {language === "ar"
           ? "اختر قسماً للبدء. ما تراه هنا هو ما تسمح لك صلاحياتك بفتحه."
@@ -90,36 +90,36 @@ function SettingsIndex() {
         const inGroup = sections.filter((section) => section.group === group);
         if (inGroup.length === 0) return null;
         return (
-          <section key={group} className="space-y-4">
-            <h2 className="flex items-center gap-2 font-display text-[11px] font-black uppercase tracking-widest text-ink-muted">
+          <section key={group} className="space-y-2.5">
+            <h2 className="flex items-center gap-2 px-1 font-display text-[11px] font-black uppercase tracking-widest text-ink-muted">
               {(() => {
                 const GroupIcon = SETTINGS_GROUP_ICONS[group] ?? Settings2;
-                return <GroupIcon size={14} className={SETTINGS_GROUP_TONE[group]?.chip ?? "text-accent"} />;
+                return <GroupIcon size={13} />;
               })()}
               {SETTINGS_GROUP_LABELS[group][language === "ar" ? "ar" : "en"]}
             </h2>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {/* One inset group with hairlines between its rows, rather than a grid of separate
+                cards: the rows belong to each other, and a gap says they do not. */}
+            <div className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
               {inGroup.map((section) => {
                 const Icon = SETTINGS_ICONS[section.id] ?? Settings2;
                 return (
                   <Link
                     key={section.id}
                     href={section.route}
-                    className="group flex items-center gap-4 rounded-3xl border border-line bg-surface-subtle p-5 transition-all hover:border-line-strong hover:bg-surface hover:shadow-sm"
+                    className="group flex items-center gap-3.5 px-4 py-3 transition-colors hover:bg-surface-subtle"
                   >
-                    {/* The group's tone, so the twenty-two cards read as four families at a glance
-                        instead of twenty-two grey squares. */}
                     <span
-                      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl shadow-sm transition-transform group-hover:scale-105 ${
-                        SETTINGS_GROUP_TONE[group]?.icon ?? "bg-accent-tint text-accent"
+                      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] ${
+                        SETTINGS_GROUP_TONE[group]?.tile ?? "bg-accent text-white"
                       }`}
                     >
-                      <Icon size={20} />
+                      <Icon size={17} />
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-sm font-bold text-ink">
+                    <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-ink">
                       {language === "ar" ? section.labelAr : section.labelEn}
                     </span>
-                    <Chevron size={16} className="shrink-0 text-ink-muted" />
+                    <Chevron size={16} className="shrink-0 text-ink-faint" />
                   </Link>
                 );
               })}
