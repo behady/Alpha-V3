@@ -882,7 +882,12 @@ export default function ServiceEditorDrawer({
     return createPortal(
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
         <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={onClose} />
-        <div className="relative w-full max-w-4xl z-10 animate-in zoom-in-95 duration-200">
+        {/*
+          Wide enough for the chart to be the size it wants to be. The teeth need ~820px including
+          the card around them; at the old `max-w-4xl` (896px) they just cleared it with the form
+          fields squeezed underneath, and there is no reason to be that tight on a desktop.
+        */}
+        <div className="relative w-full max-w-5xl z-10 animate-in zoom-in-95 duration-200">
           {content}
         </div>
       </div>,
@@ -893,7 +898,7 @@ export default function ServiceEditorDrawer({
   return createPortal(
     <div className="fixed inset-0 z-[100]">
       <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={onClose} />
-      <div className="absolute inset-y-0 right-0 w-full max-w-2xl z-50 transform transition-transform duration-300 translate-x-0">
+      <div className="absolute inset-y-0 right-0 w-full max-w-3xl z-50 transform transition-transform duration-300 translate-x-0">
         {content}
       </div>
     </div>,
