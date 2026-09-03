@@ -69,6 +69,13 @@ if (users.empty) {
     console.log(`  legacy role  : ${d.role ?? "(none)"}`);
     console.log(`  defaultClinic: ${d.defaultClinicId ?? "(none)"}`);
     console.log(`  devices      : ${Array.isArray(d.fcmTokens) ? d.fcmTokens.filter(Boolean).length : 0}`);
+    const perms = d.clinicPermissions || {};
+    console.log(`  permissions  :`);
+    for (const cid of Object.keys(perms)) {
+      const list = Array.isArray(perms[cid]) ? perms[cid] : [];
+      console.log(`     ${cid}: ${list.length ? list.join(", ") : "(empty)"}`);
+    }
+    if (!Object.keys(perms).length) console.log("     (none granted anywhere)");
     console.log(`  clinicRoles  :`);
     const keys = Object.keys(roles);
     if (!keys.length) console.log("     (none — the phone would have nothing to fall back to)");

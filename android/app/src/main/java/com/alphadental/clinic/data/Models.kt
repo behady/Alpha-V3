@@ -15,6 +15,16 @@ data class Session(
     val email: String,
     val clinicId: String,
     val role: String,
+    /**
+     * The tick-boxes on the website's Manage Access screen, for this clinic.
+     *
+     * The phone used to decide everything from the role alone, so an Assistant
+     * granted "Edit appointments" and "Add payments" on the website opened the
+     * app and found neither — the checkboxes were real on one surface and
+     * invisible on the other. Empty means nothing was ever granted; an Owner or
+     * Admin passes every check without consulting it, as they do on the website.
+     */
+    val permissions: List<String> = emptyList(),
 ) {
     /**
      * Owner and Admin are the same answer everywhere on the phone. Owner is a protected identity
@@ -26,6 +36,14 @@ data class Session(
     val isOwner: Boolean get() = role == "Owner"
     val isDentist: Boolean get() = role == "Dentist"
     val isReception: Boolean get() = role == "Receptionist" || role == "Assistant"
+
+    /**
+     * Does this account hold one granted permission?
+     *
+     * Mirrors holdsPermission() on the website: full-access roles skip the list
+     * entirely, everyone else must actually have been granted the key.
+     */
+    fun can(permission: String): Boolean = isAdmin || permissions.contains(permission)
 }
 
 /**

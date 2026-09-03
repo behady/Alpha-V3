@@ -134,12 +134,22 @@ object Repository {
         }
         if (role == "Patient") error("This app is for clinic staff.")
 
+        // The Manage Access tick-boxes, per clinic. Same document and the same
+        // field the rules read, so a permission the phone honours is one the
+        // server would allow — rather than a second, kinder opinion.
+        @Suppress("UNCHECKED_CAST")
+        val permissionsByClinic = (snap.get("clinicPermissions") as? Map<String, Any?>).orEmpty()
+        val permissions = (permissionsByClinic[clinicId] as? List<*>)
+            ?.mapNotNull { it as? String }
+            .orEmpty()
+
         Session(
             uid = user.uid,
             name = snap.getString("name") ?: user.email.orEmpty(),
             email = user.email.orEmpty(),
             clinicId = clinicId,
             role = role,
+            permissions = permissions,
         )
     }
 

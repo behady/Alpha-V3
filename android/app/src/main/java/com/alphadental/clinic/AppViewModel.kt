@@ -1044,7 +1044,7 @@ class AppViewModel : ViewModel() {
      */
     fun refreshBriefing() {
         val session = _state.value.session ?: return
-        if (!(session.isAdmin || session.isReception)) return
+        if (!session.can("access.finance")) return
         if (_state.value.loadingBriefing) return
 
         _state.value = _state.value.copy(loadingBriefing = true, briefingError = null)
@@ -1182,17 +1182,17 @@ class AppViewModel : ViewModel() {
                 selectTab(Tab.PATIENTS); done(if (arabic) "تم فتح قائمة المرضى." else "Opening the patients list.")
             }
             is com.alphadental.clinic.ai.NavIntent.Target.Money -> {
-                if (session.isAdmin || session.isReception) {
+                if (session.can("access.finance")) {
                     selectTab(Tab.MONEY); done(if (arabic) "تم فتح الحسابات." else "Opening finance.")
                 } else refused()
             }
             is com.alphadental.clinic.ai.NavIntent.Target.Leads -> {
-                if (session.isAdmin || session.isReception) {
+                if (session.can("access.marketing")) {
                     openLeads(); done(if (arabic) "تم فتح العملاء المحتملين." else "Opening the leads inbox.")
                 } else refused()
             }
             is com.alphadental.clinic.ai.NavIntent.Target.Reports -> {
-                if (session.isAdmin || session.isReception) {
+                if (session.can("access.reports")) {
                     openReports(); done(if (arabic) "تم فتح التقارير." else "Opening reports.")
                 } else refused()
             }
@@ -1271,7 +1271,7 @@ class AppViewModel : ViewModel() {
             return buildPayrollReport(session.clinicId, context, period, label, arabic)
         }
 
-        if (!(session.isAdmin || session.isReception)) {
+        if (!session.can("access.finance")) {
             val reply = if (arabic) {
                 "تقارير أموال العيادة متاحة للمدير والاستقبال فقط، فلا أستطيع إنشاءها من حسابك."
             } else {
@@ -2020,7 +2020,7 @@ class AppViewModel : ViewModel() {
 
     private fun refreshTakings() {
         val session = _state.value.session ?: return
-        if (!(session.isAdmin || session.isReception)) return
+        if (!session.can("access.finance")) return
 
         viewModelScope.launch {
             val total = runCatching { Repository.takingsOn(session.clinicId, today()) }.getOrNull()
