@@ -135,12 +135,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (key === 'inventory' && !hasFeature(clinic, 'inventory')) return false;
     if (key === 'attendance' && !hasFeature(clinic, 'attendance')) return false;
 
-    // The marketing studio is a paid add-on. Admins see the entry even without it — the page
-    // shows the upgrade pitch, which is how the add-on gets discovered. Staff only see it once
-    // the add-on is active AND they hold the access.marketing grant.
+    // The marketing studio is a paid add-on, and switching it off in the superadmin panel has to
+    // make it disappear for EVERYONE — admins included. It used to stay in the rail for admins as
+    // an upsell, which read as the switch not working. Staff additionally need access.marketing.
     if (key === 'marketing') {
-      if (isAdmin) return true;
       if (!hasFeature(clinic, 'marketingText')) return false;
+      if (isAdmin) return true;
       return canAccessNavItem('marketing', user, isAdmin);
     }
 
