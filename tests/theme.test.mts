@@ -50,6 +50,26 @@ for (const t of ROLE_TOKENS) {
 }
 ok("mint matches globals.css exactly", drift.length === 0, drift.join("; "));
 
+/* --- every role token is bridged into @theme inline, or its utility silently does not exist ---
+   A `--tone-x` on :root with no `--color-tone-x: var(--tone-x)` in @theme inline means Tailwind
+   never emits `text-tone-x` / `bg-tone-x` — the class is accepted, renders the inherited colour,
+   and nothing in the build says a word. Checked on the source, which is the only place it can be
+   checked without running Tailwind. */
+{
+  const inlineStart = css.indexOf("@theme inline {");
+  const inlineEnd = css.indexOf("\n}", inlineStart);
+  ok("globals.css has an @theme inline block", inlineStart !== -1 && inlineEnd !== -1);
+  const inline = css.slice(inlineStart, inlineEnd);
+  const unbridged = ROLE_TOKENS.filter(
+    (t) => !(inline.includes("--color-" + t + ":") && inline.includes("var(--" + t + ")")),
+  );
+  ok(
+    "every role token is bridged into @theme inline",
+    unbridged.length === 0,
+    `no utility will exist for: ${unbridged.join(", ")}`,
+  );
+}
+
 /* ---------------------------------------------------------- token guards */
 
 ok("rejects an unknown token name", !isSafeTokenName("evil-token"));
