@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { 
-  ArrowLeft, Printer, Plus, Trash2, Pill, Loader2, 
-  MapPin, Phone, MessageCircle, Save 
+import {
+  ArrowLeft, Printer, Plus, Trash2, Pill, Loader2,
+  MapPin, Phone, MessageCircle, Save, Search, X
 } from "lucide-react";
 import { db, auth } from "@/lib/firebase";
 import { doc, getDoc, collection, getDocs, onSnapshot, query, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
@@ -13,11 +13,33 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { prescriptionPayloadToPdfBlob } from "@/lib/prescriptionPdfHtml";
 import { isDentistStaff } from "@/lib/staffRoles";
+import {
+  DRUG_CATALOG,
+  DRUG_CATEGORIES,
+  normalizeDrugText,
+  searchDrugCatalog,
+} from "@/lib/drugCatalog";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import PermissionGuard from "@/components/PermissionGuard";
 
 interface Drug { id: string; name: string; dose: string; }
 interface RxItem { id: string; name: string; dose: string; note: string; }
+
+/**
+ * One line in the drug picker. The clinic's own shortcuts and the built-in Egyptian catalog are
+ * flattened into the same shape so the doctor searches one list rather than choosing a source
+ * first — a shortcut a doctor typed by hand stays findable by exactly the words they typed.
+ */
+interface PickerRow {
+  key: string;
+  name: string;
+  subtitle: string;
+  instruction: string;
+  note: string;
+  catLabel: string;
+  catSoft: string;
+  isShortcut: boolean;
+}
 
 /**
  * Writing a prescription needs the same permission as saving one.
@@ -43,7 +65,7 @@ export default function PrescriptionStudioPage() {
 }
 
 function PrescriptionStudio() {
-  const { t } = useLanguage();
+  const { t, language, isRTL } = useLanguage();
   const params = useParams();
   const router = useRouter();
   const id = (params?.id as string) || "";
@@ -67,10 +89,21 @@ function PrescriptionStudio() {
   const [whatsappSending, setWhatsappSending] = useState(false);
   
   // Current Input State
-  const [selectedDrugId, setSelectedDrugId] = useState("");
   const [customDrugName, setCustomDrugName] = useState("");
   const [currentDose, setCurrentDose] = useState("");
   const [currentNote, setCurrentNote] = useState("");
+
+  // Drug picker
+  const [drugQuery, setDrugQuery] = useState("");
+  /**
+   * Which language the picked instructions arrive in. It follows the app language, but stays a
+   * separate switch: a clinic can run the interface in English and still hand the patient a
+   * prescription they can read, which in Egypt is the normal case rather than the exception.
+   */
+  const [instructionLang, setInstructionLang] = useState<"ar" | "en">(language === "ar" ? "ar" : "en");
+  useEffect(() => {
+    setInstructionLang(language === "ar" ? "ar" : "en");
+  }, [language]);
 
   useEffect(() => {
     if (!id) return;
@@ -107,33 +140,73 @@ function PrescriptionStudio() {
     return () => unsubDrugs();
   }, [id]);
 
-  const handleDrugSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const selectedId = e.target.value;
-    setSelectedDrugId(selectedId);
-    
-    const drug = drugDb.find(d => d.id === selectedId);
-    if (drug) {
-      setCustomDrugName(drug.name);
-      if (drug.dose) setCurrentDose(drug.dose);
-    } else {
-      setCustomDrugName("");
-      setCurrentDose("");
-    }
+  const isArabicRx = instructionLang === "ar";
+
+  /** The clinic's own shortcuts, filtered by the same tolerant matcher the catalog uses. */
+  const shortcutRows = useMemo<PickerRow[]>(() => {
+    const terms = normalizeDrugText(drugQuery).split(" ").filter(Boolean);
+    return drugDb
+      .filter((d) => {
+        if (terms.length === 0) return true;
+        const stack = normalizeDrugText(`${d.name} ${d.dose || ""}`);
+        return terms.every((term) => stack.includes(term));
+      })
+      .map((d) => ({
+        key: `clinic:${d.id}`,
+        name: d.name,
+        subtitle: t("rxMyShortcut"),
+        instruction: d.dose || "",
+        note: "",
+        catLabel: t("rxMyShortcut"),
+        catSoft: "bg-accent-tint text-accent border-transparent",
+        isShortcut: true,
+      }));
+  }, [drugDb, drugQuery, t]);
+
+  const catalogRows = useMemo<PickerRow[]>(() => {
+    return searchDrugCatalog(drugQuery).map((d) => {
+      const cat = DRUG_CATEGORIES.find((c) => c.id === d.cat);
+      return {
+        key: `catalog:${d.id}`,
+        name: d.name,
+        subtitle: isArabicRx ? d.descAr : d.descEn,
+        instruction: isArabicRx ? d.doseAr : d.doseEn,
+        note: (isArabicRx ? d.noteAr : d.noteEn) || "",
+        catLabel: (isArabicRx ? cat?.labelAr : cat?.labelEn) || "",
+        catSoft: cat?.soft || "bg-slate-100 text-slate-700 border-slate-200",
+        isShortcut: false,
+      };
+    });
+  }, [drugQuery, isArabicRx]);
+
+  const pickerRows = useMemo(() => [...shortcutRows, ...catalogRows], [shortcutRows, catalogRows]);
+
+  /** Load a picked drug into the three fields so the doctor can still edit before adding. */
+  const fillFromRow = (row: PickerRow) => {
+    setCustomDrugName(row.name);
+    setCurrentDose(row.instruction);
+    setCurrentNote(row.note);
+    setDrugQuery("");
+  };
+
+  const appendRxItem = (name: string, dose: string, note: string) => {
+    setRxItems((prev) => [
+      ...prev,
+      { id: `${Date.now()}-${prev.length}`, name, dose, note },
+    ]);
+  };
+
+  /** The one-tap path: straight onto the prescription without touching the fields below. */
+  const quickAddRow = (row: PickerRow) => {
+    appendRxItem(row.name, row.instruction, row.note);
+    setDrugQuery("");
   };
 
   const addDrugToRx = () => {
     const finalName = customDrugName.trim();
     if (!finalName) return;
 
-    const newItem: RxItem = {
-      id: Date.now().toString(),
-      name: finalName,
-      dose: currentDose,
-      note: currentNote
-    };
-
-    setRxItems([...rxItems, newItem]);
-    setSelectedDrugId("");
+    appendRxItem(finalName, currentDose, currentNote);
     setCustomDrugName("");
     setCurrentDose("");
     setCurrentNote("");
@@ -336,43 +409,113 @@ function PrescriptionStudio() {
                <h3 className="font-black text-ink text-lg border-b border-slate-100 pb-3 flex items-center justify-between">
                   Add Medication
                   <span className="bg-accent-tint text-accent px-2 py-1 rounded-lg text-[10px] uppercase">
-                    {rxItems.length} in Rx · {drugDb.length} shortcuts
+                    {rxItems.length} in Rx · {drugDb.length + DRUG_CATALOG.length} drugs
                   </span>
                </h3>
-               
+
                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">{t("rxSelectFromDb")}</label>
-                  <select value={selectedDrugId} onChange={handleDrugSelect} className="w-full px-4 py-3.5 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all cursor-pointer">
-                     <option value="">-- Manual Entry --</option>
-                     {drugDb.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                  </select>
+                  <div className="flex items-center justify-between gap-3 pl-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t("rxSelectFromDb")}</label>
+                    <div className="flex items-center gap-1 rounded-full bg-surface-subtle p-0.5 border border-slate-200/60 shrink-0">
+                      {(["ar", "en"] as const).map((lang) => (
+                        <button
+                          key={lang}
+                          type="button"
+                          onClick={() => setInstructionLang(lang)}
+                          title={t("rxInstructionLang")}
+                          className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${
+                            instructionLang === lang ? "bg-accent text-ink-on-accent shadow-sm" : "text-ink-muted hover:text-ink"
+                          }`}
+                        >
+                          {lang === "ar" ? "عربي" : "EN"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="relative">
+                    <Search size={18} className={`absolute top-1/2 -translate-y-1/2 text-ink-muted pointer-events-none ${isRTL ? "right-4" : "left-4"}`} />
+                    <input
+                      value={drugQuery}
+                      onChange={e => setDrugQuery(e.target.value)}
+                      placeholder={t("rxSearchPlaceholder")}
+                      data-tour="rx-drug-search"
+                      className={`w-full py-3.5 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all ${isRTL ? "pr-11 pl-10" : "pl-11 pr-10"}`}
+                    />
+                    {drugQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setDrugQuery("")}
+                        className={`absolute top-1/2 -translate-y-1/2 text-ink-muted hover:text-ink p-1 ${isRTL ? "left-3" : "right-3"}`}
+                      >
+                        <X size={16} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Scrolls rather than grows: the whole library is listed when the box is empty. */}
+                  <div className="max-h-72 overflow-y-auto rounded-xl border border-slate-200/60 divide-y divide-slate-100 bg-surface">
+                    {pickerRows.length === 0 && (
+                      <p className="px-4 py-6 text-center text-xs font-bold text-ink-muted">{t("rxNoDrugMatches")}</p>
+                    )}
+                    {pickerRows.map((row) => (
+                      <div key={row.key} className="flex items-stretch gap-2 hover:bg-surface-subtle transition-colors">
+                        <button
+                          type="button"
+                          onClick={() => fillFromRow(row)}
+                          className={`flex-1 min-w-0 px-4 py-3 ${isRTL ? "text-right" : "text-left"}`}
+                        >
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-black text-ink text-sm">{row.name}</span>
+                            {row.catLabel && (
+                              <span className={`px-2 py-0.5 rounded-md border text-[9px] font-black uppercase tracking-wider ${row.catSoft}`}>
+                                {row.catLabel}
+                              </span>
+                            )}
+                          </div>
+                          {row.subtitle && !row.isShortcut && (
+                            <p dir="auto" className="text-[11px] font-semibold text-ink-muted mt-0.5 line-clamp-2">{row.subtitle}</p>
+                          )}
+                          {row.instruction && (
+                            <p dir="auto" className="text-[11px] font-bold text-ink-body mt-1">• {row.instruction}</p>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => quickAddRow(row)}
+                          title={t("rxQuickAdd")}
+                          aria-label={t("rxQuickAdd")}
+                          className="shrink-0 px-4 text-accent hover:bg-accent-tint transition-colors"
+                        >
+                          <Plus size={18} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                </div>
 
                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Drug Name Input (Always Accessible) */}
                   <div className="space-y-1.5 md:col-span-2">
                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">
-                        Drug Name {selectedDrugId ? "(Selected from DB)" : ""}
+                        Drug Name
                      </label>
-                     <input 
-                        value={customDrugName} data-tour="rx-drug-name" 
-                        onChange={e => {
-                          setCustomDrugName(e.target.value);
-                          if (selectedDrugId) setSelectedDrugId("");
-                        }} 
-                        placeholder={t("rxDrugPlaceholder")} 
+                     <input
+                        value={customDrugName} data-tour="rx-drug-name"
+                        onChange={e => setCustomDrugName(e.target.value)}
+                        placeholder={t("rxDrugPlaceholder")}
                         className="w-full px-4 py-3.5 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all"
                      />
                   </div>
 
                   <div className="space-y-1.5 md:col-span-2">
                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">{t("rxDoseFrequency")}</label>
-                     <input value={currentDose} onChange={e => setCurrentDose(e.target.value)} placeholder={t("rxDosePlaceholder")} className="w-full px-4 py-3.5 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all"/>
+                     <input dir="auto" value={currentDose} onChange={e => setCurrentDose(e.target.value)} placeholder={t("rxDosePlaceholder")} className="w-full px-4 py-3.5 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all"/>
                   </div>
                   
                   <div className="space-y-1.5 md:col-span-2">
                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">{t("rxSpecialInstructions")}</label>
-                     <input value={currentNote} onChange={e => setCurrentNote(e.target.value)} placeholder={t("rxNotePlaceholder")} className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all"/>
+                     <input dir="auto" value={currentNote} onChange={e => setCurrentNote(e.target.value)} placeholder={t("rxNotePlaceholder")} className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all"/>
                   </div>
                </div>
 
@@ -444,8 +587,9 @@ function PrescriptionStudio() {
                                <p className="font-black text-ink text-base mb-1">
                                   <span className="text-slate-400 mr-2">{index + 1}.</span>{item.name}
                                </p>
-                               {item.dose && <p className="text-sm font-bold text-slate-700 pl-6">• {item.dose}</p>}
-                               {item.note && <p className="text-xs font-semibold text-ink-muted pl-6 mt-0.5">Note: {item.note}</p>}
+                               {/* `dir="auto"` so an Arabic instruction reads right-to-left on a page laid out LTR. */}
+                               {item.dose && <p dir="auto" className="text-sm font-bold text-slate-700 pl-6">• {item.dose}</p>}
+                               {item.note && <p dir="auto" className="text-xs font-semibold text-ink-muted pl-6 mt-0.5">{item.note}</p>}
                             </div>
                         </div>
                     ))}

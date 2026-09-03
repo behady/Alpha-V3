@@ -1,0 +1,868 @@
+/**
+ * The built-in Egyptian dental formulary.
+ *
+ * Before this file the drug list started empty: every clinic had to type its own shortcuts one at
+ * a time in Settings, so a brand-new clinic wrote its first month of prescriptions by hand. This
+ * catalog ships with the app — brand names as they are sold in Egyptian pharmacies, the dose the
+ * dentist actually writes, and the same instruction in Arabic so the line the patient reads on the
+ * printed prescription is a line they can follow without asking anyone.
+ *
+ * It is a shortcut list, never a decision: nothing here is picked automatically, the dentist still
+ * types the diagnosis and can edit every field after choosing. `noteEn`/`noteAr` carry the one
+ * caution that belongs on the paper (allergy, alcohol, pregnancy), not a monograph.
+ *
+ * A clinic's own shortcuts (the `drugs` collection) stay exactly as they were and are shown beside
+ * these, so anything a doctor added by hand keeps working and keeps its place.
+ */
+
+export type DrugCategory = {
+  id: string;
+  labelEn: string;
+  labelAr: string;
+  /** Tailwind classes for the chip — same soft-tint idiom as the diagnosis catalog. */
+  soft: string;
+};
+
+export type CatalogDrug = {
+  id: string;
+  cat: string;
+  /** Exactly what gets printed on the prescription line. */
+  name: string;
+  genericEn: string;
+  genericAr: string;
+  /** What it is for — read by the dentist while picking, never printed. */
+  descEn: string;
+  descAr: string;
+  /** The dose / frequency line. */
+  doseEn: string;
+  doseAr: string;
+  /** The one caution worth printing under the dose. */
+  noteEn?: string;
+  noteAr?: string;
+  /** Extra words that should find this drug (other Egyptian brands of the same molecule). */
+  keywords?: string[];
+};
+
+export const DRUG_CATEGORIES: DrugCategory[] = [
+  { id: "antibiotic",  labelEn: "Antibiotics",              labelAr: "مضادات حيوية",            soft: "bg-rose-50 text-rose-700 border-rose-200" },
+  { id: "analgesic",   labelEn: "Painkillers",              labelAr: "مسكنات",                   soft: "bg-orange-50 text-orange-700 border-orange-200" },
+  { id: "swelling",    labelEn: "Swelling & enzymes",       labelAr: "التورم والإنزيمات",        soft: "bg-amber-50 text-amber-800 border-amber-200" },
+  { id: "mouthwash",   labelEn: "Mouthwash & topical",      labelAr: "غسول ومستحضرات موضعية",   soft: "bg-teal-50 text-teal-700 border-teal-200" },
+  { id: "antifungal",  labelEn: "Antifungals",              labelAr: "مضادات الفطريات",          soft: "bg-violet-50 text-violet-700 border-violet-200" },
+  { id: "antiviral",   labelEn: "Antivirals",               labelAr: "مضادات الفيروسات",         soft: "bg-indigo-50 text-indigo-700 border-indigo-200" },
+  { id: "hemostatic",  labelEn: "Bleeding control",         labelAr: "وقف النزيف",               soft: "bg-red-50 text-red-700 border-red-200" },
+  { id: "supplement",  labelEn: "Vitamins & supplements",   labelAr: "فيتامينات ومكملات",        soft: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  { id: "support",     labelEn: "Stomach, allergy & calm",  labelAr: "المعدة والحساسية والتهدئة", soft: "bg-slate-100 text-slate-700 border-slate-200" },
+];
+
+export const DRUG_CATALOG: CatalogDrug[] = [
+  // ─── Antibiotics ────────────────────────────────────────────────────────────────
+  {
+    id: "augmentin_1g",
+    cat: "antibiotic",
+    name: "Augmentin 1gm",
+    genericEn: "Amoxicillin 875mg + Clavulanic acid 125mg",
+    genericAr: "أموكسيسيللين 875 مجم + حمض كلافولانيك 125 مجم",
+    descEn: "First choice for most dental infections, abscesses and after surgical extractions.",
+    descAr: "الاختيار الأول لمعظم التهابات الأسنان والخراريج وبعد الخلع الجراحي.",
+    doseEn: "1 tablet every 12 hours after food for 5 to 7 days",
+    doseAr: "قرص كل 12 ساعة بعد الأكل لمدة 5 إلى 7 أيام",
+    noteEn: "Do not use if the patient is allergic to penicillin. Finish the full course.",
+    noteAr: "ممنوع لو في حساسية من البنسلين. كمّل الكورس كامل حتى لو الألم راح.",
+    keywords: ["amoxiclav", "co-amoxiclav", "اوجمنتين", "اوجمانتين"],
+  },
+  {
+    id: "augmentin_625",
+    cat: "antibiotic",
+    name: "Augmentin 625mg",
+    genericEn: "Amoxicillin 500mg + Clavulanic acid 125mg",
+    genericAr: "أموكسيسيللين 500 مجم + حمض كلافولانيك 125 مجم",
+    descEn: "The smaller strength — for lighter infections or a patient who cannot take 1gm.",
+    descAr: "التركيز الأصغر — للالتهابات الخفيفة أو لمريض ما يتحملش تركيز 1 جم.",
+    doseEn: "1 tablet every 8 hours after food for 5 to 7 days",
+    doseAr: "قرص كل 8 ساعات بعد الأكل لمدة 5 إلى 7 أيام",
+    noteEn: "Do not use if the patient is allergic to penicillin.",
+    noteAr: "ممنوع لو في حساسية من البنسلين.",
+    keywords: ["اوجمنتين"],
+  },
+  {
+    id: "hibiotic_1g",
+    cat: "antibiotic",
+    name: "Hibiotic 1gm",
+    genericEn: "Amoxicillin + Clavulanic acid",
+    genericAr: "أموكسيسيللين + حمض كلافولانيك",
+    descEn: "Egyptian equivalent of Augmentin 1gm — same molecule, lower price.",
+    descAr: "البديل المصري للأوجمنتين 1 جم — نفس المادة الفعالة بسعر أقل.",
+    doseEn: "1 tablet every 12 hours after food for 5 to 7 days",
+    doseAr: "قرص كل 12 ساعة بعد الأكل لمدة 5 إلى 7 أيام",
+    noteEn: "Do not use if the patient is allergic to penicillin.",
+    noteAr: "ممنوع لو في حساسية من البنسلين.",
+    keywords: ["هاي بيوتيك", "هيبيوتيك"],
+  },
+  {
+    id: "megamox_1g",
+    cat: "antibiotic",
+    name: "Megamox 1gm",
+    genericEn: "Amoxicillin + Clavulanic acid",
+    genericAr: "أموكسيسيللين + حمض كلافولانيك",
+    descEn: "Another Egyptian amoxicillin/clavulanate brand — interchangeable with Augmentin 1gm.",
+    descAr: "ماركة مصرية تانية لنفس التركيبة — بديل مباشر للأوجمنتين 1 جم.",
+    doseEn: "1 tablet every 12 hours after food for 5 to 7 days",
+    doseAr: "قرص كل 12 ساعة بعد الأكل لمدة 5 إلى 7 أيام",
+    noteEn: "Do not use if the patient is allergic to penicillin.",
+    noteAr: "ممنوع لو في حساسية من البنسلين.",
+    keywords: ["ميجاموكس"],
+  },
+  {
+    id: "emoxclav_1g",
+    cat: "antibiotic",
+    name: "E-Moxclav 1gm",
+    genericEn: "Amoxicillin + Clavulanic acid",
+    genericAr: "أموكسيسيللين + حمض كلافولانيك",
+    descEn: "Egyptian amoxicillin/clavulanate — same use as Augmentin 1gm.",
+    descAr: "أموكسيسيللين/كلافولانيك مصري — نفس استخدام الأوجمنتين 1 جم.",
+    doseEn: "1 tablet every 12 hours after food for 5 to 7 days",
+    doseAr: "قرص كل 12 ساعة بعد الأكل لمدة 5 إلى 7 أيام",
+    noteEn: "Do not use if the patient is allergic to penicillin.",
+    noteAr: "ممنوع لو في حساسية من البنسلين.",
+    keywords: ["اي موكسي كلاف", "ايموكسيكلاف"],
+  },
+  {
+    id: "emox_500",
+    cat: "antibiotic",
+    name: "E-Mox 500mg",
+    genericEn: "Amoxicillin 500mg",
+    genericAr: "أموكسيسيللين 500 مجم",
+    descEn: "Plain amoxicillin — simple infections and the classic pairing with Flagyl.",
+    descAr: "أموكسيسيللين عادي — للالتهابات البسيطة، وبيتوصف كتير مع الفلاجيل.",
+    doseEn: "1 capsule every 8 hours for 5 to 7 days",
+    doseAr: "كبسولة كل 8 ساعات لمدة 5 إلى 7 أيام",
+    noteEn: "Do not use if the patient is allergic to penicillin.",
+    noteAr: "ممنوع لو في حساسية من البنسلين.",
+    keywords: ["amoxil", "amoxicillin", "اي موكس", "اموكسيسيللين"],
+  },
+  {
+    id: "emox_susp",
+    cat: "antibiotic",
+    name: "E-Mox 250mg/5ml suspension",
+    genericEn: "Amoxicillin oral suspension (children)",
+    genericAr: "أموكسيسيللين شراب للأطفال",
+    descEn: "Children's amoxicillin. Dose is by body weight — write the millilitres yourself.",
+    descAr: "أموكسيسيللين شراب للأطفال. الجرعة حسب وزن الطفل — اكتب عدد الملليلترات بنفسك.",
+    doseEn: "By weight, every 8 hours for 5 to 7 days — shake well before each dose",
+    doseAr: "حسب وزن الطفل، كل 8 ساعات لمدة 5 إلى 7 أيام — رج الزجاجة كويس قبل كل جرعة",
+    noteEn: "Keep in the fridge after opening and throw away what is left after 7 days.",
+    noteAr: "يتحفظ في الثلاجة بعد الفتح ويترمي الباقي بعد 7 أيام.",
+    keywords: ["children", "kids", "شراب", "اطفال"],
+  },
+  {
+    id: "flagyl_500",
+    cat: "antibiotic",
+    name: "Flagyl 500mg",
+    genericEn: "Metronidazole 500mg",
+    genericAr: "ميترونيدازول 500 مجم",
+    descEn: "For anaerobic and gum infections — pericoronitis, periodontal abscess, dry socket.",
+    descAr: "لالتهابات اللثة والبكتيريا اللاهوائية — التهاب حوائط التاج، خراج اللثة، التهاب السنخ الجاف.",
+    doseEn: "1 tablet every 8 hours after food for 5 to 7 days",
+    doseAr: "قرص كل 8 ساعات بعد الأكل لمدة 5 إلى 7 أيام",
+    noteEn: "No alcohol during the course and for 48 hours after it. May give a metallic taste.",
+    noteAr: "ممنوع أي كحول أثناء الكورس ولمدة يومين بعده. ممكن يسبب طعم معدني في الفم.",
+    keywords: ["metronidazole", "فلاجيل", "ميترونيدازول"],
+  },
+  {
+    id: "amrizole_500",
+    cat: "antibiotic",
+    name: "Amrizole 500mg",
+    genericEn: "Metronidazole 500mg",
+    genericAr: "ميترونيدازول 500 مجم",
+    descEn: "Egyptian metronidazole — identical use to Flagyl.",
+    descAr: "ميترونيدازول مصري — نفس استخدام الفلاجيل بالظبط.",
+    doseEn: "1 tablet every 8 hours after food for 5 to 7 days",
+    doseAr: "قرص كل 8 ساعات بعد الأكل لمدة 5 إلى 7 أيام",
+    noteEn: "No alcohol during the course and for 48 hours after it.",
+    noteAr: "ممنوع أي كحول أثناء الكورس ولمدة يومين بعده.",
+    keywords: ["metronidazole", "امريزول"],
+  },
+  {
+    id: "rodogyl",
+    cat: "antibiotic",
+    name: "Rodogyl",
+    genericEn: "Spiramycin + Metronidazole",
+    genericAr: "سبيراميسين + ميترونيدازول",
+    descEn: "The classic dental combination in Egypt — gum infection, pericoronitis, after extraction.",
+    descAr: "التركيبة الأشهر في طب الأسنان في مصر — التهاب اللثة، ضرس العقل، وبعد الخلع.",
+    doseEn: "2 tablets twice daily after food for 5 days",
+    doseAr: "قرصين مرتين يومياً بعد الأكل لمدة 5 أيام",
+    noteEn: "No alcohol during the course.",
+    noteAr: "ممنوع أي كحول أثناء الكورس.",
+    keywords: ["spiramycin", "رودوجيل", "روديجيل"],
+  },
+  {
+    id: "dalacin_300",
+    cat: "antibiotic",
+    name: "Dalacin C 300mg",
+    genericEn: "Clindamycin 300mg",
+    genericAr: "كليندامايسين 300 مجم",
+    descEn: "The go-to when the patient is allergic to penicillin, and for deep bone infection.",
+    descAr: "الاختيار الأساسي مع حساسية البنسلين، وللالتهابات العميقة في العظم.",
+    doseEn: "1 capsule every 8 hours for 5 to 7 days, with a full glass of water",
+    doseAr: "كبسولة كل 8 ساعات لمدة 5 إلى 7 أيام مع كوباية مياه كاملة",
+    noteEn: "Stop and call the clinic if severe or watery diarrhoea starts.",
+    noteAr: "لو حصل إسهال شديد أو مائي، أوقف الدواء وكلّم العيادة فوراً.",
+    keywords: ["clindamycin", "دالاسين", "كليندامايسين", "penicillin allergy"],
+  },
+  {
+    id: "xithrone_500",
+    cat: "antibiotic",
+    name: "Xithrone 500mg",
+    genericEn: "Azithromycin 500mg",
+    genericAr: "أزيثرومايسين 500 مجم",
+    descEn: "Three-day course — useful for penicillin allergy or a patient who forgets doses.",
+    descAr: "كورس 3 أيام بس — مفيد مع حساسية البنسلين أو مريض بينسى الجرعات.",
+    doseEn: "1 tablet once daily for 3 days, 1 hour before or 2 hours after food",
+    doseAr: "قرص واحد يومياً لمدة 3 أيام، قبل الأكل بساعة أو بعده بساعتين",
+    keywords: ["azithromycin", "zithromax", "زيثروماكس", "زيسروماكس", "ازيثرومايسين"],
+  },
+  {
+    id: "ceporex_500",
+    cat: "antibiotic",
+    name: "Ceporex 500mg",
+    genericEn: "Cephalexin 500mg",
+    genericAr: "سيفالكسين 500 مجم",
+    descEn: "Cephalosporin option — soft-tissue and post-surgical cover.",
+    descAr: "بديل من مجموعة السيفالوسبورين — لتغطية الأنسجة الرخوة وبعد الجراحة.",
+    doseEn: "1 capsule every 8 hours for 5 to 7 days",
+    doseAr: "كبسولة كل 8 ساعات لمدة 5 إلى 7 أيام",
+    noteEn: "Avoid if the patient had a severe (anaphylactic) reaction to penicillin.",
+    noteAr: "يتجنب لو المريض حصل له رد فعل تحسسي شديد من البنسلين.",
+    keywords: ["cephalexin", "سيبوركس", "سيفالكسين"],
+  },
+  {
+    id: "vibramycin_100",
+    cat: "antibiotic",
+    name: "Vibramycin 100mg",
+    genericEn: "Doxycycline 100mg",
+    genericAr: "دوكسيسيكلين 100 مجم",
+    descEn: "For aggressive periodontitis and as an adjunct to scaling and root planing.",
+    descAr: "لالتهاب اللثة المتقدم وكمساعد بعد التنظيف العميق للجذور.",
+    doseEn: "2 capsules on the first day, then 1 capsule daily for 7 to 14 days",
+    doseAr: "كبسولتين أول يوم، وبعدها كبسولة واحدة يومياً لمدة 7 إلى 14 يوم",
+    noteEn: "Not for pregnancy or children under 12. Take upright with water and avoid strong sun.",
+    noteAr: "ممنوع للحوامل والأطفال أقل من 12 سنة. يتاخد وأنت قاعد مع مياه، وتجنب الشمس القوية.",
+    keywords: ["doxycycline", "فيبراميسين", "دوكسيسيكلين", "perio"],
+  },
+  {
+    id: "erythrocin_500",
+    cat: "antibiotic",
+    name: "Erythrocin 500mg",
+    genericEn: "Erythromycin 500mg",
+    genericAr: "إريثرومايسين 500 مجم",
+    descEn: "Older penicillin-allergy alternative — still an option when clindamycin is unsuitable.",
+    descAr: "بديل قديم مع حساسية البنسلين — لسه اختيار وارد لو الكليندامايسين مش مناسب.",
+    doseEn: "1 tablet every 6 hours for 5 to 7 days",
+    doseAr: "قرص كل 6 ساعات لمدة 5 إلى 7 أيام",
+    noteEn: "Often upsets the stomach. Check other medicines the patient takes.",
+    noteAr: "كتير بيتعب المعدة. راجع باقي أدوية المريض قبل الوصف.",
+    keywords: ["erythromycin", "اريثرومايسين"],
+  },
+  {
+    id: "ciprofar_500",
+    cat: "antibiotic",
+    name: "Ciprofar 500mg",
+    genericEn: "Ciprofloxacin 500mg",
+    genericAr: "سيبروفلوكساسين 500 مجم",
+    descEn: "Second line — keep it for infections that did not answer the usual antibiotics.",
+    descAr: "خط تاني — يتحفظ للالتهابات اللي ما استجبتش للمضادات المعتادة.",
+    doseEn: "1 tablet every 12 hours for 5 to 7 days",
+    doseAr: "قرص كل 12 ساعة لمدة 5 إلى 7 أيام",
+    noteEn: "Not for children or pregnancy. Do not take with milk or antacids.",
+    noteAr: "ممنوع للأطفال والحوامل. ما يتاخدش مع اللبن أو أدوية الحموضة.",
+    keywords: ["ciprofloxacin", "سيبروفار", "سيبروفلوكساسين"],
+  },
+
+  // ─── Painkillers ────────────────────────────────────────────────────────────────
+  {
+    id: "cataflam_50",
+    cat: "analgesic",
+    name: "Cataflam 50mg",
+    genericEn: "Diclofenac potassium 50mg",
+    genericAr: "ديكلوفيناك بوتاسيوم 50 مجم",
+    descEn: "The most-prescribed dental painkiller in Egypt — strong and fast for toothache.",
+    descAr: "أشهر مسكن أسنان في مصر — قوي وسريع مع ألم الضرس.",
+    doseEn: "1 tablet every 8 hours after food when needed, for no more than 3 days",
+    doseAr: "قرص كل 8 ساعات بعد الأكل عند اللزوم، وما يزيدش عن 3 أيام",
+    noteEn: "Always after food. Avoid with stomach ulcer, kidney disease or in pregnancy.",
+    noteAr: "لازم بعد الأكل. يتجنب مع قرحة المعدة أو أمراض الكلى أو في الحمل.",
+    keywords: ["diclofenac", "كاتافلام", "ديكلوفيناك", "nsaid"],
+  },
+  {
+    id: "catafast_sachet",
+    cat: "analgesic",
+    name: "Catafast 50mg sachet",
+    genericEn: "Diclofenac potassium powder for oral solution",
+    genericAr: "ديكلوفيناك بوتاسيوم أكياس فوارة",
+    descEn: "Same molecule as Cataflam but dissolved — starts working faster on acute pain.",
+    descAr: "نفس مادة الكاتافلام بس بيتذوب في المياه — بيبدأ مفعوله أسرع مع الألم الحاد.",
+    doseEn: "1 sachet in half a glass of water after food, up to 3 times daily",
+    doseAr: "كيس في نص كوباية مياه بعد الأكل، لحد 3 مرات يومياً",
+    noteEn: "Always after food. Avoid with stomach ulcer or in pregnancy.",
+    noteAr: "لازم بعد الأكل. يتجنب مع قرحة المعدة أو في الحمل.",
+    keywords: ["diclofenac", "كاتافاست", "اكياس"],
+  },
+  {
+    id: "voltaren_75_amp",
+    cat: "analgesic",
+    name: "Voltaren 75mg ampoule (IM)",
+    genericEn: "Diclofenac sodium 75mg injection",
+    genericAr: "ديكلوفيناك صوديوم حقن 75 مجم",
+    descEn: "Injection for severe pain that a tablet will not hold — given in the clinic.",
+    descAr: "حقنة للألم الشديد اللي القرص مش كفاية معاه — بتتاخد في العيادة.",
+    doseEn: "1 ampoule intramuscular when needed, maximum 2 in 24 hours",
+    doseAr: "أمبول واحد في العضل عند اللزوم، بحد أقصى أمبولين في اليوم",
+    noteEn: "Avoid with stomach ulcer, kidney disease, asthma or in pregnancy.",
+    noteAr: "يتجنب مع قرحة المعدة أو أمراض الكلى أو الربو أو في الحمل.",
+    keywords: ["diclofenac", "declophen", "فولتارين", "حقن", "امبول"],
+  },
+  {
+    id: "ketolac_10",
+    cat: "analgesic",
+    name: "Ketolac 10mg",
+    genericEn: "Ketorolac 10mg",
+    genericAr: "كيتورولاك 10 مجم",
+    descEn: "Very strong short-term painkiller — post-extraction and post-surgical pain.",
+    descAr: "مسكن قوي جداً لفترة قصيرة — لألم ما بعد الخلع والجراحة.",
+    doseEn: "1 tablet every 8 hours after food when needed, for no more than 5 days",
+    doseAr: "قرص كل 8 ساعات بعد الأكل عند اللزوم، وما يزيدش عن 5 أيام",
+    noteEn: "Never longer than 5 days. Avoid with stomach ulcer, kidney disease or in pregnancy.",
+    noteAr: "ما يتاخدش أكتر من 5 أيام أبداً. يتجنب مع قرحة المعدة أو أمراض الكلى أو في الحمل.",
+    keywords: ["ketorolac", "كيتولاك", "كيتورولاك"],
+  },
+  {
+    id: "ketolac_amp_30",
+    cat: "analgesic",
+    name: "Ketolac 30mg ampoule (IM)",
+    genericEn: "Ketorolac 30mg injection",
+    genericAr: "كيتورولاك حقن 30 مجم",
+    descEn: "Injectable ketorolac for severe acute dental pain in the clinic.",
+    descAr: "كيتورولاك حقن للألم الحاد الشديد في العيادة.",
+    doseEn: "1 ampoule intramuscular when needed, maximum 2 in 24 hours",
+    doseAr: "أمبول واحد في العضل عند اللزوم، بحد أقصى أمبولين في اليوم",
+    noteEn: "Avoid with stomach ulcer, kidney disease or in pregnancy.",
+    noteAr: "يتجنب مع قرحة المعدة أو أمراض الكلى أو في الحمل.",
+    keywords: ["ketorolac", "كيتولاك", "حقن", "امبول"],
+  },
+  {
+    id: "brufen_600",
+    cat: "analgesic",
+    name: "Brufen 600mg",
+    genericEn: "Ibuprofen 600mg",
+    genericAr: "إيبوبروفين 600 مجم",
+    descEn: "Painkiller and anti-inflammatory in one — good for pain with swelling.",
+    descAr: "مسكن ومضاد التهاب في نفس الوقت — كويس مع الألم المصحوب بتورم.",
+    doseEn: "1 tablet every 8 hours after food for 3 to 5 days",
+    doseAr: "قرص كل 8 ساعات بعد الأكل لمدة 3 إلى 5 أيام",
+    noteEn: "Always after food. Avoid with stomach ulcer, asthma or in late pregnancy.",
+    noteAr: "لازم بعد الأكل. يتجنب مع قرحة المعدة أو الربو أو في أواخر الحمل.",
+    keywords: ["ibuprofen", "بروفين", "ايبوبروفين", "nsaid"],
+  },
+  {
+    id: "brufen_400",
+    cat: "analgesic",
+    name: "Brufen 400mg",
+    genericEn: "Ibuprofen 400mg",
+    genericAr: "إيبوبروفين 400 مجم",
+    descEn: "The lighter ibuprofen strength — mild to moderate pain.",
+    descAr: "تركيز أخف من الإيبوبروفين — للألم البسيط والمتوسط.",
+    doseEn: "1 tablet every 8 hours after food when needed",
+    doseAr: "قرص كل 8 ساعات بعد الأكل عند اللزوم",
+    noteEn: "Always after food.",
+    noteAr: "لازم بعد الأكل.",
+    keywords: ["ibuprofen", "بروفين"],
+  },
+  {
+    id: "adol_500",
+    cat: "analgesic",
+    name: "Adol 500mg",
+    genericEn: "Paracetamol 500mg",
+    genericAr: "باراسيتامول 500 مجم",
+    descEn: "The safe choice — pregnancy, stomach ulcer, asthma, or alongside an anti-inflammatory.",
+    descAr: "الاختيار الآمن — في الحمل وقرحة المعدة والربو، أو مع مضاد التهاب.",
+    doseEn: "1 to 2 tablets every 6 hours when needed, maximum 8 tablets in 24 hours",
+    doseAr: "قرص لقرصين كل 6 ساعات عند اللزوم، بحد أقصى 8 أقراص في اليوم",
+    noteEn: "Do not exceed 4 grams a day. Check other cold or flu medicines for paracetamol.",
+    noteAr: "ما يزيدش عن 4 جرام في اليوم. راجع أدوية البرد لأنها كتير بتحتوي على باراسيتامول.",
+    keywords: ["paracetamol", "panadol", "cetal", "بنادول", "ادول", "باراسيتامول", "سيتال"],
+  },
+  {
+    id: "panadol_extra",
+    cat: "analgesic",
+    name: "Panadol Extra",
+    genericEn: "Paracetamol 500mg + Caffeine 65mg",
+    genericAr: "باراسيتامول 500 مجم + كافيين 65 مجم",
+    descEn: "Paracetamol with caffeine — a little stronger than plain paracetamol.",
+    descAr: "باراسيتامول مع كافيين — أقوى شوية من الباراسيتامول العادي.",
+    doseEn: "1 to 2 tablets every 6 hours when needed, maximum 8 tablets in 24 hours",
+    doseAr: "قرص لقرصين كل 6 ساعات عند اللزوم، بحد أقصى 8 أقراص في اليوم",
+    noteEn: "Avoid a late-evening dose — the caffeine can disturb sleep.",
+    noteAr: "تجنب الجرعة في آخر الليل — الكافيين ممكن يأثر على النوم.",
+    keywords: ["paracetamol", "بنادول اكسترا"],
+  },
+  {
+    id: "cetal_syrup",
+    cat: "analgesic",
+    name: "Cetal 120mg/5ml syrup",
+    genericEn: "Paracetamol oral suspension (children)",
+    genericAr: "باراسيتامول شراب للأطفال",
+    descEn: "Children's painkiller and fever reducer. Dose by weight — write the millilitres yourself.",
+    descAr: "مسكن وخافض حرارة للأطفال. الجرعة حسب الوزن — اكتب عدد الملليلترات بنفسك.",
+    doseEn: "By weight, every 6 hours when needed, no more than 4 doses a day",
+    doseAr: "حسب وزن الطفل، كل 6 ساعات عند اللزوم، وما يزيدش عن 4 جرعات في اليوم",
+    noteEn: "Use the measuring spoon or syringe in the box, not a kitchen spoon.",
+    noteAr: "استخدم المعيار اللي مع العلبة، مش معلقة المطبخ.",
+    keywords: ["paracetamol", "children", "سيتال", "شراب", "اطفال"],
+  },
+  {
+    id: "celebrex_200",
+    cat: "analgesic",
+    name: "Celebrex 200mg",
+    genericEn: "Celecoxib 200mg",
+    genericAr: "سيليكوكسيب 200 مجم",
+    descEn: "Anti-inflammatory that is gentler on the stomach than the usual NSAIDs.",
+    descAr: "مضاد التهاب أرحم على المعدة من مضادات الالتهاب المعتادة.",
+    doseEn: "1 capsule every 12 hours after food for 3 to 5 days",
+    doseAr: "كبسولة كل 12 ساعة بعد الأكل لمدة 3 إلى 5 أيام",
+    noteEn: "Avoid with sulfa allergy, heart disease or in pregnancy.",
+    noteAr: "يتجنب مع حساسية السلفا أو أمراض القلب أو في الحمل.",
+    keywords: ["celecoxib", "سيليبريكس", "سيليكوكسيب"],
+  },
+
+  // ─── Swelling & enzymes ─────────────────────────────────────────────────────────
+  {
+    id: "alphintern",
+    cat: "swelling",
+    name: "Alphintern",
+    genericEn: "Trypsin + Chymotrypsin",
+    genericAr: "تربسين + كيموتربسين",
+    descEn: "Enzyme tablets that bring down swelling and bruising after surgery or extraction.",
+    descAr: "أقراص إنزيمات بتقلل التورم والكدمات بعد الجراحة أو الخلع.",
+    doseEn: "2 tablets 3 times daily half an hour before food for 5 days",
+    doseAr: "قرصين 3 مرات يومياً قبل الأكل بنص ساعة لمدة 5 أيام",
+    noteEn: "Before food, not after — food stops it working.",
+    noteAr: "قبل الأكل مش بعده — الأكل بيمنع مفعوله.",
+    keywords: ["chymotrypsin", "الفينترن", "الفنترن", "تورم", "انزيمات"],
+  },
+  {
+    id: "danzen_10",
+    cat: "swelling",
+    name: "Danzen 10mg",
+    genericEn: "Serratiopeptidase 10mg",
+    genericAr: "سيراتيوببتيداز 10 مجم",
+    descEn: "Enzyme for swelling and trismus after a difficult extraction.",
+    descAr: "إنزيم للتورم وصعوبة فتح الفم بعد خلع صعب.",
+    doseEn: "1 tablet every 8 hours after food for 5 days",
+    doseAr: "قرص كل 8 ساعات بعد الأكل لمدة 5 أيام",
+    keywords: ["serratiopeptidase", "دانزين", "تورم"],
+  },
+  {
+    id: "dexazone_amp",
+    cat: "swelling",
+    name: "Dexamethasone 8mg ampoule",
+    genericEn: "Dexamethasone 8mg injection",
+    genericAr: "ديكساميثازون حقن 8 مجم",
+    descEn: "Single dose around a surgical third-molar extraction to limit swelling and trismus.",
+    descAr: "جرعة واحدة حوالين خلع ضرس العقل الجراحي عشان تقلل التورم وصعوبة فتح الفم.",
+    doseEn: "1 ampoule intramuscular as a single dose, given in the clinic",
+    doseAr: "أمبول واحد في العضل جرعة واحدة، بتتاخد في العيادة",
+    noteEn: "Avoid in uncontrolled diabetes, active infection without antibiotic cover, or peptic ulcer.",
+    noteAr: "يتجنب مع السكر غير المنضبط أو التهاب نشط من غير مضاد حيوي أو قرحة المعدة.",
+    keywords: ["dexazone", "epidron", "ديكساميثازون", "كورتيزون", "تورم"],
+  },
+
+  // ─── Mouthwash & topical ────────────────────────────────────────────────────────
+  {
+    id: "hexitol_mw",
+    cat: "mouthwash",
+    name: "Hexitol mouthwash 0.12%",
+    genericEn: "Chlorhexidine gluconate 0.12%",
+    genericAr: "كلورهيكسيدين 0.12%",
+    descEn: "The standard antiseptic rinse — gum infection, after surgery, and around implants.",
+    descAr: "الغسول المطهر الأساسي — لالتهاب اللثة وبعد الجراحة وحوالين الزرعات.",
+    doseEn: "Rinse 15ml for 30 seconds twice daily after brushing, then do not eat or drink for 30 minutes",
+    doseAr: "مضمضة 15 مل لمدة 30 ثانية مرتين يومياً بعد غسيل السنان، وبعدها ما تاكلش أو تشربش لمدة نص ساعة",
+    noteEn: "Do not swallow. Start 24 hours after an extraction, not the same day. Long use can stain teeth.",
+    noteAr: "ما يتبلعش. يبدأ بعد الخلع بـ 24 ساعة مش في نفس اليوم. الاستخدام الطويل ممكن يصبغ السنان.",
+    keywords: ["chlorhexidine", "هيكسيتول", "كلورهيكسيدين", "غسول", "مضمضة"],
+  },
+  {
+    id: "orovex_mw",
+    cat: "mouthwash",
+    name: "Orovex mouthwash",
+    genericEn: "Chlorhexidine mouthwash",
+    genericAr: "غسول كلورهيكسيدين",
+    descEn: "Egyptian chlorhexidine rinse — same use as Hexitol.",
+    descAr: "غسول كلورهيكسيدين مصري — نفس استخدام الهيكسيتول.",
+    doseEn: "Rinse 15ml for 30 seconds twice daily after brushing",
+    doseAr: "مضمضة 15 مل لمدة 30 ثانية مرتين يومياً بعد غسيل السنان",
+    noteEn: "Do not swallow. Do not use in the first 24 hours after an extraction.",
+    noteAr: "ما يتبلعش. ما يستخدمش في أول 24 ساعة بعد الخلع.",
+    keywords: ["chlorhexidine", "اوروفكس", "غسول"],
+  },
+  {
+    id: "kin_gel",
+    cat: "mouthwash",
+    name: "Kin Gingival gel 0.2%",
+    genericEn: "Chlorhexidine gel 0.2%",
+    genericAr: "جل كلورهيكسيدين 0.2%",
+    descEn: "Gel for a specific spot — one inflamed area, a socket, or around an implant.",
+    descAr: "جل لمكان محدد — منطقة ملتهبة أو مكان خلع أو حوالين زرعة.",
+    doseEn: "Apply a thin layer on the gum twice daily with a clean finger or cotton bud",
+    doseAr: "دهان طبقة رفيعة على اللثة مرتين يومياً بصباع نضيف أو قطنة",
+    noteEn: "Do not eat or drink for 30 minutes after applying.",
+    noteAr: "ما تاكلش أو تشربش لمدة نص ساعة بعد الدهان.",
+    keywords: ["chlorhexidine", "جل", "لثة"],
+  },
+  {
+    id: "betadine_gargle",
+    cat: "mouthwash",
+    name: "Betadine gargle 1%",
+    genericEn: "Povidone-iodine 1% mouthwash",
+    genericAr: "بوفيدون أيودين 1% غرغرة",
+    descEn: "Iodine antiseptic rinse — pericoronitis and pre-surgical rinsing.",
+    descAr: "غسول مطهر باليود — لالتهاب حوائط التاج وللمضمضة قبل الجراحة.",
+    doseEn: "Dilute equally with warm water and rinse for 30 seconds up to 4 times daily",
+    doseAr: "يتخفف بنفس كمية مياه دافية ويتمضمض بيه 30 ثانية لحد 4 مرات يومياً",
+    noteEn: "Do not swallow. Avoid in thyroid disease, pregnancy and breastfeeding.",
+    noteAr: "ما يتبلعش. يتجنب مع أمراض الغدة الدرقية والحمل والرضاعة.",
+    keywords: ["povidone", "iodine", "بيتادين", "غرغرة"],
+  },
+  {
+    id: "tantum_verde",
+    cat: "mouthwash",
+    name: "Tantum Verde mouthwash",
+    genericEn: "Benzydamine hydrochloride 0.15%",
+    genericAr: "بنزيدامين 0.15%",
+    descEn: "Numbing anti-inflammatory rinse — mouth ulcers and a sore mouth after surgery.",
+    descAr: "غسول مخدر ومضاد التهاب — لقرح الفم والفم الملتهب بعد الجراحة.",
+    doseEn: "Rinse 15ml for 30 seconds every 3 hours when needed, for up to 7 days",
+    doseAr: "مضمضة 15 مل لمدة 30 ثانية كل 3 ساعات عند اللزوم، لمدة أقصاها 7 أيام",
+    noteEn: "A brief stinging or numbness is normal. Do not swallow.",
+    noteAr: "الإحساس بلسعة بسيطة أو تنميل طبيعي. ما يتبلعش.",
+    keywords: ["benzydamine", "تانتم فيردي", "قرح"],
+  },
+  {
+    id: "salt_rinse",
+    cat: "mouthwash",
+    name: "Warm salt water rinse",
+    genericEn: "Half a teaspoon of salt in a cup of warm water",
+    genericAr: "نص معلقة صغيرة ملح في كوباية مياه دافية",
+    descEn: "The everyday post-extraction rinse — costs nothing and keeps the socket clean.",
+    descAr: "المضمضة اليومية بعد الخلع — ما بتكلفش حاجة وبتحافظ على مكان الخلع نضيف.",
+    doseEn: "Rinse gently 3 to 4 times daily starting 24 hours after the extraction",
+    doseAr: "مضمضة خفيفة 3 لـ 4 مرات يومياً، تبدأ بعد الخلع بـ 24 ساعة",
+    noteEn: "Gently — do not swish hard in the first days, it can dislodge the clot.",
+    noteAr: "بهدوء — ما تخبطش المياه بقوة في الأيام الأولى عشان الجلطة ما تقعش.",
+    keywords: ["salt", "ملح", "مضمضة", "خلع"],
+  },
+  {
+    id: "oracure_gel",
+    cat: "mouthwash",
+    name: "Oracure gel",
+    genericEn: "Topical anaesthetic oral gel",
+    genericAr: "جل مخدر موضعي للفم",
+    descEn: "Numbing gel for ulcers, teething and sore gums under a denture.",
+    descAr: "جل مخدر لقرح الفم والتسنين واللثة الملتهبة تحت الطقم.",
+    doseEn: "Apply a small amount on the sore spot up to 4 times daily",
+    doseAr: "دهان كمية صغيرة على المكان المؤلم لحد 4 مرات يومياً",
+    noteEn: "Not for infants under 2 years. Do not apply just before eating — the numbness risks a bitten cheek.",
+    noteAr: "ممنوع للأطفال أقل من سنتين. ما يتحطش قبل الأكل مباشرة عشان التخدير ممكن يخلي الطفل يعض على خده.",
+    keywords: ["benzocaine", "lidocaine", "bonjela", "جل", "مخدر", "تسنين"],
+  },
+  {
+    id: "sensodyne",
+    cat: "mouthwash",
+    name: "Sensodyne Repair & Protect toothpaste",
+    genericEn: "Desensitizing toothpaste",
+    genericAr: "معجون أسنان للحساسية",
+    descEn: "For sensitivity to cold, sweet, or after scaling and whitening.",
+    descAr: "لحساسية البارد والحلو، وبعد التنظيف أو التبييض.",
+    doseEn: "Brush twice daily, and rub a little on the sensitive tooth with a finger before sleeping",
+    doseAr: "غسيل السنان بيه مرتين يومياً، ودهان شوية منه بالصباع على السن الحساس قبل النوم",
+    noteEn: "Give it two weeks — the effect builds up with regular use.",
+    noteAr: "استحمل أسبوعين — المفعول بيتحسن مع الاستخدام المنتظم.",
+    keywords: ["sensitivity", "حساسية", "معجون"],
+  },
+
+  // ─── Antifungals ────────────────────────────────────────────────────────────────
+  {
+    id: "miconaz_gel",
+    cat: "antifungal",
+    name: "Miconaz oral gel",
+    genericEn: "Miconazole 2% oral gel",
+    genericAr: "ميكونازول 2% جل للفم",
+    descEn: "Oral thrush, denture stomatitis and angular cheilitis.",
+    descAr: "فطريات الفم والتهاب الفم من الطقم والتهاب زوايا الشفايف.",
+    doseEn: "Half a spoon in the mouth 4 times daily after food — hold it in the mouth then swallow",
+    doseAr: "نص معلقة في الفم 4 مرات يومياً بعد الأكل — تفضل في الفم شوية بعدين تتبلع",
+    noteEn: "Continue for 7 days after the white patches clear. Check the patient's other medicines.",
+    noteAr: "كمّل 7 أيام بعد ما البقع البيضا تختفي. راجع باقي أدوية المريض قبل الوصف.",
+    keywords: ["miconazole", "daktarin", "دكتارين", "ميكونازول", "فطريات"],
+  },
+  {
+    id: "nystatin_susp",
+    cat: "antifungal",
+    name: "Nystatin oral suspension",
+    genericEn: "Nystatin 100,000 IU/ml",
+    genericAr: "نيستاتين 100000 وحدة/مل",
+    descEn: "Oral thrush — the safest option in pregnancy and for babies.",
+    descAr: "فطريات الفم — الأأمن في الحمل وللرضع.",
+    doseEn: "1ml in the mouth 4 times daily after food — swish then swallow",
+    doseAr: "1 مل في الفم 4 مرات يومياً بعد الأكل — يتمضمض بيه وبعدين يتبلع",
+    noteEn: "Continue for 48 hours after the patches clear. Denture wearers must soak the denture overnight.",
+    noteAr: "كمّل يومين بعد ما البقع تختفي. لابس الطقم لازم ينقّع الطقم بالليل.",
+    keywords: ["nystatin", "نيستاتين", "فطريات"],
+  },
+  {
+    id: "diflucan_50",
+    cat: "antifungal",
+    name: "Diflucan 50mg",
+    genericEn: "Fluconazole 50mg",
+    genericAr: "فلوكونازول 50 مجم",
+    descEn: "Tablets for thrush that did not clear with the gel, or a widespread infection.",
+    descAr: "أقراص لفطريات ما استجبتش للجل أو لعدوى منتشرة.",
+    doseEn: "1 capsule once daily for 7 to 14 days",
+    doseAr: "كبسولة مرة واحدة يومياً لمدة 7 إلى 14 يوم",
+    noteEn: "Not in pregnancy. Check the patient's other medicines — it interacts with many.",
+    noteAr: "ممنوع في الحمل. راجع باقي أدوية المريض — بيتعارض مع أدوية كتير.",
+    keywords: ["fluconazole", "flucoral", "ديفلوكان", "فلوكونازول", "فطريات"],
+  },
+
+  // ─── Antivirals ─────────────────────────────────────────────────────────────────
+  {
+    id: "zovirax_400",
+    cat: "antiviral",
+    name: "Zovirax 400mg",
+    genericEn: "Acyclovir 400mg",
+    genericAr: "أسيكلوفير 400 مجم",
+    descEn: "Primary herpetic gingivostomatitis and severe recurrent cold sores.",
+    descAr: "التهاب اللثة والفم الهربسي الأولي والحلأ المتكرر الشديد.",
+    doseEn: "1 tablet 5 times daily for 5 days, with plenty of water",
+    doseAr: "قرص 5 مرات يومياً لمدة 5 أيام، مع مياه كتير",
+    noteEn: "Works best when started within the first 72 hours of the blisters appearing.",
+    noteAr: "أحسن مفعول لو ابتدى في أول 72 ساعة من ظهور الفقاعات.",
+    keywords: ["acyclovir", "زوفيراكس", "اسيكلوفير", "هربس"],
+  },
+  {
+    id: "zovirax_cream",
+    cat: "antiviral",
+    name: "Zovirax cream 5%",
+    genericEn: "Acyclovir 5% cream",
+    genericAr: "كريم أسيكلوفير 5%",
+    descEn: "Cold sore on the lip — applied at the first tingle.",
+    descAr: "حلأ الشفايف — يتدهن أول ما يحس بالوخز.",
+    doseEn: "Apply on the sore 5 times daily for 5 days",
+    doseAr: "دهان على المكان 5 مرات يومياً لمدة 5 أيام",
+    noteEn: "Wash hands before and after. Do not use inside the mouth or near the eyes.",
+    noteAr: "اغسل إيدك قبل وبعد. ما يستخدمش جوه الفم أو قريب من العين.",
+    keywords: ["acyclovir", "زوفيراكس", "كريم", "هربس"],
+  },
+
+  // ─── Bleeding control ───────────────────────────────────────────────────────────
+  {
+    id: "kapron_amp",
+    cat: "hemostatic",
+    name: "Kapron 500mg ampoule (mouth rinse)",
+    genericEn: "Tranexamic acid — used topically on the socket",
+    genericAr: "حمض الترانيكساميك — استخدام موضعي على مكان الخلع",
+    descEn: "Bleeding that will not stop after an extraction, and cover for patients on blood thinners.",
+    descAr: "نزيف مستمر بعد الخلع، وتغطية للمرضى اللي بياخدوا سيولة.",
+    doseEn: "Soak a clean gauze in the ampoule and bite on it for 20 minutes; repeat if bleeding returns",
+    doseAr: "بلل شاش نضيف بالأمبول وعض عليه 20 دقيقة، وكرّرها لو النزيف رجع",
+    noteEn: "If bleeding continues after two attempts, come back to the clinic.",
+    noteAr: "لو النزيف كمل بعد مرتين، ارجع العيادة فوراً.",
+    keywords: ["tranexamic", "كابرون", "نزيف", "ترانيكساميك"],
+  },
+  {
+    id: "kapron_500_tab",
+    cat: "hemostatic",
+    name: "Kapron 500mg tablets",
+    genericEn: "Tranexamic acid 500mg",
+    genericAr: "حمض الترانيكساميك 500 مجم",
+    descEn: "Oral cover for a few days after surgery in a patient who bleeds easily.",
+    descAr: "تغطية بالفم لكام يوم بعد الجراحة لمريض بينزف بسهولة.",
+    doseEn: "1 tablet every 8 hours for 2 to 3 days",
+    doseAr: "قرص كل 8 ساعات لمدة يومين لـ 3 أيام",
+    noteEn: "Avoid in patients with a history of clots. Coordinate with the treating physician.",
+    noteAr: "يتجنب مع تاريخ جلطات. نسّق مع الطبيب المعالج.",
+    keywords: ["tranexamic", "كابرون", "نزيف"],
+  },
+  {
+    id: "dicynone_250",
+    cat: "hemostatic",
+    name: "Dicynone 250mg",
+    genericEn: "Etamsylate 250mg",
+    genericAr: "إيتامسيلات 250 مجم",
+    descEn: "Helps small-vessel oozing after surgery settle.",
+    descAr: "بيساعد على وقف النز من الشعيرات الدموية بعد الجراحة.",
+    doseEn: "1 tablet every 8 hours for 2 to 3 days",
+    doseAr: "قرص كل 8 ساعات لمدة يومين لـ 3 أيام",
+    keywords: ["etamsylate", "ديسينون", "نزيف"],
+  },
+
+  // ─── Vitamins & supplements ─────────────────────────────────────────────────────
+  {
+    id: "vitamin_c_500",
+    cat: "supplement",
+    name: "Vitamin C 500mg",
+    genericEn: "Ascorbic acid 500mg",
+    genericAr: "فيتامين سي 500 مجم",
+    descEn: "Supports gum healing after scaling, surgery, or with bleeding gums.",
+    descAr: "بيساعد على التئام اللثة بعد التنظيف أو الجراحة، ومع نزيف اللثة.",
+    doseEn: "1 tablet once daily after food for 2 to 4 weeks",
+    doseAr: "قرص مرة واحدة يومياً بعد الأكل لمدة أسبوعين لـ 4 أسابيع",
+    keywords: ["cevarol", "redoxon", "سيفارول", "فيتامين سي"],
+  },
+  {
+    id: "neurorubine_forte",
+    cat: "supplement",
+    name: "Neurorubine Forte",
+    genericEn: "Vitamin B1 + B6 + B12",
+    genericAr: "فيتامين ب1 + ب6 + ب12",
+    descEn: "Nerve support after surgery near the inferior alveolar nerve, and for numbness that lingers.",
+    descAr: "لدعم العصب بعد جراحة قريبة من عصب الفك، ومع التنميل اللي بيفضل فترة.",
+    doseEn: "1 tablet once daily after food for 4 weeks",
+    doseAr: "قرص مرة واحدة يومياً بعد الأكل لمدة 4 أسابيع",
+    keywords: ["neuroton", "b12", "نيوروروبين", "فيتامين ب", "تنميل"],
+  },
+  {
+    id: "calcium_vit_d",
+    cat: "supplement",
+    name: "Calcium + Vitamin D3 tablets",
+    genericEn: "Calcium carbonate 500mg + Vitamin D3",
+    genericAr: "كالسيوم 500 مجم + فيتامين د3",
+    descEn: "Bone support before or after an implant, and for a patient with weak bone.",
+    descAr: "لدعم العظم قبل أو بعد الزرع، ولمريض عنده ضعف في العظام.",
+    doseEn: "1 tablet once daily after food",
+    doseAr: "قرص مرة واحدة يومياً بعد الأكل",
+    noteEn: "Take at least 2 hours apart from any antibiotic.",
+    noteAr: "يتاخد بفاصل ساعتين على الأقل عن أي مضاد حيوي.",
+    keywords: ["ossofortin", "calcium sandoz", "كالسيوم", "اوسوفورتين", "زرع"],
+  },
+  {
+    id: "vitamin_d_amp",
+    cat: "supplement",
+    name: "Vitamin D3 200,000 IU (oral ampoule)",
+    genericEn: "Cholecalciferol 200,000 IU",
+    genericAr: "فيتامين د3 200000 وحدة",
+    descEn: "For proven vitamin D deficiency affecting bone healing.",
+    descAr: "لنقص فيتامين د المؤكد اللي بيأثر على التئام العظم.",
+    doseEn: "1 ampoule by mouth every 4 weeks for 3 months, or as the doctor directs",
+    doseAr: "أمبول بالفم كل 4 أسابيع لمدة 3 شهور، أو حسب تعليمات الدكتور",
+    noteEn: "Only after a blood level is checked — do not repeat without a test.",
+    noteAr: "بعد تحليل مستوى فيتامين د بس — ما يتكررش من غير تحليل.",
+    keywords: ["devarol", "cholecalciferol", "ديفارول", "فيتامين د"],
+  },
+
+  // ─── Stomach, allergy & calm ────────────────────────────────────────────────────
+  {
+    id: "omez_20",
+    cat: "support",
+    name: "Omez 20mg",
+    genericEn: "Omeprazole 20mg",
+    genericAr: "أوميبرازول 20 مجم",
+    descEn: "Protects the stomach while the patient is on a painkiller like Cataflam or Brufen.",
+    descAr: "بيحمي المعدة طول ما المريض بياخد مسكن زي الكاتافلام أو البروفين.",
+    doseEn: "1 capsule once daily half an hour before breakfast, for as long as the painkiller lasts",
+    doseAr: "كبسولة مرة واحدة يومياً قبل الفطار بنص ساعة، طول مدة المسكن",
+    keywords: ["omeprazole", "losec", "pantoloc", "اوميز", "اوميبرازول", "معدة"],
+  },
+  {
+    id: "claritine_10",
+    cat: "support",
+    name: "Claritine 10mg",
+    genericEn: "Loratadine 10mg",
+    genericAr: "لوراتادين 10 مجم",
+    descEn: "Allergic swelling or itching — and it does not make the patient sleepy.",
+    descAr: "للتورم أو الهرش التحسسي — ومش بيسبب نعاس.",
+    doseEn: "1 tablet once daily for 3 to 5 days",
+    doseAr: "قرص مرة واحدة يومياً لمدة 3 إلى 5 أيام",
+    noteEn: "For a severe reaction with breathing difficulty, go to the emergency room immediately.",
+    noteAr: "لو الحساسية شديدة وفيها صعوبة في التنفس، روح الطوارئ فوراً.",
+    keywords: ["loratadine", "كلاريتين", "لوراتادين", "حساسية"],
+  },
+  {
+    id: "atarax_25",
+    cat: "support",
+    name: "Atarax 25mg",
+    genericEn: "Hydroxyzine 25mg",
+    genericAr: "هيدروكسيزين 25 مجم",
+    descEn: "Calms an anxious patient before a long or surgical appointment.",
+    descAr: "بيهدي المريض القلقان قبل جلسة طويلة أو جراحية.",
+    doseEn: "1 tablet 1 hour before the appointment",
+    doseAr: "قرص قبل الميعاد بساعة",
+    noteEn: "Causes drowsiness — the patient must not drive and should come with a companion.",
+    noteAr: "بيسبب نعاس — المريض ما يسوقش ويفضل ييجي مع حد معاه.",
+    keywords: ["hydroxyzine", "اتراكس", "هيدروكسيزين", "قلق"],
+  },
+];
+
+/**
+ * Written as escapes on purpose: tashkeel, the superscript alef, tatweel and the bidi marks are
+ * all invisible, so a literal character class here would look like an empty one in every editor.
+ */
+const AR_DIACRITICS = /[\u064B-\u0652\u0670\u0640\u200E\u200F\u061C]/g;
+
+/** Folds the spellings that make an Arabic needle miss: hamza forms, ya/alef maqsura, ta marbuta. */
+export function normalizeDrugText(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(AR_DIACRITICS, "")
+    .replace(/[أإآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/ؤ/g, "و")
+    .replace(/ئ/g, "ي")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Everything a search term is allowed to match on — built once per drug, not per keystroke. */
+const SEARCH_INDEX = new Map<string, string>(
+  DRUG_CATALOG.map((d) => {
+    const cat = DRUG_CATEGORIES.find((c) => c.id === d.cat);
+    return [
+      d.id,
+      normalizeDrugText(
+        [
+          d.name,
+          d.genericEn,
+          d.genericAr,
+          d.descEn,
+          d.descAr,
+          cat?.labelEn ?? "",
+          cat?.labelAr ?? "",
+          ...(d.keywords ?? []),
+        ].join(" ")
+      ),
+    ];
+  })
+);
+
+/**
+ * Every whitespace-separated term must appear somewhere in the drug's text, in any order, so
+ * "aug 1" and "مضاد حيوي حساسيه" both land. An empty query returns the catalog untouched.
+ */
+export function searchDrugCatalog(query: string): CatalogDrug[] {
+  const q = normalizeDrugText(query);
+  if (!q) return DRUG_CATALOG;
+  const terms = q.split(" ").filter(Boolean);
+  return DRUG_CATALOG.filter((d) => {
+    const stack = SEARCH_INDEX.get(d.id) ?? "";
+    return terms.every((term) => stack.includes(term));
+  });
+}
+
+export function drugCategoryLabel(catId: string, isArabic: boolean): string {
+  const cat = DRUG_CATEGORIES.find((c) => c.id === catId);
+  if (!cat) return "";
+  return isArabic ? cat.labelAr : cat.labelEn;
+}

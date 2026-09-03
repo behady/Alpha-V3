@@ -10,6 +10,7 @@ import { collection, onSnapshot, query, orderBy, deleteDoc, doc, addDoc } from "
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { DRUG_CATALOG } from "@/lib/drugCatalog";
 
 export default function PrescriptionSettings() {
   const { clinicId } = useClinic();
@@ -77,6 +78,17 @@ export default function PrescriptionSettings() {
             ))}
             {drugList.length === 0 && <div className="col-span-full py-16 bg-surface-subtle rounded-3xl text-center"><p className="text-ink-muted font-bold text-base">{txt.noDrugs}</p></div>}
         </div>
+
+        {/*
+          An empty list here used to read as "the system has no drugs", which stopped being true
+          once the built-in Egyptian formulary shipped. This page still only owns the clinic's own
+          shortcuts — the library needs no setup and is searchable inside the prescription studio.
+        */}
+        <p className="text-sm font-semibold text-ink-muted text-center pt-2">
+          {language === "ar"
+            ? `الروشتة كمان فيها مكتبة جاهزة بـ ${DRUG_CATALOG.length} دوا مصري بالجرعة والتعليمات بالعربي — من غير أي إعداد. الاختصارات هنا بتظهر فوقها في البحث.`
+            : `The prescription studio also carries a built-in library of ${DRUG_CATALOG.length} Egyptian drugs with doses and Arabic instructions — no setup needed. The shortcuts above appear first in its search.`}
+        </p>
 
         {isDrugModalOpen && (
           <div className="fixed inset-0 bg-ink/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">

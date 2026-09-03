@@ -58,11 +58,13 @@ export function buildPrescriptionSrcDoc(p: PrescriptionPdfPayload): string {
 
   const drugsHtml = p.rxItems
     .map((item, index) => {
+      // `dir="auto"` lets an Arabic dose or instruction read right-to-left on an otherwise LTR
+      // sheet — without it the bullet and the digits land on the wrong end of the line.
       const doseLine = item.dose
-        ? `<p style="margin:4px 0 0 0;padding-left:24px;font-size:14px;font-weight:700;color:#334155;">• ${esc(item.dose)}</p>`
+        ? `<p dir="auto" style="margin:4px 0 0 0;padding-left:24px;font-size:14px;font-weight:700;color:#334155;">• ${esc(item.dose)}</p>`
         : "";
       const noteLine = item.note
-        ? `<p style="margin:4px 0 0 0;padding-left:24px;font-size:12px;font-weight:600;color:#64748b;">Note: ${esc(item.note)}</p>`
+        ? `<p dir="auto" style="margin:4px 0 0 0;padding-left:24px;font-size:12px;font-weight:600;color:#64748b;">${esc(item.note)}</p>`
         : "";
       return `<div style="position:relative;margin-bottom:24px;">
         <div style="padding-left:8px;border-left:2px solid #e2e8f0;">
