@@ -255,8 +255,11 @@ export const SETTINGS_TEXT = {
   },
   alerts: {
     title: { en: "Alerts & Notifications", ar: "إعدادات التنبيهات" },
-    subtitle: { en: "Manage precise routing for system alerts and messaging.", ar: "إدارة التوجيه الدقيق لتنبيهات النظام والمراسلات." },
-    save: { en: "Save Alert Preferences", ar: "حفظ إعدادات التنبيهات" },
+    railNote: { en: "These appear inside the app, for doctors and the front desk. Nothing here sends an email or a message.", ar: "دي بتظهر جوه البرنامج للأطباء والاستقبال. مفيش حاجة هنا بتبعت إيميل ولا رسالة." },
+    alertsOn: { en: "on", ar: "مفعّل" },
+    unsaved: { en: "Unsaved changes", ar: "فيه تغييرات مش متحفظة" },
+    discard: { en: "Discard", ar: "تجاهل" },
+    save: { en: "Save", ar: "حفظ" },
     inAppTitle: { en: "In-App Clinical Alerts", ar: "تنبيهات النظام الداخلي (In-App)" },
     inAppSub: { en: "Push notifications visible to doctors and front desk.", ar: "إشعارات تظهر للأطباء وموظفي الاستقبال." },
     eventPatientArrival: { en: "Patient Arrived (Waiting Area)", ar: "وصول المريض للعيادة" },
