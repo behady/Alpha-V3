@@ -62,7 +62,7 @@ checks += 2;
 // A screen that reaches for countedNoun needs one/two/few/many present in both languages; a
 // missing `few` is the "٥ علاج" bug back again, and nothing else would catch it.
 const text = readFileSync(join(REPO, "src/config/settingsText.ts"), "utf8");
-for (const stem of ["treatment", "list", "brokenProfile", "signedInPerson", "branch", "room", "lab", "month", "request", "item"]) {
+for (const stem of ["treatment", "list", "brokenProfile", "signedInPerson", "branch", "room", "lab", "month", "request", "item", "hour", "slot"]) {
   for (const shape of ["One", "Two", "Few", "Many"]) {
     const key = `${stem}${shape}`;
     assert.ok(

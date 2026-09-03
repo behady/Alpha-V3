@@ -67,6 +67,7 @@ interface Props {
     saving: boolean;
     /** True while there are edits the person has not saved. */
     isDirty: boolean;
+    discard: () => void;
   }) => React.ReactNode;
 }
 
@@ -104,6 +105,7 @@ export default function ClinicInfoHost({ sectionId, fields, activityLabel, canEd
     value: clinicData,
     setValue: setClinicData,
     isDirty,
+    discard,
     markSaved,
   } = useSettingsDraft<ClinicInfoState>(sectionId, stored, EMPTY);
 
@@ -149,7 +151,7 @@ export default function ClinicInfoHost({ sectionId, fields, activityLabel, canEd
     return <div className="h-40 rounded-3xl bg-surface-muted animate-pulse" aria-hidden="true" />;
   }
 
-  return <>{children({ clinicData, setClinicData, handleSaveClinic, save, saving, isDirty })}</>;
+  return <>{children({ clinicData, setClinicData, handleSaveClinic, save, saving, isDirty, discard })}</>;
 }
 
 /**

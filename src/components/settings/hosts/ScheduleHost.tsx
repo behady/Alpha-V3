@@ -24,8 +24,15 @@ export default function ScheduleHost({ canEdit }: { canEdit: boolean }) {
       fields={["schedule"]}
       activityLabel="Clinic schedule was updated from settings."
     >
-      {({ clinicData, setClinicData, save }) => (
-        <ScheduleBridge clinicData={clinicData} setClinicData={setClinicData} save={save} />
+      {({ clinicData, setClinicData, save, saving, isDirty, discard }) => (
+        <ScheduleBridge
+          clinicData={clinicData}
+          setClinicData={setClinicData}
+          save={save}
+          saving={saving}
+          isDirty={isDirty}
+          discard={discard}
+        />
       )}
     </ClinicInfoHost>
   );
@@ -35,10 +42,16 @@ function ScheduleBridge({
   clinicData,
   setClinicData,
   save,
+  saving,
+  isDirty,
+  discard,
 }: {
   clinicData: ClinicInfoState;
   setClinicData: React.Dispatch<React.SetStateAction<ClinicInfoState>>;
   save: (overrides?: Record<string, unknown>) => Promise<void>;
+  saving: boolean;
+  isDirty: boolean;
+  discard: () => void;
 }) {
   const schedule = readSchedule(clinicData);
 
@@ -68,6 +81,9 @@ function ScheduleBridge({
       schedule={schedule}
       setSchedule={setSchedule}
       handleSaveClinic={handleSaveClinic}
+      saving={saving}
+      isDirty={isDirty}
+      discard={discard}
     />
   );
 }

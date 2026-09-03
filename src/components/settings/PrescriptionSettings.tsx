@@ -72,7 +72,7 @@ export default function PrescriptionSettings() {
                         <p className="font-bold text-ink text-base">{drug.name}</p>
                         <p className="text-sm font-medium text-ink-muted mt-1">{drug.dose}</p>
                     </div>
-                    <button onClick={() => deleteDrug(drug.id, drug.name)} className="text-ink-muted hover:text-red-500 bg-surface hover:bg-red-50 rounded-xl transition-colors opacity-0 group-hover:opacity-100 p-3"><Trash2 size={18}/></button>
+                    <button onClick={() => deleteDrug(drug.id, drug.name)} className="text-ink-muted hover:bg-danger-tint hover:text-danger bg-surface rounded-xl transition-colors opacity-0 group-hover:opacity-100 p-3"><Trash2 size={18}/></button>
                 </div>
             ))}
             {drugList.length === 0 && <div className="col-span-full py-16 bg-surface-subtle rounded-3xl text-center"><p className="text-ink-muted font-bold text-base">{txt.noDrugs}</p></div>}
@@ -83,7 +83,7 @@ export default function PrescriptionSettings() {
               <div className="bg-white rounded-[2rem] p-8 w-full max-w-md shadow-2xl animate-in zoom-in-95 border border-line">
                 <div className="flex justify-between items-center mb-6">
                     <h2 className="text-xl font-bold text-ink tracking-tight">{txt.addDrug}</h2>
-                    <button onClick={() => setIsDrugModalOpen(false)} className="text-ink-muted hover:text-red-500 bg-surface-subtle hover:bg-red-50 p-2 rounded-full transition-colors"><X size={20}/></button>
+                    <button onClick={() => setIsDrugModalOpen(false)} className="text-ink-muted bg-surface-subtle hover:bg-danger-tint hover:text-danger p-2 rounded-full transition-colors"><X size={20}/></button>
                 </div>
 
                 <form onSubmit={handleSaveDrug} className="space-y-5">
