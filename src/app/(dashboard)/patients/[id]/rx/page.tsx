@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft, Printer, Plus, Trash2, Pill, Loader2,
-  MapPin, Phone, MessageCircle, Save, Search, X
+  MapPin, Phone, MessageCircle, Save, Search, X, AlertTriangle
 } from "lucide-react";
 import { db, auth } from "@/lib/firebase";
 import { doc, getDoc, collection, getDocs, onSnapshot, query, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
@@ -23,19 +23,32 @@ import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import PermissionGuard from "@/components/PermissionGuard";
 
 interface Drug { id: string; name: string; dose: string; }
-interface RxItem { id: string; name: string; dose: string; note: string; }
+
+/**
+ * A prescription line. `dose`/`note` are the English text and `doseAr`/`noteAr` the Arabic, and
+ * both print, one under the other — the doctor reads one, the patient reads the other, and neither
+ * has to take the pharmacy's word for what was meant. Records saved before the Arabic fields
+ * existed simply have them empty and print exactly as they always did.
+ */
+interface RxItem { id: string; name: string; dose: string; doseAr: string; note: string; noteAr: string; }
 
 /**
  * One line in the drug picker. The clinic's own shortcuts and the built-in Egyptian catalog are
  * flattened into the same shape so the doctor searches one list rather than choosing a source
  * first — a shortcut a doctor typed by hand stays findable by exactly the words they typed.
+ *
+ * `caution` is the exception to everything else here: it is addressed to the doctor and is shown
+ * only in this list. It is never copied into the prescription and never printed.
  */
 interface PickerRow {
   key: string;
   name: string;
   subtitle: string;
-  instruction: string;
-  note: string;
+  doseEn: string;
+  doseAr: string;
+  noteEn: string;
+  noteAr: string;
+  caution: string;
   catLabel: string;
   catSoft: string;
   isShortcut: boolean;
@@ -91,19 +104,12 @@ function PrescriptionStudio() {
   // Current Input State
   const [customDrugName, setCustomDrugName] = useState("");
   const [currentDose, setCurrentDose] = useState("");
+  const [currentDoseAr, setCurrentDoseAr] = useState("");
   const [currentNote, setCurrentNote] = useState("");
+  const [currentNoteAr, setCurrentNoteAr] = useState("");
 
   // Drug picker
   const [drugQuery, setDrugQuery] = useState("");
-  /**
-   * Which language the picked instructions arrive in. It follows the app language, but stays a
-   * separate switch: a clinic can run the interface in English and still hand the patient a
-   * prescription they can read, which in Egypt is the normal case rather than the exception.
-   */
-  const [instructionLang, setInstructionLang] = useState<"ar" | "en">(language === "ar" ? "ar" : "en");
-  useEffect(() => {
-    setInstructionLang(language === "ar" ? "ar" : "en");
-  }, [language]);
 
   useEffect(() => {
     if (!id) return;
@@ -140,7 +146,7 @@ function PrescriptionStudio() {
     return () => unsubDrugs();
   }, [id]);
 
-  const isArabicRx = instructionLang === "ar";
+  const isArabicUi = language === "ar";
 
   /** The clinic's own shortcuts, filtered by the same tolerant matcher the catalog uses. */
   const shortcutRows = useMemo<PickerRow[]>(() => {
@@ -154,9 +160,14 @@ function PrescriptionStudio() {
       .map((d) => ({
         key: `clinic:${d.id}`,
         name: d.name,
-        subtitle: t("rxMyShortcut"),
-        instruction: d.dose || "",
-        note: "",
+        subtitle: "",
+        // A hand-typed shortcut has one dose line and no language attached to it, so it fills the
+        // field that matches whatever the doctor typed rather than being forced into English.
+        doseEn: /[؀-ۿ]/.test(d.dose || "") ? "" : d.dose || "",
+        doseAr: /[؀-ۿ]/.test(d.dose || "") ? d.dose || "" : "",
+        noteEn: "",
+        noteAr: "",
+        caution: "",
         catLabel: t("rxMyShortcut"),
         catSoft: "bg-accent-tint text-accent border-transparent",
         isShortcut: true,
@@ -169,36 +180,44 @@ function PrescriptionStudio() {
       return {
         key: `catalog:${d.id}`,
         name: d.name,
-        subtitle: isArabicRx ? d.descAr : d.descEn,
-        instruction: isArabicRx ? d.doseAr : d.doseEn,
-        note: (isArabicRx ? d.noteAr : d.noteEn) || "",
-        catLabel: (isArabicRx ? cat?.labelAr : cat?.labelEn) || "",
+        subtitle: isArabicUi ? d.descAr : d.descEn,
+        doseEn: d.doseEn,
+        doseAr: d.doseAr,
+        noteEn: d.noteEn || "",
+        noteAr: d.noteAr || "",
+        caution: (isArabicUi ? d.cautionAr : d.cautionEn) || "",
+        catLabel: (isArabicUi ? cat?.labelAr : cat?.labelEn) || "",
         catSoft: cat?.soft || "bg-slate-100 text-slate-700 border-slate-200",
         isShortcut: false,
       };
     });
-  }, [drugQuery, isArabicRx]);
+  }, [drugQuery, isArabicUi]);
 
   const pickerRows = useMemo(() => [...shortcutRows, ...catalogRows], [shortcutRows, catalogRows]);
 
-  /** Load a picked drug into the three fields so the doctor can still edit before adding. */
+  /** Load a picked drug into the fields so the doctor can still edit before adding. */
   const fillFromRow = (row: PickerRow) => {
     setCustomDrugName(row.name);
-    setCurrentDose(row.instruction);
-    setCurrentNote(row.note);
+    setCurrentDose(row.doseEn);
+    setCurrentDoseAr(row.doseAr);
+    setCurrentNote(row.noteEn);
+    setCurrentNoteAr(row.noteAr);
     setDrugQuery("");
   };
 
-  const appendRxItem = (name: string, dose: string, note: string) => {
-    setRxItems((prev) => [
-      ...prev,
-      { id: `${Date.now()}-${prev.length}`, name, dose, note },
-    ]);
+  const appendRxItem = (item: Omit<RxItem, "id">) => {
+    setRxItems((prev) => [...prev, { id: `${Date.now()}-${prev.length}`, ...item }]);
   };
 
   /** The one-tap path: straight onto the prescription without touching the fields below. */
   const quickAddRow = (row: PickerRow) => {
-    appendRxItem(row.name, row.instruction, row.note);
+    appendRxItem({
+      name: row.name,
+      dose: row.doseEn,
+      doseAr: row.doseAr,
+      note: row.noteEn,
+      noteAr: row.noteAr,
+    });
     setDrugQuery("");
   };
 
@@ -206,21 +225,45 @@ function PrescriptionStudio() {
     const finalName = customDrugName.trim();
     if (!finalName) return;
 
-    appendRxItem(finalName, currentDose, currentNote);
+    appendRxItem({
+      name: finalName,
+      dose: currentDose,
+      doseAr: currentDoseAr,
+      note: currentNote,
+      noteAr: currentNoteAr,
+    });
     setCustomDrugName("");
     setCurrentDose("");
+    setCurrentDoseAr("");
     setCurrentNote("");
+    setCurrentNoteAr("");
   };
 
   const removeDrug = (itemId: string) => {
     setRxItems(rxItems.filter(item => item.id !== itemId));
   };
 
-  const calculateAge = (dob: string) => {
-    if (!dob) return "";
-    const diff = Date.now() - new Date(dob).getTime();
-    return Math.abs(new Date(diff).getUTCFullYear() - 1970).toString();
+  /**
+   * Patients are stored either with a birth date or with an age already typed as a number, and
+   * `new Date("34")` quietly answers 1970 — which is how a 34-year-old came out as 0.
+   */
+  const calculateAge = (dobOrAge: unknown) => {
+    const raw = String(dobOrAge ?? "").trim();
+    if (!raw) return "";
+    if (/^\d{1,3}$/.test(raw)) return raw;
+    const ms = new Date(raw).getTime();
+    if (Number.isNaN(ms)) return "";
+    return Math.abs(new Date(Date.now() - ms).getUTCFullYear() - 1970).toString();
   };
+
+  /** An em dash beats the bare "` Y / U`" a patient with no birth date used to print. */
+  const ageSexLabel = (() => {
+    if (!patient) return "—";
+    const years = calculateAge(patient.dateOfBirth || patient.age);
+    const sex = patient.gender ? String(patient.gender).charAt(0).toUpperCase() : "";
+    if (years && sex) return `${years} Y / ${sex}`;
+    return years ? `${years} Y` : sex || "—";
+  })();
 
   const savePrescriptionToHistory = async (extra?: { sharedViaWhatsapp?: boolean }) => {
     await addDoc(getClinicCollection("prescriptions"), {
@@ -284,14 +327,12 @@ function PrescriptionStudio() {
     try {
       await savePrescriptionToHistory({ sharedViaWhatsapp: true });
 
-      const ageStr = calculateAge(patient.dateOfBirth || patient.age);
-      const ageSex = `${ageStr || "?"} Y / ${patient.gender?.charAt(0) || "U"}`;
       const blob: Blob = await prescriptionPayloadToPdfBlob({
         clinicName: clinicInfo?.name || t("rxClinicFallback"),
         rxHeader: clinicInfo?.rxHeader || `Dr. ${selectedDoctor}`,
         dateLabel: new Date().toLocaleDateString("en-GB"),
         patientName: patient.name,
-        ageSex,
+        ageSex: ageSexLabel,
         diagnosis: diagnosis || "",
         doctor: selectedDoctor,
         address: clinicInfo?.address || t("rxAddressFallback"),
@@ -414,24 +455,7 @@ function PrescriptionStudio() {
                </h3>
 
                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between gap-3 pl-1">
-                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t("rxSelectFromDb")}</label>
-                    <div className="flex items-center gap-1 rounded-full bg-surface-subtle p-0.5 border border-slate-200/60 shrink-0">
-                      {(["ar", "en"] as const).map((lang) => (
-                        <button
-                          key={lang}
-                          type="button"
-                          onClick={() => setInstructionLang(lang)}
-                          title={t("rxInstructionLang")}
-                          className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${
-                            instructionLang === lang ? "bg-accent text-ink-on-accent shadow-sm" : "text-ink-muted hover:text-ink"
-                          }`}
-                        >
-                          {lang === "ar" ? "عربي" : "EN"}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">{t("rxSelectFromDb")}</label>
 
                   <div className="relative">
                     <Search size={18} className={`absolute top-1/2 -translate-y-1/2 text-ink-muted pointer-events-none ${isRTL ? "right-4" : "left-4"}`} />
@@ -476,8 +500,17 @@ function PrescriptionStudio() {
                           {row.subtitle && !row.isShortcut && (
                             <p dir="auto" className="text-[11px] font-semibold text-ink-muted mt-0.5 line-clamp-2">{row.subtitle}</p>
                           )}
-                          {row.instruction && (
-                            <p dir="auto" className="text-[11px] font-bold text-ink-body mt-1">• {row.instruction}</p>
+                          {(isArabicUi ? row.doseAr || row.doseEn : row.doseEn || row.doseAr) && (
+                            <p dir="auto" className="text-[11px] font-bold text-ink-body mt-1">
+                              • {isArabicUi ? row.doseAr || row.doseEn : row.doseEn || row.doseAr}
+                            </p>
+                          )}
+                          {/* The doctor's warning. It stops here — it is never copied onto the sheet. */}
+                          {row.caution && (
+                            <p dir="auto" className="text-[11px] font-bold text-amber-700 mt-1 flex items-start gap-1">
+                              <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                              <span>{row.caution}</span>
+                            </p>
                           )}
                         </button>
                         <button
@@ -508,14 +541,28 @@ function PrescriptionStudio() {
                      />
                   </div>
 
-                  <div className="space-y-1.5 md:col-span-2">
+                  {/*
+                    English on the left, Arabic on the right, and both print. Picking from the
+                    library fills all four; a hand-typed drug can fill either side or both.
+                  */}
+                  <div className="space-y-1.5">
                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">{t("rxDoseFrequency")}</label>
-                     <input dir="auto" value={currentDose} onChange={e => setCurrentDose(e.target.value)} placeholder={t("rxDosePlaceholder")} className="w-full px-4 py-3.5 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all"/>
+                     <input dir="ltr" value={currentDose} onChange={e => setCurrentDose(e.target.value)} placeholder={t("rxDosePlaceholder")} className="w-full px-4 py-3.5 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all"/>
                   </div>
-                  
-                  <div className="space-y-1.5 md:col-span-2">
+
+                  <div className="space-y-1.5">
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">{t("rxDoseFrequencyAr")}</label>
+                     <input dir="rtl" value={currentDoseAr} onChange={e => setCurrentDoseAr(e.target.value)} placeholder={t("rxDoseArPlaceholder")} className="w-full px-4 py-3.5 bg-surface-subtle border border-slate-200/60 rounded-xl font-bold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all"/>
+                  </div>
+
+                  <div className="space-y-1.5">
                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">{t("rxSpecialInstructions")}</label>
-                     <input dir="auto" value={currentNote} onChange={e => setCurrentNote(e.target.value)} placeholder={t("rxNotePlaceholder")} className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all"/>
+                     <input dir="ltr" value={currentNote} onChange={e => setCurrentNote(e.target.value)} placeholder={t("rxNotePlaceholder")} className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all"/>
+                  </div>
+
+                  <div className="space-y-1.5">
+                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">{t("rxSpecialInstructionsAr")}</label>
+                     <input dir="rtl" value={currentNoteAr} onChange={e => setCurrentNoteAr(e.target.value)} placeholder={t("rxNoteArPlaceholder")} className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200/60 rounded-xl font-bold text-slate-900 outline-none focus:bg-white focus:border-accent-soft transition-all"/>
                   </div>
                </div>
 
@@ -530,48 +577,52 @@ function PrescriptionStudio() {
             {/* The actual A5 Paper Container */}
             <div
                 id="prescription-pdf-source"
-                className="bg-surface w-full max-w-[148mm] min-h-[210mm] shadow-2xl border border-slate-200/50 p-8 flex flex-col relative print:shadow-none print:border-none print:w-full print:h-full print:p-6 print:m-0"
+                className="bg-surface w-full max-w-[148mm] min-h-[210mm] shadow-2xl border border-slate-200/50 px-6 py-5 flex flex-col relative print:shadow-none print:border-none print:w-full print:h-full print:m-0"
             >
                 
-                {/* 1. Professional Header */}
-                <div className="border-b-2 border-slate-900 pb-6 mb-6">
+                {/*
+                  Header, patient block and footer are all deliberately small. The sheet is A5 and
+                  every drug now takes up to four lines, so the furniture gives its room to the
+                  prescription instead of to the clinic's own name.
+                */}
+                <div className="border-b border-slate-900 pb-3 mb-4">
                     <div className="flex justify-between items-start">
                         <div className="w-2/3">
-                            <h2 className="text-2xl font-black text-ink mb-2 uppercase tracking-tight">{clinicInfo?.name || t("rxClinicFallback")}</h2>
-                            <p className="text-xs font-bold text-ink-body whitespace-pre-wrap leading-relaxed">{clinicInfo?.rxHeader || `Dr. ${selectedDoctor}`}</p>
+                            <h2 className="text-lg font-black text-ink mb-1 uppercase tracking-tight leading-tight">{clinicInfo?.name || t("rxClinicFallback")}</h2>
+                            <p className="text-[10px] font-bold text-ink-body whitespace-pre-wrap leading-snug">{clinicInfo?.rxHeader || `Dr. ${selectedDoctor}`}</p>
                         </div>
-                        <div className="text-right w-1/3 space-y-1">
-                            <p className="text-[10px] font-bold text-ink-muted uppercase tracking-widest">{t("rxDate")}</p>
-                            <p className="text-sm font-black text-ink">{new Date().toLocaleDateString('en-GB')}</p>
+                        <div className="text-right w-1/3">
+                            <p className="text-[8px] font-bold text-ink-muted uppercase tracking-widest">{t("rxDate")}</p>
+                            <p className="text-xs font-black text-ink">{new Date().toLocaleDateString('en-GB')}</p>
                         </div>
                     </div>
                 </div>
 
                 {/* 2. Patient Demographics Block */}
-                <div className="bg-surface-subtle p-4 rounded-xl mb-8 flex flex-wrap justify-between gap-y-3 border border-slate-100 print:border-line-strong print:bg-transparent">
+                <div className="bg-surface-subtle px-3 py-2.5 rounded-lg mb-4 flex flex-wrap justify-between gap-y-2 border border-slate-100 print:border-line-strong print:bg-transparent">
                     <div>
-                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">{t("rxPatientName")}</p>
-                       <p className="text-sm font-black text-ink">{patient.name}</p>
+                       <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{t("rxPatientName")}</p>
+                       <p className="text-xs font-black text-ink">{patient.name}</p>
                     </div>
                     <div className="text-right">
-                       <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">{t("rxAgeSex")}</p>
-                       <p className="text-sm font-bold text-slate-700">{calculateAge(patient.dateOfBirth || patient.age)} Y / {patient.gender?.charAt(0) || "U"}</p>
+                       <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{t("rxAgeSex")}</p>
+                       <p className="text-xs font-bold text-slate-700">{ageSexLabel}</p>
                     </div>
                     {diagnosis && (
-                      <div className="w-full mt-1 pt-3 border-t border-line">
-                         <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-0.5">{t("rxDiagnosisLabel")}</p>
-                         <p className="text-sm font-bold text-slate-700">{diagnosis}</p>
+                      <div className="w-full pt-2 border-t border-line">
+                         <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{t("rxDiagnosisLabel")}</p>
+                         <p dir="auto" className="text-xs font-bold text-slate-700">{diagnosis}</p>
                       </div>
                     )}
                 </div>
 
                 {/* 3. The Rx Symbol */}
-                <div className="mb-6">
-                   <span className="text-4xl font-serif font-black text-ink italic">Rx</span>
+                <div className="mb-2">
+                   <span className="text-2xl font-serif font-black text-ink italic leading-none">Rx</span>
                 </div>
 
                 {/* 4. Medications List */}
-                <div className="flex-1 space-y-6">
+                <div className="flex-1 space-y-2">
                     {rxItems.length === 0 && (
                         <div className="text-center py-10 opacity-30 print:hidden">
                             <Pill size={40} className="mx-auto mb-2 text-slate-400"/>
@@ -579,32 +630,43 @@ function PrescriptionStudio() {
                         </div>
                     )}
                     {rxItems.map((item, index) => (
-                        <div key={item.id} className="group relative">
+                        <div key={item.id} className="group relative break-inside-avoid">
                             {/* Hover Delete Button (Hidden on Print) */}
                             <button onClick={() => removeDrug(item.id)} className="absolute -left-6 top-1 text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity print:hidden"><Trash2 size={16}/></button>
-                            
+
                             <div className="pl-2 border-l-2 border-line">
-                               <p className="font-black text-ink text-base mb-1">
+                               <p className="font-black text-ink text-sm leading-tight">
                                   <span className="text-slate-400 mr-2">{index + 1}.</span>{item.name}
                                </p>
-                               {/* `dir="auto"` so an Arabic instruction reads right-to-left on a page laid out LTR. */}
-                               {item.dose && <p dir="auto" className="text-sm font-bold text-slate-700 pl-6">• {item.dose}</p>}
-                               {item.note && <p dir="auto" className="text-xs font-semibold text-ink-muted pl-6 mt-0.5">{item.note}</p>}
+                               {/*
+                                 Both languages, English first, each on its own line and each with
+                                 an explicit direction so the bullet and the digits stay on the
+                                 right end of an Arabic line. The tight leading is what keeps five
+                                 drugs on one A5 sheet.
+                               */}
+                               {item.dose && <p dir="ltr" className="text-xs font-bold text-slate-700 pl-6 leading-snug">• {item.dose}</p>}
+                               {item.doseAr && <p dir="rtl" className="text-xs font-bold text-slate-700 pl-6 pr-6 leading-snug">• {item.doseAr}</p>}
+                               {item.note && <p dir="ltr" className="text-[11px] font-semibold text-ink-muted pl-6 leading-snug">{item.note}</p>}
+                               {item.noteAr && <p dir="rtl" className="text-[11px] font-semibold text-ink-muted pl-6 pr-6 leading-snug">{item.noteAr}</p>}
                             </div>
                         </div>
                     ))}
                 </div>
 
-                {/* 5. Footer & Signature */}
-                <div className="mt-12 pt-6 border-t border-line flex justify-between items-end">
-                    <div className="text-xs font-semibold text-ink-muted space-y-1">
-                        <p className="flex items-center gap-1.5"><MapPin size={12}/> {clinicInfo?.address || t("rxAddressFallback")}</p>
-                        <p className="flex items-center gap-1.5"><Phone size={12}/> {clinicInfo?.phone || t("rxPhoneFallback")}</p>
+                {/*
+                  One signature block, not two. It used to print a dashed rule, the words
+                  "Doctor's signature", and the doctor's name under them — which read as a second
+                  signature line. A rule to sign on with the name beneath it says the same thing
+                  once. Fixed widths keep a two-line Arabic address off the rule.
+                */}
+                <div className="mt-6 pt-3 border-t border-line flex justify-between items-end gap-4">
+                    <div className="w-[56%] text-[10px] font-semibold text-ink-muted space-y-1">
+                        <p dir="auto" className="flex items-center gap-1.5"><MapPin size={11} className="shrink-0"/> {clinicInfo?.address || t("rxAddressFallback")}</p>
+                        <p dir="ltr" className="flex items-center gap-1.5"><Phone size={11} className="shrink-0"/> {clinicInfo?.phone || t("rxPhoneFallback")}</p>
                     </div>
-                    <div className="text-center w-48">
-                        <div className="border-b-2 border-line-strong border-dashed h-8 mb-2"></div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t("rxSignature")}</p>
-                        <p className="text-sm font-black text-ink mt-1">{selectedDoctor}</p>
+                    <div className="w-[38%] text-center">
+                        <div className="border-b border-line-strong border-dashed h-5 mb-1.5"></div>
+                        <p className="text-xs font-black text-ink">Dr. {selectedDoctor}</p>
                     </div>
                 </div>
 

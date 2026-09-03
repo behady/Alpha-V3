@@ -1,6 +1,17 @@
 import { clinicLogoImgHtml, getClinicLogo, type ClinicLogoAsset } from "@/lib/clinicLogo";
 
-export type RxItem = { id: string; name: string; dose: string; note: string };
+/**
+ * `doseAr` / `noteAr` carry the Arabic twin of each line and print underneath the English one.
+ * Prescriptions saved before those fields existed leave them empty and print unchanged.
+ */
+export type RxItem = {
+  id: string;
+  name: string;
+  dose: string;
+  doseAr?: string;
+  note: string;
+  noteAr?: string;
+};
 
 function esc(s: string): string {
   return String(s)
@@ -19,8 +30,9 @@ function contactIconImg(svgBody: string): string {
 
 function contactLine(iconSvgBody: string, text: string, marginBottom = "8px"): string {
   const label = esc(text);
-  return `<p style="margin:0 0 ${marginBottom} 0;padding:0;font-size:12px;font-weight:600;color:#64748b;line-height:18px;">
-    ${contactIconImg(iconSvgBody)}<span style="display:inline;vertical-align:middle;line-height:18px;">${label}</span>
+  // `dir="auto"` so an Arabic clinic address reads right-to-left instead of wrapping into a mess.
+  return `<p dir="auto" style="margin:0 0 ${marginBottom} 0;padding:0;font-size:10px;font-weight:600;color:#64748b;line-height:15px;">
+    ${contactIconImg(iconSvgBody)}<span style="display:inline;vertical-align:middle;line-height:15px;">${label}</span>
   </p>`;
 }
 
@@ -50,29 +62,34 @@ export type PrescriptionPdfPayload = {
 export function buildPrescriptionSrcDoc(p: PrescriptionPdfPayload): string {
   const diagnosisBlock =
     p.diagnosis.trim() !== ""
-      ? `<div style="width:100%;margin-top:4px;padding-top:12px;border-top:1px solid #e2e8f0;">
-          <p style="margin:0 0 4px 0;font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Diagnosis</p>
-          <p style="margin:0;font-size:14px;font-weight:700;color:#334155;">${esc(p.diagnosis)}</p>
+      ? `<div style="width:100%;padding-top:8px;border-top:1px solid #e2e8f0;">
+          <p style="margin:0;font-size:8px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Diagnosis</p>
+          <p dir="auto" style="margin:0;font-size:12px;font-weight:700;color:#334155;">${esc(p.diagnosis)}</p>
         </div>`
       : "";
 
   const drugsHtml = p.rxItems
     .map((item, index) => {
-      // `dir="auto"` lets an Arabic dose or instruction read right-to-left on an otherwise LTR
-      // sheet — without it the bullet and the digits land on the wrong end of the line.
-      const doseLine = item.dose
-        ? `<p dir="auto" style="margin:4px 0 0 0;padding-left:24px;font-size:14px;font-weight:700;color:#334155;">• ${esc(item.dose)}</p>`
-        : "";
-      const noteLine = item.note
-        ? `<p dir="auto" style="margin:4px 0 0 0;padding-left:24px;font-size:12px;font-weight:600;color:#64748b;">${esc(item.note)}</p>`
-        : "";
-      return `<div style="position:relative;margin-bottom:24px;">
+      // Each line carries an explicit direction: without it the bullet and the digits land on the
+      // wrong end of an Arabic line on a sheet that is otherwise laid out left-to-right.
+      // The explicit line-height matters: four lines a drug at the browser default overflow A5.
+      const line = (text: string, rtl: boolean, size: number, color: string, weight: number) =>
+        text
+          ? `<p dir="${rtl ? "rtl" : "ltr"}" style="margin:1px 0 0 0;padding-left:24px;${
+              rtl ? "padding-right:24px;" : ""
+            }font-size:${size}px;line-height:1.35;font-weight:${weight};color:${color};">${esc(text)}</p>`
+          : "";
+      // `break-inside:avoid` so a prescription long enough to need a second page moves the whole
+      // drug across rather than cutting its Arabic line in half.
+      return `<div style="position:relative;margin-bottom:8px;break-inside:avoid;page-break-inside:avoid;">
         <div style="padding-left:8px;border-left:2px solid #e2e8f0;">
-          <p style="margin:0 0 4px 0;font-size:16px;font-weight:900;color:#0f172a;">
+          <p style="margin:0 0 2px 0;font-size:14px;line-height:1.3;font-weight:900;color:#0f172a;">
             <span style="color:#94a3b8;margin-right:8px;">${index + 1}.</span>${esc(item.name)}
           </p>
-          ${doseLine}
-          ${noteLine}
+          ${line(item.dose ? `• ${item.dose}` : "", false, 12, "#334155", 700)}
+          ${line(item.doseAr ? `• ${item.doseAr}` : "", true, 12, "#334155", 700)}
+          ${line(item.note || "", false, 11, "#64748b", 600)}
+          ${line(item.noteAr || "", true, 11, "#64748b", 600)}
         </div>
       </div>`;
     })
@@ -80,58 +97,64 @@ export function buildPrescriptionSrcDoc(p: PrescriptionPdfPayload): string {
 
   // Margin rather than flex `gap`: html2canvas 1.4.1 does not honour gap on flex containers.
   const logoImg = clinicLogoImgHtml(p.logo, {
-    maxHeight: 44,
-    maxWidth: 110,
-    extraStyle: "margin-right:14px;",
+    maxHeight: 34,
+    maxWidth: 90,
+    extraStyle: "margin-right:10px;",
   });
 
+  // Header, patient block and footer are all deliberately small: the sheet is A5 and every drug
+  // now takes up to four lines, so the furniture gives its room to the prescription.
   const bodyInner = `
-<div id="prescription-pdf-source" style="box-sizing:border-box;width:148mm;min-height:210mm;margin:0 auto;padding:32px;background:#ffffff;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:#0f172a;display:flex;flex-direction:column;">
-  <div style="border-bottom:2px solid #0f172a;padding-bottom:24px;margin-bottom:24px;">
+<div id="prescription-pdf-source" style="box-sizing:border-box;width:148mm;min-height:210mm;margin:0 auto;padding:20px 26px;background:#ffffff;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:#0f172a;display:flex;flex-direction:column;">
+  <div style="border-bottom:1px solid #0f172a;padding-bottom:12px;margin-bottom:16px;">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;">
       <div style="width:66%;display:flex;align-items:flex-start;">
         ${logoImg}
         <div style="min-width:0;">
-          <h2 style="margin:0 0 8px 0;font-size:24px;font-weight:900;text-transform:uppercase;letter-spacing:-0.02em;color:#0f172a;">${esc(p.clinicName)}</h2>
-          <p style="margin:0;font-size:12px;font-weight:700;color:#475569;white-space:pre-wrap;line-height:1.5;">${esc(p.rxHeader)}</p>
+          <h2 style="margin:0 0 4px 0;font-size:18px;font-weight:900;text-transform:uppercase;letter-spacing:-0.02em;line-height:1.2;color:#0f172a;">${esc(p.clinicName)}</h2>
+          <p style="margin:0;font-size:10px;font-weight:700;color:#475569;white-space:pre-wrap;line-height:1.4;">${esc(p.rxHeader)}</p>
         </div>
       </div>
       <div style="width:33%;text-align:right;">
-        <p style="margin:0 0 4px 0;font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Date</p>
-        <p style="margin:0;font-size:14px;font-weight:900;color:#0f172a;">${esc(p.dateLabel)}</p>
+        <p style="margin:0;font-size:8px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.05em;">Date</p>
+        <p style="margin:0;font-size:12px;font-weight:900;color:#0f172a;">${esc(p.dateLabel)}</p>
       </div>
     </div>
   </div>
 
-  <div style="background:#f8fafc;padding:16px;border-radius:12px;margin-bottom:32px;display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;border:1px solid #f1f5f9;">
+  <div style="background:#f8fafc;padding:10px 12px;border-radius:8px;margin-bottom:16px;display:flex;flex-wrap:wrap;justify-content:space-between;border:1px solid #f1f5f9;">
     <div>
-      <p style="margin:0 0 2px 0;font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Patient Name</p>
-      <p style="margin:0;font-size:14px;font-weight:900;color:#0f172a;">${esc(p.patientName)}</p>
+      <p style="margin:0;font-size:8px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Patient Name</p>
+      <p style="margin:0;font-size:12px;font-weight:900;color:#0f172a;">${esc(p.patientName)}</p>
     </div>
     <div style="text-align:right;">
-      <p style="margin:0 0 2px 0;font-size:9px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Age / Sex</p>
-      <p style="margin:0;font-size:14px;font-weight:700;color:#334155;">${esc(p.ageSex)}</p>
+      <p style="margin:0;font-size:8px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Age / Sex</p>
+      <p style="margin:0;font-size:12px;font-weight:700;color:#334155;">${esc(p.ageSex)}</p>
     </div>
     ${diagnosisBlock}
   </div>
 
-  <div style="margin-bottom:24px;">
-    <span style="font-size:36px;font-family:Georgia,'Times New Roman',serif;font-weight:900;font-style:italic;color:#0f172a;">Rx</span>
+  <div style="margin-bottom:8px;">
+    <span style="font-size:24px;line-height:1.1;font-family:Georgia,'Times New Roman',serif;font-weight:900;font-style:italic;color:#0f172a;">Rx</span>
   </div>
 
   <div style="flex:1;">
     ${drugsHtml}
   </div>
 
-  <div style="margin-top:auto;padding-top:24px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:flex-end;">
-    <div style="max-width:58%;">
-      ${contactLine(ICON_PIN, p.address, "8px")}
+  <!--
+    One signature block. It used to print a dashed rule, "Doctor's Signature", and the name under
+    them, which read as two signature lines; and with no fixed widths a two-line Arabic address ran
+    into the rule beside it.
+  -->
+  <div style="margin-top:auto;padding-top:12px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:flex-end;">
+    <div style="width:56%;">
+      ${contactLine(ICON_PIN, p.address, "6px")}
       ${contactLine(ICON_PHONE, p.phone, "0")}
     </div>
-    <div style="text-align:center;width:192px;">
-      <div style="border-bottom:2px dashed #cbd5e1;height:32px;margin-bottom:8px;"></div>
-      <p style="margin:0;font-size:10px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;">Doctor's Signature</p>
-      <p style="margin:8px 0 0 0;font-size:14px;font-weight:900;color:#0f172a;">${esc(p.doctor)}</p>
+    <div style="text-align:center;width:38%;">
+      <div style="border-bottom:1px dashed #cbd5e1;height:20px;margin-bottom:6px;"></div>
+      <p style="margin:0;font-size:12px;font-weight:900;color:#0f172a;">Dr. ${esc(p.doctor)}</p>
     </div>
   </div>
 </div>`;

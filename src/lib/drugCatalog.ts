@@ -7,9 +7,16 @@
  * dentist actually writes, and the same instruction in Arabic so the line the patient reads on the
  * printed prescription is a line they can follow without asking anyone.
  *
- * It is a shortcut list, never a decision: nothing here is picked automatically, the dentist still
- * types the diagnosis and can edit every field after choosing. `noteEn`/`noteAr` carry the one
- * caution that belongs on the paper (allergy, alcohol, pregnancy), not a monograph.
+ * Two kinds of small print, and the difference decides what reaches the patient:
+ *
+ *   `noteEn` / `noteAr`     — written TO the patient, and printed. "No alcohol", "always after
+ *                             food", "finish the course", "use the spoon in the box".
+ *   `cautionEn`/`cautionAr` — written TO the dentist, and never printed. Penicillin allergy,
+ *                             pregnancy, drug interactions. These belong in the picker, not on
+ *                             paper in the patient's hand.
+ *
+ * It is a shortcut list, never a decision: nothing here is picked automatically, and the dentist
+ * can edit every field after choosing.
  *
  * A clinic's own shortcuts (the `drugs` collection) stay exactly as they were and are shown beside
  * these, so anything a doctor added by hand keeps working and keeps its place.
@@ -33,12 +40,15 @@ export type CatalogDrug = {
   /** What it is for — read by the dentist while picking, never printed. */
   descEn: string;
   descAr: string;
-  /** The dose / frequency line. */
+  /** The dose / frequency line. Both languages print, one under the other. */
   doseEn: string;
   doseAr: string;
-  /** The one caution worth printing under the dose. */
+  /** Instruction to the patient. Printed under the dose, in both languages. */
   noteEn?: string;
   noteAr?: string;
+  /** Warning to the dentist. Shown only in the picker — this never reaches the paper. */
+  cautionEn?: string;
+  cautionAr?: string;
   /** Extra words that should find this drug (other Egyptian brands of the same molecule). */
   keywords?: string[];
 };
@@ -67,8 +77,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "الاختيار الأول لمعظم التهابات الأسنان والخراريج وبعد الخلع الجراحي.",
     doseEn: "1 tablet every 12 hours after food for 5 to 7 days",
     doseAr: "قرص كل 12 ساعة بعد الأكل لمدة 5 إلى 7 أيام",
-    noteEn: "Do not use if the patient is allergic to penicillin. Finish the full course.",
-    noteAr: "ممنوع لو في حساسية من البنسلين. كمّل الكورس كامل حتى لو الألم راح.",
+    noteEn: "Finish the whole course even if the pain goes away.",
+    noteAr: "كمّل الكورس كامل حتى لو الألم راح.",
+    cautionEn: "Ask about penicillin allergy before prescribing.",
+    cautionAr: "اسأل عن حساسية البنسلين قبل الوصف.",
     keywords: ["amoxiclav", "co-amoxiclav", "اوجمنتين", "اوجمانتين"],
   },
   {
@@ -81,8 +93,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "التركيز الأصغر — للالتهابات الخفيفة أو لمريض ما يتحملش تركيز 1 جم.",
     doseEn: "1 tablet every 8 hours after food for 5 to 7 days",
     doseAr: "قرص كل 8 ساعات بعد الأكل لمدة 5 إلى 7 أيام",
-    noteEn: "Do not use if the patient is allergic to penicillin.",
-    noteAr: "ممنوع لو في حساسية من البنسلين.",
+    noteEn: "Finish the whole course even if the pain goes away.",
+    noteAr: "كمّل الكورس كامل حتى لو الألم راح.",
+    cautionEn: "Ask about penicillin allergy before prescribing.",
+    cautionAr: "اسأل عن حساسية البنسلين قبل الوصف.",
     keywords: ["اوجمنتين"],
   },
   {
@@ -95,8 +109,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "البديل المصري للأوجمنتين 1 جم — نفس المادة الفعالة بسعر أقل.",
     doseEn: "1 tablet every 12 hours after food for 5 to 7 days",
     doseAr: "قرص كل 12 ساعة بعد الأكل لمدة 5 إلى 7 أيام",
-    noteEn: "Do not use if the patient is allergic to penicillin.",
-    noteAr: "ممنوع لو في حساسية من البنسلين.",
+    noteEn: "Finish the whole course even if the pain goes away.",
+    noteAr: "كمّل الكورس كامل حتى لو الألم راح.",
+    cautionEn: "Ask about penicillin allergy before prescribing.",
+    cautionAr: "اسأل عن حساسية البنسلين قبل الوصف.",
     keywords: ["هاي بيوتيك", "هيبيوتيك"],
   },
   {
@@ -109,8 +125,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "ماركة مصرية تانية لنفس التركيبة — بديل مباشر للأوجمنتين 1 جم.",
     doseEn: "1 tablet every 12 hours after food for 5 to 7 days",
     doseAr: "قرص كل 12 ساعة بعد الأكل لمدة 5 إلى 7 أيام",
-    noteEn: "Do not use if the patient is allergic to penicillin.",
-    noteAr: "ممنوع لو في حساسية من البنسلين.",
+    noteEn: "Finish the whole course even if the pain goes away.",
+    noteAr: "كمّل الكورس كامل حتى لو الألم راح.",
+    cautionEn: "Ask about penicillin allergy before prescribing.",
+    cautionAr: "اسأل عن حساسية البنسلين قبل الوصف.",
     keywords: ["ميجاموكس"],
   },
   {
@@ -123,8 +141,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "أموكسيسيللين/كلافولانيك مصري — نفس استخدام الأوجمنتين 1 جم.",
     doseEn: "1 tablet every 12 hours after food for 5 to 7 days",
     doseAr: "قرص كل 12 ساعة بعد الأكل لمدة 5 إلى 7 أيام",
-    noteEn: "Do not use if the patient is allergic to penicillin.",
-    noteAr: "ممنوع لو في حساسية من البنسلين.",
+    noteEn: "Finish the whole course even if the pain goes away.",
+    noteAr: "كمّل الكورس كامل حتى لو الألم راح.",
+    cautionEn: "Ask about penicillin allergy before prescribing.",
+    cautionAr: "اسأل عن حساسية البنسلين قبل الوصف.",
     keywords: ["اي موكسي كلاف", "ايموكسيكلاف"],
   },
   {
@@ -137,8 +157,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "أموكسيسيللين عادي — للالتهابات البسيطة، وبيتوصف كتير مع الفلاجيل.",
     doseEn: "1 capsule every 8 hours for 5 to 7 days",
     doseAr: "كبسولة كل 8 ساعات لمدة 5 إلى 7 أيام",
-    noteEn: "Do not use if the patient is allergic to penicillin.",
-    noteAr: "ممنوع لو في حساسية من البنسلين.",
+    noteEn: "Finish the whole course even if the pain goes away.",
+    noteAr: "كمّل الكورس كامل حتى لو الألم راح.",
+    cautionEn: "Ask about penicillin allergy before prescribing.",
+    cautionAr: "اسأل عن حساسية البنسلين قبل الوصف.",
     keywords: ["amoxil", "amoxicillin", "اي موكس", "اموكسيسيللين"],
   },
   {
@@ -149,10 +171,12 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     genericAr: "أموكسيسيللين شراب للأطفال",
     descEn: "Children's amoxicillin. Dose is by body weight — write the millilitres yourself.",
     descAr: "أموكسيسيللين شراب للأطفال. الجرعة حسب وزن الطفل — اكتب عدد الملليلترات بنفسك.",
-    doseEn: "By weight, every 8 hours for 5 to 7 days — shake well before each dose",
-    doseAr: "حسب وزن الطفل، كل 8 ساعات لمدة 5 إلى 7 أيام — رج الزجاجة كويس قبل كل جرعة",
-    noteEn: "Keep in the fridge after opening and throw away what is left after 7 days.",
-    noteAr: "يتحفظ في الثلاجة بعد الفتح ويترمي الباقي بعد 7 أيام.",
+    doseEn: "By weight, every 8 hours for 5 to 7 days",
+    doseAr: "حسب وزن الطفل، كل 8 ساعات لمدة 5 إلى 7 أيام",
+    noteEn: "Shake the bottle well before every dose. Keep it in the fridge after opening and throw away what is left after 7 days.",
+    noteAr: "رج الزجاجة كويس قبل كل جرعة. تتحفظ في الثلاجة بعد الفتح ويترمي الباقي بعد 7 أيام.",
+    cautionEn: "Dose by body weight — write the millilitres before printing.",
+    cautionAr: "الجرعة حسب الوزن — اكتب عدد الملليلترات قبل الطباعة.",
     keywords: ["children", "kids", "شراب", "اطفال"],
   },
   {
@@ -165,8 +189,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "لالتهابات اللثة والبكتيريا اللاهوائية — التهاب حوائط التاج، خراج اللثة، التهاب السنخ الجاف.",
     doseEn: "1 tablet every 8 hours after food for 5 to 7 days",
     doseAr: "قرص كل 8 ساعات بعد الأكل لمدة 5 إلى 7 أيام",
-    noteEn: "No alcohol during the course and for 48 hours after it. May give a metallic taste.",
-    noteAr: "ممنوع أي كحول أثناء الكورس ولمدة يومين بعده. ممكن يسبب طعم معدني في الفم.",
+    noteEn: "No alcohol during the course or for 2 days after it. It may leave a metallic taste.",
+    noteAr: "ممنوع أي كحول أثناء الكورس ولمدة يومين بعده. ممكن يسيب طعم معدني في الفم.",
+    cautionEn: "Avoid in the first trimester of pregnancy.",
+    cautionAr: "يتجنب في أول 3 شهور من الحمل.",
     keywords: ["metronidazole", "فلاجيل", "ميترونيدازول"],
   },
   {
@@ -179,8 +205,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "ميترونيدازول مصري — نفس استخدام الفلاجيل بالظبط.",
     doseEn: "1 tablet every 8 hours after food for 5 to 7 days",
     doseAr: "قرص كل 8 ساعات بعد الأكل لمدة 5 إلى 7 أيام",
-    noteEn: "No alcohol during the course and for 48 hours after it.",
+    noteEn: "No alcohol during the course or for 2 days after it.",
     noteAr: "ممنوع أي كحول أثناء الكورس ولمدة يومين بعده.",
+    cautionEn: "Avoid in the first trimester of pregnancy.",
+    cautionAr: "يتجنب في أول 3 شهور من الحمل.",
     keywords: ["metronidazole", "امريزول"],
   },
   {
@@ -195,6 +223,8 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     doseAr: "قرصين مرتين يومياً بعد الأكل لمدة 5 أيام",
     noteEn: "No alcohol during the course.",
     noteAr: "ممنوع أي كحول أثناء الكورس.",
+    cautionEn: "Contains metronidazole — avoid in the first trimester.",
+    cautionAr: "فيه ميترونيدازول — يتجنب في أول 3 شهور من الحمل.",
     keywords: ["spiramycin", "رودوجيل", "روديجيل"],
   },
   {
@@ -205,10 +235,12 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     genericAr: "كليندامايسين 300 مجم",
     descEn: "The go-to when the patient is allergic to penicillin, and for deep bone infection.",
     descAr: "الاختيار الأساسي مع حساسية البنسلين، وللالتهابات العميقة في العظم.",
-    doseEn: "1 capsule every 8 hours for 5 to 7 days, with a full glass of water",
-    doseAr: "كبسولة كل 8 ساعات لمدة 5 إلى 7 أيام مع كوباية مياه كاملة",
-    noteEn: "Stop and call the clinic if severe or watery diarrhoea starts.",
-    noteAr: "لو حصل إسهال شديد أو مائي، أوقف الدواء وكلّم العيادة فوراً.",
+    doseEn: "1 capsule every 8 hours for 5 to 7 days",
+    doseAr: "كبسولة كل 8 ساعات لمدة 5 إلى 7 أيام",
+    noteEn: "Take it with a full glass of water. If severe or watery diarrhoea starts, stop it and call the clinic.",
+    noteAr: "تتاخد مع كوباية مياه كاملة. لو حصل إسهال شديد أو مائي، أوقف الدواء وكلّم العيادة.",
+    cautionEn: "Safe with penicillin allergy, but watch for C. difficile colitis.",
+    cautionAr: "آمن مع حساسية البنسلين، بس خلي بالك من التهاب القولون بالمطثية العسيرة.",
     keywords: ["clindamycin", "دالاسين", "كليندامايسين", "penicillin allergy"],
   },
   {
@@ -221,6 +253,8 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "كورس 3 أيام بس — مفيد مع حساسية البنسلين أو مريض بينسى الجرعات.",
     doseEn: "1 tablet once daily for 3 days, 1 hour before or 2 hours after food",
     doseAr: "قرص واحد يومياً لمدة 3 أيام، قبل الأكل بساعة أو بعده بساعتين",
+    noteEn: "Take all 3 days even if you feel better on the second one.",
+    noteAr: "خد الـ 3 أيام كاملة حتى لو حسيت بتحسن من تاني يوم.",
     keywords: ["azithromycin", "zithromax", "زيثروماكس", "زيسروماكس", "ازيثرومايسين"],
   },
   {
@@ -233,8 +267,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "بديل من مجموعة السيفالوسبورين — لتغطية الأنسجة الرخوة وبعد الجراحة.",
     doseEn: "1 capsule every 8 hours for 5 to 7 days",
     doseAr: "كبسولة كل 8 ساعات لمدة 5 إلى 7 أيام",
-    noteEn: "Avoid if the patient had a severe (anaphylactic) reaction to penicillin.",
-    noteAr: "يتجنب لو المريض حصل له رد فعل تحسسي شديد من البنسلين.",
+    noteEn: "Finish the whole course even if the pain goes away.",
+    noteAr: "كمّل الكورس كامل حتى لو الألم راح.",
+    cautionEn: "Avoid if the patient had a severe (anaphylactic) reaction to penicillin.",
+    cautionAr: "يتجنب لو المريض حصل له رد فعل تحسسي شديد من البنسلين.",
     keywords: ["cephalexin", "سيبوركس", "سيفالكسين"],
   },
   {
@@ -247,8 +283,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "لالتهاب اللثة المتقدم وكمساعد بعد التنظيف العميق للجذور.",
     doseEn: "2 capsules on the first day, then 1 capsule daily for 7 to 14 days",
     doseAr: "كبسولتين أول يوم، وبعدها كبسولة واحدة يومياً لمدة 7 إلى 14 يوم",
-    noteEn: "Not for pregnancy or children under 12. Take upright with water and avoid strong sun.",
-    noteAr: "ممنوع للحوامل والأطفال أقل من 12 سنة. يتاخد وأنت قاعد مع مياه، وتجنب الشمس القوية.",
+    noteEn: "Take it sitting upright with plenty of water, and stay out of strong sun.",
+    noteAr: "تتاخد وانت قاعد مع مياه كتير، وابعد عن الشمس القوية.",
+    cautionEn: "Not in pregnancy or under 12 years — it stains developing teeth.",
+    cautionAr: "ممنوع في الحمل وتحت 12 سنة — بيصبغ السنان وهي بتتكوّن.",
     keywords: ["doxycycline", "فيبراميسين", "دوكسيسيكلين", "perio"],
   },
   {
@@ -261,8 +299,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "بديل قديم مع حساسية البنسلين — لسه اختيار وارد لو الكليندامايسين مش مناسب.",
     doseEn: "1 tablet every 6 hours for 5 to 7 days",
     doseAr: "قرص كل 6 ساعات لمدة 5 إلى 7 أيام",
-    noteEn: "Often upsets the stomach. Check other medicines the patient takes.",
-    noteAr: "كتير بيتعب المعدة. راجع باقي أدوية المريض قبل الوصف.",
+    noteEn: "If it upsets your stomach, take it with a little food.",
+    noteAr: "لو تعب معدتك، خده مع شوية أكل.",
+    cautionEn: "Many drug interactions — check the patient's other medicines.",
+    cautionAr: "بيتعارض مع أدوية كتير — راجع باقي أدوية المريض.",
     keywords: ["erythromycin", "اريثرومايسين"],
   },
   {
@@ -275,8 +315,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "خط تاني — يتحفظ للالتهابات اللي ما استجبتش للمضادات المعتادة.",
     doseEn: "1 tablet every 12 hours for 5 to 7 days",
     doseAr: "قرص كل 12 ساعة لمدة 5 إلى 7 أيام",
-    noteEn: "Not for children or pregnancy. Do not take with milk or antacids.",
-    noteAr: "ممنوع للأطفال والحوامل. ما يتاخدش مع اللبن أو أدوية الحموضة.",
+    noteEn: "Do not take it with milk, yoghurt or antacids — leave 2 hours between them.",
+    noteAr: "ما يتاخدش مع اللبن أو الزبادي أو أدوية الحموضة — سيب ساعتين بينهم.",
+    cautionEn: "Second line only. Not for children or pregnancy.",
+    cautionAr: "خط تاني بس. ممنوع للأطفال والحوامل.",
     keywords: ["ciprofloxacin", "سيبروفار", "سيبروفلوكساسين"],
   },
 
@@ -291,8 +333,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "أشهر مسكن أسنان في مصر — قوي وسريع مع ألم الضرس.",
     doseEn: "1 tablet every 8 hours after food when needed, for no more than 3 days",
     doseAr: "قرص كل 8 ساعات بعد الأكل عند اللزوم، وما يزيدش عن 3 أيام",
-    noteEn: "Always after food. Avoid with stomach ulcer, kidney disease or in pregnancy.",
-    noteAr: "لازم بعد الأكل. يتجنب مع قرحة المعدة أو أمراض الكلى أو في الحمل.",
+    noteEn: "Never on an empty stomach. If you still need it after 3 days, call the clinic.",
+    noteAr: "ما يتاخدش على معدة فاضية أبداً. لو لسه محتاجه بعد 3 أيام، كلّم العيادة.",
+    cautionEn: "Avoid with peptic ulcer, kidney disease, asthma or in pregnancy.",
+    cautionAr: "يتجنب مع قرحة المعدة أو أمراض الكلى أو الربو أو في الحمل.",
     keywords: ["diclofenac", "كاتافلام", "ديكلوفيناك", "nsaid"],
   },
   {
@@ -305,8 +349,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "نفس مادة الكاتافلام بس بيتذوب في المياه — بيبدأ مفعوله أسرع مع الألم الحاد.",
     doseEn: "1 sachet in half a glass of water after food, up to 3 times daily",
     doseAr: "كيس في نص كوباية مياه بعد الأكل، لحد 3 مرات يومياً",
-    noteEn: "Always after food. Avoid with stomach ulcer or in pregnancy.",
-    noteAr: "لازم بعد الأكل. يتجنب مع قرحة المعدة أو في الحمل.",
+    noteEn: "Never on an empty stomach.",
+    noteAr: "ما يتاخدش على معدة فاضية أبداً.",
+    cautionEn: "Avoid with peptic ulcer, kidney disease, asthma or in pregnancy.",
+    cautionAr: "يتجنب مع قرحة المعدة أو أمراض الكلى أو الربو أو في الحمل.",
     keywords: ["diclofenac", "كاتافاست", "اكياس"],
   },
   {
@@ -319,8 +365,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "حقنة للألم الشديد اللي القرص مش كفاية معاه — بتتاخد في العيادة.",
     doseEn: "1 ampoule intramuscular when needed, maximum 2 in 24 hours",
     doseAr: "أمبول واحد في العضل عند اللزوم، بحد أقصى أمبولين في اليوم",
-    noteEn: "Avoid with stomach ulcer, kidney disease, asthma or in pregnancy.",
-    noteAr: "يتجنب مع قرحة المعدة أو أمراض الكلى أو الربو أو في الحمل.",
+    noteEn: "Sit for a few minutes after the injection before you leave.",
+    noteAr: "اقعد شوية بعد الحقنة قبل ما تمشي.",
+    cautionEn: "Avoid with peptic ulcer, kidney disease, asthma or in pregnancy.",
+    cautionAr: "يتجنب مع قرحة المعدة أو أمراض الكلى أو الربو أو في الحمل.",
     keywords: ["diclofenac", "declophen", "فولتارين", "حقن", "امبول"],
   },
   {
@@ -333,8 +381,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "مسكن قوي جداً لفترة قصيرة — لألم ما بعد الخلع والجراحة.",
     doseEn: "1 tablet every 8 hours after food when needed, for no more than 5 days",
     doseAr: "قرص كل 8 ساعات بعد الأكل عند اللزوم، وما يزيدش عن 5 أيام",
-    noteEn: "Never longer than 5 days. Avoid with stomach ulcer, kidney disease or in pregnancy.",
-    noteAr: "ما يتاخدش أكتر من 5 أيام أبداً. يتجنب مع قرحة المعدة أو أمراض الكلى أو في الحمل.",
+    noteEn: "Always after food, and do not take another painkiller of the same family with it.",
+    noteAr: "دايماً بعد الأكل، وما تاخدش معاه مسكن تاني من نفس النوع.",
+    cautionEn: "Never longer than 5 days. Avoid with ulcer, kidney disease or pregnancy.",
+    cautionAr: "ما يزيدش عن 5 أيام أبداً. يتجنب مع القرحة أو أمراض الكلى أو الحمل.",
     keywords: ["ketorolac", "كيتولاك", "كيتورولاك"],
   },
   {
@@ -347,8 +397,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "كيتورولاك حقن للألم الحاد الشديد في العيادة.",
     doseEn: "1 ampoule intramuscular when needed, maximum 2 in 24 hours",
     doseAr: "أمبول واحد في العضل عند اللزوم، بحد أقصى أمبولين في اليوم",
-    noteEn: "Avoid with stomach ulcer, kidney disease or in pregnancy.",
-    noteAr: "يتجنب مع قرحة المعدة أو أمراض الكلى أو في الحمل.",
+    noteEn: "Tell the clinic if you get stomach pain afterwards.",
+    noteAr: "قول للعيادة لو حسيت بألم في المعدة بعدها.",
+    cautionEn: "Avoid with peptic ulcer, kidney disease or in pregnancy.",
+    cautionAr: "يتجنب مع قرحة المعدة أو أمراض الكلى أو في الحمل.",
     keywords: ["ketorolac", "كيتولاك", "حقن", "امبول"],
   },
   {
@@ -361,8 +413,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "مسكن ومضاد التهاب في نفس الوقت — كويس مع الألم المصحوب بتورم.",
     doseEn: "1 tablet every 8 hours after food for 3 to 5 days",
     doseAr: "قرص كل 8 ساعات بعد الأكل لمدة 3 إلى 5 أيام",
-    noteEn: "Always after food. Avoid with stomach ulcer, asthma or in late pregnancy.",
-    noteAr: "لازم بعد الأكل. يتجنب مع قرحة المعدة أو الربو أو في أواخر الحمل.",
+    noteEn: "Never on an empty stomach.",
+    noteAr: "ما يتاخدش على معدة فاضية أبداً.",
+    cautionEn: "Avoid with peptic ulcer, asthma or late pregnancy.",
+    cautionAr: "يتجنب مع قرحة المعدة أو الربو أو في أواخر الحمل.",
     keywords: ["ibuprofen", "بروفين", "ايبوبروفين", "nsaid"],
   },
   {
@@ -375,8 +429,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "تركيز أخف من الإيبوبروفين — للألم البسيط والمتوسط.",
     doseEn: "1 tablet every 8 hours after food when needed",
     doseAr: "قرص كل 8 ساعات بعد الأكل عند اللزوم",
-    noteEn: "Always after food.",
-    noteAr: "لازم بعد الأكل.",
+    noteEn: "Never on an empty stomach.",
+    noteAr: "ما يتاخدش على معدة فاضية أبداً.",
+    cautionEn: "Avoid with peptic ulcer, asthma or late pregnancy.",
+    cautionAr: "يتجنب مع قرحة المعدة أو الربو أو في أواخر الحمل.",
     keywords: ["ibuprofen", "بروفين"],
   },
   {
@@ -389,8 +445,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "الاختيار الآمن — في الحمل وقرحة المعدة والربو، أو مع مضاد التهاب.",
     doseEn: "1 to 2 tablets every 6 hours when needed, maximum 8 tablets in 24 hours",
     doseAr: "قرص لقرصين كل 6 ساعات عند اللزوم، بحد أقصى 8 أقراص في اليوم",
-    noteEn: "Do not exceed 4 grams a day. Check other cold or flu medicines for paracetamol.",
-    noteAr: "ما يزيدش عن 4 جرام في اليوم. راجع أدوية البرد لأنها كتير بتحتوي على باراسيتامول.",
+    noteEn: "Check that your cold or flu medicine does not also contain paracetamol.",
+    noteAr: "اتأكد إن دوا البرد اللي بتاخده مفيهوش باراسيتامول كمان.",
+    cautionEn: "Safe in pregnancy. The ceiling is 4 grams a day.",
+    cautionAr: "آمن في الحمل. الحد الأقصى 4 جرام في اليوم.",
     keywords: ["paracetamol", "panadol", "cetal", "بنادول", "ادول", "باراسيتامول", "سيتال"],
   },
   {
@@ -403,8 +461,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "باراسيتامول مع كافيين — أقوى شوية من الباراسيتامول العادي.",
     doseEn: "1 to 2 tablets every 6 hours when needed, maximum 8 tablets in 24 hours",
     doseAr: "قرص لقرصين كل 6 ساعات عند اللزوم، بحد أقصى 8 أقراص في اليوم",
-    noteEn: "Avoid a late-evening dose — the caffeine can disturb sleep.",
-    noteAr: "تجنب الجرعة في آخر الليل — الكافيين ممكن يأثر على النوم.",
+    noteEn: "Avoid the late-evening dose — the caffeine can keep you awake.",
+    noteAr: "تجنب الجرعة في آخر الليل — الكافيين ممكن يمنعك من النوم.",
+    cautionEn: "Contains caffeine — count it with the patient's other paracetamol.",
+    cautionAr: "فيه كافيين — احسبه مع أي باراسيتامول تاني بياخده المريض.",
     keywords: ["paracetamol", "بنادول اكسترا"],
   },
   {
@@ -419,6 +479,8 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     doseAr: "حسب وزن الطفل، كل 6 ساعات عند اللزوم، وما يزيدش عن 4 جرعات في اليوم",
     noteEn: "Use the measuring spoon or syringe in the box, not a kitchen spoon.",
     noteAr: "استخدم المعيار اللي مع العلبة، مش معلقة المطبخ.",
+    cautionEn: "Dose by body weight — write the millilitres before printing.",
+    cautionAr: "الجرعة حسب الوزن — اكتب عدد الملليلترات قبل الطباعة.",
     keywords: ["paracetamol", "children", "سيتال", "شراب", "اطفال"],
   },
   {
@@ -431,8 +493,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "مضاد التهاب أرحم على المعدة من مضادات الالتهاب المعتادة.",
     doseEn: "1 capsule every 12 hours after food for 3 to 5 days",
     doseAr: "كبسولة كل 12 ساعة بعد الأكل لمدة 3 إلى 5 أيام",
-    noteEn: "Avoid with sulfa allergy, heart disease or in pregnancy.",
-    noteAr: "يتجنب مع حساسية السلفا أو أمراض القلب أو في الحمل.",
+    noteEn: "Take it after food.",
+    noteAr: "تتاخد بعد الأكل.",
+    cautionEn: "Avoid with sulfa allergy, heart disease or in pregnancy.",
+    cautionAr: "يتجنب مع حساسية السلفا أو أمراض القلب أو في الحمل.",
     keywords: ["celecoxib", "سيليبريكس", "سيليكوكسيب"],
   },
 
@@ -461,6 +525,8 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "إنزيم للتورم وصعوبة فتح الفم بعد خلع صعب.",
     doseEn: "1 tablet every 8 hours after food for 5 days",
     doseAr: "قرص كل 8 ساعات بعد الأكل لمدة 5 أيام",
+    noteEn: "Take it after food.",
+    noteAr: "تتاخد بعد الأكل.",
     keywords: ["serratiopeptidase", "دانزين", "تورم"],
   },
   {
@@ -473,8 +539,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "جرعة واحدة حوالين خلع ضرس العقل الجراحي عشان تقلل التورم وصعوبة فتح الفم.",
     doseEn: "1 ampoule intramuscular as a single dose, given in the clinic",
     doseAr: "أمبول واحد في العضل جرعة واحدة، بتتاخد في العيادة",
-    noteEn: "Avoid in uncontrolled diabetes, active infection without antibiotic cover, or peptic ulcer.",
-    noteAr: "يتجنب مع السكر غير المنضبط أو التهاب نشط من غير مضاد حيوي أو قرحة المعدة.",
+    noteEn: "One dose only — it is not repeated at home.",
+    noteAr: "جرعة واحدة بس — ما بتتكررش في البيت.",
+    cautionEn: "Avoid in uncontrolled diabetes, untreated infection or peptic ulcer.",
+    cautionAr: "يتجنب مع السكر غير المنضبط أو التهاب من غير علاج أو قرحة المعدة.",
     keywords: ["dexazone", "epidron", "ديكساميثازون", "كورتيزون", "تورم"],
   },
 
@@ -487,10 +555,12 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     genericAr: "كلورهيكسيدين 0.12%",
     descEn: "The standard antiseptic rinse — gum infection, after surgery, and around implants.",
     descAr: "الغسول المطهر الأساسي — لالتهاب اللثة وبعد الجراحة وحوالين الزرعات.",
-    doseEn: "Rinse 15ml for 30 seconds twice daily after brushing, then do not eat or drink for 30 minutes",
-    doseAr: "مضمضة 15 مل لمدة 30 ثانية مرتين يومياً بعد غسيل السنان، وبعدها ما تاكلش أو تشربش لمدة نص ساعة",
-    noteEn: "Do not swallow. Start 24 hours after an extraction, not the same day. Long use can stain teeth.",
-    noteAr: "ما يتبلعش. يبدأ بعد الخلع بـ 24 ساعة مش في نفس اليوم. الاستخدام الطويل ممكن يصبغ السنان.",
+    doseEn: "Rinse 15ml for 30 seconds twice daily after brushing",
+    doseAr: "مضمضة 15 مل لمدة 30 ثانية مرتين يومياً بعد غسيل السنان",
+    noteEn: "Do not swallow it, and do not eat or drink for 30 minutes after rinsing.",
+    noteAr: "ما تبلعهوش، وما تاكلش أو تشربش لمدة نص ساعة بعد المضمضة.",
+    cautionEn: "Start 24 hours after an extraction, not the same day. Long use stains teeth — it polishes off.",
+    cautionAr: "يبدأ بعد الخلع بـ 24 ساعة مش نفس اليوم. الاستخدام الطويل بيصبغ السنان والصبغة بتتشال بالتلميع.",
     keywords: ["chlorhexidine", "هيكسيتول", "كلورهيكسيدين", "غسول", "مضمضة"],
   },
   {
@@ -503,8 +573,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "غسول كلورهيكسيدين مصري — نفس استخدام الهيكسيتول.",
     doseEn: "Rinse 15ml for 30 seconds twice daily after brushing",
     doseAr: "مضمضة 15 مل لمدة 30 ثانية مرتين يومياً بعد غسيل السنان",
-    noteEn: "Do not swallow. Do not use in the first 24 hours after an extraction.",
-    noteAr: "ما يتبلعش. ما يستخدمش في أول 24 ساعة بعد الخلع.",
+    noteEn: "Do not swallow it, and do not eat or drink for 30 minutes after rinsing.",
+    noteAr: "ما تبلعهوش، وما تاكلش أو تشربش لمدة نص ساعة بعد المضمضة.",
+    cautionEn: "Not in the first 24 hours after an extraction.",
+    cautionAr: "ما يستخدمش في أول 24 ساعة بعد الخلع.",
     keywords: ["chlorhexidine", "اوروفكس", "غسول"],
   },
   {
@@ -517,7 +589,7 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "جل لمكان محدد — منطقة ملتهبة أو مكان خلع أو حوالين زرعة.",
     doseEn: "Apply a thin layer on the gum twice daily with a clean finger or cotton bud",
     doseAr: "دهان طبقة رفيعة على اللثة مرتين يومياً بصباع نضيف أو قطنة",
-    noteEn: "Do not eat or drink for 30 minutes after applying.",
+    noteEn: "Do not eat or drink for 30 minutes after applying it.",
     noteAr: "ما تاكلش أو تشربش لمدة نص ساعة بعد الدهان.",
     keywords: ["chlorhexidine", "جل", "لثة"],
   },
@@ -531,8 +603,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "غسول مطهر باليود — لالتهاب حوائط التاج وللمضمضة قبل الجراحة.",
     doseEn: "Dilute equally with warm water and rinse for 30 seconds up to 4 times daily",
     doseAr: "يتخفف بنفس كمية مياه دافية ويتمضمض بيه 30 ثانية لحد 4 مرات يومياً",
-    noteEn: "Do not swallow. Avoid in thyroid disease, pregnancy and breastfeeding.",
-    noteAr: "ما يتبلعش. يتجنب مع أمراض الغدة الدرقية والحمل والرضاعة.",
+    noteEn: "Do not swallow it.",
+    noteAr: "ما تبلعهوش.",
+    cautionEn: "Avoid in thyroid disease, pregnancy and breastfeeding.",
+    cautionAr: "يتجنب مع أمراض الغدة الدرقية والحمل والرضاعة.",
     keywords: ["povidone", "iodine", "بيتادين", "غرغرة"],
   },
   {
@@ -545,8 +619,8 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "غسول مخدر ومضاد التهاب — لقرح الفم والفم الملتهب بعد الجراحة.",
     doseEn: "Rinse 15ml for 30 seconds every 3 hours when needed, for up to 7 days",
     doseAr: "مضمضة 15 مل لمدة 30 ثانية كل 3 ساعات عند اللزوم، لمدة أقصاها 7 أيام",
-    noteEn: "A brief stinging or numbness is normal. Do not swallow.",
-    noteAr: "الإحساس بلسعة بسيطة أو تنميل طبيعي. ما يتبلعش.",
+    noteEn: "A brief sting or numbness is normal. Do not swallow it.",
+    noteAr: "الإحساس بلسعة بسيطة أو تنميل ده طبيعي. ما تبلعهوش.",
     keywords: ["benzydamine", "تانتم فيردي", "قرح"],
   },
   {
@@ -557,9 +631,9 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     genericAr: "نص معلقة صغيرة ملح في كوباية مياه دافية",
     descEn: "The everyday post-extraction rinse — costs nothing and keeps the socket clean.",
     descAr: "المضمضة اليومية بعد الخلع — ما بتكلفش حاجة وبتحافظ على مكان الخلع نضيف.",
-    doseEn: "Rinse gently 3 to 4 times daily starting 24 hours after the extraction",
+    doseEn: "Rinse gently 3 to 4 times daily, starting 24 hours after the extraction",
     doseAr: "مضمضة خفيفة 3 لـ 4 مرات يومياً، تبدأ بعد الخلع بـ 24 ساعة",
-    noteEn: "Gently — do not swish hard in the first days, it can dislodge the clot.",
+    noteEn: "Gently — do not swish hard in the first days or the clot can come out.",
     noteAr: "بهدوء — ما تخبطش المياه بقوة في الأيام الأولى عشان الجلطة ما تقعش.",
     keywords: ["salt", "ملح", "مضمضة", "خلع"],
   },
@@ -573,8 +647,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "جل مخدر لقرح الفم والتسنين واللثة الملتهبة تحت الطقم.",
     doseEn: "Apply a small amount on the sore spot up to 4 times daily",
     doseAr: "دهان كمية صغيرة على المكان المؤلم لحد 4 مرات يومياً",
-    noteEn: "Not for infants under 2 years. Do not apply just before eating — the numbness risks a bitten cheek.",
-    noteAr: "ممنوع للأطفال أقل من سنتين. ما يتحطش قبل الأكل مباشرة عشان التخدير ممكن يخلي الطفل يعض على خده.",
+    noteEn: "Do not apply it just before eating — the numbness makes it easy to bite your cheek.",
+    noteAr: "ما تدهنوش قبل الأكل مباشرة — التخدير بيخلي العض على الخد سهل.",
+    cautionEn: "Not for infants under 2 years.",
+    cautionAr: "ممنوع للأطفال أقل من سنتين.",
     keywords: ["benzocaine", "lidocaine", "bonjela", "جل", "مخدر", "تسنين"],
   },
   {
@@ -587,8 +663,8 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "لحساسية البارد والحلو، وبعد التنظيف أو التبييض.",
     doseEn: "Brush twice daily, and rub a little on the sensitive tooth with a finger before sleeping",
     doseAr: "غسيل السنان بيه مرتين يومياً، ودهان شوية منه بالصباع على السن الحساس قبل النوم",
-    noteEn: "Give it two weeks — the effect builds up with regular use.",
-    noteAr: "استحمل أسبوعين — المفعول بيتحسن مع الاستخدام المنتظم.",
+    noteEn: "Give it two weeks — it works better the longer you use it.",
+    noteAr: "استحمل أسبوعين — بيشتغل أحسن مع الاستخدام المستمر.",
     keywords: ["sensitivity", "حساسية", "معجون"],
   },
 
@@ -601,10 +677,12 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     genericAr: "ميكونازول 2% جل للفم",
     descEn: "Oral thrush, denture stomatitis and angular cheilitis.",
     descAr: "فطريات الفم والتهاب الفم من الطقم والتهاب زوايا الشفايف.",
-    doseEn: "Half a spoon in the mouth 4 times daily after food — hold it in the mouth then swallow",
-    doseAr: "نص معلقة في الفم 4 مرات يومياً بعد الأكل — تفضل في الفم شوية بعدين تتبلع",
-    noteEn: "Continue for 7 days after the white patches clear. Check the patient's other medicines.",
-    noteAr: "كمّل 7 أيام بعد ما البقع البيضا تختفي. راجع باقي أدوية المريض قبل الوصف.",
+    doseEn: "Half a spoon in the mouth 4 times daily after food",
+    doseAr: "نص معلقة في الفم 4 مرات يومياً بعد الأكل",
+    noteEn: "Keep it in the mouth as long as you can before swallowing, and carry on for a week after the white patches go.",
+    noteAr: "سيبه في بقك أطول وقت ممكن قبل ما تبلعه، وكمّل أسبوع بعد ما البقع البيضا تختفي.",
+    cautionEn: "Miconazole interacts with warfarin — check the patient's medicines.",
+    cautionAr: "الميكونازول بيتعارض مع الوارفارين — راجع أدوية المريض.",
     keywords: ["miconazole", "daktarin", "دكتارين", "ميكونازول", "فطريات"],
   },
   {
@@ -615,10 +693,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     genericAr: "نيستاتين 100000 وحدة/مل",
     descEn: "Oral thrush — the safest option in pregnancy and for babies.",
     descAr: "فطريات الفم — الأأمن في الحمل وللرضع.",
-    doseEn: "1ml in the mouth 4 times daily after food — swish then swallow",
-    doseAr: "1 مل في الفم 4 مرات يومياً بعد الأكل — يتمضمض بيه وبعدين يتبلع",
-    noteEn: "Continue for 48 hours after the patches clear. Denture wearers must soak the denture overnight.",
-    noteAr: "كمّل يومين بعد ما البقع تختفي. لابس الطقم لازم ينقّع الطقم بالليل.",
+    doseEn: "1ml in the mouth 4 times daily after food",
+    doseAr: "1 مل في الفم 4 مرات يومياً بعد الأكل",
+    noteEn: "Swish it round the mouth then swallow. If you wear a denture, soak it overnight.",
+    noteAr: "مضمض بيه في بقك بعدين ابلعه. لو بتلبس طقم، نقّعه بالليل.",
     keywords: ["nystatin", "نيستاتين", "فطريات"],
   },
   {
@@ -631,8 +709,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "أقراص لفطريات ما استجبتش للجل أو لعدوى منتشرة.",
     doseEn: "1 capsule once daily for 7 to 14 days",
     doseAr: "كبسولة مرة واحدة يومياً لمدة 7 إلى 14 يوم",
-    noteEn: "Not in pregnancy. Check the patient's other medicines — it interacts with many.",
-    noteAr: "ممنوع في الحمل. راجع باقي أدوية المريض — بيتعارض مع أدوية كتير.",
+    noteEn: "Take it at the same time every day.",
+    noteAr: "خده في نفس الميعاد كل يوم.",
+    cautionEn: "Not in pregnancy. Many drug interactions — check the patient's list.",
+    cautionAr: "ممنوع في الحمل. بيتعارض مع أدوية كتير — راجع قائمة أدوية المريض.",
     keywords: ["fluconazole", "flucoral", "ديفلوكان", "فلوكونازول", "فطريات"],
   },
 
@@ -645,10 +725,12 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     genericAr: "أسيكلوفير 400 مجم",
     descEn: "Primary herpetic gingivostomatitis and severe recurrent cold sores.",
     descAr: "التهاب اللثة والفم الهربسي الأولي والحلأ المتكرر الشديد.",
-    doseEn: "1 tablet 5 times daily for 5 days, with plenty of water",
-    doseAr: "قرص 5 مرات يومياً لمدة 5 أيام، مع مياه كتير",
-    noteEn: "Works best when started within the first 72 hours of the blisters appearing.",
-    noteAr: "أحسن مفعول لو ابتدى في أول 72 ساعة من ظهور الفقاعات.",
+    doseEn: "1 tablet 5 times daily for 5 days",
+    doseAr: "قرص 5 مرات يومياً لمدة 5 أيام",
+    noteEn: "Drink plenty of water with it.",
+    noteAr: "اشرب مياه كتير معاه.",
+    cautionEn: "Works best started within the first 72 hours of the blisters.",
+    cautionAr: "أحسن مفعول لو ابتدى في أول 72 ساعة من ظهور الفقاعات.",
     keywords: ["acyclovir", "زوفيراكس", "اسيكلوفير", "هربس"],
   },
   {
@@ -661,8 +743,8 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "حلأ الشفايف — يتدهن أول ما يحس بالوخز.",
     doseEn: "Apply on the sore 5 times daily for 5 days",
     doseAr: "دهان على المكان 5 مرات يومياً لمدة 5 أيام",
-    noteEn: "Wash hands before and after. Do not use inside the mouth or near the eyes.",
-    noteAr: "اغسل إيدك قبل وبعد. ما يستخدمش جوه الفم أو قريب من العين.",
+    noteEn: "Wash your hands before and after. Do not use it inside the mouth or near the eyes.",
+    noteAr: "اغسل إيدك قبل وبعد. ما تستخدموش جوه الفم أو قريب من العين.",
     keywords: ["acyclovir", "زوفيراكس", "كريم", "هربس"],
   },
 
@@ -677,8 +759,8 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "نزيف مستمر بعد الخلع، وتغطية للمرضى اللي بياخدوا سيولة.",
     doseEn: "Soak a clean gauze in the ampoule and bite on it for 20 minutes; repeat if bleeding returns",
     doseAr: "بلل شاش نضيف بالأمبول وعض عليه 20 دقيقة، وكرّرها لو النزيف رجع",
-    noteEn: "If bleeding continues after two attempts, come back to the clinic.",
-    noteAr: "لو النزيف كمل بعد مرتين، ارجع العيادة فوراً.",
+    noteEn: "Bite firmly and do not keep checking it. If the bleeding carries on after two tries, come back to the clinic.",
+    noteAr: "عض بقوة وما تفضلش تبص عليه كل شوية. لو النزيف كمل بعد مرتين، ارجع العيادة.",
     keywords: ["tranexamic", "كابرون", "نزيف", "ترانيكساميك"],
   },
   {
@@ -691,8 +773,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "تغطية بالفم لكام يوم بعد الجراحة لمريض بينزف بسهولة.",
     doseEn: "1 tablet every 8 hours for 2 to 3 days",
     doseAr: "قرص كل 8 ساعات لمدة يومين لـ 3 أيام",
-    noteEn: "Avoid in patients with a history of clots. Coordinate with the treating physician.",
-    noteAr: "يتجنب مع تاريخ جلطات. نسّق مع الطبيب المعالج.",
+    noteEn: "Come back to the clinic if the bleeding does not settle.",
+    noteAr: "ارجع العيادة لو النزيف ما وقفش.",
+    cautionEn: "Avoid with a history of clots. Coordinate with the treating physician.",
+    cautionAr: "يتجنب مع تاريخ جلطات. نسّق مع الطبيب المعالج.",
     keywords: ["tranexamic", "كابرون", "نزيف"],
   },
   {
@@ -705,6 +789,8 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "بيساعد على وقف النز من الشعيرات الدموية بعد الجراحة.",
     doseEn: "1 tablet every 8 hours for 2 to 3 days",
     doseAr: "قرص كل 8 ساعات لمدة يومين لـ 3 أيام",
+    noteEn: "Come back to the clinic if the bleeding does not settle.",
+    noteAr: "ارجع العيادة لو النزيف ما وقفش.",
     keywords: ["etamsylate", "ديسينون", "نزيف"],
   },
 
@@ -719,6 +805,8 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "بيساعد على التئام اللثة بعد التنظيف أو الجراحة، ومع نزيف اللثة.",
     doseEn: "1 tablet once daily after food for 2 to 4 weeks",
     doseAr: "قرص مرة واحدة يومياً بعد الأكل لمدة أسبوعين لـ 4 أسابيع",
+    noteEn: "Take it after food.",
+    noteAr: "تتاخد بعد الأكل.",
     keywords: ["cevarol", "redoxon", "سيفارول", "فيتامين سي"],
   },
   {
@@ -731,6 +819,8 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "لدعم العصب بعد جراحة قريبة من عصب الفك، ومع التنميل اللي بيفضل فترة.",
     doseEn: "1 tablet once daily after food for 4 weeks",
     doseAr: "قرص مرة واحدة يومياً بعد الأكل لمدة 4 أسابيع",
+    noteEn: "Take it after food.",
+    noteAr: "تتاخد بعد الأكل.",
     keywords: ["neuroton", "b12", "نيوروروبين", "فيتامين ب", "تنميل"],
   },
   {
@@ -743,8 +833,8 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "لدعم العظم قبل أو بعد الزرع، ولمريض عنده ضعف في العظام.",
     doseEn: "1 tablet once daily after food",
     doseAr: "قرص مرة واحدة يومياً بعد الأكل",
-    noteEn: "Take at least 2 hours apart from any antibiotic.",
-    noteAr: "يتاخد بفاصل ساعتين على الأقل عن أي مضاد حيوي.",
+    noteEn: "Leave at least 2 hours between this and any antibiotic.",
+    noteAr: "سيب ساعتين على الأقل بينه وبين أي مضاد حيوي.",
     keywords: ["ossofortin", "calcium sandoz", "كالسيوم", "اوسوفورتين", "زرع"],
   },
   {
@@ -755,10 +845,12 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     genericAr: "فيتامين د3 200000 وحدة",
     descEn: "For proven vitamin D deficiency affecting bone healing.",
     descAr: "لنقص فيتامين د المؤكد اللي بيأثر على التئام العظم.",
-    doseEn: "1 ampoule by mouth every 4 weeks for 3 months, or as the doctor directs",
-    doseAr: "أمبول بالفم كل 4 أسابيع لمدة 3 شهور، أو حسب تعليمات الدكتور",
-    noteEn: "Only after a blood level is checked — do not repeat without a test.",
-    noteAr: "بعد تحليل مستوى فيتامين د بس — ما يتكررش من غير تحليل.",
+    doseEn: "1 ampoule by mouth every 4 weeks for 3 months",
+    doseAr: "أمبول بالفم كل 4 أسابيع لمدة 3 شهور",
+    noteEn: "It is swallowed, not injected.",
+    noteAr: "بيتشرب بالفم، مش حقنة.",
+    cautionEn: "Only after a blood level is checked — do not repeat without a test.",
+    cautionAr: "بعد تحليل مستوى فيتامين د بس — ما يتكررش من غير تحليل.",
     keywords: ["devarol", "cholecalciferol", "ديفارول", "فيتامين د"],
   },
 
@@ -771,8 +863,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     genericAr: "أوميبرازول 20 مجم",
     descEn: "Protects the stomach while the patient is on a painkiller like Cataflam or Brufen.",
     descAr: "بيحمي المعدة طول ما المريض بياخد مسكن زي الكاتافلام أو البروفين.",
-    doseEn: "1 capsule once daily half an hour before breakfast, for as long as the painkiller lasts",
-    doseAr: "كبسولة مرة واحدة يومياً قبل الفطار بنص ساعة، طول مدة المسكن",
+    doseEn: "1 capsule once daily half an hour before breakfast",
+    doseAr: "كبسولة مرة واحدة يومياً قبل الفطار بنص ساعة",
+    noteEn: "Carry on with it for as long as you are taking the painkiller.",
+    noteAr: "كمّل عليه طول مدة المسكن.",
     keywords: ["omeprazole", "losec", "pantoloc", "اوميز", "اوميبرازول", "معدة"],
   },
   {
@@ -785,8 +879,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "للتورم أو الهرش التحسسي — ومش بيسبب نعاس.",
     doseEn: "1 tablet once daily for 3 to 5 days",
     doseAr: "قرص مرة واحدة يومياً لمدة 3 إلى 5 أيام",
-    noteEn: "For a severe reaction with breathing difficulty, go to the emergency room immediately.",
-    noteAr: "لو الحساسية شديدة وفيها صعوبة في التنفس، روح الطوارئ فوراً.",
+    noteEn: "If your face or lips swell or you find it hard to breathe, go to the emergency room straight away.",
+    noteAr: "لو وشك أو شفايفك ورمت أو حسيت بصعوبة في التنفس، روح الطوارئ فوراً.",
+    cautionEn: "An airway reaction is an emergency, not an antihistamine case.",
+    cautionAr: "رد الفعل اللي بيقفل مجرى الهواء حالة طوارئ، مش حالة مضاد هيستامين.",
     keywords: ["loratadine", "كلاريتين", "لوراتادين", "حساسية"],
   },
   {
@@ -799,8 +895,10 @@ export const DRUG_CATALOG: CatalogDrug[] = [
     descAr: "بيهدي المريض القلقان قبل جلسة طويلة أو جراحية.",
     doseEn: "1 tablet 1 hour before the appointment",
     doseAr: "قرص قبل الميعاد بساعة",
-    noteEn: "Causes drowsiness — the patient must not drive and should come with a companion.",
-    noteAr: "بيسبب نعاس — المريض ما يسوقش ويفضل ييجي مع حد معاه.",
+    noteEn: "It makes you sleepy — do not drive, and come with someone.",
+    noteAr: "بيسبب نعاس — ما تسوقش، وتعالى مع حد معاك.",
+    cautionEn: "Sedating — confirm the patient is not driving themselves home.",
+    cautionAr: "بيسبب نعاس — اتأكد إن المريض مش هيسوق لوحده.",
     keywords: ["hydroxyzine", "اتراكس", "هيدروكسيزين", "قلق"],
   },
 ];
