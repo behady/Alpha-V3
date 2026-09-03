@@ -932,7 +932,10 @@ export default function AttendancePage() {
               let totalPaid = 0;
 
               const rowsHtml = rows.map(row => {
-                  totalComm += Number(row.doctorCommission || 0);
+                  // doctorCommissionAmount, NOT doctorCommission — the latter is not a field these
+                  // rows carry, so it read as 0 and the PDF handed the whole net to the clinic
+                  // while the same rows on screen showed the split correctly.
+                  totalComm += Number(row.doctorCommissionAmount || 0);
                   totalProfit += Number(row.clinicProfit || 0);
                   totalPaid += Number(row.paidAmount || 0);
                   
@@ -945,7 +948,7 @@ export default function AttendancePage() {
                       <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: ${language === 'ar' ? 'right' : 'left'}; font-size: 10px;">${Math.floor(Number(row.labFee || 0)).toLocaleString()}</td>
                       <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: ${language === 'ar' ? 'right' : 'left'}; font-size: 10px;">${Math.floor(Number(row.netAmount || 0)).toLocaleString()}</td>
                       <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: center; font-size: 10px;">${Number(row.commissionPct || 0).toFixed(1)}%</td>
-                      <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: ${language === 'ar' ? 'right' : 'left'}; font-size: 10px; font-weight: 800; color: #059669;">${Math.floor(Number(row.doctorCommission || 0)).toLocaleString()}</td>
+                      <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: ${language === 'ar' ? 'right' : 'left'}; font-size: 10px; font-weight: 800; color: #059669;">${Math.floor(Number(row.doctorCommissionAmount || 0)).toLocaleString()}</td>
                       <td style="padding: 10px 12px; border-bottom: 1px solid #f1f5f9; text-align: ${language === 'ar' ? 'right' : 'left'}; font-size: 10px; font-weight: 800; color: #059669;">${Math.floor(Number(row.clinicProfit || 0)).toLocaleString()}</td>
                     </tr>
                   `;

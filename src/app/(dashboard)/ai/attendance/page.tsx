@@ -108,7 +108,8 @@ export default function AttendancePage() {
               </span>
             </div>
             <h1 className="text-2xl md:text-3xl font-black text-ink tracking-tight mt-1">
-              {isAr ? "الحضور والغياب" : "Attendance"}
+              {/* Says "patients" out loud: the staff time clock at /attendance is a different page. */}
+              {isAr ? "غياب المرضى" : "Patient No-Shows"}
             </h1>
             <p className="text-sm font-medium text-ink-muted mt-1 max-w-2xl">
               {isAr

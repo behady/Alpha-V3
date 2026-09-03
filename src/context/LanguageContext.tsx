@@ -21,7 +21,13 @@ const translations = {
     revenueRecovery: "Recovery",
     reactivation: "Reactivation",
     operations: "Recalls",
-    attendanceAi: "Attendance",
+    // Two different screens used to read "Attendance" in the rail, because `attendance` had no
+    // label here at all and fell back to its own key. They mean opposite things: this one is the
+    // patient side (who turned up for their appointment), `attendance` is the staff time clock.
+    // The keys themselves are load-bearing — permissions and Firestore rules are written against
+    // them — so only the words a human reads changed.
+    attendanceAi: "Patient No-Shows",
+    attendance: "Time Clock",
     reports: "Reports",
     settings: "Settings",
     admin: "Admin Account",
@@ -420,7 +426,8 @@ const translations = {
     revenueRecovery: "استرداد",
     reactivation: "إعادة تفعيل",
     operations: "المتابعات",
-    attendanceAi: "الحضور",
+    attendanceAi: "غياب المرضى",
+    attendance: "الحضور والانصراف",
     reports: "التقارير",
     settings: "الإعدادات",
     admin: "حساب المدير",
