@@ -30,7 +30,7 @@ import {
   SETTINGS_GROUP_ORDER,
   SETTINGS_SECTIONS,
 } from "@/config/settingsRegistry";
-import { SETTINGS_GROUP_TONE, SETTINGS_ICONS } from "@/components/settings/panels";
+import { SETTINGS_GROUP_ICONS, SETTINGS_GROUP_TONE, SETTINGS_ICONS } from "@/components/settings/panels";
 import { visibleSections } from "@/lib/settingsAccess";
 import { hasFeature } from "@/lib/subscriptions";
 
@@ -91,8 +91,11 @@ function SettingsIndex() {
         if (inGroup.length === 0) return null;
         return (
           <section key={group} className="space-y-4">
-            <h2 className="flex items-center gap-2 font-display text-[10px] font-black uppercase tracking-widest text-ink-muted">
-              <span className={`h-1.5 w-1.5 rounded-full ${SETTINGS_GROUP_TONE[group]?.dot ?? "bg-accent"}`} />
+            <h2 className="flex items-center gap-2 font-display text-[11px] font-black uppercase tracking-widest text-ink-muted">
+              {(() => {
+                const GroupIcon = SETTINGS_GROUP_ICONS[group] ?? Settings2;
+                return <GroupIcon size={14} className={SETTINGS_GROUP_TONE[group]?.chip ?? "text-accent"} />;
+              })()}
               {SETTINGS_GROUP_LABELS[group][language === "ar" ? "ar" : "en"]}
             </h2>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

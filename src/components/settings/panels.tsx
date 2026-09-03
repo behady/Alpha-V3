@@ -26,6 +26,7 @@ import {
   FlaskConical,
   Globe,
   History,
+  Hospital,
   MapPinned,
   Megaphone,
   MessageCircle,
@@ -39,7 +40,10 @@ import {
   Trash2,
   UserCircle,
   UserPlus,
+  UserRound,
   Users,
+  UsersRound,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 
@@ -70,6 +74,18 @@ export const SETTINGS_ICONS: Record<string, LucideIcon> = {
   logs: History,                // what happened, in order
   ai_credits: Sparkles,
   recently_deleted: Trash2,
+};
+
+/**
+ * The icon for each GROUP — the four tabs above the section chips. Distinct from every section
+ * icon on purpose: both rows are on screen at once, and a group tab wearing a section's icon
+ * reads as that section.
+ */
+export const SETTINGS_GROUP_ICONS: Record<string, LucideIcon> = {
+  personal: UserRound,
+  clinic: Hospital,
+  people: UsersRound,
+  system: Workflow,
 };
 
 /**

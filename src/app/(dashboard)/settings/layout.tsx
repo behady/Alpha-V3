@@ -35,7 +35,7 @@ import {
   type SettingsGroup,
   type SettingsSection,
 } from "@/config/settingsRegistry";
-import { SETTINGS_GROUP_TONE, SETTINGS_ICONS } from "@/components/settings/panels";
+import { SETTINGS_GROUP_ICONS, SETTINGS_GROUP_TONE, SETTINGS_ICONS } from "@/components/settings/panels";
 import { visibleSections } from "@/lib/settingsAccess";
 import { hasFeature } from "@/lib/subscriptions";
 
@@ -176,20 +176,21 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
 
         {/* Groups. Hidden while searching, because a search already crosses all of them. */}
         {!searching && (
-          <div className="flex gap-1.5 overflow-x-auto border-t border-line bg-surface-subtle/60 px-3 pt-3 no-scrollbar md:px-6">
+          <div className="flex justify-center gap-2 overflow-x-auto border-t border-line bg-surface-subtle/60 px-3 pt-3 no-scrollbar md:px-6">
             {SETTINGS_GROUP_ORDER.filter((g) => sections.some((s) => s.group === g)).map((group) => {
               const tone = SETTINGS_GROUP_TONE[group];
+              const GroupIcon = SETTINGS_GROUP_ICONS[group] ?? Settings2;
               const isShown = group === shownGroup;
               return (
                 <button
                   key={group}
                   onClick={() => setBrowsingGroup(group)}
                   aria-current={isShown ? "true" : undefined}
-                  className={`inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-3.5 py-1.5 font-display text-[12px] font-bold transition-colors ${
+                  className={`inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 font-display text-sm font-bold transition-colors ${
                     isShown ? tone?.tab ?? "bg-accent-tint text-accent" : "text-ink-muted hover:bg-surface hover:text-ink-body"
                   }`}
                 >
-                  <span className={`h-1.5 w-1.5 rounded-full ${tone?.dot ?? "bg-accent"} ${isShown ? "" : "opacity-60"}`} />
+                  <GroupIcon size={16} className={isShown ? "" : tone?.chip ?? ""} />
                   {SETTINGS_GROUP_LABELS[group][language === "ar" ? "ar" : "en"]}
                 </button>
               );
@@ -199,7 +200,7 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
 
         {/* Sections in the open group, or everything the search matched. Each chip's icon carries
             its group's tone, so a search result across groups still says where it lives. */}
-        <div className={`flex flex-wrap gap-1.5 bg-surface-subtle/60 p-3 md:px-6 ${searching ? "border-t border-line" : "pt-2"}`}>
+        <div className={`flex flex-wrap justify-center gap-1.5 bg-surface-subtle/60 p-3 md:px-6 ${searching ? "border-t border-line" : "pt-2"}`}>
           {listed.length === 0 && (
             <p className="px-2 py-1.5 text-[13px] font-semibold text-ink-muted">{txt.noResults}</p>
           )}
@@ -213,13 +214,13 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
                 onClick={() => void go(section.route)}
                 data-tour={section.tourAnchor}
                 aria-current={isActive ? "page" : undefined}
-                className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-bold transition-all ${
+                className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-bold transition-all ${
                   isActive
                     ? tone?.chipActive ?? "bg-accent-tint text-accent"
                     : "text-ink-body hover:bg-surface hover:text-ink"
                 }`}
               >
-                <Icon size={15} className={isActive ? "" : tone?.chip ?? "text-ink-faint"} />
+                <Icon size={16} className={isActive ? "" : tone?.chip ?? "text-ink-faint"} />
                 {language === "ar" ? section.labelAr : section.labelEn}
               </button>
             );

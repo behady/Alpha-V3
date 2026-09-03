@@ -450,6 +450,24 @@ for (const file of sourceFiles(join(REPO, "src/components/settings"))) {
       `${sections.join(" and ")} both use the ${icon} icon, so they look the same in the sidebar`
     );
   }
+
+  // The four group tabs sit directly above the section chips, so a group wearing a section's
+  // icon reads as that section — and two groups sharing one is two tabs that look the same.
+  const groupBlock = panels.slice(
+    panels.indexOf("SETTINGS_GROUP_ICONS"),
+    panels.indexOf("};", panels.indexOf("SETTINGS_GROUP_ICONS"))
+  );
+  const groupIcons = [...groupBlock.matchAll(/^ {2}([a-z]+): *([A-Z][A-Za-z0-9]*) *,/gm)];
+  ok(groupIcons.length === 4, `expected an icon for each of the four groups, found ${groupIcons.length}`);
+  const seenGroup = new Set<string>();
+  for (const [, group, icon] of groupIcons) {
+    ok(!seenGroup.has(icon), `two groups share the ${icon} icon`);
+    seenGroup.add(icon);
+    ok(
+      !byIcon.has(icon),
+      `the "${group}" group tab uses ${icon}, which is already the ${(byIcon.get(icon) ?? []).join("/")} section's icon`
+    );
+  }
 }
 
 // (e) Every settings document id must still be referenced by the app. Renaming one is silent:
