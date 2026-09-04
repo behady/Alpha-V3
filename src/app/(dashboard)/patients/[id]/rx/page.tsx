@@ -6,23 +6,18 @@ import {
   ArrowLeft, Printer, Plus, Trash2, Pill, Loader2,
   MapPin, Phone, MessageCircle, Save, Search, X, AlertTriangle
 } from "lucide-react";
-import { db, auth } from "@/lib/firebase";
-import { doc, getDoc, collection, getDocs, onSnapshot, query, orderBy, addDoc, serverTimestamp } from "firebase/firestore";
+import { auth } from "@/lib/firebase";
+import { getDoc, getDocs, onSnapshot, addDoc, serverTimestamp } from "firebase/firestore";
 import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { prescriptionPayloadToPdfBlob } from "@/lib/prescriptionPdfHtml";
 import { isDentistStaff } from "@/lib/staffRoles";
-import {
-  DRUG_CATALOG,
-  DRUG_CATEGORIES,
-  normalizeDrugText,
-  searchDrugCatalog,
-} from "@/lib/drugCatalog";
+import { DRUG_CATEGORIES } from "@/lib/drugCatalog";
+import { mergeDrugList, searchDrugEntries, type ClinicDrugDoc } from "@/lib/drugList";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import PermissionGuard from "@/components/PermissionGuard";
 
-interface Drug { id: string; name: string; dose: string; }
 
 /**
  * A prescription line. `dose`/`note` are the English text and `doseAr`/`noteAr` the Arabic, and
@@ -90,7 +85,7 @@ function PrescriptionStudio() {
   const [clinicInfo, setClinicInfo] = useState<any>(null);
   
   // Drug Database & Staff
-  const [drugDb, setDrugDb] = useState<Drug[]>([]);
+  const [drugDb, setDrugDb] = useState<ClinicDrugDoc[]>([]);
   const [doctors, setDoctors] = useState<{name: string}[]>([]);
   
   // Prescription State
@@ -138,9 +133,10 @@ function PrescriptionStudio() {
 
     fetchData();
 
-    // Listen to Drug Shortcuts
-    const unsubDrugs = onSnapshot(query(getClinicCollection("drugs"), orderBy("name")), (snap) => {
-      setDrugDb(snap.docs.map(d => ({ id: d.id, ...d.data() } as Drug)));
+    // No orderBy: a document that removes a built-in from the list carries no dose, and ordering
+    // on a field Firestore may not find is one more way for a row to vanish without saying so.
+    const unsubDrugs = onSnapshot(getClinicCollection("drugs"), (snap) => {
+      setDrugDb(snap.docs.map(d => ({ id: d.id, ...d.data() } as ClinicDrugDoc)));
     });
 
     return () => unsubDrugs();
@@ -148,50 +144,34 @@ function PrescriptionStudio() {
 
   const isArabicUi = language === "ar";
 
-  /** The clinic's own shortcuts, filtered by the same tolerant matcher the catalog uses. */
-  const shortcutRows = useMemo<PickerRow[]>(() => {
-    const terms = normalizeDrugText(drugQuery).split(" ").filter(Boolean);
-    return drugDb
-      .filter((d) => {
-        if (terms.length === 0) return true;
-        const stack = normalizeDrugText(`${d.name} ${d.dose || ""}`);
-        return terms.every((term) => stack.includes(term));
-      })
-      .map((d) => ({
-        key: `clinic:${d.id}`,
-        name: d.name,
-        subtitle: "",
-        // A hand-typed shortcut has one dose line and no language attached to it, so it fills the
-        // field that matches whatever the doctor typed rather than being forced into English.
-        doseEn: /[؀-ۿ]/.test(d.dose || "") ? "" : d.dose || "",
-        doseAr: /[؀-ۿ]/.test(d.dose || "") ? d.dose || "" : "",
-        tip: "",
-        caution: "",
-        catLabel: t("rxMyShortcut"),
-        catSoft: "bg-accent-tint text-accent border-transparent",
-        isShortcut: true,
-      }));
-  }, [drugDb, drugQuery, t]);
+  /**
+   * One list, assembled by `mergeDrugList` — the clinic's own drugs first, then the built-in
+   * library with any edits Settings has made and without the ones it removed. Going through the
+   * shared merge is what stops this picker and the Settings page from disagreeing.
+   */
+  const allEntries = useMemo(() => mergeDrugList(drugDb), [drugDb]);
+  const drugListSize = allEntries.length;
 
-  const catalogRows = useMemo<PickerRow[]>(() => {
-    return searchDrugCatalog(drugQuery).map((d) => {
-      const cat = DRUG_CATEGORIES.find((c) => c.id === d.cat);
+  const pickerRows = useMemo<PickerRow[]>(() => {
+    return searchDrugEntries(allEntries, drugQuery).map((e) => {
+      const cat = DRUG_CATEGORIES.find((c) => c.id === e.cat);
+      const isOwn = e.origin === "clinic";
       return {
-        key: `catalog:${d.id}`,
-        name: d.name,
-        subtitle: isArabicUi ? d.descAr : d.descEn,
-        doseEn: d.doseEn,
-        doseAr: d.doseAr,
-        tip: (isArabicUi ? d.noteAr : d.noteEn) || "",
-        caution: (isArabicUi ? d.cautionAr : d.cautionEn) || "",
-        catLabel: (isArabicUi ? cat?.labelAr : cat?.labelEn) || "",
-        catSoft: cat?.soft || "bg-slate-100 text-slate-700 border-slate-200",
-        isShortcut: false,
+        key: e.key,
+        name: e.name,
+        subtitle: isArabicUi ? e.descAr : e.descEn,
+        doseEn: e.dose,
+        doseAr: e.doseAr,
+        tip: (isArabicUi ? e.noteAr : e.noteEn) || "",
+        caution: (isArabicUi ? e.cautionAr : e.cautionEn) || "",
+        catLabel: isOwn ? t("rxMyShortcut") : (isArabicUi ? cat?.labelAr : cat?.labelEn) || "",
+        catSoft: isOwn
+          ? "bg-accent-tint text-accent border-transparent"
+          : cat?.soft || "bg-slate-100 text-slate-700 border-slate-200",
+        isShortcut: isOwn,
       };
     });
-  }, [drugQuery, isArabicUi]);
-
-  const pickerRows = useMemo(() => [...shortcutRows, ...catalogRows], [shortcutRows, catalogRows]);
+  }, [allEntries, drugQuery, isArabicUi, t]);
 
   /**
    * Load a picked drug into the fields so the doctor can still edit before adding.
@@ -454,7 +434,7 @@ function PrescriptionStudio() {
                <h3 className="font-black text-ink text-lg border-b border-slate-100 pb-3 flex items-center justify-between">
                   Add Medication
                   <span className="bg-accent-tint text-accent px-2 py-1 rounded-lg text-[10px] uppercase">
-                    {rxItems.length} in Rx · {drugDb.length + DRUG_CATALOG.length} drugs
+                    {rxItems.length} in Rx · {drugListSize} drugs
                   </span>
                </h3>
 
