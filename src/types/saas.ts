@@ -8,6 +8,18 @@ export interface Clinic {
   expiresAt: Date | any; // Firestore Timestamp
   status: 'Active' | 'Suspended' | 'Expired';
   createdAt: Date | any;
+  /**
+   * Which events the clinic asked to be told about, from Settings → Alerts.
+   *
+   * Declared here because it is read to DECIDE whether to raise an alert, not merely rendered on
+   * the settings screen that writes it. Absent means the clinic has never opened that screen, and
+   * every consumer treats that as "no" — a notification nobody chose is the kind that teaches
+   * people to ignore the bell.
+   */
+  alertPreferences?: {
+    inApp?: { patientArrival?: boolean; labReady?: boolean; newBooking?: boolean };
+    email?: Record<string, boolean>;
+  };
   features?: {
     whatsappIntegration?: boolean;
     inventory?: boolean;

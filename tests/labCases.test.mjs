@@ -29,6 +29,7 @@ import {
   summarise,
   workTypeFor,
   formatPalmer,
+  wantsLabReadyAlert,
   parseToothInput,
   toPalmer,
   optionLabel,
@@ -81,6 +82,8 @@ import {
   labAccountsTotal,
 } from "../src/lib/labAccounts.ts";
 import { parseClinicBranches } from "../src/lib/clinicLocations.ts";
+import { buildLabOrderMessage } from "../src/lib/labMessages.ts";
+
 
 // --- branch codes --------------------------------------------------------------------------------
 
@@ -769,3 +772,81 @@ assert.ok(
 );
 
 console.log("✓ lab accounts: what is owed vs merely committed, per-lab isolation, and a statement that reconciles");
+
+// --- the message the lab receives ----------------------------------------------------------------
+//
+// The same facts as the printed order, sent ahead so the lab has them legibly when the paper
+// arrives smudged — or when the case goes out as files and there is no paper at all. Both privacy
+// rules from the sheet carry over, because a message travels further than a bag does.
+
+const msgCase = {
+  ...crown,
+  code: "MAD-0200",
+  patientName: "Ahmed Fathy Mahmoud",
+  patientFirstName: "Ahmed",
+  labName: "Cairo Lab",
+  notes: "Light contact distal.",
+};
+const msg = buildLabOrderMessage(msgCase, "Alpha Dental", "en");
+
+assert.ok(msg.includes("MAD-0200"));
+assert.ok(msg.includes("Alpha Dental"));
+assert.ok(msg.includes("Ahmed"));
+// The rule that matters most: the full name does not leave the clinic, on paper OR in a message.
+assert.ok(!msg.includes("Ahmed Fathy Mahmoud"), "a lab message carries the first name and the code");
+assert.ok(msg.includes("Body shade: A2"));
+assert.ok(msg.includes("Cervical shade: A3"));
+assert.ok(msg.includes("1,400 EGP"));
+assert.ok(msg.includes("Light contact distal."));
+// Teeth read in Palmer here too — one notation everywhere the lab looks.
+assert.ok(/Teeth: .*5.*4/.test(msg));
+
+// Only the fields this work type wants. A guide sent a shade line invites somebody to go looking
+// for an answer that was never given.
+const guideMsg = buildLabOrderMessage(
+  { ...msgCase, workType: "surgical_guide", implantSystem: "Dentium", guideType: "full", sentVia: "digital", agreedPrice: 0 },
+  "Alpha Dental",
+  "en"
+);
+assert.ok(!guideMsg.includes("Body shade"), "a guide has no shade");
+assert.ok(!guideMsg.includes("Cervical shade"));
+assert.ok(guideMsg.includes("Dentium"));
+assert.ok(guideMsg.includes("Fully guided"), "the stored id is resolved to words");
+assert.ok(guideMsg.includes("Files are being sent digitally"));
+// A price of zero is not announced as "0 EGP" — an agreed nothing is said in the remake line.
+assert.ok(!guideMsg.includes("EGP"));
+
+// A remake says so, and names what it replaces.
+const remakeMsg = buildLabOrderMessage({ ...msgCase, remakeOfCode: "MAD-0142" }, "Alpha Dental", "en");
+assert.ok(remakeMsg.includes("REMAKE"));
+assert.ok(remakeMsg.includes("MAD-0142"));
+
+// Arabic is a translation, not a transliteration — and still carries the code and the first name.
+const arMsg = buildLabOrderMessage(msgCase, "ألفا", "ar");
+assert.ok(arMsg.includes("أمر معمل"));
+assert.ok(arMsg.includes("MAD-0200"));
+assert.ok(!arMsg.includes("Ahmed Fathy Mahmoud"));
+
+// Never a blank line pile-up, whatever is missing: an order stripped to nothing must still read.
+const bare = buildLabOrderMessage(
+  { ...crown, code: "X-1", patientFirstName: "", patientName: "", notes: "", material: "", bodyShade: "", cervicalShade: "", agreedPrice: 0, dueDate: "", units: 0, teeth: [] },
+  "",
+  "en"
+);
+assert.ok(!/\n\n\n/.test(bare), "no run of blank lines");
+assert.ok(bare.includes("X-1"));
+
+// --- the bell -------------------------------------------------------------------------------------
+//
+// Absent preferences read as OFF. A clinic that has never opened the Alerts screen has not asked
+// to be interrupted, and an alert nobody chose is the kind that teaches people to ignore the bell.
+assert.equal(wantsLabReadyAlert(undefined), false);
+assert.equal(wantsLabReadyAlert(null), false);
+assert.equal(wantsLabReadyAlert({}), false);
+assert.equal(wantsLabReadyAlert({ inApp: {} }), false);
+assert.equal(wantsLabReadyAlert({ inApp: { labReady: false } }), false);
+assert.equal(wantsLabReadyAlert({ inApp: { labReady: true } }), true);
+// Another alert being on does not turn this one on.
+assert.equal(wantsLabReadyAlert({ inApp: { patientArrival: true } }), false);
+
+console.log("✓ lab phase 3: the lab's message keeps the patient's full name out of it, and the bell stays off until asked");
