@@ -43,6 +43,18 @@ const RATE_WINDOW_MS = 60 * 60 * 1000;
  */
 export const MAX_TURNS = 40;
 
+/**
+ * How long an unhandled handoff keeps the bot quiet.
+ *
+ * Long enough that "someone will contact you" is not undone by the bot re-greeting them an hour
+ * later; bounded so a handoff nobody clears cannot mute a patient's number for good. Staff
+ * marking it handled ends it early.
+ */
+export const HANDOFF_HOLD_MS = 24 * 60 * 60 * 1000;
+
+/** How long a staff member's own message to the patient keeps the bot out of the thread. */
+export const HUMAN_CLAIM_MS = 60 * 60 * 1000;
+
 export interface BotConversation {
   phoneKey: string;
   phone: string;
@@ -71,6 +83,16 @@ export interface BotConversation {
   pendingDoctors?: string[];
   /** The dentist the patient chose for this booking; "" or absent means any. */
   pendingDoctor?: string;
+  /**
+   * A person owns this thread right now.
+   *
+   * True while a handoff is open (raised by the bot, not yet marked handled by staff, and younger
+   * than a day) or while a staff member has written to this patient in the last hour. The bot
+   * must stay silent for as long as this is true — the one-hour conversation expiry used to
+   * reset the state to "new" underneath a live handoff, so the bot re-greeted, with buttons, a
+   * patient a receptionist was mid-conversation with.
+   */
+  humanOwned?: boolean;
   /** AI answers already spent in this conversation. The cap lives in the caller. */
   aiReplies?: number;
   /** Prior AI exchanges, oldest first, for continuity. Dies with the conversation. */
@@ -145,11 +167,27 @@ export async function loadConversation(
     repliesInWindow = 0;
   }
 
+  /*
+   * Is a person handling this thread?
+   *
+   * Two signals, either is enough. A handoff the bot raised stays open until staff mark it
+   * handled (handledAtMs after handoffAtMs) — with a one-day ceiling so an unattended inbox
+   * cannot silence the bot forever. And a staff member writing to the patient from the app
+   * claims the thread for an hour, so the bot never answers over a human mid-conversation.
+   */
+  const handoffAtMs = Number(d.handoffAtMs) || 0;
+  const handledAtMs = Number(d.handledAtMs) || 0;
+  const humanActiveAtMs = Number(d.humanActiveAtMs) || 0;
+  const openHandoff =
+    d.needsHuman === true && handoffAtMs > now - HANDOFF_HOLD_MS && !(handledAtMs > handoffAtMs);
+  const humanOwned = openHandoff || humanActiveAtMs > now - HUMAN_CLAIM_MS;
+
   return {
     phoneKey,
     phone,
-    // The conversation resets; the rate limit and a recorded opt-out do not.
-    state: expired ? "new" : ((d.state as BotState) || "new"),
+    // The conversation resets; the rate limit, a recorded opt-out and a live handoff do not.
+    state: humanOwned ? "handed_off" : expired ? "new" : ((d.state as BotState) || "new"),
+    humanOwned,
     turns: expired ? 0 : Number(d.turns) || 0,
     patientId: typeof d.patientId === "string" ? d.patientId : undefined,
     patientName: typeof d.patientName === "string" ? d.patientName : undefined,
@@ -245,10 +283,54 @@ export async function saveConversation(
 export async function markHandoff(
   clinicId: string,
   phoneKey: string,
-  reason: string
+  reason: string,
+  details: {
+    /** What the patient wrote — the thing a person needs to read to act. */
+    text?: string;
+    phone?: string;
+    patientId?: string;
+    patientName?: string;
+    /** How loudly staff should be told. Drives the notification, not the flag. */
+    severity?: HandoffSeverity;
+  } = {}
 ): Promise<void> {
-  await ref(clinicId, phoneKey).set(
-    { needsHuman: true, handoffReason: reason, handoffAt: FieldValue.serverTimestamp() },
+  const payload: Record<string, unknown> = {
+    needsHuman: true,
+    handoffReason: reason,
+    handoffAt: FieldValue.serverTimestamp(),
+    // A plain number beside the server timestamp: the bot compares against it on every read, and
+    // a Firestore Timestamp is not a number. Also what re-opens a handoff staff already cleared —
+    // a new one is simply later than the last handledAtMs.
+    handoffAtMs: Date.now(),
+  };
+  // Firestore rejects an explicit undefined; optional by nature.
+  if (details.text?.trim()) payload.lastInbound = details.text.trim().slice(0, 300);
+  if (details.phone) payload.phone = details.phone;
+  if (details.patientId) payload.patientId = details.patientId;
+  if (details.patientName) payload.patientName = details.patientName;
+  payload.severity = details.severity ?? "normal";
+  await ref(clinicId, phoneKey).set(payload, { merge: true });
+}
+
+export type HandoffSeverity = "urgent" | "complaint" | "normal";
+
+/**
+ * A staff member just wrote to this patient from the app: the thread is theirs for a while.
+ *
+ * Written by the reply route. Two voices in one thread is worse than one slow voice, and until
+ * this existed nothing told the bot a human had stepped in — it would answer the patient's next
+ * message over the top of the receptionist's.
+ */
+export async function markHumanActive(clinicId: string, address: string, uid?: string): Promise<void> {
+  await ref(clinicId, conversationKey(address)).set(
+    {
+      phone: address,
+      humanActiveAtMs: Date.now(),
+      // Replying is handling. The inbox row closes with the reply rather than needing a second click.
+      needsHuman: false,
+      handledAtMs: Date.now(),
+      ...(uid ? { handledBy: uid } : {}),
+    },
     { merge: true }
   );
 }

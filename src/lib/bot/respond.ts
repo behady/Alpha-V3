@@ -26,6 +26,7 @@ import {
   markHandoff,
   replyAllowance,
   saveConversation,
+  type HandoffSeverity,
 } from "./conversation";
 import { answerWithAi } from "./aiReply";
 import { clinicalReplyText, decideBotReply, type BotContext } from "./engine";
@@ -762,7 +763,50 @@ export async function respondToPatientMessage(args: {
   }
 
   if (handoff) {
-    await markHandoff(clinicId, conversation.phoneKey, reason);
+    /*
+     * The moment the bot promises a person. Until this existed, that promise was a flag on a
+     * document no screen read and no notification mentioned — every "الاستقبال هيتواصل معاك"
+     * was kept by nobody, and a swollen face at 1am reached exactly as many people as a
+     * sticker. Now it lands in the inbox on the Messages page and on staff phones, weighted by
+     * what it is: a medical message or an unreadable photo is urgent, a complaint goes to
+     * management, everything else is a normal ask.
+     */
+    const severity: HandoffSeverity =
+      reason === "clinical" || reason.startsWith("media_") || reason === "ai_handoff_medical"
+        ? "urgent"
+        : reason === "complaint" || reason === "ai_handoff_complaint"
+          ? "complaint"
+          : "normal";
+    await markHandoff(clinicId, conversation.phoneKey, reason, {
+      text: args.media && !text.trim() ? `[${args.media}]` : text,
+      phone,
+      patientId: patient?.id,
+      patientName: ctx.patientName,
+      severity,
+    });
+    // Appointment changes already pushed their own, more specific notification above.
+    if (!reason.startsWith("appointment_")) {
+      const who = ctx.patientName || phone || "مريض";
+      const preview = (args.media && !text.trim() ? "" : text).replace(/\s+/g, " ").trim().slice(0, 90);
+      void sendClinicPush(
+        clinicId,
+        {
+          title:
+            severity === "urgent"
+              ? "⚠️ مريض محتاج رد فوري"
+              : severity === "complaint"
+                ? "شكوى من مريض 🙏"
+                : "مريض محتاج حد يرد 💬",
+          body: preview ? `${who} — ${preview}` : `${who} بعت ${args.media === "audio" ? "رسالة صوتية" : "صورة"}`,
+        },
+        {
+          roles: ["Owner", "Admin", "Receptionist"],
+          channel: "alpha_bookings",
+          // A known patient opens straight to their record on the phone; a stranger lands on the day.
+          data: patient?.id ? { patientId: patient.id } : { screen: "day" },
+        }
+      );
+    }
   }
 
   if (!replyText.trim()) {
