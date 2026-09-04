@@ -31,7 +31,7 @@ export interface SidebarNavItem {
  * Chosen because they are periodic rather than daily — a receptionist opens Appointments twenty
  * times a shift and Reports once a month. Everything else stays one click away.
  */
-const OVERFLOW_KEYS = new Set(["inventory", "attendanceAi", "reports", "attendance"]);
+const OVERFLOW_KEYS = new Set(["inventory", "reports", "attendance"]);
 
 const STORAGE_KEY = "alphaSidebarExpanded";
 

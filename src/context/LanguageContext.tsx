@@ -17,6 +17,9 @@ const translations = {
     inventory: "Inventory",
     finance: "Finance",
     paymentRecovery: "Collect Dues",
+    // The rail item for /ai. `briefing`, `messages` and `attendanceAi` below it are still used —
+    // they name the three tabs of that page, which is all they label now.
+    intelligence: "Intelligence",
     briefing: "Briefing",
     revenueRecovery: "Recovery",
     reactivation: "Reactivation",
@@ -430,6 +433,7 @@ const translations = {
     inventory: "المخزون",
     finance: "الحسابات",
     paymentRecovery: "تحصيل المستحقات",
+    intelligence: "ذكاء ألفا",
     briefing: "ملخص اليوم",
     revenueRecovery: "استرداد",
     reactivation: "إعادة تفعيل",

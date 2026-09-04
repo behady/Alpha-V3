@@ -7,7 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Users, Calendar, Wallet, Settings, Sparkles,
   FileBarChart, Menu, X, LogOut, Loader2, Languages,
-  Package, ChevronLeft, ChevronRight, Clock, FlaskConical, MessageCircle, ShieldCheck, UserCheck,
+  Package, ChevronLeft, ChevronRight, Clock, FlaskConical, ShieldCheck,
   LifeBuoy, Inbox, Megaphone
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
@@ -109,10 +109,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
    */
   const allNavItems = [
     { key: "dashboard", href: "/", icon: LayoutDashboard },
-    { key: "briefing", href: "/ai/briefing", icon: Sparkles },
     { key: "leads", href: "/leads", icon: Inbox },
     { key: "marketing", href: "/marketing", icon: Megaphone },
-    { key: "messages", href: "/messages", icon: MessageCircle },
     { key: "patients", href: "/patients", icon: Users },
     { key: "appointments", href: "/appointments", icon: Calendar },
     { key: "inventory", href: "/inventory", icon: Package },
@@ -120,9 +118,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     // translations of this label already existed and pointed at nothing until the page was built.
     { key: "lab", href: "/lab", icon: FlaskConical },
     { key: "finance", href: "/finance", icon: Wallet },
-    { key: "attendanceAi", href: "/ai/attendance", icon: UserCheck },
     { key: "reports", href: "/reports", icon: FileBarChart },
     { key: "attendance", href: "/attendance", icon: Clock },
+    /**
+     * Last on purpose, so it sits at the foot of the rail just above Settings.
+     *
+     * It replaces three separate icons — the brief, the WhatsApp send queue and patient no-shows —
+     * which are now three tabs of one page. They were near the top and among the most-scanned
+     * things in the rail while being the least urgent: nothing here is a patient standing at the
+     * desk. Their old URLs redirect into it.
+     */
+    { key: "intelligence", href: "/ai", icon: Sparkles },
   ];
 
   const hasAccess = useCallback((key: string, isMobile: boolean = false) => {
@@ -144,10 +150,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       return canAccessNavItem('marketing', user, isAdmin);
     }
 
-    // Leads are worked by whoever answers the desk. Reception already holds patient access, so
-    // that grant carries over — no clinic has to edit permissions to start using the CRM.
-    if (key === 'messages') {
-      return canAccessNavItem('patients', user, isAdmin);
+    /**
+     * The Intelligence page holds three tabs that used to be three rail items, each with its own
+     * permission. It shows if ANY of them would — the page itself drops the tabs a person may not
+     * open, so a receptionist with patient access lands on the message queue and never sees the
+     * brief. `patients` is what the queue used to be gated on: reception already holds it, so no
+     * clinic has to edit permissions for this to keep working.
+     */
+    if (key === 'intelligence') {
+      return canAccessNavItem('briefing', user, isAdmin)
+        || canAccessNavItem('attendanceAi', user, isAdmin)
+        || canAccessNavItem('patients', user, isAdmin);
     }
 
     if (key === 'leads') {
@@ -199,7 +212,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const mobileCandidates = [
     { key: "dashboard", href: "/", icon: LayoutDashboard },
-    { key: "briefing", href: "/ai/briefing", icon: Sparkles },
+    { key: "intelligence", href: "/ai", icon: Sparkles },
     { key: "appointments", href: "/appointments", icon: Calendar },
     { key: "finance", href: "/finance", icon: Wallet },
     { key: "reports", href: "/reports", icon: FileBarChart },
