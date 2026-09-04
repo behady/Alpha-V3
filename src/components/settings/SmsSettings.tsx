@@ -331,9 +331,9 @@ export default function SmsSettings() {
 
   const statusMeta: Record<QueueMessage["status"], { label: string; className: string }> = {
     queued: { label: txt.statusQueued, className: "bg-surface-muted text-ink-body border-line" },
-    sending: { label: txt.statusSending, className: "bg-amber-50 text-amber-700 border-amber-200" },
-    sent: { label: txt.statusSent, className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-    failed: { label: txt.statusFailed, className: "bg-rose-50 text-rose-700 border-rose-200" },
+    sending: { label: txt.statusSending, className: "border-warn/25 bg-warn-tint text-warn" },
+    sent: { label: txt.statusSent, className: "border-ok/25 bg-ok-tint text-ok" },
+    failed: { label: txt.statusFailed, className: "border-danger/25 bg-danger-tint text-danger" },
   };
 
   /**
@@ -350,7 +350,7 @@ export default function SmsSettings() {
     if (message.status === "queued" && message.attempts > 0) {
       return {
         label: `${txt.statusRetrying} ${message.attempts}/${MAX_SMS_ATTEMPTS}`,
-        className: "bg-amber-50 text-amber-700 border-amber-200",
+        className: "border-warn/25 bg-warn-tint text-warn",
       };
     }
     return statusMeta[message.status];
@@ -359,41 +359,41 @@ export default function SmsSettings() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <Loader2 size={26} className="animate-spin text-slate-400" />
+        <Loader2 size={26} className="animate-spin text-ink-muted" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in max-w-5xl mx-auto">
+    <div className="w-full space-y-6 animate-in fade-in">
       {/* What this is */}
       {/* SMS leaves through a phone sitting in the clinic, and that phone can be paired and
           still not be checking in. When it stops, the queue stops with it and nothing says so
           until a patient does not turn up. So it is the first thing on the page, not a pill
           three cards down. */}
-      <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">
+      <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-ink-on-accent shadow-lg shadow-ink-slab/15 sm:px-8">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0 space-y-2">
-            <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
+            <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.22em] text-ink-on-accent/45">
               <MessagesSquare size={12} />
               {txt.title}
             </p>
-            <p className="text-lg font-bold leading-snug text-white sm:text-xl">{line.headline}</p>
-            <p className="max-w-md text-[13px] leading-relaxed text-white/55">{line.detail}</p>
+            <p className="text-lg font-bold leading-snug text-ink-on-accent sm:text-xl">{line.headline}</p>
+            <p className="max-w-md text-[13px] leading-relaxed text-ink-on-accent/55">{line.detail}</p>
           </div>
 
           <div className="flex items-center gap-4 sm:flex-col sm:items-end sm:gap-2">
             <span
               className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] ${
-                line.live ? "bg-white/12 text-white" : "bg-amber-400/20 text-amber-200"
+                line.live ? "bg-white/12 text-ink-on-accent" : "bg-amber-400/20 text-amber-200"
               }`}
             >
               <span className={`h-1.5 w-1.5 rounded-full ${line.live ? "bg-emerald-400" : "bg-amber-400"}`} />
               {line.badge}
             </span>
             {queuedCount > 0 && (
-              <span className="text-[11px] font-semibold text-white/45">
-                <span className="font-figure text-[15px] text-white/80">{queuedCount}</span>{" "}
+              <span className="text-[11px] font-semibold text-ink-on-accent/45">
+                <span className="font-figure text-[15px] text-ink-on-accent/80">{queuedCount}</span>{" "}
                 {txt.railWaiting}
               </span>
             )}
@@ -403,34 +403,36 @@ export default function SmsSettings() {
 
       {/* Cost, stated before the switch rather than after the phone bill. Amber means the same
           thing here as on the WhatsApp page: a consequence that costs you. */}
-      <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-        <p className="text-xs font-black uppercase tracking-widest text-amber-700 flex items-center gap-2">
+      <div className="mt-5 rounded-2xl border border-warn/25 bg-warn-tint p-4">
+        <p className="text-xs font-black uppercase tracking-widest text-warn flex items-center gap-2">
           <AlertTriangle size={14} /> {txt.costWarnTitle}
         </p>
         <ul className="mt-2.5 space-y-1.5">
           {[txt.costWarn1, txt.costWarn2, txt.costWarn3, txt.costWarn4].map((line) => (
-            <li key={line} className="text-xs font-bold text-amber-900 leading-relaxed flex gap-2">
-              <span className="text-amber-500 shrink-0">•</span>
+            <li key={line} className="text-xs font-bold text-warn leading-relaxed flex gap-2">
+              <span className="text-warn shrink-0">•</span>
               {line}
             </li>
           ))}
         </ul>
       </div>
 
-      <label className="mt-5 flex items-center justify-between gap-4 cursor-pointer rounded-2xl border border-line bg-slate-50/80 px-4 py-3.5">
-        <span className="text-sm font-black text-slate-800 flex items-center gap-2">
-          <Smartphone size={16} className="text-slate-400" /> {txt.enable}
+      <label className="mt-5 flex items-center justify-between gap-4 cursor-pointer rounded-2xl border border-line bg-surface-subtle px-4 py-3.5">
+        <span className="text-sm font-black text-ink flex items-center gap-2">
+          <Smartphone size={16} className="text-ink-muted" /> {txt.enable}
         </span>
         <button
           type="button"
           onClick={() => void save({ ...settings, enabled: !settings.enabled })}
           className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors shrink-0 ${
-            settings.enabled ? "bg-primary-500" : "bg-slate-200"
+            settings.enabled ? "bg-accent" : "bg-surface-muted"
           }`}
         >
+          {/* On the logical inline-start edge, not a physical axis: `translate-x-7` sends the
+              knob right in Arabic too, where the track's "on" end is the left one. */}
           <span
-            className={`inline-block h-6 w-6 transform rounded-full bg-surface transition-transform ${
-              settings.enabled ? "translate-x-7" : "translate-x-1"
+            className={`absolute top-1 h-6 w-6 rounded-full bg-surface transition-all ${
+              settings.enabled ? "start-7" : "start-1"
             }`}
           />
         </button>
@@ -439,7 +441,7 @@ export default function SmsSettings() {
       {/* Channel */}
       <section className="space-y-1">
         <h3 className="text-lg font-black text-ink flex items-center gap-3">
-          <MessageCircle className="text-primary-500" size={20} /> {txt.channelTitle}
+          <MessageCircle className="text-accent" size={20} /> {txt.channelTitle}
         </h3>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-5">
@@ -458,12 +460,12 @@ export default function SmsSettings() {
                 onClick={() => void save({ ...settings, reminderChannel: key })}
                 className={`p-5 rounded-3xl border-2 text-center transition-all ${
                   active
-                    ? "border-primary-500 bg-primary-50 shadow-md scale-[1.02]"
-                    : "border-slate-100 bg-surface-subtle hover:border-line-strong hover:bg-surface"
+                    ? "border-accent bg-accent-tint shadow-md scale-[1.02]"
+                    : "border-line bg-surface-subtle hover:border-line-strong hover:bg-surface"
                 }`}
               >
-                <span className={`block text-sm font-black ${active ? "text-primary-700" : "text-ink-body"}`}>{label}</span>
-                <span className="block text-xs font-bold text-slate-400 mt-2 leading-relaxed">{hint}</span>
+                <span className={`block text-sm font-black ${active ? "text-accent" : "text-ink-body"}`}>{label}</span>
+                <span className="block text-xs font-bold text-ink-muted mt-2 leading-relaxed">{hint}</span>
               </button>
             );
           })}
@@ -471,14 +473,14 @@ export default function SmsSettings() {
 
         {/* A channel that cannot actually deliver is worth saying out loud. */}
         {smsSelected && !settings.enabled && (
-          <p className="mt-4 text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">
+          <p className="mt-4 text-xs font-bold border border-danger/25 bg-danger-tint text-danger rounded-xl px-4 py-3">
             {isAr
               ? "اخترت الرسائل النصية لكن الإرسال من الهاتف غير مفعّل — لن تُرسل أي رسالة."
               : "SMS is selected but sending from the phone is switched off — no text will go out."}
           </p>
         )}
         {smsSelected && settings.enabled && activeDevices.length === 0 && (
-          <p className="mt-4 text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">
+          <p className="mt-4 text-xs font-bold border border-danger/25 bg-danger-tint text-danger rounded-xl px-4 py-3">
             {txt.noDevices}
           </p>
         )}
@@ -487,15 +489,15 @@ export default function SmsSettings() {
       {/* When the reminder goes out */}
       <section className="space-y-1">
         <h3 className="text-lg font-black text-ink flex items-center gap-3">
-          <Clock className="text-primary-500" size={20} /> {txt.hourTitle}
+          <Clock className="text-accent" size={20} /> {txt.hourTitle}
         </h3>
-        <p className="text-xs font-bold text-ink-muted mt-2 leading-relaxed">{txt.hourHint}</p>
+        <p className="mt-2 max-w-2xl text-xs font-bold leading-relaxed text-ink-muted">{txt.hourHint}</p>
 
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <select
             value={settings.sendHour}
             onChange={(e) => void save({ ...settings, sendHour: Number(e.target.value) })}
-            className="py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-black text-slate-800 outline-none focus:bg-surface focus:border-primary-500"
+            className="py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-black text-ink outline-none focus:bg-surface focus:border-accent"
           >
             {Array.from({ length: MAX_SEND_HOUR - MIN_SEND_HOUR + 1 }, (_, i) => MIN_SEND_HOUR + i).map((hour) => (
               <option key={hour} value={hour}>
@@ -503,38 +505,38 @@ export default function SmsSettings() {
               </option>
             ))}
           </select>
-          <span className="text-xs font-bold text-slate-400 flex-1 min-w-[14rem] leading-relaxed">{txt.hourLate}</span>
+          <span className="text-xs font-bold text-ink-muted flex-1 min-w-[14rem] leading-relaxed">{txt.hourLate}</span>
         </div>
       </section>
 
       {/* Which messages, and what they say */}
       <section className="space-y-1">
         <h3 className="text-lg font-black text-ink flex items-center gap-3">
-          <Wallet className="text-primary-500" size={20} /> {txt.templateTitle}
+          <Wallet className="text-accent" size={20} /> {txt.templateTitle}
         </h3>
-        <p className="text-xs font-bold text-slate-400 mt-2 leading-relaxed">{txt.templateHint}</p>
+        <p className="mt-2 max-w-2xl text-xs font-bold leading-relaxed text-ink-muted">{txt.templateHint}</p>
 
         {settings.enabled && smsSelected && !anyEventOn && (
-          <p className="mt-4 text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">
+          <p className="mt-4 text-xs font-bold border border-danger/25 bg-danger-tint text-danger rounded-xl px-4 py-3">
             {txt.allOff}
           </p>
         )}
 
         {/* Above the per-event bodies, because switching it on changes the segment count printed
             against every one of them — and that number is the whole argument. */}
-        <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50/60 p-4 space-y-2">
-          <p className="text-[11px] font-black uppercase tracking-widest text-amber-800">{txt.optOutTitle}</p>
+        <div className="mt-5 rounded-2xl border border-warn/25 bg-warn-tint/60 p-4 space-y-2">
+          <p className="text-[11px] font-black uppercase tracking-widest text-warn">{txt.optOutTitle}</p>
           <label className="flex items-center justify-between gap-4 cursor-pointer">
-            <span className="text-sm font-bold text-amber-950 leading-relaxed">{txt.optOutToggle}</span>
+            <span className="text-sm font-bold text-warn leading-relaxed">{txt.optOutToggle}</span>
             <input
               type="checkbox"
-              className="h-5 w-5 rounded border-amber-300 text-amber-600 focus:ring-amber-500 shrink-0"
+              className="h-5 w-5 rounded border-warn/40 text-warn focus:ring-warn shrink-0"
               checked={settings.optOutFooterEnabled === true}
               onChange={(e) => void save({ ...settings, optOutFooterEnabled: e.target.checked })}
             />
           </label>
           <p className="text-xs font-bold text-ink-body leading-relaxed">{txt.optOutHint}</p>
-          <p className="text-xs text-amber-900 leading-relaxed">{txt.optOutCost}</p>
+          <p className="text-xs text-warn leading-relaxed">{txt.optOutCost}</p>
         </div>
 
         <div className="mt-5 space-y-3">
@@ -545,7 +547,7 @@ export default function SmsSettings() {
               <div
                 key={type}
                 className={`rounded-2xl border p-4 transition-colors ${
-                  on ? "border-line bg-surface" : "border-slate-100 bg-slate-50/70"
+                  on ? "border-line bg-surface" : "border-line bg-surface-subtle"
                 }`}
               >
                 <div className="flex items-center gap-3">
@@ -553,19 +555,19 @@ export default function SmsSettings() {
                     <p className={`text-sm font-black ${on ? "text-ink" : "text-ink-muted"}`}>
                       {eventMeta[type].label}
                     </p>
-                    <p className="text-[11px] font-bold text-slate-400 mt-0.5 leading-relaxed">{eventMeta[type].hint}</p>
+                    <p className="text-[11px] font-bold text-ink-muted mt-0.5 leading-relaxed">{eventMeta[type].hint}</p>
                   </div>
                   <button
                     type="button"
                     onClick={() => void save({ ...settings, events: { ...settings.events, [type]: !on } })}
                     aria-label={`${eventMeta[type].label} — ${on ? txt.eventOn : txt.eventOff}`}
                     className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors shrink-0 ${
-                      on ? "bg-primary-500" : "bg-slate-200"
+                      on ? "bg-accent" : "bg-surface-muted"
                     }`}
                   >
                     <span
-                      className={`inline-block h-5 w-5 transform rounded-full bg-surface transition-transform ${
-                        on ? "translate-x-6" : "translate-x-1"
+                      className={`absolute top-1 h-5 w-5 rounded-full bg-surface transition-all ${
+                        on ? "start-6" : "start-1"
                       }`}
                     />
                   </button>
@@ -580,20 +582,20 @@ export default function SmsSettings() {
                         setSettings({ ...settings, templates: { ...settings.templates, [type]: e.target.value } })
                       }
                       rows={2}
-                      className="mt-3 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-slate-800 outline-none focus:bg-surface focus:border-primary-500 resize-y"
+                      className="mt-3 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-ink outline-none focus:bg-surface focus:border-accent resize-y"
                     />
                     {/* Live cost, because it is otherwise invisible until the bill arrives. */}
                     <div className="mt-2 flex flex-wrap items-center gap-3">
                       <span
                         className={`text-xs font-black px-3 py-1.5 rounded-lg border ${
                           cost.segments > 1
-                            ? "bg-amber-50 text-amber-700 border-amber-200"
-                            : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                            ? "border-warn/25 bg-warn-tint text-warn"
+                            : "border-ok/25 bg-ok-tint text-ok"
                         }`}
                       >
                         {cost.segments} {txt.segments}
                       </span>
-                      <span className="text-xs font-bold text-slate-400">
+                      <span className="text-xs font-bold text-ink-muted">
                         {cost.characters} {txt.characters} · {cost.encoding}
                       </span>
                       <button
@@ -604,7 +606,7 @@ export default function SmsSettings() {
                             templates: { ...settings.templates, [type]: DEFAULT_SMS_TEMPLATES[type] },
                           })
                         }
-                        className="text-xs font-black text-ink-muted hover:text-slate-800 underline underline-offset-2"
+                        className="text-xs font-black text-ink-muted hover:text-ink underline underline-offset-2"
                       >
                         {txt.resetTemplate}
                       </button>
@@ -620,7 +622,7 @@ export default function SmsSettings() {
           type="button"
           onClick={() => void save(settings)}
           disabled={saving}
-          className="mt-5 ms-auto flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest disabled:opacity-50 transition-all"
+          className="mt-5 ms-auto flex items-center gap-2 bg-accent hover:bg-accent-strong text-ink-on-accent px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-widest disabled:opacity-50 transition-all"
         >
           {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} {txt.save}
         </button>
@@ -629,17 +631,17 @@ export default function SmsSettings() {
       {/* Devices */}
       <section className="space-y-1">
         <h3 className="text-lg font-black text-ink flex items-center gap-3">
-          <Smartphone className="text-primary-500" size={20} /> {txt.devicesTitle}
+          <Smartphone className="text-accent" size={20} /> {txt.devicesTitle}
         </h3>
 
         <div className="mt-4">
           {pairingCode ? (
-            <div className="rounded-2xl border-2 border-primary-300 bg-primary-50 p-5 text-center">
-              <p className="text-4xl font-black tracking-[0.35em] text-primary-800 select-all" dir="ltr">
+            <div className="rounded-2xl border-2 border-accent-soft bg-accent-tint p-5 text-center">
+              <p className="text-4xl font-black tracking-[0.35em] text-accent select-all" dir="ltr">
                 {pairingCode}
               </p>
               <p className="mt-3 text-xs font-bold text-ink-body leading-relaxed">{txt.pairIntro}</p>
-              <p className="mt-2 text-[11px] font-black uppercase tracking-widest text-primary-600 animate-pulse">
+              <p className="mt-2 text-[11px] font-black uppercase tracking-widest text-accent animate-pulse">
                 {txt.pairWaiting}
               </p>
             </div>
@@ -648,7 +650,7 @@ export default function SmsSettings() {
               type="button"
               onClick={() => void generatePairingCode()}
               disabled={pairingBusy}
-              className="w-full rounded-2xl bg-slate-900 hover:bg-slate-800 text-white py-3.5 text-xs font-black uppercase tracking-widest disabled:opacity-50 transition-all"
+              className="w-full rounded-2xl bg-accent hover:bg-accent-strong text-ink-on-accent py-3.5 text-xs font-black uppercase tracking-widest disabled:opacity-50 transition-all"
             >
               {pairingBusy ? "…" : txt.pairButton}
             </button>
@@ -661,7 +663,7 @@ export default function SmsSettings() {
 
         <div className="mt-5 space-y-3">
           {devices.length === 0 ? (
-            <p className="text-sm font-bold text-slate-400 text-center py-6">{txt.noDevices}</p>
+            <p className="text-sm font-bold text-ink-muted text-center py-6">{txt.noDevices}</p>
           ) : (
             devices.map((device) => (
               <div
@@ -670,7 +672,7 @@ export default function SmsSettings() {
                   device.enabled ? "border-line bg-surface" : "border-line bg-surface-subtle opacity-60"
                 }`}
               >
-                <Smartphone size={20} className={device.alive ? "text-primary-500" : "text-slate-300"} />
+                <Smartphone size={20} className={device.alive ? "text-accent" : "text-ink-muted"} />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-black text-ink truncate">
                     {device.name}
@@ -678,31 +680,31 @@ export default function SmsSettings() {
                         checking in — flat, out of signal, or killed by battery saver — and that
                         is the case worth surfacing, because the queue silently stops moving. */}
                     {!device.enabled ? (
-                      <span className="ms-2 text-[10px] font-black px-2 py-0.5 rounded-md bg-slate-200 text-ink-muted">
+                      <span className="ms-2 text-[10px] font-black px-2 py-0.5 rounded-md bg-surface-muted text-ink-muted">
                         {txt.revoked}
                       </span>
                     ) : device.alive ? (
-                      <span className="ms-2 text-[10px] font-black px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700">
+                      <span className="ms-2 text-[10px] font-black px-2 py-0.5 rounded-md bg-ok-tint text-ok">
                         {txt.aliveNow}
                       </span>
                     ) : (
-                      <span className="ms-2 text-[10px] font-black px-2 py-0.5 rounded-md bg-amber-100 text-amber-800">
+                      <span className="ms-2 text-[10px] font-black px-2 py-0.5 rounded-md bg-warn-tint text-warn">
                         {txt.notSeen}
                       </span>
                     )}
                   </p>
-                  <p className="text-[11px] font-bold text-slate-400 mt-0.5">
+                  <p className="text-[11px] font-bold text-ink-muted mt-0.5">
                     {txt.lastSeen}: {formatWhen(device.lastSeenAt)}
                   </p>
                   {device.enabled && device.alive && (
                     <p
                       className={`text-[11px] font-black mt-0.5 ${
-                        device.instant ? "text-emerald-600" : "text-amber-700"
+                        device.instant ? "text-ok" : "text-warn"
                       }`}
                     >
                       {device.instant ? `⚡ ${txt.instantOn}` : `🕒 ${txt.instantOff}`}
                       {!device.instant && (
-                        <span className="block font-bold text-slate-400 mt-0.5">
+                        <span className="block font-bold text-ink-muted mt-0.5">
                           {txt.instantOffHint}
                         </span>
                       )}
@@ -713,7 +715,7 @@ export default function SmsSettings() {
                   <button
                     type="button"
                     onClick={() => void unpair(device)}
-                    className="p-2 rounded-lg text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-100 transition-colors"
+                    className="p-2 rounded-lg border border-danger/25 bg-danger-tint text-danger hover:bg-danger-tint/70 transition-colors"
                     title={txt.unpair}
                   >
                     <Trash2 size={15} />
@@ -728,30 +730,30 @@ export default function SmsSettings() {
       {/* Queue */}
       <section className="space-y-1">
         <h3 className="text-lg font-black text-ink flex items-center gap-3">
-          <Clock className="text-primary-500" size={20} /> {txt.queueTitle}
+          <Clock className="text-accent" size={20} /> {txt.queueTitle}
         </h3>
-        <p className="text-xs font-bold text-slate-400 mt-2 leading-relaxed">{txt.queueNote}</p>
+        <p className="mt-2 max-w-2xl text-xs font-bold leading-relaxed text-ink-muted">{txt.queueNote}</p>
 
         <div className="mt-4 space-y-2">
           {messages.length === 0 ? (
-            <p className="text-sm font-bold text-slate-400 text-center py-6">{txt.queueEmpty}</p>
+            <p className="text-sm font-bold text-ink-muted text-center py-6">{txt.queueEmpty}</p>
           ) : (
             messages.map((message) => (
-              <div key={message.id} className="flex items-center gap-3 rounded-xl border border-line bg-slate-50/60 px-4 py-3">
+              <div key={message.id} className="flex items-center gap-3 rounded-xl border border-line bg-surface-subtle px-4 py-3">
                 <span className={`text-[10px] font-black px-2 py-1 rounded-md border shrink-0 ${badgeFor(message).className}`}>
                   {badgeFor(message).label}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold text-slate-800 truncate">
+                  <p className="text-sm font-bold text-ink truncate">
                     {message.patientName || message.to}
                   </p>
-                  <p className="text-[11px] font-medium text-slate-400 truncate">{message.text}</p>
-                  {message.error && <p className="text-[11px] font-bold text-rose-500 truncate">{message.error}</p>}
+                  <p className="text-[11px] font-medium text-ink-muted truncate">{message.text}</p>
+                  {message.error && <p className="text-[11px] font-bold text-danger truncate">{message.error}</p>}
                 </div>
-                <span className="text-[11px] font-bold text-slate-400 shrink-0">
+                <span className="text-[11px] font-bold text-ink-muted shrink-0">
                   {formatWhen(message.sentAt || message.createdAt)}
                 </span>
-                {message.status === "sent" && <CheckCircle2 size={15} className="text-emerald-500 shrink-0" />}
+                {message.status === "sent" && <CheckCircle2 size={15} className="text-ok shrink-0" />}
               </div>
             ))
           )}

@@ -593,6 +593,21 @@ export function summarise(cases: LabCase[], today: string) {
   return { overdue, dueThisWeek, waitingForPatient, atLab, total: cases.length };
 }
 
+
+/**
+ * Whether the clinic asked to be told when a case comes back.
+ *
+ * Lives here rather than beside the Firestore write so it can be tested without a database — and
+ * because it is a policy, not I/O. Absent reads as OFF: a clinic that has never opened the Alerts
+ * screen has not asked to be interrupted, and an alert nobody chose is the kind that teaches
+ * people to ignore the bell.
+ */
+export function wantsLabReadyAlert(
+  alertPreferences: { inApp?: { labReady?: boolean } } | null | undefined
+): boolean {
+  return alertPreferences?.inApp?.labReady === true;
+}
+
 // ---------------------------------------------------------------------------
 // Teeth
 // ---------------------------------------------------------------------------

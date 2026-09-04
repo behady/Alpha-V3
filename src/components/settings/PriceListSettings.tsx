@@ -24,15 +24,13 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { logActivity } from "@/lib/logger";
 import { useAuth } from "@/context/AuthContext";
-import PriceListWorkspace from "@/components/settings/PriceListWorkspace";
 import { LOCATIONS_DOC, parseClinicBranches, type ClinicBranch } from "@/lib/clinicLocations";
+import type { ServiceRow } from "@/components/settings/PricingSettings";
 import {
   DEFAULT_DISCOUNT_REASONS,
   DISCOUNTS_DOC,
   PRICE_LISTS_DOC,
   STANDARD_LIST_ID,
-  parseDiscountSettings,
-  parsePriceLists,
   toStoredLists,
   type DiscountSettings,
   type PriceList,
@@ -48,23 +46,30 @@ function slugify(name: string): string {
   return base || `list_${Date.now()}`;
 }
 
-export default function PriceListSettings({ currency }: { currency: string }) {
+export default function PriceListSettings({
+  currency,
+  view,
+  services,
+  lists,
+  settings,
+  onOpenList,
+}: {
+  currency: string;
+  /** Which half of the price policy this instance shows. The host owns the tab. */
+  view: "lists" | "discounts";
+  services: ServiceRow[];
+  lists: PriceList[];
+  settings: DiscountSettings;
+  onOpenList: (id: string) => void;
+}) {
   const { language, isRTL } = useLanguage();
   const { showToast, confirm } = useUI();
   const { user } = useAuth();
   const ar = language === "ar";
 
-  const [lists, setLists] = useState<PriceList[]>(() => parsePriceLists(null));
-  const [settings, setSettings] = useState<DiscountSettings>(() => parseDiscountSettings(null));
-  const [usedListIds, setUsedListIds] = useState<Set<string>>(new Set());
-  /** listId → how many treatments carry a price of their own on it. */
-  const [pricedCounts, setPricedCounts] = useState<Record<string, number>>({});
-  const [serviceCount, setServiceCount] = useState(0);
   const [saving, setSaving] = useState(false);
   const [newListName, setNewListName] = useState("");
   const [newReason, setNewReason] = useState("");
-  /** Which list is open for pricing. null = the lists overview. */
-  const [openListId, setOpenListId] = useState<string | null>(null);
   const [isNewOpen, setIsNewOpen] = useState(false);
   /** "" = start fresh; otherwise the id of the list whose prices are copied. */
   const [copyFrom, setCopyFrom] = useState("");
@@ -74,41 +79,32 @@ export default function PriceListSettings({ currency }: { currency: string }) {
   const [branches, setBranches] = useState<ClinicBranch[]>([]);
 
   useEffect(() => {
-    const unsubLists = onSnapshot(getClinicDoc("settings", PRICE_LISTS_DOC), (snap) => {
-      setLists(parsePriceLists(snap.exists() ? snap.data() : null));
-    });
-    const unsubDiscounts = onSnapshot(getClinicDoc("settings", DISCOUNTS_DOC), (snap) => {
-      setSettings(parseDiscountSettings(snap.exists() ? snap.data() : null));
-    });
-    // Which lists actually carry a price. A list nothing is priced on can be deleted outright;
-    // one that does must only ever be deactivated, or recorded treatments would point at a list
-    // nobody can look up.
     const unsubBranches = onSnapshot(getClinicDoc("settings", LOCATIONS_DOC), (snap) => {
       setBranches(parseClinicBranches(snap.exists() ? snap.data() : null));
     });
-    const unsubServices = onSnapshot(getClinicCollection("services"), (snap) => {
-      const used = new Set<string>();
-      const counts: Record<string, number> = {};
-      for (const doc of snap.docs) {
-        const prices = doc.data()?.prices;
-        if (prices && typeof prices === "object") {
-          for (const key of Object.keys(prices)) {
-            used.add(key);
-            counts[key] = (counts[key] || 0) + 1;
-          }
+    return () => unsubBranches();
+  }, []);
+
+  /**
+   * Which lists actually carry a price. A list nothing is priced on can be deleted outright;
+   * one that does must only ever be deactivated, or recorded treatments would point at a list
+   * nobody can look up.
+   */
+  const { usedListIds, pricedCounts } = useMemo(() => {
+    const used = new Set<string>();
+    const counts: Record<string, number> = {};
+    for (const service of services) {
+      const prices = service.prices;
+      if (prices && typeof prices === "object") {
+        for (const key of Object.keys(prices)) {
+          used.add(key);
+          counts[key] = (counts[key] || 0) + 1;
         }
       }
-      setUsedListIds(used);
-      setPricedCounts(counts);
-      setServiceCount(snap.size);
-    });
-    return () => {
-      unsubLists();
-      unsubDiscounts();
-      unsubServices();
-      unsubBranches();
-    };
-  }, []);
+    }
+    return { usedListIds: used, pricedCounts: counts };
+  }, [services]);
+  const serviceCount = services.length;
 
 
   const txt = {
@@ -275,7 +271,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
       setIsNewOpen(false);
       // Straight into pricing it — that is the next thing anyone wants, and the reason the old
       // flow felt unfinished was that creating a list left you looking at the list of lists.
-      setOpenListId(id);
+      onOpenList(id);
     } catch {
       showToast(txt.failed, "error");
     } finally {
@@ -369,26 +365,26 @@ export default function PriceListSettings({ currency }: { currency: string }) {
         <li
           key={list.id}
           className={`flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 ${
-            list.active ? "border-line bg-slate-50/60" : "border-line bg-slate-100/60 opacity-70"
+            list.active ? "border-line bg-surface-subtle" : "border-line bg-surface-muted opacity-70"
           }`}
         >
           <div className="min-w-0 flex-1">
-            <p className="flex items-center gap-2 truncate text-sm font-black text-slate-800">
+            <p className="flex items-center gap-2 truncate text-sm font-black text-ink">
               {ar && list.nameAr ? list.nameAr : list.name}
               {list.isDefault && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-primary-100 px-2 py-0.5 text-[10px] font-black text-primary-700">
+                <span className="inline-flex items-center gap-1 rounded-full bg-accent-tint px-2 py-0.5 text-[10px] font-black text-accent">
                   <Star size={9} /> {txt.isDefault}
                 </span>
               )}
               {!list.active && (
-                <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-black text-ink-body">
+                <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[10px] font-black text-ink-body">
                   {txt.inactive}
                 </span>
               )}
             </p>
-            <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-slate-400">
+            <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-ink-muted">
               {branches.length > 1 && (
-                <span className="inline-flex items-center gap-1 rounded bg-slate-200/70 px-1.5 py-0.5 text-[10px] font-bold text-ink-body">
+                <span className="inline-flex items-center gap-1 rounded bg-surface-muted px-1.5 py-0.5 text-[10px] font-bold text-ink-body">
                   {list.branchId ? <Building2 size={9} /> : <Layers size={9} />}
                   {list.branchId ? branchName(list.branchId) : txt.clinicWide}
                 </span>
@@ -404,7 +400,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
           </div>
 
           <label className="flex items-center gap-2">
-            <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">{txt.blanket}</span>
+            <span className="text-[11px] font-black uppercase tracking-wider text-ink-muted">{txt.blanket}</span>
             <span className="relative">
               <input
                 type="number"
@@ -413,9 +409,9 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                 defaultValue={list.generalDiscountPercent}
                 disabled={saving}
                 onBlur={(e) => setBlanket(list, Number(e.target.value))}
-                className="w-20 rounded-xl border border-line bg-surface py-1.5 pl-2 pr-6 text-sm font-bold tabular-nums text-slate-700 outline-none focus:border-primary-500 disabled:opacity-60"
+                className="w-20 rounded-xl border border-line bg-surface py-1.5 pl-2 pr-6 text-sm font-bold tabular-nums text-ink-body outline-none focus:border-accent disabled:opacity-60"
               />
-              <Percent size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Percent size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-muted" />
             </span>
           </label>
 
@@ -424,9 +420,9 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                 treatment's own edit dialog, which is why nobody could find it. */}
             <button
               type="button"
-              onClick={() => setOpenListId(list.id)}
+              onClick={() => onOpenList(list.id)}
               disabled={saving}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-[11px] font-bold text-white transition hover:bg-slate-800 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-[11px] font-bold text-ink-on-accent transition hover:bg-accent-strong disabled:opacity-50"
             >
               <SlidersHorizontal size={12} /> {txt.editPrices}
             </button>
@@ -435,7 +431,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                 type="button"
                 onClick={() => makeDefault(list)}
                 disabled={saving}
-                className="rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-ink-muted transition hover:bg-surface hover:text-primary-700 disabled:opacity-50"
+                className="rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-ink-muted transition hover:bg-surface hover:text-accent disabled:opacity-50"
               >
                 {txt.makeDefault}
               </button>
@@ -444,7 +440,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
               type="button"
               onClick={() => toggleActive(list)}
               disabled={saving}
-              className="rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-ink-muted transition hover:bg-surface hover:text-slate-800 disabled:opacity-50"
+              className="rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-ink-muted transition hover:bg-surface hover:text-ink disabled:opacity-50"
             >
               {list.active ? txt.deactivate : txt.activate}
             </button>
@@ -454,7 +450,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
               disabled={saving || usedListIds.has(list.id) || list.isDefault}
               title={usedListIds.has(list.id) ? txt.inUse : undefined}
               aria-label={txt.remove}
-              className="rounded-lg p-1.5 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-30"
+              className="rounded-lg p-1.5 text-ink-muted transition hover:bg-danger-tint hover:text-danger disabled:cursor-not-allowed disabled:opacity-30"
             >
               <Trash2 size={14} />
             </button>
@@ -462,33 +458,26 @@ export default function PriceListSettings({ currency }: { currency: string }) {
         </li>
   );
 
-  // Pricing a list takes the whole screen. It is a table of every treatment the clinic offers, and
-  // squeezing that into a panel under the lists is what made it unusable in the first place.
-  const openList = openListId ? lists.find((l) => l.id === openListId) : null;
-  if (openList) {
-    return <PriceListWorkspace list={openList} currency={currency} onBack={() => setOpenListId(null)} />;
-  }
-
   return (
     <div className="space-y-6" dir={ar ? "rtl" : "ltr"}>
-      {/* --- lists --- */}
-      <section className="rounded-3xl border border-line bg-surface p-5 shadow-sm">
+      {view === "lists" && (
+      <section>
         <header className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <h3 className="flex items-center gap-2 text-base font-black text-slate-800">
-              <Tag size={16} className="text-primary-600" />
+            <h3 className="flex items-center gap-2 text-base font-black text-ink">
+              <Tag size={16} className="text-accent" />
               {txt.title}
             </h3>
             <p className="mt-1 max-w-prose text-xs font-medium text-ink-muted">{txt.subtitle}</p>
           </div>
-          {saving && <Loader2 size={16} className="animate-spin text-slate-400" />}
+          {saving && <Loader2 size={16} className="animate-spin text-ink-muted" />}
         </header>
 
         {/* Clinic-wide first: the lists every branch may charge. */}
         {grouped.clinicWide.length > 0 && (
           <section>
             {branches.length > 1 && (
-              <h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-slate-400">
+              <h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-ink-muted">
                 <Layers size={12} /> {txt.clinicWide}
               </h4>
             )}
@@ -501,13 +490,13 @@ export default function PriceListSettings({ currency }: { currency: string }) {
         {branches.length > 1 &&
           grouped.byBranch.map(({ branch, items }) => (
             <section key={branch.id} className="mt-5">
-              <h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-slate-400">
-                <Building2 size={12} className="text-primary-600" /> {branch.name}
+              <h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-ink-muted">
+                <Building2 size={12} className="text-accent" /> {branch.name}
               </h4>
               {items.length > 0 ? (
                 <ul className="space-y-2">{items.map(renderList)}</ul>
               ) : (
-                <p className="rounded-2xl border border-dashed border-line bg-slate-50/50 px-4 py-3 text-[11px] font-bold text-slate-400">
+                <p className="rounded-2xl border border-dashed border-line bg-surface-subtle px-4 py-3 text-[11px] font-bold text-ink-muted">
                   {txt.branchInherits}
                 </p>
               )}
@@ -516,7 +505,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
 
         {grouped.orphaned.length > 0 && (
           <section className="mt-5">
-            <h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-amber-600">
+            <h4 className="mb-2 flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider text-warn">
               <Building2 size={12} /> {txt.orphaned}
             </h4>
             <ul className="space-y-2">{grouped.orphaned.map(renderList)}</ul>
@@ -527,16 +516,17 @@ export default function PriceListSettings({ currency }: { currency: string }) {
           type="button"
           data-tour="price-new-list" onClick={() => setIsNewOpen(true)}
           disabled={saving}
-          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-line-strong bg-slate-50/50 px-4 py-3 text-sm font-bold text-ink-body transition hover:border-primary-400 hover:bg-surface hover:text-primary-700 disabled:opacity-50"
+          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-line-strong bg-surface-subtle px-4 py-3 text-sm font-bold text-ink-body transition hover:border-accent-soft hover:bg-surface hover:text-accent disabled:opacity-50"
         >
           <Plus size={15} /> {txt.addList}
         </button>
       </section>
+      )}
 
-      {/* --- reasons + ceiling --- */}
-      <section className="rounded-3xl border border-line bg-surface p-5 shadow-sm">
+      {view === "discounts" && (
+      <section>
         <header className="mb-4">
-          <h3 className="text-base font-black text-slate-800">{txt.reasonsTitle}</h3>
+          <h3 className="text-base font-black text-ink">{txt.reasonsTitle}</h3>
           <p className="mt-1 max-w-prose text-xs font-medium text-ink-muted">{txt.reasonsSub}</p>
         </header>
 
@@ -544,7 +534,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
           {settings.reasons.map((reason) => (
             <span
               key={reason}
-              className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-subtle py-1 pl-3 pr-1.5 text-xs font-bold text-slate-700"
+              className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-subtle py-1 pl-3 pr-1.5 text-xs font-bold text-ink-body"
             >
               {reason}
               <button
@@ -552,7 +542,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                 onClick={() => removeReason(reason)}
                 disabled={saving}
                 aria-label={`${txt.remove} ${reason}`}
-                className="rounded-full p-0.5 text-slate-400 transition hover:bg-rose-100 hover:text-rose-600 disabled:opacity-40"
+                className="rounded-full p-0.5 text-ink-muted transition hover:bg-danger-tint hover:text-danger disabled:opacity-40"
               >
                 <X size={12} />
               </button>
@@ -567,20 +557,20 @@ export default function PriceListSettings({ currency }: { currency: string }) {
             onKeyDown={(e) => e.key === "Enter" && addReason()}
             placeholder={txt.addReason}
             disabled={saving}
-            className="flex-1 rounded-xl border border-line bg-slate-50/50 px-3 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-primary-500 focus:bg-surface disabled:opacity-60"
+            className="flex-1 rounded-xl border border-line bg-surface-subtle px-3 py-2.5 text-sm font-bold text-ink-body outline-none focus:border-accent focus:bg-surface disabled:opacity-60"
           />
           <button
             type="button"
             onClick={addReason}
             disabled={saving || !newReason.trim()}
-            className="flex items-center gap-1.5 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-surface-subtle disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-bold text-ink-body transition hover:bg-surface-subtle disabled:opacity-50"
           >
             <Check size={15} />
           </button>
         </div>
 
-        <div className="mt-6 border-t border-slate-100 pt-5">
-          <h4 className="text-sm font-black text-slate-800">{txt.capTitle}</h4>
+        <div className="mt-6 border-t border-line pt-5">
+          <h4 className="text-sm font-black text-ink">{txt.capTitle}</h4>
           <p className="mt-1 max-w-prose text-xs font-medium text-ink-muted">{txt.capSub}</p>
           <div className="mt-3 flex items-center gap-3">
             <span className="relative">
@@ -597,9 +587,9 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                     `Set the non-Admin discount ceiling to ${e.target.value}%`
                   )
                 }
-                className="w-24 rounded-xl border border-line bg-slate-50/50 py-2 pl-3 pr-7 text-sm font-bold tabular-nums text-slate-700 outline-none focus:border-primary-500 focus:bg-surface disabled:opacity-50"
+                className="w-24 rounded-xl border border-line bg-surface-subtle py-2 pl-3 pr-7 text-sm font-bold tabular-nums text-ink-body outline-none focus:border-accent focus:bg-surface disabled:opacity-50"
               />
-              <Percent size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Percent size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-muted" />
             </span>
             <label className="flex cursor-pointer items-center gap-2 text-xs font-bold text-ink-body">
               <input
@@ -615,24 +605,25 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                     e.target.checked ? "Removed the non-Admin discount ceiling" : "Restored the non-Admin discount ceiling"
                   )
                 }
-                className="h-4 w-4 rounded border-line-strong text-primary-600 focus:ring-primary-500"
+                className="h-4 w-4 rounded border-line-strong text-accent focus:ring-accent"
               />
               {txt.noCap}
             </label>
           </div>
         </div>
       </section>
+      )}
 
       {/* --- new list --- */}
       {isNewOpen && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
-          <div className="flex max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-[2rem] border border-slate-100 bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-100 px-6 pb-4 pt-5">
-              <h3 className="text-lg font-black tracking-tight text-slate-900">{txt.newListTitle}</h3>
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-ink/40 p-4 backdrop-blur-sm">
+          <div className="flex max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-[2rem] border border-line bg-surface shadow-2xl">
+            <div className="flex items-center justify-between border-b border-line px-6 pb-4 pt-5">
+              <h3 className="text-lg font-black tracking-tight text-ink">{txt.newListTitle}</h3>
               <button
                 type="button"
                 onClick={() => setIsNewOpen(false)}
-                className="rounded-full bg-surface-subtle p-2 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-500"
+                className="rounded-full bg-surface-subtle p-2 text-ink-muted transition-colors hover:bg-danger-tint hover:text-danger"
               >
                 <X size={17} />
               </button>
@@ -647,7 +638,7 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                   onChange={(e) => setNewListName(e.target.value)}
                   placeholder={txt.listNamePlaceholder}
                   disabled={saving}
-                  className="w-full rounded-xl border border-line bg-surface-subtle px-4 py-3 text-sm font-semibold text-ink outline-none transition-all focus:border-primary-500 focus:bg-surface disabled:opacity-60"
+                  className="w-full rounded-xl border border-line bg-surface-subtle px-4 py-3 text-sm font-semibold text-ink outline-none transition-all focus:border-accent focus:bg-surface disabled:opacity-60"
                 />
               </div>
 
@@ -661,14 +652,14 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                     value={newBranchId}
                     onChange={(e) => setNewBranchId(e.target.value)}
                     disabled={saving}
-                    className="w-full rounded-xl border border-line bg-surface-subtle px-4 py-3 text-sm font-semibold text-ink outline-none transition-all focus:border-primary-500 focus:bg-surface disabled:opacity-60"
+                    className="w-full rounded-xl border border-line bg-surface-subtle px-4 py-3 text-sm font-semibold text-ink outline-none transition-all focus:border-accent focus:bg-surface disabled:opacity-60"
                   >
                     <option value="">{txt.branchAll}</option>
                     {branches.map((b) => (
                       <option key={b.id} value={b.id}>{b.name}</option>
                     ))}
                   </select>
-                  <p className="text-[11px] font-medium text-slate-400">{txt.branchHint}</p>
+                  <p className="text-[11px] font-medium text-ink-muted">{txt.branchHint}</p>
                 </div>
               )}
 
@@ -679,10 +670,10 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                     type="button"
                     onClick={() => setCopyFrom("")}
                     className={`w-full rounded-xl border px-4 py-3 text-start transition-all ${
-                      copyFrom === "" ? "border-primary-500 bg-primary-50" : "border-line bg-surface-subtle hover:border-line-strong"
+                      copyFrom === "" ? "border-accent bg-accent-tint" : "border-line bg-surface-subtle hover:border-line-strong"
                     }`}
                   >
-                    <span className="flex items-center gap-2 text-sm font-bold text-slate-800">
+                    <span className="flex items-center gap-2 text-sm font-bold text-ink">
                       <Plus size={14} /> {txt.fresh}
                     </span>
                     <span className="mt-0.5 block text-[11px] font-medium text-ink-muted">{txt.freshHint}</span>
@@ -694,10 +685,10 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                       key={l.id}
                       onClick={() => setCopyFrom(l.id)}
                       className={`w-full rounded-xl border px-4 py-3 text-start transition-all ${
-                        copyFrom === l.id ? "border-primary-500 bg-primary-50" : "border-line bg-surface-subtle hover:border-line-strong"
+                        copyFrom === l.id ? "border-accent bg-accent-tint" : "border-line bg-surface-subtle hover:border-line-strong"
                       }`}
                     >
-                      <span className="flex items-center gap-2 text-sm font-bold text-slate-800">
+                      <span className="flex items-center gap-2 text-sm font-bold text-ink">
                         <Copy size={14} /> {txt.copyOf(ar && l.nameAr ? l.nameAr : l.name)}
                       </span>
                       <span className="mt-0.5 block text-[11px] font-medium text-ink-muted">{txt.copyHint}</span>
@@ -716,15 +707,15 @@ export default function PriceListSettings({ currency }: { currency: string }) {
                     value={newBlanket}
                     onChange={(e) => setNewBlanket(e.target.value)}
                     disabled={saving}
-                    className="w-full rounded-xl border border-line bg-surface-subtle py-3 pl-4 pr-9 text-sm font-bold tabular-nums text-ink outline-none transition-all focus:border-primary-500 focus:bg-surface disabled:opacity-60"
+                    className="w-full rounded-xl border border-line bg-surface-subtle py-3 pl-4 pr-9 text-sm font-bold tabular-nums text-ink outline-none transition-all focus:border-accent focus:bg-surface disabled:opacity-60"
                   />
-                  <Percent size={13} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? "left-3.5" : "right-3.5"}`} />
+                  <Percent size={13} className={`absolute top-1/2 -translate-y-1/2 text-ink-muted ${isRTL ? "left-3.5" : "right-3.5"}`} />
                 </span>
-                <p className="text-[11px] font-medium text-slate-400">{txt.subtitle}</p>
+                <p className="text-[11px] font-medium text-ink-muted">{txt.subtitle}</p>
               </div>
             </div>
 
-            <div className="border-t border-slate-100 px-6 py-4">
+            <div className="border-t border-line px-6 py-4">
               <button
                 type="button"
                 onClick={addList}

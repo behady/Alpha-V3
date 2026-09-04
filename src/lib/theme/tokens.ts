@@ -45,6 +45,9 @@ export const ROLE_TOKENS = [
   "ink", "ink-slab", "ink-strong", "ink-body", "ink-muted", "ink-faint", "ink-on-accent",
   "accent", "accent-soft", "accent-strong", "accent-tint",
   "ok", "ok-tint", "warn", "warn-tint", "danger", "danger-tint", "info", "info-tint",
+  // The four settings groups. Colour that says which family a screen belongs to, and
+  // nothing else: never a status, never an action.
+  "tone-personal", "tone-clinic", "tone-people", "tone-system",
 ] as const;
 
 export type RoleToken = (typeof ROLE_TOKENS)[number];

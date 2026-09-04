@@ -225,6 +225,13 @@ class AppViewModel : ViewModel() {
     private var cursor: DocumentSnapshot? = null
 
     init {
+        // The remembered language, before anything is drawn. AppearanceStore is
+        // initialised in Application.onCreate, so this is always the stored value
+        // rather than the data class default.
+        _state.value = _state.value.copy(
+            arabic = com.alphadental.clinic.ui.AppearanceStore.state.value.arabic,
+        )
+
         // A signed-in user should never see the login screen again just because the
         // app was closed — Firebase keeps the session, so restore it silently.
         if (Repository.isSignedIn()) {
@@ -323,8 +330,18 @@ class AppViewModel : ViewModel() {
         if (tab == Tab.MONEY) loadFinance()
     }
 
+    /**
+     * Switch the interface between English and Arabic, and remember it.
+     *
+     * The flag used to live only in this view model, which Android rebuilds with
+     * every process — so the choice survived exactly as long as the app stayed in
+     * memory, and an Arabic-speaking clinic re-picked Arabic every morning. It is
+     * stored beside the theme now, and read back before the first screen is drawn.
+     */
     fun toggleLanguage() {
-        _state.value = _state.value.copy(arabic = !_state.value.arabic)
+        val next = !_state.value.arabic
+        com.alphadental.clinic.ui.AppearanceStore.setArabic(next)
+        _state.value = _state.value.copy(arabic = next)
     }
 
     fun shiftDay(days: Int) {
@@ -1027,7 +1044,7 @@ class AppViewModel : ViewModel() {
      */
     fun refreshBriefing() {
         val session = _state.value.session ?: return
-        if (!(session.isAdmin || session.isReception)) return
+        if (!session.can("access.finance")) return
         if (_state.value.loadingBriefing) return
 
         _state.value = _state.value.copy(loadingBriefing = true, briefingError = null)
@@ -1165,17 +1182,17 @@ class AppViewModel : ViewModel() {
                 selectTab(Tab.PATIENTS); done(if (arabic) "تم فتح قائمة المرضى." else "Opening the patients list.")
             }
             is com.alphadental.clinic.ai.NavIntent.Target.Money -> {
-                if (session.isAdmin || session.isReception) {
+                if (session.can("access.finance")) {
                     selectTab(Tab.MONEY); done(if (arabic) "تم فتح الحسابات." else "Opening finance.")
                 } else refused()
             }
             is com.alphadental.clinic.ai.NavIntent.Target.Leads -> {
-                if (session.isAdmin || session.isReception) {
+                if (session.can("access.marketing")) {
                     openLeads(); done(if (arabic) "تم فتح العملاء المحتملين." else "Opening the leads inbox.")
                 } else refused()
             }
             is com.alphadental.clinic.ai.NavIntent.Target.Reports -> {
-                if (session.isAdmin || session.isReception) {
+                if (session.can("access.reports")) {
                     openReports(); done(if (arabic) "تم فتح التقارير." else "Opening reports.")
                 } else refused()
             }
@@ -1254,7 +1271,7 @@ class AppViewModel : ViewModel() {
             return buildPayrollReport(session.clinicId, context, period, label, arabic)
         }
 
-        if (!(session.isAdmin || session.isReception)) {
+        if (!session.can("access.finance")) {
             val reply = if (arabic) {
                 "تقارير أموال العيادة متاحة للمدير والاستقبال فقط، فلا أستطيع إنشاءها من حسابك."
             } else {
@@ -2003,7 +2020,7 @@ class AppViewModel : ViewModel() {
 
     private fun refreshTakings() {
         val session = _state.value.session ?: return
-        if (!(session.isAdmin || session.isReception)) return
+        if (!session.can("access.finance")) return
 
         viewModelScope.launch {
             val total = runCatching { Repository.takingsOn(session.clinicId, today()) }.getOrNull()

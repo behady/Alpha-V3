@@ -22,6 +22,7 @@ import {
   FlaskConical,
   Inbox,
   Loader2,
+  MessageCircle,
   Pencil,
   Plus,
   Printer,
@@ -36,6 +37,8 @@ import LabAccountsPanel from "@/components/lab/LabAccountsPanel";
 import LabRemakeModal from "@/components/lab/LabRemakeModal";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
+import { useClinic } from "@/context/ClinicContext";
+import { useRouter } from "next/navigation";
 import { useUI } from "@/context/UIContext";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { useActiveBranch } from "@/lib/useActiveBranch";
@@ -63,6 +66,10 @@ import {
 import { advanceLabCase, createRemake } from "@/lib/labCaseWrite";
 import { LAB_PAYMENTS_COLLECTION, type LabPayment } from "@/lib/labAccounts";
 import { loadLabOrderClinic, printLabOrder } from "@/lib/labOrderPrint";
+import { notifyLabCaseReady } from "@/lib/labNotify";
+import { buildLabOrderMessage } from "@/lib/labMessages";
+import { labMessagingNumber, findLab } from "@/lib/dentalLabs";
+import { openWhatsAppWithText } from "@/lib/whatsappManual";
 
 /**
  * "out" is not a status, it is the two statuses that mean the case is physically at a lab.
@@ -95,6 +102,8 @@ const DUE_STYLE: Record<DueState, { pill: string; en: (n: number) => string; ar:
 export default function LabTrackingPage() {
   const { language, isRTL } = useLanguage();
   const { user } = useAuth();
+  const { clinic } = useClinic();
+  const router = useRouter();
   const { showToast, confirm } = useUI();
   const { branches, matches, activeBranchId } = useActiveBranch();
   const isAr = language === "ar";
@@ -115,6 +124,8 @@ export default function LabTrackingPage() {
   const [view, setView] = useState<"cases" | "money">("cases");
   const [payments, setPayments] = useState<LabPayment[]>([]);
   const [remaking, setRemaking] = useState<LabCase | null>(null);
+  /** The case that just came back, held so reception can be asked about the fitting. */
+  const [arrived, setArrived] = useState<LabCase | null>(null);
 
   const today = localYmd();
 
@@ -183,8 +194,8 @@ export default function LabTrackingPage() {
     async (labCase: LabCase) => {
       setBusyId(labCase.id);
       try {
-        const clinic = await loadLabOrderClinic(labCase.branchName);
-        await printLabOrder({ labCase, clinic, language, paper });
+        const clinicHeader = await loadLabOrderClinic(labCase.branchName);
+        await printLabOrder({ labCase, clinic: clinicHeader, language, paper });
         showToast(isAr ? "بيفتح أمر المعمل للطباعة" : "Opening the lab order to print", "success");
       } catch (err) {
         console.error("Lab order print failed", err);
@@ -196,18 +207,51 @@ export default function LabTrackingPage() {
     [language, paper, showToast, isAr]
   );
 
+  /**
+   * Send the order to the lab on WhatsApp.
+   *
+   * Nothing is awaited before the window opens. Browsers only allow `window.open` during a real
+   * click, and the moment this hands off to a promise the popup is blocked — so the message is
+   * built from what is already in memory and opened synchronously.
+   *
+   * A lab is a business the clinic buys from, so this deliberately does not go through the patient
+   * messaging path: there is no opt-out to honour on a work order, and the footer that path staples
+   * on exists to protect patients from their clinic.
+   */
+  const handleWhatsApp = useCallback(
+    (labCase: LabCase) => {
+      const lab = findLab(labs, labCase.labId);
+      const number = labMessagingNumber(lab);
+      if (!number) {
+        showToast(
+          isAr
+            ? `مفيش رقم واتساب لـ ${labCase.labName} — ضيفه في الإعدادات ← المعامل`
+            : `No WhatsApp number for ${labCase.labName} — add one in Settings → Dental Labs`,
+          "error"
+        );
+        return;
+      }
+      openWhatsAppWithText(number, buildLabOrderMessage(labCase, clinic?.name || "", language));
+    },
+    [labs, clinic, language, showToast, isAr]
+  );
+
   const handleAdvance = useCallback(
     async (labCase: LabCase, next: LabCaseStatus) => {
       setBusyId(labCase.id);
       try {
         await advanceLabCase(labCase, next, { by: user?.name });
         if (next === "back") {
+          // The bell, and then the person. The alert is for whoever is not looking at this screen;
+          // the prompt is for whoever just clicked, because they are the one holding the case.
+          void notifyLabCaseReady(labCase, language, clinic?.alertPreferences);
           showToast(
             isAr
               ? `${labCase.code} وصلت — كلّم المريض واحجزله التركيب`
               : `${labCase.code} is back — call the patient and book the fitting`,
             "success"
           );
+          setArrived(labCase);
         } else {
           showToast(`${labCase.code} · ${statusLabel(next, language)}`, "success");
         }
@@ -218,7 +262,7 @@ export default function LabTrackingPage() {
         setBusyId("");
       }
     },
-    [user, showToast, isAr, language]
+    [user, showToast, isAr, language, clinic]
   );
 
   /** Opens the dialog. The work happens in `confirmRemake` once fault and price are answered. */
@@ -473,6 +517,7 @@ export default function LabTrackingPage() {
                     language={language}
                     busy={busyId === c.id}
                     onPrint={() => void handlePrint(c)}
+                    onWhatsApp={() => handleWhatsApp(c)}
                     onEdit={() => {
                       setEditing(c);
                       setModalOpen(true);
@@ -488,6 +533,70 @@ export default function LabTrackingPage() {
           )}
         </div>
       </div>
+
+      {/* The moment a case is signed back in, reception is holding it and the patient does not
+          know it exists. This is the shortest path from "it arrived" to "they have an appointment"
+          — the pile of finished work waiting in a drawer is what the whole feature exists to
+          prevent, and it forms one case at a time, right here. */}
+      {arrived && (
+        <div className="fixed inset-x-0 bottom-0 z-40 p-4 sm:p-6 pointer-events-none animate-in slide-in-from-bottom">
+          <div className="max-w-lg mx-auto bg-slate-900 text-white rounded-2xl shadow-2xl border border-slate-700 p-4 flex items-start gap-3 pointer-events-auto">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-300 flex items-center justify-center shrink-0">
+              <Inbox size={20} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-black tracking-tight">
+                {arrived.code} {isAr ? "وصلت" : "is back"}
+              </p>
+              <p className="text-xs font-semibold text-slate-400 mt-0.5 leading-relaxed">
+                {arrived.patientName
+                  ? isAr
+                    ? `كلّم ${arrived.patientName} واحجزله ميعاد التركيب.`
+                    : `Call ${arrived.patientName} and book the fitting.`
+                  : isAr
+                    ? "الحالة دي مش مربوطة بمريض، فمفيش حد نكلّمه."
+                    : "This case has no patient attached, so there is nobody to call."}
+              </p>
+              <div className="flex items-center gap-2 mt-3 flex-wrap">
+                {arrived.patientId && (
+                  <button
+                    onClick={() => {
+                      const id = arrived.patientId;
+                      setArrived(null);
+                      router.push(`/patients/${id}`);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-white text-slate-900 text-[11px] font-black uppercase tracking-wide hover:bg-slate-200 transition-colors"
+                  >
+                    {isAr ? "افتح ملف المريض" : "Open the patient"}
+                  </button>
+                )}
+                {arrived.patientPhone && (
+                  <a
+                    href={`tel:${arrived.patientPhone}`}
+                    onClick={() => setArrived(null)}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-[11px] font-black uppercase tracking-wide hover:bg-emerald-700 transition-colors"
+                  >
+                    {isAr ? "اتصل" : "Call"}
+                  </a>
+                )}
+                <button
+                  onClick={() => setArrived(null)}
+                  className="px-3 py-2 rounded-xl text-[11px] font-black uppercase tracking-wide text-slate-400 hover:text-white transition-colors"
+                >
+                  {isAr ? "بعدين" : "Later"}
+                </button>
+              </div>
+            </div>
+            <button
+              onClick={() => setArrived(null)}
+              className="p-1 text-slate-500 hover:text-white transition-colors shrink-0"
+              aria-label={isAr ? "إغلاق" : "Dismiss"}
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      )}
 
       <LabRemakeModal
         open={Boolean(remaking)}
@@ -561,6 +670,7 @@ function CaseRow({
   language,
   busy,
   onPrint,
+  onWhatsApp,
   onEdit,
   onAdvance,
   onRemake,
@@ -570,6 +680,7 @@ function CaseRow({
   language: "en" | "ar";
   busy: boolean;
   onPrint: () => void;
+  onWhatsApp: () => void;
   onEdit: () => void;
   onAdvance: (next: LabCaseStatus) => void;
   onRemake: () => void;
@@ -650,6 +761,14 @@ function CaseRow({
               title={isAr ? "طباعة الأمر" : "Print the order"}
             >
               <Printer size={16} />
+            </button>
+            <button
+              onClick={onWhatsApp}
+              className="p-2 text-ink-muted hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+              aria-label={isAr ? "ابعت للمعمل على واتساب" : "Send to the lab on WhatsApp"}
+              title={isAr ? "ابعت للمعمل على واتساب" : "Send to the lab on WhatsApp"}
+            >
+              <MessageCircle size={16} />
             </button>
             <button
               onClick={onEdit}

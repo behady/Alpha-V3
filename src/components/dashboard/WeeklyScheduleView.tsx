@@ -67,18 +67,18 @@ export default function WeeklyScheduleView({ appointments, currentDate, language
     }, [bounds, slotDuration, language]);
 
     return (
-        <div className="flex flex-col min-w-[800px] h-full bg-white/40 backdrop-blur-xl rounded-[2rem] border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.02)] overflow-hidden">
+        <div className="flex flex-col min-w-[800px] h-full bg-gradient-to-br from-amber-50/40 via-white/40 to-white/60 backdrop-blur-2xl rounded-[2.5rem] border border-amber-100/50 shadow-[0_12px_40px_rgba(245,158,11,0.05)] overflow-hidden ring-1 ring-white/60">
             {/* Header Row (Days of Week) */}
-            <div className="flex border-b border-white/60 shadow-sm shrink-0 bg-white/30 backdrop-blur-md sticky top-0 z-20">
-                <div className="w-[84px] md:w-[100px] shrink-0 border-e border-white/60"></div>
+            <div className="flex border-b border-amber-100/50 shadow-sm shrink-0 bg-white/40 backdrop-blur-xl sticky top-0 z-20">
+                <div className="w-[84px] md:w-[100px] shrink-0 border-e border-amber-100/50"></div>
                 {weekDates.map((d, i) => {
                     const isToday = new Date().toISOString().split('T')[0] === d.toISOString().split('T')[0];
                     return (
-                        <div key={i} className={`flex-1 min-w-0 border-e border-white/40 last:border-e-0 p-2 md:p-3 text-center flex flex-col items-center justify-center ${isToday ? 'bg-primary-50/50' : ''}`}>
-                            <span className={`text-xs md:text-sm font-bold uppercase tracking-wider ${isToday ? 'text-primary-600' : 'text-ink-muted'}`}>
+                        <div key={i} className={`flex-1 min-w-0 border-e border-amber-100/40 last:border-e-0 p-2 md:p-3 text-center flex flex-col items-center justify-center transition-all duration-300 ${isToday ? 'bg-gradient-to-b from-amber-100/60 to-amber-50/90 shadow-[inset_0_-3px_0_rgba(245,158,11,0.6)]' : 'hover:bg-white/50'}`}>
+                            <span className={`text-xs md:text-sm font-bold uppercase tracking-widest ${isToday ? 'text-amber-700' : 'text-slate-400'}`}>
                                 {d.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { weekday: 'short' })}
                             </span>
-                            <span className={`text-xl md:text-2xl font-light mt-0.5 ${isToday ? 'text-primary-700 font-bold' : 'text-slate-800'}`}>
+                            <span className={`text-xl md:text-2xl font-black mt-0.5 ${isToday ? 'text-amber-600 drop-shadow-sm' : 'text-slate-700'}`}>
                                 {d.getDate()}
                             </span>
                         </div>
@@ -90,10 +90,10 @@ export default function WeeklyScheduleView({ appointments, currentDate, language
             <div className="flex-1 overflow-y-auto custom-scrollbar relative">
                 <div className="relative" style={{ height: `${containerHeight}px` }}>
                     {/* Time Labels Column */}
-                    <div className="absolute inset-y-0 start-0 w-[84px] md:w-[100px] border-e border-white/60 flex flex-col pointer-events-none z-10 bg-white/20 backdrop-blur-sm">
+                    <div className="absolute inset-y-0 start-0 w-[84px] md:w-[100px] border-e border-amber-100/50 flex flex-col pointer-events-none z-10 bg-gradient-to-r from-amber-50/30 to-white/20 backdrop-blur-md">
                         {timeSlots.map((slot, idx) => (
                             <div key={idx} className="relative flex-1" style={{ height: `${rowHeight}px` }}>
-                                <div className={`absolute end-2 md:end-3 text-xs font-bold text-ink-muted ${idx === 0 ? 'top-4' : 'top-0 -translate-y-1/2'}`}>
+                                <div className={`absolute end-2 md:end-3 text-[10px] md:text-xs font-black uppercase tracking-widest text-slate-400 ${idx === 0 ? 'top-4' : 'top-0 -translate-y-1/2'}`}>
                                     {slot.label}
                                 </div>
                             </div>
@@ -134,7 +134,7 @@ export default function WeeklyScheduleView({ appointments, currentDate, language
                                         {timeSlots.map((slot, idx) => (
                                             <div 
                                                 key={idx} 
-                                                className="flex-1 border-b border-dashed border-slate-300/60 cursor-pointer hover:bg-white/40 transition-colors"
+                                                className="flex-1 border-b border-dashed border-amber-200/40 cursor-pointer hover:bg-amber-50/50 transition-colors"
                                                 onClick={() => onSelectAppointment(null, slot.value, dateStr)}
                                             ></div>
                                         ))}

@@ -10,6 +10,12 @@ WhatsApp does not let any outside program send messages for a clinic. So the sys
 
 That is what this screen is — a short list of messages already written, waiting for someone to send them.
 
+## Where to find it
+
+The **sparkle** icon at the bottom of the sidebar, then the **Messages** tab.
+
+It used to be its own icon in the sidebar. It now shares a page with *The Brief* and *No-Shows* — the three things the system worked out on its own — so the sidebar is shorter. The old link still works and lands you on the right tab.
+
 ![Messages waiting to be sent](/help/en/messages.png)
 
 ## Sending one

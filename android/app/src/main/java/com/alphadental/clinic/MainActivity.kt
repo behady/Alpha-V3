@@ -302,8 +302,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             target.patientId != null -> viewModel.openPatient(target.patientId)
                             else -> when (target.screen) {
                                 "day" -> viewModel.selectTab(Tab.DAY)
-                                "money" -> if (session.isAdmin || session.isReception) viewModel.selectTab(Tab.MONEY)
-                                "leads" -> if (session.isAdmin || session.isReception) viewModel.openLeads()
+                                "money" -> if (session.can("access.finance")) viewModel.selectTab(Tab.MONEY)
+                                "leads" -> if (session.can("access.marketing")) viewModel.openLeads()
                                 "patients" -> viewModel.selectTab(Tab.PATIENTS)
                                 "inventory" -> viewModel.openInventory()
                                 // The website has screens this app does not. Landing on
@@ -328,7 +328,11 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         arabic = state.arabic,
                         // Only for people allowed to write. A button that opens a form
                         // the server will reject is worse than no button.
-                        canBook = session.isAdmin || session.isDentist || session.role == "Receptionist",
+                        // The granted permission, not a guess from the role. An
+                        // Assistant ticked for "Book appointments" could not book,
+                        // because the old test matched "Receptionist" exactly and
+                        // Assistant is a different word for the same desk.
+                        canBook = session.can("appointments.add"),
                         onSelect = viewModel::selectTab,
                         onBook = { viewModel.openBooking() },
                     )
@@ -355,10 +359,10 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                                 onOpenAppointment = { openAppointment = it },
                                 onSeeDay = { viewModel.selectTab(Tab.DAY) },
                                 onOpenPatients = { viewModel.selectTab(Tab.PATIENTS) },
-                                onOpenMoney = if (session.isAdmin || session.isReception) {
+                                onOpenMoney = if (session.can("access.finance")) {
                                     { viewModel.selectTab(Tab.MONEY) }
                                 } else null,
-                                onOpenReports = if (session.isAdmin || session.isReception) {
+                                onOpenReports = if (session.can("access.reports")) {
                                     { viewModel.openReports() }
                                 } else null,
                                 onOpenOrtho = viewModel::openOrtho,
@@ -367,7 +371,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                                 onOpenAssistant = { viewModel.openAssistant(context) },
                                 briefing = state.briefing,
                                 onOpenBriefing = viewModel::openBriefing,
-                                onOpenLeads = if (session.isAdmin || session.isReception) {
+                                onOpenLeads = if (session.can("access.marketing")) {
                                     { viewModel.openLeads() }
                                 } else null,
                             )
@@ -452,10 +456,10 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             onOpenWhatsappQueue = viewModel::openWhatsappQueue,
                             // Owners and reception only. A dentist seeing the clinic's whole
                             // takings is a different conversation from them seeing their own.
-                            onOpenReports = if (session.isAdmin || session.isReception) {
+                            onOpenReports = if (session.can("access.reports")) {
                                 { viewModel.openReports() }
                             } else null,
-                            onOpenLeads = if (session.isAdmin || session.isReception) {
+                            onOpenLeads = if (session.can("access.marketing")) {
                                 { viewModel.openLeads() }
                             } else null,
                             onOpenOrtho = viewModel::openOrtho,
@@ -506,7 +510,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
 
             // Assistants can look but not change appointments, matching what the
             // security rules would allow on the write anyway.
-            val canEdit = session.isAdmin || session.isDentist || session.role == "Receptionist"
+            val canEdit = session.can("appointments.edit")
 
             if (selected != null) {
                 AppointmentSheet(
@@ -529,8 +533,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     // visit belongs to a file — a walk-in with no record has no
                     // ledger to pay into.
                     onTakePayment = if (
-                        selected.patientId.isNotBlank() &&
-                        (session.isAdmin || session.isDentist || session.role == "Receptionist")
+                        selected.patientId.isNotBlank() && session.can("finance.add")
                     ) {
                         {
                             openAppointment = null
@@ -551,21 +554,21 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     ortho = state.patientOrtho,
                     // Only roles that may write money see the button. The rules would reject the
                     // write anyway; offering it and failing is worse than not offering it.
-                    onTakePayment = if (session.isAdmin || session.isDentist || session.role == "Receptionist") {
+                    onTakePayment = if (session.can("finance.add")) {
                         { viewModel.openPayment() }
                     } else null,
                     notes = state.notes,
                     // Recording treatment is a clinical act, so it is the dentists' and the
                     // owner's — reception can see the record but not write to it.
-                    onAddNote = if (session.isAdmin || session.isDentist) {
+                    onAddNote = if (session.can("clinical.edit")) {
                         { viewModel.openAddNote() }
                     } else null,
                     prescriptions = state.prescriptions,
                     // Prescribing is a dentist's act, and the owner's if they also treat.
-                    onWriteRx = if (session.isAdmin || session.isDentist) {
+                    onWriteRx = if (session.can("clinical.edit")) {
                         { viewModel.openPrescription() }
                     } else null,
-                    onSetNoteStatus = if (session.isAdmin || session.isDentist) {
+                    onSetNoteStatus = if (session.can("clinical.edit")) {
                         { noteId, status -> viewModel.updateNoteStatus(noteId, status) }
                     } else null,
                     rxBusy = state.rxBusy,
@@ -581,11 +584,11 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         }
                     },
                     // Charting a tooth is a clinical act: dentists and the owner.
-                    onSaveDiagnosis = if (session.isAdmin || session.isDentist) {
+                    onSaveDiagnosis = if (session.can("clinical.edit")) {
                         viewModel::saveToothDiagnosis
                     } else null,
                     savingDiagnosis = state.savingDiagnosis,
-                    onStartOrtho = if (session.isAdmin || session.isDentist) {
+                    onStartOrtho = if (session.can("clinical.edit")) {
                         viewModel::startOrthoCase
                     } else null,
                     onOpenOrthoCase = { case ->
@@ -603,7 +606,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     },
                     uploadingPhoto = state.uploadingPhoto,
                     // Any core role may add photos — reception files x-rays as often as dentists do.
-                    onUploadPhoto = if (session.isAdmin || session.isDentist || session.role == "Receptionist") {
+                    onUploadPhoto = if (session.can("patients.edit")) {
                         viewModel::uploadPatientPhoto
                     } else null,
                     onClose = viewModel::closePatient,
@@ -653,7 +656,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     // Creating a patient file, so the same roles the register lets
                     // add one. The rules would refuse the write anyway; offering a
                     // button that fails is worse than not offering it.
-                    onConvert = if (session.isAdmin || session.isDentist || session.role == "Receptionist") {
+                    onConvert = if (session.can("patients.add")) {
                         viewModel::convertLead
                     } else null,
                     convertingLeadId = state.convertingLeadId,
@@ -718,7 +721,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     openCase = state.orthoCase,
                     loading = state.loadingOrtho,
                     saving = state.savingOrtho,
-                    canEdit = session.isAdmin || session.isDentist,
+                    canEdit = session.can("clinical.edit"),
                     arabic = state.arabic,
                     onOpenCase = viewModel::openOrthoCase,
                     onLogVisit = viewModel::logOrthoVisit,
@@ -760,7 +763,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                 InventorySheet(
                     items = state.inventory,
                     loading = state.loadingInventory,
-                    canEdit = session.isAdmin || session.isReception || session.isDentist,
+                    canEdit = session.can("appointments.edit"),
                     arabic = state.arabic,
                     onAdjust = viewModel::adjustStock,
                     onDismiss = viewModel::closeInventory,

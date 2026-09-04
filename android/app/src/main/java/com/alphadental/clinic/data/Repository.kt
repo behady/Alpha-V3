@@ -112,11 +112,29 @@ object Repository {
         @Suppress("UNCHECKED_CAST")
         val roles = (snap.get("clinicRoles") as? Map<String, String>).orEmpty()
 
-        // Prefer the user's chosen clinic, fall back to the only one they belong to.
+        // Prefer the user's chosen clinic, then any other the account belongs to.
         // Mirrors resolveUserClinicId() on the server.
-        val clinicId = (snap.getString("defaultClinicId")?.takeIf { it.isNotBlank() && roles.containsKey(it) })
-            ?: roles.keys.firstOrNull()
-            ?: error("This account is not linked to any clinic.")
+        val candidates = buildList {
+            snap.getString("defaultClinicId")
+                ?.takeIf { it.isNotBlank() && roles.containsKey(it) }
+                ?.let { add(it) }
+            addAll(roles.keys)
+        }.distinct()
+        if (candidates.isEmpty()) error("This account is not linked to any clinic.")
+
+        // ...but only one that still exists. Deleting a clinic does not tidy up the
+        // clinicRoles map on the accounts that belonged to it, so a stored
+        // defaultClinicId can outlive the clinic it names by months. The website
+        // survives that because a super admin picks a clinic from a list; the phone
+        // had no such list, opened the dead id, and every read under it came back
+        // empty. That reads as a permission fault — same email, same password, a
+        // dashboard with almost nothing on it - which is exactly how it was
+        // reported, and why the real cause took a round of diagnostics to find.
+        val clinicId = firstLiveClinic(candidates)
+            ?: error(
+                "The clinic linked to this account no longer exists. " +
+                    "Ask an administrator to add you to a current clinic."
+            )
 
         // A platform super admin is an Admin everywhere, which is how the website
         // has always read it — and the phone did not read it at all. An owner whose
@@ -134,13 +152,47 @@ object Repository {
         }
         if (role == "Patient") error("This app is for clinic staff.")
 
+        // The Manage Access tick-boxes, per clinic. Same document and the same
+        // field the rules read, so a permission the phone honours is one the
+        // server would allow — rather than a second, kinder opinion.
+        @Suppress("UNCHECKED_CAST")
+        val permissionsByClinic = (snap.get("clinicPermissions") as? Map<String, Any?>).orEmpty()
+        val permissions = (permissionsByClinic[clinicId] as? List<*>)
+            ?.mapNotNull { it as? String }
+            .orEmpty()
+
         Session(
             uid = user.uid,
             name = snap.getString("name") ?: user.email.orEmpty(),
             email = user.email.orEmpty(),
             clinicId = clinicId,
             role = role,
+            permissions = permissions,
         )
+    }
+
+    /**
+     * The first clinic in the list whose document is really there.
+     *
+     * Stops at the first hit, so an account with one healthy clinic costs one
+     * extra read. A clinic that cannot be checked at all — no signal, a rules
+     * refusal — counts as a maybe rather than a miss, and is used only once every
+     * candidate has been tried: a flat tyre on the way to the surgery should not
+     * lock the whole practice out of the app, which is what returning null here
+     * would do, because a failed session signs the user straight back out.
+     */
+    private suspend fun firstLiveClinic(candidates: List<String>): String? {
+        var unchecked: String? = null
+        for (id in candidates) {
+            val probe = runCatching {
+                Firebase.db().collection("clinics").document(id).get().await().exists()
+            }
+            when {
+                probe.isFailure -> if (unchecked == null) unchecked = id
+                probe.getOrDefault(false) -> return id
+            }
+        }
+        return unchecked
     }
 
     /**
@@ -347,15 +399,33 @@ object Repository {
 
     // -------------------------------------------------------------- prescriptions
 
-    /** The clinic's saved drug shortcuts, so common medicines are two taps rather than typed. */
+    /**
+     * The clinic's own `drugs` rows, which are only half the list the picker shows.
+     *
+     * The other half is the built-in Egyptian formulary in DrugCatalog.kt, and these rows are what
+     * the clinic has done to it: a row carrying `catalogId` replaces that built-in, the same row
+     * with `hidden` removes it, and a row with no `catalogId` is a drug they typed in themselves.
+     * PrescriptionSheet does the merging, exactly as src/lib/drugList.ts does it on the web.
+     *
+     * A nameless row is normally junk and dropped — but a hidden marker legitimately has no name,
+     * so dropping on a blank name alone silently resurrected every built-in a dentist had removed.
+     */
     suspend fun loadDrugShortcuts(clinicId: String): List<DrugShortcut> {
         val snap = Firebase.db().collection("clinics").document(clinicId)
             .collection("drugs").get().await()
 
         return snap.documents.mapNotNull { doc ->
             val name = doc.getString("name")?.trim().orEmpty()
-            if (name.isEmpty()) return@mapNotNull null
-            DrugShortcut(id = doc.id, name = name, dose = doc.getString("dose").orEmpty())
+            val catalogId = doc.getString("catalogId")?.trim().orEmpty()
+            if (name.isEmpty() && catalogId.isEmpty()) return@mapNotNull null
+            DrugShortcut(
+                id = doc.id,
+                name = name,
+                dose = doc.getString("dose").orEmpty(),
+                doseAr = doc.getString("doseAr").orEmpty(),
+                catalogId = catalogId,
+                hidden = doc.getBoolean("hidden") ?: false,
+            )
         }.sortedBy { it.name }
     }
 
@@ -441,10 +511,14 @@ object Repository {
                 doctor = doc.getString("doctor").orEmpty(),
                 diagnosis = doc.getString("diagnosis").orEmpty(),
                 drugs = raw.map {
+                    // A script written before the Arabic lines existed simply has neither key, and
+                    // reads back with them empty — which is what the printer expects.
                     RxItem(
                         name = it["name"]?.toString().orEmpty(),
                         dose = it["dose"]?.toString().orEmpty(),
+                        doseAr = it["doseAr"]?.toString().orEmpty(),
                         note = it["note"]?.toString().orEmpty(),
+                        noteAr = it["noteAr"]?.toString().orEmpty(),
                     )
                 },
             )
@@ -480,8 +554,17 @@ object Repository {
                 "date" to todayKey(),
                 "doctor" to doctor,
                 "diagnosis" to diagnosis.trim(),
+                // The same keys the website writes. The Arabic pair is what the patient reads off
+                // the paper, so a script written on the phone has to carry it or the printed sheet
+                // loses half of every line the moment it is opened at the desk.
                 "drugs" to drugs.map {
-                    mapOf("name" to it.name, "dose" to it.dose, "note" to it.note)
+                    mapOf(
+                        "name" to it.name,
+                        "dose" to it.dose,
+                        "doseAr" to it.doseAr,
+                        "note" to it.note,
+                        "noteAr" to it.noteAr,
+                    )
                 },
                 "mode" to "typed",
                 "createdAt" to FieldValue.serverTimestamp(),

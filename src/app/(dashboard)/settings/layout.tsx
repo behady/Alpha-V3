@@ -35,7 +35,7 @@ import {
   type SettingsGroup,
   type SettingsSection,
 } from "@/config/settingsRegistry";
-import { SETTINGS_ICONS } from "@/components/settings/panels";
+import { SETTINGS_GROUP_ICONS, SETTINGS_GROUP_TONE, SETTINGS_ICONS } from "@/components/settings/panels";
 import { visibleSections } from "@/lib/settingsAccess";
 import { hasFeature } from "@/lib/subscriptions";
 
@@ -131,44 +131,48 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div
-      className="max-w-[1600px] w-full mx-auto p-4 md:p-8 pb-24 md:pb-10 font-sans animate-in fade-in"
+      className="mx-auto w-full max-w-[1400px] p-4 pb-24 font-sans animate-in fade-in duration-500 md:p-8 md:pb-10"
       dir={isRTL ? "rtl" : "ltr"}
     >
-      <div className="mb-6 rounded-[2rem] border border-line bg-surface shadow-sm">
-        <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between md:p-6">
-          <div className="flex min-w-0 items-center gap-3.5">
-            <span className="shrink-0 rounded-2xl bg-accent-tint p-3 text-accent">
-              <ActiveIcon size={22} />
-            </span>
-            <div className="min-w-0">
-              <h1 className="truncate text-xl font-black tracking-tight text-ink md:text-2xl">
-                {activeLabel}
-              </h1>
-              <p className="mt-0.5 text-[13px] font-medium text-ink-muted">{txt.subtitle}</p>
-            </div>
+      <div className="mb-8 overflow-hidden rounded-[2.5rem] border border-line bg-surface shadow-[0_4px_20px_rgba(0,0,0,0.03)] transition-shadow hover:shadow-[0_8px_30px_rgba(0,0,0,0.06)]">
+        <div className="flex flex-col gap-4 px-6 pt-6 pb-5 sm:flex-row sm:items-center sm:justify-between md:px-8">
+          <div className="flex min-w-0 items-center gap-4">
+            {active ? (
+              <span
+                className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl shadow-sm ${
+                  SETTINGS_GROUP_TONE[active.group]?.tile ?? "bg-accent text-white"
+                } bg-gradient-to-br from-white/20 to-transparent`}
+              >
+                <ActiveIcon size={24} className="drop-shadow-sm" />
+              </span>
+            ) : (
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl shadow-sm bg-gradient-to-br from-ink-strong to-ink text-white">
+                <Settings2 size={24} className="drop-shadow-sm" />
+              </span>
+            )}
+            <h1 className="truncate font-display text-2xl font-bold tracking-tight text-ink md:text-3xl">
+              {activeLabel}
+            </h1>
           </div>
 
           {/* Search spans every group: "where do I change X" is not a question you can answer by
               picking a group first. */}
-          <div className="relative w-full shrink-0 sm:w-64">
-            <Search
-              size={15}
-              className={`absolute top-1/2 -translate-y-1/2 text-ink-faint ${isRTL ? "right-3.5" : "left-3.5"}`}
-            />
+          <div className="relative w-full shrink-0 sm:w-72">
+            <div className="absolute inset-y-0 start-0 flex items-center ps-4 pointer-events-none">
+              <Search size={16} className="text-ink-muted" />
+            </div>
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={txt.search}
               aria-label={txt.search}
-              className={`w-full rounded-xl border border-line bg-surface-subtle py-2.5 text-[13px] font-semibold text-ink outline-none transition-colors focus:border-accent-soft focus:bg-surface ${
-                isRTL ? "pr-9 pl-8" : "pl-9 pr-8"
-              }`}
+              className="block w-full rounded-2xl border-0 bg-surface-muted py-3 pe-10 ps-11 text-[14px] font-medium text-ink ring-1 ring-inset ring-line/50 transition-all hover:bg-surface-subtle focus:bg-surface focus:ring-2 focus:ring-inset focus:ring-accent focus:outline-none"
             />
             {query && (
               <button
                 onClick={() => setQuery("")}
                 aria-label={txt.clear}
-                className={`absolute top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink ${isRTL ? "left-2.5" : "right-2.5"}`}
+                className="absolute end-3 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-line/50 hover:text-ink"
               >
                 <X size={14} />
               </button>
@@ -178,32 +182,43 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
 
         {/* Groups. Hidden while searching, because a search already crosses all of them. */}
         {!searching && (
-          <div className="border-t border-line px-5 md:px-6">
-            <div className="-mb-px flex gap-5 overflow-x-auto no-scrollbar">
-              {SETTINGS_GROUP_ORDER.filter((g) => sections.some((s) => s.group === g)).map((group) => (
-                <button
-                  key={group}
-                  onClick={() => setBrowsingGroup(group)}
-                  aria-current={group === shownGroup ? "true" : undefined}
-                  className={`whitespace-nowrap border-b-2 pb-2.5 pt-3 text-[13px] font-bold transition-colors ${
-                    group === shownGroup
-                      ? "border-accent text-ink"
-                      : "border-transparent text-ink-muted hover:text-ink-body"
-                  }`}
-                >
-                  {SETTINGS_GROUP_LABELS[group][language === "ar" ? "ar" : "en"]}
-                </button>
-              ))}
+          <div className="flex justify-start sm:justify-center border-t border-line/50 bg-gradient-to-b from-surface-subtle/80 to-surface-muted/30 px-4 pt-4 md:px-8">
+            {/* A segmented control, not four coloured pills: one grey track, one white segment
+                that moves. The colour it used to carry now lives only in the tiles. */}
+            <div className="inline-flex gap-1.5 overflow-x-auto rounded-2xl bg-surface-muted/80 p-1.5 shadow-inner no-scrollbar w-full sm:w-auto">
+              {SETTINGS_GROUP_ORDER.filter((g) => sections.some((s) => s.group === g)).map((group) => {
+                const GroupIcon = SETTINGS_GROUP_ICONS[group] ?? Settings2;
+                const isShown = group === shownGroup;
+                return (
+                  <button
+                    key={group}
+                    onClick={() => setBrowsingGroup(group)}
+                    aria-current={isShown ? "true" : undefined}
+                    className={`inline-flex flex-1 sm:flex-none items-center justify-center gap-2.5 whitespace-nowrap rounded-xl px-5 py-2.5 text-[14px] font-semibold transition-all duration-300 ${
+                      isShown
+                        ? "bg-surface text-ink shadow-[0_2px_8px_rgba(0,0,0,0.06)] scale-100"
+                        : "text-ink-body hover:bg-line/30 hover:text-ink scale-[0.98] hover:scale-100"
+                    }`}
+                  >
+                    <GroupIcon size={16} className={`transition-colors duration-300 ${isShown ? "text-ink" : "text-ink-muted"}`} />
+                    {SETTINGS_GROUP_LABELS[group][language === "ar" ? "ar" : "en"]}
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
 
-        {/* Sections in the open group, or everything the search matched. */}
-        <div className="flex flex-wrap gap-1.5 border-t border-line bg-surface-subtle/60 p-3 md:px-6">
+        {/* Sections in the open group, or everything the search matched. Each chip's icon carries
+            its group's tone, so a search result across groups still says where it lives. */}
+        <div className={`flex flex-wrap justify-start sm:justify-center gap-2 bg-gradient-to-b from-surface-muted/30 to-surface-subtle/10 p-4 md:px-8 pb-6 ${searching ? "border-t border-line/50 pt-6" : "pt-4"}`}>
           {listed.length === 0 && (
-            <p className="px-2 py-1.5 text-[13px] font-semibold text-ink-muted">{txt.noResults}</p>
+            <div className="flex w-full flex-col items-center justify-center gap-3 py-8 text-center animate-in fade-in zoom-in-95">
+              <Search size={32} className="text-ink-faint/50" />
+              <p className="text-[14px] font-semibold text-ink-muted">{txt.noResults}</p>
+            </div>
           )}
-          {listed.map((section) => {
+          {listed.map((section, index) => {
             const Icon = SETTINGS_ICONS[section.id] ?? Settings2;
             const isActive = active?.id === section.id;
             return (
@@ -212,13 +227,14 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
                 onClick={() => void go(section.route)}
                 data-tour={section.tourAnchor}
                 aria-current={isActive ? "page" : undefined}
-                className={`inline-flex items-center gap-2 rounded-xl px-3 py-2 text-[13px] font-bold transition-all ${
+                className={`inline-flex items-center gap-2.5 rounded-xl px-4 py-2 text-[14px] transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 ${
                   isActive
-                    ? "bg-surface text-accent shadow-sm ring-1 ring-line"
-                    : "text-ink-body hover:bg-surface hover:text-ink"
+                    ? "bg-surface font-bold text-ink shadow-sm ring-1 ring-line"
+                    : "font-medium text-ink-body bg-transparent hover:bg-surface hover:text-ink hover:shadow-sm"
                 }`}
+                style={{ animationDelay: `${index * 30}ms`, animationFillMode: 'both' }}
               >
-                <Icon size={15} className={isActive ? "text-accent" : "text-ink-faint"} />
+                <Icon size={16} className={`transition-colors duration-300 ${isActive ? "text-ink" : "text-ink-muted"}`} />
                 {language === "ar" ? section.labelAr : section.labelEn}
               </button>
             );
@@ -227,13 +243,23 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {isReadOnly && (
-        <p className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-bold text-amber-900">
-          {txt.readOnly}
-        </p>
+        <div className="mb-8 flex items-center gap-4 rounded-2xl border border-warn/30 bg-gradient-to-r from-warn-tint to-warn-tint/50 px-6 py-4 shadow-sm animate-in fade-in">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-warn/10 text-warn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+          </div>
+          <p className="text-[15px] font-bold text-warn">
+            {txt.readOnly}
+          </p>
+        </div>
       )}
 
-      <div className="min-h-[600px] rounded-[2.5rem] border border-line bg-surface p-4 shadow-sm md:p-8">
-        {children}
+      <div className="min-h-[600px] overflow-hidden rounded-[2.5rem] border border-line bg-surface shadow-[0_4px_20px_rgba(0,0,0,0.03)] transition-shadow hover:shadow-[0_8px_30px_rgba(0,0,0,0.06)]">
+        <div className="h-full bg-gradient-to-br from-surface to-surface-subtle/30 p-5 md:p-10">
+          {children}
+        </div>
       </div>
     </div>
   );

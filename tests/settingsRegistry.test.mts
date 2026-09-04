@@ -397,6 +397,79 @@ for (const route of [...aiNav.matchAll(/"(\/settings\/[a-z-]+)"/g)].map((m) => m
   );
 }
 
+// No settings panel may call its text hook below an early return. React counts hooks per render;
+// a panel that returns null while closed and calls one more hook while open throws on the click
+// that opens it, and the panel is the only thing on screen. This has happened once already.
+for (const file of sourceFiles(join(REPO, "src/components/settings"))) {
+  const src = readFileSync(file, "utf8");
+  if (!src.includes("useSettingsText(")) continue;
+  // Per function body, not per file: a module-level helper that returns null says nothing about
+  // the component below it. Segmenting on top-level `function` declarations is enough for these
+  // panels, which all declare their components that way rather than as arrow constants.
+  for (const body of src.split(/^(?=(?:export default )?function )/m)) {
+    const hookAt = body.indexOf("useSettingsText(");
+    if (hookAt === -1) continue;
+    const guard = /\n {2}if \([^\n]*\) return null;/.exec(body);
+    ok(
+      !guard || guard.index > hookAt,
+      `${file.split(sep).pop()} calls useSettingsText() below an early "return null" in the ` +
+        `same function. React counts hooks per render, so this panel renders a different number ` +
+        `of them open than closed and throws on the render that opens it. Hoist the hook above ` +
+        `the guard clause`
+    );
+  }
+}
+
+// Every section needs an icon, and no two may share one. Twenty-two sections were running on
+// seventeen icons — `Users` stood for the team, the join queue and the patient-source list at once
+// — so five entries in the sidebar were indistinguishable from another, and the icon stopped being
+// a way to find anything. A duplicate is not a style question; it is a nav item you cannot see.
+{
+  // Read here rather than reaching for `panelsSource`, which is declared further down the file.
+  const panels = readFileSync(join(REPO, "src/components/settings/panels.tsx"), "utf8");
+  const iconBlock = panels.slice(
+    panels.indexOf("SETTINGS_ICONS"),
+    panels.indexOf("};", panels.indexOf("SETTINGS_ICONS"))
+  );
+  const pairs = [...iconBlock.matchAll(/^\s{2}([a-z_]+):\s*([A-Z][A-Za-z0-9]*)\s*,/gm)];
+  const byIcon = new Map<string, string[]>();
+  for (const [, section, icon] of pairs) {
+    byIcon.set(icon, [...(byIcon.get(icon) ?? []), section]);
+  }
+
+  for (const section of SETTINGS_SECTIONS) {
+    ok(
+      pairs.some(([, id]) => id === section.id),
+      `the "${section.id}" section has no entry in SETTINGS_ICONS, so it renders with no icon`
+    );
+  }
+
+  for (const [icon, sections] of byIcon) {
+    ok(
+      sections.length === 1,
+      `${sections.join(" and ")} both use the ${icon} icon, so they look the same in the sidebar`
+    );
+  }
+
+  // The four group tabs sit directly above the section chips, so a group wearing a section's
+  // icon reads as that section — and two groups sharing one is two tabs that look the same.
+  const groupBlock = panels.slice(
+    panels.indexOf("SETTINGS_GROUP_ICONS"),
+    panels.indexOf("};", panels.indexOf("SETTINGS_GROUP_ICONS"))
+  );
+  const groupIcons = [...groupBlock.matchAll(/^ {2}([a-z]+): *([A-Z][A-Za-z0-9]*) *,/gm)];
+  ok(groupIcons.length === 4, `expected an icon for each of the four groups, found ${groupIcons.length}`);
+  const seenGroup = new Set<string>();
+  for (const [, group, icon] of groupIcons) {
+    ok(!seenGroup.has(icon), `two groups share the ${icon} icon`);
+    seenGroup.add(icon);
+    ok(
+      !byIcon.has(icon),
+      `the "${group}" group tab uses ${icon}, which is already the ${(byIcon.get(icon) ?? []).join("/")} section's icon`
+    );
+  }
+}
+
 // (e) Every settings document id must still be referenced by the app. Renaming one is silent:
 //     ~14 server routes and the Android app read these names directly, and neither goes through
 //     this registry.
@@ -415,6 +488,27 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
 const appSource = sourceFiles(join(REPO, "src"))
   .map((f) => readFileSync(f, "utf8"))
   .join("\n");
+
+// Every in-page anchor a lesson rings must exist in the markup. A step whose anchor has been
+// renamed — or moved behind a tab that the lesson never opens — is skipped rather than
+// reported, so the walkthrough silently teaches one step less than it claims to.
+// Anchors the markup builds rather than writes, each with the file that builds it. A prefix here
+// is an admission that this check cannot see the anchor, not a licence to add more of them.
+const COMPUTED_ANCHORS = [
+  "nav-", // (dashboard)/layout.tsx and DesktopSidebar.tsx: data-tour={`nav-${href}`}
+  "patient-tab-", // patients/[id]/page.tsx: data-tour={`patient-tab-${tb.id}`}
+];
+for (const step of [...tutorials.matchAll(/anchor:\s*"([a-z0-9-]+)"/g)].map((m) => m[1])) {
+  if (step.startsWith("settings-")) continue; // covered above, against the registry
+  if (COMPUTED_ANCHORS.some((prefix) => step.startsWith(prefix))) continue;
+  // Either written out, or chosen inside the attribute — `data-tour={cond ? "x" : undefined}`.
+  const rendered = new RegExp(`data-tour=(?:"${step}"|\{[^{}]*"${step}"[^{}]*\})`);
+  ok(
+    rendered.test(appSource),
+    `a tutorial step rings "${step}", which nothing in src renders. The lesson will skip the ` +
+      `step instead of failing, so the walkthrough quietly teaches less than it promises`
+  );
+}
 
 for (const docId of settingsDocIds()) {
   ok(
@@ -934,6 +1028,58 @@ for (const file of sourceFiles(join(REPO, "src"))) {
     /timestamp:\s*(?:FieldValue\.)?serverTimestamp\(\)/.test(text) || !/\.add\(|addDoc\(/.test(text),
     `${rel} writes an audit entry without a timestamp — it would never appear on the Activity ` +
       `Logs screen. Add \`timestamp: serverTimestamp()\`, or route it through lib/logger.ts.`
+  );
+}
+
+// Every colour in Settings comes from the theme, and every panel is the same width.
+//
+// Twice I reported this folder clean and twice the search was the thing at fault: the first
+// pattern had no `red|green|orange|yellow|blue` in it at all, and the second excluded amber and
+// emerald wholesale as "deliberate rail colours" — which hid about fifty real ones on the SMS and
+// WhatsApp screens. A raw palette value is invisible to the theme picker: pick Damson and the
+// page still has Tailwind's amber in it.
+//
+// The exception is narrow and deliberate. The dark slab at the top of several panels is a fixed
+// near-black in every preset, so a status on it is chosen against that slab and not against the
+// page — the four classes below are those, and nothing else is allowed.
+const RAIL_LITERALS = /^(bg-amber-400(\/\d+)?|text-amber-200|bg-emerald-400)$/;
+const PALETTE =
+  /\b(?:bg|text|border|ring|shadow|from|to|via|divide|outline|decoration|accent|fill|stroke)-(?:red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}(?:\/\d{1,3})?\b/g;
+
+const settingsFiles = [
+  ...sourceFiles(join(REPO, "src", "components", "settings")),
+  ...sourceFiles(join(REPO, "src", "app", "(dashboard)", "settings")),
+];
+
+for (const file of settingsFiles) {
+  const rel = file.replace(REPO, "").split(sep).join("/");
+  const text = readFileSync(file, "utf8");
+  for (const raw of text.match(PALETTE) ?? []) {
+    // Strip a variant prefix (hover:, focus:, sm:, dark:) before deciding.
+    const bare = raw.slice(raw.lastIndexOf(":") + 1);
+    ok(
+      RAIL_LITERALS.test(bare),
+      `${rel} uses the raw Tailwind class \`${raw}\`. Settings colours come from the theme ` +
+        `tokens — ok / warn / danger / info and their -tint pairs, or accent for an action — so ` +
+        `that changing the preset changes the page. Only the dark rail keeps literals.`
+    );
+  }
+}
+
+// One measure for the whole area, set once by the settings shell. Panels had grown five
+// different caps (3xl, 4xl, 5xl and two with none), so moving between two sections moved the
+// column, and the widest of them still left a third of a large screen empty.
+for (const file of sourceFiles(join(REPO, "src", "components", "settings"))) {
+  const rel = file.replace(REPO, "").split(sep).join("/");
+  const root = /return\s*\(\s*<(?:div|section|form)\s+[^>]*className="([^"]*)"/.exec(
+    readFileSync(file, "utf8")
+  );
+  if (!root) continue;
+  ok(
+    !/\bmax-w-(?:xs|sm|md|lg|xl|\dxl|screen-\w+)\b/.test(root[1]),
+    `${rel} caps its own width (\`${root[1].match(/max-w-\S+/)?.[0]}\`). The shell in ` +
+      `settings/layout.tsx sets the measure for every section; a panel that sets its own makes ` +
+      `the content jump sideways as you move between tabs.`
   );
 }
 

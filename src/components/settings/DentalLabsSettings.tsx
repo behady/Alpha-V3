@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getDoc, setDoc } from "firebase/firestore";
 import {
   Plus,
@@ -16,9 +16,12 @@ import {
   Coins,
   ChevronDown,
   Loader2,
+  RotateCcw,
 } from "lucide-react";
 import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { useSettingsText } from "@/lib/useSettingsText";
+import { countedNoun } from "@/lib/arabicCount";
 import { getClinicDoc } from "@/lib/db-utils";
 import { useSettingsDraft } from "@/lib/settingsDraft";
 import {
@@ -26,6 +29,7 @@ import {
   labPricedCount,
   makeLabId,
   parseDentalLabs,
+  setLabPrice,
   parseLabPaper,
   serializeDentalLabs,
   type DentalLab,
@@ -42,7 +46,8 @@ import {
  *
  * Same buffered-edit model as Branches & Rooms, and for the same reason: the whole list is saved
  * on demand rather than per keystroke, so a half-typed lab name never appears in the picker an
- * assistant is using to raise an order in the next room.
+ * assistant is using to raise an order in the next room. As there, Save now arrives in a bar when
+ * there is something to save instead of sitting in the header looking the same either way.
  */
 /** The labs screen edits two values that live in one document, so they travel together. */
 type LabsDraft = { labs: DentalLab[]; paper: LabOrderPaper };
@@ -50,10 +55,15 @@ type LabsDraft = { labs: DentalLab[]; paper: LabOrderPaper };
 /** Module-level so the fallback keeps its identity between renders. */
 const EMPTY_LABS_DRAFT: LabsDraft = { labs: [], paper: DEFAULT_LAB_PAPER };
 
+const INPUT =
+  "border border-line bg-surface-subtle text-ink outline-none transition-all " +
+  "placeholder:text-ink-muted focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/10";
+
 export default function DentalLabsSettings() {
   const { showToast, confirm } = useUI();
-  const { language } = useLanguage();
+  const { language, isRTL } = useLanguage();
   const isAr = language === "ar";
+  const txt = useSettingsText("labs");
 
   const [stored, setStored] = useState<LabsDraft | null>(null);
   const [newLabName, setNewLabName] = useState("");
@@ -61,14 +71,24 @@ export default function DentalLabsSettings() {
   const [openPrices, setOpenPrices] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [fetched, setFetched] = useState(false);
+  /**
+   * The clinic's own currency, not a hardcoded EGP.
+   *
+   * Every other price in the product is labelled from `settings/clinic_info`; this screen printed
+   * EGP beside each lab price whatever the clinic actually charges in, which is wrong the moment
+   * anyone outside Egypt uses it.
+   */
+  const [currency, setCurrency] = useState("EGP");
 
   // The labs and the paper size share one document, so they share one draft: an edit to either is
   // unsaved work, and one Save writes both. See lib/settingsDraft.ts.
-  const { value: draft, setValue: setDraft, markSaved } = useSettingsDraft<LabsDraft>(
-    "labs",
-    stored,
-    EMPTY_LABS_DRAFT
-  );
+  const {
+    value: draft,
+    setValue: setDraft,
+    isDirty,
+    discard,
+    markSaved,
+  } = useSettingsDraft<LabsDraft>("labs", stored, EMPTY_LABS_DRAFT);
   const { labs, paper } = draft;
   const setLabs = (next: DentalLab[] | ((current: DentalLab[]) => DentalLab[])) =>
     setDraft((current) => ({
@@ -90,6 +110,17 @@ export default function DentalLabsSettings() {
       .finally(() => setFetched(true));
   }, []);
 
+  useEffect(() => {
+    void getDoc(getClinicDoc("settings", "clinic_info"))
+      .then((snap) => {
+        const value = snap.exists() ? (snap.data() as Record<string, unknown>).currency : null;
+        if (typeof value === "string" && value.trim()) setCurrency(value.trim());
+      })
+      .catch(() => {
+        // The default stands. A missing currency is not worth blocking the labs screen over.
+      });
+  }, []);
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -103,9 +134,9 @@ export default function DentalLabsSettings() {
       );
       setStored({ labs, paper });
       markSaved();
-      showToast(isAr ? "تم الحفظ!" : "Labs saved!", "success");
+      showToast(txt.saved, "success");
     } catch {
-      showToast(isAr ? "فشل الحفظ" : "Save failed", "error");
+      showToast(txt.failed, "error");
     } finally {
       setSaving(false);
     }
@@ -115,7 +146,7 @@ export default function DentalLabsSettings() {
     const name = newLabName.trim();
     if (!name) return;
     if (labs.some((l) => l.name.toLowerCase() === name.toLowerCase())) {
-      showToast(isAr ? "المعمل موجود بالفعل" : "Lab already exists", "error");
+      showToast(txt.labExists, "error");
       return;
     }
     setLabs([...labs, { id: makeLabId(), name, phone: "", whatsapp: "", address: "", driverName: "", notes: "" }]);
@@ -125,6 +156,9 @@ export default function DentalLabsSettings() {
   const updateLab = (id: string, patch: Partial<DentalLab>) => {
     setLabs((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   };
+
+  const setPrice = (lab: DentalLab, workId: string, raw: string) =>
+    updateLab(lab.id, { prices: setLabPrice(lab.prices, workId, raw) });
 
   const removeLab = async (id: string) => {
     const lab = labs.find((l) => l.id === id);
@@ -137,41 +171,53 @@ export default function DentalLabsSettings() {
     if (ok) setLabs((prev) => prev.filter((l) => l.id !== id));
   };
 
+  const noTurnaround = useMemo(() => labs.filter((l) => !l.turnaroundDays).length, [labs]);
+  const paperLabel = LAB_PAPER_OPTIONS.find((o) => o.id === paper);
+
   if (!fetched) {
     return (
       <div className="flex items-center justify-center py-16">
-        <Loader2 className="w-6 h-6 text-slate-400 animate-spin" />
+        <Loader2 className="h-6 w-6 animate-spin text-ink-muted" />
       </div>
     );
   }
 
+  const facts = [
+    countedNoun(labs.length, isAr, {
+      one: txt.labOne, two: txt.labTwo, few: txt.labFew, many: txt.labMany,
+    }),
+    paperLabel ? (isAr ? paperLabel.ar : paperLabel.en) : null,
+  ].filter(Boolean).join(" · ");
+
   return (
-    <div className="space-y-6 max-w-2xl">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-sky-50 flex items-center justify-center shrink-0">
-            <FlaskConical size={20} className="text-sky-600" />
-          </div>
-          <div>
-            <h2 className="text-base font-black text-ink tracking-tight">
-              {isAr ? "المعامل" : "Dental Labs"}
-            </h2>
-            <p className="text-xs text-ink-muted font-medium mt-0.5">
-              {isAr
-                ? "المعامل اللي بتبعتلها شغل. هتظهر عند إنشاء أمر معمل، وميعاد التسليم بيتحسب لوحده من مدة كل معمل."
-                : "The labs you send work to. They appear when raising a lab order, and each lab's usual turnaround fills the due date in for you."}
+    <div className="w-full space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
+      {/* What a lab entry buys you, and the one thing about it that surprises people — a case
+          keeps the name it was raised under. That note used to be the last line on the page. */}
+      <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 space-y-2">
+            <p className="flex items-center gap-2 font-display text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
+              <FlaskConical size={12} />
+              {txt.title}
             </p>
+            <p className="max-w-xl font-display text-[15px] font-bold leading-relaxed text-white sm:text-base">
+              {txt.railNote}
+            </p>
+            <p className="max-w-xl text-[11px] font-semibold leading-relaxed text-white/45">
+              {txt.nameIsKept}
+            </p>
+            {labs.length > 0 && (
+              <p className="font-figure text-[13px] tracking-tight text-white/70">{facts}</p>
+            )}
           </div>
+
+          {noTurnaround > 0 && (
+            <span className="inline-flex shrink-0 items-center gap-2 self-start rounded-full bg-amber-400/20 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-amber-200">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+              {noTurnaround} {txt.withoutTurnaround}
+            </span>
+          )}
         </div>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-accent text-ink-on-accent text-xs font-black uppercase tracking-wide shadow-md hover:bg-accent-strong disabled:opacity-50 transition-all shrink-0"
-        >
-          {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-          {isAr ? "حفظ" : "Save"}
-        </button>
       </div>
 
       {/* Add lab */}
@@ -186,81 +232,82 @@ export default function DentalLabsSettings() {
               addLab();
             }
           }}
-          placeholder={isAr ? "اسم المعمل الجديد… (مثال: معمل النور)" : "New lab name… (e.g. Cairo Dental Lab)"}
-          className="flex-1 px-4 py-3 bg-surface border border-line rounded-xl text-sm font-bold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-500/10 transition-all min-w-0"
+          placeholder={txt.newLab}
+          className={`min-w-0 flex-1 rounded-xl px-4 py-3 text-sm font-bold ${INPUT}`}
         />
         <button
+          type="button"
           onClick={addLab}
           disabled={!newLabName.trim()}
-          className="px-4 py-3 bg-sky-50 text-sky-700 rounded-xl hover:bg-sky-100 disabled:opacity-50 transition-colors shrink-0"
+          aria-label={txt.addLab}
+          className="shrink-0 rounded-xl bg-accent px-4 py-3 text-ink-on-accent transition-colors hover:bg-accent-strong disabled:opacity-50"
         >
           <Plus size={20} />
         </button>
       </div>
 
       {labs.length === 0 && (
-        <div className="p-8 text-center text-slate-400 text-sm font-medium bg-surface border border-dashed border-line rounded-2xl">
-          {isAr
-            ? "مفيش معامل لسه. ضيف معمل واحد على الأقل عشان تقدر تعمل أمر معمل."
-            : "No labs yet. Add at least one before raising a lab order."}
+        <div className="rounded-2xl border border-dashed border-line bg-surface-subtle p-8 text-center text-sm font-medium text-ink-muted">
+          {txt.empty}
         </div>
       )}
 
       {labs.map((lab) => (
-        <div key={lab.id} className="bg-surface border border-line rounded-2xl shadow-sm overflow-hidden">
-          <div className="p-4 sm:p-5 space-y-3">
+        <div key={lab.id} className="overflow-hidden rounded-2xl border border-line bg-surface shadow-sm">
+          <div className="space-y-3 p-4 sm:p-5">
             <div className="flex items-center gap-2">
-              <FlaskConical size={16} className="text-sky-600 shrink-0" />
+              <FlaskConical size={16} className="shrink-0 text-ink-muted" />
               <input
                 type="text"
                 value={lab.name}
                 onChange={(e) => updateLab(lab.id, { name: e.target.value })}
-                className="flex-1 min-w-0 px-3 py-2 bg-surface-subtle border border-line rounded-xl text-sm font-black text-slate-800 focus:outline-none focus:border-sky-500 transition-all"
+                className={`min-w-0 flex-1 rounded-xl px-3 py-2 text-sm font-black ${INPUT}`}
               />
               <button
+                type="button"
                 onClick={() => void removeLab(lab.id)}
-                className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors shrink-0"
-                aria-label={isAr ? "حذف المعمل" : "Delete lab"}
+                className="shrink-0 rounded-lg p-2 text-ink-muted transition-colors hover:bg-danger-tint hover:text-danger"
+                aria-label={txt.deleteLab}
               >
                 <Trash2 size={16} />
               </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="relative">
-                <Phone size={14} className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Phone size={14} className="absolute start-3 top-1/2 -translate-y-1/2 text-ink-muted" />
                 <input
                   type="tel"
                   dir="ltr"
                   value={lab.phone || ""}
                   onChange={(e) => updateLab(lab.id, { phone: e.target.value })}
-                  placeholder={isAr ? "التليفون" : "Phone"}
-                  className="w-full ps-9 pe-3 py-2 bg-slate-50/60 border border-line rounded-xl text-xs font-bold text-ink-body placeholder:text-slate-400 focus:outline-none focus:border-sky-500 transition-all"
+                  placeholder={txt.phone}
+                  className={`w-full rounded-xl py-2 pe-3 ps-9 text-xs font-bold ${INPUT}`}
                 />
               </div>
               <div className="relative">
-                <MessageCircle size={14} className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <MessageCircle size={14} className="absolute start-3 top-1/2 -translate-y-1/2 text-ink-muted" />
                 <input
                   type="tel"
                   dir="ltr"
                   value={lab.whatsapp || ""}
                   onChange={(e) => updateLab(lab.id, { whatsapp: e.target.value })}
-                  placeholder={isAr ? "واتساب (لو مختلف)" : "WhatsApp (if different)"}
-                  className="w-full ps-9 pe-3 py-2 bg-slate-50/60 border border-line rounded-xl text-xs font-bold text-ink-body placeholder:text-slate-400 focus:outline-none focus:border-sky-500 transition-all"
+                  placeholder={txt.whatsapp}
+                  className={`w-full rounded-xl py-2 pe-3 ps-9 text-xs font-bold ${INPUT}`}
                 />
               </div>
               <div className="relative">
-                <Truck size={14} className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Truck size={14} className="absolute start-3 top-1/2 -translate-y-1/2 text-ink-muted" />
                 <input
                   type="text"
                   value={lab.driverName || ""}
                   onChange={(e) => updateLab(lab.id, { driverName: e.target.value })}
-                  placeholder={isAr ? "اسم المندوب (اختياري)" : "Driver's name (optional)"}
-                  className="w-full ps-9 pe-3 py-2 bg-slate-50/60 border border-line rounded-xl text-xs font-bold text-ink-body placeholder:text-slate-400 focus:outline-none focus:border-sky-500 transition-all"
+                  placeholder={txt.driver}
+                  className={`w-full rounded-xl py-2 pe-3 ps-9 text-xs font-bold ${INPUT}`}
                 />
               </div>
               <div className="relative">
-                <CalendarClock size={14} className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <CalendarClock size={14} className="absolute start-3 top-1/2 -translate-y-1/2 text-ink-muted" />
                 <input
                   type="number"
                   min={1}
@@ -274,18 +321,18 @@ export default function DentalLabsSettings() {
                       turnaroundDays: e.target.value === "" ? undefined : Number(e.target.value),
                     })
                   }
-                  placeholder={isAr ? "مدة التسليم بالأيام" : "Usual turnaround (days)"}
-                  className="w-full ps-9 pe-3 py-2 bg-slate-50/60 border border-line rounded-xl text-xs font-bold text-ink-body placeholder:text-slate-400 focus:outline-none focus:border-sky-500 transition-all"
+                  placeholder={txt.turnaround}
+                  className={`w-full rounded-xl py-2 pe-3 ps-9 text-xs font-bold ${INPUT}`}
                 />
               </div>
               <div className="relative sm:col-span-2">
-                <MapPin size={14} className="absolute start-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <MapPin size={14} className="absolute start-3 top-1/2 -translate-y-1/2 text-ink-muted" />
                 <input
                   type="text"
                   value={lab.address || ""}
                   onChange={(e) => updateLab(lab.id, { address: e.target.value })}
-                  placeholder={isAr ? "العنوان (اختياري)" : "Address (optional)"}
-                  className="w-full ps-9 pe-3 py-2 bg-slate-50/60 border border-line rounded-xl text-xs font-bold text-ink-body placeholder:text-slate-400 focus:outline-none focus:border-sky-500 transition-all"
+                  placeholder={txt.address}
+                  className={`w-full rounded-xl py-2 pe-3 ps-9 text-xs font-bold ${INPUT}`}
                 />
               </div>
             </div>
@@ -294,41 +341,38 @@ export default function DentalLabsSettings() {
                 Collapsed by default: twelve work types is a long list, and most labs are priced
                 for three or four of them. The summary line carries the only number that matters
                 when it is shut. */}
-            <div className="border border-line rounded-xl overflow-hidden">
+            <div className="overflow-hidden rounded-xl border border-line">
               <button
                 type="button"
                 onClick={() => setOpenPrices((prev) => ({ ...prev, [lab.id]: !prev[lab.id] }))}
-                className="w-full flex items-center justify-between gap-3 px-3 py-2.5 bg-slate-50/60 hover:bg-slate-100/60 transition-colors"
+                aria-expanded={!!openPrices[lab.id]}
+                className="flex w-full items-center justify-between gap-3 bg-surface-subtle px-3 py-2.5 transition-colors hover:bg-surface-muted"
               >
-                <span className="flex items-center gap-2 min-w-0">
-                  <Coins size={14} className="text-slate-400 shrink-0" />
+                <span className="flex min-w-0 items-center gap-2">
+                  <Coins size={14} className="shrink-0 text-ink-muted" />
                   <span className="text-[11px] font-black uppercase tracking-wider text-ink-body">
-                    {isAr ? "أسعار المعمل" : "Price list"}
+                    {txt.priceList}
                   </span>
-                  <span className="text-[11px] font-bold text-slate-400 truncate">
+                  <span className="truncate text-[11px] font-bold text-ink-muted">
                     {labPricedCount(lab) === 0
-                      ? isAr ? "مفيش أسعار" : "nothing priced yet"
-                      : isAr
-                        ? `${labPricedCount(lab)} نوع شغل`
-                        : `${labPricedCount(lab)} of ${LAB_WORK_TYPES.length} priced`}
+                      ? txt.nothingPriced
+                      : `${labPricedCount(lab)} / ${LAB_WORK_TYPES.length}`}
                   </span>
                 </span>
                 <ChevronDown
                   size={16}
-                  className={`text-slate-400 shrink-0 transition-transform ${openPrices[lab.id] ? "rotate-180" : ""}`}
+                  className={`shrink-0 text-ink-muted transition-transform ${openPrices[lab.id] ? "rotate-180" : ""}`}
                 />
               </button>
 
               {openPrices[lab.id] && (
-                <div className="p-3 space-y-1.5 bg-surface border-t border-line">
-                  <p className="text-[11px] font-semibold text-ink-muted leading-relaxed mb-2">
-                    {isAr
-                      ? "سيب الخانة فاضية لو المعمل ده مبيعملش النوع ده، أو لسه مفيش سعر متفق عليه. السعر بيتحط لوحده في أمر المعمل، وتقدر تغيّره في أي أمر."
-                      : "Leave a box empty for work this lab does not do, or has no agreed price for. The price fills itself in when an order is raised, and can still be changed on any order."}
+                <div className="space-y-1.5 border-t border-line bg-surface p-3">
+                  <p className="mb-2 text-[11px] font-semibold leading-relaxed text-ink-muted">
+                    {txt.priceHint}
                   </p>
                   {LAB_WORK_TYPES.map((w) => (
                     <div key={w.id} className="flex items-center gap-2">
-                      <span className="flex-1 min-w-0 text-xs font-bold text-ink-body truncate">
+                      <span className="min-w-0 flex-1 truncate text-xs font-bold text-ink-body">
                         {isAr ? w.ar : w.en}
                       </span>
                       <div className="relative shrink-0">
@@ -338,24 +382,12 @@ export default function DentalLabsSettings() {
                           step="any"
                           dir="ltr"
                           value={lab.prices?.[w.id] ?? ""}
-                          onChange={(e) =>
-                            updateLab(lab.id, {
-                              prices: {
-                                ...(lab.prices || {}),
-                                // Cleared removes the entry rather than storing 0 — zero would
-                                // fill an order in as free, which is a real answer for a remake
-                                // and the wrong one for "we never agreed a price".
-                                ...(e.target.value.trim() === ""
-                                  ? { [w.id]: 0 }
-                                  : { [w.id]: Number(e.target.value) }),
-                              },
-                            })
-                          }
+                          onChange={(e) => setPrice(lab, w.id, e.target.value)}
                           placeholder="—"
-                          className="w-28 ps-3 pe-10 py-1.5 bg-slate-50/60 border border-line rounded-lg text-xs font-bold text-slate-700 text-end placeholder:text-slate-300 focus:outline-none focus:border-sky-500 transition-all tabular-nums"
+                          className={`w-28 rounded-lg py-1.5 pe-12 ps-3 text-end text-xs font-bold tabular-nums ${INPUT}`}
                         />
-                        <span className="absolute end-2.5 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400 pointer-events-none">
-                          EGP
+                        <span className="pointer-events-none absolute end-2.5 top-1/2 -translate-y-1/2 text-[10px] font-black text-ink-muted">
+                          {currency}
                         </span>
                       </div>
                     </div>
@@ -365,10 +397,8 @@ export default function DentalLabsSettings() {
             </div>
 
             {!lab.turnaroundDays && (
-              <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2 font-semibold leading-relaxed">
-                {isAr
-                  ? "من غير مدة تسليم، ميعاد الرجوع هيتكتب بالإيد كل مرة — وتنبيهات التأخير مش هتبقى معناها حاجة."
-                  : "Without a turnaround, the due date is typed by hand every time — and the overdue warnings stop meaning anything."}
+              <p className="rounded-xl border border-warn/25 bg-warn-tint px-3 py-2 text-[11px] font-semibold leading-relaxed text-warn">
+                {txt.noTurnaroundHint}
               </p>
             )}
           </div>
@@ -378,13 +408,10 @@ export default function DentalLabsSettings() {
       {/* Paper size.
           Below the labs rather than above them, because it is set once and then never touched
           again — putting it first would make the screen open on the thing nobody came for. */}
-      <div className="bg-surface border border-line rounded-2xl shadow-sm p-4 sm:p-5 space-y-3">
-        <div className="flex items-center gap-2">
-          <Printer size={16} className="text-slate-400 shrink-0" />
-          <h3 className="text-sm font-black text-slate-800">
-            {isAr ? "مقاس ورق أمر المعمل" : "Lab order paper size"}
-          </h3>
-        </div>
+      <section>
+        <h3 className="mb-3 flex items-center gap-2 font-display text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">
+          <Printer size={13} /> {txt.paperSize}
+        </h3>
         <div className="grid grid-cols-1 gap-2">
           {LAB_PAPER_OPTIONS.map((opt) => {
             const active = paper === opt.id;
@@ -393,29 +420,49 @@ export default function DentalLabsSettings() {
                 key={opt.id}
                 type="button"
                 onClick={() => setPaper(opt.id)}
-                className={`w-full text-start px-4 py-3 rounded-xl border transition-all ${
+                aria-pressed={active}
+                className={`w-full rounded-xl border px-4 py-3 text-start transition-all ${
                   active
-                    ? "bg-sky-50 border-sky-400 ring-4 ring-sky-500/10"
-                    : "bg-slate-50/60 border-line hover:bg-surface"
+                    ? "border-accent bg-accent-tint ring-4 ring-accent/10"
+                    : "border-line bg-surface-subtle hover:bg-surface"
                 }`}
               >
-                <span className={`block text-sm font-black ${active ? "text-sky-800" : "text-slate-700"}`}>
+                <span className={`block text-sm font-black ${active ? "text-accent" : "text-ink-body"}`}>
                   {isAr ? opt.ar : opt.en}
                 </span>
-                <span className="block text-[11px] font-semibold text-ink-muted mt-0.5 leading-relaxed">
+                <span className="mt-0.5 block text-[11px] font-semibold leading-relaxed text-ink-muted">
                   {isAr ? opt.hintAr : opt.hintEn}
                 </span>
               </button>
             );
           })}
         </div>
-      </div>
+      </section>
 
-      <p className="text-[11px] text-slate-400 font-medium leading-relaxed">
-        {isAr
-          ? "ملاحظة: الحالات بتحتفظ باسم المعمل وقت إنشائها، فتغيير الاسم هنا مش بيغير الأوامر القديمة أو الورق اللي اتطبع."
-          : "Note: a case keeps the lab's name as it was when the case was raised, so renaming a lab here never rewrites old orders or paper that has already been printed."}
-      </p>
+      {isDirty && (
+        <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-ink-slab px-4 py-3 shadow-2xl">
+          <span className="text-xs font-bold text-white/70">{txt.unsaved}</span>
+          <span className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={discard}
+              disabled={saving}
+              className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold text-white/60 transition hover:text-white disabled:opacity-50"
+            >
+              <RotateCcw size={14} /> {txt.discard}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={saving}
+              className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-bold text-ink-on-accent transition hover:bg-accent-strong disabled:opacity-50"
+            >
+              {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+              {txt.save}
+            </button>
+          </span>
+        </div>
+      )}
     </div>
   );
 }

@@ -888,34 +888,34 @@ export default function MobileDashboard() {
             </p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
-            <button onClick={() => setActiveModal('patient')} className="group flex items-center gap-2 bg-white/80 backdrop-blur-md text-slate-700 font-bold text-sm px-6 py-3 rounded-full hover:-translate-y-0.5 transition-all duration-300 shadow-[0_4px_20px_rgb(0,0,0,0.04)] border border-white">
-              <div className="text-slate-900 group-hover:scale-110 transition-transform"><Plus size={18} strokeWidth={2.5} /></div>
+            <button onClick={() => setActiveModal('patient')} className="group flex items-center gap-2 bg-[#FACC15] hover:bg-[#EAB308] text-ink font-black text-sm px-6 py-3 rounded-full shadow-sm active:scale-95 transition-all">
+              <div className="group-hover:scale-110 transition-transform"><Plus size={18} strokeWidth={3} /></div>
               {language === 'ar' ? 'مريض جديد' : 'New Patient'}
             </button>
-            <button onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }} className="group flex items-center gap-2 bg-ink-slab text-white font-bold text-sm px-6 py-3 rounded-full hover:-translate-y-0.5 transition-all duration-300 shadow-[0_8px_20px_rgba(26,33,48,0.2)] border border-ink-slab">
-              <div className="text-white group-hover:scale-110 transition-transform"><Wallet size={18} strokeWidth={2.5} /></div>
-              {language === 'ar' ? 'دفع سريع' : 'Quick Pay'}
+            <button onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }} className="group flex items-center gap-2 bg-surface text-ink font-extrabold text-sm px-6 py-3 rounded-full shadow-sm border border-slate-200 transition-all hover:bg-slate-50 active:scale-95">
+              <div className="text-slate-500 group-hover:scale-110 group-hover:text-ink transition-all"><Wallet size={18} strokeWidth={2.5} /></div>
+              <span className="drop-shadow-sm">{language === 'ar' ? 'دفع سريع' : 'Quick Pay'}</span>
             </button>
           </div>
         </div>
 
         {/* === DESKTOP: Floating High-Contrast Stats === */}
         <div className="hidden lg:flex items-center gap-12 shrink-0 py-4 px-2">
-          {/* Daily Income - Dark Contrast Card */}
-          <div className="bg-ink-slab text-white p-5 rounded-[2rem] shadow-[0_12px_40px_rgba(26,33,48,0.2)] flex flex-col min-w-[200px] hover:-translate-y-1 hover:shadow-2xl transition-all duration-300">
+          {/* Daily Income - Clean Card */}
+          <div className="bg-surface text-ink p-6 rounded-3xl shadow-sm border border-slate-200 flex flex-col min-w-[220px] transition-all">
             <div className="flex items-center justify-between mb-4">
-              <span className="text-sm font-medium text-slate-400">{language === 'ar' ? 'دخل اليوم' : 'Daily Income'}</span>
-              <Wallet size={18} className="text-slate-400" />
+              <span className="text-xs font-bold uppercase tracking-widest text-slate-500">{language === 'ar' ? 'دخل اليوم' : 'Daily Income'}</span>
+              <div className="p-2 bg-emerald-50 rounded-full"><Wallet size={16} className="text-emerald-600" /></div>
             </div>
-            <span className="text-3xl font-light tracking-tight">
-              {dailyIncome === null ? <Loader2 className="w-6 h-6 animate-spin text-ink-muted" /> : <><span className="font-normal">{dailyIncome?.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}</span> <span className="text-lg text-slate-400">{language === 'ar' ? 'ج.م' : 'EGP'}</span></>}
+            <span className="text-4xl font-black tracking-tighter drop-shadow-sm text-ink">
+              {dailyIncome === null ? <Loader2 className="w-6 h-6 animate-spin text-slate-500" /> : <>{dailyIncome?.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')} <span className="text-lg font-medium text-slate-500 uppercase tracking-widest ml-1">{language === 'ar' ? 'ج.م' : 'EGP'}</span></>}
             </span>
           </div>
 
           {/* Total Appointments - Floating Huge Number */}
-          <div className="flex flex-col justify-center px-4">
-            <span className="text-sm font-medium text-ink-muted mb-1">{language === 'ar' ? 'المواعيد' : 'Appointments'}</span>
-            <span className="text-5xl font-light text-slate-800 tracking-tighter leading-none">{activeAppointmentsCount}</span>
+          <div className="flex flex-col justify-center px-6">
+            <span className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-2">{language === 'ar' ? 'المواعيد' : 'Appointments'}</span>
+            <span className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-b from-slate-800 to-slate-500 tracking-tighter leading-none drop-shadow-sm">{activeAppointmentsCount}</span>
           </div>
 
           {/* Status Distribution - Abstract Chart */}
@@ -945,7 +945,7 @@ export default function MobileDashboard() {
         <div className="flex flex-col gap-4 lg:hidden shrink-0">
           
           {/* 1. Floating Header with Profile Pic */}
-          <div className="flex items-center justify-between bg-white/80 backdrop-blur-xl border border-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-full p-1.5 mx-1 mt-1">
+          <div className="flex items-center justify-between bg-white/80 backdrop-blur-2xl border border-white/60 shadow-[0_12px_40px_rgb(0,0,0,0.06)] rounded-full p-2 mx-1 mt-1 ring-1 ring-black/[0.02]">
             <div className="flex items-center gap-2">
               <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-emerald-400 to-teal-400 p-[1.5px] shadow-sm shrink-0">
                 <div className="w-full h-full rounded-full bg-surface flex items-center justify-center overflow-hidden border-2 border-white">
@@ -977,18 +977,18 @@ export default function MobileDashboard() {
              
              <div className="grid grid-cols-2 gap-2">
                 {/* Income Card (Spans half) */}
-                <div className="bg-ink-slab rounded-[1.5rem] p-4 text-white shadow-lg flex flex-col relative overflow-hidden">
-                    <div className="flex justify-between items-start w-full relative z-10">
-                       <span className="text-[10px] font-bold text-white uppercase tracking-widest">{language === 'ar' ? 'دخل اليوم' : 'Today\'s Income'}</span>
-                       <Wallet size={14} className="text-white" />
+                <div className="bg-surface rounded-2xl p-5 border border-slate-100 shadow-sm flex flex-col relative overflow-hidden">
+                    <div className="flex justify-between items-start w-full relative z-10 mb-2">
+                       <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{language === 'ar' ? 'دخل اليوم' : 'Today\'s Income'}</span>
+                       <div className="p-1.5 bg-emerald-50 rounded-full"><Wallet size={14} className="text-emerald-600" /></div>
                     </div>
                     <div className="flex-1 flex flex-col items-center justify-center relative z-10 min-h-[80px]">
                         {dailyIncome === null ? (
-                            <Loader2 className="w-5 h-5 animate-spin text-white" />
+                            <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
                         ) : (
-                            <div className="flex items-baseline justify-center gap-1.5 w-full">
-                                <span className="text-4xl font-black tracking-tighter leading-none truncate text-center text-white">{dailyIncome.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}</span>
-                                <span className="text-[10px] font-bold text-white uppercase tracking-widest shrink-0">{language === 'ar' ? 'ج.م' : 'EGP'}</span>
+                            <div className="flex items-baseline justify-center gap-1 w-full">
+                                <span className="text-4xl font-black tracking-tighter leading-none truncate text-center text-ink drop-shadow-sm">{dailyIncome.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}</span>
+                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest shrink-0">{language === 'ar' ? 'ج.م' : 'EGP'}</span>
                             </div>
                         )}
                     </div>
@@ -1025,10 +1025,10 @@ export default function MobileDashboard() {
           <div className="flex flex-col gap-2 px-1 pb-1 mt-2">
             <button
               onClick={() => setActiveModal('patient')}
-              className="w-full flex items-center py-3 px-4 rounded-[1.2rem] bg-white/60 backdrop-blur-xl border border-white shadow-[0_4px_20px_rgb(0,0,0,0.03)] active:scale-[0.98] transition-transform"
+              className="w-full flex items-center py-3 px-4 rounded-[1.2rem] bg-[#FACC15] hover:bg-[#EAB308] shadow-sm active:scale-[0.98] transition-transform"
             >
-              <div className="w-8 h-8 rounded-full bg-surface shadow-sm flex items-center justify-center shrink-0"><User size={16} strokeWidth={2.5} className="text-slate-800" /></div>
-              <span className="text-lg font-black text-slate-800 flex-1 text-center">{language === 'ar' ? 'مريض جديد' : 'New Patient'}</span>
+              <div className="w-8 h-8 rounded-full bg-white/40 shadow-sm flex items-center justify-center shrink-0"><User size={16} strokeWidth={2.5} className="text-ink" /></div>
+              <span className="text-lg font-black text-ink flex-1 text-center">{language === 'ar' ? 'مريض جديد' : 'New Patient'}</span>
               <div className="w-8 h-8 shrink-0"></div>
             </button>
 

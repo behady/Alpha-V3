@@ -32,11 +32,34 @@ export default function AppearanceSettings() {
           : null;
 
   return (
-    <div className="space-y-8 animate-in fade-in max-w-5xl mx-auto">
+    <div className="w-full space-y-8 pb-4">
+      {/* Interface opens by saying its choices are yours and follow you. This screen is the
+          other half of that sentence, and it was the half nobody was told. */}
+      <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 space-y-2">
+            <p className="flex items-center gap-2 font-display text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
+              <Palette size={12} />
+              {txt.title}
+            </p>
+            <p className="max-w-xl font-display text-[15px] font-bold leading-relaxed text-white sm:text-base">
+              {txt.everyoneSees}
+            </p>
+            <p className="text-[11px] font-semibold text-white/45">{txt.yoursIsInterface}</p>
+          </div>
+
+          {lockReason && (
+            <span className="inline-flex shrink-0 items-center gap-2 self-start rounded-full bg-amber-400/20 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] text-amber-200">
+              <Lock size={11} /> {txt.locked}
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* LANGUAGE */}
-      <div className="bg-surface p-8 md:p-10 rounded-3xl border border-slate-200/50 shadow-sm">
-        <h3 className="text-xl font-black text-ink mb-8 flex items-center gap-3">
-          <Globe className="text-accent" /> {txt.langSettings}
+      <section>
+        <h3 className="mb-3 flex items-center gap-2 font-display text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">
+          <Globe size={13} /> {txt.langSettings}
         </h3>
         <button
           onClick={toggleLanguage}
@@ -44,18 +67,16 @@ export default function AppearanceSettings() {
         >
           <Globe size={24} className="text-accent-strong" /> {txt.switchLang}
         </button>
-      </div>
+      </section>
 
       {/* THEME */}
-      <div className="bg-surface p-8 md:p-10 rounded-3xl border border-slate-200/50 shadow-sm">
-        <div className="mb-2 flex items-center gap-3">
-          <Palette className="text-accent" />
-          <h3 className="text-xl font-black text-ink">{txt.themeSettings}</h3>
-        </div>
-        <p className="text-sm font-medium text-ink-muted mb-6">{txt.themeHint}</p>
+      <section>
+        <h3 className="mb-3 flex items-center gap-2 font-display text-[11px] font-black uppercase tracking-[0.18em] text-ink-muted">
+          <Palette size={13} /> {txt.themeSettings}
+        </h3>
 
         {lockReason && (
-          <div className="mb-6 flex items-center gap-2.5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
+          <div className="mb-4 flex items-center gap-2.5 rounded-2xl border border-warn/25 bg-warn-tint px-4 py-3 text-sm font-bold text-warn">
             <Lock size={16} className="shrink-0" /> {lockReason}
           </div>
         )}
@@ -74,7 +95,7 @@ export default function AppearanceSettings() {
             />
           ))}
         </div>
-      </div>
+      </section>
     </div>
   );
 }
@@ -100,11 +121,11 @@ function PresetCard({
       className={`group relative text-start rounded-3xl border-2 p-5 transition-all disabled:cursor-not-allowed disabled:opacity-60 ${
         selected
           ? "border-accent shadow-md"
-          : "border-slate-100 hover:border-slate-300 hover:shadow-sm"
+          : "border-line hover:border-line-strong hover:shadow-sm"
       }`}
     >
       {selected && (
-        <span className="absolute top-4 end-4 flex items-center gap-1 rounded-full bg-accent px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-white">
+        <span className="absolute top-4 end-4 flex items-center gap-1 rounded-full bg-accent px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-ink-on-accent">
           {busy ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />} {currentLabel}
         </span>
       )}

@@ -1,12 +1,27 @@
 import type { PrescriptionPdfPayload, RxItem } from "@/lib/prescriptionPdfHtml";
 
+type StoredRxItem = {
+  id?: string;
+  name?: string;
+  dose?: string;
+  doseAr?: string;
+  note?: string;
+  noteAr?: string;
+};
+
+/**
+ * Reprinting a saved prescription goes through here. `doseAr`/`noteAr` were added later, so a
+ * record written before them simply has no Arabic lines and reprints exactly as it always did.
+ */
 export function normalizeRxItemsFromRecord(raw: unknown): RxItem[] {
   if (!Array.isArray(raw)) return [];
-  return raw.map((x: { id?: string; name?: string; dose?: string; note?: string }, i) => ({
+  return raw.map((x: StoredRxItem, i) => ({
     id: typeof x?.id === "string" ? x.id : `rx_${i}`,
     name: String(x?.name ?? "—"),
     dose: String(x?.dose ?? ""),
+    doseAr: String(x?.doseAr ?? ""),
     note: String(x?.note ?? ""),
+    noteAr: String(x?.noteAr ?? ""),
   }));
 }
 
@@ -65,10 +80,14 @@ export function formatPrescriptionCardDate(record: Record<string, unknown>): str
   return "—";
 }
 
-function calculateAge(dob: string) {
-  if (!dob) return "";
-  const diff = Date.now() - new Date(dob).getTime();
-  return Math.abs(new Date(diff).getUTCFullYear() - 1970).toString();
+/** `new Date("34")` answers 1970, which is how an age already stored as a number came out as 0. */
+function calculateAge(dobOrAge: string) {
+  const raw = dobOrAge.trim();
+  if (!raw) return "";
+  if (/^\d{1,3}$/.test(raw)) return raw;
+  const ms = new Date(raw).getTime();
+  if (Number.isNaN(ms)) return "";
+  return Math.abs(new Date(Date.now() - ms).getUTCFullYear() - 1970).toString();
 }
 
 export type PrescriptionClinicInfo = Record<string, unknown>;
@@ -91,8 +110,11 @@ export function buildPrescriptionPayloadFromRecord(
       ? calculateAge(String(patient.dateOfBirth))
       : patient.age != null && String(patient.age).trim() !== ""
         ? String(patient.age)
-        : "?";
-  const ageSex = `${agePart} Y / ${String(patient.gender || "U").charAt(0) || "U"}`;
+        : "";
+  // An em dash beats the bare "? Y / U" a patient with no birth date on file used to print.
+  const sexPart = patient.gender ? String(patient.gender).charAt(0).toUpperCase() : "";
+  const ageSex =
+    agePart && sexPart ? `${agePart} Y / ${sexPart}` : agePart ? `${agePart} Y` : sexPart || "—";
   const clinicName =
     (typeof clinicInfo.name === "string" && clinicInfo.name.trim()) ||
     (typeof clinicInfo.clinicName === "string" && clinicInfo.clinicName.trim()) ||

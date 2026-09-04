@@ -66,7 +66,7 @@ export default function SettingsSectionPage() {
     <>
       {!edit.allowed && (
         <p className="mb-6 flex items-start gap-3 rounded-2xl border border-line bg-surface-subtle px-5 py-4 text-sm font-semibold text-ink-body">
-          <Lock size={16} className="mt-0.5 shrink-0 text-slate-400" />
+          <Lock size={16} className="mt-0.5 shrink-0 text-ink-muted" />
           {denialMessage(edit, language)}
         </p>
       )}
@@ -78,7 +78,7 @@ export default function SettingsSectionPage() {
 function Blocked({ title, message }: { title: string; message: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center animate-in fade-in">
-      <div className="w-20 h-20 bg-surface-muted text-slate-400 rounded-[1.75rem] flex items-center justify-center mb-6">
+      <div className="w-20 h-20 bg-surface-muted text-ink-muted rounded-[1.75rem] flex items-center justify-center mb-6">
         <ShieldAlert size={34} />
       </div>
       <h2 className="text-2xl font-black text-ink mb-2 tracking-tight">{title}</h2>
@@ -91,7 +91,7 @@ function NotFound() {
   const { language } = useLanguage();
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center animate-in fade-in">
-      <div className="w-20 h-20 bg-surface-muted text-slate-400 rounded-[1.75rem] flex items-center justify-center mb-6">
+      <div className="w-20 h-20 bg-surface-muted text-ink-muted rounded-[1.75rem] flex items-center justify-center mb-6">
         <SearchX size={34} />
       </div>
       <h2 className="text-2xl font-black text-ink mb-2 tracking-tight">
@@ -104,7 +104,7 @@ function NotFound() {
       </p>
       <Link
         href="/settings"
-        className="rounded-2xl bg-slate-900 px-6 py-3 text-sm font-bold text-white transition-all active:scale-95"
+        className="rounded-2xl bg-accent px-6 py-3 text-sm font-bold text-ink-on-accent transition-all active:scale-95"
       >
         {language === "ar" ? "كل الإعدادات" : "All settings"}
       </Link>

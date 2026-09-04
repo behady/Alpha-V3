@@ -61,6 +61,13 @@
   --danger-tint:      #FEF2F2;
   --info:             #1D4FD8;
   --info-tint:        #EFF6FF;
+
+  /* The four settings groups. A solid tile under a white glyph, and nothing else —
+     chrome stays achromatic, so colour only ever names a destination. */
+  --tone-personal:      #6B4FBB;
+  --tone-clinic:        #0E7490;
+  --tone-people:        #B03A78;
+  --tone-system:        #2C5F8F;
 }
 
 /* `inline` matters: it makes the generated utilities reference --surface and
@@ -98,6 +105,11 @@
   --color-danger-tint:    var(--danger-tint);
   --color-info:           var(--info);
   --color-info-tint:      var(--info-tint);
+
+  --color-tone-personal:      var(--tone-personal);
+  --color-tone-clinic:        var(--tone-clinic);
+  --color-tone-people:        var(--tone-people);
+  --color-tone-system:        var(--tone-system);
 }
 
 /* --------------------------------------------------------------------------
@@ -183,6 +195,18 @@ body {
   color: var(--foreground);
   font-family: var(--font-body), "Open Sans", "Segoe UI", Tahoma, sans-serif;
   transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Headings — the rail headline, a section's name, a clinic's name on its letterhead — in the
+   brand's primary face. Everything a person reads as prose stays in the body face, so the two
+   faces divide the page the way the brand kit intends: Montserrat states, Open Sans explains.
+
+   This replaces five `font-serif` leftovers from before the brand kit arrived. No serif was ever
+   loaded, so those fell through to whatever the machine had — Georgia here, Times there, and in
+   Arabic to a face carrying no Arabic at all. */
+.font-display {
+  font-family: var(--font-figures), "Montserrat", "Segoe UI", Tahoma, sans-serif;
+  letter-spacing: -0.015em;
 }
 
 /* Figures — money, counts, hours — set in the display face with aligned numerals. Labels stay

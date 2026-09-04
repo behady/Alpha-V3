@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { useSettingsText } from "@/lib/useSettingsText";
-import { X, Search, ChevronDown, ChevronRight, Info, Shield, Check, Crown, RotateCcw, ArrowRightLeft } from "lucide-react";
-import { PERMISSIONS_CATALOG, getAllPermissionIds, type PermissionCatalogGroup } from "@/config/permissionsCatalog";
+import { X, Search, ChevronDown, ChevronRight, Info, Shield, Crown, RotateCcw, ArrowRightLeft } from "lucide-react";
+import { PERMISSIONS_CATALOG, type PermissionCatalogGroup } from "@/config/permissionsCatalog";
 import { ASSIGNABLE_ROLES, isFullAccessRole, isOwnerRole, presetDiff, rolePreset } from "@/lib/permissions";
 
 type UserRow = {
@@ -77,6 +77,14 @@ export default function UserAccessModal({
   const presetKeys = useMemo(() => new Set(rolePreset(user?.role)), [user?.role]);
   const diff = useMemo(() => presetDiff(user?.role, user?.permissions), [user?.role, user?.permissions]);
 
+  /**
+   * Above the guard clause below, and not inside the `txt` object where it reads more
+   * naturally. This drawer stays mounted and returns null while closed, so a hook called
+   * after that return runs on the open renders only — React counts hooks per render and
+   * throws on the one that opens it.
+   */
+  const sectionText = useSettingsText("userAccess");
+
   const toggleGroupCollapsed = (groupId: string) => {
     setCollapsedGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
   };
@@ -104,7 +112,7 @@ export default function UserAccessModal({
 
   const txt = {
 
-    ...useSettingsText("userAccess"),
+    ...sectionText,
 
     presetLabel: isAr ? `الإعداد الجاهز لدور ${roleName}` : `${roleName} preset`,
 
@@ -117,15 +125,15 @@ export default function UserAccessModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[110] flex items-center justify-end p-0 sm:p-4 transition-all duration-300">
+    <div className="fixed inset-0 bg-ink/40 backdrop-blur-sm z-[110] flex items-center justify-center p-0 sm:p-4 transition-all duration-300">
       <div 
-        className="bg-white w-full h-full sm:h-auto sm:max-h-[90vh] sm:w-[600px] sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right-8 sm:slide-in-from-bottom-8 duration-300"
+        className="bg-surface w-full h-full sm:h-auto sm:max-h-[90vh] sm:w-[600px] sm:rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200"
         dir={isRTL ? "rtl" : "ltr"}
       >
         {/* Header */}
-        <div className="flex justify-between items-center px-6 py-5 border-b border-slate-100 bg-surface z-10 shrink-0">
+        <div className="flex justify-between items-center px-6 py-5 border-b border-line bg-surface z-10 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${targetIsOwner ? "bg-amber-50 text-amber-600" : "bg-emerald-50 text-accent-soft"}`}>
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${targetIsOwner ? "bg-accent-tint text-accent" : "bg-surface-muted text-ink-body"}`}>
               {targetIsOwner ? <Crown size={20} /> : <Shield size={20} />}
             </div>
             <div className="min-w-0">
@@ -136,27 +144,27 @@ export default function UserAccessModal({
           <button 
             type="button" 
             onClick={onClose} 
-            className="text-slate-400 hover:text-red-500 bg-surface-subtle hover:bg-red-50 p-2.5 rounded-full transition-colors shrink-0"
+            className="text-ink-muted bg-surface-subtle hover:bg-danger-tint hover:text-danger p-2.5 rounded-full transition-colors shrink-0"
           >
             <X size={20} />
           </button>
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50 space-y-8 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto p-6 bg-surface-subtle/50 space-y-8 custom-scrollbar">
           
           {/* Role Section */}
           <div className="space-y-4">
-            <label className="text-xs font-black text-slate-400 uppercase tracking-widest block px-1">
+            <label className="text-xs font-black text-ink-muted uppercase tracking-widest block px-1">
               {txt.systemRole}
             </label>
-            <div className="bg-surface rounded-[1.5rem] p-4 sm:p-5 border border-slate-200/60 shadow-sm space-y-4">
+            <div className="bg-surface rounded-[1.5rem] p-4 sm:p-5 border border-line shadow-sm space-y-4">
               {targetIsOwner ? (
-                <div className="flex items-start gap-3 py-2 px-4 rounded-xl bg-amber-50/60 border border-amber-100">
-                  <Crown size={18} className="shrink-0 mt-0.5 text-amber-600" />
+                <div className="flex items-start gap-3 py-2 px-4 rounded-xl bg-accent-tint/60 border border-accent/20">
+                  <Crown size={18} className="shrink-0 mt-0.5 text-accent" />
                   <div className="min-w-0">
-                    <p className="text-sm font-bold text-amber-900">{txt.ownerLocked}</p>
-                    <p className="text-[11px] font-semibold text-amber-700/80 mt-0.5 leading-relaxed">{txt.ownerLockedHint}</p>
+                    <p className="text-sm font-bold text-ink">{txt.ownerLocked}</p>
+                    <p className="text-[11px] font-semibold text-ink-body mt-0.5 leading-relaxed">{txt.ownerLockedHint}</p>
                   </div>
                 </div>
               ) : (
@@ -164,7 +172,7 @@ export default function UserAccessModal({
                   value={user.role || "Assistant"}
                   disabled={isUpdating}
                   onChange={(e) => handleRoleChange(user.id, e.target.value, user)}
-                  className="w-full py-3 px-4 rounded-xl border border-line text-sm font-bold text-slate-800 bg-surface-subtle outline-none focus:ring-2 focus:ring-accent-soft/20 focus:border-accent-soft transition-all cursor-pointer"
+                  className="w-full py-3 px-4 rounded-xl border border-line text-sm font-bold text-ink bg-surface-subtle outline-none focus:ring-2 focus:ring-accent-soft/20 focus:border-accent-soft transition-all cursor-pointer"
                 >
                   {ASSIGNABLE_ROLES.map((r) => (
                     <option key={r} value={r}>{r}</option>
@@ -173,8 +181,8 @@ export default function UserAccessModal({
               )}
 
               {bypassesEverything && (
-                <label className="flex items-center gap-3 cursor-pointer group p-3 rounded-xl hover:bg-surface-subtle transition-colors border border-transparent hover:border-slate-100">
-                  <div className={`relative w-11 h-6 rounded-full transition-colors duration-300 flex items-center ${user.isDentist ? 'bg-accent-soft' : 'bg-slate-200'} shrink-0`}>
+                <label className="flex items-center gap-3 cursor-pointer group p-3 rounded-xl hover:bg-surface-subtle transition-colors border border-transparent hover:border-line">
+                  <div className={`relative w-11 h-6 rounded-full transition-colors duration-300 flex items-center ${user.isDentist ? 'bg-accent-soft' : 'bg-surface-muted'} shrink-0`}>
                     <div className={`w-5 h-5 bg-surface rounded-full shadow-sm transform transition-transform duration-300 mx-0.5 ${user.isDentist ? (isRTL ? '-translate-x-5' : 'translate-x-5') : 'translate-x-0'}`}></div>
                     <input
                       type="checkbox"
@@ -184,7 +192,7 @@ export default function UserAccessModal({
                       onChange={(e) => handleToggleAlsoDentist(user.id, user, e.target.checked)}
                     />
                   </div>
-                  <span className="text-sm font-bold text-slate-700 group-hover:text-ink transition-colors">
+                  <span className="text-sm font-bold text-ink-body group-hover:text-ink transition-colors">
                     {txt.alsoDentist}
                   </span>
                 </label>
@@ -194,8 +202,8 @@ export default function UserAccessModal({
             {bypassesEverything && (
               <div className={`flex gap-3 items-start border p-4 rounded-[1.25rem] text-xs font-bold leading-relaxed ${
                 targetIsOwner
-                  ? "bg-amber-50/50 border-amber-100 text-amber-700"
-                  : "bg-blue-50/50 border-blue-100 text-blue-600"
+                  ? "border-info/20 bg-info-tint text-info"
+                  : "border-info/20 bg-info-tint text-info"
               }`}>
                 <Info size={16} className="shrink-0 mt-0.5" />
                 <p>{targetIsOwner ? txt.ownerBypass : txt.adminBypass}</p>
@@ -207,9 +215,9 @@ export default function UserAccessModal({
                 type="button"
                 disabled={isUpdating}
                 onClick={() => transferOwnership(user)}
-                className="w-full flex items-center gap-3 p-4 rounded-[1.25rem] border border-amber-200 bg-surface hover:bg-amber-50/60 transition-colors text-start disabled:opacity-50"
+                className="w-full flex items-center gap-3 p-4 rounded-[1.25rem] border border-warn/30 bg-surface hover:bg-warn-tint transition-colors text-start disabled:opacity-50"
               >
-                <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                <div className="w-9 h-9 rounded-xl bg-warn-tint text-warn flex items-center justify-center shrink-0">
                   <ArrowRightLeft size={16} />
                 </div>
                 <div className="min-w-0">
@@ -223,7 +231,7 @@ export default function UserAccessModal({
           {/* Permissions Section */}
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-1">
-              <label className="text-xs font-black text-slate-400 uppercase tracking-widest">
+              <label className="text-xs font-black text-ink-muted uppercase tracking-widest">
                 Modular Access
               </label>
             </div>
@@ -234,18 +242,18 @@ export default function UserAccessModal({
               decoration.
             */}
             {!bypassesEverything && (
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface rounded-[1.25rem] border border-slate-200/60 shadow-sm p-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-surface rounded-[1.25rem] border border-line shadow-sm p-4">
                 <div className="min-w-0">
                   <p className="text-sm font-bold text-ink truncate">
                     {txt.presetLabel} · {txt.presetSwitches}
                   </p>
                   <p className="text-[11px] font-semibold mt-0.5 truncate">
                     {!diff.hasRecord ? (
-                      <span className="text-slate-400">{txt.presetUnset}</span>
+                      <span className="text-ink-muted">{txt.presetUnset}</span>
                     ) : diff.matchesPreset ? (
-                      <span className="text-emerald-600">{txt.presetMatches}</span>
+                      <span className="text-ok">{txt.presetMatches}</span>
                     ) : (
-                      <span className="text-amber-600">
+                      <span className="text-warn">
                         {[
                           diff.added.length ? txt.presetAdded(diff.added.length) : null,
                           diff.removed.length ? txt.presetRemoved(diff.removed.length) : null,
@@ -261,7 +269,7 @@ export default function UserAccessModal({
                   title={txt.applyPresetHint}
                   disabled={isUpdating || diff.matchesPreset}
                   onClick={() => applyRolePreset(user.id, user)}
-                  className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-[11px] font-bold uppercase tracking-wider border border-line bg-surface-subtle text-slate-700 hover:bg-surface-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="shrink-0 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-[11px] font-bold uppercase tracking-wider border border-line bg-surface-subtle text-ink-body hover:bg-surface-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <RotateCcw size={14} />
                   {txt.applyPreset}
@@ -270,13 +278,13 @@ export default function UserAccessModal({
             )}
 
             <div className="relative mb-4">
-              <Search size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? "right-4" : "left-4"}`} />
+              <Search size={18} className={`absolute top-1/2 -translate-y-1/2 text-ink-muted ${isRTL ? "right-4" : "left-4"}`} />
               <input
                 type="search"
                 value={permissionSearch}
                 onChange={(e) => setPermissionSearch(e.target.value)}
                 placeholder={txt.searchPlaceholder}
-                className={`w-full py-3.5 rounded-[1.25rem] border border-slate-200/60 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-accent-soft/20 focus:border-accent-soft bg-surface shadow-sm transition-all ${
+                className={`w-full py-3.5 rounded-[1.25rem] border border-line text-sm font-bold text-ink outline-none focus:ring-2 focus:ring-accent-soft/20 focus:border-accent-soft bg-surface shadow-sm transition-all ${
                   isRTL ? "pr-12 pl-4" : "pl-12 pr-4"
                 }`}
               />
@@ -290,9 +298,9 @@ export default function UserAccessModal({
                 const isAllSelected = groupKeys.every(k => perms.includes(k));
 
                 return (
-                  <div key={group.id} className="bg-surface rounded-[1.5rem] border border-slate-200/60 shadow-sm overflow-hidden transition-all duration-300">
+                  <div key={group.id} className="bg-surface rounded-[1.5rem] border border-line shadow-sm overflow-hidden transition-all duration-300">
                     <div 
-                      className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 sm:p-5 cursor-pointer hover:bg-surface-subtle transition-colors ${!collapsed ? 'border-b border-slate-100' : ''}`}
+                      className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 sm:p-5 cursor-pointer hover:bg-surface-subtle transition-colors ${!collapsed ? 'border-b border-line' : ''}`}
                       onClick={(e) => {
                         // Prevent toggling accordion if clicking a button inside it
                         if ((e.target as HTMLElement).closest('button')) return;
@@ -300,7 +308,7 @@ export default function UserAccessModal({
                       }}
                     >
                       <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors ${!collapsed ? 'bg-accent-tint text-accent-soft' : 'bg-surface-muted text-slate-400'}`}>
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors ${!collapsed ? 'bg-accent-tint text-accent-soft' : 'bg-surface-muted text-ink-muted'}`}>
                           {collapsed ? (isRTL ? <ChevronRight size={16}/> : <ChevronDown size={16}/>) : <ChevronDown size={16}/>}
                         </div>
                         <div className="min-w-0">
@@ -321,8 +329,8 @@ export default function UserAccessModal({
                           }}
                           className={`shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all border ${
                             isAllSelected 
-                              ? 'bg-red-50 text-red-600 border-red-100 hover:bg-red-100' 
-                              : 'bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-100'
+                              ? 'border-line bg-surface-muted text-ink-body hover:bg-surface-subtle'
+                              : 'border-accent/20 bg-accent-tint text-accent hover:bg-accent-tint/70'
                           }`}
                         >
                           {isAllSelected ? txt.deselectAll : txt.selectAll}
@@ -331,7 +339,7 @@ export default function UserAccessModal({
                     </div>
 
                     {!collapsed && (
-                      <div className="p-2 sm:p-3 divide-y divide-slate-50">
+                      <div className="p-2 sm:p-3 divide-y divide-line">
                         {group.items.map((pk) => {
                           const isSet = bypassesEverything || perms.includes(pk.id);
                           const inPreset = presetKeys.has(pk.id);
@@ -350,7 +358,7 @@ export default function UserAccessModal({
                             >
                               <div className="flex items-center gap-4 min-w-0 pr-4">
                                 <div className={`relative w-11 h-6 rounded-full transition-colors duration-300 flex items-center shrink-0 ${
-                                  bypassesEverything ? 'bg-slate-300' : isSet ? 'bg-accent-soft' : 'bg-slate-200'
+                                  bypassesEverything ? 'bg-line-strong' : isSet ? 'bg-accent-soft' : 'bg-surface-muted'
                                 }`}>
                                   <div className={`w-5 h-5 bg-surface rounded-full shadow-sm transform transition-transform duration-300 mx-0.5 ${isSet ? (isRTL ? '-translate-x-5' : 'translate-x-5') : 'translate-x-0'}`}></div>
                                   <input
@@ -366,11 +374,11 @@ export default function UserAccessModal({
                                 </div>
                                 <div className="min-w-0 py-1">
                                   <p className={`text-sm font-bold truncate transition-colors ${isSet ? 'text-ink' : 'text-ink-body'}`}>{itemLabel(pk)}</p>
-                                  <p className="text-[10px] font-semibold text-slate-400 font-mono mt-0.5 truncate">{pk.id}</p>
+                                  <p className="text-[10px] font-semibold text-ink-muted font-mono mt-0.5 truncate">{pk.id}</p>
                                 </div>
                               </div>
                               {bypassesEverything ? (
-                                <span className="shrink-0 px-2 py-1 rounded-md bg-slate-200 text-ink-body text-[10px] font-black uppercase tracking-wider">
+                                <span className="shrink-0 px-2 py-1 rounded-md bg-surface-muted text-ink-body text-[10px] font-black uppercase tracking-wider">
                                   {txt.always}
                                 </span>
                               ) : inPreset ? (
@@ -394,10 +402,3 @@ export default function UserAccessModal({
     </div>
   );
 }
-
-// Fallback for RTL
-const ChevronLeft = ({ size }: { size: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M15 18l-6-6 6-6" />
-  </svg>
-);

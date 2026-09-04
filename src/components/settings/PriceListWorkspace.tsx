@@ -241,30 +241,31 @@ export default function PriceListWorkspace({
   };
 
   return (
-    <div className="space-y-5" dir={ar ? "rtl" : "ltr"}>
-      {/* --- header --- */}
-      <div className="rounded-3xl border border-line bg-surface p-5 shadow-sm">
+    <div className="w-full space-y-6 pb-4" dir={ar ? "rtl" : "ltr"}>
+      {/* The same slab the Prices screen opens with: which list you are pricing, what its
+          blanket discount will do to every number below, and the way back. */}
+      <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">
         <button
           type="button"
           onClick={handleBack}
-          className="mb-3 inline-flex items-center gap-1.5 text-xs font-bold text-ink-muted transition hover:text-slate-800"
+          className="mb-3 inline-flex items-center gap-1.5 text-xs font-bold text-white/55 transition hover:text-white"
         >
           <ArrowLeft size={14} className={isRTL ? "rotate-180" : ""} /> {txt.back}
         </button>
 
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="truncate font-serif text-2xl font-bold tracking-tight text-ink">
+            <h3 className="truncate font-display text-2xl font-bold tracking-tight text-white">
               {ar && list.nameAr ? list.nameAr : list.name}
             </h3>
-            <p className="mt-1 max-w-prose text-xs font-medium text-ink-muted">{txt.sub}</p>
+            <p className="mt-1 max-w-prose text-xs font-medium text-white/55">{txt.sub}</p>
             {list.generalDiscountPercent > 0 && (
-              <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-800">
+              <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-amber-400/20 px-2.5 py-1 text-[11px] font-bold text-amber-200">
                 <Percent size={11} /> {txt.blanketNote(list.generalDiscountPercent)}
               </p>
             )}
             {isStandard && (
-              <p className="mt-2 text-[11px] font-bold text-ink-muted">{txt.standardWarning}</p>
+              <p className="mt-2 text-[11px] font-bold text-white/55">{txt.standardWarning}</p>
             )}
           </div>
 
@@ -274,7 +275,7 @@ export default function PriceListWorkspace({
                 type="button"
                 onClick={() => setDrafts({})}
                 disabled={saving}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-line px-3 py-2.5 text-xs font-bold text-ink-body transition hover:bg-surface-subtle disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-white/20 px-3 py-2.5 text-xs font-bold text-white/70 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
               >
                 <RotateCcw size={14} /> {txt.discard}
               </button>
@@ -294,9 +295,9 @@ export default function PriceListWorkspace({
 
       {/* --- quick fill --- */}
       {!isStandard && (
-        <div className="rounded-3xl border border-line bg-surface p-5 shadow-sm">
-          <h4 className="flex items-center gap-2 text-sm font-black text-slate-800">
-            <Wand2 size={15} className="text-primary-600" /> {txt.bulkTitle}
+        <div className="rounded-2xl border border-line bg-surface-subtle p-5">
+          <h4 className="flex items-center gap-2 text-sm font-black text-ink">
+            <Wand2 size={15} className="text-accent" /> {txt.bulkTitle}
           </h4>
           <p className="mt-1 max-w-prose text-xs font-medium text-ink-muted">{txt.bulkBody}</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -309,15 +310,15 @@ export default function PriceListWorkspace({
                 onChange={(e) => setBulkPercent(e.target.value)}
                 placeholder="10"
                 disabled={saving}
-                className="w-24 rounded-xl border border-line bg-slate-50/50 py-2 pl-3 pr-7 text-sm font-bold tabular-nums text-slate-700 outline-none focus:border-primary-500 focus:bg-surface disabled:opacity-50"
+                className="w-24 rounded-xl border border-line bg-surface-subtle py-2 pl-3 pr-7 text-sm font-bold tabular-nums text-ink-body outline-none focus:border-accent focus:bg-surface disabled:opacity-50"
               />
-              <Percent size={12} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? "left-2.5" : "right-2.5"}`} />
+              <Percent size={12} className={`absolute top-1/2 -translate-y-1/2 text-ink-muted ${isRTL ? "left-2.5" : "right-2.5"}`} />
             </span>
             <button
               type="button"
               onClick={applyBulk}
               disabled={saving || bulkPercent === ""}
-              className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-primary-700 disabled:opacity-40"
+              className="rounded-xl bg-accent px-4 py-2 text-sm font-bold text-ink-on-accent transition hover:bg-accent-strong disabled:opacity-40"
             >
               {txt.bulkApply}
             </button>
@@ -334,14 +335,14 @@ export default function PriceListWorkspace({
       )}
 
       {/* --- the list itself --- */}
-      <div className="rounded-3xl border border-line bg-surface p-5 shadow-sm">
+      <div>
         <div className="relative">
-          <Search size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? "right-4" : "left-4"}`} />
+          <Search size={18} className={`absolute top-1/2 -translate-y-1/2 text-ink-muted ${isRTL ? "right-4" : "left-4"}`} />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={txt.search}
-            className={`w-full rounded-2xl border border-slate-200/60 bg-surface-subtle py-3 text-sm font-semibold text-ink outline-none transition-all focus:border-primary-500 focus:bg-surface ${isRTL ? "pr-12 pl-4" : "pl-12 pr-4"}`}
+            className={`w-full rounded-2xl border border-line bg-surface-subtle py-3 text-sm font-semibold text-ink outline-none transition-all focus:border-accent focus:bg-surface ${isRTL ? "pr-12 pl-4" : "pl-12 pr-4"}`}
           />
         </div>
 
@@ -350,7 +351,7 @@ export default function PriceListWorkspace({
             type="button"
             onClick={() => setCategoryFilter("all")}
             className={`shrink-0 rounded-full px-4 py-2 text-xs font-bold transition-all ${
-              categoryFilter === "all" ? "bg-slate-900 text-white shadow-sm" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+              categoryFilter === "all" ? "bg-accent text-ink-on-accent shadow-sm" : "border border-line bg-surface-subtle text-ink-body hover:bg-surface-muted"
             }`}
           >
             {txt.all} · {services.length}
@@ -361,7 +362,7 @@ export default function PriceListWorkspace({
               key={c.key}
               onClick={() => setCategoryFilter(categoryFilter === c.key ? "all" : c.key)}
               className={`flex shrink-0 items-center gap-1.5 rounded-full px-4 py-2 text-xs font-bold transition-all ${
-                categoryFilter === c.key ? "bg-slate-900 text-white shadow-sm" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                categoryFilter === c.key ? "bg-accent text-ink-on-accent shadow-sm" : "border border-line bg-surface-subtle text-ink-body hover:bg-surface-muted"
               }`}
             >
               <DentalIcon id={c.icon} size={15} mono={categoryFilter === c.key} />
@@ -371,11 +372,11 @@ export default function PriceListWorkspace({
         </div>
 
         {loading ? (
-          <div className="flex justify-center py-16 text-slate-400">
+          <div className="flex justify-center py-16 text-ink-muted">
             <Loader2 size={22} className="animate-spin" />
           </div>
         ) : grouped.length === 0 ? (
-          <div className="mt-4 rounded-3xl border border-dashed border-line bg-surface-subtle py-16 text-center text-base font-bold text-slate-400">
+          <div className="mt-4 rounded-3xl border border-dashed border-line bg-surface-subtle py-16 text-center text-base font-bold text-ink-muted">
             {txt.none}
           </div>
         ) : (
@@ -383,16 +384,16 @@ export default function PriceListWorkspace({
             {grouped.map(({ category, items }) => (
               <section key={category.key}>
                 <div className="mb-2 flex items-center gap-2.5">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-50 text-primary-600">
+                  <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-tint text-accent">
                     <DentalIcon id={category.icon} size={16} />
                   </span>
-                  <h4 className="text-sm font-black tracking-tight text-slate-800">{ar ? category.ar : category.en}</h4>
-                  <span className="text-xs font-bold text-slate-400">{items.length}</span>
+                  <h4 className="text-sm font-black tracking-tight text-ink">{ar ? category.ar : category.en}</h4>
+                  <span className="text-xs font-bold text-ink-muted">{items.length}</span>
                   <div className="h-px flex-1 bg-surface-muted" />
                 </div>
 
                 {/* Column headings, shown once per group so the numbers never lose their labels. */}
-                <div className="hidden px-3 pb-1 text-[10px] font-black uppercase tracking-wider text-slate-400 sm:grid sm:grid-cols-[1fr_7rem_9rem_7rem] sm:gap-3">
+                <div className="hidden px-3 pb-1 text-[10px] font-black uppercase tracking-wider text-ink-muted sm:grid sm:grid-cols-[1fr_7rem_9rem_7rem] sm:gap-3">
                   <span>{txt.treatment}</span>
                   <span className="text-end">{txt.standard}</span>
                   <span className="text-end">{txt.onThisList}</span>
@@ -411,17 +412,17 @@ export default function PriceListWorkspace({
                       <li
                         key={s.id}
                         className={`grid grid-cols-1 items-center gap-2 rounded-2xl border px-3 py-2.5 transition-colors sm:grid-cols-[1fr_7rem_9rem_7rem] sm:gap-3 ${
-                          isDirty ? "border-primary-300 bg-primary-50/40" : "border-slate-200/60 bg-slate-50/50"
+                          isDirty ? "border-accent-soft bg-accent-tint/60" : "border-line bg-surface-subtle"
                         }`}
                       >
                         <div className="flex min-w-0 items-center gap-2.5">
-                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200/70 bg-surface text-ink-muted">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-line bg-surface text-ink-muted">
                             <DentalIcon id={iconForService(s)} size={18} />
                           </span>
-                          <span className="truncate text-sm font-bold text-slate-800">{s.name}</span>
+                          <span className="truncate text-sm font-bold text-ink">{s.name}</span>
                         </div>
 
-                        <span className="text-end font-serif text-sm font-semibold tabular-nums text-slate-400">
+                        <span className="text-end font-figure text-sm font-semibold text-ink-muted">
                           {base.toLocaleString()}
                         </span>
 
@@ -434,15 +435,15 @@ export default function PriceListWorkspace({
                             disabled={saving}
                             onChange={(e) => setDrafts({ ...drafts, [s.id]: e.target.value })}
                             placeholder={isStandard ? "0" : `${base} · ${txt.sameAsStandard}`}
-                            className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-end font-serif text-sm font-semibold tabular-nums text-ink outline-none transition focus:border-primary-500 disabled:opacity-60"
+                            className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-end font-figure text-sm font-semibold text-ink outline-none transition focus:border-accent disabled:opacity-60"
                           />
                         </span>
 
-                        <span className="text-end font-serif text-sm font-bold tabular-nums text-slate-700">
+                        <span className="text-end font-figure text-sm font-bold text-ink-body">
                           {list.generalDiscountPercent > 0 ? (
                             <>
                               {afterBlanket.toLocaleString()}{" "}
-                              <span className="text-[10px] font-bold uppercase text-slate-400">{currency}</span>
+                              <span className="text-[10px] font-bold uppercase text-ink-muted">{currency}</span>
                             </>
                           ) : (
                             ""
@@ -460,14 +461,14 @@ export default function PriceListWorkspace({
 
       {/* Sticky save bar — the list is long, and the Save button must never be a scroll away. */}
       {changed.length > 0 && (
-        <div className="sticky bottom-4 z-20 flex items-center justify-between gap-3 rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 shadow-2xl">
-          <span className="text-xs font-bold text-slate-300">{txt.saveCount(changed.length)}</span>
+        <div className="sticky bottom-4 z-20 flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-ink-slab px-4 py-3 shadow-2xl">
+          <span className="text-xs font-bold text-white/70">{txt.saveCount(changed.length)}</span>
           <span className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setDrafts({})}
               disabled={saving}
-              className="rounded-lg px-3 py-2 text-xs font-bold text-slate-400 transition hover:text-white disabled:opacity-50"
+              className="rounded-lg px-3 py-2 text-xs font-bold text-white/50 transition hover:text-white disabled:opacity-50"
             >
               <X size={14} />
             </button>

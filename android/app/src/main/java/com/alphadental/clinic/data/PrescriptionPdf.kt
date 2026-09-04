@@ -206,21 +206,34 @@ object PrescriptionPdf {
             y += 24
         } else {
             prescription.drugs.forEachIndexed { index, drug ->
-                // Keep the number, the name and the first line of instructions
-                // together: a medicine split across the fold is a misread waiting
-                // to happen.
-                ensure(46f)
+                // Keep the number, the name and both dose lines together: a medicine whose
+                // Arabic dose landed alone at the top of the next sheet is a medicine the
+                // patient reads without knowing which one it belongs to.
+                ensure(56f)
                 canvas.drawText("${index + 1}.", MARGIN, y + 15, paint(11f, GREEN, bold = true))
                 canvas.drawText(drug.name, MARGIN + 20, y + 15, paint(11.5f, INK, bold = true))
                 y += 20
-                val detail = listOfNotNull(
-                    drug.dose.takeIf { it.isNotBlank() },
-                    drug.note.takeIf { it.isNotBlank() },
-                ).joinToString("  ·  ")
-                if (detail.isNotBlank()) {
-                    val body = paint(9.5f, SLATE)
+
+                // Four lines at most, and only the ones that have something in them: the English
+                // dose for the pharmacist, the Arabic one directly under it for the patient, then
+                // the same pairing for the instructions. Same order and same hierarchy as
+                // src/lib/prescriptionPdfHtml.ts, so the two surfaces print the same paper — and a
+                // script saved before the Arabic fields existed carries neither and prints exactly
+                // as it always did.
+                val dosePaint = paint(9.5f, INK)
+                val notePaint = paint(9f, SLATE)
+                val detailLines: List<Pair<String, Paint>> = listOfNotNull(
+                    drug.dose.trim().takeIf { it.isNotEmpty() }?.let { "• $it" to dosePaint },
+                    drug.doseAr.trim().takeIf { it.isNotEmpty() }?.let { "• $it" to dosePaint },
+                    drug.note.trim().takeIf { it.isNotEmpty() }?.let { it to notePaint },
+                    drug.noteAr.trim().takeIf { it.isNotEmpty() }?.let { it to notePaint },
+                )
+                if (detailLines.isNotEmpty()) {
+                    val column = PAGE_W - MARGIN - (MARGIN + 20)
                     y += 2
-                    drawLines(splitLines(detail, PAGE_W - MARGIN - (MARGIN + 20), body), MARGIN + 20, body)
+                    detailLines.forEach { (text, linePaint) ->
+                        drawLines(splitLines(text, column, linePaint), MARGIN + 20, linePaint)
+                    }
                     y += 4
                 }
                 canvas.drawLine(MARGIN, y, PAGE_W - MARGIN, y, line)

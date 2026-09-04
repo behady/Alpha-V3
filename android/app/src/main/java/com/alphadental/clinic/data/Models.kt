@@ -15,6 +15,16 @@ data class Session(
     val email: String,
     val clinicId: String,
     val role: String,
+    /**
+     * The tick-boxes on the website's Manage Access screen, for this clinic.
+     *
+     * The phone used to decide everything from the role alone, so an Assistant
+     * granted "Edit appointments" and "Add payments" on the website opened the
+     * app and found neither — the checkboxes were real on one surface and
+     * invisible on the other. Empty means nothing was ever granted; an Owner or
+     * Admin passes every check without consulting it, as they do on the website.
+     */
+    val permissions: List<String> = emptyList(),
 ) {
     /**
      * Owner and Admin are the same answer everywhere on the phone. Owner is a protected identity
@@ -26,6 +36,14 @@ data class Session(
     val isOwner: Boolean get() = role == "Owner"
     val isDentist: Boolean get() = role == "Dentist"
     val isReception: Boolean get() = role == "Receptionist" || role == "Assistant"
+
+    /**
+     * Does this account hold one granted permission?
+     *
+     * Mirrors holdsPermission() on the website: full-access roles skip the list
+     * entirely, everyone else must actually have been granted the key.
+     */
+    fun can(permission: String): Boolean = isAdmin || permissions.contains(permission)
 }
 
 /**
@@ -200,18 +218,38 @@ data class ClinicalNote(
     val ledgerId: String = "",
 )
 
-/** One line of a prescription. */
+/**
+ * One line of a prescription.
+ *
+ * The Arabic twins are not a translation of the English ones — they are the line the patient
+ * actually reads off the paper, and they print underneath their English counterparts rather
+ * than instead of them. A prescription written before these fields existed leaves them empty
+ * and prints exactly as it always did.
+ */
 data class RxItem(
     val name: String = "",
     val dose: String = "",
+    val doseAr: String = "",
     val note: String = "",
+    val noteAr: String = "",
 )
 
-/** A saved drug shortcut from the clinic's own list. */
+/**
+ * One row of the clinic's drug list, as Firestore holds it.
+ *
+ * `catalogId` is the join key into the built-in library: a row carrying one stands in front of
+ * that built-in on every surface, and a row carrying one plus `hidden` removes it. A row with no
+ * `catalogId` is a drug the clinic typed in themselves. See DrugCatalog.kt and, on the web side,
+ * src/lib/drugList.ts — the merge has to come out identically on both or a dentist's edit shows
+ * on one screen and not the other.
+ */
 data class DrugShortcut(
     val id: String = "",
     val name: String = "",
     val dose: String = "",
+    val doseAr: String = "",
+    val catalogId: String = "",
+    val hidden: Boolean = false,
 )
 
 /** One issued prescription. */

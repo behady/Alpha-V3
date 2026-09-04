@@ -20,21 +20,30 @@ import type { ComponentType } from "react";
 import {
   Bell,
   Building2,
-  CalendarDays,
-  Clock,
+  CalendarClock,
+  ClipboardList,
+  Fingerprint,
   FlaskConical,
+  Globe,
+  History,
+  Hospital,
+  MapPinned,
+  Megaphone,
   MessageCircle,
   MessagesSquare,
-  Monitor,
-  MapPin,
   Palette,
   Pill,
   RotateCcw,
+  SlidersHorizontal,
   Sparkles,
-  Stethoscope,
+  Tag,
   Trash2,
-  User,
+  UserCircle,
+  UserPlus,
+  UserRound,
   Users,
+  UsersRound,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 
@@ -43,28 +52,54 @@ import {
  * that a test reads without React — importing an icon library into it would break that.
  */
 export const SETTINGS_ICONS: Record<string, LucideIcon> = {
-  general: User,
+  general: UserCircle,          // your own record, not the team list
   appearance: Palette,
-  interface: Monitor,
-  clinic_profile: Building2,
-  clinical: Clock,
-  locations: Building2,
+  interface: SlidersHorizontal, // preferences, not a screen
+  clinic_profile: Building2,    // the clinic itself
+  clinical: CalendarClock,      // working hours
+  locations: MapPinned,         // the places it works from
   labs: FlaskConical,
-  services: Stethoscope,
+  services: Tag,                // a price list is a list of prices
   prescriptions: Pill,
-  visit_reasons: Stethoscope,
-  sources: Users,
-  attendance: MapPin,
-  online_booking: CalendarDays,
+  visit_reasons: ClipboardList, // what reception picks from when booking
+  sources: Megaphone,           // how a patient heard about the clinic
+  attendance: Fingerprint,      // clocking in
+  online_booking: Globe,        // a public page on the internet
   recall: RotateCcw,
   users: Users,
-  join_requests: Users,
+  join_requests: UserPlus,      // people asking to become users
   notifications: Bell,
   whatsapp: MessageCircle,
   sms: MessagesSquare,
-  logs: Clock,
+  logs: History,                // what happened, in order
   ai_credits: Sparkles,
   recently_deleted: Trash2,
+};
+
+/**
+ * The icon for each GROUP — the four tabs above the section chips. Distinct from every section
+ * icon on purpose: both rows are on screen at once, and a group tab wearing a section's icon
+ * reads as that section.
+ */
+export const SETTINGS_GROUP_ICONS: Record<string, LucideIcon> = {
+  personal: UserRound,
+  clinic: Hospital,
+  people: UsersRound,
+  system: Workflow,
+};
+
+/**
+ * Each group's tile, as the literal class strings Tailwind has to see at build time.
+ *
+ * One entry, one job: a solid rounded square with a white glyph, which is the only place colour
+ * appears anywhere in Settings. Tabs, chips, labels and chevrons are achromatic on purpose — a
+ * coloured control competes with the tiles for the same meaning and wins neither.
+ */
+export const SETTINGS_GROUP_TONE: Record<string, { tile: string }> = {
+  personal: { tile: "bg-tone-personal text-white" },
+  clinic: { tile: "bg-tone-clinic text-white" },
+  people: { tile: "bg-tone-people text-white" },
+  system: { tile: "bg-tone-system text-white" },
 };
 
 /** What every panel receives. Most ignore it; the ones that can be read-only do not. */

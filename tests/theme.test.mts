@@ -50,6 +50,26 @@ for (const t of ROLE_TOKENS) {
 }
 ok("mint matches globals.css exactly", drift.length === 0, drift.join("; "));
 
+/* --- every role token is bridged into @theme inline, or its utility silently does not exist ---
+   A `--tone-x` on :root with no `--color-tone-x: var(--tone-x)` in @theme inline means Tailwind
+   never emits `text-tone-x` / `bg-tone-x` — the class is accepted, renders the inherited colour,
+   and nothing in the build says a word. Checked on the source, which is the only place it can be
+   checked without running Tailwind. */
+{
+  const inlineStart = css.indexOf("@theme inline {");
+  const inlineEnd = css.indexOf("\n}", inlineStart);
+  ok("globals.css has an @theme inline block", inlineStart !== -1 && inlineEnd !== -1);
+  const inline = css.slice(inlineStart, inlineEnd);
+  const unbridged = ROLE_TOKENS.filter(
+    (t) => !(inline.includes("--color-" + t + ":") && inline.includes("var(--" + t + ")")),
+  );
+  ok(
+    "every role token is bridged into @theme inline",
+    unbridged.length === 0,
+    `no utility will exist for: ${unbridged.join(", ")}`,
+  );
+}
+
 /* ---------------------------------------------------------- token guards */
 
 ok("rejects an unknown token name", !isSafeTokenName("evil-token"));
@@ -202,6 +222,28 @@ for (const preset of THEME_PRESETS) {
    * contrast ratio of 1.25 because they happen to share a lightness. Only the default theme, where
    * both really are green, has to earn its separation by weight.
    */
+  /**
+   * A group tone is a solid tile with a white glyph on it, in every theme including the dark one.
+   * White is deliberately not a role token — it does two jobs and themes must not repaint it — so
+   * it is the literal here, which is exactly what the tile renders.
+   *
+   * The second check is that the tile reads as a shape at all: a fill too close to the card it
+   * sits on is an invisible square with a floating glyph.
+   */
+  for (const group of ["personal", "clinic", "people", "system"]) {
+    const tone = preset.tokens[`tone-${group}`];
+    ok(
+      `${preset.id}: ${group} tile carries a white glyph`,
+      contrast(tone, "#FFFFFF") >= 3.0,
+      `white on ${tone} = ${contrast(tone, "#FFFFFF").toFixed(2)}`,
+    );
+    ok(
+      `${preset.id}: ${group} tile reads against its card`,
+      contrast(tone, preset.tokens["surface"]) >= 1.6,
+      `${tone} on ${preset.tokens["surface"]} = ${contrast(tone, preset.tokens["surface"]).toFixed(2)}`,
+    );
+  }
+
   const dHue = hueDistance(preset.tokens["accent"], preset.tokens["ok"]);
   const sep = contrast(preset.tokens["accent"], preset.tokens["ok"]);
   ok(

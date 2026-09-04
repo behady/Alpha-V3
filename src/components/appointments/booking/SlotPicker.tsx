@@ -64,8 +64,8 @@ export default function SlotPicker({
     <>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="mb-1 flex items-center gap-1 text-[10px] font-black uppercase text-slate-400">
-            <Calendar size={11} /> {txt.date}
+          <label className="mb-1.5 flex items-center gap-1 text-xs font-black uppercase tracking-wider text-slate-400">
+            <Calendar size={13} /> {txt.date}
           </label>
           <input
             type="date"
@@ -73,17 +73,17 @@ export default function SlotPicker({
             min={getLocalDate()}
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="w-full rounded-xl border-2 border-slate-100 px-3 py-2.5 text-xs font-bold uppercase text-ink outline-none focus:border-primary-500"
+            className="w-full rounded-xl border-2 border-slate-100 px-3 py-3 text-sm font-bold uppercase text-ink outline-none focus:border-primary-500"
           />
         </div>
         <div>
-          <label className="mb-1 flex items-center gap-1 text-[10px] font-black uppercase text-slate-400">
-            <Clock size={11} /> {txt.clock}
+          <label className="mb-1.5 flex items-center gap-1 text-xs font-black uppercase tracking-wider text-slate-400">
+            <Clock size={13} /> {txt.clock}
           </label>
           <select
             value={time}
             onChange={(e) => setTime(e.target.value)}
-            className="w-full rounded-xl border-2 border-slate-100 bg-surface px-3 py-2.5 text-xs font-bold text-ink outline-none focus:border-primary-500"
+            className="w-full rounded-xl border-2 border-slate-100 bg-surface px-3 py-3 text-sm font-bold text-ink outline-none focus:border-primary-500"
           >
             {availableTimes.map((t) => (
               <option key={t} value={t}>
@@ -96,13 +96,13 @@ export default function SlotPicker({
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="mb-1 flex items-center gap-1 text-[10px] font-black uppercase text-slate-400">
-            <Stethoscope size={11} /> {txt.doctor}
+          <label className="mb-1.5 flex items-center gap-1 text-xs font-black uppercase tracking-wider text-slate-400">
+            <Stethoscope size={13} /> {txt.doctor}
           </label>
           <select
             value={doctor}
             onChange={(e) => setDoctor(e.target.value)} data-tour="booking-doctor"
-            className="w-full rounded-xl border-2 border-slate-100 bg-surface px-3 py-2.5 text-xs font-bold text-ink outline-none focus:border-primary-500"
+            className="w-full rounded-xl border-2 border-slate-100 bg-surface px-3 py-3 text-sm font-bold text-ink outline-none focus:border-primary-500"
           >
             {doctors.length === 0 && <option>{txt.noDoctors}</option>}
             {doctors.map((d) => (
@@ -113,13 +113,13 @@ export default function SlotPicker({
           </select>
         </div>
         <div>
-          <label className="mb-1 flex items-center gap-1 text-[10px] font-black uppercase text-slate-400">
-            <Hourglass size={11} /> {txt.duration}
+          <label className="mb-1.5 flex items-center gap-1 text-xs font-black uppercase tracking-wider text-slate-400">
+            <Hourglass size={13} /> {txt.duration}
           </label>
           <select
             value={duration}
             onChange={(e) => setDuration(Number(e.target.value))}
-            className="w-full rounded-xl border-2 border-slate-100 bg-surface px-3 py-2.5 text-xs font-bold text-ink outline-none focus:border-primary-500"
+            className="w-full rounded-xl border-2 border-slate-100 bg-surface px-3 py-3 text-sm font-bold text-ink outline-none focus:border-primary-500"
           >
             {durationOptions.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -133,13 +133,13 @@ export default function SlotPicker({
       {branches.length > 0 && (
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="mb-1 flex items-center gap-1 text-[10px] font-black uppercase text-slate-400">
-              <Building2 size={11} /> {txt.branch}
+            <label className="mb-1.5 flex items-center gap-1 text-xs font-black uppercase tracking-wider text-slate-400">
+              <Building2 size={13} /> {txt.branch}
             </label>
             <select
               value={branchId}
               onChange={(e) => setBranchId?.(e.target.value)}
-              className="w-full rounded-xl border-2 border-slate-100 bg-surface px-3 py-2.5 text-xs font-bold text-ink outline-none focus:border-primary-500"
+              className="w-full rounded-xl border-2 border-slate-100 bg-surface px-3 py-3 text-sm font-bold text-ink outline-none focus:border-primary-500"
             >
               {/* With several branches, an unpicked branch is a real state — say so instead of
                   silently displaying the first option while the value is empty. */}
@@ -152,14 +152,14 @@ export default function SlotPicker({
             </select>
           </div>
           <div>
-            <label className="mb-1 flex items-center gap-1 text-[10px] font-black uppercase text-slate-400">
-              <DoorOpen size={11} /> {txt.room}
+            <label className="mb-1.5 flex items-center gap-1 text-xs font-black uppercase tracking-wider text-slate-400">
+              <DoorOpen size={13} /> {txt.room}
             </label>
             <select
               value={roomId}
               onChange={(e) => setRoomId?.(e.target.value)}
               disabled={!selectedBranch || branchRooms.length === 0}
-              className="w-full rounded-xl border-2 border-slate-100 bg-surface px-3 py-2.5 text-xs font-bold text-ink outline-none focus:border-primary-500 disabled:bg-surface-subtle disabled:text-slate-400"
+              className="w-full rounded-xl border-2 border-slate-100 bg-surface px-3 py-3 text-sm font-bold text-ink outline-none focus:border-primary-500 disabled:bg-surface-subtle disabled:text-slate-400"
             >
               <option value="">
                 {!selectedBranch
@@ -178,8 +178,8 @@ export default function SlotPicker({
         </div>
       )}
 
-      <div className="rounded-2xl border border-line bg-slate-50/80 px-4 py-3">
-        <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-400">
+      <div>
+        <label className="mb-1.5 flex items-center gap-1 text-xs font-black uppercase tracking-wider text-slate-400">
           {language === "ar" ? "مرحلة الموعد" : "Appointment stage"}
         </label>
         <AppointmentStagePicker
@@ -187,11 +187,12 @@ export default function SlotPicker({
           onChange={setAppointmentStatus}
           language={language === "ar" ? "ar" : "en"}
           isolateClicks={false}
+          fullWidth={true}
         />
       </div>
 
       <div>
-        <label className="mb-1 flex items-center gap-1 text-[10px] font-black uppercase text-slate-400">
+        <label className="mb-1.5 flex items-center gap-1 text-xs font-black uppercase tracking-wider text-slate-400">
           {txt.notesLabel}
         </label>
         <textarea
@@ -199,7 +200,7 @@ export default function SlotPicker({
           onChange={(e) => setVisitNotes(e.target.value)}
           rows={2}
           placeholder=""
-          className="w-full rounded-xl border-2 border-slate-100 px-3 py-2.5 text-xs font-medium text-slate-800 outline-none focus:border-primary-500 resize-none"
+          className="w-full rounded-xl border-2 border-slate-100 px-3 py-3 text-sm font-medium text-slate-800 outline-none focus:border-primary-500 resize-none"
         />
       </div>
     </>

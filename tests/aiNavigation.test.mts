@@ -49,7 +49,17 @@ assert.equal(resolveNavigablePath("/billing"), null);
 assert.equal(resolveNavigablePath("/dashboard"), null, "the dashboard is at /, not /dashboard");
 assert.equal(resolveNavigablePath("/patients/abc123/finance"), null, "finance is a tab, not a route");
 assert.equal(resolveNavigablePath("/migrate"), null, "a data tool is not somewhere to send a user");
-assert.equal(resolveNavigablePath("/ai"), null, "/ai has no page of its own, only children");
+
+// --- /ai, which grew a page of its own ---
+// It used to be a bare folder. It is now the Intelligence page: the brief, the WhatsApp send queue
+// and patient no-shows as three tabs of one screen.
+assert.equal(resolveNavigablePath("/ai"), "/ai", "/ai is a real page now");
+assert.equal(resolveNavigablePath("/ai?tab=messages"), "/ai?tab=messages", "a tab deep link survives");
+// The three paths those tabs used to live at still resolve — they are 307s in next.config, so the
+// model naming one of them by its old name still lands the user on the right tab.
+assert.equal(resolveNavigablePath("/messages"), "/messages");
+assert.equal(resolveNavigablePath("/ai/briefing"), "/ai/briefing");
+assert.equal(resolveNavigablePath("/ai/attendance"), "/ai/attendance");
 
 // --- anything that would leave the app ---
 // The model's context holds free text that patients and colleagues typed into notes, so an

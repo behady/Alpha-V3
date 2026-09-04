@@ -12,6 +12,7 @@ import {
   doc, onSnapshot, setDoc, updateDoc, collection, query, where, getDocs, limit,
 } from "firebase/firestore";
 import { useUI } from "@/context/UIContext";
+import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
@@ -24,6 +25,11 @@ interface OrthoVisit {
   nextStep: string;
 }
 
+/**
+ * Cephalometric notation, deliberately untranslated. SNA, SNB, ANB and IMPA are international
+ * abbreviations, and Egyptian dentists write overjet and overbite in English too — translating
+ * half of a measurement table would read worse than leaving all of it in the notation they use.
+ */
 const CEPH_FIELDS = [
   { id: "sna", label: "SNA (°)" },
   { id: "snb", label: "SNB (°)" },
@@ -48,6 +54,7 @@ interface OrthoCase {
 }
 
 export default function IsolatedOrthoWorkspace() {
+  const { t } = useLanguage();
   const params = useParams();
   const router = useRouter();
   const { showToast, confirm } = useUI();
@@ -156,9 +163,9 @@ export default function IsolatedOrthoWorkspace() {
         cephData: {}
       }, { merge: true });
       await updateDoc(getClinicDoc("patients", id), { isOrthoPatient: true }).catch(() => {});
-      showToast("Orthodontic case activated.", "success");
+      showToast(t("orthoActivated"), "success");
     } catch {
-      showToast("Could not activate case.", "error");
+      showToast(t("orthoActivateFailed"), "error");
     } finally {
       setIsStarting(false);
     }
@@ -174,9 +181,9 @@ export default function IsolatedOrthoWorkspace() {
         status,
         ...(status === "Completed" ? { completedDate: new Date().toISOString() } : {}),
       });
-      showToast(status === "Completed" ? "Treatment marked complete." : "Case reactivated.", "success");
+      showToast(status === "Completed" ? t("orthoMarkedComplete") : t("orthoReactivated"), "success");
     } catch {
-      showToast("Update failed.", "error");
+      showToast(t("orthoUpdateFailed"), "error");
     }
   };
 
@@ -214,9 +221,9 @@ export default function IsolatedOrthoWorkspace() {
         diagnosis: localDiagnosis,
         cephData: localCephData
       });
-      showToast("Changes saved successfully.", "success");
+      showToast(t("orthoSaved"), "success");
     } catch (error) {
-      showToast("Failed to save changes.", "error");
+      showToast(t("orthoSaveFailed"), "error");
     } finally {
       setIsSaving(false);
     }
@@ -246,9 +253,12 @@ export default function IsolatedOrthoWorkspace() {
       </div>
     );
   }
-  if (!patientData) return <div className="p-10 text-center font-black text-ink-muted">Patient not found.</div>;
+  if (!patientData) return <div className="p-10 text-center font-black text-ink-muted">{t("orthoPatientNotFound")}</div>;
 
   const status = orthoCase?.status || "Active";
+  /** The stored value is the contract; this is only how it reads on screen. */
+  const statusLabel = (value: string) =>
+    ({ Active: t("orthoActive"), Completed: t("orthoCompleted"), Retention: t("orthoRetention") })[value] ?? value;
   const statusStyles: Record<string, string> = {
     Active: "bg-emerald-400/20 text-emerald-200 border-emerald-400/30",
     Completed: "bg-sky-400/20 text-sky-200 border-sky-400/30",
@@ -274,7 +284,7 @@ export default function IsolatedOrthoWorkspace() {
             <button
               onClick={() => router.push(`/patients/${id}`)}
               className="p-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all text-purple-200 shrink-0 group"
-              title="Return to clinical profile"
+              title={t("orthoBackToProfile")}
             >
               <ArrowLeft size={20} className="group-hover:-translate-x-0.5 transition-transform" />
             </button>
@@ -299,12 +309,12 @@ export default function IsolatedOrthoWorkspace() {
                 <button
                   onClick={() => openWhatsApp(patientData.phone)}
                   className="flex items-center gap-1.5 text-emerald-300 hover:text-emerald-200 bg-emerald-400/10 border border-emerald-400/20 hover:bg-emerald-400/20 px-2 py-0.5 rounded-md transition-colors"
-                  title="Open in WhatsApp"
+                  title={t("orthoOpenWhatsapp")}
                 >
-                  <MessageCircle size={11} /> {patientData.phone || "No phone"}
+                  <MessageCircle size={11} /> {patientData.phone || t("orthoNoPhone")}
                 </button>
                 <span className="flex items-center gap-1.5"><User size={11} className="opacity-70" /> {calculateAge(patientData.dateOfBirth || patientData.age)} Y / {patientData.gender || "—"}</span>
-                <span className="hidden sm:flex items-center gap-1.5 truncate max-w-[220px]"><MapPin size={11} className="opacity-70" /> {patientData.address || "No address"}</span>
+                <span className="hidden sm:flex items-center gap-1.5 truncate max-w-[220px]"><MapPin size={11} className="opacity-70" /> {patientData.address || t("orthoNoAddress")}</span>
               </div>
             </div>
           </div>
@@ -322,7 +332,7 @@ export default function IsolatedOrthoWorkspace() {
                   <button
                     onClick={() => setMenuOpen(o => !o)}
                     className="p-3 bg-white/10 hover:bg-white/20 border border-white/20 rounded-2xl text-white transition-all backdrop-blur-md"
-                    title="Case actions"
+                    title={t("orthoCaseActions")}
                   >
                     <MoreVertical size={18} />
                   </button>
@@ -358,7 +368,7 @@ export default function IsolatedOrthoWorkspace() {
               <Sparkles size={34} className="text-purple-600" />
             </div>
             <h2 className="text-2xl font-black text-ink mb-2">
-              {hasSessions ? "Restore Orthodontic Case" : "Start Orthodontic Treatment"}
+              {hasSessions ? t("orthoRestoreOrtho") : t("orthoStartOrtho")}
             </h2>
             <p className="text-ink-muted font-medium mb-8">
               {hasSessions
@@ -371,23 +381,23 @@ export default function IsolatedOrthoWorkspace() {
               className="bg-purple-600 text-white px-8 py-4 rounded-2xl font-black uppercase tracking-wide flex items-center justify-center gap-2 mx-auto hover:bg-purple-700 transition-all shadow-lg shadow-purple-300/40 disabled:opacity-60"
             >
               {isStarting ? <Loader2 className="animate-spin" size={18} /> : <Plus size={18} />}
-              {hasSessions ? "Restore Case" : "Start Treatment"}
+              {hasSessions ? t("orthoRestoreCase") : t("orthoStartTreatment")}
             </button>
           </div>
         ) : (
           <div className="space-y-6">
             {/* Case snapshot strip */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <SnapshotCard icon={<Activity size={16} />} label="Status" value={status} accent="#7c3aed" />
-              <SnapshotCard icon={<CalendarDays size={16} />} label="Started" value={orthoCase.startDate ? new Date(orthoCase.startDate).toLocaleDateString() : "—"} accent="#2563eb" />
-              <SnapshotCard icon={<Clock size={16} />} label="Duration" value={fmtDuration(daysIn)} accent="#0d9488" />
+              <SnapshotCard icon={<Activity size={16} />} label={t("orthoStatus")} value={statusLabel(status)} accent="#7c3aed" />
+              <SnapshotCard icon={<CalendarDays size={16} />} label={t("orthoStarted")} value={orthoCase.startDate ? new Date(orthoCase.startDate).toLocaleDateString() : "—"} accent="#2563eb" />
+              <SnapshotCard icon={<Clock size={16} />} label={t("orthoDuration")} value={fmtDuration(daysIn)} accent="#0d9488" />
               <button
                 onClick={() => openWhatsApp(patientData.phone)}
                 className="bg-surface rounded-2xl border border-slate-100 shadow-sm px-4 py-3 flex items-center gap-3 hover:border-emerald-200 hover:bg-emerald-50/40 transition-colors text-left"
               >
                 <div className="w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0"><MessageCircle size={16} /></div>
                 <div className="min-w-0">
-                  <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Contact</div>
+                  <div className="text-[9px] font-black text-slate-400 uppercase tracking-widest">{t("orthoContact")}</div>
                   <div className="text-sm font-black text-slate-800 truncate">WhatsApp</div>
                 </div>
               </button>
@@ -407,7 +417,7 @@ export default function IsolatedOrthoWorkspace() {
                       </span>
                     )}
                   </div>
-                  <p className="text-xs font-bold text-slate-400 mt-1">Track diagnosis, adjustments, and progress.</p>
+                  <p className="text-xs font-bold text-slate-400 mt-1">{t("orthoTrackHint")}</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
                   <button
@@ -435,17 +445,17 @@ export default function IsolatedOrthoWorkspace() {
               {/* Diagnosis Section */}
               <div className="mb-6 space-y-4">
                 <div>
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Diagnosis / Master Plan</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">{t("orthoMasterPlan")}</label>
                   <textarea
                     value={localDiagnosis}
                     onChange={(e) => setLocalDiagnosis(e.target.value)}
-                    placeholder="Enter patient diagnosis and orthodontic master plan here..."
+                    placeholder={t("orthoMasterPlanPlaceholder")}
                     className="w-full p-4 bg-surface-subtle border border-line hover:border-purple-300 focus:border-purple-500 focus:bg-surface rounded-xl outline-none font-bold text-sm text-slate-700 transition-all resize-y min-h-[100px]"
                   />
                 </div>
                 
                 <div className="bg-surface-subtle rounded-xl border border-line p-4">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Cephalometric & Clinical Data</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">{t("orthoCephData")}</label>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     {CEPH_FIELDS.map(field => (
                       <div key={field.id}>
@@ -466,8 +476,8 @@ export default function IsolatedOrthoWorkspace() {
               {localVisits.length === 0 ? (
                 <div className="text-center py-16 border-2 border-dashed border-slate-100 rounded-3xl">
                   <CalendarDays className="mx-auto text-slate-300 mb-4" size={48} />
-                  <p className="font-black text-slate-700 text-lg">No visits logged yet</p>
-                  <p className="text-xs font-medium text-slate-400 mt-1">Click "Add Visit" to log the first adjustment.</p>
+                  <p className="font-black text-slate-700 text-lg">{t("orthoNoVisits")}</p>
+                  <p className="text-xs font-medium text-slate-400 mt-1">Click t("orthoAddVisit") to log the first adjustment.</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto rounded-2xl border border-slate-100">
@@ -490,7 +500,7 @@ export default function IsolatedOrthoWorkspace() {
                             <textarea
                               value={visit.workDone}
                               onChange={(e) => handleCellChange(idx, "workDone", e.target.value)}
-                              placeholder="Describe orthodontic work done..."
+                              placeholder={t("orthoVisitPlaceholder")}
                               rows={1}
                               className="w-full p-2 bg-transparent border border-transparent hover:border-line focus:border-purple-500 focus:bg-surface rounded-lg outline-none font-bold text-sm text-slate-700 transition-all resize-none overflow-hidden min-h-[38px] auto-grow"
                               onInput={(e) => {
@@ -504,7 +514,7 @@ export default function IsolatedOrthoWorkspace() {
                             <textarea
                               value={visit.nextStep}
                               onChange={(e) => handleCellChange(idx, "nextStep", e.target.value)}
-                              placeholder="Plan for next visit..."
+                              placeholder={t("orthoNextPlaceholder")}
                               rows={1}
                               className="w-full p-2 bg-transparent border border-transparent hover:border-line focus:border-purple-500 focus:bg-surface rounded-lg outline-none font-bold text-sm text-slate-700 transition-all resize-none overflow-hidden min-h-[38px] auto-grow"
                               onInput={(e) => {
@@ -518,7 +528,7 @@ export default function IsolatedOrthoWorkspace() {
                             <button
                               onClick={() => deleteVisit(idx)}
                               className="p-2 text-slate-300 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
-                              title="Delete Visit"
+                              title={t("orthoDeleteVisit")}
                             >
                               <Trash2 size={16} />
                             </button>
@@ -538,7 +548,7 @@ export default function IsolatedOrthoWorkspace() {
       <div className="hidden print-container p-8 max-w-4xl mx-auto bg-surface text-slate-850 font-sans">
         <div className="grid grid-cols-3 gap-y-4 gap-x-6 p-6 border-2 border-t-0 border-line-strong rounded-b-3xl mb-8 text-sm font-bold bg-slate-50/30">
           <div className="col-span-2 border-b border-line pb-2">
-            <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-0.5">Name</span>
+            <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-0.5">{t("orthoName")}</span>
             <span className="text-slate-800 text-base">{patientData.name}</span>
           </div>
           <div className="border-b border-line pb-2">
@@ -546,22 +556,22 @@ export default function IsolatedOrthoWorkspace() {
             <span className="text-slate-800 text-base">{calculateAge(patientData.dateOfBirth || patientData.age)}</span>
           </div>
           <div className="border-b border-line pb-2">
-            <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-0.5">Gender</span>
+            <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-0.5">{t("orthoGender")}</span>
             <span className="text-slate-800 text-base">{patientData.gender || "—"}</span>
           </div>
           <div className="col-span-2 border-b border-line pb-2">
-            <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-0.5">Telephone / Mobile</span>
+            <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-0.5">{t("orthoPhoneLabel")}</span>
             <span className="text-slate-800 text-base">{patientData.phone || "—"}</span>
           </div>
           {localDiagnosis && (
             <div className="col-span-3 border-b border-line pb-2 pt-2">
-              <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-0.5">Diagnosis</span>
+              <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-0.5">{t("orthoDiagnosis")}</span>
               <span className="text-slate-800 text-base whitespace-pre-wrap">{localDiagnosis}</span>
             </div>
           )}
           {Object.keys(localCephData).some(k => localCephData[k]) && (
             <div className="col-span-3 border-b border-line pb-2 pt-2">
-              <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-2">Cephalometric & Clinical Data</span>
+              <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-2">{t("orthoCephData")}</span>
               <div className="grid grid-cols-4 gap-4">
                 {CEPH_FIELDS.map(field => localCephData[field.id] ? (
                   <div key={field.id}>
@@ -574,13 +584,13 @@ export default function IsolatedOrthoWorkspace() {
           )}
           {patientData.address && (
             <div className="col-span-3 border-b border-line pb-2">
-              <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-0.5">Address</span>
+              <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-0.5">{t("orthoAddress")}</span>
               <span className="text-slate-800 text-base">{patientData.address}</span>
             </div>
           )}
           {orthoCase?.startDate && (
             <div className="col-span-3 pb-1">
-              <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-0.5">Date of Beginning</span>
+              <span className="text-slate-400 block text-[10px] uppercase tracking-wider mb-0.5">{t("orthoDateBeginning")}</span>
               <span className="text-slate-800 text-base">{new Date(orthoCase.startDate).toLocaleDateString()}</span>
             </div>
           )}

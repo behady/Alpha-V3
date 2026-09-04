@@ -1,21 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSettingsText } from "@/lib/useSettingsText";
-import { Users, Shield, Trash2, AlertCircle, Plus, KeyRound, X, Save, Lock, Loader2, Search, ChevronDown, ChevronRight, Info, Stethoscope, Headset, HeartHandshake, Crown } from "lucide-react";
+import { Users, Shield, Trash2, AlertCircle, Plus, KeyRound, X, Save, Lock, Loader2, Copy, Stethoscope, Crown } from "lucide-react";
 import { formatStaffRoleLabel, isDentistStaff } from "@/lib/staffRoles";
 import { isFullAccessRole, isOwnerRole, rolePreset } from "@/lib/permissions";
 import { useClinic } from "@/context/ClinicContext";
 import { auth, db } from "@/lib/firebase";
-import { doc, deleteDoc, getDoc } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { logActivity } from "@/lib/logger";
-import { PERMISSIONS_CATALOG, getAllPermissionIds, type PermissionCatalogGroup } from "@/config/permissionsCatalog";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { getAllPermissionIds } from "@/config/permissionsCatalog";
+import { countedNoun } from "@/lib/arabicCount";
 import UserAccessModal from "./UserAccessModal";
-import Protect from "@/components/Protect";
-type StaffMember = { id: string; uid?: string; [k: string]: unknown };
 type UserRow = {
   id: string;
   uid?: string;
@@ -29,13 +27,12 @@ type UserRow = {
 
 type Props = {
   usersList: UserRow[];
-  staffMembers: StaffMember[];
   currentUser: { uid?: string; name?: string; role?: string } | null;
   openAddUser: () => void;
   clinicId: string | null;
 };
 
-export default function UserManagement({ usersList, staffMembers, currentUser, openAddUser, clinicId }: Props) {
+export default function UserManagement({ usersList, currentUser, openAddUser, clinicId }: Props) {
   const { showToast, confirm } = useUI();
   const { language, isRTL } = useLanguage();
   /**
@@ -113,8 +110,6 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
         : `Hand this clinic to ${name}? They become the owner and you become an Admin. You can't undo this yourself — only they can hand it back.`,
 
   };
-
-  const ROLES = ["Admin", "Dentist", "Assistant", "Receptionist"] as const;
 
   const handleDeleteUser = async (userId: string, uid: string | undefined, staffId: string | undefined) => {
     if (await confirm(txt.deleteMsg)) {
@@ -412,94 +407,248 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
     }
   };
 
-  return (
-    <div className="space-y-6 animate-in fade-in" dir={isRTL ? "rtl" : "ltr"}>
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 bg-surface p-6 md:p-8 rounded-3xl border border-slate-200/60 shadow-sm">
-        <div className="flex items-center gap-4">
-          <div className="w-14 h-14 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center">
-            <Users size={28} />
-          </div>
-          <div>
-            <h3 className="text-xl font-bold text-ink">{txt.title}</h3>
-            <p className="text-sm font-semibold text-ink-muted mt-1">{txt.sub}</p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={openAddUser}
-          className="w-full sm:w-auto bg-accent text-ink-on-accent px-6 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg hover:bg-accent-strong active:scale-95 transition-all shrink-0"
-        >
-          <Plus size={18} /> {txt.addBtn}
-        </button>
-      </div>
+  /**
+   * Who can change anything. The number an admin opens this page to check is not how many people
+   * there are, it is how many of them are unrestricted — so the rail says that rather than making
+   * them count role chips.
+   */
+  const fullAccessCount = usersList.filter((u) => isFullAccessRole(u.role)).length;
+  const brokenCount = usersList.filter((u) => !u.name).length;
 
-      {/* The onboarding screen tells anyone joining an existing clinic to "ask your admin for the
-          Clinic ID — they'll find it in Settings". Until now it was shown nowhere in Settings, so
-          that instruction was a dead end and new colleagues had no way to reach the clinic. */}
-      {clinicId && (
-        <div className="bg-surface p-6 rounded-3xl border border-slate-200/60 shadow-sm">
-          <h4 className="text-sm font-black text-ink">{txt.clinicIdTitle}</h4>
-          <p className="text-xs font-semibold text-ink-muted mt-1 leading-relaxed">{txt.clinicIdHelp}</p>
-          <div className="mt-3 flex flex-col sm:flex-row gap-2">
-            <code className="flex-1 px-4 py-3 bg-surface-subtle border border-line rounded-xl font-mono text-sm text-slate-800 break-all select-all">
-              {clinicId}
-            </code>
+  const people = countedNoun(usersList.length, isAr, {
+    one: txt.signedInPersonOne,
+    two: txt.signedInPersonTwo,
+    few: txt.signedInPersonFew,
+    many: txt.signedInPersonMany,
+  });
+
+  // The verb agrees with the count as well as the noun, and "one of them" is not a number
+  // in Arabic — so the second clause is written out rather than interpolated.
+  const headline = isAr
+    ? `${people} ${usersList.length === 1 ? "يقدر يدخل" : "يقدروا يدخلوا"} العيادة دي، ` +
+      (fullAccessCount === 0
+        ? "ومحدش فيهم يقدر يغيّر أي حاجة."
+        : fullAccessCount === 1
+          ? "منهم واحد يقدر يغيّر أي حاجة."
+          : `منهم ${fullAccessCount} يقدروا يغيّروا أي حاجة.`)
+    : `${people} can sign in to this clinic. ${fullAccessCount} of them can change anything.`;
+
+  const copyClinicId = async () => {
+    if (!clinicId) return;
+    try {
+      await navigator.clipboard.writeText(clinicId);
+      showToast(txt.clinicIdCopied, "success");
+    } catch {
+      // Clipboard is blocked on insecure origins and in some in-app browsers; the code is
+      // `select-all`, so it can still be copied by hand.
+      showToast(txt.clinicIdCopyFailed, "error");
+    }
+  };
+
+  return (
+    <div className="w-full space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
+      {/* What this screen is for, said before the list: how many people hold a key, how many of
+          those keys open everything, and the id a new colleague is waiting on. */}
+      <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 space-y-2">
+            <p className="flex items-center gap-2 font-display text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
+              <Users size={12} />
+              {txt.title}
+            </p>
+            <p className="font-display text-lg font-bold leading-snug text-white sm:text-xl">{headline}</p>
+
+            {clinicId && (
+              <div className="pt-2">
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-white/40">
+                  {txt.clinicIdTitle}
+                </p>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <code
+                    className="select-all break-all font-figure text-[15px] tracking-tight text-white/75"
+                    dir="ltr"
+                  >
+                    {clinicId}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={copyClinicId}
+                    title={txt.clinicIdCopy}
+                    aria-label={txt.clinicIdCopy}
+                    className="rounded-lg bg-white/10 p-1.5 text-white/70 transition-colors hover:bg-white/20 hover:text-white"
+                  >
+                    <Copy size={13} />
+                  </button>
+                </div>
+                <p className="mt-1.5 max-w-md text-[11px] leading-relaxed text-white/40">
+                  {txt.clinicIdHelp}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex shrink-0 items-center gap-3 sm:flex-col sm:items-end">
+            <span
+              className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.14em] ${
+                brokenCount > 0 ? "bg-amber-400/20 text-amber-200" : "bg-white/12 text-white"
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${brokenCount > 0 ? "bg-amber-400" : "bg-emerald-400"}`}
+              />
+              {brokenCount > 0
+                ? countedNoun(brokenCount, isAr, {
+                    one: txt.brokenProfileOne,
+                    two: txt.brokenProfileTwo,
+                    few: txt.brokenProfileFew,
+                    many: txt.brokenProfileMany,
+                  })
+                : isAr
+                  ? "كل الحسابات سليمة"
+                  : "All accounts linked"}
+            </span>
             <button
               type="button"
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(clinicId);
-                  showToast(txt.clinicIdCopied, "success");
-                } catch {
-                  // Clipboard is blocked on insecure origins and in some in-app browsers; the code
-                  // above is `select-all`, so it can still be copied by hand.
-                  showToast(txt.clinicIdCopyFailed, "error");
-                }
-              }}
-              className="px-5 py-3 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-slate-800 active:scale-95 transition-all shrink-0"
+              onClick={openAddUser}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-bold text-ink-on-accent shadow-md transition-all hover:bg-accent-strong active:scale-95"
             >
-              {txt.clinicIdCopy}
+              <Plus size={16} /> {txt.addBtn}
             </button>
           </div>
         </div>
-      )}
+      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {usersList.map((u) => {
-          const linkedStaff = staffMembers.find((s) => s.id === u.staffId || s.uid === u.uid || (s.email && u.email && (s.email as string).toLowerCase() === (u.email as string).toLowerCase()));
+      {/* One row each. Comparing two colleagues' access used to mean looking across two cards in
+          different columns; the switch counts line up now. */}
+      <ul className="space-y-2">
+        {usersList.map((u, index) => {
           const isOrphan = !u.name;
           const perms = u.permissions || [];
           const enabled = activeCount(perms);
+          const isUpdating = updatingUserId === u.id;
 
           return (
-            <div
-              key={u.id}
-              className={`bg-surface rounded-3xl border shadow-sm transition-all hover:shadow-md relative overflow-hidden flex flex-col ${
-                isOrphan ? "border-red-200 bg-red-50/10" : updatingUserId === u.id ? "border-accent-soft opacity-70" : "border-slate-200/60 hover:border-slate-300"
+            <li
+              key={`${u.id}-${index}`}
+              className={`flex flex-col gap-3 rounded-2xl border px-4 py-3 transition-colors sm:flex-row sm:items-center ${
+                isOrphan
+                  ? "border-danger/30 bg-danger-tint"
+                  : isUpdating
+                    ? "border-accent-soft bg-surface-subtle opacity-70"
+                    : "border-line bg-surface-subtle hover:border-line-strong"
               }`}
             >
-              {isOrphan && (
-                <div className="absolute top-0 left-0 w-full bg-red-500 text-white text-[10px] font-black uppercase text-center py-1 tracking-widest flex justify-center items-center gap-1 z-10">
-                  <AlertCircle size={12} /> {txt.broken}
-                </div>
-              )}
-
-              {/* Top Action Buttons (Absolute) */}
-              <div className={`absolute top-4 ${isRTL ? "left-4" : "right-4"} flex items-center gap-1 z-10 ${isOrphan ? "mt-4" : ""}`}>
-                {/* The owner's password is theirs alone — the API refuses this too. */}
-                {u.uid && !(isOwnerRole(u.role) && u.uid !== currentUser?.uid) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setResetTarget({ uid: u.uid!, name: u.name || "User" });
-                      setNewPassword("");
-                    }}
-                    title={txt.resetBtnTitle}
-                    className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-all"
-                  >
-                    <KeyRound size={16} />
-                  </button>
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+              <span
+                className={`flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border ${
+                  isOrphan ? "border-danger/30 bg-surface text-danger" : "border-line bg-surface"
+                }`}
+              >
+                {isOrphan ? (
+                  <AlertCircle size={20} strokeWidth={1.75} />
+                ) : (
+                  <img
+                    src={
+                      isFullAccessRole(u.role)
+                        ? "/avatars/admin.png"
+                        : u.role === "Dentist" || isDentistStaff(u)
+                          ? "/avatars/dentist.png"
+                          : u.role === "Receptionist"
+                            ? "/avatars/receptionist.png"
+                            : "/avatars/assistant.png"
+                    }
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
                 )}
+              </span>
+
+              <div className="min-w-0 flex-1">
+                <p className="flex flex-wrap items-center gap-2">
+                  <span className="truncate text-sm font-black text-ink">{u.name || txt.unnamed}</span>
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-lg border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                      isOwnerRole(u.role)
+                        ? "border-accent/30 bg-accent-tint text-accent"
+                        : u.role
+                          ? "border-line bg-surface text-ink-body"
+                          : "border-dashed border-line-strong bg-transparent text-ink-muted"
+                    }`}
+                  >
+                    {isOwnerRole(u.role) && <Crown size={10} />}
+                    {formatStaffRoleLabel(u, isAr)}
+                  </span>
+                  {isDentistStaff(u) && isFullAccessRole(u.role) && (
+                    <span className="inline-flex items-center gap-1 rounded-lg border border-line bg-surface px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-ink-body">
+                      <Stethoscope size={10} /> {isAr ? "طبيب" : "Dentist"}
+                    </span>
+                  )}
+                  {isOrphan && (
+                    <span className="inline-flex items-center gap-1 rounded-lg bg-danger px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-white">
+                      <AlertCircle size={10} /> {txt.broken}
+                    </span>
+                  )}
+                </p>
+                <p className="mt-0.5 truncate text-[11px] font-medium text-ink-muted">
+                  {isOrphan
+                    ? `${txt.authStatus} ${txt.active} · ${txt.staffStatus} ${txt.missing}`
+                    : u.email || txt.noEmail}
+                </p>
+              </div>
+              </div>
+
+              {/* Every slot from here to the row's end holds its width whether or not it has
+                  something in it. These buttons are conditional — an owner cannot be deleted, an
+                  account with no login has no password to reset — and letting the row pack them
+                  tight put each colleague's Access button at a different distance from the edge. */}
+              <div className="flex shrink-0 items-center justify-end gap-2">
+              <span
+                className="flex w-[4.75rem] shrink-0 items-center justify-end gap-1.5 text-ink-muted"
+                title={txt.accessControl}
+              >
+                {!isOrphan && (
+                  <>
+                    <Shield size={13} className="shrink-0" />
+                    <span className="font-figure text-sm font-bold text-ink-body">
+                      {enabled}
+                      <span className="text-ink-muted">/{totalAssignable}</span>
+                    </span>
+                  </>
+                )}
+              </span>
+
+              <div className="flex items-center gap-1">
+                <span className="flex w-[6.25rem]">
+                  {!isOrphan && (
+                    <button
+                      type="button"
+                      onClick={() => void openAccessModal(u)}
+                      disabled={isUpdating}
+                      className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-[11px] font-bold text-ink-on-accent transition hover:bg-accent-strong disabled:opacity-50"
+                    >
+                      <Shield size={13} className={isUpdating ? "animate-pulse" : ""} />
+                      {isAr ? "الصلاحيات" : "Access"}
+                    </button>
+                  )}
+                </span>
+
+                {/* The owner's password is theirs alone — the API refuses this too. */}
+                <span className="flex w-9 justify-center">
+                  {u.uid && !(isOwnerRole(u.role) && u.uid !== currentUser?.uid) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setResetTarget({ uid: u.uid!, name: u.name || "User" });
+                        setNewPassword("");
+                      }}
+                      title={txt.resetBtnTitle}
+                      aria-label={txt.resetBtnTitle}
+                      className="rounded-lg p-2 text-ink-muted transition-all hover:bg-surface-muted hover:text-ink"
+                    >
+                      <KeyRound size={15} />
+                    </button>
+                  )}
+                </span>
 
                 {/*
                   The owner is not removable, by anyone — including themselves. Their way out is
@@ -507,127 +656,41 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
                   with an `ownerId` pointing at an account that no longer runs it. The API refuses
                   this too; hiding the button just stops it being a dead end.
                 */}
-                {u.uid !== currentUser?.uid && !isOwnerRole(u.role) && (
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteUser(u.id, u.uid, u.staffId)}
-                    title="Delete User"
-                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-all"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                )}
-              </div>
-
-              {/* Profile Info (Centered) */}
-              <div className={`p-6 md:p-8 flex-1 flex flex-col items-center text-center ${isOrphan ? "pt-10" : ""}`}>
-                <div
-                  className={`w-20 h-20 rounded-[1.5rem] flex items-center justify-center shadow-sm mb-4 overflow-hidden ${
-                    isOrphan ? "bg-red-50 text-red-500 border border-red-200/60" : "bg-surface-subtle border border-slate-200/60"
-                  }`}
-                >
-                  {isOrphan ? (
-                    <AlertCircle size={36} strokeWidth={1.5} />
-                  ) : (
-                    <img 
-                      src={
-                        isFullAccessRole(u.role) ? "/avatars/admin.png" :
-                        u.role === "Dentist" || isDentistStaff(u) ? "/avatars/dentist.png" :
-                        u.role === "Receptionist" ? "/avatars/receptionist.png" :
-                        u.role === "Assistant" ? "/avatars/assistant.png" :
-                        "/avatars/assistant.png" // Fallback
-                      }
-                      alt={u.role || "User"}
-                      className="w-full h-full object-cover"
-                    />
-                  )}
-                </div>
-                
-                <h4 className="font-bold text-ink text-lg mb-2 px-4 w-full truncate">
-                  {u.name || txt.unnamed}
-                </h4>
-                
-                <div className="flex flex-wrap items-center justify-center gap-2 mb-2">
-                  <span
-                    className={`text-[10px] px-2.5 py-1 rounded-lg font-bold uppercase tracking-wider border flex items-center gap-1 ${
-                      isOwnerRole(u.role)
-                        ? "bg-amber-50 border-amber-200 text-amber-700"
-                        : "bg-surface-muted border-line text-ink-body"
-                    }`}
-                  >
-                    {isOwnerRole(u.role) && <Crown size={10} />}
-                    {formatStaffRoleLabel(u, isAr)}
-                  </span>
-                  {isDentistStaff(u) && isFullAccessRole(u.role) && (
-                    <span className="text-[10px] bg-emerald-50 border border-emerald-200 text-emerald-700 px-2 py-1 rounded-lg font-bold flex items-center gap-1 uppercase tracking-wider">
-                      <Stethoscope size={10} /> {isAr ? "طبيب" : "Dentist"}
-                    </span>
-                  )}
-                </div>
-
-                <p className="text-sm font-medium text-ink-muted w-full truncate px-4">
-                  {u.email}
-                </p>
-              </div>
-
-              {/* Bottom Actions */}
-              <div className="p-6 md:p-8 pt-0 mt-auto">
-                <div className="pt-6 border-t border-slate-100">
-                  <div className="flex items-center justify-between gap-3 mb-4">
-                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                      <Shield size={14} /> {txt.accessControl}
-                    </p>
-                    {!isOrphan && (
-                      <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg bg-surface-subtle text-ink-muted border border-slate-200/60">
-                        {enabled} {txt.of} {totalAssignable}
-                      </span>
-                    )}
-                  </div>
-
-                  {isOrphan ? (
-                    <div className="text-xs font-semibold space-y-2 bg-surface-subtle p-3 rounded-xl">
-                      <p className="text-ink-body flex justify-between">
-                        <span>{txt.authStatus}</span> 
-                        <span className="text-green-600 font-bold">{txt.active}</span>
-                      </p>
-                      <p className="text-ink-body flex justify-between">
-                        <span>{txt.staffStatus}</span>
-                        <span className="text-red-500 font-bold">{txt.missing}</span>
-                      </p>
-                    </div>
-                  ) : (
+                <span className="flex w-9 justify-center">
+                  {u.uid !== currentUser?.uid && !isOwnerRole(u.role) && (
                     <button
                       type="button"
-                      onClick={() => void openAccessModal(u)}
-                      disabled={updatingUserId === u.id}
-                      className="w-full bg-slate-900 hover:bg-slate-800 text-white py-3.5 rounded-xl font-bold text-sm shadow-md transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
+                      onClick={() => handleDeleteUser(u.id, u.uid, u.staffId)}
+                      title={isAr ? "إزالة المستخدم" : "Remove user"}
+                      aria-label={isAr ? "إزالة المستخدم" : "Remove user"}
+                      className="rounded-lg p-2 text-ink-muted transition-all hover:bg-danger-tint hover:text-danger"
                     >
-                      <Shield size={16} className={updatingUserId === u.id ? "animate-pulse" : ""} />
-                      {isAr ? "إدارة الصلاحيات" : "Manage Access"}
+                      <Trash2 size={15} />
                     </button>
                   )}
-                </div>
+                </span>
               </div>
-            </div>
+              </div>
+            </li>
           );
         })}
-      </div>
+      </ul>
 
       {resetTarget && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2rem] p-8 w-full max-w-md shadow-2xl animate-in zoom-in-95 border border-slate-100">
+        <div className="fixed inset-0 bg-ink/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <div className="bg-surface rounded-[2rem] p-8 w-full max-w-md shadow-2xl animate-in zoom-in-95 border border-line">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+              <h2 className="text-xl font-bold text-ink tracking-tight">
                 {isAr ? "كلمة مرور جديدة لـ" : "New Password For"}{" "}
                 <span className="text-accent-soft">{resetTarget.name}</span>
               </h2>
-              <button type="button" onClick={() => setResetTarget(null)} className="text-slate-400 hover:text-red-500 bg-surface-subtle hover:bg-red-50 p-2 rounded-full transition-colors">
+              <button type="button" onClick={() => setResetTarget(null)} className="text-ink-muted bg-surface-subtle hover:bg-danger-tint hover:text-danger p-2 rounded-full transition-colors">
                 <X size={20} />
               </button>
             </div>
 
             <form onSubmit={executePasswordReset} className="space-y-5">
-              <div className="p-4 bg-amber-50 text-amber-700 rounded-xl text-xs font-bold border border-amber-200">
+              <div className="p-4 rounded-xl border border-warn/25 bg-warn-tint text-xs font-bold text-warn">
                 {isAr
                   ? "هذا الإجراء سيقوم بتغيير كلمة المرور فوراً وبدون الحاجة لبريد إلكتروني."
                   : "This will forcefully override the password instantly without an email verification."}
@@ -638,7 +701,7 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
                   {isAr ? "اكتب كلمة المرور الجديدة" : "Type New Password"}
                 </label>
                 <div className="relative">
-                  <Lock size={18} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? "right-4" : "left-4"}`} />
+                  <Lock size={18} className={`absolute top-1/2 -translate-y-1/2 text-ink-muted ${isRTL ? "right-4" : "left-4"}`} />
                   <input
                     autoFocus
                     required
@@ -646,7 +709,7 @@ export default function UserManagement({ usersList, staffMembers, currentUser, o
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="Minimum 6 characters"
-                    className={`w-full py-3.5 bg-surface-subtle rounded-xl border border-slate-200/60 font-semibold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all ${
+                    className={`w-full py-3.5 bg-surface-subtle rounded-xl border border-line font-semibold text-ink outline-none focus:bg-surface focus:border-accent-soft transition-all ${
                       isRTL ? "pr-11 pl-4" : "pl-11 pr-4"
                     }`}
                   />

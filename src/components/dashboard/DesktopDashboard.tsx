@@ -896,78 +896,48 @@ export default function DesktopDashboard() {
 
             {/* Stat strip */}
             <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
-              <div className="flex items-center gap-1 min-w-0 bg-white/90 backdrop-blur-xl border border-white/60 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] px-3 py-2">
+              <div className="flex items-center gap-2 min-w-0 bg-surface rounded-2xl border border-slate-100 shadow-sm px-4 py-2">
 
                 {/* Daily Income */}
                 <div className="flex flex-col justify-center px-2 shrink-0">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 leading-none">{language === 'ar' ? 'دخل اليوم' : 'Income'}</span>
-                  <span className="flex items-center text-lg font-semibold text-slate-800 leading-none mt-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 leading-none">{language === 'ar' ? 'دخل اليوم' : 'Income'}</span>
+                  <span className="flex items-center text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-slate-800 to-slate-600 leading-none mt-1.5 drop-shadow-sm">
                     {dailyIncome === null
                       ? <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
-                      : <>{dailyIncome.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}<span className="text-[11px] font-normal text-slate-400 ms-1">{language === 'ar' ? 'ج.م' : 'EGP'}</span></>}
+                      : <>{dailyIncome.toLocaleString(language === 'ar' ? 'ar-EG' : 'en-US')}<span className="text-[11px] font-medium text-slate-400 ms-1 uppercase tracking-widest">{language === 'ar' ? 'ج.م' : 'EGP'}</span></>}
                   </span>
                 </div>
 
-                <span className="w-px h-8 bg-slate-200/70 shrink-0" />
+                <span className="w-px h-8 bg-slate-200/70 shrink-0 mx-1" />
 
                 {/* Appointments */}
                 <div className="flex flex-col justify-center px-2 shrink-0">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 leading-none">{language === 'ar' ? 'المواعيد' : 'Appts'}</span>
-                  <span className="text-lg font-semibold text-ink-strong leading-none mt-1.5">{activeAppointmentsCount}</span>
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 leading-none">{language === 'ar' ? 'المواعيد' : 'Appts'}</span>
+                  <span className="text-xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-slate-800 to-slate-600 leading-none mt-1.5 drop-shadow-sm">{activeAppointmentsCount}</span>
                 </div>
 
                 <span className="w-px h-8 bg-slate-200/70 shrink-0" />
 
                 {/* Appointment status chips */}
-                <div className="flex items-center gap-1.5 px-1 shrink-0">
-                  <div className="flex items-center gap-1.5 rounded-xl bg-slate-100/70 px-2.5 py-1.5" title={language === 'ar' ? 'مؤكد' : 'Confirmed'}>
-                    <span className="w-1.5 h-1.5 rounded-full bg-ink-slab shrink-0" />
-                    <span className="hidden 2xl:inline text-[10px] font-bold uppercase tracking-wide text-slate-500">{language === 'ar' ? 'مؤكد' : 'Confirmed'}</span>
-                    <span className="text-sm font-extrabold text-ink-slab leading-none">{summaryStats.confirmed}</span>
+                <div className="flex items-center gap-2 px-1 shrink-0 ml-2">
+                  <div className="flex items-center gap-1.5 rounded-xl bg-surface border border-slate-100 px-3 py-1.5 shadow-sm" title={language === 'ar' ? 'مؤكد' : 'Confirmed'}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-700 shrink-0" />
+                    <span className="hidden 2xl:inline text-[10px] font-bold uppercase tracking-wider text-slate-500">{language === 'ar' ? 'مؤكد' : 'Confirmed'}</span>
+                    <span className="text-sm font-black text-slate-700 leading-none">{summaryStats.confirmed}</span>
                   </div>
-                  <div className="flex items-center gap-1.5 rounded-xl bg-amber-50 px-2.5 py-1.5" title={language === 'ar' ? 'غير مؤكد' : 'Unconfirmed'}>
+                  <div className="flex items-center gap-1.5 rounded-xl bg-surface border border-slate-100 px-3 py-1.5 shadow-sm" title={language === 'ar' ? 'غير مؤكد' : 'Unconfirmed'}>
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
-                    <span className="hidden 2xl:inline text-[10px] font-bold uppercase tracking-wide text-amber-700/70">{language === 'ar' ? 'غير مؤكد' : 'Unconfirmed'}</span>
-                    <span className="text-sm font-extrabold text-amber-600 leading-none">{summaryStats.unconfirmed}</span>
+                    <span className="hidden 2xl:inline text-[10px] font-bold uppercase tracking-wider text-slate-500">{language === 'ar' ? 'غير مؤكد' : 'Unconfirmed'}</span>
+                    <span className="text-sm font-black text-slate-700 leading-none">{summaryStats.unconfirmed}</span>
                   </div>
-                  <div className="flex items-center gap-1.5 rounded-xl bg-emerald-50 px-2.5 py-1.5" title={language === 'ar' ? 'مكتمل' : 'Completed'}>
+                  <div className="flex items-center gap-1.5 rounded-xl bg-surface border border-slate-100 px-3 py-1.5 shadow-sm" title={language === 'ar' ? 'مكتمل' : 'Completed'}>
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                    <span className="hidden 2xl:inline text-[10px] font-bold uppercase tracking-wide text-emerald-700/70">{language === 'ar' ? 'مكتمل' : 'Completed'}</span>
-                    <span className="text-sm font-extrabold text-emerald-600 leading-none">{summaryStats.completed}</span>
+                    <span className="hidden 2xl:inline text-[10px] font-bold uppercase tracking-wider text-slate-500">{language === 'ar' ? 'مكتمل' : 'Completed'}</span>
+                    <span className="text-sm font-black text-slate-700 leading-none">{summaryStats.completed}</span>
                   </div>
                 </div>
 
-                {/* Long-wait alert (only shown when someone has actually been waiting) */}
-                {(() => {
-                  let waitingTooLongCount = 0;
-                  const now = new Date();
-                  appointments.forEach(app => {
-                    if (app.status?.toLowerCase() === 'checked in' && app.checkInTime) {
-                      const checkInDate = typeof app.checkInTime.toDate === 'function'
-                        ? app.checkInTime.toDate()
-                        : new Date(app.checkInTime);
-                      const diffMins = (now.getTime() - checkInDate.getTime()) / (1000 * 60);
-                      if (diffMins > 20) {
-                        waitingTooLongCount++;
-                      }
-                    }
-                  });
 
-                  if (waitingTooLongCount === 0) return null;
-
-                  return (
-                    <div
-                      className="flex items-center gap-1.5 bg-rose-50 border border-rose-100 text-rose-700 px-2.5 py-1.5 rounded-xl text-xs font-bold animate-pulse shrink-0 ms-1"
-                      title={language === 'ar'
-                        ? waitingTooLongCount + ' مريض ينتظر لأكثر من ٢٠ دقيقة!'
-                        : waitingTooLongCount + ' patient(s) waiting > 20m!'}
-                    >
-                      <AlertCircle size={14} className="shrink-0 text-rose-500" />
-                      <span>{waitingTooLongCount}</span>
-                      <span className="hidden 2xl:inline">{language === 'ar' ? 'ينتظر +٢٠ د' : 'waiting > 20m'}</span>
-                    </div>
-                  );
-                })()}
               </div>
 
               {/* Attendance / shift clock */}
@@ -975,22 +945,22 @@ export default function DesktopDashboard() {
             </div>
 
             {/* Quick actions */}
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 shrink-0 ml-2">
               <button
                 onClick={() => setActiveModal('patient')}
                 title={language === 'ar' ? 'مريض جديد' : 'New Patient'}
-                className="group flex items-center gap-2 bg-white/90 backdrop-blur-md text-slate-700 font-bold text-sm px-4 py-2.5 rounded-2xl hover:-translate-y-0.5 transition-all duration-300 shadow-[0_4px_20px_rgb(0,0,0,0.04)] border border-white/50"
+                className="group flex items-center gap-2 bg-[#FACC15] hover:bg-[#EAB308] text-ink font-black text-sm px-4 sm:px-5 py-2.5 rounded-xl shadow-sm transition-all active:scale-95"
               >
-                <Plus size={18} strokeWidth={2.5} className="text-ink-muted group-hover:text-ink-strong transition-colors shrink-0" />
+                <Plus size={18} strokeWidth={3} className="shrink-0" />
                 <span className="hidden xl:inline whitespace-nowrap">{language === 'ar' ? 'مريض جديد' : 'New Patient'}</span>
               </button>
               <button
                 onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }}
                 title={language === 'ar' ? 'دفع سريع' : 'Quick Pay'}
-                className="group flex items-center gap-2 bg-ink-strong text-white font-bold text-sm px-4 py-2.5 rounded-2xl hover:-translate-y-0.5 transition-all duration-300 shadow-[0_8px_20px_rgba(45,55,72,0.2)] border border-ink-strong"
+                className="group flex items-center gap-2 bg-surface text-ink font-bold text-sm px-4 sm:px-5 py-2.5 rounded-xl shadow-sm border border-slate-200 transition-all hover:bg-slate-50 active:scale-95"
               >
-                <Wallet size={18} strokeWidth={2.5} className="shrink-0" />
-                <span className="hidden xl:inline whitespace-nowrap">{language === 'ar' ? 'دفع سريع' : 'Quick Pay'}</span>
+                <Wallet size={18} strokeWidth={2.5} className="shrink-0 text-slate-500 group-hover:text-ink transition-colors" />
+                <span className="hidden xl:inline whitespace-nowrap drop-shadow-sm">{language === 'ar' ? 'دفع سريع' : 'Quick Pay'}</span>
               </button>
             </div>
           </div>
