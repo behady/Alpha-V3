@@ -182,11 +182,23 @@ export async function loadConversation(
     d.needsHuman === true && handoffAtMs > now - HANDOFF_HOLD_MS && !(handledAtMs > handoffAtMs);
   const humanOwned = openHandoff || humanActiveAtMs > now - HUMAN_CLAIM_MS;
 
+  /*
+   * A handoff staff have marked handled releases the bot — including from the stored state.
+   *
+   * The turn that raised the handoff saved "handed_off" as the next state, and that stored value
+   * would otherwise keep the bot silent for the rest of the hour even after a person had dealt
+   * with it and clicked Handled. Released conversations resume at the menu rather than the
+   * greeting: the patient was mid-conversation with a human, and a fresh "أهلاً 👋" with the
+   * opt-out footer under it would read as the machine barging back in.
+   */
+  const storedState = (d.state as BotState) || "new";
+  const released = storedState === "handed_off" && !humanOwned && handledAtMs > handoffAtMs;
+
   return {
     phoneKey,
     phone,
     // The conversation resets; the rate limit, a recorded opt-out and a live handoff do not.
-    state: humanOwned ? "handed_off" : expired ? "new" : ((d.state as BotState) || "new"),
+    state: humanOwned ? "handed_off" : expired ? "new" : released ? "awaiting_choice" : storedState,
     humanOwned,
     turns: expired ? 0 : Number(d.turns) || 0,
     patientId: typeof d.patientId === "string" ? d.patientId : undefined,
