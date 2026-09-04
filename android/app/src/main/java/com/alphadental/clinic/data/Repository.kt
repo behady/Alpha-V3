@@ -399,15 +399,33 @@ object Repository {
 
     // -------------------------------------------------------------- prescriptions
 
-    /** The clinic's saved drug shortcuts, so common medicines are two taps rather than typed. */
+    /**
+     * The clinic's own `drugs` rows, which are only half the list the picker shows.
+     *
+     * The other half is the built-in Egyptian formulary in DrugCatalog.kt, and these rows are what
+     * the clinic has done to it: a row carrying `catalogId` replaces that built-in, the same row
+     * with `hidden` removes it, and a row with no `catalogId` is a drug they typed in themselves.
+     * PrescriptionSheet does the merging, exactly as src/lib/drugList.ts does it on the web.
+     *
+     * A nameless row is normally junk and dropped — but a hidden marker legitimately has no name,
+     * so dropping on a blank name alone silently resurrected every built-in a dentist had removed.
+     */
     suspend fun loadDrugShortcuts(clinicId: String): List<DrugShortcut> {
         val snap = Firebase.db().collection("clinics").document(clinicId)
             .collection("drugs").get().await()
 
         return snap.documents.mapNotNull { doc ->
             val name = doc.getString("name")?.trim().orEmpty()
-            if (name.isEmpty()) return@mapNotNull null
-            DrugShortcut(id = doc.id, name = name, dose = doc.getString("dose").orEmpty())
+            val catalogId = doc.getString("catalogId")?.trim().orEmpty()
+            if (name.isEmpty() && catalogId.isEmpty()) return@mapNotNull null
+            DrugShortcut(
+                id = doc.id,
+                name = name,
+                dose = doc.getString("dose").orEmpty(),
+                doseAr = doc.getString("doseAr").orEmpty(),
+                catalogId = catalogId,
+                hidden = doc.getBoolean("hidden") ?: false,
+            )
         }.sortedBy { it.name }
     }
 
@@ -493,10 +511,14 @@ object Repository {
                 doctor = doc.getString("doctor").orEmpty(),
                 diagnosis = doc.getString("diagnosis").orEmpty(),
                 drugs = raw.map {
+                    // A script written before the Arabic lines existed simply has neither key, and
+                    // reads back with them empty — which is what the printer expects.
                     RxItem(
                         name = it["name"]?.toString().orEmpty(),
                         dose = it["dose"]?.toString().orEmpty(),
+                        doseAr = it["doseAr"]?.toString().orEmpty(),
                         note = it["note"]?.toString().orEmpty(),
+                        noteAr = it["noteAr"]?.toString().orEmpty(),
                     )
                 },
             )
@@ -532,8 +554,17 @@ object Repository {
                 "date" to todayKey(),
                 "doctor" to doctor,
                 "diagnosis" to diagnosis.trim(),
+                // The same keys the website writes. The Arabic pair is what the patient reads off
+                // the paper, so a script written on the phone has to carry it or the printed sheet
+                // loses half of every line the moment it is opened at the desk.
                 "drugs" to drugs.map {
-                    mapOf("name" to it.name, "dose" to it.dose, "note" to it.note)
+                    mapOf(
+                        "name" to it.name,
+                        "dose" to it.dose,
+                        "doseAr" to it.doseAr,
+                        "note" to it.note,
+                        "noteAr" to it.noteAr,
+                    )
                 },
                 "mode" to "typed",
                 "createdAt" to FieldValue.serverTimestamp(),

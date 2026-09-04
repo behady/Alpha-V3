@@ -10,6 +10,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "_comment_gen_android_drugs": "Copies the built-in Egyptian formulary from src/lib/drugCatalog.ts into the Android app's DrugCatalog.kt. The website and the phone resolve the same `catalogId` to the same drug, so the two lists cannot be authored separately — edit the TypeScript and re-run this.",
+    "gen:android-drugs": "node scripts/generate-android-drug-catalog.mjs",
     "_comment_test_rules": "Pinned to firebase-tools 13: version 14+ requires JDK 21, and this machine has JDK 11. Install a JDK 21+ and you can drop the @13 to track latest.",
     "test:rules": "npx firebase-tools@13 emulators:exec --only firestore \"node tests/firestore.rules.test.mjs\"",
     "_comment_test_permissions": "Catalogue hygiene (ids are storage keys), a drift check that every permission the code enforces is one an admin can actually grant, and a check that firestore.rules has not lost a collection from its blanket-write exclusion chain. No emulator needed.",
