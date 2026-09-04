@@ -7,13 +7,15 @@
  * dentist actually writes, and the same instruction in Arabic so the line the patient reads on the
  * printed prescription is a line they can follow without asking anyone.
  *
- * Two kinds of small print, and the difference decides what reaches the patient:
+ * Only three things ever reach the paper: `name`, `doseEn` and `doseAr`. Everything else is for
+ * the dentist's eyes while picking:
  *
- *   `noteEn` / `noteAr`     — written TO the patient, and printed. "No alcohol", "always after
- *                             food", "finish the course", "use the spoon in the box".
- *   `cautionEn`/`cautionAr` — written TO the dentist, and never printed. Penicillin allergy,
- *                             pregnancy, drug interactions. These belong in the picker, not on
- *                             paper in the patient's hand.
+ *   `descEn` / `descAr`     — what it is for.
+ *   `noteEn` / `noteAr`     — what to tell the patient. "No alcohol", "finish the course", "use
+ *                             the spoon in the box". Shown in the picker so the dentist says it;
+ *                             not copied onto the prescription. The instruction boxes on the form
+ *                             start empty and print only what the dentist types in them.
+ *   `cautionEn`/`cautionAr` — what to check first. Penicillin allergy, pregnancy, interactions.
  *
  * It is a shortcut list, never a decision: nothing here is picked automatically, and the dentist
  * can edit every field after choosing.
@@ -43,10 +45,10 @@ export type CatalogDrug = {
   /** The dose / frequency line. Both languages print, one under the other. */
   doseEn: string;
   doseAr: string;
-  /** Instruction to the patient. Printed under the dose, in both languages. */
+  /** What to tell the patient. Shown in the picker only — never copied onto the paper. */
   noteEn?: string;
   noteAr?: string;
-  /** Warning to the dentist. Shown only in the picker — this never reaches the paper. */
+  /** What to check before prescribing. Shown in the picker only — never reaches the paper. */
   cautionEn?: string;
   cautionAr?: string;
   /** Extra words that should find this drug (other Egyptian brands of the same molecule). */

@@ -37,8 +37,9 @@ interface RxItem { id: string; name: string; dose: string; doseAr: string; note:
  * flattened into the same shape so the doctor searches one list rather than choosing a source
  * first — a shortcut a doctor typed by hand stays findable by exactly the words they typed.
  *
- * `caution` is the exception to everything else here: it is addressed to the doctor and is shown
- * only in this list. It is never copied into the prescription and never printed.
+ * Only `name`, `doseEn` and `doseAr` ever reach the prescription. `tip` (what to tell the patient)
+ * and `caution` (what to check first) are addressed to the doctor, shown only in this list, and
+ * never copied onto the paper.
  */
 interface PickerRow {
   key: string;
@@ -46,8 +47,7 @@ interface PickerRow {
   subtitle: string;
   doseEn: string;
   doseAr: string;
-  noteEn: string;
-  noteAr: string;
+  tip: string;
   caution: string;
   catLabel: string;
   catSoft: string;
@@ -165,8 +165,7 @@ function PrescriptionStudio() {
         // field that matches whatever the doctor typed rather than being forced into English.
         doseEn: /[؀-ۿ]/.test(d.dose || "") ? "" : d.dose || "",
         doseAr: /[؀-ۿ]/.test(d.dose || "") ? d.dose || "" : "",
-        noteEn: "",
-        noteAr: "",
+        tip: "",
         caution: "",
         catLabel: t("rxMyShortcut"),
         catSoft: "bg-accent-tint text-accent border-transparent",
@@ -183,8 +182,7 @@ function PrescriptionStudio() {
         subtitle: isArabicUi ? d.descAr : d.descEn,
         doseEn: d.doseEn,
         doseAr: d.doseAr,
-        noteEn: d.noteEn || "",
-        noteAr: d.noteAr || "",
+        tip: (isArabicUi ? d.noteAr : d.noteEn) || "",
         caution: (isArabicUi ? d.cautionAr : d.cautionEn) || "",
         catLabel: (isArabicUi ? cat?.labelAr : cat?.labelEn) || "",
         catSoft: cat?.soft || "bg-slate-100 text-slate-700 border-slate-200",
@@ -195,13 +193,19 @@ function PrescriptionStudio() {
 
   const pickerRows = useMemo(() => [...shortcutRows, ...catalogRows], [shortcutRows, catalogRows]);
 
-  /** Load a picked drug into the fields so the doctor can still edit before adding. */
+  /**
+   * Load a picked drug into the fields so the doctor can still edit before adding.
+   *
+   * Only the name and the two dose lines come across. The catalog's advice line ("finish the
+   * course", "never on an empty stomach") stays in the picker for the doctor to read; the
+   * instruction boxes start empty and print only what the doctor chooses to type in them.
+   */
   const fillFromRow = (row: PickerRow) => {
     setCustomDrugName(row.name);
     setCurrentDose(row.doseEn);
     setCurrentDoseAr(row.doseAr);
-    setCurrentNote(row.noteEn);
-    setCurrentNoteAr(row.noteAr);
+    setCurrentNote("");
+    setCurrentNoteAr("");
     setDrugQuery("");
   };
 
@@ -209,14 +213,14 @@ function PrescriptionStudio() {
     setRxItems((prev) => [...prev, { id: `${Date.now()}-${prev.length}`, ...item }]);
   };
 
-  /** The one-tap path: straight onto the prescription without touching the fields below. */
+  /** The one-tap path: name and dose straight onto the prescription, nothing else. */
   const quickAddRow = (row: PickerRow) => {
     appendRxItem({
       name: row.name,
       dose: row.doseEn,
       doseAr: row.doseAr,
-      note: row.noteEn,
-      noteAr: row.noteAr,
+      note: "",
+      noteAr: "",
     });
     setDrugQuery("");
   };
@@ -505,7 +509,10 @@ function PrescriptionStudio() {
                               • {isArabicUi ? row.doseAr || row.doseEn : row.doseEn || row.doseAr}
                             </p>
                           )}
-                          {/* The doctor's warning. It stops here — it is never copied onto the sheet. */}
+                          {/* What to tell the patient, and what to check first. Both stop here — neither is ever copied onto the sheet. */}
+                          {row.tip && (
+                            <p dir="auto" className="text-[11px] font-semibold text-ink-muted mt-1 italic">{row.tip}</p>
+                          )}
                           {row.caution && (
                             <p dir="auto" className="text-[11px] font-bold text-amber-700 mt-1 flex items-start gap-1">
                               <AlertTriangle size={12} className="mt-0.5 shrink-0" />
