@@ -167,7 +167,7 @@ export default function PrescriptionSettings() {
       return { label: isAr ? "بتاع العيادة" : "Your own", cls: "bg-accent-tint text-accent border-transparent" };
     }
     if (entry.origin === "customized") {
-      return { label: isAr ? "معدّل" : "Edited", cls: "bg-amber-50 text-amber-800 border-amber-200" };
+      return { label: isAr ? "معدّل" : "Edited", cls: "bg-warn-tint text-warn border-warn/25" };
     }
     const cat = DRUG_CATEGORIES.find((c) => c.id === entry.cat);
     return { label: (isAr ? cat?.labelAr : cat?.labelEn) || "", cls: cat?.soft || "bg-slate-100 text-slate-700 border-slate-200" };

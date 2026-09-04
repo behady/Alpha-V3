@@ -176,8 +176,10 @@ export const TUTORIALS: Tutorial[] = [
         route: "/patients",
         anchor: "patient-row",
         text: {
-          en: "Click a patient's card to open their file. (For this lesson, any patient works.)",
-          ar: "اضغط على كارت أي مريض عشان تفتح ملفه. (للدرس ده أي مريض ينفع.)",
+          // "In the list", not "their card": the desktop directory is a table now and the cards
+          // only survive on a phone. The ring lands on whichever of the two is on screen.
+          en: "Click a patient in the list to open their file. (For this lesson, any patient works.)",
+          ar: "اضغط على أي مريض في القايمة عشان تفتح ملفه. (للدرس ده أي مريض ينفع.)",
         },
       },
       {
@@ -293,8 +295,8 @@ export const TUTORIALS: Tutorial[] = [
         route: "/patients",
         anchor: "patient-row",
         text: {
-          en: "Open the patient's file — click their card.",
-          ar: "افتح ملف المريض — اضغط على الكارت بتاعه.",
+          en: "Open the patient's file — click their row in the list.",
+          ar: "افتح ملف المريض — اضغط على اسمه في القايمة.",
         },
       },
       {
@@ -350,8 +352,8 @@ export const TUTORIALS: Tutorial[] = [
         route: "/patients",
         anchor: "patient-row",
         text: {
-          en: "Open the patient's file — click their card.",
-          ar: "افتح ملف المريض — اضغط على الكارت بتاعه.",
+          en: "Open the patient's file — click their row in the list.",
+          ar: "افتح ملف المريض — اضغط على اسمه في القايمة.",
         },
       },
       {
