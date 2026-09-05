@@ -152,7 +152,7 @@ export async function deliverWhatsAppMessage(args: {
    * is recorded as the system with its message kind, so a receptionist scrolling the thread sees
    * "reminder" and "receipt" between the patient's messages rather than a gap.
    */
-  thread?: { author: "staff"; uid?: string; name?: string };
+  thread?: { author: "staff"; uid?: string; name?: string; kind?: string };
 }): Promise<WhatsappDeliveryResult> {
   const mode = await resolveWhatsappDeliveryMode(args.clinicId);
 
@@ -165,7 +165,7 @@ export async function deliverWhatsAppMessage(args: {
           text: args.text,
           uid: args.thread?.uid,
           name: args.thread?.name,
-          kind: args.thread ? "staff_reply" : args.queue?.type || args.metaTemplate?.kind || "message",
+          kind: args.thread ? args.thread.kind || "staff_reply" : args.queue?.type || args.metaTemplate?.kind || "message",
         }).catch(() => {})
       : Promise.resolve();
 

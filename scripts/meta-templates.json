@@ -180,5 +180,24 @@
         }
       }
     ]
+  },
+  {
+    "name": "alpha_followup_ar",
+    "language": "ar",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "مرحباً {{1}}، معاك {{2}}. بخصوص رسالتك على واتساب، عندنا رد ليك — ابعتلنا أي رسالة عشان نكمل الكلام معاك.",
+        "example": {
+          "body_text": [
+            [
+              "أحمد",
+              "Alpha Dental"
+            ]
+          ]
+        }
+      }
+    ]
   }
 ]
