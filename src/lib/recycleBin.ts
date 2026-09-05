@@ -20,6 +20,8 @@
  * purpose. So: absent from the table below means DENY, and the table is written out by hand.
  */
 
+import { isFullAccessRole } from "@/lib/permissions";
+
 /** Collections the bin will accept, and what it takes to delete or restore one. */
 export type BinCollectionRule = {
   /** Granular permission required, or null when the role gate alone decides. */
@@ -82,9 +84,9 @@ export type BinApproval = { ok: true; rule: BinCollectionRule };
 /**
  * Is this a collection the bin will touch at all, and is the identifier safe to build a path from?
  *
- * Runs BEFORE authorization, deliberately. `requireStaffPermission` short-circuits on
- * `role === "Admin"`, so a check ordered after it would let any clinic Admin reach any collection
- * name they cared to type.
+ * Runs BEFORE authorization, deliberately. `requireStaffPermission` short-circuits on a full-access
+ * role, so a check ordered after it would let any clinic Owner or Admin reach any collection name
+ * they cared to type.
  */
 export function checkBinnable(collection: unknown, documentId: unknown): BinApproval | BinRefusal {
   const name = typeof collection === "string" ? collection.trim() : "";
@@ -142,16 +144,22 @@ export function checkBinnable(collection: unknown, documentId: unknown): BinAppr
  * May this person delete from this collection?
  *
  * `adminOnly` is checked FIRST and independently, because requireStaffPermission returns early for
- * an Admin — a collection whose real rule is "Admin only" must not become reachable by anyone
- * holding the mapped permission.
+ * a full-access role — a collection whose real rule is "Admin only" must not become reachable by
+ * anyone holding the mapped permission.
+ *
+ * Full access is Owner AND Admin, via `isFullAccessRole`, exactly as everywhere else. Comparing to
+ * the literal "Admin" here locked the clinic's own owner out of their bin: the trash button
+ * rendered (ClinicContext's `isAdmin` and firestore.rules both count Owner as full access) and the
+ * route answered "You do not have permission to do this (patients.delete)" — a permission the owner
+ * cannot grant themselves, because a full-access role stores an empty list by design.
  */
 export function checkDeleteAllowed(
   rule: BinCollectionRule,
   actor: { role: string | null | undefined; permissions: string[] }
 ): true | BinRefusal {
-  const isAdmin = actor.role === "Admin";
+  const isAdmin = isFullAccessRole(actor.role);
   if (rule.adminOnly && !isAdmin) {
-    return { ok: false, status: 403, error: "Only a clinic Admin can delete this.", reason: "ADMIN_ONLY" };
+    return { ok: false, status: 403, error: "Only the clinic owner or an admin can delete this.", reason: "ADMIN_ONLY" };
   }
   if (isAdmin) return true;
   if (rule.permission && actor.permissions.includes(rule.permission)) return true;
@@ -179,7 +187,7 @@ export function checkRestoreAllowed(
 ): true | BinRefusal {
   const deleteCheck = checkDeleteAllowed(rule, actor);
   if (deleteCheck !== true) return deleteCheck;
-  if (actor.role === "Admin") return true;
+  if (isFullAccessRole(actor.role)) return true;
 
   const createPermission = createPermissionFor(collection);
   if (createPermission && !actor.permissions.includes(createPermission)) {

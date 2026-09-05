@@ -71,10 +71,24 @@ for (const [name, rule] of Object.entries(BIN_COLLECTIONS)) {
 const receptionist = { role: "Receptionist", permissions: ["patients.add", "appointments.add", "finance.add"] };
 const nurse = { role: "Assistant", permissions: ["patients.edit", "clinical.edit"] };
 const admin = { role: "Admin", permissions: [] };
+// The clinic's owner. Their stored permission list is empty BY DESIGN — expandPermissions returns
+// nothing for a full-access role — so a check that compares to the literal "Admin" refuses the one
+// person who cannot grant themselves the missing permission. That is exactly what happened: the
+// trash button rendered (ClinicContext counts Owner as full access, as firestore.rules does) and
+// the route answered "You do not have permission to do this (patients.delete)".
+const owner = { role: "Owner", permissions: [] };
 
 assert.equal(checkDeleteAllowed(BIN_COLLECTIONS.patients, receptionist).ok, false, "no patients.delete");
 assert.equal(checkDeleteAllowed(BIN_COLLECTIONS.patients, admin), true, "Admin passes by role");
+assert.equal(checkDeleteAllowed(BIN_COLLECTIONS.patients, owner), true, "Owner passes by role");
 assert.equal(checkDeleteAllowed(BIN_COLLECTIONS.patient_media, nurse), true, "patients.edit covers media");
+
+// Every collection the bin accepts, for both full-access roles: the owner and their admin must
+// never disagree, whichever gate the rule uses.
+for (const [name, rule] of Object.entries(BIN_COLLECTIONS)) {
+  assert.equal(checkDeleteAllowed(rule, owner), true, `Owner must be able to delete ${name}`);
+  assert.equal(checkDeleteAllowed(rule, admin), true, `Admin must be able to delete ${name}`);
+}
 
 // THE ADMIN SHORT-CIRCUIT. requireStaffPermission returns early for an Admin, so an Admin-only
 // collection must be gated BEFORE that check and independently of the mapped permission —
@@ -108,6 +122,17 @@ assert.equal(
   checkRestoreAllowed("treatment_plans", BIN_COLLECTIONS.treatment_plans, receptionist, createPerm).ok,
   false
 );
+// The create-permission gate must not catch a full-access role either — neither of them holds a
+// stored list to satisfy it with.
+for (const actor of [owner, admin]) {
+  for (const name of Object.keys(BIN_COLLECTIONS)) {
+    assert.equal(
+      checkRestoreAllowed(name, BIN_COLLECTIONS[name], actor, createPerm),
+      true,
+      `${actor.role} must be able to restore ${name}`
+    );
+  }
+}
 
 // --- can this snapshot go back ------------------------------------------------------------------------
 

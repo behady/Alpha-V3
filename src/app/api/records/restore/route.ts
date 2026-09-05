@@ -3,7 +3,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
-import { COLLECTION_WRITE_PERMISSIONS } from "@/lib/permissions";
+import { COLLECTION_WRITE_PERMISSIONS, isFullAccessRole } from "@/lib/permissions";
 import { logActivityServer } from "@/lib/server/systemLog";
 import { reportServerError } from "@/lib/server/reportError";
 import {
@@ -137,7 +137,7 @@ export async function POST(request: Request) {
         duplicateOf,
         snapshot,
         acknowledgeDuplicate,
-        actorIsAdmin: auth.role === "Admin",
+        actorIsAdmin: isFullAccessRole(auth.role),
       });
       if (verdict !== true) return verdict;
 

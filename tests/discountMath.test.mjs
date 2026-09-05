@@ -117,6 +117,10 @@ assert.equal(parseDiscountSettings({ maxDiscountPercentNonAdmin: null }).maxDisc
 assert.equal(parseDiscountSettings({ maxDiscountPercentNonAdmin: 35 }).maxDiscountPercentNonAdmin, 35);
 
 assert.equal(allowedDiscount("Admin", [], settings).maxPercent, null, "an Admin has no ceiling");
+// Nor does the person who set the ceiling. Owner and Admin are one answer everywhere else —
+// isFullAccessRole — and a literal "Admin" here capped the clinic's owner at their own staff limit.
+assert.equal(allowedDiscount("Owner", [], settings).maxPercent, null, "the Owner has no ceiling");
+assert.equal(allowedDiscount("Owner", [], settings).isAdmin, true);
 assert.equal(allowedDiscount("Receptionist", [], settings).maxPercent, 20);
 
 const receptionist = allowedDiscount("Receptionist", [], settings);
