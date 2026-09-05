@@ -548,6 +548,7 @@ export async function respondToPatientMessage(args: {
   // The appointment being moved, if the patient is mid-reschedule. Rides on every list step.
   let rescheduleId = conversation.pendingReschedule || "";
   let aiExchange: { q: string; a: string } | undefined;
+  let aiInterest = "";
   /** Buttons/lists for the official channel; the text above is what every other channel sends. */
   let structure: MetaInteractive | undefined;
 
@@ -557,7 +558,8 @@ export async function respondToPatientMessage(args: {
 
     const ANY_DOCTOR = "أي دكتور 👌";
     // Named at the start of the booking, carried through every step, written on the appointment.
-    const treatment = conversation.pendingTreatment || ctx.serviceMatch || "";
+    // The service named now, earlier in this booking, or earlier in the chat (the model's read).
+    const treatment = conversation.pendingTreatment || ctx.serviceMatch || conversation.lastInterest || "";
     const v = voiceFor(ctx.gender ?? "unknown");
 
     const listDoctors = () => {
@@ -800,6 +802,7 @@ export async function respondToPatientMessage(args: {
         structure = { body: ai.text, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
         aiExchange = { q: act.question, a: ai.text };
         if (ai.interest && !ctx.serviceMatch) ctx.serviceMatch = (await matchService(clinicId, ai.interest)) || ai.interest;
+        if (ai.interest) aiInterest = (await matchService(clinicId, ai.interest)) || ai.interest;
         reason = "ai_answer";
       } else if (ai.kind === "handoff") {
         // The model recognised a person's job — a complaint, a named dentist, something medical,
@@ -1000,7 +1003,7 @@ export async function respondToPatientMessage(args: {
 
   // A name is being asked for: remember whose, and what they came for, until it arrives.
   if (reason === "ask_relative_name") pending = { forRelative: true, treatment: ctx.serviceMatch };
-  if (reason === "ask_name" || reason === "ai_ask_name") pending = { treatment: ctx.serviceMatch };
+  if (reason === "ask_name" || reason === "ai_ask_name") pending = { treatment: ctx.serviceMatch || conversation.lastInterest };
 
   /*
    * The salesman's turn, after the receptionist's.
@@ -1231,6 +1234,7 @@ export async function respondToPatientMessage(args: {
    */
   const outcomeUpdate: Record<string, unknown> = {};
   if (aiExchange || reason.startsWith("ai_")) outcomeUpdate.aiUsed = true;
+  if (aiInterest) outcomeUpdate.lastInterest = aiInterest;
   if (reason === "booked" || reason === "rescheduled") {
     outcomeUpdate.outcome = "booked";
     outcomeUpdate.outcomeAt = now;

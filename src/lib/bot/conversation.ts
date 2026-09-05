@@ -104,6 +104,8 @@ export interface BotConversation {
   pendingReschedule?: string;
   /** How the conversation ended, for the playbook: booked, handoff, or unset while it is live. */
   outcome?: string;
+  /** The service the model last heard the patient wanting; the treatment when a booking follows. */
+  lastInterest?: string;
   /**
    * A person owns this thread right now.
    *
@@ -244,6 +246,7 @@ export async function loadConversation(
     pendingForRelative: !expired && d.pendingForRelative === true,
     pendingReschedule: !expired && typeof d.pendingReschedule === "string" ? d.pendingReschedule : undefined,
     outcome: !expired && typeof d.outcome === "string" ? d.outcome : undefined,
+    lastInterest: !expired && typeof d.lastInterest === "string" ? d.lastInterest : undefined,
     aiReplies: !expired ? Number(d.aiReplies) || 0 : 0,
     aiHistory:
       !expired && Array.isArray(d.aiHistory)
