@@ -360,7 +360,7 @@ export default function DentistHome() {
     "relative inline-flex items-center justify-center w-7 h-7 rounded-lg bg-surface border border-line text-ink-body hover:bg-surface-subtle hover:text-ink transition-colors";
 
   return (
-    <div className="min-h-screen lg:min-h-0 lg:h-full pb-24 lg:pb-4 text-ink-strong" dir={isRTL ? "rtl" : "ltr"}>
+    <div className="min-h-screen pb-24 lg:pb-6 text-ink-strong" dir={isRTL ? "rtl" : "ltr"}>
       <div className="w-full max-w-[1400px] mx-auto p-4 md:p-6 lg:p-5 flex flex-col gap-4">
 
         {/* Header: greeting, and the dentist's own money */}
