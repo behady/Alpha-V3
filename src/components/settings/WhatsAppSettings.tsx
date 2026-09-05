@@ -127,6 +127,7 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     recallAfterMonths: Number(data?.recallAfterMonths) || 6,
     isReviewRequestEnabled: Boolean(data?.isReviewRequestEnabled),
     useReminderButtons: Boolean(data?.useReminderButtons),
+    isLeadFollowupEnabled: Boolean(data?.isLeadFollowupEnabled),
     templates,
     ownerNumber: typeof data?.ownerNumber === "string" ? data.ownerNumber : "",
     ownerAlerts,
@@ -192,6 +193,7 @@ export default function WhatsAppSettings() {
     recallAfterMonths: 6,
     isReviewRequestEnabled: false,
     useReminderButtons: false,
+    isLeadFollowupEnabled: false,
     templates: defaultTemplates(),
     ownerNumber: "",
     ownerAlerts: {},
@@ -415,6 +417,21 @@ export default function WhatsAppSettings() {
       factInstallments: language === "ar" ? "التقسيط" : "Instalments",
       factInstallmentsPh:
         language === "ar" ? "مثال: التقويم والتركيبات بتتقسط على 3 دفعات من غير فوايد." : "e.g. Braces and crowns can be paid over 3 instalments.",
+      leadFollowupToggle: language === "ar" ? "متابعة اللي سأل ومحجزش" : "Follow up leads who asked but didn't book",
+      leadFollowupHint:
+        language === "ar"
+          ? "رسالة واحدة بس، بعد يوم من سؤاله عن سعر أو خدمة على واتساب من غير ما يحجز. فعّلها بعد ما ميتا توافق على قالب alpha_lead_followup_ar."
+          : "One message, the day after someone asked about a price or service on WhatsApp without booking. Turn on once Meta approves the alpha_lead_followup_ar template.",
+      factWhyUs: language === "ar" ? "ليه تختارنا (البوت بيقولها لما حد يتردد)" : "Why us (said when someone hesitates)",
+      factWhyUsPh:
+        language === "ar"
+          ? "مثال: أطباء متخصصين، تعقيم كامل لكل مريض، وضمان سنة على التركيبات. السعر بيشمل المتابعة."
+          : "e.g. Specialist dentists, full sterilisation for every patient, one-year warranty on crowns.",
+      factConsultation: language === "ar" ? "الكشف (البوت بيختم بيه عرض الحجز)" : "Consultation terms (used in the booking invitation)",
+      factConsultationPh:
+        language === "ar" ? "مثال: الكشف مجاني / الكشف 200 ج.م وبيتخصم من العلاج" : "e.g. Consultation is free / 200 EGP, deducted from treatment",
+      factOffersUntil: language === "ar" ? "العرض ساري لغاية" : "Offer valid until",
+      factOffersUntilPh: "2026-12-31",
       factOffers: language === "ar" ? "العروض والخصومات" : "Offers and discounts",
       factOffersPh:
         language === "ar" ? "مثال: مفيش خصومات حالياً، والأسعار ثابتة للجميع." : "e.g. No current offers; prices are the same for everyone.",
@@ -1320,6 +1337,7 @@ export default function WhatsAppSettings() {
         {(
           [
             { key: "useReminderButtons", label: txt.reminderButtonsToggle, hint: txt.reminderButtonsHint },
+            { key: "isLeadFollowupEnabled", label: txt.leadFollowupToggle, hint: txt.leadFollowupHint },
             { key: "isReviewRequestEnabled", label: txt.reviewToggle, hint: txt.reviewHint },
             { key: "isRecallEnabled", label: txt.recallToggle, hint: txt.recallHint },
           ] as const
@@ -1703,11 +1721,14 @@ export default function WhatsAppSettings() {
                 <div className="grid gap-3">
                   {(
                     [
+                      { key: "whyUs" as const, label: txt.factWhyUs, ph: txt.factWhyUsPh },
+                      { key: "consultation" as const, label: txt.factConsultation, ph: txt.factConsultationPh },
                       { key: "walkIn" as const, label: txt.factWalkIn, ph: txt.factWalkInPh },
                       { key: "durations" as const, label: txt.factDurations, ph: txt.factDurationsPh },
                       { key: "sessions" as const, label: txt.factSessions, ph: txt.factSessionsPh },
                       { key: "installments" as const, label: txt.factInstallments, ph: txt.factInstallmentsPh },
                       { key: "offers" as const, label: txt.factOffers, ph: txt.factOffersPh },
+                      { key: "offersUntil" as const, label: txt.factOffersUntil, ph: txt.factOffersUntilPh },
                       { key: "insurance" as const, label: txt.factInsurance, ph: txt.factInsurancePh },
                       { key: "notOffered" as const, label: txt.factNotOffered, ph: txt.factNotOfferedPh },
                       { key: "aftercare" as const, label: txt.factAftercare, ph: txt.factAftercarePh },
@@ -1717,6 +1738,18 @@ export default function WhatsAppSettings() {
                   ).map(({ key, label, ph }) => (
                     <label key={key} className="block space-y-1">
                       <span className="text-xs font-bold text-ink">{label}</span>
+                      {key === "offersUntil" ? (
+                        <input
+                          type="date"
+                          className="block rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-accent-soft focus:ring-1 focus:ring-accent-soft/30"
+                          value={state.botFacts?.offersUntil ?? ""}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setState((s) => ({ ...s, botFacts: { ...(s.botFacts ?? {}), offersUntil: value } }));
+                          }}
+                          onBlur={() => void persist(state, "silent")}
+                        />
+                      ) : (
                       <textarea
                         rows={key === "mapsUrl" ? 1 : 2}
                         dir="auto"
@@ -1731,6 +1764,7 @@ export default function WhatsAppSettings() {
                         // write per character is a write per character.
                         onBlur={() => void persist(state, "silent")}
                       />
+                      )}
                     </label>
                   ))}
                 </div>

@@ -30,6 +30,8 @@ import {
   type HandoffSeverity,
 } from "./conversation";
 import { answerWithAi } from "./aiReply";
+import { SALES_CLOSE_REASONS, LEAD_INTEREST_REASONS, activeOffers, closingLine, offerForService } from "./sales";
+import { markBotLeadBooked, upsertBotLead } from "./botLeads";
 import { recordThreadMessage } from "./thread";
 import { clinicalReplyText, decideBotReply, type BotContext } from "./engine";
 import { needsHuman } from "./clinicalTriage";
@@ -459,7 +461,10 @@ export async function respondToPatientMessage(args: {
   }
 
   const clinicName = await clinicDisplayName(clinicId);
-  const ctx: BotContext = { clinicName, facts: settings.facts };
+  // Offers carry their own end date; past it the sentence disappears from every reply at once.
+  const offersActive = activeOffers(settings.facts, clinicNow().dateKey);
+  const ctx: BotContext = { clinicName, facts: { ...settings.facts, offers: offersActive } };
+  ctx.offersExpired = Boolean(settings.facts.offers?.trim()) && !offersActive;
 
   let profile: PublicClinicProfile | null = null;
   try {
@@ -739,7 +744,7 @@ export async function respondToPatientMessage(args: {
         hoursText: ctx.hoursText,
         addressText: ctx.addressText,
         clinicPhone: ctx.clinicPhone,
-        facts: settings.facts,
+        facts: ctx.facts,
         history: conversation.aiHistory ?? [],
       });
       if (ai.kind === "answer") {
@@ -947,6 +952,51 @@ export async function respondToPatientMessage(args: {
   // A name is being asked for: remember whose, and what they came for, until it arrives.
   if (reason === "ask_relative_name") pending = { forRelative: true, treatment: ctx.serviceMatch };
   if (reason === "ask_name") pending = { treatment: ctx.serviceMatch };
+
+  /*
+   * The salesman's turn, after the receptionist's.
+   *
+   * Three things, each only on a turn that is a sale in progress (see sales.ts): the running
+   * offer for the service just named, the closing line with a Book button under a factual
+   * answer, and a lead record for whoever asked about money or a service and has not booked.
+   * A patient who already has an appointment gets the answer and no pitch — selling a
+   * consultation to someone who is coming Tuesday reads as a bot that does not know them.
+   */
+  const salesTurn = !handoff && !args.media && Boolean(replyText.trim());
+  const appendLine = (line: string) => {
+    if (!line) return;
+    const mirrored = Boolean(structure && structure.body === replyText);
+    replyText = `${replyText}\n\n${line}`;
+    if (structure && mirrored) structure = { ...structure, body: replyText };
+  };
+  if (salesTurn && ctx.serviceMatch && offersActive && (SALES_CLOSE_REASONS.has(reason) || reason.startsWith("booking_") || reason === "ask_name")) {
+    appendLine(offerForService(offersActive, ctx.serviceMatch));
+  }
+  if (salesTurn && SALES_CLOSE_REASONS.has(reason) && (ctx.canOfferBooking || ctx.canRegister)) {
+    const upcoming = patient ? await findNextAppointment(clinicId, patient.id) : null;
+    appendLine(closingLine({ gender: ctx.gender, facts: ctx.facts, alreadyBooked: Boolean(upcoming) }));
+    // The button block below builds its own structure for menu-shaped replies; everything else
+    // gets the Book button here.
+    if (!structure && !upcoming && !["greeted", "reprompt", "back_to_menu", "hours"].includes(reason)) {
+      structure = { body: replyText, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
+    }
+  }
+  if (phone && !args.media && text.trim()) {
+    if (reason === "booked" || reason === "rescheduled") {
+      if (patient) void markBotLeadBooked(clinicId, phone, patient.id).catch(() => {});
+    } else if (LEAD_INTEREST_REASONS.has(reason) || (ctx.serviceMatch && !reason.startsWith("booking_") && reason !== "registered" && reason !== "ask_name")) {
+      void upsertBotLead({
+        clinicId,
+        phone,
+        name: ctx.patientName,
+        interest: ctx.serviceMatch,
+        question: text,
+        reason,
+        existingPatientId: patient?.id,
+        existingPatientName: ctx.patientName,
+      }).catch(() => {});
+    }
+  }
 
   /*
    * What the bot could not answer, recorded as it happens.

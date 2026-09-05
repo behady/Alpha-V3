@@ -199,5 +199,37 @@
         }
       }
     ]
+  },
+  {
+    "name": "alpha_lead_followup_ar",
+    "language": "ar",
+    "category": "MARKETING",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "أهلاً 👋 حضرتك سألت {{1}} عن {{2}} ولسه محجزتش. لو حابب نحجزلك كشف أو عندك أي سؤال، ابعتلنا رسالة وهنرد عليك فوراً 🦷",
+        "example": {
+          "body_text": [
+            [
+              "Alpha Dental",
+              "تقويم الأسنان"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "عايز أحجز"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "مش دلوقتي"
+          }
+        ]
+      }
+    ]
   }
 ]

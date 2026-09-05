@@ -54,6 +54,14 @@ export type QuickIntent =
   | "insurance"
   | "duration"
   | "aftercare"
+  /*
+   * The three objections that end most sales conversations. Each used to be a dead end: "غالي"
+   * reached the model with nothing to say, "هفكر" was a courtesy nobody followed up, "في أرخص"
+   * was a handoff. Now each is answered from the clinic's own words and recorded as a lead.
+   */
+  | "expensive"
+  | "thinking"
+  | "competitor"
   /** "OK", "sure", a thumbs-up. Confirmation of something the clinic said. */
   | "ack"
   /** Thanks, praise, a closing. */
@@ -234,6 +242,32 @@ export function mentionsRelative(raw: string): boolean {
   return has(normalize(raw), RELATIVE_WORDS);
 }
 
+const EXPENSIVE = [
+  "غالي", "غاليه", "غالي اوي", "غاليين", "غاليه اوي", "السعر عالي", "السعر كبير", "السعر كتير",
+  "كتير عليا", "كتير اوي", "مبلغ كبير", "مش قادر ادفع", "مش هقدر ادفع", "مش معايا", "فوق ميزانيتي",
+  "اكتر من ميزانيتي", "مش هقدر على المبلغ", "expensive", "too expensive", "too much", "pricey",
+  "cant afford", "can't afford", "over my budget",
+];
+const THINKING = [
+  "هفكر", "هفكر وهرد", "هفكر وارد", "خليني افكر", "لسه هفكر", "هشوف وهرد", "هشوف وارد", "هرجعلك",
+  "هبقى اكلمك", "هبقي اكلمك", "هبقى ابعتلك", "هبقي ابعتلك", "هبقى ارد", "هبقي ارد", "هستشير",
+  "هسال واقولك", "هشاور", "let me think", "ill think", "i'll think", "will get back", "get back to you",
+  "ill let you know", "i'll let you know",
+];
+const COMPETITOR = [
+  // Named against another place, not against an alternative material: "في بديل ارخص من الزيركون"
+  // is a treatment question for the model, "في مكان ارخص" is somebody walking away.
+  "مكان ارخص", "مكان تاني ارخص", "عياده ارخص", "عياده تانيه ارخص", "غيركم ارخص", "انتو اغلى",
+  "اغلى من غيركم", "ليه اغلى", "لقيت ارخص", "عرض احسن في مكان", "cheaper elsewhere", "other clinic is cheaper",
+  "another clinic is cheaper", "you are more expensive",
+];
+
+/** A message with one of these in it is asking something, whatever else it says. */
+const QUESTION_WORDS = [
+  "بكام", "كام", "ايه", "ازاي", "امتي", "فين", "ينفع", "ممكن", "هل", "بتعملوا", "بتعملو", "عندكم",
+  "عندكو", "how", "what", "when", "where", "can", "do you",
+];
+
 const GREETING = [
   "السلام عليكم", "سلام عليكم", "سلام", "صباح الخير", "مساء الخير", "صباح النور", "اهلا",
   "اهلين", "هاي", "هلا", "مرحبا", "ازيك", "ازيكم", "عامل ايه", "الو", "السلام",
@@ -260,6 +294,8 @@ export function quickIntent(raw: string): QuickIntent | null {
   if (has(text, HUMAN)) return "human";
   // Beside asking for a person, because it means the same thing and is never said as calmly.
   if (has(text, COMPLAINT)) return "complaint";
+  // Before cancelling: "مش هقدر ادفع" is a money objection wearing the "مش هقدر" of "I can't come".
+  if (has(text, EXPENSIVE)) return "expensive";
   if (has(text, CANCEL)) return "cancel";
   if (has(text, LATE)) return "late";
   if (has(text, RESCHEDULE)) return "reschedule";
@@ -289,10 +325,13 @@ export function quickIntent(raw: string): QuickIntent | null {
   if (has(text, INSTALLMENTS)) return "installments";
   if (has(text, OFFERS)) return "offers";
   if (has(text, INSURANCE)) return "insurance";
+  if (has(text, COMPETITOR)) return "competitor";
   if (has(text, PRICE_LIST)) return "price_list";
 
   if (has(text, AFTERCARE)) return "aftercare";
   if (has(text, DURATION)) return "duration";
+  // After every concrete question: "هفكر بس التقويم بكام" is a price question, not a goodbye.
+  if (!/[?؟]/.test(raw) && !has(text, QUESTION_WORDS) && has(text, THINKING)) return "thinking";
 
   /*
    * Courtesy last, and only when it is the whole message. "شكرا" alone is a closing; "شكرا، التقويم

@@ -141,6 +141,8 @@ export interface BotContext {
   clinicPhone?: string;
   /** Answers the clinic wrote for the questions its data cannot supply. Any field may be absent. */
   facts?: BotFacts;
+  /** The clinic wrote an offer and its end date has passed: `facts.offers` is blank on purpose. */
+  offersExpired?: boolean;
   /** Guessed from the patient's name, so the reply is not addressed to every woman as a man. */
   gender?: Gender;
   /** A day the patient named in THIS message ("بكره", "الخميس"), as a date key. */
@@ -200,6 +202,7 @@ const SILENT = (next: BotState, reason: string): BotDecision => ({ reply: "", ne
  */
 export { needsHuman, triageMessage } from "./clinicalTriage";
 import { needsHuman } from "./clinicalTriage";
+import { competitorReply, expensiveReply, offersExpiredReply, thinkingReply } from "./sales";
 import { quickIntent, type QuickIntent } from "./quickAnswers";
 
 /*
@@ -408,8 +411,33 @@ function answerIntent(intent: QuickIntent, ctx: BotContext): BotDecision | null 
       return factReply(ctx.facts?.walkIn, "walk_in");
     case "installments":
       return factReply(ctx.facts?.installments, "installments");
-    case "offers":
+    case "offers": {
+      // An ended offer is not an unknown: the patient gets "that one ended", not a person.
+      if (!ctx.facts?.offers?.trim() && ctx.offersExpired) {
+        return { reply: offersExpiredReply(ctx.gender), next: "awaiting_choice", handoff: false, reason: "offers_expired" };
+      }
       return factReply(ctx.facts?.offers, "offers");
+    }
+
+    /*
+     * Objections, answered like a salesperson who knows the clinic — from its instalment terms
+     * and its own "why us" line. With neither written there is nothing honest to say, so the
+     * price objection fetches a person and lands in the misses list as a field worth filling.
+     */
+    case "expensive": {
+      const r = expensiveReply({ gender: ctx.gender, facts: ctx.facts });
+      return r.known
+        ? { reply: r.text, next: "awaiting_choice", handoff: false, reason: "objection_price" }
+        : { reply: "فاهمين حضرتك تماماً 🙏 الاستقبال هيكلمك ويشرحلك الخيارات المتاحة.", next: "handed_off", handoff: true, reason: "objection_price_unknown" };
+    }
+    case "thinking":
+      return { reply: thinkingReply({ gender: ctx.gender }), next: "awaiting_choice", handoff: false, reason: "objection_thinking" };
+    case "competitor": {
+      const r = competitorReply({ facts: ctx.facts });
+      return r.known
+        ? { reply: r.text, next: "awaiting_choice", handoff: false, reason: "objection_competitor" }
+        : { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "objection_competitor_unknown" };
+    }
     case "parking":
       return factReply(ctx.facts?.parking, "parking");
     case "insurance":

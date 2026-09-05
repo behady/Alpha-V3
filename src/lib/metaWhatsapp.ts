@@ -291,6 +291,7 @@ export const META_TEMPLATE_FOR_KIND: Record<string, { name: string; paramCount: 
   reminder24h_btn: { name: "alpha_appt_reminder_btn_ar", paramCount: 3 }, // clinic, date, time
   recall: { name: "alpha_recall_ar", paramCount: 1 }, // clinic
   review: { name: "alpha_review_ar", paramCount: 2 }, // clinic, link
+  lead_followup: { name: "alpha_lead_followup_ar", paramCount: 2 }, // clinic, interest
 };
 
 /** The follow-up template's text, for the thread record and the unofficial channel. */

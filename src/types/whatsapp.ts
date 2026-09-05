@@ -64,6 +64,8 @@ export interface WhatsAppSettingsDocument {
   isReviewRequestEnabled?: boolean;
   /** Send the 24h reminder as the template with confirm / reschedule buttons. Needs Meta approval. */
   useReminderButtons?: boolean;
+  /** One "still interested?" the day after a bot lead asked and did not book. Needs Meta approval. */
+  isLeadFollowupEnabled?: boolean;
   templates: WhatsAppMessageTemplate[];
   ownerNumber: string;
   ownerAlerts: WhatsAppOwnerAlerts;
@@ -166,6 +168,15 @@ export interface BotFacts {
   sessions?: string;
   /** Standard aftercare — eating, rinsing, painkillers — as the clinic words it. */
   aftercare?: string;
+  /**
+   * Why this clinic: the one or two sentences the desk says when somebody hesitates. Used under
+   * price answers, and as the whole reply to "it's expensive" and "somewhere else is cheaper".
+   */
+  whyUs?: string;
+  /** The consultation terms — "الكشف مجاني", "200 ج.م بتتخصم من العلاج" — the strongest close there is. */
+  consultation?: string;
+  /** YYYY-MM-DD. After this day the offers text is treated as ended everywhere, automatically. */
+  offersUntil?: string;
 }
 
 /** Firestore path helper */
