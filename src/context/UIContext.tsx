@@ -120,6 +120,9 @@ interface UIContextType {
   setClinicalNoteGrouping: (grouping: ClinicalNoteGrouping) => void;
   clinicalNoteDensity: ClinicalNoteDensity;
   setClinicalNoteDensity: (density: ClinicalNoteDensity) => void;
+  /** The desk or the chair — see lib/uiPreferences. Only read for people who could be either. */
+  homeView: 'desk' | 'chair';
+  setHomeView: (view: 'desk' | 'chair') => void;
 }
 
 const UIContext = createContext<UIContextType | undefined>(undefined);
@@ -147,6 +150,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const [clinicalNoteSort, setClinicalNoteSortState] = useState<ClinicalNoteSort>('newest');
   const [clinicalNoteGrouping, setClinicalNoteGroupingState] = useState<ClinicalNoteGrouping>('flat');
   const [clinicalNoteDensity, setClinicalNoteDensityState] = useState<ClinicalNoteDensity>('detailed');
+  const [homeView, setHomeViewState] = useState<'desk' | 'chair'>('desk');
 
   /**
    * Apply a set of preferences to the eight pieces of state that hold them.
@@ -166,6 +170,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
     if (prefs.clinicalNoteSort !== undefined) setClinicalNoteSortState(prefs.clinicalNoteSort);
     if (prefs.clinicalNoteGrouping !== undefined) setClinicalNoteGroupingState(prefs.clinicalNoteGrouping);
     if (prefs.clinicalNoteDensity !== undefined) setClinicalNoteDensityState(prefs.clinicalNoteDensity);
+    if (prefs.homeView !== undefined) setHomeViewState(prefs.homeView);
   }, []);
 
   // The browser's cache first, so the screen paints the layout this person chose rather than the
@@ -246,6 +251,11 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const setClinicalNoteSort = useCallback((sort: ClinicalNoteSort) => {
     setClinicalNoteSortState(sort);
     rememberPreference("clinicalNoteSort", sort);
+  }, [rememberPreference]);
+
+  const setHomeView = useCallback((view: 'desk' | 'chair') => {
+    setHomeViewState(view);
+    rememberPreference("homeView", view);
   }, [rememberPreference]);
 
   const setClinicalNoteGrouping = useCallback((grouping: ClinicalNoteGrouping) => {
@@ -368,7 +378,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const promptCanSubmit = !promptState.required || promptValue.trim().length > 0;
 
   return (
-    <UIContext.Provider value={{ showToast, confirm, prompt, clinicalEditorMode, setClinicalEditorMode, clinicalEditorModeChosen, appointmentEditorMode, setAppointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode, receptionPanelActive, setReceptionPanelActive, appointmentsVisibility, setAppointmentsVisibility, latePatientTrackerEnabled: latePatientTrackerEnabledState, setLatePatientTrackerEnabled, clinicalNoteSort, setClinicalNoteSort, clinicalNoteGrouping, setClinicalNoteGrouping, clinicalNoteDensity, setClinicalNoteDensity }}>
+    <UIContext.Provider value={{ showToast, confirm, prompt, clinicalEditorMode, setClinicalEditorMode, clinicalEditorModeChosen, appointmentEditorMode, setAppointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode, receptionPanelActive, setReceptionPanelActive, appointmentsVisibility, setAppointmentsVisibility, latePatientTrackerEnabled: latePatientTrackerEnabledState, setLatePatientTrackerEnabled, clinicalNoteSort, setClinicalNoteSort, clinicalNoteGrouping, setClinicalNoteGrouping, clinicalNoteDensity, setClinicalNoteDensity, homeView, setHomeView }}>
       {children}
 
       {/* --- TOAST CONTAINER (Smartphone Style) --- */}

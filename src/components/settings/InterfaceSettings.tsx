@@ -17,14 +17,18 @@
  * next door can be seen working from here.
  */
 
+import { useEffect, useState } from "react";
+import { limit, onSnapshot, query, where } from "firebase/firestore";
 import {
   AlertTriangle,
   AlignJustify,
+  Armchair,
   ArrowDownWideNarrow,
   ArrowUpNarrowWide,
   Calendar,
   CalendarDays,
   CalendarOff,
+  LayoutDashboard,
   LayoutList,
   ListOrdered,
   Monitor,
@@ -41,6 +45,10 @@ import {
 import { useLanguage } from "@/context/LanguageContext";
 import { useSettingsText } from "@/lib/useSettingsText";
 import { useUI } from "@/context/UIContext";
+import { useAuth } from "@/context/AuthContext";
+import { useClinic } from "@/context/ClinicContext";
+import { getClinicCollection } from "@/lib/db-utils";
+import { isDentistStaff } from "@/lib/staffRoles";
 
 /** One answer to one preference question. */
 type Choice<T extends string> = {
@@ -201,9 +209,28 @@ export default function InterfaceSettings() {
     clinicalNoteSort, setClinicalNoteSort,
     clinicalNoteGrouping, setClinicalNoteGrouping,
     clinicalNoteDensity, setClinicalNoteDensity,
+    homeView, setHomeView,
   } = useUI();
 
   const txt = useSettingsText("interface");
+
+  /**
+   * Is this person both the clinic's admin and one of its dentists? Read off their staff row —
+   * the "also works as dentist" tick on the team list — not the user record, which was never
+   * given that flag for invited staff. Only they get the home-screen choice: a plain dentist
+   * always gets the chair, and an admin who never treats has nothing to choose between.
+   */
+  const { user } = useAuth();
+  const { clinicId, isAdmin } = useClinic();
+  const [alsoDentist, setAlsoDentist] = useState(false);
+  useEffect(() => {
+    if (!user?.uid || !clinicId || !isAdmin) return;
+    const q = query(getClinicCollection("staff"), where("uid", "==", user.uid), limit(1));
+    return onSnapshot(q, (snap) => {
+      const row = snap.docs[0]?.data() as { role?: string; isDentist?: boolean } | undefined;
+      setAlsoDentist(!!row && isDentistStaff(row));
+    });
+  }, [user?.uid, clinicId, isAdmin]);
 
   return (
     <div className="w-full space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
@@ -227,6 +254,22 @@ export default function InterfaceSettings() {
           </span>
         </div>
       </div>
+
+      {isAdmin && alsoDentist && (
+        <Group title={txt.groupHome}>
+          <PreferenceRow
+            icon={Armchair}
+            label={txt.homeLabel}
+            description={txt.homeDesc}
+            value={homeView}
+            onChange={setHomeView}
+            choices={[
+              { value: "desk", label: txt.homeDesk, icon: LayoutDashboard, hint: txt.homeDeskHint },
+              { value: "chair", label: txt.homeChair, icon: Armchair, hint: txt.homeChairHint },
+            ]}
+          />
+        </Group>
+      )}
 
       <Group title={txt.groupWhereOpens}>
         <PreferenceRow
