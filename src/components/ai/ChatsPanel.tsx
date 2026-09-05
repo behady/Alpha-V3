@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { limit, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
 import { auth } from "@/lib/firebase";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { getClinicCollection, getClinicDoc, getGlobalClinicId } from "@/lib/db-utils";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext";
@@ -509,6 +509,10 @@ function Thread({
       method: "POST",
       headers: { "Content-Type": "application/json", ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
       body: JSON.stringify({
+        // The clinic on screen, always. Without it the server falls back to the account's
+        // default clinic — which for the platform owner is a deleted one with no gateway, so
+        // every reply was "sent" into a queue nobody would ever see.
+        clinicId: getGlobalClinicId(),
         phone: chat.phone,
         patientId: chat.patientId || "",
         patientName: chat.patientName || "",
@@ -517,6 +521,15 @@ function Thread({
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data?.ok === false) throw new Error(data?.error || "Send failed");
+    // No gateway on this clinic: the message is waiting in the manual send list, not on a phone.
+    if (data?.mode === "queued") {
+      showToast(
+        isAr
+          ? "العيادة دي مش متوصلة بواتساب الرسمي — الرسالة اتحطت في قائمة الإرسال اليدوي."
+          : "This clinic has no WhatsApp gateway — the message went to the manual send list.",
+        "error"
+      );
+    }
   };
 
   const send = async () => {

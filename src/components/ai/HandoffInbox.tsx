@@ -5,7 +5,7 @@ import Link from "next/link";
 import { AlertTriangle, CheckCheck, Clock, Loader2, MessageSquareText, Reply, Send, UserRound } from "lucide-react";
 import { onSnapshot, query, where, updateDoc } from "firebase/firestore";
 import { auth } from "@/lib/firebase";
-import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { getClinicCollection, getClinicDoc, getGlobalClinicId } from "@/lib/db-utils";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext";
@@ -138,6 +138,9 @@ export default function HandoffInbox() {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
         body: JSON.stringify({
+          // The clinic on screen — the server's fallback is the account's default clinic, which
+          // is not necessarily this one (see ChatsPanel).
+          clinicId: getGlobalClinicId(),
           phone: h.phone,
           text,
           patientId: h.patientId || "",
@@ -149,7 +152,12 @@ export default function HandoffInbox() {
       // The server closed the row already; clear the composer so the next one starts clean.
       setReplyFor("");
       setReplyText("");
-      showToast(isAr ? "اتبعتت ✓" : "Sent ✓", "success");
+      // "Sent" only when it actually left. Queued means it is sitting in the manual send list.
+      if (data?.mode === "queued") {
+        showToast(isAr ? "اتحطت في قائمة الإرسال اليدوي (مفيش بوابة واتساب)" : "Saved to the manual send list (no WhatsApp gateway)", "error");
+      } else {
+        showToast(isAr ? "اتبعتت ✓" : "Sent ✓", "success");
+      }
     } catch (e) {
       console.error("Reply failed:", e);
       showToast(isAr ? "الرسالة متبعتتش" : "Message was not sent", "error");
