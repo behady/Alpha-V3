@@ -30,7 +30,12 @@ export async function GET(request: Request) {
   if (!authz.ok) return authz.response;
 
   try {
-    const clinicId = await resolveUserClinicId(authz.uid);
+    // The clinic on screen, not the caller's default. A superadmin viewing a clinic they are not
+    // a member of — the platform owner setting up a client — got the default's (empty) config
+    // here while the page header said the client's name, and every save went to the wrong one.
+    // resolveUserClinicId still refuses a clinic the caller has no role on.
+    const requested = new URL(request.url).searchParams.get("clinicId") || "";
+    const clinicId = await resolveUserClinicId(authz.uid, requested);
     if (!clinicId) {
       return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });
     }
@@ -63,18 +68,20 @@ export async function POST(request: Request) {
   if (!authz.ok) return authz.response;
 
   try {
-    const clinicId = await resolveUserClinicId(authz.uid);
-    if (!clinicId) {
-      return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });
-    }
-
     const body = (await request.json().catch(() => ({}))) as {
+      /** The clinic on screen. Same reason as GET: the default clinic is not necessarily this one. */
+      clinicId?: string;
       phoneNumberId?: string;
       wabaId?: string;
       token?: string;
       /** Optional: send a test text to this number after saving, to prove the credentials work. */
       testTo?: string;
     };
+
+    const clinicId = await resolveUserClinicId(authz.uid, typeof body.clinicId === "string" ? body.clinicId : "");
+    if (!clinicId) {
+      return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });
+    }
 
     const phoneNumberId = typeof body.phoneNumberId === "string" ? body.phoneNumberId.trim() : "";
     if (!/^\d{5,20}$/.test(phoneNumberId)) {

@@ -47,10 +47,12 @@ export async function POST(request: Request) {
   const authz = await requireAdminUser(request);
   if (!authz.ok) return authz.response;
 
-  const clinicId = await resolveUserClinicId(authz.uid);
+  const body = (await request.json().catch(() => ({}))) as { clinicId?: string; phoneNumberId?: string; pin?: string };
+  // The clinic on screen, not the caller's default — the token lives on the clinic being set up,
+  // and a platform owner configuring a client clinic is not a member of it. resolveUserClinicId
+  // still refuses any clinic the caller has no role on (superadmins excepted).
+  const clinicId = await resolveUserClinicId(authz.uid, typeof body.clinicId === "string" ? body.clinicId : "");
   if (!clinicId) return NextResponse.json({ ok: false, error: "No clinic for this user" }, { status: 400 });
-
-  const body = (await request.json().catch(() => ({}))) as { phoneNumberId?: string; pin?: string };
   const phoneNumberId = typeof body.phoneNumberId === "string" ? body.phoneNumberId.trim() : "";
   const pin = typeof body.pin === "string" ? body.pin.trim() : "";
   if (!/^\d{5,20}$/.test(phoneNumberId)) {

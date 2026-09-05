@@ -9,6 +9,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
+import { currentClinicId } from "@/lib/db-utils";
 import { hasFeature } from "@/lib/subscriptions";
 import { logActivity } from "@/lib/logger";
 import { useDirtyFlag } from "@/context/UnsavedChangesContext";
@@ -232,7 +233,7 @@ export default function WhatsAppSettings() {
       const res = await fetch("/api/admin/meta-whatsapp-register", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ phoneNumberId: metaPhoneNumberId.trim(), pin: metaPin.trim() }),
+        body: JSON.stringify({ clinicId: currentClinicId() || "", phoneNumberId: metaPhoneNumberId.trim(), pin: metaPin.trim() }),
       });
       const data = await res.json().catch(() => ({}));
       if (data?.ok) {
@@ -588,7 +589,7 @@ export default function WhatsAppSettings() {
       const u = auth.currentUser;
       if (!u) return;
       const idToken = await u.getIdToken();
-      const res = await fetch("/api/admin/meta-whatsapp-config", {
+      const res = await fetch(`/api/admin/meta-whatsapp-config?clinicId=${encodeURIComponent(currentClinicId() || "")}`, {
         headers: { Authorization: `Bearer ${idToken}` },
       });
       const data = await res.json().catch(() => ({}));
@@ -622,6 +623,7 @@ export default function WhatsAppSettings() {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
+          clinicId: currentClinicId() || "",
           phoneNumberId: metaPhoneNumberId.trim(),
           wabaId: metaWabaId.trim(),
           token: metaTokenDraft.trim(),
