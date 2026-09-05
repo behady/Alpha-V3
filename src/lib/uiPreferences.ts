@@ -53,6 +53,12 @@ export interface UiPreferences {
   clinicalNoteSort: ClinicalNoteSort;
   clinicalNoteGrouping: ClinicalNoteGrouping;
   clinicalNoteDensity: ClinicalNoteDensity;
+  /**
+   * Which home screen an admin who is also a dentist lands on: the reception desk, or their own
+   * chair (the dentist's home). Someone whose role is Dentist gets the chair regardless — this
+   * only matters for the person who wears both hats.
+   */
+  homeView: "desk" | "chair";
 }
 
 export const UI_PREFERENCE_DEFAULTS: UiPreferences = {
@@ -64,6 +70,7 @@ export const UI_PREFERENCE_DEFAULTS: UiPreferences = {
   clinicalNoteSort: "newest",
   clinicalNoteGrouping: "flat",
   clinicalNoteDensity: "detailed",
+  homeView: "desk",
 };
 
 const oneOf =
@@ -88,6 +95,7 @@ const VALIDATORS: { [K in keyof UiPreferences]: (value: unknown) => value is UiP
   clinicalNoteSort: isClinicalNoteSort as (value: unknown) => value is ClinicalNoteSort,
   clinicalNoteGrouping: isClinicalNoteGrouping as (value: unknown) => value is ClinicalNoteGrouping,
   clinicalNoteDensity: isClinicalNoteDensity as (value: unknown) => value is ClinicalNoteDensity,
+  homeView: oneOf("desk", "chair"),
 };
 
 /** The localStorage key each preference has always used. Renaming one silently resets it. */
@@ -100,6 +108,7 @@ const LOCAL_KEYS: Record<keyof UiPreferences, string> = {
   clinicalNoteSort: "clinicalNoteSort",
   clinicalNoteGrouping: "clinicalNoteGrouping",
   clinicalNoteDensity: "clinicalNoteDensity",
+  homeView: "homeView",
 };
 
 /** An older key for the clinical editor, still on the machines of anyone who set it back then. */

@@ -6,10 +6,12 @@ import DentistHome from "@/components/dashboard/DentistHome";
 import { Loader2 } from "lucide-react";
 
 import { useClinic } from "@/context/ClinicContext";
+import { useUI } from "@/context/UIContext";
 
 export default function Dashboard() {
   const [isDesktop, setIsDesktop] = useState<boolean | null>(null);
   const { clinicId, role } = useClinic();
+  const { homeView } = useUI();
 
   useEffect(() => {
     const handleResize = () => setIsDesktop(window.innerWidth >= 1024);
@@ -26,9 +28,10 @@ export default function Dashboard() {
     );
   }
 
-  // A dentist's home is the chair, not the desk. Only the Dentist role: an owner who also
-  // treats still runs the clinic from the desk view, and admins get their own screen later.
-  if (role === "Dentist") return <DentistHome />;
+  // A dentist's home is the chair, not the desk. The Dentist role always gets it; an admin who
+  // also treats picks desk or chair under Settings → Interface (only offered to them). Admins
+  // who never treat keep the desk, and get their own screen later.
+  if (role === "Dentist" || homeView === "chair") return <DentistHome />;
 
   return isDesktop ? <DesktopDashboard /> : <MobileDashboard />;
 }

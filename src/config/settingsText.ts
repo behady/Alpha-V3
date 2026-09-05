@@ -385,6 +385,13 @@ export const SETTINGS_TEXT = {
     visibilityDesktopHint: { en: "Hidden from the phone menu. The page still opens from a link.", ar: "مخفي من قائمة الموبايل. الصفحة لسه بتفتح من أي لينك." },
     visibilityHidden: { en: "Hidden", ar: "مخفي" },
     visibilityHiddenHint: { en: "Out of the menu on every device.", ar: "مش في القائمة على أي جهاز." },
+    groupHome: { en: "Your home screen", ar: "شاشتك الرئيسية" },
+    homeLabel: { en: "When you sign in, open", ar: "لما تسجّل دخول، افتح" },
+    homeDesc: { en: "You run the clinic and you treat patients. Pick which of the two you want to land on. Either way the other is one click away in the menu.", ar: "انت بتدير العيادة وبتعالج كمان. اختار تبدأ من أنهي واحدة. في الحالتين التانية على بُعد ضغطة في القائمة." },
+    homeDesk: { en: "The desk", ar: "الاستقبال" },
+    homeDeskHint: { en: "The whole clinic's day: bookings, check-ins, payments — the reception view.", ar: "يوم العيادة كله: الحجوزات، الدخول، الدفع — شاشة الاستقبال." },
+    homeChair: { en: "My chair", ar: "كرسيّي" },
+    homeChairHint: { en: "Only your patients: who is next, your day, lab cases back for you, and your own money.", ar: "مرضاك انت بس: مين التالي، يومك، اللي رجع لك من المعمل، وفلوسك." },
 
     lateAlertLabel: { en: "Late patient alert", ar: "تنبيه المريض المتأخر" },
     lateAlertDesc: { en: "Show a flashing card when a patient is fifteen minutes late, with options for handling the delay.", ar: "يوري بطاقة وامضة لما المريض يتأخر ربع ساعة، ومعاها خيارات للتعامل مع التأخير." },
