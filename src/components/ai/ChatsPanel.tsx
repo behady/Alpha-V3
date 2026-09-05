@@ -932,10 +932,16 @@ function Thread({
    * the pause, an open handoff, and the hour a reply claims — so "the bot is answering again"
    * means exactly that.
    */
+  /**
+   * One button for every reason the bot is quiet: an explicit pause, an open hand-off, or the
+   * hour a staff reply claims. "Hand back" clears all three — a receptionist who answered once
+   * and now wants the bot to carry on should not have to know which of them is in force.
+   */
+  const botQuiet = chat.botPaused === true || humanHold || chat.needsHuman === true;
   const toggleBot = async () => {
     setToggling(true);
     try {
-      if (chat.botPaused) {
+      if (botQuiet) {
         await updateDoc(getClinicDoc("whatsapp_conversations", chat.id), {
           botPaused: false,
           needsHuman: false,
@@ -1002,7 +1008,11 @@ function Thread({
               ? ` · ${isAr ? "البوت واقف" : "bot paused"}`
               : chat.needsHuman
                 ? ` · ${isAr ? "مستني رد" : "waiting for a reply"}`
-                : ""}
+                : humanHold
+                  ? ` · ${
+                      isAr ? "البوت ساكت لحد" : "bot quiet until"
+                    } ${new Date((chat.humanActiveAtMs || 0) + HUMAN_CLAIM_MS).toLocaleTimeString(isAr ? "ar-EG" : "en-GB", { hour: "2-digit", minute: "2-digit" })}`
+                  : ""}
           </p>
         </div>
         <button
@@ -1079,19 +1089,19 @@ function Thread({
           onClick={() => void toggleBot()}
           disabled={toggling}
           title={
-            chat.botPaused
+            botQuiet
               ? isAr
-                ? "البوت واقف — أنت اللي بترد. اضغط عشان يرجع يرد"
-                : "Bot is paused — you are answering. Click to hand back."
+                ? "البوت ساكت في المحادثة دي — اضغط عشان يرجع يرد"
+                : "The bot is quiet on this chat — click to let it answer again"
               : isAr
                 ? "اضغط عشان توقف البوت وترد بنفسك"
                 : "Click to pause the bot and answer yourself"
           }
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-black transition-colors disabled:opacity-50"
-          style={chat.botPaused ? { background: "#fff4dc", color: "#9a5b00" } : { background: WA.green, color: "#fff" }}
+          style={botQuiet ? { background: "#fff4dc", color: "#9a5b00" } : { background: WA.green, color: "#fff" }}
         >
-          {toggling ? <Loader2 size={14} className="animate-spin" /> : chat.botPaused ? <Bot size={14} /> : <Hand size={14} />}
-          {chat.botPaused ? (isAr ? "رجّع البوت" : "Hand back to bot") : isAr ? "أنا هرد" : "Take over"}
+          {toggling ? <Loader2 size={14} className="animate-spin" /> : botQuiet ? <Bot size={14} /> : <Hand size={14} />}
+          {botQuiet ? (isAr ? "رجّع البوت" : "Hand back to bot") : isAr ? "أنا هرد" : "Take over"}
         </button>
         )}
         {!chat.isDraft && !chat.isPlayground && (
