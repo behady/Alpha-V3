@@ -16,6 +16,7 @@ import {
 } from "@/lib/metaWhatsapp";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { enqueueWhatsapp } from "@/lib/whatsapp/outbox";
+import { recordThreadMessage } from "@/lib/bot/thread";
 
 /**
  * How a clinic's WhatsApp messages leave the building.
@@ -146,8 +147,27 @@ export async function deliverWhatsAppMessage(args: {
    * to free-form text and takes its chances with the window.
    */
   metaTemplate?: { kind: string; params: string[] };
+  /**
+   * Who to credit in the patient's chat thread. Staff replies name the person; everything else
+   * is recorded as the system with its message kind, so a receptionist scrolling the thread sees
+   * "reminder" and "receipt" between the patient's messages rather than a gap.
+   */
+  thread?: { author: "staff"; uid?: string; name?: string };
 }): Promise<WhatsappDeliveryResult> {
   const mode = await resolveWhatsappDeliveryMode(args.clinicId);
+
+  /** Every patient message that actually left goes into the thread, whichever shape it took. */
+  const remember = () =>
+    args.audience === "patient"
+      ? recordThreadMessage(args.clinicId, args.to, {
+          direction: "out",
+          author: args.thread?.author ?? "system",
+          text: args.text,
+          uid: args.thread?.uid,
+          name: args.thread?.name,
+          kind: args.thread ? "staff_reply" : args.queue?.type || args.metaTemplate?.kind || "message",
+        }).catch(() => {})
+      : Promise.resolve();
 
   // Added here, at the single point every WhatsApp message passes through, rather than in each
   // template: a footer that depends on the caller remembering it is a footer that is missing from
@@ -166,9 +186,11 @@ export async function deliverWhatsAppMessage(args: {
         params: args.metaTemplate!.params.slice(0, tpl.paramCount),
       });
       if (!result.ok) throw new Error(`Meta template failed: ${result.error || "unknown"}`);
+      await remember();
       return { mode: "auto", sent: true };
     }
     await sendPatientWhatsAppAuto(args.clinicId, args.to, text);
+    await remember();
     return { mode: "auto", sent: true };
   }
 

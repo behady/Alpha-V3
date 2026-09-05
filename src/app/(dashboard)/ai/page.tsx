@@ -2,12 +2,13 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { MessageCircle, Newspaper, Sparkles, UserCheck } from "lucide-react";
+import { MessageCircle, MessageSquareText, Newspaper, Sparkles, UserCheck } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import PermissionGuard from "@/components/PermissionGuard";
 import BriefPanel from "@/components/ai/BriefPanel";
+import ChatsPanel from "@/components/ai/ChatsPanel";
 import MessageQueuePanel from "@/components/ai/MessageQueuePanel";
 import NoShowPanel from "@/components/ai/NoShowPanel";
 
@@ -28,12 +29,13 @@ import NoShowPanel from "@/components/ai/NoShowPanel";
  * three pages guarded on before.
  */
 
-type TabKey = "brief" | "messages" | "noshows";
+type TabKey = "brief" | "chats" | "messages" | "noshows";
 
 /** Query values the old routes redirect with. Kept short — these end up in people's bookmarks. */
 const TAB_FROM_QUERY: Record<string, TabKey> = {
   brief: "brief",
   briefing: "brief",
+  chats: "chats",
   messages: "messages",
   noshows: "noshows",
   attendance: "noshows",
@@ -70,6 +72,16 @@ function IntelligenceHub() {
       blurb: isAr
         ? "الأرقام والأسماء التي تحتاجها لإدارة اليوم: الحسابات، الإنتاج، فريق العمل، وما سيضيع إن لم يتحرك أحد. كل رقم مقروء من سجلاتك، وليس تقديراً."
         : "The numbers and names it takes to run the place: money, production, the floor, and what slips if nobody acts. Every figure is read from your records — nothing is estimated.",
+    },
+    {
+      key: "chats" as const,
+      permission: "access.patients",
+      icon: MessageSquareText,
+      label: isAr ? "المحادثات" : "Chats",
+      heading: isAr ? "محادثات واتساب" : "WhatsApp chats",
+      blurb: isAr
+        ? "كل محادثة على رقم العيادة: كلام المريض، ردود البوت، وردود الفريق في مكان واحد. افتح أي محادثة ورد منها مباشرة."
+        : "Every conversation on the clinic's number: what the patient wrote, what the bot answered, what the team said. Open one and reply from here.",
     },
     {
       key: "messages" as const,
@@ -159,6 +171,7 @@ function IntelligenceHub() {
         )}
 
         {current.key === "brief" && <BriefPanel />}
+        {current.key === "chats" && <ChatsPanel />}
         {current.key === "messages" && <MessageQueuePanel />}
         {current.key === "noshows" && <NoShowPanel />}
       </div>
