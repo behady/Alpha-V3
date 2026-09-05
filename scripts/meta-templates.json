@@ -231,5 +231,64 @@
         ]
       }
     ]
+  },
+  {
+    "name": "alpha_checkin_ar",
+    "language": "ar",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "إزيك النهارده بعد {{1}} في {{2}}؟ 🦷 لو في أي ألم أو استفسار ابعتلنا هنا وهنرد عليك فوراً.",
+        "example": {
+          "body_text": [
+            [
+              "حشو العصب",
+              "Alpha Dental"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "كله تمام"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "عندي ألم"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "alpha_noshow_ar",
+    "language": "ar",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "فاتنا ميعادك امبارح في {{1}} 🙏 مفيش مشكلة — لو حابب نحجزلك ميعاد تاني يناسبك، اضغط الزرار وهنظبطهولك حالاً.",
+        "example": {
+          "body_text": [
+            [
+              "Alpha Dental"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "عايز أحجز"
+          }
+        ]
+      }
+    ]
   }
 ]

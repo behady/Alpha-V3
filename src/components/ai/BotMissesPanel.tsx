@@ -7,6 +7,7 @@ import { deleteDoc, doc, onSnapshot, query, setDoc, updateDoc, where } from "fir
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
+import BotFunnelCard from "./BotFunnelCard";
 
 /**
  * How the WhatsApp assistant gets better: what it missed, what staff taught it, what worked.
@@ -178,6 +179,8 @@ export default function BotMissesPanel() {
           {isAr ? "إعدادات الواتساب وتعليمات البوت" : "WhatsApp settings & coaching"}
         </Link>
       </div>
+
+      <BotFunnelCard />
 
       {/* Learned answers: what staff typed on a handed-off thread, awaiting one tap. */}
       <section className="bg-surface rounded-2xl border border-line shadow-sm p-4 sm:p-5">

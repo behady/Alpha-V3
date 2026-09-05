@@ -342,6 +342,8 @@ export const META_TEMPLATE_FOR_KIND: Record<string, { name: string; paramCount: 
   recall: { name: "alpha_recall_ar", paramCount: 1 }, // clinic
   review: { name: "alpha_review_ar", paramCount: 2 }, // clinic, link
   lead_followup: { name: "alpha_lead_followup_ar", paramCount: 2 }, // clinic, interest
+  checkin: { name: "alpha_checkin_ar", paramCount: 2 }, // treatment, clinic
+  noshow: { name: "alpha_noshow_ar", paramCount: 1 }, // clinic
 };
 
 /** The follow-up template's text, for the thread record and the unofficial channel. */

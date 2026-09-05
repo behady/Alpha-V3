@@ -20,6 +20,14 @@
     {
       "path": "/api/automation/bot-playbook",
       "schedule": "0 4 * * 1"
+    },
+    {
+      "path": "/api/automation/checkin",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/automation/noshow",
+      "schedule": "0 11 * * *"
     }
   ]
 }

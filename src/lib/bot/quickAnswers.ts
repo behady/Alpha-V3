@@ -206,6 +206,8 @@ const ACK = [
   "تأكيد الحضور", "تاكيد الحضور", "تأكيد", "تاكيد", "اكد", "مؤكد", "confirm", "confirmed",
   // The recall template's "not now" button: a polite no, answered with one line and no menu.
   "مش دلوقتي", "مش دلوقت",
+  // The check-in template's first button.
+  "كله تمام", "كله تمام الحمد لله", "الحمد لله تمام", "احسن", "بقيت احسن",
 ];
 const THANKS = [
   "شكرا", "شكرآ", "متشكر", "متشكره", "مشكور", "تسلم", "تسلمو", "تسلم ايدك", "تسلم ايديكم",

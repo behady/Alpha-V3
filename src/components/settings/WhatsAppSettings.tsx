@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MessageCircle, Save, Loader2, Send, Plug, CheckCircle2, AlertCircle } from "lucide-react";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import BotPlayground from "./BotPlayground";
 import { WHATSAPP_DIAL_COUNTRIES, buildE164FromDialAndNational } from "@/lib/whatsappDialCountries";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
@@ -128,6 +129,8 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     isReviewRequestEnabled: Boolean(data?.isReviewRequestEnabled),
     useReminderButtons: Boolean(data?.useReminderButtons),
     isLeadFollowupEnabled: Boolean(data?.isLeadFollowupEnabled),
+    isCheckinEnabled: Boolean(data?.isCheckinEnabled),
+    isNoShowRecoveryEnabled: Boolean(data?.isNoShowRecoveryEnabled),
     templates,
     ownerNumber: typeof data?.ownerNumber === "string" ? data.ownerNumber : "",
     ownerAlerts,
@@ -197,6 +200,8 @@ export default function WhatsAppSettings() {
     isReviewRequestEnabled: false,
     useReminderButtons: false,
     isLeadFollowupEnabled: false,
+    isCheckinEnabled: false,
+    isNoShowRecoveryEnabled: false,
     templates: defaultTemplates(),
     ownerNumber: "",
     ownerAlerts: {},
@@ -440,6 +445,16 @@ export default function WhatsAppSettings() {
       factInstallments: language === "ar" ? "التقسيط" : "Instalments",
       factInstallmentsPh:
         language === "ar" ? "مثال: التقويم والتركيبات بتتقسط على 3 دفعات من غير فوايد." : "e.g. Braces and crowns can be paid over 3 instalments.",
+      checkinToggle: language === "ar" ? "«إزيك النهارده؟» بعد العلاج" : "\"How are you feeling?\" after a procedure",
+      checkinHint:
+        language === "ar"
+          ? "صباح اليوم التالي لكل علاج مكتمل (مش الكشف أو التنظيف)، مع تعليمات ما بعد العلاج لو مكتوبة. زرار «عندي ألم» بيروح لموظف فوراً. فعّلها بعد ما ميتا توافق على قالب alpha_checkin_ar. لما تكون شغالة، طلب التقييم بيتأجل يوم."
+          : "The morning after every completed procedure (not check-ups or cleanings), with your aftercare line if written. \"I have pain\" goes straight to a person. Turn on once Meta approves alpha_checkin_ar. When on, the review request waits a day.",
+      noshowToggle: language === "ar" ? "رسالة بعد الغياب عن الميعاد" : "Message after a no-show",
+      noshowHint:
+        language === "ar"
+          ? "صباح اليوم التالي لأي ميعاد اتسجل «لم يحضر»، من غير لوم، بزرار حجز. مش بتتبعت لو المريض حجز تاني بالفعل. فعّلها بعد ما ميتا توافق على قالب alpha_noshow_ar."
+          : "The morning after any appointment marked No Show, without blame, with a book button. Not sent if they already rebooked. Turn on once Meta approves alpha_noshow_ar.",
       leadFollowupToggle: language === "ar" ? "متابعة اللي سأل ومحجزش" : "Follow up leads who asked but didn't book",
       leadFollowupHint:
         language === "ar"
@@ -1361,6 +1376,8 @@ export default function WhatsAppSettings() {
           [
             { key: "useReminderButtons", label: txt.reminderButtonsToggle, hint: txt.reminderButtonsHint },
             { key: "isLeadFollowupEnabled", label: txt.leadFollowupToggle, hint: txt.leadFollowupHint },
+            { key: "isCheckinEnabled", label: txt.checkinToggle, hint: txt.checkinHint },
+            { key: "isNoShowRecoveryEnabled", label: txt.noshowToggle, hint: txt.noshowHint },
             { key: "isReviewRequestEnabled", label: txt.reviewToggle, hint: txt.reviewHint },
             { key: "isRecallEnabled", label: txt.recallToggle, hint: txt.recallHint },
           ] as const
@@ -1865,6 +1882,8 @@ export default function WhatsAppSettings() {
                   ))}
                 </div>
               </div>
+
+              <BotPlayground />
             </>
           )}
         </div>

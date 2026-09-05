@@ -280,7 +280,8 @@ export default function ChatsPanel({
     const unsub = onSnapshot(
       getClinicCollection("whatsapp_conversations"),
       (snap) => {
-        setChats(snap.docs.map((d) => ({ id: d.id, ...d.data() } as ChatRow)));
+        // Staff rehearsals in Settings live in this collection too (play_<uid>); not chats.
+        setChats(snap.docs.filter((d) => !d.id.startsWith("play_")).map((d) => ({ id: d.id, ...d.data() } as ChatRow)));
         setLoading(false);
       },
       (e) => {

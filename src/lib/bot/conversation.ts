@@ -139,8 +139,14 @@ export interface BotConversation {
  * putting them through the phone reduction could collide with a real number's key — so lids get
  * their own prefix and keep every digit.
  */
+/** The private rehearsal thread each staff member gets in Settings; hidden from the Chats page. */
+export function playgroundChatId(uid: string): string {
+  return `play_${String(uid || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40)}`;
+}
+
 export function conversationKey(address: string): string {
   const raw = String(address || "").trim();
+  if (raw.startsWith("play_")) return raw;
   if (/@lid$/i.test(raw)) {
     const digits = raw.replace(/\D/g, "");
     return digits ? `lid_${digits}` : "unknown";

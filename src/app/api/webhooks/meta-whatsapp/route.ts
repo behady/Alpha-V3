@@ -4,6 +4,7 @@ import { adminClinicCollection } from "@/lib/adminClinicDb";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { respondToPatientMessage } from "@/lib/bot/respond";
 import { transcribeWhatsappAudio } from "@/lib/bot/transcribe";
+import { describeWhatsappImage } from "@/lib/bot/describeImage";
 import { attachTranscript, recordThreadMessage, updateThreadStatus } from "@/lib/bot/thread";
 import { attachInboundMedia } from "@/lib/bot/media";
 import { applyInboundOptOut } from "@/lib/optOutInbound";
@@ -336,12 +337,32 @@ export async function POST(request: NextRequest) {
               await attachTranscript(clinicId, msg.from, lineId, t.text).catch(() => {});
             }
           }
+          /*
+           * A photo is read for the people who will act on it: what it shows, whether it looks
+           * urgent, what it is about. The patient still gets "we got your photo, someone will
+           * look" — the description goes into the thread and the handoff, never to them.
+           */
+          let mediaNote: { summary: string; urgent: boolean; interest?: string } | undefined;
+          if (msg.media === "image" && msg.mediaId && !text) {
+            const d = await describeWhatsappImage(clinicId, msg.mediaId);
+            if (d.ok) {
+              mediaNote = { summary: d.summary, urgent: d.urgent, interest: d.interest || undefined };
+              await recordThreadMessage(clinicId, msg.from, {
+                direction: "in",
+                author: "system",
+                text: `🖼️ وصف الصورة (للفريق): ${d.summary}${d.urgent ? " — ⚠️ يبدو عاجل" : ""}`,
+                kind: "image_note",
+                channel: "meta",
+              }).catch(() => {});
+            }
+          }
           await respondToPatientMessage({
             clinicId,
             chatId: msg.from,
             phone: msg.from,
             text,
             media,
+            mediaNote,
           });
         } catch (e) {
           // Nothing is waiting on this promise any more, so an error here would otherwise vanish.

@@ -63,7 +63,9 @@ async function runReviewsForClinic(clinicId: string): Promise<{ results: ReviewR
 
   const today = clinicNow().dateKey;
   const y = new Date(`${today}T12:00:00`);
-  y.setDate(y.getDate() - 1);
+  // With the morning-after check-in on, the review ask waits one more day: two messages from
+  // the clinic before lunch is one too many.
+  y.setDate(y.getDate() - (settings.isCheckinEnabled === true ? 2 : 1));
   const yesterday = y.toISOString().slice(0, 10);
 
   const appts = await adminClinicCollection(clinicId, "appointments").where("date", "==", yesterday).get();

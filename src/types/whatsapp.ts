@@ -66,6 +66,10 @@ export interface WhatsAppSettingsDocument {
   useReminderButtons?: boolean;
   /** One "still interested?" the day after a bot lead asked and did not book. Needs Meta approval. */
   isLeadFollowupEnabled?: boolean;
+  /** "How are you feeling?" the morning after a procedure, with the aftercare line. Needs Meta approval. */
+  isCheckinEnabled?: boolean;
+  /** A polite rebook message the day after a no-show. Needs Meta approval. */
+  isNoShowRecoveryEnabled?: boolean;
   templates: WhatsAppMessageTemplate[];
   ownerNumber: string;
   ownerAlerts: WhatsAppOwnerAlerts;

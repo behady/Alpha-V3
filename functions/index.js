@@ -422,6 +422,7 @@ exports.morningBrief = pushPhase1.morningBrief;
 exports.leadsDueToday = pushPhase1.leadsDueToday;
 exports.eveningDigest = pushPhase1.eveningDigest;
 exports.stuckMessagesAlert = pushPhase1.stuckMessagesAlert;
+exports.handoffSla = require("./handoffSla").handoffSla;
 
 const { handleMetaWebhook, retryPendingLeadEvents } = require("./metaLeads");
 

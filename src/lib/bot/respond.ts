@@ -52,7 +52,7 @@ import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
  */
 
 export type BotOutcome =
-  | { status: "replied"; text: string; handoff: boolean; reason: string }
+  | { status: "replied"; text: string; handoff: boolean; reason: string; structure?: MetaInteractive }
   | { status: "handoff_only"; reason: string }
   | { status: "skipped"; reason: string };
 
@@ -350,9 +350,19 @@ export async function respondToPatientMessage(args: {
   media?: "image" | "video" | "audio" | "document" | "sticker" | "location" | "contacts";
   /** Injectable so tests and the webhook agree on "now" rather than racing the clock. */
   now?: number;
+  /**
+   * The playground: compose everything, send nothing. No WhatsApp send, no staff push, no lead,
+   * no handoff inbox row, no miss. The thread IS written (the model needs its own history) and
+   * credits ARE spent — a rehearsal that costs nothing teaches nothing about cost.
+   */
+  dryRun?: boolean;
+  /** What the model saw in a photo, for staff. The patient is never shown it. */
+  mediaNote?: { summary: string; urgent: boolean; interest?: string };
 }): Promise<BotOutcome> {
   const { clinicId, chatId, text } = args;
   const now = args.now ?? Date.now();
+  // Every staff notification goes through this; the playground swaps in silence.
+  const push: typeof sendClinicPush = args.dryRun ? async () => {} : sendClinicPush;
 
   const settings = await loadBotSettings(clinicId);
   if (!settings.enabled) return skip("bot_disabled");
@@ -430,7 +440,7 @@ export async function respondToPatientMessage(args: {
       await markHandoff(clinicId, conversationKey(chatId), "opted_out_urgent", {
         text, phone, patientId: patient.id, patientName: String(patient.data.name || ""), severity: "urgent",
       });
-      void sendClinicPush(clinicId, { title: "⚠️ مريض (موقف الرسايل) محتاج رد فوري", body: `${String(patient.data.name || phone)} — ${text.slice(0, 90)}` }, { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { patientId: patient.id } });
+      void push(clinicId, { title: "⚠️ مريض (موقف الرسايل) محتاج رد فوري", body: `${String(patient.data.name || phone)} — ${text.slice(0, 90)}` }, { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { patientId: patient.id } });
     }
     return skip("opted_out");
   }
@@ -455,7 +465,7 @@ export async function respondToPatientMessage(args: {
   if (conversation.optedOut) {
     if (needsHuman(text)) {
       await markHandoff(clinicId, conversation.phoneKey, "opted_out_urgent", { text, phone, severity: "urgent" });
-      void sendClinicPush(clinicId, { title: "⚠️ مريض (موقف الرسايل) محتاج رد فوري", body: `${phone} — ${text.slice(0, 90)}` }, { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } });
+      void push(clinicId, { title: "⚠️ مريض (موقف الرسايل) محتاج رد فوري", body: `${phone} — ${text.slice(0, 90)}` }, { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } });
     }
     return skip("opted_out");
   }
@@ -709,7 +719,7 @@ export async function respondToPatientMessage(args: {
       reason = `appointment_${act.kind}`;
       // The desk hears about it now. A running-late message has a shelf life measured in minutes,
       // and a passive flag on a document nobody has open is not a notification.
-      void sendClinicPush(
+      void push(
         clinicId,
         {
           title:
@@ -927,7 +937,7 @@ export async function respondToPatientMessage(args: {
           nextState = "awaiting_choice";
           reason = "rescheduled";
           rescheduleId = "";
-          void sendClinicPush(
+          void push(
             clinicId,
             { title: "تعديل ميعاد من واتساب 🔁", body: `${ctx.patientName || phone} — ${dateKey} ${time}${doctorName ? ` — ${doctorName}` : ""}` },
             { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
@@ -973,7 +983,7 @@ export async function respondToPatientMessage(args: {
           reason = "booked";
           // The desk hears about it the moment it lands, same as an online booking — the whole
           // point of a bot is that nobody was at a screen when this arrived.
-          void sendClinicPush(
+          void push(
             clinicId,
             { title: "حجز جديد من واتساب 🤖", body: `${ctx.patientName || "Patient"} — ${dateKey} ${time}${doctorName ? ` — ${doctorName}` : ""}` },
             { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
@@ -1035,16 +1045,16 @@ export async function respondToPatientMessage(args: {
       structure = { body: replyText, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
     }
   }
-  if (phone && !args.media && text.trim()) {
+  if (phone && !args.dryRun && ((!args.media && text.trim()) || args.mediaNote?.interest)) {
     if (reason === "booked" || reason === "rescheduled") {
       if (patient) void markBotLeadBooked(clinicId, phone, patient.id).catch(() => {});
-    } else if (LEAD_INTEREST_REASONS.has(reason) || (ctx.serviceMatch && !reason.startsWith("booking_") && reason !== "registered" && reason !== "ask_name")) {
+    } else if (LEAD_INTEREST_REASONS.has(reason) || Boolean(args.mediaNote?.interest) || (ctx.serviceMatch && !reason.startsWith("booking_") && reason !== "registered" && reason !== "ask_name")) {
       void upsertBotLead({
         clinicId,
         phone,
         name: ctx.patientName,
-        interest: ctx.serviceMatch,
-        question: text,
+        interest: ctx.serviceMatch || args.mediaNote?.interest,
+        question: text || (args.mediaNote ? `🖼️ ${args.mediaNote.summary}` : ""),
         reason,
         existingPatientId: patient?.id,
         existingPatientName: ctx.patientName,
@@ -1061,7 +1071,7 @@ export async function respondToPatientMessage(args: {
    * changes — are not misses and are not recorded.
    */
   const MISS = /^(gave_up|reprompt|ai_handoff_other|ai_handoff_staff|asked_for_human|booking_abandoned)$|_unknown$/;
-  if (MISS.test(reason) && text.trim() && !args.media) {
+  if (MISS.test(reason) && text.trim() && !args.media && !args.dryRun) {
     void adminClinicCollection(clinicId, "bot_misses")
       .add({
         text: text.trim().slice(0, 300),
@@ -1107,13 +1117,17 @@ export async function respondToPatientMessage(args: {
      * management, everything else is a normal ask.
      */
     const severity: HandoffSeverity =
-      reason === "clinical" || reason.startsWith("media_") || reason === "ai_handoff_medical"
+      reason.startsWith("media_") && args.mediaNote
+        ? args.mediaNote.urgent
+          ? "urgent"
+          : "normal"
+        : reason === "clinical" || reason.startsWith("media_") || reason === "ai_handoff_medical"
         ? "urgent"
         : reason === "complaint" || reason === "ai_handoff_complaint"
           ? "complaint"
           : "normal";
-    await markHandoff(clinicId, conversation.phoneKey, reason, {
-      text: args.media && !text.trim() ? `[${args.media}]` : text,
+    if (!args.dryRun) await markHandoff(clinicId, conversation.phoneKey, reason, {
+      text: args.media && !text.trim() ? (args.mediaNote ? `🖼️ ${args.mediaNote.summary}` : `[${args.media}]`) : text,
       phone,
       patientId: patient?.id,
       patientName: ctx.patientName,
@@ -1123,7 +1137,7 @@ export async function respondToPatientMessage(args: {
     if (!reason.startsWith("appointment_")) {
       const who = ctx.patientName || phone || "مريض";
       const preview = (args.media && !text.trim() ? "" : text).replace(/\s+/g, " ").trim().slice(0, 90);
-      void sendClinicPush(
+      void push(
         clinicId,
         {
           title:
@@ -1132,7 +1146,11 @@ export async function respondToPatientMessage(args: {
               : severity === "complaint"
                 ? "شكوى من مريض 🙏"
                 : "مريض محتاج حد يرد 💬",
-          body: preview ? `${who} — ${preview}` : `${who} بعت ${args.media === "audio" ? "رسالة صوتية" : "صورة"}`,
+          body: preview
+            ? `${who} — ${preview}`
+            : args.mediaNote
+              ? `${who} بعت صورة: ${args.mediaNote.summary.slice(0, 110)}`
+              : `${who} بعت ${args.media === "audio" ? "رسالة صوتية" : "صورة"}`,
         },
         {
           roles: ["Owner", "Admin", "Receptionist"],
@@ -1182,7 +1200,7 @@ export async function respondToPatientMessage(args: {
 
   let waMessageId: string | undefined;
   try {
-    waMessageId = await sendPatientWhatsAppRich(clinicId, replyTo, body, structure);
+    if (!args.dryRun) waMessageId = await sendPatientWhatsAppRich(clinicId, replyTo, body, structure);
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
     console.warn("[bot] reply failed to send:", detail);
@@ -1196,7 +1214,7 @@ export async function respondToPatientMessage(args: {
     return skip("send_failed");
   }
 
-  await adminClinicCollection(clinicId, "whatsapp_logs").add({
+  if (!args.dryRun) await adminClinicCollection(clinicId, "whatsapp_logs").add({
     patientId: patient?.id || null,
     type: `bot_${reason}`,
     message: body,
@@ -1247,7 +1265,7 @@ export async function respondToPatientMessage(args: {
     void adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(chatId)).set(outcomeUpdate, { merge: true }).catch(() => {});
   }
 
-  return { status: "replied", text: body, handoff, reason };
+  return { status: "replied", text: body, handoff, reason, structure };
 }
 
 /**
