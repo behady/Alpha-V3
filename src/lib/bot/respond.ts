@@ -1021,7 +1021,8 @@ export async function respondToPatientMessage(args: {
     replyText = `${replyText}\n\n${line}`;
     if (structure && mirrored) structure = { ...structure, body: replyText };
   };
-  if (salesTurn && ctx.serviceMatch && offersActive && (SALES_CLOSE_REASONS.has(reason) || reason.startsWith("booking_") || reason === "ask_name")) {
+  // The sales-mode model already has the offer in its context and says it in its own words.
+  if (salesTurn && ctx.serviceMatch && offersActive && !(settings.aiFirst && reason === "ai_answer") && (SALES_CLOSE_REASONS.has(reason) || reason.startsWith("booking_") || reason === "ask_name")) {
     appendLine(offerForService(offersActive, ctx.serviceMatch));
   }
   // In sales mode the model writes its own close; a second one under it reads as a stutter.
