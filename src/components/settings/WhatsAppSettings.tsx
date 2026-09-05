@@ -215,6 +215,36 @@ export default function WhatsAppSettings() {
   const [metaWabaId, setMetaWabaId] = useState("");
   const [metaTokenDraft, setMetaTokenDraft] = useState("");
   const [metaTestTo, setMetaTestTo] = useState("");
+  // Registering a number on the Cloud API, from here rather than Meta's dashboard, because the
+  // dashboard reports every failure as "Registration failed" and the API says why.
+  const [metaPin, setMetaPin] = useState("");
+  const [metaRegistering, setMetaRegistering] = useState(false);
+  const [metaRegisterResult, setMetaRegisterResult] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const handleRegisterMetaNumber = async () => {
+    if (!/^\d{5,20}$/.test(metaPhoneNumberId.trim()) || !/^\d{6}$/.test(metaPin.trim())) return;
+    setMetaRegistering(true);
+    setMetaRegisterResult(null);
+    try {
+      const res = await fetch("/api/admin/meta-whatsapp-register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phoneNumberId: metaPhoneNumberId.trim(), pin: metaPin.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data?.ok) {
+        setMetaRegisterResult({ ok: true, text: `${language === "ar" ? "تم التسجيل ✅" : "Registered ✅"} ${data.phone || ""} — ${data.status || ""}` });
+        setMetaPin("");
+      } else {
+        const code = data?.code ? ` (Meta ${data.code}${data.subcode ? `/${data.subcode}` : ""})` : "";
+        setMetaRegisterResult({ ok: false, text: `${data?.error || "Failed"}${code}` });
+      }
+    } catch (e) {
+      setMetaRegisterResult({ ok: false, text: e instanceof Error ? e.message : "Failed" });
+    } finally {
+      setMetaRegistering(false);
+    }
+  };
 
   const testDial = useMemo(() => WHATSAPP_DIAL_COUNTRIES.find((c) => c.iso === testCountryIso)?.dial ?? "20", [testCountryIso]);
   const testE164Preview = useMemo(() => buildE164FromDialAndNational(testDial, testNational), [testDial, testNational]);
@@ -468,6 +498,14 @@ export default function WhatsAppSettings() {
       metaSaved: language === "ar" ? "تم حفظ الاتصال الرسمي" : "Official connection saved",
       metaTestSent: language === "ar" ? "تم إرسال رسالة التجربة ✅" : "Test message sent ✅",
       metaTestFailed: language === "ar" ? "الحفظ تم لكن رسالة التجربة فشلت: " : "Saved, but the test message failed: ",
+      metaRegisterTitle: language === "ar" ? "تسجيل الرقم على Meta" : "Register the number with Meta",
+      metaRegisterHint:
+        language === "ar"
+          ? "لوحة Meta بتقول «Registration failed» من غير سبب. الزرار ده بيكلم Meta مباشرة ويقولك السبب الحقيقي. الرقم السري (PIN) بيتبعت لـ Meta بس ومش بيتحفظ عندنا."
+          : "Meta's dashboard says \"Registration failed\" and nothing else. This talks to Meta directly and shows the real reason. The PIN goes to Meta only and is never stored here.",
+      metaPin: language === "ar" ? "الرقم السري (٦ أرقام)" : "6-digit PIN",
+      metaRegister: language === "ar" ? "سجّل الرقم" : "Register number",
+      metaRegistered: language === "ar" ? "تم التسجيل ✅ الرقم شغال على Meta" : "Registered ✅ the number is live on Meta",
       wapilotCard: language === "ar" ? "اتصال Wapilot" : "Wapilot connection",
       wapilotHint:
         language === "ar"
@@ -1115,6 +1153,47 @@ export default function WhatsAppSettings() {
               className="mt-1.5 w-full py-3 px-4 bg-surface-subtle border border-line rounded-xl text-sm font-semibold text-ink outline-none focus:bg-surface focus:border-accent focus:ring-2 focus:ring-accent/15"
             />
           </label>
+
+          {/* Register the number on the Cloud API from here — Meta's dashboard hides the reason it fails. */}
+          <div className="rounded-xl border border-line bg-surface-subtle p-3 space-y-2">
+            <p className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.metaRegisterTitle}</p>
+            <p className="text-xs text-ink-body leading-relaxed">{txt.metaRegisterHint}</p>
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="block">
+                <span className="text-[11px] font-bold text-ink-muted uppercase tracking-wider">{txt.metaPin}</span>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={metaPin}
+                  onChange={(e) => setMetaPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  autoComplete="off"
+                  placeholder="••••••"
+                  className="mt-1.5 w-40 py-2.5 px-4 bg-surface border border-line rounded-xl text-sm font-semibold text-ink tracking-[0.3em] outline-none focus:border-accent focus:ring-2 focus:ring-accent/15"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => void handleRegisterMetaNumber()}
+                disabled={metaRegistering || metaPin.length !== 6 || !/^\d{5,20}$/.test(metaPhoneNumberId.trim())}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent text-white text-xs font-black uppercase tracking-wide hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                {metaRegistering ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                {txt.metaRegister}
+              </button>
+            </div>
+            {metaRegisterResult && (
+              <p
+                dir="auto"
+                className={`text-xs font-bold rounded-lg px-3 py-2 ${
+                  metaRegisterResult.ok ? "bg-ok-tint text-ok border border-ok/25" : "bg-warn-tint text-warn border border-warn/25"
+                }`}
+              >
+                {metaRegisterResult.text}
+              </p>
+            )}
+          </div>
+
           <button
             type="button"
             onClick={() => void handleSaveMetaConnection()}
