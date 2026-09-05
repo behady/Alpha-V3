@@ -6,18 +6,23 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   AlertTriangle,
+  Archive,
+  ArchiveRestore,
   ArrowLeft,
   Bell,
   BellOff,
   Bot,
   Check,
   CheckCheck,
+  ChevronDown,
+  ChevronUp,
   FileText,
   Hand,
   Info,
   Loader2,
   MessageSquarePlus,
   MessageSquareText,
+  MoreVertical,
   Paperclip,
   Search,
   Send,
@@ -31,7 +36,7 @@ import {
 } from "lucide-react";
 import QuickReplies from "./QuickReplies";
 import ChatInfoPanel, { tagLabel, tagTone } from "./ChatInfoPanel";
-import { getDocs, limit, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
+import { getDocs, limit, onSnapshot, orderBy, query, startAfter, updateDoc } from "firebase/firestore";
 import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 import { auth, storage } from "@/lib/firebase";
 import { chatSoundEnabled, playChatChime, requestChatNotifications, setChatSoundEnabled } from "@/lib/useChatAlerts";
@@ -88,6 +93,10 @@ interface ChatRow {
   /** What the desk wants to remember about this thread — see ChatInfoPanel. */
   note?: string;
   tags?: string[];
+  /** Out of the list until the patient writes again. Nothing is deleted. */
+  archived?: boolean;
+  /** Still listed and still counted; just never rings. */
+  muted?: boolean;
   /**
    * A conversation the clinic is about to open: a patient picked from the directory who has no
    * conversation document yet. Exists only in this screen's memory until the first message is
@@ -144,7 +153,7 @@ function fileKind(mime: string): PendingFile["kind"] {
   return "document";
 }
 
-type Filter = "all" | "unread" | "needs" | "mine";
+type Filter = "all" | "unread" | "needs" | "mine" | "archived";
 
 /** Meta drops free text sent more than 24h after the patient's last message. */
 const REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -302,6 +311,8 @@ export default function ChatsPanel({
     const needle = search.trim().toLowerCase().replace(/\s+/g, "");
     return chats
       .filter((c) => lastActivity(c) > 0)
+      // Archived chats live behind their own chip and nowhere else.
+      .filter((c) => (filter === "archived" ? c.archived === true : c.archived !== true))
       .filter((c) =>
         filter === "needs"
           ? c.needsHuman === true
@@ -398,6 +409,7 @@ export default function ChatsPanel({
                 ["unread", isAr ? "غير مقروء" : "Unread", unreadCount],
                 ["needs", isAr ? "محتاج رد" : "Needs reply", needsCount],
                 ["mine", isAr ? "بتاعتي" : "Mine", mineCount],
+                ["archived", isAr ? "الأرشيف" : "Archived", 0],
               ] as [Filter, string, number][]
             ).map(([key, label, count]) => {
               const active = filter === key;
@@ -470,9 +482,10 @@ export default function ChatsPanel({
                         {title}
                       </span>
                       <span
-                        className="ms-auto text-[11px] shrink-0"
+                        className="ms-auto text-[11px] shrink-0 flex items-center gap-1"
                         style={{ color: unread ? WA.green : WA.muted, fontWeight: unread ? 700 : 500 }}
                       >
+                        {c.muted && <BellOff size={12} style={{ color: "#8696a0" }} />}
                         {listTime(lastActivity(c), isAr)}
                       </span>
                     </div>
@@ -601,6 +614,15 @@ function Thread({
   const [templateSentAt, setTemplateSentAt] = useState(0);
   const [pending, setPending] = useState<PendingFile | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQ, setSearchQ] = useState("");
+  const [matchIdx, setMatchIdx] = useState(0);
+  /** Messages older than the live window, fetched on demand and kept in front of it. */
+  const [older, setOlder] = useState<ThreadLine[]>([]);
+  const [olderLoading, setOlderLoading] = useState(false);
+  const [olderDone, setOlderDone] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [assigning, setAssigning] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -641,6 +663,72 @@ function Thread({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [lines.length]);
+
+  /**
+   * Earlier messages, 200 at a time, kept in front of the live window.
+   *
+   * The scroll position is held where it was: prepending content would otherwise jump the view
+   * to the top of what just loaded, and the person was reading the bottom of it.
+   */
+  const loadOlder = async () => {
+    const oldest = older[0] ?? lines[0];
+    if (!oldest || olderLoading || olderDone) return;
+    setOlderLoading(true);
+    const el = scrollRef.current;
+    const before = el ? el.scrollHeight - el.scrollTop : 0;
+    try {
+      const snap = await getDocs(
+        query(
+          getClinicCollection(`whatsapp_conversations/${chat.id}/messages`),
+          orderBy("at", "desc"),
+          startAfter(oldest.at),
+          limit(200)
+        )
+      );
+      const more = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ThreadLine)).reverse();
+      if (more.length < 200) setOlderDone(true);
+      setOlder((prev) => [...more, ...prev]);
+      requestAnimationFrame(() => {
+        if (el) el.scrollTop = el.scrollHeight - before;
+      });
+    } catch (e) {
+      console.error("Older messages failed:", e);
+    } finally {
+      setOlderLoading(false);
+    }
+  };
+
+  const allLines = useMemo(() => [...older, ...lines], [older, lines]);
+
+  // Search: every line whose words contain the query, newest last, with one of them current.
+  const matches = useMemo(() => {
+    const q = searchQ.trim().toLowerCase();
+    if (!q) return [] as string[];
+    return allLines.filter((l) => `${l.text} ${l.transcript || ""}`.toLowerCase().includes(q)).map((l) => l.id);
+  }, [allLines, searchQ]);
+  const currentMatch = matches.length ? matches[Math.min(matchIdx, matches.length - 1)] : "";
+
+  useEffect(() => {
+    if (!currentMatch) return;
+    document.getElementById(`msg-${currentMatch}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [currentMatch]);
+
+  const stepMatch = (dir: 1 | -1) => {
+    if (!matches.length) return;
+    setMatchIdx((i) => (i + dir + matches.length) % matches.length);
+  };
+
+  /** Archive and mute, on the conversation document. Archived returns by itself when they write. */
+  const setFlag = async (patch: Record<string, unknown>) => {
+    setMenuOpen(false);
+    if (chat.isDraft) return;
+    try {
+      await updateDoc(getClinicDoc("whatsapp_conversations", chat.id), patch);
+    } catch (e) {
+      console.error("Chat flag failed:", e);
+      showToast(isAr ? "حصل خطأ" : "Could not update", "error");
+    }
+  };
 
   const isLid = chat.id.startsWith("lid_");
   // A conversation the clinic opened has no patient message at all, which for the window rule is
@@ -825,14 +913,14 @@ function Thread({
   // Day separators, like the phone draws them.
   const grouped = useMemo(() => {
     const out: Array<{ day: string; key: string; lines: ThreadLine[] }> = [];
-    for (const l of lines) {
+    for (const l of allLines) {
       const key = new Date(l.at).toDateString();
       const last = out[out.length - 1];
       if (last && last.key === key) last.lines.push(l);
       else out.push({ day: dayLabel(l.at, isAr), key, lines: [l] });
     }
     return out;
-  }, [lines, isAr]);
+  }, [allLines, isAr]);
 
   const title = chat.patientName || chat.phone || chat.id;
 
@@ -863,6 +951,18 @@ function Thread({
                 : ""}
           </p>
         </div>
+        <button
+          onClick={() => {
+            setSearchOpen((v) => !v);
+            setSearchQ("");
+            setMatchIdx(0);
+          }}
+          title={isAr ? "ابحث في المحادثة" : "Search in this chat"}
+          className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-black/5 transition-colors"
+          style={{ color: searchOpen ? WA.green : "#54656f" }}
+        >
+          <Search size={18} />
+        </button>
         <button
           onClick={onToggleInfo}
           title={isAr ? "بيانات المريض والملاحظات" : "Patient info and notes"}
@@ -923,12 +1023,109 @@ function Thread({
           {toggling ? <Loader2 size={14} className="animate-spin" /> : chat.botPaused ? <Bot size={14} /> : <Hand size={14} />}
           {chat.botPaused ? (isAr ? "رجّع البوت" : "Hand back to bot") : isAr ? "أنا هرد" : "Take over"}
         </button>
+        {!chat.isDraft && (
+          <div className="relative">
+            <button
+              onClick={() => setMenuOpen((v) => !v)}
+              title={isAr ? "المزيد" : "More"}
+              className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-black/5 transition-colors"
+              style={{ color: menuOpen ? WA.green : "#54656f" }}
+            >
+              <MoreVertical size={18} />
+            </button>
+            {menuOpen && (
+              <div className="absolute top-full end-0 mt-1 w-56 rounded-xl bg-white shadow-lg border border-black/5 py-1 z-30">
+                <button
+                  onClick={() => void setFlag({ muted: !chat.muted })}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] font-semibold text-start hover:bg-[#f5f6f6]"
+                  style={{ color: WA.text }}
+                >
+                  {chat.muted ? <Bell size={16} /> : <BellOff size={16} />}
+                  {chat.muted ? (isAr ? "شغّل التنبيهات" : "Unmute") : isAr ? "كتم التنبيهات" : "Mute"}
+                </button>
+                <button
+                  onClick={() => void setFlag({ archived: !chat.archived })}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] font-semibold text-start hover:bg-[#f5f6f6]"
+                  style={{ color: WA.text }}
+                >
+                  {chat.archived ? <ArchiveRestore size={16} /> : <Archive size={16} />}
+                  {chat.archived ? (isAr ? "رجّع من الأرشيف" : "Unarchive") : isAr ? "أرشفة" : "Archive"}
+                </button>
+                <p className="px-4 pb-2 pt-1 text-[11px]" style={{ color: WA.muted }}>
+                  {isAr
+                    ? "الأرشفة بتخفي المحادثة لحد ما المريض يبعت تاني. الكتم بيوقف الصوت والإشعار بس."
+                    : "Archive hides the chat until the patient writes again. Mute only stops the chime and notification."}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </header>
 
+      {/* Search inside the conversation: type, see the count, step through the hits. */}
+      {searchOpen && (
+        <div className="px-3 py-2 flex items-center gap-2 border-b border-line bg-white">
+          <Search size={15} className="shrink-0" style={{ color: WA.muted }} />
+          <input
+            autoFocus
+            value={searchQ}
+            onChange={(e) => {
+              setSearchQ(e.target.value);
+              setMatchIdx(0);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") stepMatch(e.shiftKey ? -1 : 1);
+              if (e.key === "Escape") {
+                setSearchOpen(false);
+                setSearchQ("");
+              }
+            }}
+            placeholder={isAr ? "ابحث في الرسايل" : "Search messages"}
+            className="flex-1 min-w-0 border-0 bg-transparent text-[14px] focus:outline-none"
+            style={{ color: WA.text }}
+            dir="auto"
+          />
+          <span className="text-[12px] font-bold shrink-0 tabular-nums" style={{ color: WA.muted }}>
+            {searchQ.trim() ? (matches.length ? `${Math.min(matchIdx, matches.length - 1) + 1} / ${matches.length}` : isAr ? "مفيش" : "0") : ""}
+          </span>
+          <button onClick={() => stepMatch(-1)} disabled={!matches.length} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-black/5 disabled:opacity-30" style={{ color: "#54656f" }}>
+            <ChevronUp size={16} />
+          </button>
+          <button onClick={() => stepMatch(1)} disabled={!matches.length} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-black/5 disabled:opacity-30" style={{ color: "#54656f" }}>
+            <ChevronDown size={16} />
+          </button>
+          {!olderDone && lines.length >= 200 && (
+            <button
+              onClick={() => void loadOlder()}
+              disabled={olderLoading}
+              className="text-[11px] font-bold px-2 py-1 rounded-lg hover:bg-black/5 shrink-0"
+              style={{ color: WA.greenDark }}
+            >
+              {olderLoading ? <Loader2 size={13} className="animate-spin" /> : isAr ? "دوّر في الأقدم" : "Search older"}
+            </button>
+          )}
+        </div>
+      )}
+
       <div
+        ref={scrollRef}
         className="flex-1 overflow-y-auto px-4 sm:px-8 py-3"
         style={{ background: WA.wallpaper, backgroundImage: WALLPAPER_PATTERN }}
       >
+        {/* The live window holds the newest 200; anything before that is a click away. */}
+        {!loading && lines.length >= 200 && !olderDone && (
+          <div className="flex justify-center mb-2">
+            <button
+              onClick={() => void loadOlder()}
+              disabled={olderLoading}
+              className="text-[12px] font-bold px-3 py-1.5 rounded-lg shadow-sm bg-white hover:bg-[#f5f6f6] disabled:opacity-60 flex items-center gap-1.5"
+              style={{ color: WA.greenDark }}
+            >
+              {olderLoading ? <Loader2 size={13} className="animate-spin" /> : <ChevronUp size={13} />}
+              {isAr ? "الرسايل الأقدم" : "Earlier messages"}
+            </button>
+          </div>
+        )}
         {/* One pill of status at the top, only when it says something. */}
         {(handling || chat.optedOut) && (
           <div className="flex justify-center mb-3">
@@ -977,7 +1174,13 @@ function Thread({
               </div>
               <div className="space-y-1">
                 {g.lines.map((l) => (
-                  <Bubble key={l.id} line={l} isAr={isAr} />
+                  <Bubble
+                    key={l.id}
+                    line={l}
+                    isAr={isAr}
+                    hit={matches.includes(l.id)}
+                    current={l.id === currentMatch}
+                  />
                 ))}
               </div>
             </div>
@@ -1379,7 +1582,19 @@ function MediaView({ line, isAr }: { line: ThreadLine; isAr: boolean }) {
   );
 }
 
-function Bubble({ line, isAr }: { line: ThreadLine; isAr: boolean }) {
+function Bubble({
+  line,
+  isAr,
+  hit = false,
+  current = false,
+}: {
+  line: ThreadLine;
+  isAr: boolean;
+  /** Matches the open search: a soft ring. */
+  hit?: boolean;
+  /** The match the arrows are on: a strong ring, and where the view scrolls to. */
+  current?: boolean;
+}) {
   const mine = line.direction === "out";
   const who =
     line.author === "bot"
@@ -1394,11 +1609,11 @@ function Bubble({ line, isAr }: { line: ThreadLine; isAr: boolean }) {
   const placeholderOnly = !!line.media && /^\[\w+\]$/.test(line.text.trim());
   const failed = line.status === "failed";
   return (
-    <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+    <div id={`msg-${line.id}`} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div
         className={`relative max-w-[75%] sm:max-w-[65%] rounded-lg px-2.5 pt-1.5 pb-1 shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] ${
           mine ? "rounded-te-none" : "rounded-ts-none"
-        }`}
+        } ${current ? "ring-2 ring-[#00a884]" : hit ? "ring-2 ring-[#00a884]/35" : ""}`}
         style={{ background: mine ? WA.outgoing : WA.incoming, color: WA.text }}
       >
         {who && (

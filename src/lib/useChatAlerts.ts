@@ -131,7 +131,8 @@ export function useChatAlerts(): void {
           const prev = seen.get(d.id) ?? 0;
           seen.set(d.id, Math.max(prev, lastAt));
           if (!primed) continue;
-          if (lastAt > prev && x.lastDirection === "in") {
+          // A muted chat still lands in the list and counts as unread; it just does not ring.
+          if (lastAt > prev && x.lastDirection === "in" && x.muted !== true) {
             ring = true;
             fresh.push({
               id: d.id,
