@@ -14,6 +14,7 @@ import {
   CheckCheck,
   FileText,
   Hand,
+  Info,
   Loader2,
   MessageSquarePlus,
   MessageSquareText,
@@ -29,6 +30,7 @@ import {
   Zap,
 } from "lucide-react";
 import QuickReplies from "./QuickReplies";
+import ChatInfoPanel, { tagLabel, tagTone } from "./ChatInfoPanel";
 import { getDocs, limit, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
 import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 import { auth, storage } from "@/lib/firebase";
@@ -83,6 +85,9 @@ interface ChatRow {
   assignedTo?: string | null;
   assignedName?: string | null;
   assignedAtMs?: number;
+  /** What the desk wants to remember about this thread — see ChatInfoPanel. */
+  note?: string;
+  tags?: string[];
   /**
    * A conversation the clinic is about to open: a patient picked from the directory who has no
    * conversation document yet. Exists only in this screen's memory until the first message is
@@ -273,6 +278,7 @@ export default function ChatsPanel({
   const [selectedId, setSelectedId] = useState<string>(searchParams.get("chat") || "");
   const [draft, setDraft] = useState<ChatRow | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
   const myUid = user?.uid || "";
 
   useEffect(() => {
@@ -306,7 +312,9 @@ export default function ChatsPanel({
       )
       .filter((c) => {
         if (!needle) return true;
-        const hay = `${c.patientName || ""}${c.phone || ""}${c.id}`.toLowerCase().replace(/\s+/g, "");
+        const hay = `${c.patientName || ""}${c.phone || ""}${c.id}${(c.tags || []).join(" ")}${c.note || ""}`
+          .toLowerCase()
+          .replace(/\s+/g, "");
         return hay.includes(needle);
       })
       .sort((a, b) => lastActivity(b) - lastActivity(a));
@@ -340,7 +348,9 @@ export default function ChatsPanel({
 
   return (
     <div
-      className={`rounded-2xl border border-line shadow-sm overflow-hidden grid md:grid-cols-[360px_1fr] ${heightClass}`}
+      className={`rounded-2xl border border-line shadow-sm overflow-hidden grid md:grid-cols-[360px_1fr] ${
+        selected && infoOpen ? "lg:grid-cols-[340px_1fr_300px]" : ""
+      } ${heightClass}`}
       style={{ background: WA.panel }}
       dir={isRTL ? "rtl" : "ltr"}
     >
@@ -476,6 +486,15 @@ export default function ChatsPanel({
                       >
                         {previewText(c.lastText || "", isAr)}
                       </span>
+                      {/* The first tag, as a colour the eye can scan the list by. */}
+                      {c.tags && c.tags.length > 0 && (
+                        <span
+                          className="ms-auto shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded-full truncate max-w-[80px]"
+                          style={{ background: tagTone(c.tags[0]), color: "#111b21" }}
+                        >
+                          {tagLabel(c.tags[0], isAr)}
+                        </span>
+                      )}
                       {/* Who has it. "You" in green; a colleague's first name in grey. */}
                       {c.assignedTo && (
                         <span
@@ -491,7 +510,7 @@ export default function ChatsPanel({
                       )}
                       {c.needsHuman && !unread && (
                         <span
-                          className={`${c.assignedTo ? "" : "ms-auto"} shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded-full`}
+                          className={`${c.assignedTo || (c.tags && c.tags.length > 0) ? "" : "ms-auto"} shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded-full`}
                           style={{ background: "#fff4dc", color: "#9a5b00" }}
                         >
                           {isAr ? "محتاج رد" : "Needs reply"}
@@ -499,7 +518,7 @@ export default function ChatsPanel({
                       )}
                       {unread && (
                         <span
-                          className={`${c.assignedTo ? "" : "ms-auto"} shrink-0 min-w-[20px] h-5 px-1.5 rounded-full text-white text-[11px] font-black flex items-center justify-center`}
+                          className={`${c.assignedTo || (c.tags && c.tags.length > 0) ? "" : "ms-auto"} shrink-0 min-w-[20px] h-5 px-1.5 rounded-full text-white text-[11px] font-black flex items-center justify-center`}
                           style={{ background: WA.green }}
                         >
                           {c.unreadCount}
@@ -517,7 +536,15 @@ export default function ChatsPanel({
       {/* The thread. */}
       <section className={`min-h-0 flex-col ${selected ? "flex" : "hidden md:flex"}`}>
         {selected ? (
-          <Thread key={selected.id} chat={selected} onBack={back} isAr={isAr} showToast={showToast} />
+          <Thread
+            key={selected.id}
+            chat={selected}
+            onBack={back}
+            isAr={isAr}
+            showToast={showToast}
+            infoOpen={infoOpen}
+            onToggleInfo={() => setInfoOpen((v) => !v)}
+          />
         ) : (
           <div
             className="flex-1 flex items-center justify-center p-8 text-center border-b-[6px]"
@@ -537,6 +564,14 @@ export default function ChatsPanel({
           </div>
         )}
       </section>
+
+      {/* The patient and the desk's notes, beside the thread. Wide screens only; on a phone the
+          same panel would have to cover the conversation it is about. */}
+      {selected && infoOpen && (
+        <div className="hidden lg:flex min-h-0 flex-col">
+          <ChatInfoPanel chat={selected} isAr={isAr} onClose={() => setInfoOpen(false)} />
+        </div>
+      )}
     </div>
   );
 }
@@ -546,11 +581,15 @@ function Thread({
   onBack,
   isAr,
   showToast,
+  infoOpen,
+  onToggleInfo,
 }: {
   chat: ChatRow;
   onBack: () => void;
   isAr: boolean;
   showToast: (msg: string, kind: "success" | "error") => void;
+  infoOpen: boolean;
+  onToggleInfo: () => void;
 }) {
   const { user } = useAuth();
   const [lines, setLines] = useState<ThreadLine[]>([]);
@@ -823,6 +862,14 @@ function Thread({
                 : ""}
           </p>
         </div>
+        <button
+          onClick={onToggleInfo}
+          title={isAr ? "بيانات المريض والملاحظات" : "Patient info and notes"}
+          className="hidden lg:flex w-9 h-9 rounded-full items-center justify-center hover:bg-black/5 transition-colors"
+          style={{ color: infoOpen ? WA.green : "#54656f" }}
+        >
+          <Info size={18} />
+        </button>
         {!chat.isDraft && (
           <button
             onClick={() => void toggleAssign()}
