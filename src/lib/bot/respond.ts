@@ -1223,7 +1223,9 @@ export async function respondToPatientMessage(args: {
   });
 
   // The bot's own words, in the thread staff read. Never allowed to fail the turn.
-  await recordThreadMessage(clinicId, replyTo, {
+  // A rehearsal (dryRun) writes to its own private play_ thread — the fake phone it carries
+  // must never become a conversation on the Chats page, which is exactly what it once did.
+  await recordThreadMessage(clinicId, args.dryRun ? chatId : replyTo, {
     direction: "out",
     author: "bot",
     text: body,

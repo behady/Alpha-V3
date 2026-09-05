@@ -126,6 +126,8 @@ export function useChatAlerts(): void {
         let ring = false;
         const fresh: Array<{ id: string; name: string; text: string }> = [];
         for (const d of snap.docs) {
+          // A staff member rehearsing the bot must not ring the desk.
+          if (d.id.startsWith("play_")) continue;
           const x = d.data() as Record<string, unknown>;
           const lastAt = Number(x.lastAt) || 0;
           const prev = seen.get(d.id) ?? 0;

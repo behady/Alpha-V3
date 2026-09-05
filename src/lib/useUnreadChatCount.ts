@@ -29,7 +29,11 @@ export function useUnreadChatCount(): number {
     }
     const unsub = onSnapshot(
       ref,
-      (snap) => setCount(snap.docs.reduce((n, d) => n + (Number(d.data().unreadCount) || 0), 0)),
+      // play_<uid> rows are staff rehearsing the bot, not patients; they never count.
+      (snap) =>
+        setCount(
+          snap.docs.filter((d) => !d.id.startsWith("play_")).reduce((n, d) => n + (Number(d.data().unreadCount) || 0), 0)
+        ),
       () => setCount(0)
     );
     return () => unsub();
