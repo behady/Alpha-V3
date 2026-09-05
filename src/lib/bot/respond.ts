@@ -29,6 +29,7 @@ import {
   type HandoffSeverity,
 } from "./conversation";
 import { answerWithAi } from "./aiReply";
+import { recordThreadMessage } from "./thread";
 import { clinicalReplyText, decideBotReply, type BotContext } from "./engine";
 import { needsHuman } from "./clinicalTriage";
 import { mentionsRelative } from "./quickAnswers";
@@ -1023,6 +1024,11 @@ export async function respondToPatientMessage(args: {
     status: "success",
     createdAt: FieldValue.serverTimestamp(),
   });
+
+  // The bot's own words, in the thread staff read. Never allowed to fail the turn.
+  await recordThreadMessage(clinicId, replyTo, { direction: "out", author: "bot", text: body, kind: reason }).catch(
+    () => {}
+  );
 
   await saveConversation(
     clinicId,

@@ -7,6 +7,7 @@ import { patientSendablePhone } from "@/lib/patientPhone";
 import { findPatientByLid, learnPatientLid, lidChatFromEvent } from "@/lib/whatsappLid";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { respondToPatientMessage } from "@/lib/bot/respond";
+import { recordThreadMessage } from "@/lib/bot/thread";
 import { applyInboundOptOut } from "@/lib/optOutInbound";
 import { reportServerError } from "@/lib/server/reportError";
 
@@ -250,6 +251,14 @@ export async function POST(request: NextRequest) {
       await recordUnparsed(clinicId, { from: reply.phone }, "unusable_phone");
       return NextResponse.json({ ok: true, ignored: "unusable_phone" });
     }
+
+    // Into the chat thread before any decision about answering — received is received.
+    await recordThreadMessage(clinicId, chatId, {
+      direction: "in",
+      author: "patient",
+      text: reply.text,
+      channel: "wapilot",
+    }).catch((e) => console.warn("[whatsapp-inbound] thread write failed:", e));
 
     // Opt-out first, always. A patient asking to be left alone must never be answered by the
     // assistant instead — that is the single most effective way to turn a stop request into a

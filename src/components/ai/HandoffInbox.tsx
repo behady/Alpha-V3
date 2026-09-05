@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, CheckCheck, Clock, Loader2, Reply, Send, UserRound } from "lucide-react";
+import { AlertTriangle, CheckCheck, Clock, Loader2, MessageSquareText, Reply, Send, UserRound } from "lucide-react";
 import { onSnapshot, query, where, updateDoc } from "firebase/firestore";
+import { auth } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
@@ -132,9 +133,10 @@ export default function HandoffInbox() {
     if (!text || !h.phone) return;
     setReplyBusy(true);
     try {
+      const idToken = await auth.currentUser?.getIdToken();
       const res = await fetch("/api/whatsapp/reply", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
         body: JSON.stringify({
           phone: h.phone,
           text,
@@ -241,6 +243,13 @@ export default function HandoffInbox() {
                       {isAr ? "رد" : "Reply"}
                     </button>
                   )}
+                  <Link
+                    href={`/ai?tab=chats&chat=${encodeURIComponent(h.id)}`}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-surface border border-line text-xs font-black uppercase tracking-wide text-ink-body hover:bg-surface-subtle transition-colors"
+                  >
+                    <MessageSquareText size={14} />
+                    {isAr ? "المحادثة" : "Open chat"}
+                  </Link>
                   {h.patientId && (
                     <Link
                       href={`/patients/${h.patientId}`}

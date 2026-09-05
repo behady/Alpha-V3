@@ -69,6 +69,8 @@ export async function POST(request: Request) {
         ...(patientId ? { patientId } : {}),
         ...(patientName ? { patientName } : {}),
       },
+      // Credited by name in the chat thread, so the next person to open it knows who said what.
+      thread: { author: "staff", uid: authz.uid, name: authz.name || undefined },
     });
 
     // The thread is a person's now; the bot stays out of it for an hour and the inbox row closes.

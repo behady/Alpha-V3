@@ -187,7 +187,11 @@ export async function loadConversation(
   const humanActiveAtMs = Number(d.humanActiveAtMs) || 0;
   const openHandoff =
     d.needsHuman === true && handoffAtMs > now - HANDOFF_HOLD_MS && !(handledAtMs > handoffAtMs);
-  const humanOwned = openHandoff || humanActiveAtMs > now - HUMAN_CLAIM_MS;
+  // A third signal, with no clock on it: staff pressed "take over" in the chat screen. It holds
+  // until they hand the thread back, because a person mid-conversation should not have to keep
+  // re-claiming it every hour to stop the bot barging in.
+  const humanOwned =
+    openHandoff || humanActiveAtMs > now - HUMAN_CLAIM_MS || d.botPaused === true;
 
   /*
    * A handoff staff have marked handled releases the bot — including from the stored state.

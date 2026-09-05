@@ -3,6 +3,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection } from "@/lib/adminClinicDb";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { respondToPatientMessage } from "@/lib/bot/respond";
+import { recordThreadMessage } from "@/lib/bot/thread";
 import { applyInboundOptOut } from "@/lib/optOutInbound";
 import { isOptOutReply } from "@/lib/patientMessaging";
 import { clinicIdForPhoneNumberId } from "@/lib/metaWhatsapp";
@@ -165,6 +166,18 @@ function extractMessages(body: unknown): InboundMessage[] {
   return out;
 }
 
+/** The patient's message, into the chat thread staff read. Never allowed to fail the webhook. */
+async function rememberInbound(clinicId: string, msg: InboundMessage): Promise<void> {
+  await recordThreadMessage(clinicId, msg.from, {
+    direction: "in",
+    author: "patient",
+    text: msg.text,
+    media: msg.media,
+    messageId: msg.messageId,
+    channel: "meta",
+  }).catch((e) => console.warn("[meta-whatsapp] thread write failed:", e));
+}
+
 async function recordUnparsed(clinicId: string, body: unknown, reason: string): Promise<void> {
   if (!clinicId) return;
   try {
@@ -225,6 +238,7 @@ export async function POST(request: NextRequest) {
       // Opt-out first, always — before the assistant is consulted. Meta gives the real phone, so
       // this reaches the patient's actual record with no lid fallback needed.
       if (isOptOutReply(msg.text)) {
+        await rememberInbound(clinicId, msg);
         await applyInboundOptOut({ clinicId, phone: msg.from, text: msg.text, channel: "whatsapp" });
         continue;
       }
@@ -237,6 +251,10 @@ export async function POST(request: NextRequest) {
         lastBot = { status: "skipped", reason: "duplicate_delivery" };
         continue;
       }
+
+      // Into the thread before anything decides whether to answer: a message the bot is switched
+      // off for, or refuses to answer, is still a message the clinic received.
+      await rememberInbound(clinicId, msg);
 
       /*
        * Answering happens after the response, not before it.
