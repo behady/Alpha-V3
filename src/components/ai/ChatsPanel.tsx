@@ -7,19 +7,28 @@ import {
   AlertCircle,
   AlertTriangle,
   ArrowLeft,
+  Bell,
+  BellOff,
   Bot,
   Check,
   CheckCheck,
+  FileText,
   Hand,
   Loader2,
   MessageSquarePlus,
   MessageSquareText,
+  Paperclip,
   Search,
   Send,
   UserRound,
+  Volume2,
+  VolumeX,
+  X,
 } from "lucide-react";
 import { getDocs, limit, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
-import { auth } from "@/lib/firebase";
+import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
+import { auth, storage } from "@/lib/firebase";
+import { chatSoundEnabled, playChatChime, requestChatNotifications, setChatSoundEnabled } from "@/lib/useChatAlerts";
 import { getClinicCollection, getClinicDoc, getGlobalClinicId } from "@/lib/db-utils";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
 import { phoneMatchKey } from "@/lib/patientPhone";
@@ -96,6 +105,30 @@ interface ThreadLine {
   kind?: string;
   status?: DeliveryStatus;
   errorMessage?: string;
+  /** A voice note's words, attached a few seconds after it arrives. */
+  transcript?: string;
+}
+
+/** What the clinic is about to send: a file picked from the computer, not yet uploaded. */
+interface PendingFile {
+  file: File;
+  kind: "image" | "video" | "audio" | "document";
+  previewUrl: string;
+}
+
+/** Meta's own per-type ceilings, with the bucket's 20MB as the outer wall. */
+const FILE_LIMITS: Record<PendingFile["kind"], number> = {
+  image: 5 * 1024 * 1024,
+  video: 16 * 1024 * 1024,
+  audio: 16 * 1024 * 1024,
+  document: 20 * 1024 * 1024,
+};
+
+function fileKind(mime: string): PendingFile["kind"] {
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("audio/")) return "audio";
+  return "document";
 }
 
 type Filter = "all" | "unread" | "needs";
@@ -301,10 +334,11 @@ export default function ChatsPanel({
           <h2 className="text-[22px] font-black" style={{ color: WA.text }}>
             {isAr ? "المحادثات" : "Chats"}
           </h2>
+          <AlertControls isAr={isAr} showToast={showToast} />
           <button
             onClick={() => setPickerOpen((v) => !v)}
             title={isAr ? "محادثة جديدة" : "New chat"}
-            className="ms-auto w-9 h-9 rounded-full flex items-center justify-center hover:bg-black/5 transition-colors"
+            className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-black/5 transition-colors"
             style={{ color: pickerOpen ? WA.green : "#54656f" }}
           >
             <MessageSquarePlus size={20} />
@@ -493,8 +527,17 @@ function Thread({
   const [sending, setSending] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [templateSentAt, setTemplateSentAt] = useState(0);
+  const [pending, setPending] = useState<PendingFile | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // A picked file's preview URL is a blob the browser holds; release it when it is replaced.
+  useEffect(() => {
+    return () => {
+      if (pending?.previewUrl) URL.revokeObjectURL(pending.previewUrl);
+    };
+  }, [pending]);
 
   useEffect(() => {
     if (!user) return;
@@ -538,7 +581,7 @@ function Thread({
   const humanHold = chat.botPaused === true || (chat.humanActiveAtMs || 0) > Date.now() - HUMAN_CLAIM_MS;
   const handling = chat.botPaused === true || chat.needsHuman === true || humanHold;
 
-  const post = async (payload: Record<string, string>) => {
+  const post = async (payload: Record<string, unknown>) => {
     const idToken = await auth.currentUser?.getIdToken();
     const res = await fetch("/api/whatsapp/reply", {
       method: "POST",
@@ -567,12 +610,42 @@ function Thread({
     }
   };
 
+  const pickFile = (file: File | null | undefined) => {
+    if (!file) return;
+    const kind = fileKind(file.type || "");
+    if (file.size > FILE_LIMITS[kind]) {
+      const mb = Math.round(FILE_LIMITS[kind] / 1024 / 1024);
+      showToast(isAr ? `الملف أكبر من ${mb} ميجا` : `File is larger than ${mb}MB`, "error");
+      return;
+    }
+    setPending({ file, kind, previewUrl: URL.createObjectURL(file) });
+    inputRef.current?.focus();
+  };
+
   const send = async () => {
     const body = text.trim();
-    if (!body || !chat.phone || sending) return;
+    if ((!body && !pending) || !chat.phone || sending) return;
     setSending(true);
     try {
-      await post({ text: body });
+      if (pending) {
+        /*
+         * The file goes to the clinic's own Storage folder first, from the browser, then the
+         * server hands Meta the download URL. Uploading through the server would mean streaming
+         * the bytes twice; this way they travel once, and the same URL is what the bubble shows.
+         */
+        const safeName = pending.file.name.replace(/[^\w.\-؀-ۿ]+/g, "_").slice(0, 80) || "file";
+        const path = `clinics/${getGlobalClinicId()}/whatsapp_media/outbound/${Date.now()}_${safeName}`;
+        const target = storageRef(storage, path);
+        await uploadBytes(target, pending.file, { contentType: pending.file.type || "application/octet-stream" });
+        const url = await getDownloadURL(target);
+        await post({
+          text: body,
+          media: { url, mime: pending.file.type || "application/octet-stream", kind: pending.kind, filename: pending.file.name },
+        });
+        setPending(null);
+      } else {
+        await post({ text: body });
+      }
       setText("");
       inputRef.current?.focus();
     } catch (e) {
@@ -763,7 +836,7 @@ function Thread({
         <div ref={bottomRef} />
       </div>
 
-      <footer className="px-3 py-2.5" style={{ background: WA.panel }}>
+      <footer className="relative px-3 py-2.5" style={{ background: WA.panel }}>
         {blocked ? (
           <p className="text-[12px] font-semibold px-1 py-1.5 flex items-center gap-1.5" style={{ color: WA.muted }}>
             <AlertTriangle size={13} className="shrink-0" style={{ color: "#f0a02a" }} />
@@ -785,6 +858,55 @@ function Thread({
           </p>
         ) : (
           <div className="flex items-end gap-2">
+            {/* What is about to go with the message, with a way to drop it. */}
+            {pending && (
+              <div className="absolute bottom-full start-3 end-3 mb-1 rounded-xl bg-white shadow-md p-2 flex items-center gap-3">
+                {pending.kind === "image" ? (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={pending.previewUrl} alt="" className="h-16 w-16 rounded-lg object-cover" />
+                ) : (
+                  <span className="h-12 w-12 rounded-lg flex items-center justify-center" style={{ background: WA.panel, color: "#54656f" }}>
+                    <FileText size={22} />
+                  </span>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-bold truncate" style={{ color: WA.text }} dir="auto">
+                    {pending.file.name}
+                  </p>
+                  <p className="text-[11px]" style={{ color: WA.muted }}>
+                    {(pending.file.size / 1024 / 1024).toFixed(1)} MB ·{" "}
+                    {isAr ? "اكتب تعليق تحت لو حابب" : "Add a caption below if you like"}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setPending(null)}
+                  className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-black/5"
+                  style={{ color: "#54656f" }}
+                  aria-label={isAr ? "إلغاء الملف" : "Remove file"}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              accept="image/*,video/mp4,audio/*,application/pdf,.doc,.docx,.xls,.xlsx"
+              onChange={(e) => {
+                pickFile(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={sending}
+              title={isAr ? "إرفاق صورة أو ملف" : "Attach a photo or file"}
+              className="h-[42px] w-[42px] rounded-full flex items-center justify-center hover:bg-black/5 transition-colors shrink-0 disabled:opacity-40"
+              style={{ color: pending ? WA.green : "#54656f" }}
+            >
+              <Paperclip size={20} />
+            </button>
             <textarea
               ref={inputRef}
               rows={1}
@@ -803,13 +925,13 @@ function Thread({
                   void send();
                 }
               }}
-              placeholder={isAr ? "اكتب رسالة" : "Type a message"}
+              placeholder={pending ? (isAr ? "تعليق (اختياري)" : "Caption (optional)") : isAr ? "اكتب رسالة" : "Type a message"}
               className="flex-1 rounded-xl border-0 bg-white px-4 py-2.5 text-[15px] focus:outline-none focus:ring-0 resize-none leading-snug"
               style={{ color: WA.text, minHeight: 42 }}
             />
             <button
               onClick={() => void send()}
-              disabled={sending || !text.trim()}
+              disabled={sending || (!text.trim() && !pending)}
               className="h-[42px] w-[42px] rounded-full flex items-center justify-center text-white transition-colors disabled:opacity-40 shrink-0"
               style={{ background: WA.green }}
               aria-label={isAr ? "ابعت" : "Send"}
@@ -843,6 +965,72 @@ function Thread({
         )}
       </footer>
     </>
+  );
+}
+
+/**
+ * The bell and the speaker: desktop notifications and the chime, for this browser.
+ *
+ * Notification permission is the browser's to grant and can only be asked for from a click, so
+ * the bell asks when clicked; once granted or refused it becomes a status. The chime is a
+ * per-browser preference, kept in localStorage — a front desk and a treatment room want
+ * different things.
+ */
+function AlertControls({ isAr, showToast }: { isAr: boolean; showToast: (m: string, k: "success" | "error") => void }) {
+  const [sound, setSound] = useState(true);
+  const [perm, setPerm] = useState<NotificationPermission | "unsupported">("default");
+
+  // Read after mount, never during render: neither localStorage nor Notification exists on the
+  // server, and seeding state from them would make the first client render disagree with the
+  // HTML it hydrates.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- browser-only state, read once after mount
+    setSound(chatSoundEnabled());
+    setPerm(typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported");
+  }, []);
+
+  const toggleSound = () => {
+    const next = !sound;
+    setSound(next);
+    setChatSoundEnabled(next);
+    if (next) playChatChime();
+  };
+
+  const askPermission = async () => {
+    const result = await requestChatNotifications();
+    setPerm(result);
+    if (result === "granted") showToast(isAr ? "هتوصلك إشعارات لما مريض يبعت ✓" : "You'll be notified when a patient writes ✓", "success");
+    else if (result === "denied") showToast(isAr ? "المتصفح رافض الإشعارات — فعّلها من إعدادات الموقع" : "Notifications are blocked — enable them in the site settings", "error");
+  };
+
+  return (
+    <div className="ms-auto flex items-center gap-1">
+      <button
+        onClick={toggleSound}
+        title={sound ? (isAr ? "كتم صوت التنبيه" : "Mute the chime") : isAr ? "تشغيل صوت التنبيه" : "Turn the chime on"}
+        className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-black/5 transition-colors"
+        style={{ color: sound ? "#54656f" : "#b0b8be" }}
+      >
+        {sound ? <Volume2 size={19} /> : <VolumeX size={19} />}
+      </button>
+      {perm !== "unsupported" && (
+        <button
+          onClick={() => void askPermission()}
+          disabled={perm !== "default"}
+          title={
+            perm === "granted"
+              ? isAr ? "إشعارات سطح المكتب شغالة" : "Desktop notifications are on"
+              : perm === "denied"
+                ? isAr ? "الإشعارات مقفولة من المتصفح" : "Notifications blocked by the browser"
+                : isAr ? "فعّل إشعارات سطح المكتب" : "Enable desktop notifications"
+          }
+          className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-black/5 transition-colors disabled:cursor-default"
+          style={{ color: perm === "granted" ? WA.green : perm === "denied" ? "#b0b8be" : "#e0a02a" }}
+        >
+          {perm === "denied" ? <BellOff size={19} /> : <Bell size={19} />}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -989,7 +1177,17 @@ function MediaView({ line, isAr }: { line: ThreadLine; isAr: boolean }) {
     );
   }
   if (mime.startsWith("audio/")) {
-    return <audio controls preload="none" src={url} className="max-w-full mb-1 h-10 min-w-[240px]" />;
+    return (
+      <div className="mb-1">
+        <audio controls preload="none" src={url} className="max-w-full h-10 min-w-[240px]" />
+        {/* The words, under the recording they came from — one bubble, not two. */}
+        {line.transcript && (
+          <p className="text-[13px] italic mt-1.5 whitespace-pre-wrap" style={{ color: "#3b4a54" }} dir="auto">
+            🎤 {line.transcript}
+          </p>
+        )}
+      </div>
+    );
   }
   if (mime.startsWith("video/")) {
     return <video controls preload="metadata" src={url} className="rounded-lg max-h-80 max-w-full mb-1" />;

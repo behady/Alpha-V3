@@ -163,6 +163,56 @@ export async function sendMetaWhatsappText(args: {
   }
 }
 
+export type MetaMediaKind = "image" | "video" | "audio" | "document";
+
+/**
+ * Send a photo, video, voice clip or file by public link.
+ *
+ * Meta fetches the bytes itself from `link`, so the URL has to be reachable without a login —
+ * a Firebase download URL (token in the query string) is exactly that. Same free-form window
+ * rule as text: outside 24 hours of the patient's last message it is accepted and then dropped.
+ */
+export async function sendMetaWhatsappMedia(args: {
+  config: MetaWhatsappConfig;
+  to: string;
+  kind: MetaMediaKind;
+  link: string;
+  caption?: string;
+  /** Documents only: the name the patient sees and saves. */
+  filename?: string;
+}): Promise<MetaSendResult> {
+  const digits = String(args.to || "").replace(/\D/g, "");
+  if (!digits) return { ok: false, error: "invalid_phone" };
+
+  const media: Record<string, string> = { link: args.link };
+  // Audio takes no caption on WhatsApp; the API rejects one rather than ignoring it.
+  if (args.caption && args.kind !== "audio") media.caption = args.caption;
+  if (args.filename && args.kind === "document") media.filename = args.filename;
+
+  try {
+    const res = await fetch(`${GRAPH}/${args.config.phoneNumberId}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${args.config.token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: digits,
+        type: args.kind,
+        [args.kind]: media,
+      }),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, any>;
+    if (!res.ok) return { ok: false, error: data?.error?.message || `HTTP ${res.status}` };
+    const messageId = data?.messages?.[0]?.id;
+    return { ok: true, messageId: typeof messageId === "string" ? messageId : undefined };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "send_failed" };
+  }
+}
+
 /** Whether any clinic is on the official API — used to decide if a migration path is live. */
 export async function anyClinicOnMeta(): Promise<boolean> {
   try {

@@ -42,6 +42,9 @@ export interface ThreadMessageInput {
   kind?: string;
   /** Which gateway carried it: "meta" for the official channel, "wapilot" for the unofficial one. */
   channel?: "meta" | "wapilot";
+  /** For a file the clinic sent: where the bubble renders it from, and what it is. */
+  mediaUrl?: string;
+  mime?: string;
 }
 
 /** Keep the list preview short; the thread has the rest. */
@@ -91,6 +94,8 @@ export async function recordThreadMessage(
   if (m.name) line.name = m.name;
   if (m.kind) line.kind = m.kind;
   if (m.channel) line.channel = m.channel;
+  if (m.mediaUrl) line.mediaUrl = m.mediaUrl;
+  if (m.mime) line.mime = m.mime;
 
   const summary: Record<string, unknown> = {
     phone: address,
@@ -118,6 +123,28 @@ export async function recordThreadMessage(
 
   // The line's id, so a background step (media download) can find it again.
   return lineRef.id;
+}
+
+/**
+ * The words in a voice note, attached to the voice note.
+ *
+ * Written onto the audio's own line rather than as a second message, so one recording is one
+ * bubble with its text underneath — and one unread, not two.
+ */
+export async function attachTranscript(
+  clinicId: string,
+  address: string,
+  lineId: string,
+  transcript: string
+): Promise<void> {
+  const text = transcript.trim().slice(0, 4000);
+  if (!lineId || !text) return;
+  const parent = adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(address));
+  await Promise.all([
+    parent.collection("messages").doc(lineId).set({ transcript: text }, { merge: true }),
+    // The list preview reads better as the words than as "[audio]".
+    parent.set({ lastText: `🎤 ${text.replace(/\s+/g, " ").slice(0, PREVIEW_CHARS - 3)}` }, { merge: true }),
+  ]);
 }
 
 export type ThreadDeliveryStatus = "sent" | "delivered" | "read" | "failed";
