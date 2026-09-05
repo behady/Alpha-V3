@@ -387,9 +387,11 @@ export const SETTINGS_TEXT = {
     visibilityHiddenHint: { en: "Out of the menu on every device.", ar: "مش في القائمة على أي جهاز." },
     groupHome: { en: "Your home screen", ar: "شاشتك الرئيسية" },
     homeLabel: { en: "When you sign in, open", ar: "لما تسجّل دخول، افتح" },
-    homeDesc: { en: "You run the clinic and you treat patients. Pick which of the two you want to land on. Either way the other is one click away in the menu.", ar: "انت بتدير العيادة وبتعالج كمان. اختار تبدأ من أنهي واحدة. في الحالتين التانية على بُعد ضغطة في القائمة." },
+    homeDesc: { en: "Pick the screen you want to land on. Whichever you choose, the others are one click away in the menu.", ar: "اختار الشاشة اللي تبدأ منها. أياً كان اختيارك، الباقي على بُعد ضغطة في القائمة." },
     homeDesk: { en: "The desk", ar: "الاستقبال" },
     homeDeskHint: { en: "The whole clinic's day: bookings, check-ins, payments — the reception view.", ar: "يوم العيادة كله: الحجوزات، الدخول، الدفع — شاشة الاستقبال." },
+    homeOwner: { en: "The owner's view", ar: "شاشة المالك" },
+    homeOwnerHint: { en: "Is the place running and is the money moving: cash, the team, the floor and new business, with every dentist by name.", ar: "العيادة شغالة والفلوس ماشية؟ الكاش، الفريق، الصالة، والعملاء الجدد — وكل دكتور بالاسم." },
     homeChair: { en: "My chair", ar: "كرسيّي" },
     homeChairHint: { en: "Only your patients: who is next, your day, lab cases back for you, and your own money.", ar: "مرضاك انت بس: مين التالي، يومك، اللي رجع لك من المعمل، وفلوسك." },
 

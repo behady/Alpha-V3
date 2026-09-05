@@ -109,6 +109,9 @@ export async function recordThreadMessage(
   if (m.direction === "in") {
     // What the 24-hour rule is measured from: only a patient's own message opens the window.
     summary.lastInboundAt = now;
+    // A patient writing to an archived chat brings it back to the list — archived means "done
+    // for now", and a new message is exactly what ends that.
+    summary.archived = false;
     summary.unreadCount = FieldValue.increment(1);
   }
 

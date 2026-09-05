@@ -23,6 +23,7 @@ import { arabicClock, arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTi
 import { appendOptOutFooter, normalizeReplyText, WHATSAPP_OPT_OUT_FOOTER_AR } from "@/lib/patientMessaging";
 import {
   conversationKey,
+  humanClaimMsFromSetting,
   loadConversation,
   markHandoff,
   replyAllowance,
@@ -71,6 +72,10 @@ interface BotSettings {
   facts: BotFacts;
   /** The model leads the conversation (sales mode) instead of answering last. */
   aiFirst: boolean;
+  /** Symptoms go to the AI as a dentist (then to booking) instead of straight to a person. */
+  clinicalDentist: boolean;
+  /** How long a staff reply keeps the bot out of a thread. */
+  humanClaimMs: number;
   /** AI replies per conversation; 0 means no cap. */
   aiMaxReplies: number;
   /** The owner's coaching notes for the model. */
@@ -87,6 +92,8 @@ async function loadBotSettings(clinicId: string): Promise<BotSettings> {
     aiEnabled: d.botAiEnabled === true || d.botMode === "ai_first",
     facts: (d.botFacts && typeof d.botFacts === "object" ? d.botFacts : {}) as BotFacts,
     aiFirst: d.botMode === "ai_first",
+    clinicalDentist: d.botClinicalMode === "dentist",
+    humanClaimMs: humanClaimMsFromSetting(d.botHumanClaimMinutes),
     aiMaxReplies:
       typeof d.botAiMaxReplies === "number" && d.botAiMaxReplies >= 0 ? Math.floor(d.botAiMaxReplies) : d.botMode === "ai_first" ? 0 : 3,
     coaching: typeof d.botCoaching === "string" ? d.botCoaching : "",
@@ -440,7 +447,7 @@ export async function respondToPatientMessage(args: {
       await markHandoff(clinicId, conversationKey(chatId), "opted_out_urgent", {
         text, phone, patientId: patient.id, patientName: String(patient.data.name || ""), severity: "urgent",
       });
-      void push(clinicId, { title: "⚠️ مريض (موقف الرسايل) محتاج رد فوري", body: `${String(patient.data.name || phone)} — ${text.slice(0, 90)}` }, { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { patientId: patient.id } });
+      void push(clinicId, { title: "⚠️ مريض (موقف الرسايل) محتاج رد فوري", body: `${String(patient.data.name || phone)} — ${text.slice(0, 90)}` }, { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { chatId: conversationKey(chatId), patientId: patient.id } });
     }
     return skip("opted_out");
   }
@@ -458,14 +465,14 @@ export async function respondToPatientMessage(args: {
     return skip("unknown_number");
   }
 
-  const conversation = await loadConversation(clinicId, chatId, now);
+  const conversation = await loadConversation(clinicId, chatId, now, { humanClaimMs: settings.humanClaimMs });
 
   // A stop request recorded against this sender directly — the only place it can live when a lid
   // hides the patient record. Survives conversation expiry; see markConversationOptedOut.
   if (conversation.optedOut) {
     if (needsHuman(text)) {
       await markHandoff(clinicId, conversation.phoneKey, "opted_out_urgent", { text, phone, severity: "urgent" });
-      void push(clinicId, { title: "⚠️ مريض (موقف الرسايل) محتاج رد فوري", body: `${phone} — ${text.slice(0, 90)}` }, { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } });
+      void push(clinicId, { title: "⚠️ مريض (موقف الرسايل) محتاج رد فوري", body: `${phone} — ${text.slice(0, 90)}` }, { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { chatId: conversation.phoneKey, screen: "day" } });
     }
     return skip("opted_out");
   }
@@ -518,6 +525,7 @@ export async function respondToPatientMessage(args: {
   ctx.serviceMatch = (await matchService(clinicId, text)) || undefined;
   ctx.aiAvailable = settings.aiEnabled && (settings.aiMaxReplies === 0 || (conversation.aiReplies ?? 0) < settings.aiMaxReplies);
   ctx.aiFirst = settings.aiFirst;
+  ctx.clinicalMode = settings.clinicalDentist ? "dentist" : "handoff";
   if (conversation.state === "booking_doctor") ctx.optionCount = conversation.pendingDoctors?.length ?? 0;
   if (conversation.state === "booking_day") ctx.optionCount = conversation.pendingDays?.length ?? 0;
   if (conversation.state === "booking_time") ctx.optionCount = conversation.pendingTimes?.length ?? 0;
@@ -786,6 +794,7 @@ export async function respondToPatientMessage(args: {
         knowledge: salesContext?.knowledge,
         playbook: salesContext?.playbook,
         canBook: Boolean(ctx.canOfferBooking || ctx.canRegister),
+        clinical: act.clinical === true,
       });
       if (ai.kind === "answer" && ai.openBooking && (ctx.canOfferBooking || ctx.canRegister)) {
         // The model judged the moment right. The calendar part stays deterministic: its line
@@ -895,6 +904,10 @@ export async function respondToPatientMessage(args: {
           list: optionList("اختيار الميعاد", conversation.pendingTimes, arabicTimeLabel, (t) => `t${conversation.pendingDate}|${t}`, { id: "back_days", title: "رجوع لاختيار اليوم" }),
         };
         pending = { days: conversation.pendingDays, times: conversation.pendingTimes, date: conversation.pendingDate, treatment };
+      } else if (conversation.state === "booking_doctor" && (conversation.pendingDoctors?.length ?? 0) > 0) {
+        // The dentist list again — not the day list. A non-pick at the dentist step used to fall
+        // through to days, which skipped the question the patient had not answered.
+        listDoctors();
       } else if (conversation.pendingDays?.length) {
         replyText = RELIST_PREFIX + renderDayList(conversation.pendingDays);
         structure = {
@@ -1155,8 +1168,10 @@ export async function respondToPatientMessage(args: {
         {
           roles: ["Owner", "Admin", "Receptionist"],
           channel: "alpha_bookings",
-          // A known patient opens straight to their record on the phone; a stranger lands on the day.
-          data: patient?.id ? { patientId: patient.id } : { screen: "day" },
+          // The phone opens the conversation itself (chatId) where the app is new enough to have
+          // a chats screen; an older build ignores it and falls back to the patient's record, or
+          // to the day for a stranger.
+          data: { chatId: conversation.phoneKey, ...(patient?.id ? { patientId: patient.id } : { screen: "day" }) },
         }
       );
     }
@@ -1223,7 +1238,9 @@ export async function respondToPatientMessage(args: {
   });
 
   // The bot's own words, in the thread staff read. Never allowed to fail the turn.
-  await recordThreadMessage(clinicId, replyTo, {
+  // A rehearsal (dryRun) writes to its own private play_ thread — the fake phone it carries
+  // must never become a conversation on the Chats page, which is exactly what it once did.
+  await recordThreadMessage(clinicId, args.dryRun ? chatId : replyTo, {
     direction: "out",
     author: "bot",
     text: body,

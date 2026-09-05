@@ -118,6 +118,8 @@ interface InboundMessage {
    * exactly why a person has to.
    */
   media?: "image" | "video" | "audio" | "document" | "sticker" | "location" | "contacts";
+  /** The title of a tapped button or list row, when that is what the message was. */
+  label?: string;
   /** Meta's id for the media object — the handle the bytes are fetched with, valid ~30 days. */
   mediaId?: string;
   mime?: string;
@@ -169,8 +171,13 @@ function extractMessages(body: unknown): InboundMessage[] {
         const mediaObj = media ? m?.[media] : undefined;
         const mediaId = typeof mediaObj?.id === "string" ? mediaObj.id : undefined;
         const mime = typeof mediaObj?.mime_type === "string" ? mediaObj.mime_type : undefined;
+        // What the patient actually READ on the button they tapped — for the thread staff see.
+        // The engine gets the id; a receptionist gets "الثلاثاء 8/9", not "d2026-09-08".
+        const label = String(
+          m?.interactive?.button_reply?.title ?? m?.interactive?.list_reply?.title ?? ""
+        ).trim();
         if (from && (text || media)) {
-          out.push({ phoneNumberId, from, text, fromMe: false, media, messageId, mediaId, mime });
+          out.push({ phoneNumberId, from, text, fromMe: false, media, messageId, mediaId, mime, label: label || undefined });
         }
       }
     }
@@ -183,7 +190,7 @@ async function rememberInbound(clinicId: string, msg: InboundMessage): Promise<s
   return recordThreadMessage(clinicId, msg.from, {
     direction: "in",
     author: "patient",
-    text: msg.text,
+    text: msg.label || msg.text,
     media: msg.media,
     messageId: msg.messageId,
     channel: "meta",

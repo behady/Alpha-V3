@@ -39,6 +39,81 @@ function monthStartOf(dateKey: string): string {
   return `${dateKey.slice(0, 7)}-01`;
 }
 
+export interface BriefingWindow {
+  startDate: string;
+  endDate: string;
+  /** The period before this one, the same length, for "against last time". */
+  previousStart: string;
+  previousEnd: string;
+  /** Daily only: the same weekday a week back. */
+  sameWeekday: string | null;
+  /** Where the ledger read has to begin so every comparison above has its rows. */
+  comparisonStart: string;
+  aheadStart: string;
+  aheadEnd: string;
+  previousLabel: string;
+}
+
+/**
+ * The dates a brief covers, and the dates it compares itself against.
+ *
+ * A day compares with the same weekday last week (a Monday against a Monday). A week compares
+ * with the seven days before it. A month compares month-to-date with the SAME NUMBER of days at
+ * the start of last month — the 1st to the 12th against the 1st to the 12th — because on the 12th
+ * "this month vs last month" against a whole thirty-one days would always read as a collapse.
+ *
+ * Pure, and exported, so the arithmetic of "which days" is pinned by a test without a database.
+ */
+export function briefingWindow(period: BriefingPeriod, endDate: string): BriefingWindow {
+  const aheadStart = shiftDays(endDate, 1);
+  if (period === "day") {
+    return {
+      startDate: endDate,
+      endDate,
+      previousStart: shiftDays(endDate, -1),
+      previousEnd: shiftDays(endDate, -1),
+      sameWeekday: shiftDays(endDate, -7),
+      comparisonStart: shiftDays(endDate, -7),
+      aheadStart,
+      aheadEnd: aheadStart,
+      previousLabel: shiftDays(endDate, -1),
+    };
+  }
+  if (period === "week") {
+    const startDate = shiftDays(endDate, -6);
+    const previousEnd = shiftDays(startDate, -1);
+    const previousStart = shiftDays(previousEnd, -6);
+    return {
+      startDate,
+      endDate,
+      previousStart,
+      previousEnd,
+      sameWeekday: null,
+      comparisonStart: previousStart,
+      aheadStart,
+      aheadEnd: shiftDays(endDate, 7),
+      previousLabel: `${previousStart} – ${previousEnd}`,
+    };
+  }
+  const startDate = monthStartOf(endDate);
+  const spanDays = Math.round((Date.parse(`${endDate}T12:00:00Z`) - Date.parse(`${startDate}T12:00:00Z`)) / 86_400_000) + 1;
+  const lastMonthEnd = shiftDays(startDate, -1);
+  const previousStart = monthStartOf(lastMonthEnd);
+  const sameSpanEnd = shiftDays(previousStart, spanDays - 1);
+  const previousEnd = sameSpanEnd < lastMonthEnd ? sameSpanEnd : lastMonthEnd;
+  return {
+    startDate,
+    endDate,
+    previousStart,
+    previousEnd,
+    sameWeekday: null,
+    comparisonStart: previousStart,
+    aheadStart,
+    aheadEnd: shiftDays(endDate, 7),
+    previousLabel: `${previousStart} – ${previousEnd}`,
+  };
+}
+
 /** Minutes from midnight, right now, on the clinic's clock. */
 function nowMinutesInZone(timeZone: string): number {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -83,15 +158,8 @@ export async function buildBriefing(args: {
   const today = ymdInTimeZone(timeZone);
   const notes: string[] = [];
 
-  const startDate = period === "day" ? endDate : shiftDays(endDate, -6);
-  const spanDays = period === "day" ? 1 : 7;
-  const previousEnd = shiftDays(startDate, -1);
-  const previousStart = shiftDays(previousEnd, -(spanDays - 1));
-  const sameWeekday = period === "day" ? shiftDays(endDate, -7) : null;
-  const comparisonStart = period === "day" ? shiftDays(endDate, -7) : previousStart;
-
-  const aheadStart = shiftDays(endDate, 1);
-  const aheadEnd = period === "day" ? aheadStart : shiftDays(endDate, 7);
+  const { startDate, previousStart, previousEnd, sameWeekday, comparisonStart, aheadStart, aheadEnd, previousLabel } =
+    briefingWindow(period, endDate);
 
   const monthStart = monthStartOf(today);
   const attendanceStart = [monthStart, previousStart, startDate].sort()[0];
@@ -102,8 +170,8 @@ export async function buildBriefing(args: {
     endDate,
     comparisonStart,
     attendanceStart,
-    previousStart: period === "week" ? previousStart : null,
-    previousEnd: period === "week" ? previousEnd : null,
+    previousStart: period === "day" ? null : previousStart,
+    previousEnd: period === "day" ? null : previousEnd,
     needsMoney: access.money,
     needsHr: access.hr,
   });
@@ -127,7 +195,7 @@ export async function buildBriefing(args: {
         endDate,
         previousStart,
         previousEnd,
-        previousLabel: period === "day" ? previousEnd : `${previousStart} – ${previousEnd}`,
+        previousLabel,
         sameWeekday,
       })
     : undefined;
@@ -237,7 +305,7 @@ export async function buildBriefing(args: {
 
   // --- Weekly trend ---------------------------------------------------------------------------
   let trend: TrendSection | undefined;
-  if (period === "week") {
+  if (period !== "day") {
     trend = buildTrend({
       ledger: data.ledgerWindow,
       appointments,
@@ -351,6 +419,19 @@ function buildTrend(args: {
    * Ranked on money where the reader can see it, on patients where they cannot — otherwise a
    * receptionist's "best day" would be blank rather than simply measured differently.
    */
+  // The comparison period, day by day, so the owner's chart can draw last month under this one.
+  const previousDaily: TrendSection["previousDaily"] = [];
+  const prevCursor = new Date(`${previousStart}T12:00:00Z`);
+  const prevLast = new Date(`${previousEnd}T12:00:00Z`);
+  while (prevCursor.getTime() <= prevLast.getTime()) {
+    const key = prevCursor.toISOString().slice(0, 10);
+    previousDaily.push({
+      dateKey: key,
+      collected: access.money ? collectedOn(key, key) : null,
+      patientsSeen: previousAppointments.filter((a) => a.date === key && ATTENDED.has(a.status)).length,
+    });
+    prevCursor.setUTCDate(prevCursor.getUTCDate() + 1);
+  }
   const rank = (d: TrendSection["daily"][number]) => (access.money ? (d.collected ?? 0) : d.patientsSeen);
   const sorted = [...daily].sort((a, b) => rank(b) - rank(a));
   const anyActivity = sorted.some((d) => rank(d) > 0);
@@ -421,6 +502,7 @@ function buildTrend(args: {
   return {
     points,
     daily,
+    previousDaily,
     bestDay: anyActivity ? sorted[0].dateKey : null,
     quietestDay: anyActivity ? sorted[sorted.length - 1].dateKey : null,
     topProcedures: Array.from(procedures.values())

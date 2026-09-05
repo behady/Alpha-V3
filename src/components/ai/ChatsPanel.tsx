@@ -6,19 +6,26 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   AlertTriangle,
+  Archive,
+  ArchiveRestore,
   ArrowLeft,
   Bell,
   BellOff,
   Bot,
   Check,
   CheckCheck,
+  ChevronDown,
+  ChevronUp,
   FileText,
+  FlaskConical,
   Hand,
   Info,
   Loader2,
   MessageSquarePlus,
   MessageSquareText,
+  MoreVertical,
   Paperclip,
+  RotateCcw,
   Search,
   Send,
   UserCheck,
@@ -31,7 +38,7 @@ import {
 } from "lucide-react";
 import QuickReplies from "./QuickReplies";
 import ChatInfoPanel, { tagLabel, tagTone } from "./ChatInfoPanel";
-import { getDocs, limit, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
+import { getDoc, getDocs, limit, onSnapshot, orderBy, query, startAfter, updateDoc } from "firebase/firestore";
 import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 import { auth, storage } from "@/lib/firebase";
 import { chatSoundEnabled, playChatChime, requestChatNotifications, setChatSoundEnabled } from "@/lib/useChatAlerts";
@@ -40,6 +47,7 @@ import { patientMatchesSearch } from "@/lib/flexibleSearch";
 import { phoneMatchKey } from "@/lib/patientPhone";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
+import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
 
 /**
@@ -88,12 +96,27 @@ interface ChatRow {
   /** What the desk wants to remember about this thread — see ChatInfoPanel. */
   note?: string;
   tags?: string[];
+  /** Out of the list until the patient writes again. Nothing is deleted. */
+  archived?: boolean;
+  /** Still listed and still counted; just never rings. */
+  muted?: boolean;
   /**
    * A conversation the clinic is about to open: a patient picked from the directory who has no
    * conversation document yet. Exists only in this screen's memory until the first message is
    * sent, at which point the server writes the real row and this one is replaced by it.
    */
   isDraft?: boolean;
+  /**
+   * The signed-in person's own rehearsal with the bot (play_<uid>). Pinned at the top of the
+   * list, named rather than numbered, and answered by the engine in dry-run — nothing it says
+   * ever reaches WhatsApp. This is where the bot is trained before a patient meets it.
+   */
+  isPlayground?: boolean;
+}
+
+/** Mirrors playgroundChatId on the server: the one play_ row that belongs to this person. */
+function playgroundIdFor(uid: string): string {
+  return `play_${uid.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40)}`;
 }
 
 interface DirectoryPatient {
@@ -144,12 +167,12 @@ function fileKind(mime: string): PendingFile["kind"] {
   return "document";
 }
 
-type Filter = "all" | "unread" | "needs" | "mine";
+type Filter = "all" | "unread" | "needs" | "mine" | "archived";
 
 /** Meta drops free text sent more than 24h after the patient's last message. */
 const REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
-/** The hour a staff reply keeps the bot out of the thread (mirrors HUMAN_CLAIM_MS). */
-const HUMAN_CLAIM_MS = 60 * 60 * 1000;
+/** Default for how long a staff reply keeps the bot out of the thread; the clinic can change it. */
+const HUMAN_CLAIM_MS = 15 * 60 * 1000;
 
 /** WhatsApp's own palette for the chat surface — the one part of the app drawn to match another. */
 const WA = {
@@ -267,6 +290,8 @@ export default function ChatsPanel({
   const { language, isRTL } = useLanguage();
   const isAr = language === "ar";
   const { user } = useAuth();
+  // The clinic is resolved a beat after the user on a direct page load; every read below needs it.
+  const { clinicId } = useClinic();
   const { showToast } = useUI();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -279,15 +304,32 @@ export default function ChatsPanel({
   const [draft, setDraft] = useState<ChatRow | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
+  // How long a staff reply keeps the bot out of a thread — the clinic's setting, default 15 min.
+  const [claimMs, setClaimMs] = useState(HUMAN_CLAIM_MS);
+  useEffect(() => {
+    if (!user || !clinicId) return;
+    getDoc(getClinicDoc("settings", "whatsapp"))
+      .then((snap) => {
+        const m = Number(snap.data()?.botHumanClaimMinutes);
+        if (Number.isFinite(m) && m >= 0) setClaimMs(Math.min(1440, Math.round(m)) * 60 * 1000);
+      })
+      .catch(() => {});
+  }, [user]);
   const myUid = user?.uid || "";
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !clinicId) return;
     const unsub = onSnapshot(
       getClinicCollection("whatsapp_conversations"),
       (snap) => {
         // Staff rehearsals in Settings live in this collection too (play_<uid>); not chats.
-        setChats(snap.docs.filter((d) => !d.id.startsWith("play_")).map((d) => ({ id: d.id, ...d.data() } as ChatRow)));
+        // Only your own rehearsal is yours to see; colleagues' play_ rows are theirs.
+        const mine = playgroundIdFor(user.uid);
+        setChats(
+          snap.docs
+            .filter((d) => !d.id.startsWith("play_") || d.id === mine)
+            .map((d) => ({ id: d.id, ...d.data(), ...(d.id === mine ? { isPlayground: true } : {}) } as ChatRow))
+        );
         setLoading(false);
       },
       (e) => {
@@ -298,10 +340,19 @@ export default function ChatsPanel({
     return () => unsub();
   }, [user]);
 
+  // The rehearsal row exists even before the first message, so the entry point is always there.
+  const playRow = useMemo<ChatRow>(
+    () => chats.find((c) => c.isPlayground) || { id: playgroundIdFor(myUid), isPlayground: true },
+    [chats, myUid]
+  );
+
   const visible = useMemo(() => {
     const needle = search.trim().toLowerCase().replace(/\s+/g, "");
-    return chats
+    const rows = chats
+      .filter((c) => !c.isPlayground)
       .filter((c) => lastActivity(c) > 0)
+      // Archived chats live behind their own chip and nowhere else.
+      .filter((c) => (filter === "archived" ? c.archived === true : c.archived !== true))
       .filter((c) =>
         filter === "needs"
           ? c.needsHuman === true
@@ -319,10 +370,15 @@ export default function ChatsPanel({
         return hay.includes(needle);
       })
       .sort((a, b) => lastActivity(b) - lastActivity(a));
-  }, [chats, filter, search, myUid]);
+    // Pinned first on the plain list; it is not a patient, so no filter or search finds it.
+    return filter === "all" && !needle && myUid ? [playRow, ...rows] : rows;
+  }, [chats, filter, search, myUid, playRow]);
 
   // The real row wins the moment it exists: the first send creates it, and the draft retires.
-  const selected = chats.find((c) => c.id === selectedId) || (draft && draft.id === selectedId ? draft : null);
+  const selected =
+    chats.find((c) => c.id === selectedId) ||
+    (playRow.id === selectedId ? playRow : null) ||
+    (draft && draft.id === selectedId ? draft : null);
   const needsCount = chats.filter((c) => c.needsHuman === true).length;
   const mineCount = user?.uid ? chats.filter((c) => c.assignedTo === user.uid).length : 0;
   const unreadCount = chats.reduce((n, c) => n + (c.unreadCount || 0), 0);
@@ -346,6 +402,16 @@ export default function ChatsPanel({
     }
     open(key);
   };
+
+  // Nothing below can read a chat until the clinic is known — and a child mounted early would
+  // throw from inside its own effect, which is what took the whole page down on a hard load.
+  if (!clinicId) {
+    return (
+      <div className={`flex items-center justify-center ${heightClass}`} style={{ color: WA.muted }}>
+        <Loader2 size={22} className="animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -398,6 +464,7 @@ export default function ChatsPanel({
                 ["unread", isAr ? "غير مقروء" : "Unread", unreadCount],
                 ["needs", isAr ? "محتاج رد" : "Needs reply", needsCount],
                 ["mine", isAr ? "بتاعتي" : "Mine", mineCount],
+                ["archived", isAr ? "الأرشيف" : "Archived", 0],
               ] as [Filter, string, number][]
             ).map(([key, label, count]) => {
               const active = filter === key;
@@ -450,7 +517,7 @@ export default function ChatsPanel({
               const active = c.id === selectedId;
               const unread = (c.unreadCount || 0) > 0;
               const urgent = c.needsHuman && c.severity === "urgent";
-              const title = c.patientName || c.phone || c.id;
+              const title = c.isPlayground ? (isAr ? "جرّب البوت" : "Test the bot") : c.patientName || c.phone || c.id;
               return (
                 <button
                   key={c.id}
@@ -460,9 +527,9 @@ export default function ChatsPanel({
                 >
                   <span
                     className="w-12 h-12 rounded-full flex items-center justify-center shrink-0 text-sm font-black text-white"
-                    style={{ background: urgent ? "#e35d5d" : avatarTone(c.id) }}
+                    style={{ background: c.isPlayground ? "#7c5cff" : urgent ? "#e35d5d" : avatarTone(c.id) }}
                   >
-                    {urgent ? <AlertTriangle size={18} /> : initials(c.patientName || "") || <UserRound size={20} />}
+                    {c.isPlayground ? <FlaskConical size={20} /> : urgent ? <AlertTriangle size={18} /> : initials(c.patientName || "") || <UserRound size={20} />}
                   </span>
                   <div className="min-w-0 flex-1 border-b border-line/70 pb-2.5 -mb-2.5">
                     <div className="flex items-baseline gap-2">
@@ -470,9 +537,10 @@ export default function ChatsPanel({
                         {title}
                       </span>
                       <span
-                        className="ms-auto text-[11px] shrink-0"
+                        className="ms-auto text-[11px] shrink-0 flex items-center gap-1"
                         style={{ color: unread ? WA.green : WA.muted, fontWeight: unread ? 700 : 500 }}
                       >
+                        {c.muted && <BellOff size={12} style={{ color: "#8696a0" }} />}
                         {listTime(lastActivity(c), isAr)}
                       </span>
                     </div>
@@ -485,7 +553,11 @@ export default function ChatsPanel({
                         style={{ color: unread ? WA.text : WA.muted, fontWeight: unread ? 600 : 400 }}
                         dir="auto"
                       >
-                        {previewText(c.lastText || "", isAr)}
+                        {c.isPlayground && !c.lastText
+                          ? isAr
+                            ? "اكتب زي ما المريض بيكتب وشوف البوت هيرد إزاي"
+                            : "Write like a patient would and see how the bot answers"
+                          : previewText(c.lastText || "", isAr)}
                       </span>
                       {/* The first tag, as a colour the eye can scan the list by. */}
                       {c.tags && c.tags.length > 0 && (
@@ -544,6 +616,7 @@ export default function ChatsPanel({
             isAr={isAr}
             showToast={showToast}
             infoOpen={infoOpen}
+            claimMs={claimMs}
             onToggleInfo={() => setInfoOpen((v) => !v)}
           />
         ) : (
@@ -584,6 +657,7 @@ function Thread({
   showToast,
   infoOpen,
   onToggleInfo,
+  claimMs,
 }: {
   chat: ChatRow;
   onBack: () => void;
@@ -591,6 +665,7 @@ function Thread({
   showToast: (msg: string, kind: "success" | "error") => void;
   infoOpen: boolean;
   onToggleInfo: () => void;
+  claimMs: number;
 }) {
   const { user } = useAuth();
   const [lines, setLines] = useState<ThreadLine[]>([]);
@@ -601,6 +676,15 @@ function Thread({
   const [templateSentAt, setTemplateSentAt] = useState(0);
   const [pending, setPending] = useState<PendingFile | null>(null);
   const [quickOpen, setQuickOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQ, setSearchQ] = useState("");
+  const [matchIdx, setMatchIdx] = useState(0);
+  /** Messages older than the live window, fetched on demand and kept in front of it. */
+  const [older, setOlder] = useState<ThreadLine[]>([]);
+  const [olderLoading, setOlderLoading] = useState(false);
+  const [olderDone, setOlderDone] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [assigning, setAssigning] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -642,6 +726,72 @@ function Thread({
     bottomRef.current?.scrollIntoView({ block: "end" });
   }, [lines.length]);
 
+  /**
+   * Earlier messages, 200 at a time, kept in front of the live window.
+   *
+   * The scroll position is held where it was: prepending content would otherwise jump the view
+   * to the top of what just loaded, and the person was reading the bottom of it.
+   */
+  const loadOlder = async () => {
+    const oldest = older[0] ?? lines[0];
+    if (!oldest || olderLoading || olderDone) return;
+    setOlderLoading(true);
+    const el = scrollRef.current;
+    const before = el ? el.scrollHeight - el.scrollTop : 0;
+    try {
+      const snap = await getDocs(
+        query(
+          getClinicCollection(`whatsapp_conversations/${chat.id}/messages`),
+          orderBy("at", "desc"),
+          startAfter(oldest.at),
+          limit(200)
+        )
+      );
+      const more = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ThreadLine)).reverse();
+      if (more.length < 200) setOlderDone(true);
+      setOlder((prev) => [...more, ...prev]);
+      requestAnimationFrame(() => {
+        if (el) el.scrollTop = el.scrollHeight - before;
+      });
+    } catch (e) {
+      console.error("Older messages failed:", e);
+    } finally {
+      setOlderLoading(false);
+    }
+  };
+
+  const allLines = useMemo(() => [...older, ...lines], [older, lines]);
+
+  // Search: every line whose words contain the query, newest last, with one of them current.
+  const matches = useMemo(() => {
+    const q = searchQ.trim().toLowerCase();
+    if (!q) return [] as string[];
+    return allLines.filter((l) => `${l.text} ${l.transcript || ""}`.toLowerCase().includes(q)).map((l) => l.id);
+  }, [allLines, searchQ]);
+  const currentMatch = matches.length ? matches[Math.min(matchIdx, matches.length - 1)] : "";
+
+  useEffect(() => {
+    if (!currentMatch) return;
+    document.getElementById(`msg-${currentMatch}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [currentMatch]);
+
+  const stepMatch = (dir: 1 | -1) => {
+    if (!matches.length) return;
+    setMatchIdx((i) => (i + dir + matches.length) % matches.length);
+  };
+
+  /** Archive and mute, on the conversation document. Archived returns by itself when they write. */
+  const setFlag = async (patch: Record<string, unknown>) => {
+    setMenuOpen(false);
+    if (chat.isDraft) return;
+    try {
+      await updateDoc(getClinicDoc("whatsapp_conversations", chat.id), patch);
+    } catch (e) {
+      console.error("Chat flag failed:", e);
+      showToast(isAr ? "حصل خطأ" : "Could not update", "error");
+    }
+  };
+
   const isLid = chat.id.startsWith("lid_");
   // A conversation the clinic opened has no patient message at all, which for the window rule is
   // the same as one older than a day: only a template delivers until they write back.
@@ -651,12 +801,24 @@ function Thread({
     : !!chat.lastInboundAt && Date.now() - chat.lastInboundAt > REPLY_WINDOW_MS;
   // Meta drops out-of-window text silently; the unofficial gateway does not. Block only where it
   // would silently fail — a disabled box the receptionist can see beats a "sent" that never lands.
-  const blocked = isLid || (windowClosed && officialChannel) || chat.optedOut === true;
-  const humanHold = chat.botPaused === true || (chat.humanActiveAtMs || 0) > Date.now() - HUMAN_CLAIM_MS;
-  const handling = chat.botPaused === true || chat.needsHuman === true || humanHold;
+  const blocked = !chat.isPlayground && (isLid || (windowClosed && officialChannel) || chat.optedOut === true);
+  const humanHold = chat.botPaused === true || (chat.humanActiveAtMs || 0) > Date.now() - claimMs;
+  const handling = !chat.isPlayground && (chat.botPaused === true || chat.needsHuman === true || humanHold);
 
   const post = async (payload: Record<string, unknown>) => {
     const idToken = await auth.currentUser?.getIdToken();
+    // A rehearsal goes to the engine directly, in dry-run: same brain, same settings, same
+    // credits — and no WhatsApp send at the end of it.
+    if (chat.isPlayground) {
+      const r = await fetch("/api/admin/bot-playground", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
+        body: JSON.stringify({ clinicId: getGlobalClinicId(), ...payload }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d?.ok === false) throw new Error(d?.error || "Failed");
+      return;
+    }
     const res = await fetch("/api/whatsapp/reply", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
@@ -675,7 +837,7 @@ function Thread({
     if (!res.ok || data?.ok === false) throw new Error(data?.error || "Send failed");
     // Answering claims the thread, when nobody has it yet: the person who replied is the person
     // handling it, and the row should say so without a second click.
-    if (!chat.assignedTo && !chat.isDraft && user?.uid) {
+    if (!chat.assignedTo && !chat.isDraft && !chat.isPlayground && user?.uid) {
       updateDoc(getClinicDoc("whatsapp_conversations", chat.id), {
         assignedTo: user.uid,
         assignedName: user.name || "",
@@ -742,7 +904,8 @@ function Thread({
 
   const send = async () => {
     const body = text.trim();
-    if ((!body && !pending) || !chat.phone || sending) return;
+    // The rehearsal has no phone — it has nowhere to send to, which is the point of it.
+    if ((!body && !pending) || (!chat.phone && !chat.isPlayground) || sending) return;
     setSending(true);
     try {
       if (pending) {
@@ -796,10 +959,16 @@ function Thread({
    * the pause, an open handoff, and the hour a reply claims — so "the bot is answering again"
    * means exactly that.
    */
+  /**
+   * One button for every reason the bot is quiet: an explicit pause, an open hand-off, or the
+   * hour a staff reply claims. "Hand back" clears all three — a receptionist who answered once
+   * and now wants the bot to carry on should not have to know which of them is in force.
+   */
+  const botQuiet = chat.botPaused === true || humanHold || chat.needsHuman === true;
   const toggleBot = async () => {
     setToggling(true);
     try {
-      if (chat.botPaused) {
+      if (botQuiet) {
         await updateDoc(getClinicDoc("whatsapp_conversations", chat.id), {
           botPaused: false,
           needsHuman: false,
@@ -825,14 +994,14 @@ function Thread({
   // Day separators, like the phone draws them.
   const grouped = useMemo(() => {
     const out: Array<{ day: string; key: string; lines: ThreadLine[] }> = [];
-    for (const l of lines) {
+    for (const l of allLines) {
       const key = new Date(l.at).toDateString();
       const last = out[out.length - 1];
       if (last && last.key === key) last.lines.push(l);
       else out.push({ day: dayLabel(l.at, isAr), key, lines: [l] });
     }
     return out;
-  }, [lines, isAr]);
+  }, [allLines, isAr]);
 
   const title = chat.patientName || chat.phone || chat.id;
 
@@ -844,34 +1013,58 @@ function Thread({
         </button>
         <span
           className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-sm font-black text-white"
-          style={{ background: avatarTone(chat.id) }}
+          style={{ background: chat.isPlayground ? "#7c5cff" : avatarTone(chat.id) }}
         >
-          {initials(chat.patientName || "") || <UserRound size={18} />}
+          {chat.isPlayground ? <FlaskConical size={18} /> : initials(chat.patientName || "") || <UserRound size={18} />}
         </span>
         <div className="min-w-0 flex-1">
           <h3 className="font-bold text-[15px] truncate leading-tight" style={{ color: WA.text }}>
-            {title}
+            {chat.isPlayground ? (isAr ? "جرّب البوت" : "Test the bot") : title}
           </h3>
-          <p className="text-[12px] truncate leading-tight mt-0.5" style={{ color: WA.muted }} dir="ltr">
-            {chat.patientName ? chat.phone : isAr ? "رقم غير مسجل كمريض" : "Not a registered patient"}
-            {chat.isDraft
+          <p className="text-[12px] truncate leading-tight mt-0.5" style={{ color: WA.muted }} dir={chat.isPlayground ? "auto" : "ltr"}>
+            {chat.isPlayground
+              ? isAr
+                ? "بروفة خاصة بيك — مفيش حاجة بتتبعت على واتساب"
+                : "Your private rehearsal — nothing here goes to WhatsApp"
+              : chat.patientName ? chat.phone : isAr ? "رقم غير مسجل كمريض" : "Not a registered patient"}
+            {chat.isPlayground
+              ? ""
+              : chat.isDraft
               ? ` · ${isAr ? "محادثة جديدة" : "new conversation"}`
               : chat.botPaused
               ? ` · ${isAr ? "البوت واقف" : "bot paused"}`
               : chat.needsHuman
                 ? ` · ${isAr ? "مستني رد" : "waiting for a reply"}`
-                : ""}
+                : humanHold
+                  ? ` · ${
+                      isAr ? "البوت ساكت لحد" : "bot quiet until"
+                    } ${new Date((chat.humanActiveAtMs || 0) + claimMs).toLocaleTimeString(isAr ? "ar-EG" : "en-GB", { hour: "2-digit", minute: "2-digit" })}`
+                  : ""}
           </p>
         </div>
         <button
-          onClick={onToggleInfo}
-          title={isAr ? "بيانات المريض والملاحظات" : "Patient info and notes"}
-          className="hidden lg:flex w-9 h-9 rounded-full items-center justify-center hover:bg-black/5 transition-colors"
-          style={{ color: infoOpen ? WA.green : "#54656f" }}
+          onClick={() => {
+            setSearchOpen((v) => !v);
+            setSearchQ("");
+            setMatchIdx(0);
+          }}
+          title={isAr ? "ابحث في المحادثة" : "Search in this chat"}
+          className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-black/5 transition-colors"
+          style={{ color: searchOpen ? WA.green : "#54656f" }}
         >
-          <Info size={18} />
+          <Search size={18} />
         </button>
-        {!chat.isDraft && (
+        {!chat.isPlayground && (
+          <button
+            onClick={onToggleInfo}
+            title={isAr ? "بيانات المريض والملاحظات" : "Patient info and notes"}
+            className="hidden lg:flex w-9 h-9 rounded-full items-center justify-center hover:bg-black/5 transition-colors"
+            style={{ color: infoOpen ? WA.green : "#54656f" }}
+          >
+            <Info size={18} />
+          </button>
+        )}
+        {!chat.isDraft && !chat.isPlayground && (
           <button
             onClick={() => void toggleAssign()}
             disabled={assigning}
@@ -905,30 +1098,142 @@ function Thread({
             {isAr ? "الملف" : "Patient"}
           </Link>
         )}
+        {chat.isPlayground ? (
+          <button
+            onClick={() => {
+              setMenuOpen(false);
+              void post({ reset: true }).then(() => showToast(isAr ? "البروفة اتمسحت" : "Rehearsal cleared", "success")).catch(() => showToast(isAr ? "حصل خطأ" : "Could not reset", "error"));
+            }}
+            title={isAr ? "امسح البروفة وابدأ من الأول" : "Clear the rehearsal and start over"}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-black transition-colors"
+            style={{ background: "#efeaff", color: "#5b3fd6" }}
+          >
+            <RotateCcw size={14} />
+            {isAr ? "ابدأ من الأول" : "Start over"}
+          </button>
+        ) : (
         <button
           onClick={() => void toggleBot()}
           disabled={toggling}
           title={
-            chat.botPaused
+            botQuiet
               ? isAr
-                ? "البوت واقف — أنت اللي بترد. اضغط عشان يرجع يرد"
-                : "Bot is paused — you are answering. Click to hand back."
+                ? "البوت ساكت في المحادثة دي — اضغط عشان يرجع يرد"
+                : "The bot is quiet on this chat — click to let it answer again"
               : isAr
                 ? "اضغط عشان توقف البوت وترد بنفسك"
                 : "Click to pause the bot and answer yourself"
           }
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-black transition-colors disabled:opacity-50"
-          style={chat.botPaused ? { background: "#fff4dc", color: "#9a5b00" } : { background: WA.green, color: "#fff" }}
+          style={botQuiet ? { background: "#fff4dc", color: "#9a5b00" } : { background: WA.green, color: "#fff" }}
         >
-          {toggling ? <Loader2 size={14} className="animate-spin" /> : chat.botPaused ? <Bot size={14} /> : <Hand size={14} />}
-          {chat.botPaused ? (isAr ? "رجّع البوت" : "Hand back to bot") : isAr ? "أنا هرد" : "Take over"}
+          {toggling ? <Loader2 size={14} className="animate-spin" /> : botQuiet ? <Bot size={14} /> : <Hand size={14} />}
+          {botQuiet ? (isAr ? "رجّع البوت" : "Hand back to bot") : isAr ? "أنا هرد" : "Take over"}
         </button>
+        )}
+        {!chat.isDraft && !chat.isPlayground && (
+          <div className="relative">
+            <button
+              onClick={() => setMenuOpen((v) => !v)}
+              title={isAr ? "المزيد" : "More"}
+              className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-black/5 transition-colors"
+              style={{ color: menuOpen ? WA.green : "#54656f" }}
+            >
+              <MoreVertical size={18} />
+            </button>
+            {menuOpen && (
+              <div className="absolute top-full end-0 mt-1 w-56 rounded-xl bg-white shadow-lg border border-black/5 py-1 z-30">
+                <button
+                  onClick={() => void setFlag({ muted: !chat.muted })}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] font-semibold text-start hover:bg-[#f5f6f6]"
+                  style={{ color: WA.text }}
+                >
+                  {chat.muted ? <Bell size={16} /> : <BellOff size={16} />}
+                  {chat.muted ? (isAr ? "شغّل التنبيهات" : "Unmute") : isAr ? "كتم التنبيهات" : "Mute"}
+                </button>
+                <button
+                  onClick={() => void setFlag({ archived: !chat.archived })}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] font-semibold text-start hover:bg-[#f5f6f6]"
+                  style={{ color: WA.text }}
+                >
+                  {chat.archived ? <ArchiveRestore size={16} /> : <Archive size={16} />}
+                  {chat.archived ? (isAr ? "رجّع من الأرشيف" : "Unarchive") : isAr ? "أرشفة" : "Archive"}
+                </button>
+                <p className="px-4 pb-2 pt-1 text-[11px]" style={{ color: WA.muted }}>
+                  {isAr
+                    ? "الأرشفة بتخفي المحادثة لحد ما المريض يبعت تاني. الكتم بيوقف الصوت والإشعار بس."
+                    : "Archive hides the chat until the patient writes again. Mute only stops the chime and notification."}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </header>
 
+      {/* Search inside the conversation: type, see the count, step through the hits. */}
+      {searchOpen && (
+        <div className="px-3 py-2 flex items-center gap-2 border-b border-line bg-white">
+          <Search size={15} className="shrink-0" style={{ color: WA.muted }} />
+          <input
+            autoFocus
+            value={searchQ}
+            onChange={(e) => {
+              setSearchQ(e.target.value);
+              setMatchIdx(0);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") stepMatch(e.shiftKey ? -1 : 1);
+              if (e.key === "Escape") {
+                setSearchOpen(false);
+                setSearchQ("");
+              }
+            }}
+            placeholder={isAr ? "ابحث في الرسايل" : "Search messages"}
+            className="flex-1 min-w-0 border-0 bg-transparent text-[14px] focus:outline-none"
+            style={{ color: WA.text }}
+            dir="auto"
+          />
+          <span className="text-[12px] font-bold shrink-0 tabular-nums" style={{ color: WA.muted }}>
+            {searchQ.trim() ? (matches.length ? `${Math.min(matchIdx, matches.length - 1) + 1} / ${matches.length}` : isAr ? "مفيش" : "0") : ""}
+          </span>
+          <button onClick={() => stepMatch(-1)} disabled={!matches.length} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-black/5 disabled:opacity-30" style={{ color: "#54656f" }}>
+            <ChevronUp size={16} />
+          </button>
+          <button onClick={() => stepMatch(1)} disabled={!matches.length} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-black/5 disabled:opacity-30" style={{ color: "#54656f" }}>
+            <ChevronDown size={16} />
+          </button>
+          {!olderDone && lines.length >= 200 && (
+            <button
+              onClick={() => void loadOlder()}
+              disabled={olderLoading}
+              className="text-[11px] font-bold px-2 py-1 rounded-lg hover:bg-black/5 shrink-0"
+              style={{ color: WA.greenDark }}
+            >
+              {olderLoading ? <Loader2 size={13} className="animate-spin" /> : isAr ? "دوّر في الأقدم" : "Search older"}
+            </button>
+          )}
+        </div>
+      )}
+
       <div
+        ref={scrollRef}
         className="flex-1 overflow-y-auto px-4 sm:px-8 py-3"
         style={{ background: WA.wallpaper, backgroundImage: WALLPAPER_PATTERN }}
       >
+        {/* The live window holds the newest 200; anything before that is a click away. */}
+        {!loading && lines.length >= 200 && !olderDone && (
+          <div className="flex justify-center mb-2">
+            <button
+              onClick={() => void loadOlder()}
+              disabled={olderLoading}
+              className="text-[12px] font-bold px-3 py-1.5 rounded-lg shadow-sm bg-white hover:bg-[#f5f6f6] disabled:opacity-60 flex items-center gap-1.5"
+              style={{ color: WA.greenDark }}
+            >
+              {olderLoading ? <Loader2 size={13} className="animate-spin" /> : <ChevronUp size={13} />}
+              {isAr ? "الرسايل الأقدم" : "Earlier messages"}
+            </button>
+          </div>
+        )}
         {/* One pill of status at the top, only when it says something. */}
         {(handling || chat.optedOut) && (
           <div className="flex justify-center mb-3">
@@ -949,8 +1254,8 @@ function Thread({
                       ? "البوت سلّم المحادثة لحد من الفريق ومستني رد."
                       : "The bot handed this chat to a person and is waiting."
                     : isAr
-                      ? "حد من الفريق رد من شوية — البوت ساكت لمدة ساعة."
-                      : "A team member replied recently — the bot stays quiet for an hour."}
+                      ? `حد من الفريق رد من شوية — البوت ساكت ${Math.round(claimMs / 60000)} دقيقة.`
+                      : `A team member replied recently — the bot stays quiet for ${Math.round(claimMs / 60000)} minutes.`}
             </span>
           </div>
         )}
@@ -962,9 +1267,13 @@ function Thread({
         ) : lines.length === 0 ? (
           <div className="flex justify-center py-8">
             <span className="text-[12px] font-semibold px-3 py-1.5 rounded-lg shadow-sm bg-white" style={{ color: WA.muted }}>
-              {isAr
-                ? "المحادثة دي أقدم من سجل الشات. الرسايل الجديدة هتظهر هنا."
-                : "This conversation predates the chat log. New messages will appear here."}
+              {chat.isPlayground
+                ? isAr
+                  ? "🧪 اكتب زي ما المريض بيكتب — سلام، سؤال عن سعر، طلب حجز — وشوف البوت هيرد إزاي. مفيش حاجة هنا بتتبعت لحد."
+                  : "🧪 Write the way a patient would — a greeting, a price question, a booking — and see how the bot answers. Nothing here is sent to anyone."
+                : isAr
+                  ? "المحادثة دي أقدم من سجل الشات. الرسايل الجديدة هتظهر هنا."
+                  : "This conversation predates the chat log. New messages will appear here."}
             </span>
           </div>
         ) : (
@@ -977,7 +1286,13 @@ function Thread({
               </div>
               <div className="space-y-1">
                 {g.lines.map((l) => (
-                  <Bubble key={l.id} line={l} isAr={isAr} />
+                  <Bubble
+                    key={l.id}
+                    line={l}
+                    isAr={isAr}
+                    hit={matches.includes(l.id)}
+                    current={l.id === currentMatch}
+                  />
                 ))}
               </div>
             </div>
@@ -1065,6 +1380,7 @@ function Thread({
             >
               <Zap size={20} />
             </button>
+            {!chat.isPlayground && (
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={sending}
@@ -1074,6 +1390,7 @@ function Thread({
             >
               <Paperclip size={20} />
             </button>
+            )}
             <textarea
               ref={inputRef}
               rows={1}
@@ -1379,7 +1696,19 @@ function MediaView({ line, isAr }: { line: ThreadLine; isAr: boolean }) {
   );
 }
 
-function Bubble({ line, isAr }: { line: ThreadLine; isAr: boolean }) {
+function Bubble({
+  line,
+  isAr,
+  hit = false,
+  current = false,
+}: {
+  line: ThreadLine;
+  isAr: boolean;
+  /** Matches the open search: a soft ring. */
+  hit?: boolean;
+  /** The match the arrows are on: a strong ring, and where the view scrolls to. */
+  current?: boolean;
+}) {
   const mine = line.direction === "out";
   const who =
     line.author === "bot"
@@ -1394,11 +1723,11 @@ function Bubble({ line, isAr }: { line: ThreadLine; isAr: boolean }) {
   const placeholderOnly = !!line.media && /^\[\w+\]$/.test(line.text.trim());
   const failed = line.status === "failed";
   return (
-    <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+    <div id={`msg-${line.id}`} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div
         className={`relative max-w-[75%] sm:max-w-[65%] rounded-lg px-2.5 pt-1.5 pb-1 shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] ${
           mine ? "rounded-te-none" : "rounded-ts-none"
-        }`}
+        } ${current ? "ring-2 ring-[#00a884]" : hit ? "ring-2 ring-[#00a884]/35" : ""}`}
         style={{ background: mine ? WA.outgoing : WA.incoming, color: WA.text }}
       >
         {who && (

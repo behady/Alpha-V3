@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -74,6 +76,9 @@ fun MoneyScreen(
     onAdd: () -> Unit,
     onDelete: (Repository.FinanceRow) -> Unit,
     onOpenRow: (Repository.FinanceRow) -> Unit,
+    /** The last read failed. The list is empty when this is set — see loadFinance. */
+    error: String? = null,
+    onRefresh: () -> Unit = {},
 ) {
     var typeFilter by remember { mutableStateOf("all") } // all | in | out
     var doctorFilter by remember { mutableStateOf("") } // blank = all
@@ -303,39 +308,52 @@ fun MoneyScreen(
             }
         }
 
-        when {
-            loading -> Box(
-                Modifier.fillMaxSize().padding(32.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                CircularProgressIndicator(color = Alpha.Slate400, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
-            }
+        RefreshBox(
+            refreshing = loading && rows.isNotEmpty(),
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                error?.let {
+                    LoadErrorBanner(it, arabic, onRefresh, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
+                }
+                Box(Modifier.weight(1f)) {
+                    when {
+                        loading && rows.isEmpty() -> Box(
+                            Modifier.fillMaxSize().padding(32.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(color = Alpha.Slate400, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
+                        }
 
-            filtered.isEmpty() -> Box(
-                Modifier.fillMaxSize().padding(32.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    if (arabic) "لا توجد حركات مالية في هذه الفترة."
-                    else "No money moved in this period.",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Alpha.Slate400,
-                )
-            }
+                        filtered.isEmpty() -> Box(
+                            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(32.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                if (error != null) "" else if (arabic) "لا توجد حركات مالية في هذه الفترة."
+                                else "No money moved in this period.",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Alpha.Slate400,
+                            )
+                        }
 
-            else -> LazyColumn(
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(filtered, key = { it.id }) { row ->
-                    FinanceRowCard(
-                        row = row,
-                        arabic = arabic,
-                        showDate = view == "month",
-                        onOpen = { onOpenRow(row) },
-                        onDelete = if (row.isManual) ({ confirmDelete = row }) else null,
-                    )
+                        else -> LazyColumn(
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            items(filtered, key = { it.id }) { row ->
+                                FinanceRowCard(
+                                    row = row,
+                                    arabic = arabic,
+                                    showDate = view == "month",
+                                    onOpen = { onOpenRow(row) },
+                                    onDelete = if (row.isManual) ({ confirmDelete = row }) else null,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

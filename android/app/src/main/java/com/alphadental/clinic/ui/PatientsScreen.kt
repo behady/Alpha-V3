@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -63,6 +65,9 @@ fun PatientsScreen(
     onSearch: (String) -> Unit,
     onLoadMore: () -> Unit,
     onOpenPatient: (Patient) -> Unit,
+    /** The last read failed; shown over whatever names are already there. */
+    error: String? = null,
+    onRefresh: () -> Unit = {},
 ) {
     var query by remember { mutableStateOf("") }
 
@@ -125,142 +130,158 @@ fun PatientsScreen(
             }
         }
 
-        when {
-            searching && results.isEmpty() -> Box(
-                Modifier
-                    .fillMaxSize()
-                    .padding(32.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                CircularProgressIndicator(color = Alpha.Slate400, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
-            }
-
-            results.isEmpty() -> Box(
-                Modifier
-                    .fillMaxSize()
-                    .padding(32.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        Icons.Filled.PersonSearch,
-                        contentDescription = null,
-                        tint = Alpha.Slate300,
-                        modifier = Modifier.size(44.dp),
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        if (query.isBlank()) {
-                            if (arabic) "لا يوجد مرضى في السجل بعد." else "No patients in the directory yet."
-                        } else {
-                            if (arabic) "لا يوجد مريض بهذا الاسم أو الرقم."
-                            else "No patient matches that name or number."
-                        },
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Alpha.Slate400,
-                    )
+        RefreshBox(
+            refreshing = searching && results.isNotEmpty(),
+            onRefresh = onRefresh,
+            modifier = Modifier.weight(1f),
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                error?.let {
+                    LoadErrorBanner(it, arabic, onRefresh, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
                 }
-            }
-
-            else -> LazyColumn(
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(results, key = { it.id }) { patient ->
-                    // A plain tappable row with an initial badge — reads like a
-                    // contacts list, which is what this screen is.
-                    AlphaCard(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(Alpha.CardShape)
-                            .clickable { onOpenPatient(patient) },
-                        shape = Alpha.CardShape,
-                    ) {
-                        Row(
-                            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                Box(Modifier.weight(1f)) {
+                    when {
+                        searching && results.isEmpty() -> Box(
+                            Modifier
+                                .fillMaxSize()
+                                .padding(32.dp),
+                            contentAlignment = Alignment.Center,
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(Alpha.GreenSoft),
-                                contentAlignment = Alignment.Center,
-                            ) {
+                            CircularProgressIndicator(color = Alpha.Slate400, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
+                        }
+
+                        // Scrollable even though it holds one message, or the pull-down would have nothing
+                        // to take hold of on exactly the screen most likely to need it.
+                        results.isEmpty() -> Box(
+                            Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(32.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    Icons.Filled.PersonSearch,
+                                    contentDescription = null,
+                                    tint = Alpha.Slate300,
+                                    modifier = Modifier.size(44.dp),
+                                )
+                                Spacer(Modifier.height(12.dp))
                                 Text(
-                                    patient.name.trim().firstOrNull()?.uppercase() ?: "•",
-                                    fontSize = 16.sp,
+                                    if (query.isBlank()) {
+                                        if (arabic) "لا يوجد مرضى في السجل بعد." else "No patients in the directory yet."
+                                    } else {
+                                        if (arabic) "لا يوجد مريض بهذا الاسم أو الرقم."
+                                        else "No patient matches that name or number."
+                                    },
+                                    fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Alpha.Green,
+                                    color = Alpha.Slate400,
                                 )
                             }
-                            Spacer(Modifier.size(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    patient.name,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Alpha.Slate900,
-                                )
-                                if (patient.phone.isNotBlank()) {
-                                    Text(
-                                        patient.phone,
+                        }
+
+                        else -> LazyColumn(
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            items(results, key = { it.id }) { patient ->
+                                // A plain tappable row with an initial badge — reads like a
+                                // contacts list, which is what this screen is.
+                                AlphaCard(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(Alpha.CardShape)
+                                        .clickable { onOpenPatient(patient) },
+                                    shape = Alpha.CardShape,
+                                ) {
+                                    Row(
+                                        Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .clip(CircleShape)
+                                                .background(Alpha.GreenSoft),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Text(
+                                                patient.name.trim().firstOrNull()?.uppercase() ?: "•",
+                                                fontSize = 16.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Alpha.Green,
+                                            )
+                                        }
+                                        Spacer(Modifier.size(12.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(
+                                                patient.name,
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Alpha.Slate900,
+                                            )
+                                            if (patient.phone.isNotBlank()) {
+                                                Text(
+                                                    patient.phone,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = Alpha.Slate500,
+                                                )
+                                            }
+                                        }
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                            contentDescription = null,
+                                            tint = Alpha.Slate300,
+                                            modifier = Modifier.size(20.dp),
+                                        )
+                                    }
+                                }
+                            }
+
+                            item {
+                                when {
+                                    loadingMore -> Box(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 16.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        CircularProgressIndicator(
+                                            color = Alpha.Slate400,
+                                            strokeWidth = 2.dp,
+                                            modifier = Modifier.size(22.dp),
+                                        )
+                                    }
+
+                                    hasMore -> TextButton(
+                                        onClick = onLoadMore,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Text(
+                                            if (arabic) "تحميل المزيد" else "Load more",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = Alpha.Green,
+                                        )
+                                    }
+
+                                    // The end of a directory is worth stating. Otherwise a list that simply
+                                    // stops looks like it is still loading.
+                                    else -> Text(
+                                        text = if (arabic) "${results.size} مريض" else "${results.size} patient${if (results.size == 1) "" else "s"}",
                                         fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = Alpha.Slate500,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Alpha.Slate400,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 16.dp),
+                                        textAlign = TextAlign.Center,
                                     )
                                 }
                             }
-                            Icon(
-                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                contentDescription = null,
-                                tint = Alpha.Slate300,
-                                modifier = Modifier.size(20.dp),
-                            )
                         }
-                    }
-                }
-
-                item {
-                    when {
-                        loadingMore -> Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 16.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            CircularProgressIndicator(
-                                color = Alpha.Slate400,
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(22.dp),
-                            )
-                        }
-
-                        hasMore -> TextButton(
-                            onClick = onLoadMore,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(
-                                if (arabic) "تحميل المزيد" else "Load more",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Alpha.Green,
-                            )
-                        }
-
-                        // The end of a directory is worth stating. Otherwise a list that simply
-                        // stops looks like it is still loading.
-                        else -> Text(
-                            text = if (arabic) "${results.size} مريض" else "${results.size} patient${if (results.size == 1) "" else "s"}",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Alpha.Slate400,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 16.dp),
-                            textAlign = TextAlign.Center,
-                        )
                     }
                 }
             }

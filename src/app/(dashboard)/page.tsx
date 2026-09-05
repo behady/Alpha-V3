@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import DesktopDashboard from "@/components/dashboard/DesktopDashboard";
 import MobileDashboard from "@/components/dashboard/MobileDashboard";
 import DentistHome from "@/components/dashboard/DentistHome";
+import OwnerHome from "@/components/dashboard/OwnerHome";
 import { Loader2 } from "lucide-react";
 
 import { useClinic } from "@/context/ClinicContext";
@@ -10,7 +11,7 @@ import { useUI } from "@/context/UIContext";
 
 export default function Dashboard() {
   const [isDesktop, setIsDesktop] = useState<boolean | null>(null);
-  const { clinicId, role } = useClinic();
+  const { clinicId, role, isAdmin } = useClinic();
   const { homeView } = useUI();
 
   useEffect(() => {
@@ -32,6 +33,9 @@ export default function Dashboard() {
   // also treats picks desk or chair under Settings → Interface (only offered to them). Admins
   // who never treat keep the desk, and get their own screen later.
   if (role === "Dentist" || homeView === "chair") return <DentistHome />;
+  // The owner's view: the whole clinic at a glance. Admins only — the brief behind it already
+  // redacts money and payroll for anyone else, and a screen of blanks is worse than the desk.
+  if (homeView === "owner" && isAdmin) return <OwnerHome />;
 
   return isDesktop ? <DesktopDashboard /> : <MobileDashboard />;
 }

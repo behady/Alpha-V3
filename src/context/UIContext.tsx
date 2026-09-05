@@ -121,8 +121,8 @@ interface UIContextType {
   clinicalNoteDensity: ClinicalNoteDensity;
   setClinicalNoteDensity: (density: ClinicalNoteDensity) => void;
   /** The desk or the chair — see lib/uiPreferences. Only read for people who could be either. */
-  homeView: 'desk' | 'chair';
-  setHomeView: (view: 'desk' | 'chair') => void;
+  homeView: 'desk' | 'chair' | 'owner';
+  setHomeView: (view: 'desk' | 'chair' | 'owner') => void;
 }
 
 const UIContext = createContext<UIContextType | undefined>(undefined);
@@ -150,7 +150,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const [clinicalNoteSort, setClinicalNoteSortState] = useState<ClinicalNoteSort>('newest');
   const [clinicalNoteGrouping, setClinicalNoteGroupingState] = useState<ClinicalNoteGrouping>('flat');
   const [clinicalNoteDensity, setClinicalNoteDensityState] = useState<ClinicalNoteDensity>('detailed');
-  const [homeView, setHomeViewState] = useState<'desk' | 'chair'>('desk');
+  const [homeView, setHomeViewState] = useState<'desk' | 'chair' | 'owner'>('desk');
 
   /**
    * Apply a set of preferences to the eight pieces of state that hold them.
@@ -253,7 +253,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
     rememberPreference("clinicalNoteSort", sort);
   }, [rememberPreference]);
 
-  const setHomeView = useCallback((view: 'desk' | 'chair') => {
+  const setHomeView = useCallback((view: 'desk' | 'chair' | 'owner') => {
     setHomeViewState(view);
     rememberPreference("homeView", view);
   }, [rememberPreference]);

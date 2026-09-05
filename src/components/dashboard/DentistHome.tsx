@@ -25,6 +25,7 @@ import { suggestCategory } from "@/lib/dentalIcons";
 import { saveBooking } from "@/lib/bookingService";
 import BookingModal from "@/components/BookingModal";
 import ServiceEditorDrawer from "@/components/clinical-notes/ServiceEditorDrawer";
+import DentistReport from "@/components/dashboard/DentistReport";
 import type { Note, Service, Staff } from "@/components/clinical-notes/types";
 import type { ToothData } from "@/lib/diagnosisCatalog";
 import {
@@ -359,7 +360,7 @@ export default function DentistHome() {
     "relative inline-flex items-center justify-center w-7 h-7 rounded-lg bg-surface border border-line text-ink-body hover:bg-surface-subtle hover:text-ink transition-colors";
 
   return (
-    <div className="min-h-screen lg:min-h-0 lg:h-full pb-24 lg:pb-4 text-ink-strong" dir={isRTL ? "rtl" : "ltr"}>
+    <div className="min-h-screen pb-24 lg:pb-6 text-ink-strong" dir={isRTL ? "rtl" : "ltr"}>
       <div className="w-full max-w-[1400px] mx-auto p-4 md:p-6 lg:p-5 flex flex-col gap-4">
 
         {/* Header: greeting, and the dentist's own money */}
@@ -629,6 +630,9 @@ export default function DentistHome() {
             )}
           </Card>
         </div>
+
+        {/* How the period went — the dentist's own numbers, charted. */}
+        <DentistReport me={me} ledger={ledger} patients={patients} showShare={showShare} today={today} isAr={isAr} />
       </div>
 
       {booking && config && (

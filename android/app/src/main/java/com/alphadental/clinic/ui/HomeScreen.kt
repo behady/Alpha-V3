@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonSearch
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.CircularProgressIndicator
@@ -98,12 +100,18 @@ fun HomeScreen(
     onOpenOrtho: () -> Unit,
     onOpenInventory: () -> Unit,
     onOpenWhatsappQueue: () -> Unit,
+    /** WhatsApp threads waiting for a person. Null opener for roles that may not read them. */
+    chatsWaiting: Int = 0,
+    onOpenChats: (() -> Unit)? = null,
     onOpenAssistant: () -> Unit,
     /** Null for roles that do not work the CRM inbox. */
     onOpenLeads: (() -> Unit)?,
     /** Today at a glance, once it has arrived. Null while loading, or if it failed. */
     briefing: com.alphadental.clinic.ai.BriefingClient.Briefing? = null,
     onOpenBriefing: () -> Unit = {},
+    /** A pull on the dashboard re-reads the slab: takings, shift, briefing. The day is live. */
+    refreshing: Boolean = false,
+    onRefresh: () -> Unit = {},
 ) {
     val active = appointments.filterNot { normalizeStatus(it.status) in FINISHED }
     val nowMinutes = Calendar.getInstance().let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
@@ -114,100 +122,102 @@ fun HomeScreen(
     val seen = appointments.count { normalizeStatus(it.status) in SEEN }
     val noShow = appointments.count { normalizeStatus(it.status) == "No Show" }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxWidth(),
-        // No side gutter on the list itself: the header slab has to reach both
-        // screen edges, so every other row asks for the gutter with row()/Gutter().
-        contentPadding = PaddingValues(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            DashboardHeader(
-                name = session.name,
-                arabic = arabic,
-                onShift = onShift,
-                shiftSince = shiftSince,
-                clocking = clocking,
-                onPunch = onPunch,
-            ) {
-                if (ownerView) {
-                    Spacer(Modifier.height(20.dp))
-                    SlabTakings(
-                        takingsToday = takingsToday,
-                        seen = seen,
-                        total = appointments.size,
-                        noShow = noShow,
-                        arabic = arabic,
-                    )
+    RefreshBox(refreshing = refreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth(),
+            // No side gutter on the list itself: the header slab has to reach both
+            // screen edges, so every other row asks for the gutter with row()/Gutter().
+            contentPadding = PaddingValues(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                DashboardHeader(
+                    name = session.name,
+                    arabic = arabic,
+                    onShift = onShift,
+                    shiftSince = shiftSince,
+                    clocking = clocking,
+                    onPunch = onPunch,
+                ) {
+                    if (ownerView) {
+                        Spacer(Modifier.height(20.dp))
+                        SlabTakings(
+                            takingsToday = takingsToday,
+                            seen = seen,
+                            total = appointments.size,
+                            noShow = noShow,
+                            arabic = arabic,
+                        )
+                    }
                 }
             }
-        }
 
-        // Today's briefing, but only when it has something to say. It arrives in
-        // the background a moment after the dashboard, so it must not be a hole
-        // in the layout while it is missing — one line, or nothing at all.
-        if (briefing != null && !briefing.isEmpty) {
-            row { BriefingLine(briefing, arabic, onOpenBriefing) }
-        }
+            // Today's briefing, but only when it has something to say. It arrives in
+            // the background a moment after the dashboard, so it must not be a hole
+            // in the layout while it is missing — one line, or nothing at all.
+            if (briefing != null && !briefing.isEmpty) {
+                row { BriefingLine(briefing, arabic, onOpenBriefing) }
+            }
 
-        if (clockError != null) {
+            if (clockError != null) {
+                row {
+                    Surface(
+                        onClick = onDismissClockError,
+                        shape = Alpha.CardShape,
+                        color = Alpha.DangerSoft,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            clockError,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Alpha.DangerText,
+                            modifier = Modifier.padding(12.dp),
+                        )
+                    }
+                }
+            }
+
+            if (offline) {
+                row { OfflineBanner(pending, arabic) }
+            }
+
+            when {
+                session.isDentist -> dentistHome(
+                    session, appointments, active, nowMinutes, arabic,
+                    onOpenAppointment, onOpenPatients, onOpenOrtho, onOpenInventory, onOpenAssistant,
+                )
+
+                session.isReception -> receptionHome(
+                    appointments, active, arabic, whatsappWaiting, chatsWaiting,
+                    onOpenAppointment, onOpenMoney, onOpenPatients, onOpenWhatsappQueue, onOpenChats, onOpenAssistant, onOpenLeads,
+                )
+
+                else -> ownerHome(
+                    active, arabic, whatsappWaiting, chatsWaiting,
+                    onOpenAppointment, onOpenReports, onOpenMoney, onOpenInventory, onOpenChats, onOpenAssistant, onOpenLeads,
+                )
+            }
+
             row {
                 Surface(
-                    onClick = onDismissClockError,
-                    shape = Alpha.CardShape,
-                    color = Alpha.DangerSoft,
+                    onClick = onSeeDay,
+                    shape = Alpha.PillShape,
+                    color = Alpha.Card,
+                    border = BorderStroke(1.dp, Alpha.Slate200),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
-                        clockError,
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Alpha.DangerText,
-                        modifier = Modifier.padding(12.dp),
+                        if (arabic) "عرض اليوم كاملاً ←" else "See the whole day →",
+                        fontWeight = FontWeight.Bold,
+                        color = Alpha.Slate800,
+                        fontSize = 14.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 14.dp),
                     )
                 }
-            }
-        }
-
-        if (offline) {
-            row { OfflineBanner(pending, arabic) }
-        }
-
-        when {
-            session.isDentist -> dentistHome(
-                session, appointments, active, nowMinutes, arabic,
-                onOpenAppointment, onOpenPatients, onOpenOrtho, onOpenInventory, onOpenAssistant,
-            )
-
-            session.isReception -> receptionHome(
-                appointments, active, arabic, whatsappWaiting,
-                onOpenAppointment, onOpenMoney, onOpenPatients, onOpenWhatsappQueue, onOpenAssistant, onOpenLeads,
-            )
-
-            else -> ownerHome(
-                active, arabic, whatsappWaiting,
-                onOpenAppointment, onOpenReports, onOpenMoney, onOpenInventory, onOpenAssistant, onOpenLeads,
-            )
-        }
-
-        row {
-            Surface(
-                onClick = onSeeDay,
-                shape = Alpha.PillShape,
-                color = Alpha.Card,
-                border = BorderStroke(1.dp, Alpha.Slate200),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    if (arabic) "عرض اليوم كاملاً ←" else "See the whole day →",
-                    fontWeight = FontWeight.Bold,
-                    color = Alpha.Slate800,
-                    fontSize = 14.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 14.dp),
-                )
             }
         }
     }
@@ -450,20 +460,24 @@ private fun LazyListScope.receptionHome(
     active: List<Appointment>,
     arabic: Boolean,
     whatsappWaiting: Int,
+    chatsWaiting: Int,
     onOpen: (Appointment) -> Unit,
     onOpenMoney: (() -> Unit)?,
     onOpenPatients: () -> Unit,
     onOpenWhatsappQueue: () -> Unit,
+    onOpenChats: (() -> Unit)?,
     onOpenAssistant: () -> Unit,
     onOpenLeads: (() -> Unit)?,
 ) {
     quickActions(
         listOfNotNull(
+            // Chats first: a patient waiting for a person is the most time-bound thing on the desk.
+            onOpenChats?.let { QuickAction(Icons.AutoMirrored.Filled.Chat, if (arabic) "المحادثات" else "Chats", badge = chatsWaiting, onClick = it) },
             onOpenLeads?.let { QuickAction(Icons.Filled.PersonSearch, if (arabic) "عملاء" else "Leads", onClick = it) },
             onOpenMoney?.let { QuickAction(Icons.Filled.Payments, if (arabic) "الحسابات" else "Money", onClick = it) },
             QuickAction(Icons.Filled.People, if (arabic) "المرضى" else "Patients", onClick = onOpenPatients),
             QuickAction(
-                Icons.Filled.Send, if (arabic) "واتساب" else "WhatsApp",
+                Icons.Filled.Send, if (arabic) "قائمة الإرسال" else "Send list",
                 badge = whatsappWaiting, onClick = onOpenWhatsappQueue,
             ),
             QuickAction(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", onClick = onOpenAssistant),
@@ -518,15 +532,18 @@ private fun LazyListScope.ownerHome(
     active: List<Appointment>,
     arabic: Boolean,
     whatsappWaiting: Int,
+    chatsWaiting: Int,
     onOpen: (Appointment) -> Unit,
     onOpenReports: (() -> Unit)?,
     onOpenMoney: (() -> Unit)?,
     onOpenInventory: () -> Unit,
+    onOpenChats: (() -> Unit)?,
     onOpenAssistant: () -> Unit,
     onOpenLeads: (() -> Unit)?,
 ) {
     quickActions(
         listOfNotNull(
+            onOpenChats?.let { QuickAction(Icons.AutoMirrored.Filled.Chat, if (arabic) "المحادثات" else "Chats", badge = chatsWaiting, onClick = it) },
             onOpenLeads?.let { QuickAction(Icons.Filled.PersonSearch, if (arabic) "عملاء" else "Leads", onClick = it) },
             onOpenReports?.let { QuickAction(Icons.Filled.BarChart, if (arabic) "التقارير" else "Reports", onClick = it) },
             onOpenMoney?.let { QuickAction(Icons.Filled.Payments, if (arabic) "الحسابات" else "Money", onClick = it) },

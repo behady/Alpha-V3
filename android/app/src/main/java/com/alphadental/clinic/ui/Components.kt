@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,7 +24,16 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -410,5 +420,77 @@ fun DismissKeyboardBeforeSheet() {
         // leaves a blinking cursor in a box the person can no longer type into.
         keyboard?.hide()
         focus.clearFocus()
+    }
+}
+
+/**
+ * Pull-to-refresh around any scrolling content, in the app's colours.
+ *
+ * Every list except the day was read once when its screen opened and never again: a payment
+ * taken at the desk did not reach the phone's Money tab until the tab was left and re-entered.
+ * The gesture everyone already knows is the fix. `refreshing` is what keeps the indicator out
+ * while a pull is in flight; a screen whose list is still empty shows its own centred spinner
+ * for that first load instead, so the two never appear together.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RefreshBox(
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val state = rememberPullToRefreshState()
+    PullToRefreshBox(
+        isRefreshing = refreshing,
+        onRefresh = onRefresh,
+        state = state,
+        modifier = modifier,
+        indicator = {
+            PullToRefreshDefaults.Indicator(
+                state = state,
+                isRefreshing = refreshing,
+                containerColor = Alpha.Card,
+                color = Alpha.Green,
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
+        },
+        content = content,
+    )
+}
+
+/**
+ * A read that failed, said plainly, with the one thing to do about it.
+ *
+ * Until this existed a failed load looked exactly like an empty list — "no leads", "no stock",
+ * "nothing this month" — which on a bad connection is a lie the person then acts on. The words
+ * are the view model's plain-language ones (no connection, no access, or a generic), never
+ * Firestore's own developer-facing message.
+ */
+@Composable
+fun LoadErrorBanner(message: String, arabic: Boolean, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(shape = Alpha.CardShape, color = Alpha.DangerSoft, modifier = modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+        ) {
+            Icon(Icons.Filled.CloudOff, contentDescription = null, tint = Alpha.DangerText, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(10.dp))
+            Text(
+                message,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Alpha.DangerText,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onRetry) {
+                Text(
+                    if (arabic) "أعد المحاولة" else "Retry",
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 12.5.sp,
+                    color = Alpha.DangerText,
+                )
+            }
+        }
     }
 }

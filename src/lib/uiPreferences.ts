@@ -58,7 +58,7 @@ export interface UiPreferences {
    * chair (the dentist's home). Someone whose role is Dentist gets the chair regardless — this
    * only matters for the person who wears both hats.
    */
-  homeView: "desk" | "chair";
+  homeView: "desk" | "chair" | "owner";
 }
 
 export const UI_PREFERENCE_DEFAULTS: UiPreferences = {
@@ -95,7 +95,7 @@ const VALIDATORS: { [K in keyof UiPreferences]: (value: unknown) => value is UiP
   clinicalNoteSort: isClinicalNoteSort as (value: unknown) => value is ClinicalNoteSort,
   clinicalNoteGrouping: isClinicalNoteGrouping as (value: unknown) => value is ClinicalNoteGrouping,
   clinicalNoteDensity: isClinicalNoteDensity as (value: unknown) => value is ClinicalNoteDensity,
-  homeView: oneOf("desk", "chair"),
+  homeView: oneOf("desk", "chair", "owner"),
 };
 
 /** The localStorage key each preference has always used. Renaming one silently resets it. */

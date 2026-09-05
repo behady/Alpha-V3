@@ -95,7 +95,12 @@ export type BotAction =
    * the model; the engine only decides that this message has earned the expensive path — which
    * is exactly the clinic's cost model: buttons free, AI only for what buttons cannot do.
    */
-  | { type: "ai"; question: string };
+  | {
+      type: "ai";
+      question: string;
+      /** The message is a symptom and the clinic chose dentist mode: answer as one, then book. */
+      clinical?: boolean;
+    };
 
 /**
  * A button tap, decoded from the id the button carried.
@@ -172,6 +177,8 @@ export interface BotContext {
    * safety, the calendar actions, and the two one-word courtesies that confirm an appointment.
    */
   aiFirst?: boolean;
+  /** Settings → WhatsApp: what a symptom gets — a person (default) or the AI as a dentist first. */
+  clinicalMode?: "handoff" | "dentist";
   /**
    * How many numbered options the last booking message listed. The options themselves live in
    * the conversation document; the engine only needs to know whether "4" is a choice or noise.
@@ -206,9 +213,9 @@ const SILENT = (next: BotState, reason: string): BotDecision => ({ reply: "", ne
  * and let a knocked-out tooth through. Re-exported so callers keep one import.
  */
 export { needsHuman, triageMessage } from "./clinicalTriage";
-import { needsHuman } from "./clinicalTriage";
+import { needsHuman, triageMessage } from "./clinicalTriage";
 import { competitorReply, expensiveReply, offersExpiredReply, thinkingReply } from "./sales";
-import { quickIntent, type QuickIntent } from "./quickAnswers";
+import { looksLikeQuestion, quickIntent, type QuickIntent } from "./quickAnswers";
 
 /*
  * The voice.
@@ -494,6 +501,18 @@ export function decideBotReply(args: {
   // Checked before everything, including the menu: a patient in pain who happens to type "2"
   // is still a patient in pain.
   if (needsHuman(text)) {
+    /*
+     * Dentist mode: the clinic chose to have the AI answer a symptom the way a dentist at the
+     * desk would — ask what hurts and since when, reassure, then offer the earliest slot —
+     * instead of promising a call-back. Only ordinary symptoms qualify. The phrase list is the
+     * systemic and emergency material (diabetes, blood pressure, cannot swallow, after the
+     * anaesthetic) and stays with a person whatever the setting; and without the AI switched on
+     * there is nobody to answer as a dentist, so the promise of a person stands.
+     */
+    const dentist = ctx.clinicalMode === "dentist" && ctx.aiAvailable && triageMessage(text).reason !== "phrase";
+    if (dentist) {
+      return { reply: "", action: { type: "ai", question: text, clinical: true }, next: "awaiting_choice", handoff: false, reason: "clinical_ai" };
+    }
     return { reply: clinicalReplyText(ctx.clinicPhone), next: "handed_off", handoff: true, reason: "clinical" };
   }
 
@@ -554,7 +573,24 @@ export function decideBotReply(args: {
     return { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "asked_for_human" };
   }
 
-  if (state === "booking_name") {
+  /*
+   * A question in the middle of a form is still a question.
+   *
+   * The bot asked for a name and got "اسعار حشو العادى كام"; it listed dentists and got "قولي
+   * السعر الأول". Taking those as the answer to its own question registered a patient called
+   * "how much is a filling" and picked a dentist for someone who was asking a price. When the
+   * message asks something, the form is set aside and the question is answered — the sales
+   * model re-opens the booking itself once the patient is satisfied.
+   */
+  const INFO_INTENTS = new Set<QuickIntent>([
+    "price_list", "hours", "open_now", "location", "parking", "installments", "offers", "insurance",
+    "competitor", "expensive", "aftercare", "duration", "walk_in", "my_appointment",
+  ]);
+  // "بكرة ينفع؟" at the day list is a day pick with a question mark on it, not a change of subject.
+  const namesADay = state === "booking_day" && !!ctx.dayWord;
+  const asksSomething = !namesADay && (looksLikeQuestion(text) || (intent !== null && INFO_INTENTS.has(intent)));
+
+  if (state === "booking_name" && !asksSomething) {
     /*
      * The sender is answering "what is your name". Anything that looks like a name is one — this
      * is how the public booking page has always worked, and demanding more ceremony from a chat
@@ -568,7 +604,10 @@ export function decideBotReply(args: {
     return { reply: "", action: { type: "register", name, forRelative: ctx.forRelative === true }, next: "booking_day", handoff: false, reason: "registered" };
   }
 
-  const inBooking = state === "booking_doctor" || state === "booking_day" || state === "booking_time";
+  // Mid-booking means "answering a numbered list" — unless the message is a question, in which
+  // case the list is set aside and the question wins (see above).
+  const inBooking =
+    (state === "booking_doctor" || state === "booking_day" || state === "booking_time") && !asksSomething;
 
   // Mid-booking the digits own the conversation, but abandoning it is still allowed: relisting the
   // same days at someone who just said "cancel" is the loop that has no exit.
@@ -579,11 +618,18 @@ export function decideBotReply(args: {
   /*
    * Sales mode. Anything that is talk rather than an action goes to the model, before the
    * keyword answers — the clinic asked for a salesperson, not a menu with a model behind it.
-   * Actions stay deterministic (booking, cancelling, "my appointment"), digits still mean the
-   * menu, and "تمام" still confirms tomorrow's appointment instead of costing a credit.
+   * Actions stay deterministic (cancelling, "my appointment"), digits still mean the menu, and
+   * "تمام" still confirms tomorrow's appointment instead of costing a credit.
+   *
+   * Booking is deliberately NOT on that list. "عايز احجز" typed at a salesperson is the start of
+   * a conversation — what for, when, which dentist — and the model runs it, opening the day and
+   * time lists (open_booking) when it judges the moment right. A typed booking word used to
+   * jump straight to the lists, which is how a price question landed at the dentist step. A
+   * tapped "book" button and a typed digit still open the lists directly: those are the
+   * clinic's own buttons, and a tap is not talk.
    */
   if (!inBooking && ctx.aiFirst && ctx.aiAvailable && numberChoice(text) === null) {
-    const ACTIONS = new Set<QuickIntent>(["complaint", "cancel", "late", "reschedule", "my_appointment", "booking", "ack", "thanks"]);
+    const ACTIONS = new Set<QuickIntent>(["complaint", "cancel", "late", "reschedule", "my_appointment", "ack", "thanks"]);
     if (!intent || !ACTIONS.has(intent)) {
       return { reply: "", action: { type: "ai", question: text }, next: "awaiting_choice", handoff: false, reason: "ai" };
     }
@@ -610,6 +656,10 @@ export function decideBotReply(args: {
   // Mid-booking, the patient is answering a numbered list the caller stored. Zero always means
   // "back" — a patient who picked the wrong day must not need a human to undo it.
   if (inBooking) {
+    // A day named in words at the day list picks that day, exactly as its digit would have.
+    if (namesADay && ctx.dayWord) {
+      return { reply: "", action: { type: "list_times_date", dateKey: ctx.dayWord }, next: "booking_time", handoff: false, reason: "booking_times" };
+    }
     const n = numberChoice(text);
     if (n === 0) {
       if (state === "booking_time") {

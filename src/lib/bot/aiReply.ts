@@ -110,6 +110,24 @@ const HARD_RULES = [
   "- رد بنفس لغة المريض: لو كتب عربي رد بالعامية المصرية، لو كتب إنجليزي رد بإنجليزي بسيط، لو كتب فرانكو (عربي بحروف إنجليزية زي \"3ayez a7gez\") رد بالفرانكو بنفس الأسلوب.",
 ];
 
+/**
+ * What the AI does with a symptom when the clinic has switched dentist mode on.
+ *
+ * Written as the desk dentist would talk, not as a textbook: one question at a time, comfort
+ * that is safe for anyone, and the appointment as the answer — because it is. The red-flag
+ * list is the boundary the clinic drew and the model may not cross: those messages still reach
+ * a person with the emergency number, whatever the setting says.
+ */
+const DENTIST_RULES = [
+  "المريض ده بيشتكي من عرَض (وجع، ورم، حساسية، كسر، نزيف بسيط). اتعامل معاه زي طبيب الأسنان اللي واقف على الاستقبال — مش موظف بيوعد بمكالمة:",
+  "1) طمّنه بجملة قصيرة وخد الموضوع بجدية.",
+  "2) اسأل سؤال واحد بس عشان تفهم (فين بالظبط؟ بقاله قد إيه؟ فيه ورم أو سخونية؟ الوجع مع السخن/الساقع ولا لوحده؟). لو هو جاوب على سؤال قبل كده في المحادثة، متعيدوش.",
+  "3) نصايح عامة آمنة بس: مسكّن من الصيدلية حسب إرشاداتها، مضمضة بمية دافية وملح، ابعد عن السخن والساقع جداً، متحطش أسبرين على اللثة، ومفيش مضاد حيوي من غير كشف. ممنوع تشخّص، ممنوع تسمّي دوا بعينه أو جرعة، ممنوع تقول «ده عصب» أو «ده خراج».",
+  "4) الميعاد هو العلاج الحقيقي: من أول رد قول إن أحسن حاجة الدكتور يشوفه، وبعد ما يجاوب على سؤالك (أو لو قال «ماشي»، «تمام»، «طب إمتى»، «عايز أحجز») اختار open_booking واكتب في reply جملة قصيرة زي «تمام، هختارلك أقرب ميعاد متاح عشان الدكتور يشوفك 👇». متكتبش مواعيد بنفسك.",
+  "5) علامات الخطر → handoff_medical فوراً وبدون نصايح: نزيف مش بيقف، ورم في الوش أو الرقبة مع سخونية، صعوبة بلع أو تنفس، إصابة أو وقعة أو سنة اتخلعت من مكانها، وجع بعد بنج أو عملية النهاردة، مريض سكر أو ضغط أو حامل بتشتكي من ورم.",
+  "- الرد من جملتين لأربع جمل، دافي ومحترم، وبنفس لغة المريض.",
+];
+
 const ASSISTED_PERSONA = [
   (clinicName: string) => `انت موظف استقبال ودود في عيادة أسنان اسمها "${clinicName}" وبترد على واتساب العيادة بالعامية المصرية.`,
   "- الرد قصير: جملتين لتلاتة بالكتير.",
@@ -157,6 +175,12 @@ export async function answerWithAi(args: {
   playbook?: string;
   /** Whether the caller can actually open a booking if asked to. */
   canBook?: boolean;
+  /**
+   * The message is a symptom and the clinic chose dentist mode. The medical hand-off rule is
+   * replaced by the dentist's script: ask, reassure, then offer the earliest appointment. The
+   * emergency red flags still hand off.
+   */
+  clinical?: boolean;
 }): Promise<AiReplyResult> {
   const { clinicId, clinicName, question, patientName, hoursText, addressText, clinicPhone, facts, history } = args;
   const sales = args.mode === "sales";
@@ -223,10 +247,15 @@ export async function answerWithAi(args: {
   const knowledge = (args.knowledge || []).filter((k) => k.q?.trim() && k.a?.trim()).slice(0, 40);
   const playbook = args.playbook?.trim();
 
+  // Dentist mode swaps the one rule that sends every symptom to a person for the dentist's
+  // script; everything else — prices, facts, no invention — stays exactly as strict.
+  const rules = args.clinical ? HARD_RULES.filter((r) => !r.startsWith("- أي سؤال طبي")) : HARD_RULES;
+
   const system = [
     ...persona,
     "",
-    ...HARD_RULES,
+    ...rules,
+    ...(args.clinical ? ["", ...DENTIST_RULES] : []),
     ...(sales && args.canBook === false ? ["- الحجز مش متاح للرقم ده دلوقتي: متختارش open_booking، ولو المريض عايز يحجز اختار handoff_other."] : []),
     "",
     "معلومات العيادة:",

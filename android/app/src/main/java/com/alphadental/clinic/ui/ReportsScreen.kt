@@ -64,6 +64,9 @@ fun ReportsScreen(
     arabic: Boolean,
     onRange: (ReportRange) -> Unit,
     onClose: () -> Unit,
+    /** The last read failed; the summary is null when this is set. */
+    error: String? = null,
+    onRefresh: () -> Unit = {},
 ) {
     BackHandler { onClose() }
 
@@ -93,216 +96,225 @@ fun ReportsScreen(
                 }
             }
 
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp),
+            RefreshBox(
+                refreshing = loading && summary != null,
+                onRefresh = onRefresh,
+                modifier = Modifier.fillMaxSize(),
             ) {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(ReportRange.entries.toList()) { option ->
-                        FilterChip(
-                            selected = range == option,
-                            onClick = { onRange(option) },
-                            label = {
-                                Text(
-                                    rangeName(option, arabic),
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            },
-                            shape = Alpha.PillShape,
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Alpha.Ink,
-                                selectedLabelColor = Color.White,
-                            ),
-                        )
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp),
+                ) {
+                    error?.let {
+                        LoadErrorBanner(it, arabic, onRefresh, Modifier.padding(bottom = 10.dp))
                     }
-                }
-
-                Spacer(Modifier.height(14.dp))
-
-                when {
-                    loading -> Box(
-                        Modifier.fillMaxWidth().padding(vertical = 44.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(
-                            color = Alpha.Slate400,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(26.dp),
-                        )
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(ReportRange.entries.toList()) { option ->
+                            FilterChip(
+                                selected = range == option,
+                                onClick = { onRange(option) },
+                                label = {
+                                    Text(
+                                        rangeName(option, arabic),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                },
+                                shape = Alpha.PillShape,
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Alpha.Ink,
+                                    selectedLabelColor = Color.White,
+                                ),
+                            )
+                        }
                     }
 
-                    summary == null -> Text(
-                        if (arabic) "لا توجد بيانات في هذه الفترة." else "Nothing recorded in this period.",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Alpha.Slate400,
-                    )
+                    Spacer(Modifier.height(14.dp))
 
-                    else -> {
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            StatTile(
-                                value = "${summary.collected.toInt()}",
-                                caption = if (arabic) "تم تحصيله" else "Collected",
-                                tint = if (summary.collected > 0) Alpha.Green else Alpha.Slate900,
-                                modifier = Modifier.weight(1f),
-                            )
-                            StatTile(
-                                value = "${summary.charged.toInt()}",
-                                caption = if (arabic) "تمت فوترته" else "Charged",
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-
-                        Spacer(Modifier.height(10.dp))
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            StatTile(
-                                value = "${summary.payingPatients}",
-                                caption = if (arabic) "مريض دفع" else "Patients paid",
-                                modifier = Modifier.weight(1f),
-                            )
-                            StatTile(
-                                value = "${summary.expenses.toInt()}",
-                                caption = if (arabic) "مصروفات" else "Expenses",
-                                tint = if (summary.expenses > 0) Alpha.Danger else Alpha.Slate900,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-
-                        // Said in words rather than shown as a tile, because it is a difference
-                        // between two flows in one window and not a debt anyone owes — a patient
-                        // can pay in March for work charged in February.
-                        if (summary.gap > 0) {
-                            Spacer(Modifier.height(10.dp))
-                            Surface(
-                                shape = Alpha.CardShape,
-                                color = Alpha.WarnBg,
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text(
-                                    if (arabic)
-                                        "فُوتر ${summary.gap.toInt()} ج.م أكثر مما حُصّل في هذه الفترة. قد يكون بعضه دفعات قادمة."
-                                    else
-                                        "${summary.gap.toInt()} EGP more was billed than collected in this period. Some of it may simply be paid later.",
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Alpha.WarnText,
-                                    modifier = Modifier.padding(12.dp),
-                                )
-                            }
-                        }
-
-                        // The shape of the period: money in, day by day. Bars rather than
-                        // numbers, because the question here is "how were we trending",
-                        // and the exact figures already sit in the tiles above.
-                        if (summary.dailyCollected.size > 1) {
-                            Spacer(Modifier.height(18.dp))
-                            SectionHeading(if (arabic) "التحصيل يوماً بيوم" else "COLLECTED DAY BY DAY")
-                            Spacer(Modifier.height(8.dp))
-                            AlphaCard(modifier = Modifier.fillMaxWidth(), shape = Alpha.CardShape) {
-                                Column(Modifier.padding(14.dp)) {
-                                    TrendStrip(summary.dailyCollected)
-                                    Spacer(Modifier.height(6.dp))
-                                    Row {
-                                        Text(
-                                            shortDay(summary.dailyCollected.first().date, arabic),
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = Alpha.Slate400,
-                                            modifier = Modifier.weight(1f),
-                                        )
-                                        Text(
-                                            shortDay(summary.dailyCollected.last().date, arabic),
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = Alpha.Slate400,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        ReportList(
-                            title = if (arabic) "الأكثر دخلاً" else "TOP TREATMENTS",
-                            lines = summary.byService,
-                            emptyText = if (arabic) "لا توجد فواتير." else "Nothing billed.",
-                            arabic = arabic,
-                        )
-
-                        ReportList(
-                            title = if (arabic) "حسب الطبيب" else "BY DENTIST",
-                            lines = summary.byDoctor,
-                            emptyText = if (arabic)
-                                "لا توجد دفعات منسوبة لطبيب."
-                            else
-                                "No payments credited to a dentist.",
-                            arabic = arabic,
-                        )
-
-                        // Where patients come from — the marketing question. Counted from
-                        // patients REGISTERED in the period, grouped by the same referral field
-                        // the website's Sources report reads.
-                        Spacer(Modifier.height(18.dp))
-                        SectionHeading(if (arabic) "مرضى جدد ومصادرهم" else "NEW PATIENTS AND SOURCES")
-                        Spacer(Modifier.height(8.dp))
-                        StatTile(
-                            value = "$newPatients",
-                            caption = if (arabic) "مريض جديد في الفترة" else "New patients this period",
-                            tint = if (newPatients > 0) Alpha.Green else Alpha.Slate900,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        if (sources.isEmpty()) {
-                            Text(
-                                if (arabic) "لا يوجد مرضى جدد في هذه الفترة."
-                                else "No new patients in this period.",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
+                    when {
+                        loading && summary == null -> Box(
+                            Modifier.fillMaxWidth().padding(vertical = 44.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(
                                 color = Alpha.Slate400,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(26.dp),
                             )
-                        } else {
-                            val topSources = sources.take(10)
-                            val maxCount = topSources.maxOf { it.count }.coerceAtLeast(1)
-                            topSources.forEach { line ->
+                        }
+
+                        summary == null -> Text(
+                            if (arabic) "لا توجد بيانات في هذه الفترة." else "Nothing recorded in this period.",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Alpha.Slate400,
+                        )
+
+                        else -> {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                StatTile(
+                                    value = "${summary.collected.toInt()}",
+                                    caption = if (arabic) "تم تحصيله" else "Collected",
+                                    tint = if (summary.collected > 0) Alpha.Green else Alpha.Slate900,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                StatTile(
+                                    value = "${summary.charged.toInt()}",
+                                    caption = if (arabic) "تمت فوترته" else "Charged",
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+
+                            Spacer(Modifier.height(10.dp))
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                StatTile(
+                                    value = "${summary.payingPatients}",
+                                    caption = if (arabic) "مريض دفع" else "Patients paid",
+                                    modifier = Modifier.weight(1f),
+                                )
+                                StatTile(
+                                    value = "${summary.expenses.toInt()}",
+                                    caption = if (arabic) "مصروفات" else "Expenses",
+                                    tint = if (summary.expenses > 0) Alpha.Danger else Alpha.Slate900,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+
+                            // Said in words rather than shown as a tile, because it is a difference
+                            // between two flows in one window and not a debt anyone owes — a patient
+                            // can pay in March for work charged in February.
+                            if (summary.gap > 0) {
+                                Spacer(Modifier.height(10.dp))
                                 Surface(
                                     shape = Alpha.CardShape,
-                                    color = Alpha.Card,
-                                    modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                                    color = Alpha.WarnBg,
+                                    modifier = Modifier.fillMaxWidth(),
                                 ) {
-                                    Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        if (arabic)
+                                            "فُوتر ${summary.gap.toInt()} ج.م أكثر مما حُصّل في هذه الفترة. قد يكون بعضه دفعات قادمة."
+                                        else
+                                            "${summary.gap.toInt()} EGP more was billed than collected in this period. Some of it may simply be paid later.",
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Alpha.WarnText,
+                                        modifier = Modifier.padding(12.dp),
+                                    )
+                                }
+                            }
+
+                            // The shape of the period: money in, day by day. Bars rather than
+                            // numbers, because the question here is "how were we trending",
+                            // and the exact figures already sit in the tiles above.
+                            if (summary.dailyCollected.size > 1) {
+                                Spacer(Modifier.height(18.dp))
+                                SectionHeading(if (arabic) "التحصيل يوماً بيوم" else "COLLECTED DAY BY DAY")
+                                Spacer(Modifier.height(8.dp))
+                                AlphaCard(modifier = Modifier.fillMaxWidth(), shape = Alpha.CardShape) {
+                                    Column(Modifier.padding(14.dp)) {
+                                        TrendStrip(summary.dailyCollected)
+                                        Spacer(Modifier.height(6.dp))
+                                        Row {
                                             Text(
-                                                line.label,
-                                                fontSize = 13.5.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Alpha.Slate900,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
+                                                shortDay(summary.dailyCollected.first().date, arabic),
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = Alpha.Slate400,
                                                 modifier = Modifier.weight(1f),
                                             )
                                             Text(
-                                                "${line.count}",
-                                                fontSize = 14.sp,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                color = Alpha.Slate800,
+                                                shortDay(summary.dailyCollected.last().date, arabic),
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = Alpha.Slate400,
                                             )
                                         }
-                                        Spacer(Modifier.height(7.dp))
-                                        MiniBar(
-                                            fraction = line.count.toFloat() / maxCount,
-                                            color = Alpha.Mint,
-                                        )
+                                    }
+                                }
+                            }
+
+                            ReportList(
+                                title = if (arabic) "الأكثر دخلاً" else "TOP TREATMENTS",
+                                lines = summary.byService,
+                                emptyText = if (arabic) "لا توجد فواتير." else "Nothing billed.",
+                                arabic = arabic,
+                            )
+
+                            ReportList(
+                                title = if (arabic) "حسب الطبيب" else "BY DENTIST",
+                                lines = summary.byDoctor,
+                                emptyText = if (arabic)
+                                    "لا توجد دفعات منسوبة لطبيب."
+                                else
+                                    "No payments credited to a dentist.",
+                                arabic = arabic,
+                            )
+
+                            // Where patients come from — the marketing question. Counted from
+                            // patients REGISTERED in the period, grouped by the same referral field
+                            // the website's Sources report reads.
+                            Spacer(Modifier.height(18.dp))
+                            SectionHeading(if (arabic) "مرضى جدد ومصادرهم" else "NEW PATIENTS AND SOURCES")
+                            Spacer(Modifier.height(8.dp))
+                            StatTile(
+                                value = "$newPatients",
+                                caption = if (arabic) "مريض جديد في الفترة" else "New patients this period",
+                                tint = if (newPatients > 0) Alpha.Green else Alpha.Slate900,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            if (sources.isEmpty()) {
+                                Text(
+                                    if (arabic) "لا يوجد مرضى جدد في هذه الفترة."
+                                    else "No new patients in this period.",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Alpha.Slate400,
+                                )
+                            } else {
+                                val topSources = sources.take(10)
+                                val maxCount = topSources.maxOf { it.count }.coerceAtLeast(1)
+                                topSources.forEach { line ->
+                                    Surface(
+                                        shape = Alpha.CardShape,
+                                        color = Alpha.Card,
+                                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                                    ) {
+                                        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    line.label,
+                                                    fontSize = 13.5.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Alpha.Slate900,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f),
+                                                )
+                                                Text(
+                                                    "${line.count}",
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = Alpha.Slate800,
+                                                )
+                                            }
+                                            Spacer(Modifier.height(7.dp))
+                                            MiniBar(
+                                                fraction = line.count.toFloat() / maxCount,
+                                                color = Alpha.Mint,
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
 
-                Spacer(Modifier.height(24.dp))
+                    Spacer(Modifier.height(24.dp))
+                }
             }
         }
     }

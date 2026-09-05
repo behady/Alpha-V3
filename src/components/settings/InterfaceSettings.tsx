@@ -28,6 +28,7 @@ import {
   Calendar,
   CalendarDays,
   CalendarOff,
+  Landmark,
   LayoutDashboard,
   LayoutList,
   ListOrdered,
@@ -255,17 +256,21 @@ export default function InterfaceSettings() {
         </div>
       </div>
 
-      {isAdmin && alsoDentist && (
+      {/* Every admin can choose the owner's view over the desk; the chair is offered only to an
+          admin whose team row says they also treat. A stored "chair" for someone no longer a
+          dentist falls back to the first choice rather than showing a dead option. */}
+      {isAdmin && (
         <Group title={txt.groupHome}>
           <PreferenceRow
-            icon={Armchair}
+            icon={Landmark}
             label={txt.homeLabel}
             description={txt.homeDesc}
-            value={homeView}
+            value={homeView === "chair" && !alsoDentist ? "desk" : homeView}
             onChange={setHomeView}
             choices={[
               { value: "desk", label: txt.homeDesk, icon: LayoutDashboard, hint: txt.homeDeskHint },
-              { value: "chair", label: txt.homeChair, icon: Armchair, hint: txt.homeChairHint },
+              { value: "owner", label: txt.homeOwner, icon: Landmark, hint: txt.homeOwnerHint },
+              ...(alsoDentist ? [{ value: "chair" as const, label: txt.homeChair, icon: Armchair, hint: txt.homeChairHint }] : []),
             ]}
           />
         </Group>

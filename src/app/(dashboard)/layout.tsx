@@ -35,12 +35,19 @@ const cairo = Cairo({ subsets: ["arabic"] });
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isFullHeightPage = pathname === "/appointments" || pathname === "/";
   const router = useRouter();
   const { t, toggleLanguage, language, isRTL } = useLanguage();
   const { user, loading: authLoading } = useAuth();
-  const { clinicId, clinic, isAdmin, isReadOnly, readOnlyReason } = useClinic();
-  const { appointmentsVisibility } = useUI();
+  const { clinicId, clinic, role, isAdmin, isReadOnly, readOnlyReason } = useClinic();
+  const { appointmentsVisibility, homeView } = useUI();
+  /**
+   * Two pages are locked to the viewport height and manage their own scrolling: the calendar and
+   * the reception dashboard, both height-constrained flex layouts. The dentist's home lives at the
+   * same URL as the desk but is an ordinary page that grows with its content — lock it and a
+   * tablet in landscape (wide enough for the desktop rule) simply cannot scroll to the report.
+   */
+  const ownHome = role === "Dentist" || homeView === "chair" || (homeView === "owner" && isAdmin);
+  const isFullHeightPage = pathname === "/appointments" || (pathname === "/" && !ownHome);
   // Unopened patient WhatsApp messages, for the count on the WhatsApp icon in both navs.
   const unreadChats = useUnreadChatCount();
   // And the chime + desktop notification when a new one arrives, on whichever page is open.

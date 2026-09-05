@@ -54,6 +54,9 @@ fun InventorySheet(
     arabic: Boolean,
     onAdjust: (InventoryItem, Double) -> Unit,
     onDismiss: () -> Unit,
+    /** The last read failed. A bottom sheet has no pull to refresh, so the banner carries Retry. */
+    error: String? = null,
+    onRetry: () -> Unit = {},
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val low = lowStockCount(items)
@@ -90,8 +93,12 @@ fun InventorySheet(
 
             Spacer(Modifier.height(16.dp))
 
+            error?.let {
+                LoadErrorBanner(it, arabic, onRetry, Modifier.padding(bottom = 10.dp))
+            }
+
             when {
-                loading -> Box(
+                loading && items.isEmpty() -> Box(
                     Modifier.fillMaxWidth().padding(vertical = 40.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -99,7 +106,7 @@ fun InventorySheet(
                 }
 
                 items.isEmpty() -> Text(
-                    if (arabic) "لا توجد أصناف في المخزون." else "No stock items yet.",
+                    if (error != null) "" else if (arabic) "لا توجد أصناف في المخزون." else "No stock items yet.",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     color = Alpha.Slate400,

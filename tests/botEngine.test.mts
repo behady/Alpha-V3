@@ -275,6 +275,62 @@ assert.equal(decideBotReply({ state: "awaiting_choice", text: "بتركبوا ت
 assert.equal(decideBotReply({ state: "reprompted", text: "طب وبعدين", ctx }).reason, "gave_up");
 
 // Mid-booking lists still relist rather than burning credits on a mistyped digit.
-assert.equal(decideBotReply({ state: "booking_day", text: "بكرة ينفع؟", ctx: { ...aiCtx, optionCount: 4 } }).action?.type, "relist");
+assert.equal(decideBotReply({ state: "booking_day", text: "33", ctx: { ...aiCtx, optionCount: 4 } }).action?.type, "relist");
+// A day named in words at the day list is a pick, question mark or not.
+assert.equal(decideBotReply({ state: "booking_day", text: "بكرة ينفع؟", ctx: { ...aiCtx, optionCount: 4, dayWord: "2026-09-06" } }).action?.type, "list_times_date");
 
 console.log("✓ ai fallback: last in line, never above the refusals, and the old ladder stands when it cannot run");
+
+// ================================================================================================
+// Dentist mode: a symptom becomes a conversation with the AI, then a booking — unless it is the
+// kind of message that must reach a person whatever the setting, or there is no AI to answer.
+// ================================================================================================
+const dentistCtx: BotContext = { ...ctx, aiAvailable: true, clinicalMode: "dentist" };
+const pain = decideBotReply({ state: "awaiting_choice", text: "ضرسي بيوجعني من امبارح", ctx: dentistCtx });
+assert.equal(pain.action?.type, "ai", "an ordinary symptom goes to the AI in dentist mode");
+assert.equal((pain.action as any).clinical, true, "and the AI is told it is a symptom");
+assert.equal(pain.handoff, false, "with no hand-off promise made");
+
+const diabetic = decideBotReply({ state: "awaiting_choice", text: "عندي سكر وضرسي وارم", ctx: dentistCtx });
+assert.equal(diabetic.reason, "clinical", "a systemic condition still reaches a person in dentist mode");
+assert.equal(diabetic.handoff, true);
+
+const noAi = decideBotReply({ state: "awaiting_choice", text: "ضرسي بيوجعني", ctx: { ...ctx, clinicalMode: "dentist", aiAvailable: false } });
+assert.equal(noAi.reason, "clinical", "without the AI there is no dentist to answer, so the person is promised");
+
+const defaultMode = decideBotReply({ state: "awaiting_choice", text: "ضرسي بيوجعني", ctx: { ...ctx, aiAvailable: true } });
+assert.equal(defaultMode.reason, "clinical", "the cautious default is unchanged");
+
+console.log("✓ dentist mode: symptoms go to the AI, emergencies and systemic conditions still go to a person");
+
+// ================================================================================================
+// A question in the middle of a form is still a question: the form is set aside, not fed the
+// question as its answer. One patient was registered under the name "how much is a filling".
+// ================================================================================================
+const priceAsName = decideBotReply({ state: "booking_name", text: "اسعار حشو العادى كام", ctx: aiCtx });
+assert.notEqual(priceAsName.action?.type, "register", "a price question is not a name");
+assert.equal(priceAsName.action?.type, "ai", "it is answered as the question it is");
+
+const realName = decideBotReply({ state: "booking_name", text: "احمد محمد علي", ctx: aiCtx });
+assert.equal(realName.action?.type, "register", "a real name still registers");
+
+const priceMidDoctors = decideBotReply({ state: "booking_doctor", text: "يا عم قولى السعر الاول", ctx: { ...aiCtx, optionCount: 4 } });
+assert.notEqual(priceMidDoctors.action?.type, "relist", "a price question at the dentist step is not a mis-typed digit");
+assert.notEqual(priceMidDoctors.action?.type, "list_days_doctor_index", "and never picks a dentist");
+
+const digitMidDoctors = decideBotReply({ state: "booking_doctor", text: "2", ctx: { ...aiCtx, optionCount: 4 } });
+assert.equal(digitMidDoctors.action?.type, "list_days_doctor_index", "a digit at the dentist step still picks");
+
+console.log("✓ questions mid-form: answered, never registered as a name or read as a pick");
+
+// ================================================================================================
+// Sales mode: a typed booking request is a conversation the model runs; only its open_booking,
+// a tapped button or a digit opens the lists.
+// ================================================================================================
+const salesCtx: BotContext = { ...aiCtx, aiFirst: true };
+assert.equal(decideBotReply({ state: "awaiting_choice", text: "عايز احجز", ctx: salesCtx }).action?.type, "ai", "typed booking words go to the model in sales mode");
+assert.equal(decideBotReply({ state: "awaiting_choice", text: "m1", ctx: salesCtx }).action?.type, "list_days", "the book button still opens the lists");
+assert.equal(decideBotReply({ state: "awaiting_choice", text: "1", ctx: salesCtx }).action?.type, "list_days", "and so does its digit");
+assert.equal(decideBotReply({ state: "awaiting_choice", text: "عايز الغي الميعاد", ctx: salesCtx }).reason, "cancel_request", "cancelling stays deterministic");
+
+console.log("✓ sales mode: booking opens only from the model, a button, or a digit");

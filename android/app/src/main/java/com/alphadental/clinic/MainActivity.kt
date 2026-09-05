@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BarChart
@@ -85,6 +86,7 @@ import com.alphadental.clinic.ui.AlphaTheme
 import com.alphadental.clinic.ui.AppearanceScreen
 import com.alphadental.clinic.ui.AddLeadSheet
 import com.alphadental.clinic.ui.AddNoteSheet
+import com.alphadental.clinic.ui.ChatsScreen
 import com.alphadental.clinic.ui.LeadsScreen
 import com.alphadental.clinic.ui.ClockCard
 import com.alphadental.clinic.ui.AppointmentSheet
@@ -127,6 +129,7 @@ class MainActivity : ComponentActivity() {
             screen = intent.getStringExtra("screen"),
             appointmentId = intent.getStringExtra("appointmentId"),
             patientId = intent.getStringExtra("patientId"),
+            chatId = intent.getStringExtra("chatId"),
         )
         if (target.isEmpty) return
         com.alphadental.clinic.push.PushNav.requested.value = target
@@ -135,6 +138,7 @@ class MainActivity : ComponentActivity() {
         intent.removeExtra("screen")
         intent.removeExtra("appointmentId")
         intent.removeExtra("patientId")
+        intent.removeExtra("chatId")
     }
 
     override fun onNewIntent(intent: android.content.Intent) {
@@ -298,6 +302,10 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         // lives on: "Dina booked 09:00" should open Dina's booking, not
                         // drop you on a day list to find her yourself.
                         when {
+                            // A hand-off is about a conversation: land on it, not on the
+                            // patient's file with the chat still to be found. Roles that may
+                            // not read the clinic's WhatsApp fall through to the record.
+                            target.chatId != null && viewModel.canSeeChats(session) -> viewModel.openChat(target.chatId)
                             target.appointmentId != null -> viewModel.openAppointmentById(target.appointmentId)
                             target.patientId != null -> viewModel.openPatient(target.patientId)
                             else -> when (target.screen) {
@@ -305,6 +313,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                                 "money" -> if (session.can("access.finance")) viewModel.selectTab(Tab.MONEY)
                                 "leads" -> if (session.can("access.marketing")) viewModel.openLeads()
                                 "patients" -> viewModel.selectTab(Tab.PATIENTS)
+                                "chats" -> if (viewModel.canSeeChats(session)) viewModel.openChats()
                                 "inventory" -> viewModel.openInventory()
                                 // The website has screens this app does not. Landing on
                                 // the day is a better answer than a tap that does nothing.
@@ -368,9 +377,15 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                                 onOpenOrtho = viewModel::openOrtho,
                                 onOpenInventory = viewModel::openInventory,
                                 onOpenWhatsappQueue = viewModel::openWhatsappQueue,
+                                chatsWaiting = state.chatsWaiting,
+                                onOpenChats = if (viewModel.canSeeChats(session)) {
+                                    { viewModel.openChats() }
+                                } else null,
                                 onOpenAssistant = { viewModel.openAssistant(context) },
                                 briefing = state.briefing,
                                 onOpenBriefing = viewModel::openBriefing,
+                                refreshing = state.homeRefreshing,
+                                onRefresh = viewModel::refreshHome,
                                 onOpenLeads = if (session.can("access.marketing")) {
                                     { viewModel.openLeads() }
                                 } else null,
@@ -400,6 +415,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             onSearch = viewModel::searchPatientsTab,
                             onLoadMore = viewModel::loadMorePatients,
                             onOpenPatient = { viewModel.openPatient(it.id) },
+                            error = state.patientsError,
+                            onRefresh = viewModel::refreshPatients,
                         )
 
                         Tab.MONEY -> MoneyScreen(
@@ -416,6 +433,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             onSetView = viewModel::setFinanceView,
                             onShift = viewModel::shiftFinance,
                             onToday = viewModel::financeToday,
+                            error = state.financeError,
+                            onRefresh = viewModel::loadFinance,
                             onAdd = viewModel::openFinanceAdd,
                             onDelete = viewModel::deleteFinanceEntry,
                             onOpenRow = { row ->
@@ -454,6 +473,11 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             onOpenInventory = viewModel::openInventory,
                             whatsappWaiting = state.whatsappQueue.size,
                             onOpenWhatsappQueue = viewModel::openWhatsappQueue,
+                            chatsWaiting = state.chatsWaiting,
+                            // The same key the website's Chats page is gated on.
+                            onOpenChats = if (viewModel.canSeeChats(session)) {
+                                { viewModel.openChats() }
+                            } else null,
                             // Owners and reception only. A dentist seeing the clinic's whole
                             // takings is a different conversation from them seeing their own.
                             onOpenReports = if (session.can("access.reports")) {
@@ -544,11 +568,44 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                 )
             }
 
+            // The clinic's WhatsApp: the threads the server keeps, read and answered here.
+            // Before the patient file on purpose: later in this list draws on top, and a file
+            // opened from a thread has to sit over it, not under it.
+            if (state.chatsOpen) {
+                ChatsScreen(
+                    chats = state.chats,
+                    loaded = state.chatsLoaded,
+                    openChatId = state.openChatId,
+                    lines = state.chatLines,
+                    linesLoading = state.chatLinesLoading,
+                    sending = state.chatSending,
+                    error = state.chatError,
+                    notice = state.chatNotice,
+                    claimMs = state.chatClaimMs,
+                    myUid = session.uid,
+                    arabic = state.arabic,
+                    onOpenChat = viewModel::openChat,
+                    onCloseChat = viewModel::closeChat,
+                    onSend = viewModel::sendChatReply,
+                    onSendFollowup = viewModel::sendChatFollowup,
+                    onToggleBot = viewModel::toggleChatBot,
+                    onToggleAssign = viewModel::toggleChatAssign,
+                    onSetArchived = viewModel::setChatArchived,
+                    onDismissNotice = viewModel::dismissChatNotice,
+                    // The file opens over the thread; closing it lands back on the chat.
+                    onOpenPatient = { id -> viewModel.openPatient(id) },
+                    onClose = viewModel::closeChats,
+                )
+            }
+
             if (state.openPatientId != null) {
                 PatientScreen(
                     file = state.patientFile,
                     loading = state.patientLoading,
                     error = state.patientError,
+                    onRetry = viewModel::retryPatient,
+                    refreshing = state.patientRefreshing,
+                    onRefresh = viewModel::refreshPatient,
                     arabic = state.arabic,
                     media = state.patientMedia,
                     ortho = state.patientOrtho,
@@ -651,6 +708,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                 LeadsScreen(
                     leads = state.leads,
                     loading = state.loadingLeads,
+                    error = state.leadsError,
+                    onRefresh = viewModel::refreshLeads,
                     arabic = state.arabic,
                     onSetStage = viewModel::setLeadStage,
                     // Creating a patient file, so the same roles the register lets
@@ -720,6 +779,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     cases = state.orthoCases,
                     openCase = state.orthoCase,
                     loading = state.loadingOrtho,
+                    error = state.orthoError,
+                    onRefresh = viewModel::refreshOrtho,
                     saving = state.savingOrtho,
                     canEdit = session.can("clinical.edit"),
                     arabic = state.arabic,
@@ -744,6 +805,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     sources = state.reportSources,
                     newPatients = state.reportNewPatients,
                     loading = state.loadingReport,
+                    error = state.reportError,
+                    onRefresh = viewModel::refreshReport,
                     arabic = state.arabic,
                     onRange = viewModel::setReportRange,
                     onClose = viewModel::closeReports,
@@ -763,6 +826,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                 InventorySheet(
                     items = state.inventory,
                     loading = state.loadingInventory,
+                    error = state.inventoryError,
+                    onRetry = viewModel::refreshInventory,
                     canEdit = session.can("appointments.edit"),
                     arabic = state.arabic,
                     onAdjust = viewModel::adjustStock,
@@ -949,6 +1014,9 @@ private fun MoreScreen(
     onOpenInventory: () -> Unit,
     whatsappWaiting: Int,
     onOpenWhatsappQueue: () -> Unit,
+    /** Threads waiting for a person. Null opener for roles that may not read the clinic's WhatsApp. */
+    chatsWaiting: Int,
+    onOpenChats: (() -> Unit)?,
     /** Null for roles that may not see the clinic's takings. */
     onOpenReports: (() -> Unit)?,
     /** Null for roles that do not work the CRM inbox. */
@@ -1083,8 +1151,11 @@ private fun MoreScreen(
             onOpenLeads?.let { ToolSpec(Icons.Filled.PersonSearch, if (arabic) "عملاء" else "Leads", onClick = it) },
             ToolSpec(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", onClick = onOpenAssistant),
             ToolSpec(Icons.Filled.Timeline, if (arabic) "التقويم" else "Ortho", onClick = onOpenOrtho),
+            onOpenChats?.let {
+                ToolSpec(Icons.AutoMirrored.Filled.Chat, if (arabic) "المحادثات" else "Chats", badge = chatsWaiting, onClick = it)
+            },
             ToolSpec(
-                Icons.Filled.Send, if (arabic) "واتساب" else "WhatsApp",
+                Icons.Filled.Send, if (arabic) "قائمة الإرسال" else "Send list",
                 badge = whatsappWaiting, onClick = onOpenWhatsappQueue,
             ),
             onOpenReports?.let { ToolSpec(Icons.Filled.BarChart, if (arabic) "التقارير" else "Reports", onClick = it) },
