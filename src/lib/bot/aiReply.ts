@@ -266,8 +266,12 @@ export async function answerWithAi(args: {
         },
         // Arabic is token-hungry and the reply travels inside JSON; 1500 leaves margin, and the
         // hard length guard on `reply` below caps what a rambling answer can cost regardless.
-        maxOutputTokens: 1500,
-        temperature: sales ? 0.5 : 0.3,
+        // Gemini 2.5 counts its own thinking against this budget: at 1500 a reply was cut off
+        // mid-word ("Unterminated string in JSON") after ~250 characters. Thinking is switched
+        // off — a receptionist's reply needs no scratchpad — and the ceiling raised regardless.
+        maxOutputTokens: 4096,
+        temperature: sales ? 0.35 : 0.3,
+        ...({ thinkingConfig: { thinkingBudget: 0 } } as Record<string, unknown>),
       },
     });
 
@@ -300,8 +304,45 @@ export async function answerWithAi(args: {
     while (contents.length && contents[0].role !== "user") contents.shift();
     if (!contents.length) contents.push({ role: "user" as const, parts: [{ text: question }] });
 
-    const result = await withTimeout(model.generateContent({ contents }), TIMEOUT_MS);
-    const raw = result.response.text();
+    /*
+     * Every number the model may say. The price list, the clinic's facts, the coaching notes
+     * and the hours are the only sources of figures in the prompt, so a figure in the reply that
+     * appears in none of them was made up — the live probe quoted braces at 12,000 against a list
+     * that says 15,000. One corrective retry, then a person.
+     */
+    const allowedNumbers = new Set<string>();
+    for (const src of [priceLines, factLines(facts), coaching || "", playbook || "", hoursText || "", ...knowledge.map((k) => k.a)]) {
+      for (const m of src.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)).matchAll(/\d[\d,]*/g)) allowedNumbers.add(m[0].replace(/,/g, ""));
+    }
+    const strayNumbers = (reply: string): string[] =>
+      [...reply.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)).matchAll(/\d[\d,]*/g)]
+        .map((m) => m[0].replace(/,/g, ""))
+        .filter((n) => Number(n) >= 50 && !allowedNumbers.has(n));
+
+    let raw = "";
+    let parsed: { action?: string; reply?: string; interest?: string } = {};
+    let strays: string[] = [];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = await withTimeout(model.generateContent({ contents }), TIMEOUT_MS);
+      raw = result.response.text();
+      try {
+        parsed = JSON.parse(raw) as typeof parsed;
+      } catch {
+        // A cut-off or malformed JSON: one more try before the fallback ladder.
+        parsed = {};
+        if (attempt === 0) continue;
+        throw new Error("ai_bad_json");
+      }
+      strays = parsed.action === "answer" || parsed.action === "open_booking" ? strayNumbers(String(parsed.reply || "")) : [];
+      if (!strays.length) break;
+      if (attempt === 0) {
+        contents.push({ role: "model" as const, parts: [{ text: raw }] });
+        contents.push({
+          role: "user" as const,
+          parts: [{ text: `(ملاحظة من النظام: الأرقام دي مش موجودة في قايمة الأسعار ولا في معلومات العيادة: ${strays.join("، ")}. أعد نفس الرد بالأرقام الصحيحة من القايمة فقط، ولو الرقم مش موجود متذكرش رقم خالص.)` }],
+        });
+      }
+    }
 
     // The flight recorder: one small doc per call, read only by debugging sessions.
     await adminClinicCollection(clinicId, "ai_debug")
@@ -317,7 +358,14 @@ export async function answerWithAi(args: {
       })
       .catch(() => {});
 
-    const parsed = JSON.parse(raw) as { action?: string; reply?: string; interest?: string };
+    if (strays.length) {
+      // Twice wrong: the safe answer is a person, and the flight recorder says why.
+      await adminClinicCollection(clinicId, "ai_debug")
+        .doc(new Date().toISOString().replace(/[:.]/g, "-") + "-stray")
+        .set({ question: question.slice(0, 300), strayNumbers: strays, raw: raw.slice(0, 1000), createdAt: FieldValue.serverTimestamp() })
+        .catch(() => {});
+      return { kind: "handoff", topic: "other" };
+    }
 
     if (parsed.action === "handoff_medical") return { kind: "handoff", topic: "medical" };
     if (parsed.action === "handoff_complaint") return { kind: "handoff", topic: "complaint" };
