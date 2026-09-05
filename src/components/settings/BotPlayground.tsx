@@ -66,12 +66,13 @@ export default function BotPlayground() {
     return json as { status: string; text?: string; reason?: string; structure?: Structure };
   };
 
-  const send = async (t: string) => {
+  // A tapped chip sends its id (what WhatsApp would send) but shows its label (what the patient saw).
+  const send = async (t: string, label?: string) => {
     const line = t.trim();
     if (!line || busy) return;
     setText("");
     setError(null);
-    setMsgs((m) => [...m, { role: "me", text: line }]);
+    setMsgs((m) => [...m, { role: "me", text: label || line }]);
     setBusy(true);
     try {
       const out = await call({ text: line });
@@ -153,7 +154,7 @@ export default function BotPlayground() {
                       key={c.id}
                       type="button"
                       disabled={busy}
-                      onClick={() => void send(c.id)}
+                      onClick={() => void send(c.id, c.title)}
                       className="px-3 py-1 rounded-full border border-line bg-surface text-xs font-bold text-ink-body hover:bg-surface-muted disabled:opacity-50"
                     >
                       {c.title}
