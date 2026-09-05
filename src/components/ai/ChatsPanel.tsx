@@ -884,20 +884,26 @@ function Bubble({ line, isAr }: { line: ThreadLine; isAr: boolean }) {
           </p>
         )}
         {line.mediaUrl && <MediaView line={line} isAr={isAr} />}
-        {!placeholderOnly && (
-          <p className="text-[14.5px] whitespace-pre-wrap break-words leading-[1.35]" dir="auto">
+        {/*
+          The time floats at the end of the last line, WhatsApp's own trick: when the line has
+          room it sits beside the words, and when it does not it drops beneath them. It was
+          pinned to the corner before, and pinned means it sat on top of whatever the last line
+          held — Arabic text ends on the other side from where the pin was.
+        */}
+        {!placeholderOnly ? (
+          <p className="text-[14.5px] whitespace-pre-wrap break-words leading-[1.35] flow-root" dir="auto">
             {line.text}
-            {/* Reserve room for the time so the last line never runs under it. */}
-            <span className="inline-block w-[64px]" aria-hidden />
+            <span className="float-end ms-2 mt-1.5 inline-flex items-center gap-1 text-[11px] leading-none" style={{ color: WA.muted }}>
+              {bubbleTime(line.at, isAr)}
+              {mine && <Ticks status={line.status} />}
+            </span>
           </p>
+        ) : (
+          <div className="flex justify-end items-center gap-1 text-[11px] mt-0.5" style={{ color: WA.muted }}>
+            {bubbleTime(line.at, isAr)}
+            {mine && <Ticks status={line.status} />}
+          </div>
         )}
-        <span
-          className="absolute bottom-1 end-2 flex items-center gap-1 text-[11px]"
-          style={{ color: WA.muted }}
-        >
-          {bubbleTime(line.at, isAr)}
-          {mine && <Ticks status={line.status} />}
-        </span>
         {failed && (
           <p className="text-[11px] font-bold mt-1 pt-1 border-t border-black/10" style={{ color: "#c0392b" }}>
             {isAr ? "موصلتش: " : "Not delivered: "}
