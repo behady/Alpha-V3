@@ -17,6 +17,7 @@ import {
   ChevronDown,
   ChevronUp,
   FileText,
+  FlaskConical,
   Hand,
   Info,
   Loader2,
@@ -24,6 +25,7 @@ import {
   MessageSquareText,
   MoreVertical,
   Paperclip,
+  RotateCcw,
   Search,
   Send,
   UserCheck,
@@ -103,6 +105,17 @@ interface ChatRow {
    * sent, at which point the server writes the real row and this one is replaced by it.
    */
   isDraft?: boolean;
+  /**
+   * The signed-in person's own rehearsal with the bot (play_<uid>). Pinned at the top of the
+   * list, named rather than numbered, and answered by the engine in dry-run — nothing it says
+   * ever reaches WhatsApp. This is where the bot is trained before a patient meets it.
+   */
+  isPlayground?: boolean;
+}
+
+/** Mirrors playgroundChatId on the server: the one play_ row that belongs to this person. */
+function playgroundIdFor(uid: string): string {
+  return `play_${uid.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 40)}`;
 }
 
 interface DirectoryPatient {
@@ -296,7 +309,13 @@ export default function ChatsPanel({
       getClinicCollection("whatsapp_conversations"),
       (snap) => {
         // Staff rehearsals in Settings live in this collection too (play_<uid>); not chats.
-        setChats(snap.docs.filter((d) => !d.id.startsWith("play_")).map((d) => ({ id: d.id, ...d.data() } as ChatRow)));
+        // Only your own rehearsal is yours to see; colleagues' play_ rows are theirs.
+        const mine = playgroundIdFor(user.uid);
+        setChats(
+          snap.docs
+            .filter((d) => !d.id.startsWith("play_") || d.id === mine)
+            .map((d) => ({ id: d.id, ...d.data(), ...(d.id === mine ? { isPlayground: true } : {}) } as ChatRow))
+        );
         setLoading(false);
       },
       (e) => {
@@ -307,9 +326,16 @@ export default function ChatsPanel({
     return () => unsub();
   }, [user]);
 
+  // The rehearsal row exists even before the first message, so the entry point is always there.
+  const playRow = useMemo<ChatRow>(
+    () => chats.find((c) => c.isPlayground) || { id: playgroundIdFor(myUid), isPlayground: true },
+    [chats, myUid]
+  );
+
   const visible = useMemo(() => {
     const needle = search.trim().toLowerCase().replace(/\s+/g, "");
-    return chats
+    const rows = chats
+      .filter((c) => !c.isPlayground)
       .filter((c) => lastActivity(c) > 0)
       // Archived chats live behind their own chip and nowhere else.
       .filter((c) => (filter === "archived" ? c.archived === true : c.archived !== true))
@@ -330,10 +356,15 @@ export default function ChatsPanel({
         return hay.includes(needle);
       })
       .sort((a, b) => lastActivity(b) - lastActivity(a));
-  }, [chats, filter, search, myUid]);
+    // Pinned first on the plain list; it is not a patient, so no filter or search finds it.
+    return filter === "all" && !needle && myUid ? [playRow, ...rows] : rows;
+  }, [chats, filter, search, myUid, playRow]);
 
   // The real row wins the moment it exists: the first send creates it, and the draft retires.
-  const selected = chats.find((c) => c.id === selectedId) || (draft && draft.id === selectedId ? draft : null);
+  const selected =
+    chats.find((c) => c.id === selectedId) ||
+    (playRow.id === selectedId ? playRow : null) ||
+    (draft && draft.id === selectedId ? draft : null);
   const needsCount = chats.filter((c) => c.needsHuman === true).length;
   const mineCount = user?.uid ? chats.filter((c) => c.assignedTo === user.uid).length : 0;
   const unreadCount = chats.reduce((n, c) => n + (c.unreadCount || 0), 0);
@@ -462,7 +493,7 @@ export default function ChatsPanel({
               const active = c.id === selectedId;
               const unread = (c.unreadCount || 0) > 0;
               const urgent = c.needsHuman && c.severity === "urgent";
-              const title = c.patientName || c.phone || c.id;
+              const title = c.isPlayground ? (isAr ? "جرّب البوت" : "Test the bot") : c.patientName || c.phone || c.id;
               return (
                 <button
                   key={c.id}
@@ -472,9 +503,9 @@ export default function ChatsPanel({
                 >
                   <span
                     className="w-12 h-12 rounded-full flex items-center justify-center shrink-0 text-sm font-black text-white"
-                    style={{ background: urgent ? "#e35d5d" : avatarTone(c.id) }}
+                    style={{ background: c.isPlayground ? "#7c5cff" : urgent ? "#e35d5d" : avatarTone(c.id) }}
                   >
-                    {urgent ? <AlertTriangle size={18} /> : initials(c.patientName || "") || <UserRound size={20} />}
+                    {c.isPlayground ? <FlaskConical size={20} /> : urgent ? <AlertTriangle size={18} /> : initials(c.patientName || "") || <UserRound size={20} />}
                   </span>
                   <div className="min-w-0 flex-1 border-b border-line/70 pb-2.5 -mb-2.5">
                     <div className="flex items-baseline gap-2">
@@ -498,7 +529,11 @@ export default function ChatsPanel({
                         style={{ color: unread ? WA.text : WA.muted, fontWeight: unread ? 600 : 400 }}
                         dir="auto"
                       >
-                        {previewText(c.lastText || "", isAr)}
+                        {c.isPlayground && !c.lastText
+                          ? isAr
+                            ? "اكتب زي ما المريض بيكتب وشوف البوت هيرد إزاي"
+                            : "Write like a patient would and see how the bot answers"
+                          : previewText(c.lastText || "", isAr)}
                       </span>
                       {/* The first tag, as a colour the eye can scan the list by. */}
                       {c.tags && c.tags.length > 0 && (
@@ -739,12 +774,24 @@ function Thread({
     : !!chat.lastInboundAt && Date.now() - chat.lastInboundAt > REPLY_WINDOW_MS;
   // Meta drops out-of-window text silently; the unofficial gateway does not. Block only where it
   // would silently fail — a disabled box the receptionist can see beats a "sent" that never lands.
-  const blocked = isLid || (windowClosed && officialChannel) || chat.optedOut === true;
+  const blocked = !chat.isPlayground && (isLid || (windowClosed && officialChannel) || chat.optedOut === true);
   const humanHold = chat.botPaused === true || (chat.humanActiveAtMs || 0) > Date.now() - HUMAN_CLAIM_MS;
-  const handling = chat.botPaused === true || chat.needsHuman === true || humanHold;
+  const handling = !chat.isPlayground && (chat.botPaused === true || chat.needsHuman === true || humanHold);
 
   const post = async (payload: Record<string, unknown>) => {
     const idToken = await auth.currentUser?.getIdToken();
+    // A rehearsal goes to the engine directly, in dry-run: same brain, same settings, same
+    // credits — and no WhatsApp send at the end of it.
+    if (chat.isPlayground) {
+      const r = await fetch("/api/admin/bot-playground", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
+        body: JSON.stringify({ clinicId: getGlobalClinicId(), ...payload }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d?.ok === false) throw new Error(d?.error || "Failed");
+      return;
+    }
     const res = await fetch("/api/whatsapp/reply", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
@@ -763,7 +810,7 @@ function Thread({
     if (!res.ok || data?.ok === false) throw new Error(data?.error || "Send failed");
     // Answering claims the thread, when nobody has it yet: the person who replied is the person
     // handling it, and the row should say so without a second click.
-    if (!chat.assignedTo && !chat.isDraft && user?.uid) {
+    if (!chat.assignedTo && !chat.isDraft && !chat.isPlayground && user?.uid) {
       updateDoc(getClinicDoc("whatsapp_conversations", chat.id), {
         assignedTo: user.uid,
         assignedName: user.name || "",
@@ -932,17 +979,23 @@ function Thread({
         </button>
         <span
           className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-sm font-black text-white"
-          style={{ background: avatarTone(chat.id) }}
+          style={{ background: chat.isPlayground ? "#7c5cff" : avatarTone(chat.id) }}
         >
-          {initials(chat.patientName || "") || <UserRound size={18} />}
+          {chat.isPlayground ? <FlaskConical size={18} /> : initials(chat.patientName || "") || <UserRound size={18} />}
         </span>
         <div className="min-w-0 flex-1">
           <h3 className="font-bold text-[15px] truncate leading-tight" style={{ color: WA.text }}>
-            {title}
+            {chat.isPlayground ? (isAr ? "جرّب البوت" : "Test the bot") : title}
           </h3>
-          <p className="text-[12px] truncate leading-tight mt-0.5" style={{ color: WA.muted }} dir="ltr">
-            {chat.patientName ? chat.phone : isAr ? "رقم غير مسجل كمريض" : "Not a registered patient"}
-            {chat.isDraft
+          <p className="text-[12px] truncate leading-tight mt-0.5" style={{ color: WA.muted }} dir={chat.isPlayground ? "auto" : "ltr"}>
+            {chat.isPlayground
+              ? isAr
+                ? "بروفة خاصة بيك — مفيش حاجة بتتبعت على واتساب"
+                : "Your private rehearsal — nothing here goes to WhatsApp"
+              : chat.patientName ? chat.phone : isAr ? "رقم غير مسجل كمريض" : "Not a registered patient"}
+            {chat.isPlayground
+              ? ""
+              : chat.isDraft
               ? ` · ${isAr ? "محادثة جديدة" : "new conversation"}`
               : chat.botPaused
               ? ` · ${isAr ? "البوت واقف" : "bot paused"}`
@@ -963,15 +1016,17 @@ function Thread({
         >
           <Search size={18} />
         </button>
-        <button
-          onClick={onToggleInfo}
-          title={isAr ? "بيانات المريض والملاحظات" : "Patient info and notes"}
-          className="hidden lg:flex w-9 h-9 rounded-full items-center justify-center hover:bg-black/5 transition-colors"
-          style={{ color: infoOpen ? WA.green : "#54656f" }}
-        >
-          <Info size={18} />
-        </button>
-        {!chat.isDraft && (
+        {!chat.isPlayground && (
+          <button
+            onClick={onToggleInfo}
+            title={isAr ? "بيانات المريض والملاحظات" : "Patient info and notes"}
+            className="hidden lg:flex w-9 h-9 rounded-full items-center justify-center hover:bg-black/5 transition-colors"
+            style={{ color: infoOpen ? WA.green : "#54656f" }}
+          >
+            <Info size={18} />
+          </button>
+        )}
+        {!chat.isDraft && !chat.isPlayground && (
           <button
             onClick={() => void toggleAssign()}
             disabled={assigning}
@@ -1005,6 +1060,20 @@ function Thread({
             {isAr ? "الملف" : "Patient"}
           </Link>
         )}
+        {chat.isPlayground ? (
+          <button
+            onClick={() => {
+              setMenuOpen(false);
+              void post({ reset: true }).then(() => showToast(isAr ? "البروفة اتمسحت" : "Rehearsal cleared", "success")).catch(() => showToast(isAr ? "حصل خطأ" : "Could not reset", "error"));
+            }}
+            title={isAr ? "امسح البروفة وابدأ من الأول" : "Clear the rehearsal and start over"}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-black transition-colors"
+            style={{ background: "#efeaff", color: "#5b3fd6" }}
+          >
+            <RotateCcw size={14} />
+            {isAr ? "ابدأ من الأول" : "Start over"}
+          </button>
+        ) : (
         <button
           onClick={() => void toggleBot()}
           disabled={toggling}
@@ -1023,7 +1092,8 @@ function Thread({
           {toggling ? <Loader2 size={14} className="animate-spin" /> : chat.botPaused ? <Bot size={14} /> : <Hand size={14} />}
           {chat.botPaused ? (isAr ? "رجّع البوت" : "Hand back to bot") : isAr ? "أنا هرد" : "Take over"}
         </button>
-        {!chat.isDraft && (
+        )}
+        {!chat.isDraft && !chat.isPlayground && (
           <div className="relative">
             <button
               onClick={() => setMenuOpen((v) => !v)}
@@ -1159,9 +1229,13 @@ function Thread({
         ) : lines.length === 0 ? (
           <div className="flex justify-center py-8">
             <span className="text-[12px] font-semibold px-3 py-1.5 rounded-lg shadow-sm bg-white" style={{ color: WA.muted }}>
-              {isAr
-                ? "المحادثة دي أقدم من سجل الشات. الرسايل الجديدة هتظهر هنا."
-                : "This conversation predates the chat log. New messages will appear here."}
+              {chat.isPlayground
+                ? isAr
+                  ? "🧪 اكتب زي ما المريض بيكتب — سلام، سؤال عن سعر، طلب حجز — وشوف البوت هيرد إزاي. مفيش حاجة هنا بتتبعت لحد."
+                  : "🧪 Write the way a patient would — a greeting, a price question, a booking — and see how the bot answers. Nothing here is sent to anyone."
+                : isAr
+                  ? "المحادثة دي أقدم من سجل الشات. الرسايل الجديدة هتظهر هنا."
+                  : "This conversation predates the chat log. New messages will appear here."}
             </span>
           </div>
         ) : (
@@ -1268,6 +1342,7 @@ function Thread({
             >
               <Zap size={20} />
             </button>
+            {!chat.isPlayground && (
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={sending}
@@ -1277,6 +1352,7 @@ function Thread({
             >
               <Paperclip size={20} />
             </button>
+            )}
             <textarea
               ref={inputRef}
               rows={1}
