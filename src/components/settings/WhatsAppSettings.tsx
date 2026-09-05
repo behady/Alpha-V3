@@ -423,6 +423,23 @@ export default function WhatsAppSettings() {
         language === "ar"
           ? "مقفولة: الحجز بيوصل «غير مؤكد» والاستقبال بيراجعه — البوت مش هيملى الأجندة لوحده. مفتوحة: الحجز بيتأكد فوراً لحظة ما المريض يختار الميعاد."
           : "Off: bookings arrive Unconfirmed and the desk reviews them — the bot cannot fill the calendar alone. On: the booking is final the moment the patient picks a time.",
+      answerMode: language === "ar" ? "مين اللي بيرد على المرضى؟" : "Who answers patients?",
+      answerModeBot: language === "ar" ? "البوت بس" : "Bot only",
+      answerModeBotHint:
+        language === "ar"
+          ? "أزرار وقوائم وردود جاهزة بكلماتك. مفيش ذكاء اصطناعي ومفيش كريدت. أي سؤال خارج القائمة بيروح لموظف."
+          : "Buttons, menus and your ready answers. No AI, no credits. Anything off-menu goes to a person.",
+      answerModeBoth: language === "ar" ? "البوت + الذكاء الاصطناعي" : "Bot + AI",
+      answerModeBothHint:
+        language === "ar"
+          ? "البوت يرد الأول ببلاش من الأزرار والردود الجاهزة، والذكاء الاصطناعي يجاوب على الأسئلة الحرة بس، بحد أقصى تختاره."
+          : "The bot answers first, free, from buttons and ready answers; the AI handles only free-text questions, up to a cap you choose.",
+      answerModeAi: language === "ar" ? "الذكاء الاصطناعي بس" : "AI only",
+      answerModeAiHint:
+        language === "ar"
+          ? "موظف مبيعات ذكي بيتكلم مع المريض من أول رسالة لحد الحجز، بإنسانية ومن غير أزرار. الأجندة والأمان (الألم، الشكاوى) بيفضلوا ثابتين. كل رد ١ كريدت."
+          : "A smart salesperson talks with the patient from the first message to the booking, human-like, no buttons. Calendar and safety (pain, complaints) stay fixed. 1 credit per reply.",
+      aiSettingsTitle: language === "ar" ? "إعدادات الذكاء الاصطناعي" : "AI settings",
       botSales: language === "ar" ? "الذكاء الاصطناعي يقود المحادثة (وضع البائع)" : "AI leads the conversation (salesperson mode)",
       botSalesHint:
         language === "ar"
@@ -1774,24 +1791,47 @@ export default function WhatsAppSettings() {
                 />
               </label>
               <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botAutoConfirmHint}</p>
-              <label className="flex items-center justify-between gap-4 cursor-pointer pt-1">
-                <span className="text-sm font-bold text-ink leading-relaxed">{txt.botAi}</span>
-                <input
-                  type="checkbox"
-                  className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
-                  checked={state.botAiEnabled === true}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    setState((s) => {
-                      const next = { ...s, botAiEnabled: checked };
-                      void persist(next, "silent");
-                      return next;
-                    });
-                  }}
-                />
-              </label>
-              <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botAiHint}</p>
-              <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botLimits}</p>
+              {/*
+                Who answers: the fixed bot alone, the AI alone, or both. One choice instead of two
+                checkboxes whose combination nobody could name. Stored as the same two fields the
+                server already reads (botMode + botAiEnabled), so nothing behind it changes.
+              */}
+              <div className="pt-3 space-y-2">
+                <p className="text-sm font-bold text-ink leading-relaxed">{txt.answerMode}</p>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {(
+                    [
+                      { id: "bot", label: txt.answerModeBot, hint: txt.answerModeBotHint, mode: "assisted" as const, ai: false },
+                      { id: "both", label: txt.answerModeBoth, hint: txt.answerModeBothHint, mode: "assisted" as const, ai: true },
+                      { id: "ai", label: txt.answerModeAi, hint: txt.answerModeAiHint, mode: "ai_first" as const, ai: true },
+                    ]
+                  ).map((opt) => {
+                    const current = state.botMode === "ai_first" ? "ai" : state.botAiEnabled ? "both" : "bot";
+                    const active = current === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => {
+                          setState((s) => {
+                            const next = { ...s, botMode: opt.mode, botAiEnabled: opt.ai };
+                            void persist(next, "silent");
+                            return next;
+                          });
+                        }}
+                        className={`text-start rounded-xl border px-4 py-3 transition-colors ${
+                          active ? "border-accent bg-accent/5 ring-1 ring-accent" : "border-line bg-surface-subtle hover:bg-surface-muted"
+                        }`}
+                      >
+                        <span className="block text-sm font-black text-ink">{opt.label}</span>
+                        <span className="mt-1 block text-xs leading-relaxed text-ink-muted">{opt.hint}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botLimits}</p>
+              </div>
 
               {/* Symptoms: a person, or the AI as a dentist first. Needs the AI on to mean anything. */}
               <label className={`flex items-center justify-between gap-4 pt-1 ${state.botAiEnabled ? "cursor-pointer" : "opacity-50"}`}>
@@ -1834,25 +1874,9 @@ export default function WhatsAppSettings() {
               </div>
               <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botClaimHint}</p>
 
-              {/* Salesperson mode: the model leads, with a cap the clinic chooses and its own coaching. */}
-              <div className="pt-4 mt-2 border-t border-line space-y-3">
-                <label className="flex items-center justify-between gap-4 cursor-pointer">
-                  <span className="text-sm font-bold text-ink leading-relaxed">{txt.botSales}</span>
-                  <input
-                    type="checkbox"
-                    className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
-                    checked={state.botMode === "ai_first"}
-                    onChange={(e) => {
-                      const on = e.target.checked;
-                      setState((s) => {
-                        const next = { ...s, botMode: on ? ("ai_first" as const) : ("assisted" as const), ...(on ? { botAiEnabled: true } : {}) };
-                        void persist(next, "silent");
-                        return next;
-                      });
-                    }}
-                  />
-                </label>
-                <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botSalesHint}</p>
+              {/* The AI's own settings: cap, name, pacing, coaching. Meaningless without it. */}
+              <div hidden={!state.botAiEnabled && state.botMode !== "ai_first"} className="pt-4 mt-2 border-t border-line space-y-3">
+                <p className="text-[11px] font-black uppercase tracking-widest text-ink-body">{txt.aiSettingsTitle}</p>
 
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="text-xs font-bold text-ink">{txt.botAiCap}</span>
