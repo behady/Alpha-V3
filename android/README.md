@@ -232,3 +232,30 @@ If that ever gets "tidied up" to a plain `FirebaseFirestore.getInstance()`, the
 app will sign in perfectly and then show a clinic with **no patients and no
 appointments**, with no error anywhere to explain why. The website hits the same
 trap and solves it the same way.
+
+## Crash reporting
+
+Since 5.31.0 the app reports crashes to **Firebase Crashlytics**, in the same Firebase project
+(`alpha-v2-ffc98`): Firebase console → Crashlytics → *Alpha Dental (Android)*. A report carries
+the account id, the clinic id and the role, so a crash can be matched to who was doing what.
+Writes the server rejected and reads that failed for a reason other than no signal are recorded
+there too, as non-fatal events — those never showed anywhere before.
+
+### If google-services.json goes missing
+
+The build needs `app/google-services.json` for the Crashlytics plugin to upload the symbol file
+that makes a release crash readable. It is gitignored, like `firebase.properties`. Regenerate it
+with the Firebase CLI:
+
+```
+npx firebase-tools apps:sdkconfig android 1:252760741680:android:0da7f95c18ec06180c5af5 --project alpha-v2-ffc98 -o app/google-services.json
+```
+
+That gives the release app only. Android Studio debug builds use the package
+`com.alphadental.clinic.debug`, registered as a second Firebase app
+(`1:252760741680:android:f058a40d940802eb0c5af5`). Fetch its config the same way to a second file
+and copy its `client` entry into the first file's `client` array — the plugin picks the entry
+whose package name matches the build.
+
+The app does **not** read this file at runtime — `firebase.properties` stays the one source of
+truth, and the auto-initialiser the google-services plugin would add is removed in the manifest.

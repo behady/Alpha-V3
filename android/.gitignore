@@ -10,6 +10,10 @@ local.properties
 # Firestore API key is an identifier, and the actual protection is the security
 # rules — but there is no reason to publish the project's ids in the repo.
 firebase.properties
+# Same project ids in Google's own layout. Needed by the Crashlytics Gradle plugin to upload
+# the release mapping file. Holds BOTH Android apps (release package and .debug package);
+# see README.md - "If google-services.json goes missing".
+app/google-services.json
 
 # Signing. Whoever holds these can publish an app that pretends to be yours.
 *.jks

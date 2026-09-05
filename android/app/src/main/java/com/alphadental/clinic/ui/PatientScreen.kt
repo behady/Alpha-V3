@@ -142,6 +142,11 @@ fun PatientScreen(
     uploadingPhoto: Boolean,
     /** Null when this user may not add photos. Called with (jpeg bytes, category). */
     onUploadPhoto: ((ByteArray, String) -> Unit)?,
+    /**
+     * Message the patient from the clinic's own WhatsApp number, inside the app. Null for roles
+     * that may not read the clinic's chats, who get the old jump into the WhatsApp app instead.
+     */
+    onMessage: (() -> Unit)? = null,
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -273,7 +278,7 @@ fun PatientScreen(
                             IconButton(onClick = { context.dialNumber(file.patient.phone) }) {
                                 Icon(Icons.Filled.Phone, contentDescription = if (arabic) "اتصال" else "Call", tint = Alpha.Green, modifier = Modifier.size(20.dp))
                             }
-                            IconButton(onClick = { context.openWhatsApp(file.patient.phone) }) {
+                            IconButton(onClick = { onMessage?.invoke() ?: context.openWhatsApp(file.patient.phone) }) {
                                 Icon(Icons.Filled.Chat, contentDescription = "WhatsApp", tint = Alpha.Green, modifier = Modifier.size(20.dp))
                             }
                         }
@@ -1412,7 +1417,7 @@ private fun prettyFileDate(millis: Long, arabic: Boolean): String? {
  * long side. A 12-megapixel original is chair-side detail nobody zooms into on
  * a phone, uploaded five times slower and stored at five times the cost.
  */
-private fun readScaledJpeg(context: Context, uri: Uri, maxSide: Int = 1920): ByteArray? = runCatching {
+internal fun readScaledJpeg(context: Context, uri: Uri, maxSide: Int = 1920): ByteArray? = runCatching {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null

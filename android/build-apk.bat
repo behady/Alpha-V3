@@ -37,6 +37,16 @@ if not exist "firebase.properties" (
     exit /b 1
 )
 
+if not exist "app\google-services.json" (
+    echo.
+    echo   app\google-services.json is missing.
+    echo   Crash reporting needs it to upload the build's symbol file.
+    echo   See README.md - "If google-services.json goes missing".
+    echo.
+    pause
+    exit /b 1
+)
+
 echo.
 echo   Building Alpha Dental...
 echo.

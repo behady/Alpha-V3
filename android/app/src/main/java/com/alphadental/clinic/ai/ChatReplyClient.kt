@@ -65,6 +65,35 @@ object ChatReplyClient {
             .put("template", "followup")
     )
 
+    /**
+     * A file, already uploaded to the clinic's Storage folder, with `caption` as its words.
+     *
+     * The server accepts only links into that bucket — Meta fetches the link server-side, and an
+     * arbitrary URL would make the clinic's number relay anything on the internet.
+     */
+    suspend fun sendMedia(
+        clinicId: String,
+        phone: String,
+        patientId: String,
+        patientName: String,
+        caption: String,
+        url: String,
+        mime: String,
+        kind: String,
+        filename: String,
+    ): Sent = post(
+        JSONObject()
+            .put("clinicId", clinicId)
+            .put("phone", phone)
+            .put("patientId", patientId)
+            .put("patientName", patientName)
+            .put("text", caption)
+            .put(
+                "media",
+                JSONObject().put("url", url).put("mime", mime).put("kind", kind).put("filename", filename),
+            )
+    )
+
     private suspend fun post(body: JSONObject): Sent = withContext(Dispatchers.IO) {
         val token = FirebaseAuth.getInstance().currentUser
             ?.getIdToken(false)?.await()?.token
