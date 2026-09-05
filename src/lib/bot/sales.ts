@@ -45,6 +45,8 @@ export const LEAD_INTEREST_REASONS = new Set([
   "objection_price",
   "objection_thinking",
   "objection_competitor",
+  "objection_price_unknown",
+  "objection_competitor_unknown",
   "installments_unknown",
   "duration_unknown",
   "insurance_unknown",

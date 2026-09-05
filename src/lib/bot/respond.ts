@@ -268,8 +268,10 @@ function closedNote(schedule: ClinicScheduleConfig): string {
  * word of a service name (≥ 3 letters) appearing in the message, so "تنظيف" finds "تنظيف الجير".
  */
 async function matchService(clinicId: string, text: string): Promise<string> {
-  const t = ` ${normalizeReplyText(text)} `;
-  if (t.trim().length < 3) return "";
+  // With and without the definite article: "التبييض بكام" must find "تبييض الأسنان".
+  const t0 = ` ${normalizeReplyText(text)} `;
+  const t = `${t0}${t0.replace(/ ال(?=\S{2,})/g, " ")}`;
+  if (t0.trim().length < 3) return "";
   try {
     const snap = await adminClinicCollection(clinicId, "services").limit(200).get();
     const names = snap.docs.map((d) => String((d.data() || {}).name || "").trim()).filter(Boolean);
