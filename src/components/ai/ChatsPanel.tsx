@@ -20,11 +20,15 @@ import {
   Paperclip,
   Search,
   Send,
+  UserCheck,
+  UserPlus,
   UserRound,
   Volume2,
   VolumeX,
   X,
+  Zap,
 } from "lucide-react";
+import QuickReplies from "./QuickReplies";
 import { getDocs, limit, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
 import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 import { auth, storage } from "@/lib/firebase";
@@ -75,6 +79,10 @@ interface ChatRow {
   humanActiveAtMs?: number;
   channel?: "meta" | "wapilot";
   optedOut?: boolean;
+  /** The team member handling this thread, so two receptionists do not answer the same person. */
+  assignedTo?: string | null;
+  assignedName?: string | null;
+  assignedAtMs?: number;
   /**
    * A conversation the clinic is about to open: a patient picked from the directory who has no
    * conversation document yet. Exists only in this screen's memory until the first message is
@@ -131,7 +139,7 @@ function fileKind(mime: string): PendingFile["kind"] {
   return "document";
 }
 
-type Filter = "all" | "unread" | "needs";
+type Filter = "all" | "unread" | "needs" | "mine";
 
 /** Meta drops free text sent more than 24h after the patient's last message. */
 const REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -265,6 +273,7 @@ export default function ChatsPanel({
   const [selectedId, setSelectedId] = useState<string>(searchParams.get("chat") || "");
   const [draft, setDraft] = useState<ChatRow | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const myUid = user?.uid || "";
 
   useEffect(() => {
     if (!user) return;
@@ -286,18 +295,27 @@ export default function ChatsPanel({
     const needle = search.trim().toLowerCase().replace(/\s+/g, "");
     return chats
       .filter((c) => lastActivity(c) > 0)
-      .filter((c) => (filter === "needs" ? c.needsHuman === true : filter === "unread" ? (c.unreadCount || 0) > 0 : true))
+      .filter((c) =>
+        filter === "needs"
+          ? c.needsHuman === true
+          : filter === "unread"
+            ? (c.unreadCount || 0) > 0
+            : filter === "mine"
+              ? !!myUid && c.assignedTo === myUid
+              : true
+      )
       .filter((c) => {
         if (!needle) return true;
         const hay = `${c.patientName || ""}${c.phone || ""}${c.id}`.toLowerCase().replace(/\s+/g, "");
         return hay.includes(needle);
       })
       .sort((a, b) => lastActivity(b) - lastActivity(a));
-  }, [chats, filter, search]);
+  }, [chats, filter, search, myUid]);
 
   // The real row wins the moment it exists: the first send creates it, and the draft retires.
   const selected = chats.find((c) => c.id === selectedId) || (draft && draft.id === selectedId ? draft : null);
   const needsCount = chats.filter((c) => c.needsHuman === true).length;
+  const mineCount = user?.uid ? chats.filter((c) => c.assignedTo === user.uid).length : 0;
   const unreadCount = chats.reduce((n, c) => n + (c.unreadCount || 0), 0);
 
   const open = (id: string) => {
@@ -368,6 +386,7 @@ export default function ChatsPanel({
                 ["all", isAr ? "الكل" : "All", 0],
                 ["unread", isAr ? "غير مقروء" : "Unread", unreadCount],
                 ["needs", isAr ? "محتاج رد" : "Needs reply", needsCount],
+                ["mine", isAr ? "بتاعتي" : "Mine", mineCount],
               ] as [Filter, string, number][]
             ).map(([key, label, count]) => {
               const active = filter === key;
@@ -386,7 +405,7 @@ export default function ChatsPanel({
                   {count > 0 && (
                     <span
                       className="text-[10px] font-black px-1.5 min-w-[18px] rounded-full text-white text-center"
-                      style={{ background: key === "needs" ? "#f0a02a" : WA.green }}
+                      style={{ background: key === "needs" ? "#f0a02a" : key === "mine" ? "#54656f" : WA.green }}
                     >
                       {count}
                     </span>
@@ -457,9 +476,22 @@ export default function ChatsPanel({
                       >
                         {previewText(c.lastText || "", isAr)}
                       </span>
+                      {/* Who has it. "You" in green; a colleague's first name in grey. */}
+                      {c.assignedTo && (
+                        <span
+                          className="ms-auto shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded-full truncate max-w-[90px]"
+                          style={
+                            c.assignedTo === user?.uid
+                              ? { background: "#e7fce3", color: WA.greenDark }
+                              : { background: WA.panel, color: "#54656f" }
+                          }
+                        >
+                          {c.assignedTo === user?.uid ? (isAr ? "أنت" : "You") : (c.assignedName || "").split(/\s+/)[0]}
+                        </span>
+                      )}
                       {c.needsHuman && !unread && (
                         <span
-                          className="ms-auto shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded-full"
+                          className={`${c.assignedTo ? "" : "ms-auto"} shrink-0 text-[10px] font-black px-1.5 py-0.5 rounded-full`}
                           style={{ background: "#fff4dc", color: "#9a5b00" }}
                         >
                           {isAr ? "محتاج رد" : "Needs reply"}
@@ -467,7 +499,7 @@ export default function ChatsPanel({
                       )}
                       {unread && (
                         <span
-                          className="ms-auto shrink-0 min-w-[20px] h-5 px-1.5 rounded-full text-white text-[11px] font-black flex items-center justify-center"
+                          className={`${c.assignedTo ? "" : "ms-auto"} shrink-0 min-w-[20px] h-5 px-1.5 rounded-full text-white text-[11px] font-black flex items-center justify-center`}
                           style={{ background: WA.green }}
                         >
                           {c.unreadCount}
@@ -528,6 +560,8 @@ function Thread({
   const [toggling, setToggling] = useState(false);
   const [templateSentAt, setTemplateSentAt] = useState(0);
   const [pending, setPending] = useState<PendingFile | null>(null);
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [assigning, setAssigning] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -599,6 +633,15 @@ function Thread({
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data?.ok === false) throw new Error(data?.error || "Send failed");
+    // Answering claims the thread, when nobody has it yet: the person who replied is the person
+    // handling it, and the row should say so without a second click.
+    if (!chat.assignedTo && !chat.isDraft && user?.uid) {
+      updateDoc(getClinicDoc("whatsapp_conversations", chat.id), {
+        assignedTo: user.uid,
+        assignedName: user.name || "",
+        assignedAtMs: Date.now(),
+      }).catch(() => {});
+    }
     // No gateway on this clinic: the message is waiting in the manual send list, not on a phone.
     if (data?.mode === "queued") {
       showToast(
@@ -620,6 +663,41 @@ function Thread({
     }
     setPending({ file, kind, previewUrl: URL.createObjectURL(file) });
     inputRef.current?.focus();
+  };
+
+  /**
+   * Claim, release, or take over. Taking a colleague's thread is one click on purpose — the
+   * common case is "she went to lunch", and a confirmation would just be in the way.
+   */
+  const isMine = !!user?.uid && chat.assignedTo === user.uid;
+  const toggleAssign = async () => {
+    if (!user?.uid || chat.isDraft) return;
+    setAssigning(true);
+    try {
+      await updateDoc(
+        getClinicDoc("whatsapp_conversations", chat.id),
+        isMine
+          ? { assignedTo: null, assignedName: null, assignedAtMs: Date.now() }
+          : { assignedTo: user.uid, assignedName: user.name || "", assignedAtMs: Date.now() }
+      );
+    } catch (e) {
+      console.error("Assign failed:", e);
+      showToast(isAr ? "حصل خطأ" : "Could not update", "error");
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  const insertQuickReply = (snippet: string) => {
+    setText((t) => (t.trim() ? `${t.replace(/\s+$/, "")}\n${snippet}` : snippet));
+    setQuickOpen(false);
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (!el) return;
+      el.focus();
+      el.style.height = "auto";
+      el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+    });
   };
 
   const send = async () => {
@@ -745,6 +823,30 @@ function Thread({
                 : ""}
           </p>
         </div>
+        {!chat.isDraft && (
+          <button
+            onClick={() => void toggleAssign()}
+            disabled={assigning}
+            title={
+              isMine
+                ? isAr ? "المحادثة دي معاك — اضغط عشان تسيبها" : "This chat is yours — click to release it"
+                : chat.assignedTo
+                  ? isAr ? `مع ${chat.assignedName || "زميل"} — اضغط عشان تاخدها` : `With ${chat.assignedName || "a colleague"} — click to take it`
+                  : isAr ? "خد المحادثة دي" : "Claim this chat"
+            }
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-bold hover:bg-black/5 disabled:opacity-50 max-w-[160px]"
+            style={{ color: isMine ? WA.greenDark : "#54656f" }}
+          >
+            {assigning ? <Loader2 size={15} className="animate-spin" /> : isMine ? <UserCheck size={15} /> : <UserPlus size={15} />}
+            <span className="truncate">
+              {isMine
+                ? isAr ? "معاك" : "Mine"
+                : chat.assignedTo
+                  ? (chat.assignedName || "").split(/\s+/)[0] || (isAr ? "زميل" : "Colleague")
+                  : isAr ? "خدها" : "Claim"}
+            </span>
+          </button>
+        )}
         {chat.patientId && (
           <Link
             href={`/patients/${chat.patientId}`}
@@ -898,6 +1000,23 @@ function Thread({
                 e.target.value = "";
               }}
             />
+            {quickOpen && (
+              <QuickReplies
+                isAr={isAr}
+                patientName={chat.patientName}
+                onInsert={insertQuickReply}
+                onClose={() => setQuickOpen(false)}
+              />
+            )}
+            <button
+              onClick={() => setQuickOpen((v) => !v)}
+              disabled={sending}
+              title={isAr ? "ردود جاهزة" : "Quick replies"}
+              className="h-[42px] w-[42px] rounded-full flex items-center justify-center hover:bg-black/5 transition-colors shrink-0 disabled:opacity-40"
+              style={{ color: quickOpen ? WA.green : "#54656f" }}
+            >
+              <Zap size={20} />
+            </button>
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={sending}
@@ -924,6 +1043,12 @@ function Thread({
                   e.preventDefault();
                   void send();
                 }
+                // "/" in an empty box opens the ready answers, as it does in most chat tools.
+                if (e.key === "/" && !text.trim()) {
+                  e.preventDefault();
+                  setQuickOpen(true);
+                }
+                if (e.key === "Escape" && quickOpen) setQuickOpen(false);
               }}
               placeholder={pending ? (isAr ? "تعليق (اختياري)" : "Caption (optional)") : isAr ? "اكتب رسالة" : "Type a message"}
               className="flex-1 rounded-xl border-0 bg-white px-4 py-2.5 text-[15px] focus:outline-none focus:ring-0 resize-none leading-snug"
