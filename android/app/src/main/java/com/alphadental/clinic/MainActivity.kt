@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Timeline
@@ -88,6 +89,7 @@ import com.alphadental.clinic.ui.AppearanceScreen
 import com.alphadental.clinic.ui.AddLeadSheet
 import com.alphadental.clinic.ui.AddNoteSheet
 import com.alphadental.clinic.ui.ChatsScreen
+import com.alphadental.clinic.ui.AttendanceScreen
 import com.alphadental.clinic.ui.LabScreen
 import com.alphadental.clinic.ui.LeadsScreen
 import com.alphadental.clinic.ui.ClockCard
@@ -384,6 +386,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                                     { viewModel.openChats() }
                                 } else null,
                                 onOpenLab = if (session.can("access.lab")) ({ viewModel.openLab() }) else null,
+                                onOpenAttendance = if (viewModel.canSeeAttendance(session)) ({ viewModel.openAttendance() }) else null,
                                 onOpenAssistant = { viewModel.openAssistant(context) },
                                 briefing = state.briefing,
                                 onOpenBriefing = viewModel::openBriefing,
@@ -483,6 +486,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             } else null,
                             // The same key the website's Lab page is gated on; the rules enforce it too.
                             onOpenLab = if (session.can("access.lab")) ({ viewModel.openLab() }) else null,
+                            // The website's Team Overview gate: admins, or a granted key.
+                            onOpenAttendance = if (viewModel.canSeeAttendance(session)) ({ viewModel.openAttendance() }) else null,
                             // Owners and reception only. A dentist seeing the clinic's whole
                             // takings is a different conversation from them seeing their own.
                             onOpenReports = if (session.can("access.reports")) {
@@ -570,6 +575,24 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         }
                     } else null,
                     onDismiss = { openAppointment = null },
+                )
+            }
+
+            // The owner's roster: who is in, who is late, and the period's hours.
+            if (state.attendanceOpen) {
+                AttendanceScreen(
+                    roster = com.alphadental.clinic.data.Attendance.roster(state.attendanceStaff, state.attendancePunches),
+                    rosterLoaded = state.attendanceLoaded,
+                    rosterError = state.attendanceError,
+                    payroll = state.attendancePayroll,
+                    payrollLoading = state.attendancePayrollLoading,
+                    payrollError = state.attendancePayrollError,
+                    range = state.attendanceRange,
+                    showPay = session.can("access.finance"),
+                    arabic = state.arabic,
+                    onRange = viewModel::setAttendanceRange,
+                    onRefresh = viewModel::refreshAttendance,
+                    onClose = viewModel::closeAttendance,
                 )
             }
 
@@ -1053,6 +1076,8 @@ private fun MoreScreen(
     onOpenChats: (() -> Unit)?,
     /** Null for roles without access.lab. */
     onOpenLab: (() -> Unit)?,
+    /** The team's roster and hours. Null for anyone who is not an admin or granted the key. */
+    onOpenAttendance: (() -> Unit)?,
     /** Null for roles that may not see the clinic's takings. */
     onOpenReports: (() -> Unit)?,
     /** Null for roles that do not work the CRM inbox. */
@@ -1191,6 +1216,7 @@ private fun MoreScreen(
                 ToolSpec(Icons.AutoMirrored.Filled.Chat, if (arabic) "المحادثات" else "Chats", badge = chatsWaiting, onClick = it)
             },
             onOpenLab?.let { ToolSpec(Icons.Filled.Science, if (arabic) "المعمل" else "Lab", onClick = it) },
+            onOpenAttendance?.let { ToolSpec(Icons.Filled.Groups, if (arabic) "الحضور" else "Attendance", onClick = it) },
             ToolSpec(
                 Icons.Filled.Send, if (arabic) "قائمة الإرسال" else "Send list",
                 badge = whatsappWaiting, onClick = onOpenWhatsappQueue,

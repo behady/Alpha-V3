@@ -39,6 +39,8 @@ import com.alphadental.clinic.ai.AnswerCache
 import com.alphadental.clinic.ai.ChatReplyClient
 import com.alphadental.clinic.data.Chats
 import com.alphadental.clinic.data.LabCases
+import com.alphadental.clinic.data.Attendance
+import com.alphadental.clinic.ai.PayrollClient
 import com.alphadental.clinic.ai.ChatMessage
 import com.alphadental.clinic.ai.ChatStore
 import com.alphadental.clinic.ai.interpretYesNo
@@ -201,6 +203,18 @@ data class AppState(
     val homeRefreshing: Boolean = false,
     /** A pull on an open patient file: re-read without blanking the file underneath. */
     val patientRefreshing: Boolean = false,
+    // --- attendance (the owner's view) ---
+    val attendanceOpen: Boolean = false,
+    val attendanceStaff: List<Attendance.StaffMember> = emptyList(),
+    /** Today's punches, live while the screen is open. */
+    val attendancePunches: List<Attendance.Punch> = emptyList(),
+    val attendanceLoaded: Boolean = false,
+    val attendanceError: String? = null,
+    /** "week", "month" or "last": the period the hours below the roster cover. */
+    val attendanceRange: String = "month",
+    val attendancePayroll: PayrollClient.Payroll? = null,
+    val attendancePayrollLoading: Boolean = false,
+    val attendancePayrollError: String? = null,
     // --- lab tracking ---
     val labOpen: Boolean = false,
     /** Live while the screen is open; the listener is dropped when it closes. */
@@ -382,6 +396,7 @@ class AppViewModel : ViewModel() {
         chatsJob?.cancel()
         chatLinesJob?.cancel()
         labJob?.cancel()
+        attendanceJob?.cancel()
         Crash.clear()
         Repository.signOut()
         _state.value = AppState(loading = false)
@@ -1014,6 +1029,104 @@ class AppViewModel : ViewModel() {
 
     fun closeWhatsappQueue() {
         _state.value = _state.value.copy(whatsappQueueOpen = false)
+    }
+
+    // --- attendance -----------------------------------------------------------------------
+
+    private var attendanceJob: Job? = null
+
+    /** The same gate as the website's Team Overview: admins, or a granted attendance/settings key. */
+    fun canSeeAttendance(session: Session): Boolean =
+        session.isAdmin || session.can("attendance.admin") || session.can("access.settings")
+
+    /**
+     * Open the roster. Today's punches are a live listener for as long as the screen is open;
+     * the staff list and the period's hours are read once and again on pull.
+     */
+    fun openAttendance() {
+        val session = _state.value.session ?: return
+        _state.value = _state.value.copy(attendanceOpen = true, attendanceError = null)
+        attendanceJob?.cancel()
+        attendanceJob = viewModelScope.launch {
+            runCatching { Attendance.loadStaff(session.clinicId) }
+                .onSuccess { staff -> _state.value = _state.value.copy(attendanceStaff = staff) }
+                .onFailure { error -> _state.value = _state.value.copy(attendanceLoaded = true, attendanceError = loadFailure(error)) }
+            Attendance.observeToday(session.clinicId, Attendance.startOfToday()).collect { result ->
+                result.onSuccess { punches ->
+                    _state.value = _state.value.copy(attendancePunches = punches, attendanceLoaded = true, attendanceError = null)
+                }.onFailure { error ->
+                    _state.value = _state.value.copy(attendanceLoaded = true, attendanceError = loadFailure(error))
+                }
+            }
+        }
+        loadAttendancePayroll()
+    }
+
+    fun closeAttendance() {
+        attendanceJob?.cancel()
+        attendanceJob = null
+        _state.value = _state.value.copy(attendanceOpen = false)
+    }
+
+    fun setAttendanceRange(range: String) {
+        _state.value = _state.value.copy(attendanceRange = range, attendancePayroll = null)
+        loadAttendancePayroll()
+    }
+
+    /** Pull: the staff list and the hours again. Today's punches are live and need nothing. */
+    fun refreshAttendance() {
+        val session = _state.value.session ?: return
+        viewModelScope.launch {
+            runCatching { Attendance.loadStaff(session.clinicId) }
+                .onSuccess { staff -> _state.value = _state.value.copy(attendanceStaff = staff, attendanceError = null) }
+                .onFailure { error -> _state.value = _state.value.copy(attendanceError = loadFailure(error)) }
+        }
+        loadAttendancePayroll()
+    }
+
+    /** First and last day of the chosen period. Weeks run Saturday to Friday, as the clinic's do. */
+    private fun attendanceBounds(range: String): Pair<String, String> {
+        val today = java.time.LocalDate.now()
+        return when (range) {
+            "week" -> {
+                // DayOfWeek: Monday = 1 … Sunday = 7. Days since Saturday.
+                val back = (today.dayOfWeek.value + 1) % 7
+                val start = today.minusDays(back.toLong())
+                start.toString() to start.plusDays(6).toString()
+            }
+            "last" -> {
+                val first = today.withDayOfMonth(1).minusMonths(1)
+                first.toString() to first.withDayOfMonth(first.lengthOfMonth()).toString()
+            }
+            else -> today.withDayOfMonth(1).toString() to today.withDayOfMonth(today.lengthOfMonth()).toString()
+        }
+    }
+
+    /**
+     * The period's hours, from the server's payroll route — never computed here. The website
+     * and the weekly brief call the same function, so the phone cannot quote different hours.
+     */
+    private fun loadAttendancePayroll() {
+        val session = _state.value.session ?: return
+        val range = _state.value.attendanceRange
+        val (from, to) = attendanceBounds(range)
+        _state.value = _state.value.copy(attendancePayrollLoading = true, attendancePayrollError = null)
+        viewModelScope.launch {
+            runCatching { PayrollClient.load(session.clinicId, from, to) }
+                .onSuccess { payroll ->
+                    if (_state.value.attendanceRange == range) {
+                        _state.value = _state.value.copy(attendancePayroll = payroll, attendancePayrollLoading = false)
+                    }
+                }
+                .onFailure { error ->
+                    if (_state.value.attendanceRange == range) {
+                        _state.value = _state.value.copy(
+                            attendancePayrollLoading = false,
+                            attendancePayrollError = error.message ?: loadFailure(error),
+                        )
+                    }
+                }
+        }
     }
 
     // --- lab tracking ---------------------------------------------------------------------
