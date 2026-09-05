@@ -18,6 +18,7 @@
 import dynamic from "next/dynamic";
 import type { ComponentType } from "react";
 import {
+  Armchair,
   Bell,
   Building2,
   CalendarClock,
@@ -68,6 +69,7 @@ export const SETTINGS_ICONS: Record<string, LucideIcon> = {
   recall: RotateCcw,
   users: Users,
   join_requests: UserPlus,      // people asking to become users
+  dentists: Armchair,           // the chair — what a dentist's own screen shows
   notifications: Bell,
   whatsapp: MessageCircle,
   sms: MessagesSquare,
@@ -140,6 +142,7 @@ export const SETTINGS_PANELS: Record<string, ComponentType<SettingsPanelProps>> 
   // --- People ---
   users: panel(() => import("@/components/settings/hosts/UsersHost")),
   join_requests: panel(() => import("@/components/settings/JoinRequests")),
+  dentists: panel(() => import("@/components/settings/hosts/DentistsHost")),
 
   // --- System ---
   notifications: panel(() => import("@/components/settings/hosts/AlertsHost")),

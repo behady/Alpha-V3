@@ -312,6 +312,20 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     edit: ADMIN,
   },
 
+  {
+    id: "dentists",
+    route: "/settings/dentists",
+    group: "people",
+    labelEn: "Dentists",
+    labelAr: "الأطباء",
+    // What a dentist's own home screen may show — today, whether they see their share of what
+    // their patients paid. Clinic-wide and Admin-only: it is a pay-visibility decision, not a
+    // preference, so it lives on clinic_info rather than on the person's record.
+    writes: [{ kind: "settingsDoc", docId: "clinic_info" }],
+    view: ADMIN,
+    edit: ADMIN,
+  },
+
   // --- System ---------------------------------------------------------------------------------
   {
     id: "notifications",

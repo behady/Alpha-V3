@@ -253,6 +253,16 @@ export const SETTINGS_TEXT = {
     usedShort: { en: "used", ar: "مستخدم" },
     runningLow: { en: "Running low", ar: "الرصيد قرب يخلص" },
   },
+  dentists: {
+    title: { en: "Dentists", ar: "الأطباء" },
+    railNote: { en: "What each dentist sees on their own home screen when they sign in. Only their own patients, cases and money ever appear there.", ar: "اللي كل دكتور بيشوفه على شاشته الرئيسية لما يدخل. مرضاه وحالاته وفلوسه هو بس." },
+    homeTitle: { en: "Their home screen", ar: "الشاشة الرئيسية بتاعتهم" },
+    showShare: { en: "Show each dentist their share of what their patients paid", ar: "كل دكتور يشوف نصيبه من اللي مرضاه دفعوه" },
+    showShareHint: { en: "The same commission figure the worksheet and payroll use. Switch off to keep pay off the home screen until it is settled.", ar: "نفس رقم العمولة اللي في كشف الحضور والمرتبات. اقفله لو عايز الفلوس متظهرش على الشاشة الرئيسية لحد ما تتحاسب." },
+    unsaved: { en: "Unsaved changes", ar: "فيه تغييرات مش متحفظة" },
+    discard: { en: "Discard", ar: "تجاهل" },
+    save: { en: "Save", ar: "حفظ" },
+  },
   alerts: {
     title: { en: "Alerts & Notifications", ar: "إعدادات التنبيهات" },
     railNote: { en: "These appear inside the app, for doctors and the front desk. Nothing here sends an email or a message.", ar: "دي بتظهر جوه البرنامج للأطباء والاستقبال. مفيش حاجة هنا بتبعت إيميل ولا رسالة." },

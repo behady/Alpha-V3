@@ -31,6 +31,7 @@ export const NAVIGABLE_EXACT: readonly string[] = [
   "/reports",
   "/settings",
   "/settings/clinic",
+  "/settings/dentists",
   "/ai",
   // These three redirect into /ai now — the brief, the message queue and patient no-shows became
   // its three tabs. They stay on the list because they still resolve, and because the model has
