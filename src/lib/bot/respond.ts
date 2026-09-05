@@ -23,6 +23,7 @@ import { arabicClock, arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTi
 import { appendOptOutFooter, normalizeReplyText, WHATSAPP_OPT_OUT_FOOTER_AR } from "@/lib/patientMessaging";
 import {
   conversationKey,
+  humanClaimMsFromSetting,
   loadConversation,
   markHandoff,
   replyAllowance,
@@ -73,6 +74,8 @@ interface BotSettings {
   aiFirst: boolean;
   /** Symptoms go to the AI as a dentist (then to booking) instead of straight to a person. */
   clinicalDentist: boolean;
+  /** How long a staff reply keeps the bot out of a thread. */
+  humanClaimMs: number;
   /** AI replies per conversation; 0 means no cap. */
   aiMaxReplies: number;
   /** The owner's coaching notes for the model. */
@@ -90,6 +93,7 @@ async function loadBotSettings(clinicId: string): Promise<BotSettings> {
     facts: (d.botFacts && typeof d.botFacts === "object" ? d.botFacts : {}) as BotFacts,
     aiFirst: d.botMode === "ai_first",
     clinicalDentist: d.botClinicalMode === "dentist",
+    humanClaimMs: humanClaimMsFromSetting(d.botHumanClaimMinutes),
     aiMaxReplies:
       typeof d.botAiMaxReplies === "number" && d.botAiMaxReplies >= 0 ? Math.floor(d.botAiMaxReplies) : d.botMode === "ai_first" ? 0 : 3,
     coaching: typeof d.botCoaching === "string" ? d.botCoaching : "",
@@ -461,7 +465,7 @@ export async function respondToPatientMessage(args: {
     return skip("unknown_number");
   }
 
-  const conversation = await loadConversation(clinicId, chatId, now);
+  const conversation = await loadConversation(clinicId, chatId, now, { humanClaimMs: settings.humanClaimMs });
 
   // A stop request recorded against this sender directly — the only place it can live when a lid
   // hides the patient record. Survives conversation expiry; see markConversationOptedOut.
@@ -900,6 +904,10 @@ export async function respondToPatientMessage(args: {
           list: optionList("اختيار الميعاد", conversation.pendingTimes, arabicTimeLabel, (t) => `t${conversation.pendingDate}|${t}`, { id: "back_days", title: "رجوع لاختيار اليوم" }),
         };
         pending = { days: conversation.pendingDays, times: conversation.pendingTimes, date: conversation.pendingDate, treatment };
+      } else if (conversation.state === "booking_doctor" && (conversation.pendingDoctors?.length ?? 0) > 0) {
+        // The dentist list again — not the day list. A non-pick at the dentist step used to fall
+        // through to days, which skipped the question the patient had not answered.
+        listDoctors();
       } else if (conversation.pendingDays?.length) {
         replyText = RELIST_PREFIX + renderDayList(conversation.pendingDays);
         structure = {

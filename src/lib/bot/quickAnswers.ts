@@ -270,6 +270,24 @@ const QUESTION_WORDS = [
   "عندكو", "how", "what", "when", "where", "can", "do you",
 ];
 
+/** Money words that are not in PRICE_LIST because alone they are not a request for the list. */
+const PRICE_WORDS = ["سعر", "السعر", "اسعار", "الاسعار", "بكام", "كام", "تكلفه", "التكلفه", "price", "cost", "how much"];
+
+/**
+ * Is this message asking something, rather than answering the question the bot just put?
+ *
+ * The bot asks for a name and gets "اسعار حشو العادى كام"; it lists dentists and gets "قولي
+ * السعر الأول". Both were taken as the answer to the bot's question — one patient was registered
+ * under the name "how much is a filling". A question mark, a question word or a money word means
+ * the patient changed the subject, and the subject they changed to is what gets answered.
+ */
+export function looksLikeQuestion(raw: string): boolean {
+  if (/[?؟]/.test(raw)) return true;
+  const text = normalize(raw);
+  if (!text) return false;
+  return has(text, QUESTION_WORDS) || has(text, PRICE_WORDS);
+}
+
 const GREETING = [
   "السلام عليكم", "سلام عليكم", "سلام", "صباح الخير", "مساء الخير", "صباح النور", "اهلا",
   "اهلين", "هاي", "هلا", "مرحبا", "ازيك", "ازيكم", "عامل ايه", "الو", "السلام",

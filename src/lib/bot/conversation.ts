@@ -52,8 +52,22 @@ export const MAX_TURNS = 40;
  */
 export const HANDOFF_HOLD_MS = 24 * 60 * 60 * 1000;
 
-/** How long a staff member's own message to the patient keeps the bot out of the thread. */
-export const HUMAN_CLAIM_MS = 60 * 60 * 1000;
+/**
+ * How long a staff member's own message to the patient keeps the bot out of the thread.
+ *
+ * The default. A clinic can shorten or lengthen it (Settings → WhatsApp, `botHumanClaimMinutes`);
+ * the first desk to use this found an hour far too long — a receptionist who answered one
+ * question did not mean to take the bot off the patient for the rest of the hour.
+ */
+export const DEFAULT_HUMAN_CLAIM_MINUTES = 15;
+export const HUMAN_CLAIM_MS = DEFAULT_HUMAN_CLAIM_MINUTES * 60 * 1000;
+
+/** Minutes → ms, clamped to something sane; anything unset or nonsense means the default. */
+export function humanClaimMsFromSetting(minutes: unknown): number {
+  const n = Number(minutes);
+  if (!Number.isFinite(n) || n < 0) return HUMAN_CLAIM_MS;
+  return Math.min(24 * 60, Math.max(0, Math.round(n))) * 60 * 1000;
+}
 
 export interface BotConversation {
   phoneKey: string;
@@ -168,8 +182,10 @@ function ref(clinicId: string, phoneKey: string) {
 export async function loadConversation(
   clinicId: string,
   phone: string,
-  now: number
+  now: number,
+  opts: { humanClaimMs?: number } = {}
 ): Promise<BotConversation> {
+  const humanClaimMs = opts.humanClaimMs ?? HUMAN_CLAIM_MS;
   const phoneKey = conversationKey(phone);
   const snap = await ref(clinicId, phoneKey).get();
 
@@ -213,7 +229,7 @@ export async function loadConversation(
   // until they hand the thread back, because a person mid-conversation should not have to keep
   // re-claiming it every hour to stop the bot barging in.
   const humanOwned =
-    openHandoff || humanActiveAtMs > now - HUMAN_CLAIM_MS || d.botPaused === true;
+    openHandoff || humanActiveAtMs > now - humanClaimMs || d.botPaused === true;
 
   /*
    * A handoff staff have marked handled releases the bot — including from the stored state.

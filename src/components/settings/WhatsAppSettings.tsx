@@ -150,6 +150,7 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     botClinicalMode: data?.botClinicalMode === "dentist" ? "dentist" : "handoff",
     ...(typeof data?.botAiMaxReplies === "number" ? { botAiMaxReplies: data.botAiMaxReplies } : {}),
     botCoaching: typeof data?.botCoaching === "string" ? data.botCoaching : "",
+    ...(typeof data?.botHumanClaimMinutes === "number" ? { botHumanClaimMinutes: data.botHumanClaimMinutes } : {}),
     // Same rule as deliveryMode below: spread conditionally so an absent map stays absent. A key
     // holding `undefined` is rejected by Firestore on the next write, which reads on screen as a
     // save that silently did nothing.
@@ -435,6 +436,12 @@ export default function WhatsAppSettings() {
         language === "ar"
           ? "بحد أقصى ١٥ رد للرقم الواحد في الساعة، وبيوقف ويحوّل لموظف لو المحادثة طالت."
           : "At most 15 replies to one number per hour, and it stops and hands over if a conversation drags on.",
+      botClaim: language === "ar" ? "البوت يسكت بعد رد الموظف لمدة" : "After a staff reply, the bot stays quiet for",
+      botClaimUnit: language === "ar" ? "دقيقة (الافتراضي ١٥)" : "minutes (default 15)",
+      botClaimHint:
+        language === "ar"
+          ? "لما حد من الفريق يرد على مريض من شاشة المحادثات، البوت بيبعد عن المحادثة دي المدة دي عشان ميتكلمش فوق الموظف. صفر يعني البوت يرد على الرسالة اللي بعدها على طول. زرار «رجّع البوت» في المحادثة بيلغي الانتظار في أي وقت."
+          : "When a team member replies to a patient from the chat screen, the bot steps out of that conversation for this long so it never talks over a person. 0 means the bot answers the very next message. The \"Hand back to bot\" button in the chat ends the wait at any time.",
       botDentist: language === "ar" ? "يرد على الأعراض كطبيب أسنان أولاً، وبعدها يعرض الحجز" : "Answer symptoms like a dentist first, then offer a booking",
       botDentistHint:
         language === "ar"
@@ -1774,6 +1781,27 @@ export default function WhatsAppSettings() {
                 />
               </label>
               <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botDentistHint}</p>
+
+              {/* How long a staff reply keeps the bot out of the thread. */}
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                <span className="text-sm font-bold text-ink">{txt.botClaim}</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={1440}
+                  className="w-24 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-ink"
+                  value={state.botHumanClaimMinutes === undefined ? "" : state.botHumanClaimMinutes}
+                  placeholder="15"
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    const n = Math.max(0, Math.min(1440, Math.round(Number(raw) || 0)));
+                    setState((s) => ({ ...s, botHumanClaimMinutes: raw === "" ? undefined : n }));
+                  }}
+                  onBlur={() => void persist(state, "silent")}
+                />
+                <span className="text-xs text-ink-muted">{txt.botClaimUnit}</span>
+              </div>
+              <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botClaimHint}</p>
 
               {/* Salesperson mode: the model leads, with a cap the clinic chooses and its own coaching. */}
               <div className="pt-4 mt-2 border-t border-line space-y-3">

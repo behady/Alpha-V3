@@ -275,7 +275,9 @@ assert.equal(decideBotReply({ state: "awaiting_choice", text: "بتركبوا ت
 assert.equal(decideBotReply({ state: "reprompted", text: "طب وبعدين", ctx }).reason, "gave_up");
 
 // Mid-booking lists still relist rather than burning credits on a mistyped digit.
-assert.equal(decideBotReply({ state: "booking_day", text: "بكرة ينفع؟", ctx: { ...aiCtx, optionCount: 4 } }).action?.type, "relist");
+assert.equal(decideBotReply({ state: "booking_day", text: "33", ctx: { ...aiCtx, optionCount: 4 } }).action?.type, "relist");
+// A day named in words at the day list is a pick, question mark or not.
+assert.equal(decideBotReply({ state: "booking_day", text: "بكرة ينفع؟", ctx: { ...aiCtx, optionCount: 4, dayWord: "2026-09-06" } }).action?.type, "list_times_date");
 
 console.log("✓ ai fallback: last in line, never above the refusals, and the old ladder stands when it cannot run");
 
@@ -300,3 +302,23 @@ const defaultMode = decideBotReply({ state: "awaiting_choice", text: "ضرسي �
 assert.equal(defaultMode.reason, "clinical", "the cautious default is unchanged");
 
 console.log("✓ dentist mode: symptoms go to the AI, emergencies and systemic conditions still go to a person");
+
+// ================================================================================================
+// A question in the middle of a form is still a question: the form is set aside, not fed the
+// question as its answer. One patient was registered under the name "how much is a filling".
+// ================================================================================================
+const priceAsName = decideBotReply({ state: "booking_name", text: "اسعار حشو العادى كام", ctx: aiCtx });
+assert.notEqual(priceAsName.action?.type, "register", "a price question is not a name");
+assert.equal(priceAsName.action?.type, "ai", "it is answered as the question it is");
+
+const realName = decideBotReply({ state: "booking_name", text: "احمد محمد علي", ctx: aiCtx });
+assert.equal(realName.action?.type, "register", "a real name still registers");
+
+const priceMidDoctors = decideBotReply({ state: "booking_doctor", text: "يا عم قولى السعر الاول", ctx: { ...aiCtx, optionCount: 4 } });
+assert.notEqual(priceMidDoctors.action?.type, "relist", "a price question at the dentist step is not a mis-typed digit");
+assert.notEqual(priceMidDoctors.action?.type, "list_days_doctor_index", "and never picks a dentist");
+
+const digitMidDoctors = decideBotReply({ state: "booking_doctor", text: "2", ctx: { ...aiCtx, optionCount: 4 } });
+assert.equal(digitMidDoctors.action?.type, "list_days_doctor_index", "a digit at the dentist step still picks");
+
+console.log("✓ questions mid-form: answered, never registered as a name or read as a pick");

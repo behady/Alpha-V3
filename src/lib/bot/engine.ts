@@ -215,7 +215,7 @@ const SILENT = (next: BotState, reason: string): BotDecision => ({ reply: "", ne
 export { needsHuman, triageMessage } from "./clinicalTriage";
 import { needsHuman, triageMessage } from "./clinicalTriage";
 import { competitorReply, expensiveReply, offersExpiredReply, thinkingReply } from "./sales";
-import { quickIntent, type QuickIntent } from "./quickAnswers";
+import { looksLikeQuestion, quickIntent, type QuickIntent } from "./quickAnswers";
 
 /*
  * The voice.
@@ -573,7 +573,24 @@ export function decideBotReply(args: {
     return { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "asked_for_human" };
   }
 
-  if (state === "booking_name") {
+  /*
+   * A question in the middle of a form is still a question.
+   *
+   * The bot asked for a name and got "اسعار حشو العادى كام"; it listed dentists and got "قولي
+   * السعر الأول". Taking those as the answer to its own question registered a patient called
+   * "how much is a filling" and picked a dentist for someone who was asking a price. When the
+   * message asks something, the form is set aside and the question is answered — the sales
+   * model re-opens the booking itself once the patient is satisfied.
+   */
+  const INFO_INTENTS = new Set<QuickIntent>([
+    "price_list", "hours", "open_now", "location", "parking", "installments", "offers", "insurance",
+    "competitor", "expensive", "aftercare", "duration", "walk_in", "my_appointment",
+  ]);
+  // "بكرة ينفع؟" at the day list is a day pick with a question mark on it, not a change of subject.
+  const namesADay = state === "booking_day" && !!ctx.dayWord;
+  const asksSomething = !namesADay && (looksLikeQuestion(text) || (intent !== null && INFO_INTENTS.has(intent)));
+
+  if (state === "booking_name" && !asksSomething) {
     /*
      * The sender is answering "what is your name". Anything that looks like a name is one — this
      * is how the public booking page has always worked, and demanding more ceremony from a chat
@@ -587,7 +604,10 @@ export function decideBotReply(args: {
     return { reply: "", action: { type: "register", name, forRelative: ctx.forRelative === true }, next: "booking_day", handoff: false, reason: "registered" };
   }
 
-  const inBooking = state === "booking_doctor" || state === "booking_day" || state === "booking_time";
+  // Mid-booking means "answering a numbered list" — unless the message is a question, in which
+  // case the list is set aside and the question wins (see above).
+  const inBooking =
+    (state === "booking_doctor" || state === "booking_day" || state === "booking_time") && !asksSomething;
 
   // Mid-booking the digits own the conversation, but abandoning it is still allowed: relisting the
   // same days at someone who just said "cancel" is the loop that has no exit.
@@ -629,6 +649,10 @@ export function decideBotReply(args: {
   // Mid-booking, the patient is answering a numbered list the caller stored. Zero always means
   // "back" — a patient who picked the wrong day must not need a human to undo it.
   if (inBooking) {
+    // A day named in words at the day list picks that day, exactly as its digit would have.
+    if (namesADay && ctx.dayWord) {
+      return { reply: "", action: { type: "list_times_date", dateKey: ctx.dayWord }, next: "booking_time", handoff: false, reason: "booking_times" };
+    }
     const n = numberChoice(text);
     if (n === 0) {
       if (state === "booking_time") {

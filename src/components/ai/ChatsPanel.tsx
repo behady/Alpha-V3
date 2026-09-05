@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 import QuickReplies from "./QuickReplies";
 import ChatInfoPanel, { tagLabel, tagTone } from "./ChatInfoPanel";
-import { getDocs, limit, onSnapshot, orderBy, query, startAfter, updateDoc } from "firebase/firestore";
+import { getDoc, getDocs, limit, onSnapshot, orderBy, query, startAfter, updateDoc } from "firebase/firestore";
 import { getDownloadURL, ref as storageRef, uploadBytes } from "firebase/storage";
 import { auth, storage } from "@/lib/firebase";
 import { chatSoundEnabled, playChatChime, requestChatNotifications, setChatSoundEnabled } from "@/lib/useChatAlerts";
@@ -170,8 +170,8 @@ type Filter = "all" | "unread" | "needs" | "mine" | "archived";
 
 /** Meta drops free text sent more than 24h after the patient's last message. */
 const REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
-/** The hour a staff reply keeps the bot out of the thread (mirrors HUMAN_CLAIM_MS). */
-const HUMAN_CLAIM_MS = 60 * 60 * 1000;
+/** Default for how long a staff reply keeps the bot out of the thread; the clinic can change it. */
+const HUMAN_CLAIM_MS = 15 * 60 * 1000;
 
 /** WhatsApp's own palette for the chat surface — the one part of the app drawn to match another. */
 const WA = {
@@ -301,6 +301,17 @@ export default function ChatsPanel({
   const [draft, setDraft] = useState<ChatRow | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
+  // How long a staff reply keeps the bot out of a thread — the clinic's setting, default 15 min.
+  const [claimMs, setClaimMs] = useState(HUMAN_CLAIM_MS);
+  useEffect(() => {
+    if (!user) return;
+    getDoc(getClinicDoc("settings", "whatsapp"))
+      .then((snap) => {
+        const m = Number(snap.data()?.botHumanClaimMinutes);
+        if (Number.isFinite(m) && m >= 0) setClaimMs(Math.min(1440, Math.round(m)) * 60 * 1000);
+      })
+      .catch(() => {});
+  }, [user]);
   const myUid = user?.uid || "";
 
   useEffect(() => {
@@ -592,6 +603,7 @@ export default function ChatsPanel({
             isAr={isAr}
             showToast={showToast}
             infoOpen={infoOpen}
+            claimMs={claimMs}
             onToggleInfo={() => setInfoOpen((v) => !v)}
           />
         ) : (
@@ -632,6 +644,7 @@ function Thread({
   showToast,
   infoOpen,
   onToggleInfo,
+  claimMs,
 }: {
   chat: ChatRow;
   onBack: () => void;
@@ -639,6 +652,7 @@ function Thread({
   showToast: (msg: string, kind: "success" | "error") => void;
   infoOpen: boolean;
   onToggleInfo: () => void;
+  claimMs: number;
 }) {
   const { user } = useAuth();
   const [lines, setLines] = useState<ThreadLine[]>([]);
@@ -775,7 +789,7 @@ function Thread({
   // Meta drops out-of-window text silently; the unofficial gateway does not. Block only where it
   // would silently fail — a disabled box the receptionist can see beats a "sent" that never lands.
   const blocked = !chat.isPlayground && (isLid || (windowClosed && officialChannel) || chat.optedOut === true);
-  const humanHold = chat.botPaused === true || (chat.humanActiveAtMs || 0) > Date.now() - HUMAN_CLAIM_MS;
+  const humanHold = chat.botPaused === true || (chat.humanActiveAtMs || 0) > Date.now() - claimMs;
   const handling = !chat.isPlayground && (chat.botPaused === true || chat.needsHuman === true || humanHold);
 
   const post = async (payload: Record<string, unknown>) => {
@@ -1011,7 +1025,7 @@ function Thread({
                 : humanHold
                   ? ` · ${
                       isAr ? "البوت ساكت لحد" : "bot quiet until"
-                    } ${new Date((chat.humanActiveAtMs || 0) + HUMAN_CLAIM_MS).toLocaleTimeString(isAr ? "ar-EG" : "en-GB", { hour: "2-digit", minute: "2-digit" })}`
+                    } ${new Date((chat.humanActiveAtMs || 0) + claimMs).toLocaleTimeString(isAr ? "ar-EG" : "en-GB", { hour: "2-digit", minute: "2-digit" })}`
                   : ""}
           </p>
         </div>
@@ -1227,8 +1241,8 @@ function Thread({
                       ? "البوت سلّم المحادثة لحد من الفريق ومستني رد."
                       : "The bot handed this chat to a person and is waiting."
                     : isAr
-                      ? "حد من الفريق رد من شوية — البوت ساكت لمدة ساعة."
-                      : "A team member replied recently — the bot stays quiet for an hour."}
+                      ? `حد من الفريق رد من شوية — البوت ساكت ${Math.round(claimMs / 60000)} دقيقة.`
+                      : `A team member replied recently — the bot stays quiet for ${Math.round(claimMs / 60000)} minutes.`}
             </span>
           </div>
         )}
