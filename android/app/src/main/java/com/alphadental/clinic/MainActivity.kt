@@ -384,6 +384,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                                 onOpenAssistant = { viewModel.openAssistant(context) },
                                 briefing = state.briefing,
                                 onOpenBriefing = viewModel::openBriefing,
+                                refreshing = state.homeRefreshing,
+                                onRefresh = viewModel::refreshHome,
                                 onOpenLeads = if (session.can("access.marketing")) {
                                     { viewModel.openLeads() }
                                 } else null,
@@ -413,6 +415,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             onSearch = viewModel::searchPatientsTab,
                             onLoadMore = viewModel::loadMorePatients,
                             onOpenPatient = { viewModel.openPatient(it.id) },
+                            error = state.patientsError,
+                            onRefresh = viewModel::refreshPatients,
                         )
 
                         Tab.MONEY -> MoneyScreen(
@@ -429,6 +433,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             onSetView = viewModel::setFinanceView,
                             onShift = viewModel::shiftFinance,
                             onToday = viewModel::financeToday,
+                            error = state.financeError,
+                            onRefresh = viewModel::loadFinance,
                             onAdd = viewModel::openFinanceAdd,
                             onDelete = viewModel::deleteFinanceEntry,
                             onOpenRow = { row ->
@@ -597,6 +603,9 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     file = state.patientFile,
                     loading = state.patientLoading,
                     error = state.patientError,
+                    onRetry = viewModel::retryPatient,
+                    refreshing = state.patientRefreshing,
+                    onRefresh = viewModel::refreshPatient,
                     arabic = state.arabic,
                     media = state.patientMedia,
                     ortho = state.patientOrtho,
@@ -699,6 +708,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                 LeadsScreen(
                     leads = state.leads,
                     loading = state.loadingLeads,
+                    error = state.leadsError,
+                    onRefresh = viewModel::refreshLeads,
                     arabic = state.arabic,
                     onSetStage = viewModel::setLeadStage,
                     // Creating a patient file, so the same roles the register lets
@@ -768,6 +779,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     cases = state.orthoCases,
                     openCase = state.orthoCase,
                     loading = state.loadingOrtho,
+                    error = state.orthoError,
+                    onRefresh = viewModel::refreshOrtho,
                     saving = state.savingOrtho,
                     canEdit = session.can("clinical.edit"),
                     arabic = state.arabic,
@@ -792,6 +805,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     sources = state.reportSources,
                     newPatients = state.reportNewPatients,
                     loading = state.loadingReport,
+                    error = state.reportError,
+                    onRefresh = viewModel::refreshReport,
                     arabic = state.arabic,
                     onRange = viewModel::setReportRange,
                     onClose = viewModel::closeReports,
@@ -811,6 +826,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                 InventorySheet(
                     items = state.inventory,
                     loading = state.loadingInventory,
+                    error = state.inventoryError,
+                    onRetry = viewModel::refreshInventory,
                     canEdit = session.can("appointments.edit"),
                     arabic = state.arabic,
                     onAdjust = viewModel::adjustStock,

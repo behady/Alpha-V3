@@ -90,6 +90,9 @@ fun LeadsScreen(
     convertingLeadId: String,
     onAdd: () -> Unit,
     onClose: () -> Unit,
+    /** The last read failed; shown over the leads already there. */
+    error: String? = null,
+    onRefresh: () -> Unit = {},
 ) {
     val context = LocalContextCompat()
     BackHandler { onClose() }
@@ -276,51 +279,64 @@ fun LeadsScreen(
                 }
             }
 
-            when {
-                loading && leads.isEmpty() -> Box(
-                    Modifier.fillMaxSize().padding(32.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator(color = Alpha.Slate400, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
-                }
-
-                shown.isEmpty() -> Box(Modifier.fillMaxSize().padding(24.dp)) {
-                    // An empty list because of a filter is a different fact from an
-                    // empty list because nobody has enquired, and only one of them
-                    // is fixed by tapping something.
-                    EmptyState(
+            RefreshBox(
+                refreshing = loading && leads.isNotEmpty(),
+                onRefresh = onRefresh,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                Column(Modifier.fillMaxSize()) {
+                    error?.let {
+                        LoadErrorBanner(it, arabic, onRefresh, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
+                    }
+                    Box(Modifier.weight(1f)) {
                         when {
-                            sourceFilter.isNotBlank() && arabic ->
-                                "لا يوجد عملاء من \"$sourceFilter\" في هذا القسم."
-                            sourceFilter.isNotBlank() ->
-                                "No leads from \"$sourceFilter\" here. Tap the source again to see them all."
-                            arabic -> "لا يوجد عملاء محتملون هنا."
-                            else -> "Nothing here — new leads land in the inbox the moment they arrive."
-                        }
-                    )
-                }
+                            loading && leads.isEmpty() -> Box(
+                                Modifier.fillMaxSize().padding(32.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator(color = Alpha.Slate400, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
+                            }
 
-                else -> LazyColumn(
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(shown, key = { it.id }) { lead ->
-                        LeadCard(
-                            lead = lead,
-                            arabic = arabic,
-                            dueToday = lead.followUpDate.isNotBlank() && lead.followUpDate <= today &&
-                                lead.stage !in setOf("won", "lost"),
-                            onCall = { context.dialLead(lead.phone) },
-                            onWhatsapp = { context.whatsappLead(lead.phone) },
-                            onStage = { stage ->
-                                if (stage == "lost") losing = lead else onSetStage(lead, stage, null)
-                            },
-                            // Nothing to convert once it is won — the file exists.
-                            onConvert = if (onConvert != null && lead.stage != "won") {
-                                { onConvert(lead) }
-                            } else null,
-                            converting = convertingLeadId == lead.id,
-                        )
+                            shown.isEmpty() -> Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)) {
+                                // An empty list because of a filter is a different fact from an
+                                // empty list because nobody has enquired, and only one of them
+                                // is fixed by tapping something.
+                                EmptyState(
+                                    when {
+                                        sourceFilter.isNotBlank() && arabic ->
+                                            "لا يوجد عملاء من \"$sourceFilter\" في هذا القسم."
+                                        sourceFilter.isNotBlank() ->
+                                            "No leads from \"$sourceFilter\" here. Tap the source again to see them all."
+                                        arabic -> "لا يوجد عملاء محتملون هنا."
+                                        else -> "Nothing here — new leads land in the inbox the moment they arrive."
+                                    }
+                                )
+                            }
+
+                            else -> LazyColumn(
+                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                items(shown, key = { it.id }) { lead ->
+                                    LeadCard(
+                                        lead = lead,
+                                        arabic = arabic,
+                                        dueToday = lead.followUpDate.isNotBlank() && lead.followUpDate <= today &&
+                                            lead.stage !in setOf("won", "lost"),
+                                        onCall = { context.dialLead(lead.phone) },
+                                        onWhatsapp = { context.whatsappLead(lead.phone) },
+                                        onStage = { stage ->
+                                            if (stage == "lost") losing = lead else onSetStage(lead, stage, null)
+                                        },
+                                        // Nothing to convert once it is won — the file exists.
+                                        onConvert = if (onConvert != null && lead.stage != "won") {
+                                            { onConvert(lead) }
+                                        } else null,
+                                        converting = convertingLeadId == lead.id,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -108,6 +109,9 @@ fun HomeScreen(
     /** Today at a glance, once it has arrived. Null while loading, or if it failed. */
     briefing: com.alphadental.clinic.ai.BriefingClient.Briefing? = null,
     onOpenBriefing: () -> Unit = {},
+    /** A pull on the dashboard re-reads the slab: takings, shift, briefing. The day is live. */
+    refreshing: Boolean = false,
+    onRefresh: () -> Unit = {},
 ) {
     val active = appointments.filterNot { normalizeStatus(it.status) in FINISHED }
     val nowMinutes = Calendar.getInstance().let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
@@ -118,100 +122,102 @@ fun HomeScreen(
     val seen = appointments.count { normalizeStatus(it.status) in SEEN }
     val noShow = appointments.count { normalizeStatus(it.status) == "No Show" }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxWidth(),
-        // No side gutter on the list itself: the header slab has to reach both
-        // screen edges, so every other row asks for the gutter with row()/Gutter().
-        contentPadding = PaddingValues(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            DashboardHeader(
-                name = session.name,
-                arabic = arabic,
-                onShift = onShift,
-                shiftSince = shiftSince,
-                clocking = clocking,
-                onPunch = onPunch,
-            ) {
-                if (ownerView) {
-                    Spacer(Modifier.height(20.dp))
-                    SlabTakings(
-                        takingsToday = takingsToday,
-                        seen = seen,
-                        total = appointments.size,
-                        noShow = noShow,
-                        arabic = arabic,
-                    )
+    RefreshBox(refreshing = refreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth(),
+            // No side gutter on the list itself: the header slab has to reach both
+            // screen edges, so every other row asks for the gutter with row()/Gutter().
+            contentPadding = PaddingValues(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                DashboardHeader(
+                    name = session.name,
+                    arabic = arabic,
+                    onShift = onShift,
+                    shiftSince = shiftSince,
+                    clocking = clocking,
+                    onPunch = onPunch,
+                ) {
+                    if (ownerView) {
+                        Spacer(Modifier.height(20.dp))
+                        SlabTakings(
+                            takingsToday = takingsToday,
+                            seen = seen,
+                            total = appointments.size,
+                            noShow = noShow,
+                            arabic = arabic,
+                        )
+                    }
                 }
             }
-        }
 
-        // Today's briefing, but only when it has something to say. It arrives in
-        // the background a moment after the dashboard, so it must not be a hole
-        // in the layout while it is missing — one line, or nothing at all.
-        if (briefing != null && !briefing.isEmpty) {
-            row { BriefingLine(briefing, arabic, onOpenBriefing) }
-        }
+            // Today's briefing, but only when it has something to say. It arrives in
+            // the background a moment after the dashboard, so it must not be a hole
+            // in the layout while it is missing — one line, or nothing at all.
+            if (briefing != null && !briefing.isEmpty) {
+                row { BriefingLine(briefing, arabic, onOpenBriefing) }
+            }
 
-        if (clockError != null) {
+            if (clockError != null) {
+                row {
+                    Surface(
+                        onClick = onDismissClockError,
+                        shape = Alpha.CardShape,
+                        color = Alpha.DangerSoft,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            clockError,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Alpha.DangerText,
+                            modifier = Modifier.padding(12.dp),
+                        )
+                    }
+                }
+            }
+
+            if (offline) {
+                row { OfflineBanner(pending, arabic) }
+            }
+
+            when {
+                session.isDentist -> dentistHome(
+                    session, appointments, active, nowMinutes, arabic,
+                    onOpenAppointment, onOpenPatients, onOpenOrtho, onOpenInventory, onOpenAssistant,
+                )
+
+                session.isReception -> receptionHome(
+                    appointments, active, arabic, whatsappWaiting, chatsWaiting,
+                    onOpenAppointment, onOpenMoney, onOpenPatients, onOpenWhatsappQueue, onOpenChats, onOpenAssistant, onOpenLeads,
+                )
+
+                else -> ownerHome(
+                    active, arabic, whatsappWaiting, chatsWaiting,
+                    onOpenAppointment, onOpenReports, onOpenMoney, onOpenInventory, onOpenChats, onOpenAssistant, onOpenLeads,
+                )
+            }
+
             row {
                 Surface(
-                    onClick = onDismissClockError,
-                    shape = Alpha.CardShape,
-                    color = Alpha.DangerSoft,
+                    onClick = onSeeDay,
+                    shape = Alpha.PillShape,
+                    color = Alpha.Card,
+                    border = BorderStroke(1.dp, Alpha.Slate200),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
-                        clockError,
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Alpha.DangerText,
-                        modifier = Modifier.padding(12.dp),
+                        if (arabic) "عرض اليوم كاملاً ←" else "See the whole day →",
+                        fontWeight = FontWeight.Bold,
+                        color = Alpha.Slate800,
+                        fontSize = 14.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 14.dp),
                     )
                 }
-            }
-        }
-
-        if (offline) {
-            row { OfflineBanner(pending, arabic) }
-        }
-
-        when {
-            session.isDentist -> dentistHome(
-                session, appointments, active, nowMinutes, arabic,
-                onOpenAppointment, onOpenPatients, onOpenOrtho, onOpenInventory, onOpenAssistant,
-            )
-
-            session.isReception -> receptionHome(
-                appointments, active, arabic, whatsappWaiting, chatsWaiting,
-                onOpenAppointment, onOpenMoney, onOpenPatients, onOpenWhatsappQueue, onOpenChats, onOpenAssistant, onOpenLeads,
-            )
-
-            else -> ownerHome(
-                active, arabic, whatsappWaiting, chatsWaiting,
-                onOpenAppointment, onOpenReports, onOpenMoney, onOpenInventory, onOpenChats, onOpenAssistant, onOpenLeads,
-            )
-        }
-
-        row {
-            Surface(
-                onClick = onSeeDay,
-                shape = Alpha.PillShape,
-                color = Alpha.Card,
-                border = BorderStroke(1.dp, Alpha.Slate200),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    if (arabic) "عرض اليوم كاملاً ←" else "See the whole day →",
-                    fontWeight = FontWeight.Bold,
-                    color = Alpha.Slate800,
-                    fontSize = 14.sp,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 14.dp),
-                )
             }
         }
     }

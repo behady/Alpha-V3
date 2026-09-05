@@ -43,6 +43,7 @@ import com.alphadental.clinic.ai.ChatStore
 import com.alphadental.clinic.ai.interpretYesNo
 import com.alphadental.clinic.ui.NoteDraft
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -175,6 +176,22 @@ data class AppState(
     val chatNotice: String? = null,
     /** How long a staff reply keeps the bot out of a thread; the clinic's setting. */
     val chatClaimMs: Long = Chats.DEFAULT_HUMAN_CLAIM_MS,
+    // --- reads that failed ---
+    /**
+     * One per screen that reads once. Blank while the last read went through; a plain sentence
+     * (see loadFailure) when it did not, shown as a banner with Retry over whatever is on screen.
+     * Without these a failed read looked exactly like an empty list.
+     */
+    val leadsError: String? = null,
+    val inventoryError: String? = null,
+    val reportError: String? = null,
+    val financeError: String? = null,
+    val orthoError: String? = null,
+    val patientsError: String? = null,
+    /** The home slab's pull: takings, shift and briefing together. The day itself is live. */
+    val homeRefreshing: Boolean = false,
+    /** A pull on an open patient file: re-read without blanking the file underneath. */
+    val patientRefreshing: Boolean = false,
     // --- reports ---
     val reportsOpen: Boolean = false,
     val reportRange: ReportRange = ReportRange.MONTH,
@@ -525,14 +542,18 @@ class AppViewModel : ViewModel() {
     fun loadFinance() {
         val session = _state.value.session ?: return
         val (from, to) = financeBounds()
-        _state.value = _state.value.copy(loadingFinance = true)
+        _state.value = _state.value.copy(loadingFinance = true, financeError = null)
         viewModelScope.launch {
-            val rows = runCatching { Repository.loadFinance(session.clinicId, from, to) }
-                .getOrDefault(emptyList())
+            val result = runCatching { Repository.loadFinance(session.clinicId, from, to) }
             // Ignore a slow response for a period the user has already moved past.
-            if (financeBounds() == (from to to)) {
-                _state.value = _state.value.copy(financeRows = rows, loadingFinance = false)
-            }
+            if (financeBounds() != (from to to)) return@launch
+            result
+                .onSuccess { rows -> _state.value = _state.value.copy(financeRows = rows, loadingFinance = false) }
+                // Emptied on purpose: the rows on screen belong to whatever period loaded last,
+                // and leaving them under this period's heading would be a wrong number.
+                .onFailure { error ->
+                    _state.value = _state.value.copy(financeRows = emptyList(), loadingFinance = false, financeError = loadFailure(error))
+                }
         }
     }
 
@@ -663,13 +684,22 @@ class AppViewModel : ViewModel() {
     // ---------------------------------------------------------------- leads (CRM)
 
     fun openLeads() {
+        _state.value = _state.value.copy(leadsOpen = true)
+        refreshLeads()
+    }
+
+    /** Re-read the leads; a failure keeps the list that was there and says so above it. */
+    fun refreshLeads() {
         val session = _state.value.session ?: return
-        _state.value = _state.value.copy(leadsOpen = true, loadingLeads = true)
+        _state.value = _state.value.copy(loadingLeads = true, leadsError = null)
         viewModelScope.launch {
-            val rows = runCatching { Repository.loadLeads(session.clinicId) }.getOrDefault(emptyList())
-            if (_state.value.leadsOpen) {
-                _state.value = _state.value.copy(leads = rows, loadingLeads = false)
-            }
+            runCatching { Repository.loadLeads(session.clinicId) }
+                .onSuccess { rows ->
+                    if (_state.value.leadsOpen) _state.value = _state.value.copy(leads = rows, loadingLeads = false)
+                }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(loadingLeads = false, leadsError = loadFailure(error))
+                }
         }
     }
 
@@ -915,11 +945,19 @@ class AppViewModel : ViewModel() {
     }
 
     fun openInventory() {
+        _state.value = _state.value.copy(inventoryOpen = true)
+        refreshInventory()
+    }
+
+    fun refreshInventory() {
         val session = _state.value.session ?: return
-        _state.value = _state.value.copy(inventoryOpen = true, loadingInventory = true)
+        _state.value = _state.value.copy(loadingInventory = true, inventoryError = null)
         viewModelScope.launch {
-            val items = runCatching { Repository.loadInventory(session.clinicId) }.getOrDefault(emptyList())
-            _state.value = _state.value.copy(inventory = items, loadingInventory = false)
+            runCatching { Repository.loadInventory(session.clinicId) }
+                .onSuccess { items -> _state.value = _state.value.copy(inventory = items, loadingInventory = false) }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(loadingInventory = false, inventoryError = loadFailure(error))
+                }
         }
     }
 
@@ -1150,11 +1188,19 @@ class AppViewModel : ViewModel() {
      * undone the moment the cases came back.
      */
     fun openOrtho(onCase: OrthoCase? = null) {
+        _state.value = _state.value.copy(orthoOpen = true, orthoCase = onCase)
+        refreshOrtho()
+    }
+
+    fun refreshOrtho() {
         val session = _state.value.session ?: return
-        _state.value = _state.value.copy(orthoOpen = true, orthoCase = onCase, loadingOrtho = true)
+        _state.value = _state.value.copy(loadingOrtho = true, orthoError = null)
         viewModelScope.launch {
-            val cases = runCatching { Repository.loadOrthoCases(session.clinicId) }.getOrDefault(emptyList())
-            _state.value = _state.value.copy(orthoCases = cases, loadingOrtho = false)
+            runCatching { Repository.loadOrthoCases(session.clinicId) }
+                .onSuccess { cases -> _state.value = _state.value.copy(orthoCases = cases, loadingOrtho = false) }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(loadingOrtho = false, orthoError = loadFailure(error))
+                }
         }
     }
 
@@ -2112,31 +2158,46 @@ class AppViewModel : ViewModel() {
         loadReport(range)
     }
 
+    fun refreshReport() = loadReport(_state.value.reportRange)
+
     private fun loadReport(range: ReportRange) {
         val session = _state.value.session ?: return
         val (from, to) = rangeBounds(range)
 
         _state.value = _state.value.copy(
             loadingReport = true,
+            reportError = null,
             reportRangeLabel = "$from → $to",
         )
 
         viewModelScope.launch {
-            val rows = runCatching { Repository.loadLedgerRange(session.clinicId, from, to) }
-                .getOrDefault(emptyList())
-            val referrals = runCatching { Repository.loadNewPatientReferrals(session.clinicId, from, to) }
-                .getOrDefault(emptyList())
+            val result = runCatching {
+                val rows = Repository.loadLedgerRange(session.clinicId, from, to)
+                val referrals = Repository.loadNewPatientReferrals(session.clinicId, from, to)
+                rows to referrals
+            }
 
             // Ignore a slow answer for a range the user has already moved off, the same way the
             // day ledger does — otherwise tapping through the chips races itself.
             if (_state.value.reportRange != range) return@launch
 
-            _state.value = _state.value.copy(
-                loadingReport = false,
-                reportSummary = if (rows.isEmpty() && referrals.isEmpty()) null else summariseReport(rows, from, to),
-                reportSources = summariseSources(referrals),
-                reportNewPatients = referrals.size,
-            )
+            result.onSuccess { (rows, referrals) ->
+                _state.value = _state.value.copy(
+                    loadingReport = false,
+                    reportSummary = if (rows.isEmpty() && referrals.isEmpty()) null else summariseReport(rows, from, to),
+                    reportSources = summariseSources(referrals),
+                    reportNewPatients = referrals.size,
+                )
+            }.onFailure { error ->
+                // A report for the wrong range is worse than no report: cleared, and said.
+                _state.value = _state.value.copy(
+                    loadingReport = false,
+                    reportSummary = null,
+                    reportSources = emptyList(),
+                    reportNewPatients = 0,
+                    reportError = loadFailure(error),
+                )
+            }
         }
     }
 
@@ -2233,6 +2294,58 @@ class AppViewModel : ViewModel() {
         viewModelScope.launch {
             val shift = runCatching { Repository.openShift(session.clinicId, session.uid) }.getOrNull()
             _state.value = _state.value.copy(openShift = shift)
+        }
+    }
+
+    /**
+     * The home screen's pull-to-refresh.
+     *
+     * The schedule underneath is a live listener and needs nothing; what goes stale is the slab —
+     * the day's takings, the shift, and the briefing line. A failed re-read keeps the old figure
+     * rather than blanking it: a number that was right a minute ago beats a dash.
+     */
+    fun refreshHome() {
+        val session = _state.value.session ?: return
+        if (_state.value.homeRefreshing) return
+        _state.value = _state.value.copy(homeRefreshing = true)
+        refreshBriefing()
+        viewModelScope.launch {
+            val takings = async {
+                if (!session.can("access.finance")) null
+                else runCatching { Repository.takingsOn(session.clinicId, today()) }.getOrElse { _state.value.takingsToday }
+            }
+            val shift = async {
+                runCatching { Repository.openShift(session.clinicId, session.uid) }.getOrElse { _state.value.openShift }
+            }
+            val t = takings.await()
+            val s = shift.await()
+            _state.value = _state.value.copy(
+                homeRefreshing = false,
+                openShift = s,
+                takingsToday = if (session.can("access.finance")) t else _state.value.takingsToday,
+            )
+        }
+    }
+
+    /**
+     * One sentence about why a read failed, for a banner with a Retry button beside it.
+     *
+     * Firestore's own messages are written for developers — "PERMISSION_DENIED: Missing or
+     * insufficient permissions", "Failed to get document because the client is offline" — and a
+     * receptionist on a bad connection needs to be told what to do, not what went wrong inside.
+     */
+    private fun loadFailure(error: Throwable): String {
+        val arabic = _state.value.arabic
+        val code = (error as? com.google.firebase.firestore.FirebaseFirestoreException)?.code
+        val offline = code == com.google.firebase.firestore.FirebaseFirestoreException.Code.UNAVAILABLE ||
+            error is java.net.UnknownHostException ||
+            error is java.net.SocketTimeoutException ||
+            error.message?.contains("offline", ignoreCase = true) == true
+        return when {
+            offline -> if (arabic) "لا يوجد اتصال. اسحب للأسفل للمحاولة مرة أخرى." else "No connection. Pull down to try again."
+            code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED ->
+                if (arabic) "حسابك لا يملك صلاحية رؤية هذا." else "Your account is not allowed to see this."
+            else -> if (arabic) "تعذّر التحميل. اسحب للأسفل للمحاولة مرة أخرى." else "Could not load. Pull down to try again."
         }
     }
 
@@ -2343,19 +2456,26 @@ class AppViewModel : ViewModel() {
      * the booking sheet wiped whatever the Patients tab was showing, and coming back to a cleared
      * search you did not clear is the kind of small wrongness that makes an app feel unreliable.
      */
+    /** The register's pull-to-refresh: the same search again, whatever is in the box. */
+    fun refreshPatients() = searchPatientsTab(_state.value.patientQuery)
+
     fun searchPatientsTab(term: String) {
         val session = _state.value.session ?: return
-        _state.value = _state.value.copy(patientSearching = true, patientQuery = term)
+        _state.value = _state.value.copy(patientSearching = true, patientQuery = term, patientsError = null)
         cursor = null
 
         viewModelScope.launch {
-            val page = runCatching { Repository.searchPatients(session.clinicId, term) }
-                .getOrDefault(Repository.PatientPage(emptyList()))
+            val result = runCatching { Repository.searchPatients(session.clinicId, term) }
 
             // A slow response for a term the user has already typed past would otherwise replace
             // the newer results with older ones.
             if (_state.value.patientQuery != term) return@launch
 
+            val page = result.getOrElse { error ->
+                // The names already on screen stay: a failed refresh is not an empty register.
+                _state.value = _state.value.copy(patientSearching = false, patientsError = loadFailure(error))
+                return@launch
+            }
             cursor = page.cursor
             _state.value = _state.value.copy(
                 patientResults = page.patients,
@@ -2381,11 +2501,14 @@ class AppViewModel : ViewModel() {
         val after = cursor
 
         viewModelScope.launch {
-            val page = runCatching { Repository.searchPatients(session.clinicId, term, after) }
-                .getOrDefault(Repository.PatientPage(emptyList()))
+            val result = runCatching { Repository.searchPatients(session.clinicId, term, after) }
 
             if (_state.value.patientQuery != term) return@launch
 
+            val page = result.getOrElse { error ->
+                _state.value = _state.value.copy(patientLoadingMore = false, patientsError = loadFailure(error))
+                return@launch
+            }
             cursor = page.cursor
             _state.value = _state.value.copy(
                 patientResults = _state.value.patientResults + page.patients,
@@ -2440,6 +2563,50 @@ class AppViewModel : ViewModel() {
                         )
                     }
                 }
+        }
+    }
+
+    /** The error screen's Retry: the same open again. */
+    fun retryPatient() {
+        _state.value.openPatientId?.let { openPatient(it) }
+    }
+
+    /**
+     * A pull on an open file: re-read it in place.
+     *
+     * Not openPatient again — that blanks the file to a spinner, and the person pulled because
+     * they wanted to see the latest balance, not to lose their place in the tabs. The file,
+     * photos and ortho are re-read together; a failure leaves what was there and says so once.
+     */
+    fun refreshPatient() {
+        val session = _state.value.session ?: return
+        val patientId = _state.value.openPatientId ?: return
+        if (_state.value.patientFile == null) {
+            openPatient(patientId)
+            return
+        }
+        if (_state.value.patientRefreshing) return
+        _state.value = _state.value.copy(patientRefreshing = true)
+        viewModelScope.launch {
+            val media = async { runCatching { Repository.loadPatientMedia(session.clinicId, patientId) }.getOrNull() }
+            val cases = async {
+                runCatching { Repository.loadOrthoCases(session.clinicId) }.getOrNull()?.filter { it.patientId == patientId }
+            }
+            val file = Repository.loadPatientFile(session.clinicId, patientId)
+            val freshMedia = media.await()
+            val freshCases = cases.await()
+            if (_state.value.openPatientId != patientId) return@launch
+            file.onSuccess { fresh ->
+                _state.value = _state.value.copy(
+                    patientRefreshing = false,
+                    patientFile = fresh,
+                    patientMedia = freshMedia ?: _state.value.patientMedia,
+                    patientOrtho = freshCases ?: _state.value.patientOrtho,
+                )
+                loadNotesFor(session.clinicId, patientId)
+            }.onFailure { error ->
+                _state.value = _state.value.copy(patientRefreshing = false, message = loadFailure(error))
+            }
         }
     }
 

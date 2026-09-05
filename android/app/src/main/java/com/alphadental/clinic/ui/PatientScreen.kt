@@ -106,6 +106,10 @@ fun PatientScreen(
     error: String?,
     arabic: Boolean,
     media: List<PatientMedia>,
+    /** Retry for the error screen; pull-to-refresh for an open file (re-read in place). */
+    onRetry: () -> Unit = {},
+    refreshing: Boolean = false,
+    onRefresh: () -> Unit = {},
     ortho: List<OrthoCase>,
     /** Null when this user may not take payments, so no button is shown at all. */
     onTakePayment: (() -> Unit)?,
@@ -218,21 +222,7 @@ fun PatientScreen(
 
                 error != null -> {
                     HeaderBar(onClose)
-                    Surface(
-                        shape = Alpha.CardShape,
-                        color = Alpha.DangerSoft,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                    ) {
-                        Text(
-                            error,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Alpha.DangerText,
-                            modifier = Modifier.padding(16.dp),
-                        )
-                    }
+                    LoadErrorBanner(error, arabic, onRetry, Modifier.padding(16.dp))
                 }
 
                 file != null -> {
@@ -334,7 +324,9 @@ fun PatientScreen(
                         }
                     }
 
-                    Box(Modifier.weight(1f)) {
+                    // Every tab scrolls, so one pull-to-refresh around them all re-reads the file
+                    // in place — balance, notes, photos — without losing the tab.
+                    RefreshBox(refreshing = refreshing, onRefresh = onRefresh, modifier = Modifier.weight(1f)) {
                         when (tab) {
                             "overview" -> OverviewTab(
                                 file, notes, media, arabic, onTakePayment, onAddNote, onWriteRx,

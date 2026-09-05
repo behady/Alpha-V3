@@ -92,6 +92,9 @@ fun OrthoScreen(
     onSetStatus: (OrthoCase, String) -> Unit,
     onOpenPatient: (String) -> Unit,
     onClose: () -> Unit,
+    /** The last read failed; shown over the cases already there. */
+    error: String? = null,
+    onRefresh: () -> Unit = {},
 ) {
     BackHandler { if (openCase != null) onOpenCase(null) else onClose() }
 
@@ -103,7 +106,7 @@ fun OrthoScreen(
                 .navigationBarsPadding()
         ) {
             if (openCase == null) {
-                CaseList(cases, loading, arabic, onOpenCase, onClose)
+                CaseList(cases, loading, arabic, onOpenCase, onClose, error, onRefresh)
             } else {
                 CaseDetail(
                     case = cases.firstOrNull { it.patientId == openCase.patientId } ?: openCase,
@@ -133,6 +136,8 @@ private fun CaseList(
     arabic: Boolean,
     onOpenCase: (OrthoCase) -> Unit,
     onClose: () -> Unit,
+    error: String?,
+    onRefresh: () -> Unit,
 ) {
     var stage by rememberSaveable { mutableStateOf("Active") }
     var query by rememberSaveable { mutableStateOf("") }
@@ -207,71 +212,84 @@ private fun CaseList(
         Spacer(Modifier.height(8.dp))
     }
 
-    when {
-        loading && cases.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = Alpha.Slate400, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
-        }
+    RefreshBox(
+        refreshing = loading && cases.isNotEmpty(),
+        onRefresh = onRefresh,
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        Column(Modifier.fillMaxSize()) {
+            error?.let {
+                LoadErrorBanner(it, arabic, onRefresh, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp))
+            }
+            Box(Modifier.weight(1f)) {
+                when {
+                    loading && cases.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = Alpha.Slate400, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
+                    }
 
-        shown.isEmpty() -> Box(Modifier.fillMaxSize().padding(24.dp)) {
-            EmptyState(
-                if (arabic) "لا توجد حالات هنا. تُفتح الحالة من ملف المريض."
-                else "No cases here. A case is opened from the patient's own file.",
-            )
-        }
+                    shown.isEmpty() -> Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)) {
+                        EmptyState(
+                            if (arabic) "لا توجد حالات هنا. تُفتح الحالة من ملف المريض."
+                            else "No cases here. A case is opened from the patient's own file.",
+                        )
+                    }
 
-        else -> LazyColumn(
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            items(shown, key = { it.patientId }) { case ->
-                AlphaCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(Alpha.CardShape)
-                        .clickable { onOpenCase(case) },
-                    shape = Alpha.CardShape,
-                ) {
-                    Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(Alpha.GreenSoft),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                case.patientName.trim().firstOrNull()?.uppercase() ?: "•",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Alpha.Green,
-                            )
+                    else -> LazyColumn(
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(shown, key = { it.patientId }) { case ->
+                            AlphaCard(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(Alpha.CardShape)
+                                    .clickable { onOpenCase(case) },
+                                shape = Alpha.CardShape,
+                            ) {
+                                Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(CircleShape)
+                                            .background(Alpha.GreenSoft),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            case.patientName.trim().firstOrNull()?.uppercase() ?: "•",
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Alpha.Green,
+                                        )
+                                    }
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            case.patientName.ifBlank { if (arabic) "بدون اسم" else "No name" },
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Alpha.Slate900,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            listOfNotNull(
+                                                if (case.visits.isEmpty()) {
+                                                    if (arabic) "لا زيارات" else "no visits yet"
+                                                } else {
+                                                    if (arabic) "${case.visits.size} زيارة" else "${case.visits.size} visits"
+                                                },
+                                                case.visits.maxByOrNull { it.visitNo }?.date?.takeIf { it.isNotBlank() }
+                                                    ?.let { prettyDay(it, arabic) },
+                                            ).joinToString("  ·  "),
+                                            fontSize = 11.5.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Alpha.Slate500,
+                                        )
+                                    }
+                                    StatusChip(case.status, arabic)
+                                }
+                            }
                         }
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                case.patientName.ifBlank { if (arabic) "بدون اسم" else "No name" },
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Alpha.Slate900,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                listOfNotNull(
-                                    if (case.visits.isEmpty()) {
-                                        if (arabic) "لا زيارات" else "no visits yet"
-                                    } else {
-                                        if (arabic) "${case.visits.size} زيارة" else "${case.visits.size} visits"
-                                    },
-                                    case.visits.maxByOrNull { it.visitNo }?.date?.takeIf { it.isNotBlank() }
-                                        ?.let { prettyDay(it, arabic) },
-                                ).joinToString("  ·  "),
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Alpha.Slate500,
-                            )
-                        }
-                        StatusChip(case.status, arabic)
                     }
                 }
             }
