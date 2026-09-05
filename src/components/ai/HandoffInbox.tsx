@@ -252,7 +252,7 @@ export default function HandoffInbox() {
                     </button>
                   )}
                   <Link
-                    href={`/ai?tab=chats&chat=${encodeURIComponent(h.id)}`}
+                    href={`/chats?chat=${encodeURIComponent(h.id)}`}
                     className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-surface border border-line text-xs font-black uppercase tracking-wide text-ink-body hover:bg-surface-subtle transition-colors"
                   >
                     <MessageSquareText size={14} />

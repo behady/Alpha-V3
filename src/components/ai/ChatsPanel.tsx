@@ -195,28 +195,14 @@ function previewText(text: string, isAr: boolean): string {
   return m ? mediaLabel(m[1], isAr) : text;
 }
 
-/**
- * How many patient messages nobody has opened yet, across every chat.
- *
- * For the badge on the tab pill. Firestore shares one listener between identical queries, so
- * this costs nothing extra while the panel itself is open.
- */
-export function useUnreadChatCount(): number {
-  const { user } = useAuth();
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    if (!user) return;
-    const unsub = onSnapshot(
-      getClinicCollection("whatsapp_conversations"),
-      (snap) => setCount(snap.docs.reduce((n, d) => n + (Number(d.data().unreadCount) || 0), 0)),
-      () => setCount(0)
-    );
-    return () => unsub();
-  }, [user]);
-  return count;
-}
-
-export default function ChatsPanel() {
+export default function ChatsPanel({
+  basePath = "/chats",
+  heightClass = "h-[calc(100vh-190px)] min-h-[560px]",
+}: {
+  /** The page this panel lives on; the open chat is reflected into its URL as `?chat=`. */
+  basePath?: string;
+  heightClass?: string;
+}) {
   const { language, isRTL } = useLanguage();
   const isAr = language === "ar";
   const { user } = useAuth();
@@ -265,16 +251,16 @@ export default function ChatsPanel() {
 
   const open = (id: string) => {
     setSelectedId(id);
-    router.replace(`/ai?tab=chats&chat=${encodeURIComponent(id)}`, { scroll: false });
+    router.replace(`${basePath}?chat=${encodeURIComponent(id)}`, { scroll: false });
   };
   const back = () => {
     setSelectedId("");
-    router.replace(`/ai?tab=chats`, { scroll: false });
+    router.replace(basePath, { scroll: false });
   };
 
   return (
     <div
-      className="rounded-2xl border border-line shadow-sm overflow-hidden grid md:grid-cols-[360px_1fr] h-[calc(100vh-190px)] min-h-[560px]"
+      className={`rounded-2xl border border-line shadow-sm overflow-hidden grid md:grid-cols-[360px_1fr] ${heightClass}`}
       style={{ background: WA.panel }}
       dir={isRTL ? "rtl" : "ltr"}
     >
