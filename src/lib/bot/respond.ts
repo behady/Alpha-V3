@@ -600,6 +600,8 @@ export async function respondToPatientMessage(args: {
         list: optionList("اختيار الميعاد", times, arabicTimeLabel, (t) => `t${dateKey}|${t}|${doctorName}`, { id: "back_days", title: "رجوع لاختيار اليوم" }),
       };
       nextState = "booking_time";
+      // Reached from a dentist pick too, whose own reason says "days"; the log should say what was sent.
+      reason = "booking_times";
       pending = { days: conversation.pendingDays, times, date: dateKey, doctor: doctorName, treatment };
     };
 
