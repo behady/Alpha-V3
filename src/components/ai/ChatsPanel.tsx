@@ -63,6 +63,9 @@ interface ThreadLine {
   text: string;
   at: number;
   media?: string;
+  /** Filled in a few seconds after the message lands, once the file is copied from Meta. */
+  mediaUrl?: string;
+  mime?: string;
   name?: string;
   kind?: string;
 }
@@ -116,6 +119,7 @@ function kindLabel(kind: string, isAr: boolean): string {
     lead_welcome: { en: "Lead welcome", ar: "ترحيب بعميل" },
     prescription_pdf: { en: "Prescription", ar: "روشتة" },
     treatment_plan_pdf: { en: "Treatment plan", ar: "خطة علاج" },
+    followup_template: { en: "Follow-up template", ar: "قالب متابعة" },
   };
   const row = map[kind];
   return row ? (isAr ? row.ar : row.en) : kind.replace(/_/g, " ");
@@ -341,6 +345,7 @@ function Thread({
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [templateSentAt, setTemplateSentAt] = useState(0);
   const [toggling, setToggling] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -381,28 +386,48 @@ function Thread({
   const humanHold = chat.botPaused === true || (chat.humanActiveAtMs || 0) > Date.now() - HUMAN_CLAIM_MS;
   const handling = chat.botPaused === true || chat.needsHuman === true || humanHold;
 
+  const post = async (payload: Record<string, string>) => {
+    const idToken = await auth.currentUser?.getIdToken();
+    const res = await fetch("/api/whatsapp/reply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
+      body: JSON.stringify({
+        phone: chat.phone,
+        patientId: chat.patientId || "",
+        patientName: chat.patientName || "",
+        ...payload,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.ok === false) throw new Error(data?.error || "Send failed");
+  };
+
   const send = async () => {
     const body = text.trim();
     if (!body || !chat.phone || sending) return;
     setSending(true);
     try {
-      const idToken = await auth.currentUser?.getIdToken();
-      const res = await fetch("/api/whatsapp/reply", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
-        body: JSON.stringify({
-          phone: chat.phone,
-          text: body,
-          patientId: chat.patientId || "",
-          patientName: chat.patientName || "",
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || data?.ok === false) throw new Error(data?.error || "Send failed");
+      await post({ text: body });
       setText("");
     } catch (e) {
       console.error("Reply failed:", e);
       showToast(isAr ? "الرسالة متبعتتش" : "Message was not sent", "error");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  /** The one message Meta delivers after the window closes: "we have an answer, write to us". */
+  const sendTemplate = async () => {
+    if (!chat.phone || sending) return;
+    setSending(true);
+    try {
+      await post({ template: "followup" });
+      setTemplateSentAt(Date.now());
+      showToast(isAr ? "اتبعت قالب المتابعة ✓" : "Follow-up sent ✓", "success");
+    } catch (e) {
+      console.error("Template failed:", e);
+      showToast(isAr ? "القالب متبعتش" : "Follow-up was not sent", "error");
     } finally {
       setSending(false);
     }
@@ -538,8 +563,8 @@ function Thread({
                   ? "المريض طلب إيقاف الرسايل."
                   : "The patient opted out of messages."
                 : isAr
-                  ? "عدى أكتر من ٢٤ ساعة على آخر رسالة من المريض — واتساب مش هيوصّل رد حر. كلمه بالتليفون أو استنى يبعت تاني."
-                  : "Over 24h since the patient's last message — WhatsApp will not deliver a free reply. Call them, or wait for them to write."}
+                  ? "عدى أكتر من ٢٤ ساعة على آخر رسالة من المريض — واتساب مش هيوصّل رد حر."
+                  : "Over 24h since the patient's last message — WhatsApp will not deliver a free reply."}
           </p>
         ) : (
           <div className="flex items-end gap-2">
@@ -567,8 +592,67 @@ function Thread({
             </button>
           </div>
         )}
+
+        {/* The window is shut but the number is reachable: offer the template that re-opens it. */}
+        {windowClosed && chat.channel === "meta" && !isLid && !chat.optedOut && (
+          <div className="mt-1 rounded-xl border border-line bg-surface-subtle p-2.5">
+            <p className="text-[11px] font-bold text-ink-body">
+              {isAr
+                ? "ابعت رسالة متابعة معتمدة من واتساب. لما المريض يرد، هتقدر تكتب له عادي لمدة ٢٤ ساعة."
+                : "Send a WhatsApp-approved follow-up. When the patient replies, you can write freely for 24 hours."}
+            </p>
+            <p className="text-xs text-ink-muted mt-1 whitespace-pre-wrap" dir="rtl">
+              {`مرحباً ${chat.patientName || "عميلنا العزيز"}، معاك [العيادة]. بخصوص رسالتك على واتساب، عندنا رد ليك — ابعتلنا أي رسالة عشان نكمل الكلام معاك.`}
+            </p>
+            <button
+              onClick={() => void sendTemplate()}
+              disabled={sending || templateSentAt > 0}
+              className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-accent text-ink-on-accent text-[11px] font-black uppercase tracking-wide hover:bg-accent-strong transition-colors disabled:opacity-50"
+            >
+              {sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} className="rtl:-scale-x-100" />}
+              {templateSentAt ? (isAr ? "اتبعت" : "Sent") : isAr ? "ابعت المتابعة" : "Send follow-up"}
+            </button>
+          </div>
+        )}
       </footer>
     </>
+  );
+}
+
+/**
+ * The file a patient sent, rendered as what it is.
+ *
+ * Decided by MIME rather than WhatsApp's type: a "document" that is a PDF of a scan and a
+ * "document" that is a JPEG should not look the same. Anything unknown becomes a download link —
+ * a link that works beats a player that does not.
+ */
+function MediaView({ line, isAr }: { line: ThreadLine; isAr: boolean }) {
+  const url = line.mediaUrl || "";
+  const mime = (line.mime || "").split(";")[0].trim().toLowerCase();
+  if (mime.startsWith("image/")) {
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer" className="block mb-1">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={url} alt={mediaLabel("image", isAr)} className="rounded-xl max-h-72 w-auto max-w-full object-contain bg-surface-muted" loading="lazy" />
+      </a>
+    );
+  }
+  if (mime.startsWith("audio/")) {
+    return <audio controls preload="none" src={url} className="max-w-full mb-1 h-10" />;
+  }
+  if (mime.startsWith("video/")) {
+    return <video controls preload="metadata" src={url} className="rounded-xl max-h-72 max-w-full mb-1" />;
+  }
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1.5 text-xs font-black underline underline-offset-2 mb-1"
+    >
+      {mediaLabel(line.media || "document", isAr)}
+      {mime === "application/pdf" ? " · PDF" : ""}
+    </a>
   );
 }
 
@@ -600,9 +684,10 @@ function Bubble({ line, isAr }: { line: ThreadLine; isAr: boolean }) {
             {who}
           </p>
         )}
-        {line.media && (
+        {line.media && !line.mediaUrl && (
           <p className="text-xs font-bold opacity-80 mb-0.5">{mediaLabel(line.media, isAr)}</p>
         )}
+        {line.mediaUrl && <MediaView line={line} isAr={isAr} />}
         {(!line.media || !/^\[\w+\]$/.test(line.text)) && (
           <p className="text-sm whitespace-pre-wrap break-words" dir="auto">
             {line.text}

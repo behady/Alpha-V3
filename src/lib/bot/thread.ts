@@ -63,10 +63,10 @@ export async function recordThreadMessage(
   address: string,
   m: ThreadMessageInput,
   now: number = Date.now()
-): Promise<void> {
+): Promise<string> {
   const key = conversationKey(address);
   const text = mediaPlaceholder(m.media, m.text).slice(0, 4000);
-  if (!text) return;
+  if (!text) return "";
 
   const parent = adminClinicDoc(clinicId, "whatsapp_conversations", key);
 
@@ -100,7 +100,7 @@ export async function recordThreadMessage(
     summary.unreadCount = FieldValue.increment(1);
   }
 
-  await Promise.all([parent.collection("messages").add(line), parent.set(summary, { merge: true })]);
+  const [lineRef] = await Promise.all([parent.collection("messages").add(line), parent.set(summary, { merge: true })]);
 
   // A number the bot never identified (bot off, stranger, opt-out) still deserves a name in the
   // list. One exact-match query, the shape the app stores E.164 phones in — never the 3000-row
@@ -108,6 +108,9 @@ export async function recordThreadMessage(
   if (m.direction === "in" && !key.startsWith("lid_")) {
     await attachPatientIfMissing(clinicId, key, address).catch(() => {});
   }
+
+  // The line's id, so a background step (media download) can find it again.
+  return lineRef.id;
 }
 
 async function attachPatientIfMissing(clinicId: string, key: string, address: string): Promise<void> {

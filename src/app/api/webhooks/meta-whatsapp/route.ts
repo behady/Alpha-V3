@@ -4,6 +4,7 @@ import { adminClinicCollection } from "@/lib/adminClinicDb";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { respondToPatientMessage } from "@/lib/bot/respond";
 import { recordThreadMessage } from "@/lib/bot/thread";
+import { attachInboundMedia } from "@/lib/bot/media";
 import { applyInboundOptOut } from "@/lib/optOutInbound";
 import { isOptOutReply } from "@/lib/patientMessaging";
 import { clinicIdForPhoneNumberId } from "@/lib/metaWhatsapp";
@@ -115,6 +116,9 @@ interface InboundMessage {
    * exactly why a person has to.
    */
   media?: "image" | "video" | "audio" | "document" | "sticker" | "location" | "contacts";
+  /** Meta's id for the media object — the handle the bytes are fetched with, valid ~30 days. */
+  mediaId?: string;
+  mime?: string;
 }
 
 /** WhatsApp message types that carry no words the assistant can act on. */
@@ -159,7 +163,13 @@ function extractMessages(body: unknown): InboundMessage[] {
         // Media with no caption still counts as a message: it needs an answer and a person, and
         // dropping it here is why photos of swollen faces reached nobody.
         const messageId = String(m?.id || "");
-        if (from && (text || media)) out.push({ phoneNumberId, from, text, fromMe: false, media, messageId });
+        // The media object sits under a key named after its type: m.image, m.audio, m.document…
+        const mediaObj = media ? m?.[media] : undefined;
+        const mediaId = typeof mediaObj?.id === "string" ? mediaObj.id : undefined;
+        const mime = typeof mediaObj?.mime_type === "string" ? mediaObj.mime_type : undefined;
+        if (from && (text || media)) {
+          out.push({ phoneNumberId, from, text, fromMe: false, media, messageId, mediaId, mime });
+        }
       }
     }
   }
@@ -167,15 +177,18 @@ function extractMessages(body: unknown): InboundMessage[] {
 }
 
 /** The patient's message, into the chat thread staff read. Never allowed to fail the webhook. */
-async function rememberInbound(clinicId: string, msg: InboundMessage): Promise<void> {
-  await recordThreadMessage(clinicId, msg.from, {
+async function rememberInbound(clinicId: string, msg: InboundMessage): Promise<string> {
+  return recordThreadMessage(clinicId, msg.from, {
     direction: "in",
     author: "patient",
     text: msg.text,
     media: msg.media,
     messageId: msg.messageId,
     channel: "meta",
-  }).catch((e) => console.warn("[meta-whatsapp] thread write failed:", e));
+  }).catch((e) => {
+    console.warn("[meta-whatsapp] thread write failed:", e);
+    return "";
+  });
 }
 
 async function recordUnparsed(clinicId: string, body: unknown, reason: string): Promise<void> {
@@ -254,7 +267,7 @@ export async function POST(request: NextRequest) {
 
       // Into the thread before anything decides whether to answer: a message the bot is switched
       // off for, or refuses to answer, is still a message the clinic received.
-      await rememberInbound(clinicId, msg);
+      const lineId = await rememberInbound(clinicId, msg);
 
       /*
        * Answering happens after the response, not before it.
@@ -272,6 +285,18 @@ export async function POST(request: NextRequest) {
        */
       queued += 1;
       after(async () => {
+        // The photo or voice note itself, fetched from Meta and kept in the clinic's bucket.
+        // Before the reply so the thread fills in quickly; its failure never blocks the answer.
+        if (msg.mediaId && lineId) {
+          await attachInboundMedia({
+            clinicId,
+            address: msg.from,
+            lineId,
+            mediaId: msg.mediaId,
+            messageId: msg.messageId,
+            mimeHint: msg.mime,
+          }).catch((e) => console.warn("[meta-whatsapp] media fetch failed:", e));
+        }
         try {
           await respondToPatientMessage({
             clinicId,

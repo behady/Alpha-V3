@@ -6,6 +6,8 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { markHumanActive } from "@/lib/bot/conversation";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { deliverWhatsAppMessage } from "@/lib/whatsappDelivery";
+import { followupTemplateText } from "@/lib/metaWhatsapp";
+import { clinicDisplayName } from "@/lib/sms/events";
 
 export const runtime = "nodejs";
 
@@ -46,16 +48,33 @@ export async function POST(request: Request) {
     text?: string;
     patientId?: string;
     patientName?: string;
+    /**
+     * "followup": send the pre-approved re-engagement template instead of free text. The only
+     * thing that delivers on the official channel once 24 hours have passed since the patient's
+     * last message; its whole job is to make them write back, which re-opens the window.
+     */
+    template?: string;
   };
 
   const phone = normalizeToE164AssumingCountry(String(body.phone || ""));
-  const text = String(body.text || "").trim();
   if (!phone) return NextResponse.json({ ok: false, error: "A valid phone number is required" }, { status: 400 });
-  if (!text) return NextResponse.json({ ok: false, error: "Message text is required" }, { status: 400 });
-  if (text.length > 1500) return NextResponse.json({ ok: false, error: "Message is too long" }, { status: 400 });
 
   const patientId = typeof body.patientId === "string" ? body.patientId.trim() : "";
   const patientName = typeof body.patientName === "string" ? body.patientName.trim() : "";
+  const isTemplate = body.template === "followup";
+
+  let text = String(body.text || "").trim();
+  let metaTemplate: { kind: string; params: string[] } | undefined;
+  if (isTemplate) {
+    // Template parameters cannot be empty; a nameless number gets a courteous generic.
+    const who = patientName || "عميلنا العزيز";
+    const clinicName = await clinicDisplayName(clinicId);
+    text = followupTemplateText(who, clinicName);
+    metaTemplate = { kind: "followup", params: [who, clinicName] };
+  } else {
+    if (!text) return NextResponse.json({ ok: false, error: "Message text is required" }, { status: 400 });
+    if (text.length > 1500) return NextResponse.json({ ok: false, error: "Message is too long" }, { status: 400 });
+  }
 
   try {
     const delivery = await deliverWhatsAppMessage({
@@ -69,8 +88,14 @@ export async function POST(request: Request) {
         ...(patientId ? { patientId } : {}),
         ...(patientName ? { patientName } : {}),
       },
+      metaTemplate,
       // Credited by name in the chat thread, so the next person to open it knows who said what.
-      thread: { author: "staff", uid: authz.uid, name: authz.name || undefined },
+      thread: {
+        author: "staff",
+        uid: authz.uid,
+        name: authz.name || undefined,
+        kind: isTemplate ? "followup_template" : "staff_reply",
+      },
     });
 
     // The thread is a person's now; the bot stays out of it for an hour and the inbox row closes.
@@ -79,7 +104,7 @@ export async function POST(request: Request) {
     // Same audit trail the bot writes to, so the Messages history shows both voices in order.
     await adminClinicCollection(clinicId, "whatsapp_logs").add({
       patientId: patientId || null,
-      type: "staff_reply",
+      type: isTemplate ? "staff_followup_template" : "staff_reply",
       message: text,
       status: delivery.mode === "auto" ? "success" : "queued",
       sentBy: authz.uid,

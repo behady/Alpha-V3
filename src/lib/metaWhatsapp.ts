@@ -280,7 +280,18 @@ export const META_TEMPLATE_FOR_KIND: Record<string, { name: string; paramCount: 
   cancel: { name: "alpha_appt_cancel_ar", paramCount: 2 }, // clinic, date
   reminder24h: { name: "alpha_appt_reminder_ar", paramCount: 3 }, // clinic, date, time
   invoice: { name: "alpha_payment_ar", paramCount: 3 }, // amount, clinic, balance
+  /**
+   * A staff member reaching back out after the 24-hour window closed. The template says only
+   * "we have an answer, write to us" — the patient's reply re-opens the window and the real
+   * answer goes as free text. Registered by scripts/register-meta-templates.mts.
+   */
+  followup: { name: "alpha_followup_ar", paramCount: 2 }, // patient, clinic
 };
+
+/** The follow-up template's text, for the thread record and the unofficial channel. */
+export function followupTemplateText(patientName: string, clinicName: string): string {
+  return `مرحباً ${patientName}، معاك ${clinicName}. بخصوص رسالتك على واتساب، عندنا رد ليك — ابعتلنا أي رسالة عشان نكمل الكلام معاك.`;
+}
 
 /** Send one of the registered templates. Throws nothing; the result carries the error. */
 export async function sendMetaTemplate(args: {
