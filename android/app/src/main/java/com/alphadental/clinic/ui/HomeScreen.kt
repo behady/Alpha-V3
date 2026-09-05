@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Timeline
@@ -106,6 +107,8 @@ fun HomeScreen(
     onOpenChats: (() -> Unit)? = null,
     /** Null for roles without access.lab. */
     onOpenLab: (() -> Unit)? = null,
+    /** The team's roster. Null for anyone who is not an admin or granted the key. */
+    onOpenAttendance: (() -> Unit)? = null,
     onOpenAssistant: () -> Unit,
     /** Null for roles that do not work the CRM inbox. */
     onOpenLeads: (() -> Unit)?,
@@ -198,7 +201,7 @@ fun HomeScreen(
 
                 else -> ownerHome(
                     active, arabic, whatsappWaiting, chatsWaiting,
-                    onOpenAppointment, onOpenReports, onOpenMoney, onOpenInventory, onOpenChats, onOpenLab, onOpenAssistant, onOpenLeads,
+                    onOpenAppointment, onOpenReports, onOpenMoney, onOpenInventory, onOpenChats, onOpenLab, onOpenAttendance, onOpenAssistant, onOpenLeads,
                 )
             }
 
@@ -547,12 +550,15 @@ private fun LazyListScope.ownerHome(
     onOpenInventory: () -> Unit,
     onOpenChats: (() -> Unit)?,
     onOpenLab: (() -> Unit)?,
+    onOpenAttendance: (() -> Unit)?,
     onOpenAssistant: () -> Unit,
     onOpenLeads: (() -> Unit)?,
 ) {
     quickActions(
         listOfNotNull(
             onOpenChats?.let { QuickAction(Icons.AutoMirrored.Filled.Chat, if (arabic) "المحادثات" else "Chats", badge = chatsWaiting, onClick = it) },
+            // The owner's morning question, one tap from the slab: who is in?
+            onOpenAttendance?.let { QuickAction(Icons.Filled.Groups, if (arabic) "الحضور" else "Attendance", onClick = it) },
             onOpenLab?.let { QuickAction(Icons.Filled.Science, if (arabic) "المعمل" else "Lab", onClick = it) },
             onOpenLeads?.let { QuickAction(Icons.Filled.PersonSearch, if (arabic) "عملاء" else "Leads", onClick = it) },
             onOpenReports?.let { QuickAction(Icons.Filled.BarChart, if (arabic) "التقارير" else "Reports", onClick = it) },
