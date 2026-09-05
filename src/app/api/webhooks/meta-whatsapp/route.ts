@@ -5,6 +5,7 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { respondToPatientMessage } from "@/lib/bot/respond";
 import { transcribeWhatsappAudio } from "@/lib/bot/transcribe";
 import { describeWhatsappImage } from "@/lib/bot/describeImage";
+import { loadMetaWhatsappConfig, sendMetaTypingIndicator } from "@/lib/metaWhatsapp";
 import { attachTranscript, recordThreadMessage, updateThreadStatus } from "@/lib/bot/thread";
 import { attachInboundMedia } from "@/lib/bot/media";
 import { applyInboundOptOut } from "@/lib/optOutInbound";
@@ -314,6 +315,10 @@ export async function POST(request: NextRequest) {
        */
       queued += 1;
       after(async () => {
+        // Read ticks and "typing…" the moment the message lands: the reply may be seconds away.
+        void loadMetaWhatsappConfig(clinicId)
+          .then((cfg) => (cfg ? sendMetaTypingIndicator(cfg, msg.messageId) : undefined))
+          .catch(() => {});
         // The photo or voice note itself, fetched from Meta and kept in the clinic's bucket.
         // Before the reply so the thread fills in quickly; its failure never blocks the answer.
         if (msg.mediaId && lineId) {

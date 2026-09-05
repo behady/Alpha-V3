@@ -80,6 +80,10 @@ interface BotSettings {
   aiMaxReplies: number;
   /** The owner's coaching notes for the model. */
   coaching: string;
+  /** The name the model introduces itself with, once. */
+  personaName: string;
+  /** Human pacing and bubble splitting. */
+  humanTouch: boolean;
 }
 
 async function loadBotSettings(clinicId: string): Promise<BotSettings> {
@@ -97,6 +101,8 @@ async function loadBotSettings(clinicId: string): Promise<BotSettings> {
     aiMaxReplies:
       typeof d.botAiMaxReplies === "number" && d.botAiMaxReplies >= 0 ? Math.floor(d.botAiMaxReplies) : d.botMode === "ai_first" ? 0 : 3,
     coaching: typeof d.botCoaching === "string" ? d.botCoaching : "",
+    personaName: typeof d.botPersonaName === "string" ? d.botPersonaName.trim() : "",
+    humanTouch: d.botHumanTouch !== false,
   };
 }
 
@@ -791,6 +797,7 @@ export async function respondToPatientMessage(args: {
         thread: salesContext?.thread,
         patient: salesContext?.patient,
         coaching: settings.coaching,
+        personaName: settings.personaName,
         knowledge: salesContext?.knowledge,
         playbook: salesContext?.playbook,
         canBook: Boolean(ctx.canOfferBooking || ctx.canRegister),
@@ -818,7 +825,9 @@ export async function respondToPatientMessage(args: {
         }
       } else if (ai.kind === "answer") {
         replyText = ai.text;
-        structure = { body: ai.text, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
+        // A person does not send three buttons under every sentence. In salesperson mode with
+        // the human touch on, an answer is just an answer; the lists appear when booking starts.
+        structure = sales && settings.humanTouch ? undefined : { body: ai.text, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
         aiExchange = { q: act.question, a: ai.text };
         if (ai.interest && !ctx.serviceMatch) ctx.serviceMatch = (await matchService(clinicId, ai.interest)) || ai.interest;
         if (ai.interest) aiInterest = (await matchService(clinicId, ai.interest)) || ai.interest;
@@ -1203,7 +1212,7 @@ export async function respondToPatientMessage(args: {
    * unsubscribing is the one place this footer makes the ban risk worse rather than better.
    */
   const courtesy = reason === "ack" || reason === "thanks";
-  const body =
+  let body =
     conversation.state === "new" && !courtesy
       ? appendOptOutFooter(replyText, WHATSAPP_OPT_OUT_FOOTER_AR)
       : replyText;
@@ -1213,9 +1222,34 @@ export async function respondToPatientMessage(args: {
     structure = { ...structure, body };
   }
 
+  /*
+   * Human pacing.
+   *
+   * A reply that lands 400ms after the question is the loudest tell there is. With the human
+   * touch on, the reply waits a reading-and-typing pause (a second, plus a little per character,
+   * capped), and a long plain answer goes out as two bubbles a few seconds apart, split at its
+   * first paragraph break — the way a receptionist actually types on a phone. Lists and button
+   * messages are never split; the playground skips the waits.
+   */
+  const pace = settings.humanTouch && !args.dryRun && !args.media;
+  let secondBubble = "";
+  if (pace && !structure && body.length > 180) {
+    const cut = body.indexOf("\n\n", Math.min(80, body.length));
+    if (cut > 40 && body.length - cut > 40) {
+      secondBubble = body.slice(cut + 2).trim();
+      body = body.slice(0, cut).trim();
+    }
+  }
+  if (pace) await new Promise((r) => setTimeout(r, Math.min(6500, 1200 + body.length * 28)));
+
   let waMessageId: string | undefined;
   try {
     if (!args.dryRun) waMessageId = await sendPatientWhatsAppRich(clinicId, replyTo, body, structure);
+    if (secondBubble) {
+      await new Promise((r) => setTimeout(r, Math.min(7000, 1500 + secondBubble.length * 30)));
+      await sendPatientWhatsAppRich(clinicId, replyTo, secondBubble, undefined);
+      await recordThreadMessage(clinicId, replyTo, { direction: "out", author: "bot", text: secondBubble, kind: reason }).catch(() => {});
+    }
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
     console.warn("[bot] reply failed to send:", detail);

@@ -144,6 +144,13 @@ export interface WhatsAppSettingsDocument {
   botHumanClaimMinutes?: number;
   /** The owner's standing instructions to the bot, in their own words. Sent verbatim. */
   botCoaching?: string;
+  /** The name the assistant introduces itself with, once ("معاك سارة من ألفا"). Empty: no name. */
+  botPersonaName?: string;
+  /**
+   * Human pacing: a reading pause before the reply, long answers split into two bubbles a few
+   * seconds apart, and no menu buttons under ordinary answers in salesperson mode. Default on.
+   */
+  botHumanTouch?: boolean;
   /** Answers to the questions the clinic's data cannot supply. See BotFacts. */
   botFacts?: BotFacts;
   /**

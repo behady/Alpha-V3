@@ -92,7 +92,8 @@ run("salesperson mode: the model leads, the calendar and safety stay fixed", () 
   assert.equal(decideBotReply({ state: "new", text: "السلام عليكم", ctx: ai }).action?.type, "ai", "even the greeting is the model's");
   assert.equal(decideBotReply({ state: "awaiting_choice", text: "مواعيدكم ايه", ctx: ai }).action?.type, "ai", "hours go to the model, not the canned line");
   assert.equal(decideBotReply({ state: "awaiting_choice", text: "غالي اوي", ctx: ai }).action?.type, "ai", "objections are the model's job here");
-  assert.equal(decideBotReply({ state: "awaiting_choice", text: "عايز احجز", ctx: ai }).action?.type, "list_days", "booking stays deterministic");
+  assert.equal(decideBotReply({ state: "awaiting_choice", text: "عايز احجز", ctx: ai }).action?.type, "ai", "even 'book me' is the model's call — it opens the lists itself");
+  assert.equal(decideBotReply({ state: "awaiting_choice", text: "m1", ctx: ai }).action?.type, "list_days", "a tapped book button still opens the lists");
   assert.equal(decideBotReply({ state: "awaiting_choice", text: "2", ctx: ai }).reason, "hours", "digits still mean the menu");
   assert.equal(decideBotReply({ state: "awaiting_choice", text: "تمام", ctx: ai }).action?.type, "ack", "a confirmation still confirms");
   assert.equal(decideBotReply({ state: "awaiting_choice", text: "سناني بتوجعني", ctx: ai }).reason, "clinical", "pain never reaches the model");

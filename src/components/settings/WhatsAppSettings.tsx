@@ -150,6 +150,8 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     botClinicalMode: data?.botClinicalMode === "dentist" ? "dentist" : "handoff",
     ...(typeof data?.botAiMaxReplies === "number" ? { botAiMaxReplies: data.botAiMaxReplies } : {}),
     botCoaching: typeof data?.botCoaching === "string" ? data.botCoaching : "",
+    botPersonaName: typeof data?.botPersonaName === "string" ? data.botPersonaName : "",
+    botHumanTouch: data?.botHumanTouch !== false,
     ...(typeof data?.botHumanClaimMinutes === "number" ? { botHumanClaimMinutes: data.botHumanClaimMinutes } : {}),
     // Same rule as deliveryMode below: spread conditionally so an absent map stays absent. A key
     // holding `undefined` is rejected by Firestore on the next write, which reads on screen as a
@@ -418,6 +420,9 @@ export default function WhatsAppSettings() {
         language === "ar"
           ? "بعد الحد، البوت بيحوّل لموظف. فاضية = ٣ في الوضع العادي، وبدون حد في وضع البائع."
           : "Past the cap the bot hands to a person. Empty = 3 in normal mode, unlimited in salesperson mode.",
+      botPersona: language === "ar" ? "اسم البوت (بيعرّف بنفسه بيه مرة واحدة)" : "Bot name (introduces itself once)",
+      botPersonaPh: language === "ar" ? "مثال: سارة" : "e.g. Sara",
+      botHumanTouch: language === "ar" ? "لمسة إنسانية: ينتظر شوية قبل الرد، ويقسّم الرد الطويل على رسالتين، ومن غير أزرار تحت كل رسالة" : "Human touch: pauses before replying, splits long answers into two bubbles, no buttons under every message",
       botCoaching: language === "ar" ? "تعليماتك للبوت (زي ما تبرّف موظف جديد)" : "Your coaching notes (as you'd brief a new hire)",
       botCoachingPh:
         language === "ar"
@@ -1857,6 +1862,38 @@ export default function WhatsAppSettings() {
                   </label>
                 </div>
                 <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botAiCapHint}</p>
+
+                <div className="flex flex-wrap items-center gap-3 pt-1">
+                  <span className="text-xs font-bold text-ink">{txt.botPersona}</span>
+                  <input
+                    type="text"
+                    dir="auto"
+                    className="w-40 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-muted"
+                    placeholder={txt.botPersonaPh}
+                    value={state.botPersonaName ?? ""}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setState((s) => ({ ...s, botPersonaName: value }));
+                    }}
+                    onBlur={() => void persist(state, "silent")}
+                  />
+                </div>
+                <label className="flex items-center justify-between gap-4 cursor-pointer">
+                  <span className="text-xs font-bold text-ink leading-relaxed">{txt.botHumanTouch}</span>
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
+                    checked={state.botHumanTouch !== false}
+                    onChange={(e) => {
+                      const on = e.target.checked;
+                      setState((s) => {
+                        const next = { ...s, botHumanTouch: on };
+                        void persist(next, "silent");
+                        return next;
+                      });
+                    }}
+                  />
+                </label>
 
                 <label className="block space-y-1 pt-1">
                   <span className="text-xs font-bold text-ink">{txt.botCoaching}</span>
