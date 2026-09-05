@@ -159,7 +159,7 @@ export async function deliverWhatsAppMessage(args: {
   const mode = await resolveWhatsappDeliveryMode(args.clinicId);
 
   /** Every patient message that actually left goes into the thread, whichever shape it took. */
-  const remember = (waMessageId?: string) =>
+  const remember = (waMessageId?: string, channel?: "meta" | "wapilot") =>
     args.audience === "patient"
       ? recordThreadMessage(args.clinicId, args.to, {
           direction: "out",
@@ -169,6 +169,9 @@ export async function deliverWhatsAppMessage(args: {
           name: args.thread?.name,
           kind: args.thread ? args.thread.kind || "staff_reply" : args.queue?.type || args.metaTemplate?.kind || "message",
           waMessageId,
+          // The chat screen decides from this whether free text can deliver — a conversation the
+          // clinic opened has no inbound message to have learned it from.
+          channel,
         }).catch(() => {})
       : Promise.resolve();
 
@@ -189,11 +192,11 @@ export async function deliverWhatsAppMessage(args: {
         params: args.metaTemplate!.params.slice(0, tpl.paramCount),
       });
       if (!result.ok) throw new Error(`Meta template failed: ${result.error || "unknown"}`);
-      await remember(result.messageId);
+      await remember(result.messageId, "meta");
       return { mode: "auto", sent: true };
     }
     const waMessageId = await sendPatientWhatsAppAuto(args.clinicId, args.to, text);
-    await remember(waMessageId);
+    await remember(waMessageId, meta ? "meta" : "wapilot");
     return { mode: "auto", sent: true };
   }
 

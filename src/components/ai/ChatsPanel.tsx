@@ -12,14 +12,17 @@ import {
   CheckCheck,
   Hand,
   Loader2,
+  MessageSquarePlus,
   MessageSquareText,
   Search,
   Send,
   UserRound,
 } from "lucide-react";
-import { limit, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
+import { getDocs, limit, onSnapshot, orderBy, query, updateDoc } from "firebase/firestore";
 import { auth } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc, getGlobalClinicId } from "@/lib/db-utils";
+import { patientMatchesSearch } from "@/lib/flexibleSearch";
+import { phoneMatchKey } from "@/lib/patientPhone";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext";
@@ -63,6 +66,18 @@ interface ChatRow {
   humanActiveAtMs?: number;
   channel?: "meta" | "wapilot";
   optedOut?: boolean;
+  /**
+   * A conversation the clinic is about to open: a patient picked from the directory who has no
+   * conversation document yet. Exists only in this screen's memory until the first message is
+   * sent, at which point the server writes the real row and this one is replaced by it.
+   */
+  isDraft?: boolean;
+}
+
+interface DirectoryPatient {
+  id: string;
+  name: string;
+  phone: string;
 }
 
 type DeliveryStatus = "sent" | "delivered" | "read" | "failed";
@@ -215,6 +230,8 @@ export default function ChatsPanel({
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string>(searchParams.get("chat") || "");
+  const [draft, setDraft] = useState<ChatRow | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -245,7 +262,8 @@ export default function ChatsPanel({
       .sort((a, b) => lastActivity(b) - lastActivity(a));
   }, [chats, filter, search]);
 
-  const selected = chats.find((c) => c.id === selectedId) || null;
+  // The real row wins the moment it exists: the first send creates it, and the draft retires.
+  const selected = chats.find((c) => c.id === selectedId) || (draft && draft.id === selectedId ? draft : null);
   const needsCount = chats.filter((c) => c.needsHuman === true).length;
   const unreadCount = chats.reduce((n, c) => n + (c.unreadCount || 0), 0);
 
@@ -258,6 +276,17 @@ export default function ChatsPanel({
     router.replace(basePath, { scroll: false });
   };
 
+  /** A patient from the directory: open their existing thread, or a draft one if there is none. */
+  const startWith = (p: DirectoryPatient) => {
+    const key = phoneMatchKey(p.phone) || p.phone.replace(/\D/g, "");
+    if (!key) return;
+    setPickerOpen(false);
+    if (!chats.some((c) => c.id === key)) {
+      setDraft({ id: key, phone: p.phone, patientId: p.id, patientName: p.name, isDraft: true });
+    }
+    open(key);
+  };
+
   return (
     <div
       className={`rounded-2xl border border-line shadow-sm overflow-hidden grid md:grid-cols-[360px_1fr] ${heightClass}`}
@@ -268,12 +297,27 @@ export default function ChatsPanel({
       <aside
         className={`bg-white flex-col min-h-0 border-line md:border-e ${selected ? "hidden md:flex" : "flex"}`}
       >
-        <div className="px-4 pt-4 pb-2" style={{ background: WA.panel }}>
+        <div className="px-4 pt-4 pb-2 flex items-center" style={{ background: WA.panel }}>
           <h2 className="text-[22px] font-black" style={{ color: WA.text }}>
             {isAr ? "المحادثات" : "Chats"}
           </h2>
+          <button
+            onClick={() => setPickerOpen((v) => !v)}
+            title={isAr ? "محادثة جديدة" : "New chat"}
+            className="ms-auto w-9 h-9 rounded-full flex items-center justify-center hover:bg-black/5 transition-colors"
+            style={{ color: pickerOpen ? WA.green : "#54656f" }}
+          >
+            <MessageSquarePlus size={20} />
+          </button>
         </div>
-        <div className="px-3 py-2 space-y-2 bg-white border-b border-line">
+        {pickerOpen && (
+          <NewChatPicker
+            isAr={isAr}
+            onPick={startWith}
+            onClose={() => setPickerOpen(false)}
+          />
+        )}
+        <div className={`px-3 py-2 space-y-2 bg-white border-b border-line ${pickerOpen ? "hidden" : ""}`}>
           <div className="relative">
             <Search size={15} className="absolute top-1/2 -translate-y-1/2 start-3" style={{ color: WA.muted }} />
             <input
@@ -319,7 +363,7 @@ export default function ChatsPanel({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto bg-white">
+        <div className={`flex-1 overflow-y-auto bg-white ${pickerOpen ? "hidden" : ""}`}>
           {loading ? (
             <div className="p-6 flex justify-center" style={{ color: WA.muted }}>
               <Loader2 size={18} className="animate-spin" />
@@ -482,10 +526,15 @@ function Thread({
   }, [lines.length]);
 
   const isLid = chat.id.startsWith("lid_");
-  const windowClosed = !!chat.lastInboundAt && Date.now() - chat.lastInboundAt > REPLY_WINDOW_MS;
+  // A conversation the clinic opened has no patient message at all, which for the window rule is
+  // the same as one older than a day: only a template delivers until they write back.
+  const officialChannel = chat.channel === "meta" || chat.isDraft === true;
+  const windowClosed = chat.isDraft
+    ? true
+    : !!chat.lastInboundAt && Date.now() - chat.lastInboundAt > REPLY_WINDOW_MS;
   // Meta drops out-of-window text silently; the unofficial gateway does not. Block only where it
   // would silently fail — a disabled box the receptionist can see beats a "sent" that never lands.
-  const blocked = isLid || (windowClosed && chat.channel === "meta") || chat.optedOut === true;
+  const blocked = isLid || (windowClosed && officialChannel) || chat.optedOut === true;
   const humanHold = chat.botPaused === true || (chat.humanActiveAtMs || 0) > Date.now() - HUMAN_CLAIM_MS;
   const handling = chat.botPaused === true || chat.needsHuman === true || humanHold;
 
@@ -614,7 +663,9 @@ function Thread({
           </h3>
           <p className="text-[12px] truncate leading-tight mt-0.5" style={{ color: WA.muted }} dir="ltr">
             {chat.patientName ? chat.phone : isAr ? "رقم غير مسجل كمريض" : "Not a registered patient"}
-            {chat.botPaused
+            {chat.isDraft
+              ? ` · ${isAr ? "محادثة جديدة" : "new conversation"}`
+              : chat.botPaused
               ? ` · ${isAr ? "البوت واقف" : "bot paused"}`
               : chat.needsHuman
                 ? ` · ${isAr ? "مستني رد" : "waiting for a reply"}`
@@ -724,9 +775,13 @@ function Thread({
                 ? isAr
                   ? "المريض طلب إيقاف الرسايل."
                   : "The patient opted out of messages."
-                : isAr
-                  ? "عدى أكتر من ٢٤ ساعة على آخر رسالة من المريض — واتساب مش هيوصّل رد حر."
-                  : "Over 24h since the patient's last message — WhatsApp will not deliver a free reply."}
+                : chat.isDraft
+                  ? isAr
+                    ? "المريض ده لسه مبعتش حاجة — ابدأ برسالة المتابعة اللي تحت، ولما يرد تقدر تكتب له عادي."
+                    : "This patient hasn't written yet — start with the follow-up below; once they reply you can write freely."
+                  : isAr
+                    ? "عدى أكتر من ٢٤ ساعة على آخر رسالة من المريض — واتساب مش هيوصّل رد حر."
+                    : "Over 24h since the patient's last message — WhatsApp will not deliver a free reply."}
           </p>
         ) : (
           <div className="flex items-end gap-2">
@@ -765,7 +820,7 @@ function Thread({
         )}
 
         {/* The window is shut but the number is reachable: offer the template that re-opens it. */}
-        {windowClosed && chat.channel === "meta" && !isLid && !chat.optedOut && (
+        {windowClosed && officialChannel && !isLid && !chat.optedOut && (
           <div className="mt-2 rounded-xl bg-white p-3 shadow-sm">
             <p className="text-[12px] font-bold" style={{ color: WA.text }}>
               {isAr
@@ -788,6 +843,122 @@ function Thread({
         )}
       </footer>
     </>
+  );
+}
+
+/**
+ * The patient directory, for opening a conversation the patient did not start.
+ *
+ * Loads the directory once when opened — the same ceiling the Patients page uses — and filters
+ * with the same tolerant matcher, so a name typed the way reception types it, or three digits of
+ * a phone, finds the person. Patients with no phone are listed but cannot be picked: there is
+ * nowhere to send.
+ */
+function NewChatPicker({
+  isAr,
+  onPick,
+  onClose,
+}: {
+  isAr: boolean;
+  onPick: (p: DirectoryPatient) => void;
+  onClose: () => void;
+}) {
+  const [q, setQ] = useState("");
+  const [all, setAll] = useState<DirectoryPatient[] | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getDocs(query(getClinicCollection("patients"), limit(2500)))
+      .then((snap) => {
+        if (cancelled) return;
+        const rows = snap.docs
+          .map((d) => {
+            const x = d.data() as Record<string, unknown>;
+            return { id: d.id, name: String(x.name || "").trim(), phone: String(x.phone || "").trim() };
+          })
+          .filter((p) => p.name)
+          .sort((a, b) => a.name.localeCompare(b.name, "ar"));
+        setAll(rows);
+      })
+      .catch((e) => {
+        console.error("Patient directory failed:", e);
+        if (!cancelled) setFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const results = useMemo(() => {
+    if (!all) return [];
+    const trimmed = q.trim();
+    // Untyped, the list is the whole directory; capped so a 2,000-row clinic does not paint it all.
+    const matched = trimmed ? all.filter((p) => patientMatchesSearch(trimmed, p.name, p.phone)) : all;
+    return matched.slice(0, 80);
+  }, [all, q]);
+
+  return (
+    <div className="flex-1 min-h-0 flex flex-col bg-white">
+      <div className="px-3 py-2 border-b border-line flex items-center gap-2">
+        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-black/5" style={{ color: "#54656f" }}>
+          <ArrowLeft size={18} className="rtl:rotate-180" />
+        </button>
+        <div className="relative flex-1">
+          <Search size={15} className="absolute top-1/2 -translate-y-1/2 start-3" style={{ color: WA.muted }} />
+          <input
+            autoFocus
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder={isAr ? "اسم المريض أو رقمه" : "Patient name or number"}
+            className="w-full rounded-lg border-0 ps-10 pe-3 py-2 text-sm focus:outline-none focus:ring-0"
+            style={{ background: WA.panel, color: WA.text }}
+          />
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        {failed ? (
+          <p className="p-6 text-center text-sm font-bold" style={{ color: WA.muted }}>
+            {isAr ? "مقدرناش نجيب قائمة المرضى" : "Could not load the patient list"}
+          </p>
+        ) : !all ? (
+          <div className="p-6 flex justify-center" style={{ color: WA.muted }}>
+            <Loader2 size={18} className="animate-spin" />
+          </div>
+        ) : results.length === 0 ? (
+          <p className="p-6 text-center text-sm font-bold" style={{ color: WA.muted }}>
+            {isAr ? "مفيش مريض بالاسم ده" : "No patient matches"}
+          </p>
+        ) : (
+          results.map((p) => {
+            const sendable = p.phone.replace(/\D/g, "").length >= 7;
+            return (
+              <button
+                key={p.id}
+                onClick={() => sendable && onPick(p)}
+                disabled={!sendable}
+                className="w-full text-start px-3 py-2.5 flex items-center gap-3 transition-colors hover:bg-[#f5f6f6] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <span
+                  className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 text-sm font-black text-white"
+                  style={{ background: avatarTone(p.id) }}
+                >
+                  {initials(p.name)}
+                </span>
+                <div className="min-w-0 flex-1 border-b border-line/70 pb-2.5 -mb-2.5">
+                  <p className="text-[15px] font-semibold truncate" style={{ color: WA.text }}>
+                    {p.name}
+                  </p>
+                  <p className="text-[13px] truncate" style={{ color: WA.muted }} dir="ltr">
+                    {sendable ? p.phone : isAr ? "مفيش رقم تليفون" : "No phone number"}
+                  </p>
+                </div>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
   );
 }
 
