@@ -525,7 +525,7 @@ export async function respondToPatientMessage(args: {
   let nextState = decision.next;
   let reason = decision.reason;
   let handoff = decision.handoff;
-  let pending: { days?: string[]; times?: string[]; date?: string; doctors?: string[]; doctor?: string; treatment?: string; forRelative?: boolean } | undefined;
+  let pending: { days?: string[]; times?: string[]; date?: string; doctors?: string[]; doctor?: string; treatment?: string; forRelative?: boolean; dayWord?: string } | undefined;
   let aiExchange: { q: string; a: string } | undefined;
   /** Buttons/lists for the official channel; the text above is what every other channel sends. */
   let structure: MetaInteractive | undefined;
@@ -555,7 +555,8 @@ export async function respondToPatientMessage(args: {
         list: optionList("اختيار الدكتور", doctors, label, (d) => `dr|${d}`, { id: "back_menu", title: "رجوع للقائمة" }),
       };
       nextState = "booking_doctor";
-      pending = { doctors, treatment };
+      // A day named before the dentist question waits here for the answer.
+      pending = { doctors, treatment, dayWord: ctx.dayWord ?? conversation.pendingDayWord };
     };
 
     const listDays = (doctorName = "") => {
@@ -753,6 +754,9 @@ export async function respondToPatientMessage(args: {
       const picked = doctors[act.index - 1];
       // Out of range or the list is gone: offering the dentists again beats guessing a chair.
       if (picked === undefined) listDoctors();
+      // "بكره" was said before the dentist question: now that the chair is known, straight to
+      // that day's times rather than a list of days that starts with it.
+      else if (conversation.pendingDayWord && conversation.pendingDayWord >= clinicNow().dateKey) await listTimes(conversation.pendingDayWord, picked);
       else listDays(picked);
     } else if (act.type === "register") {
       /*
@@ -779,7 +783,13 @@ export async function respondToPatientMessage(args: {
       else listDays();
       reason = "registered";
     } else if (act.type === "list_days") {
-      listDays(act.doctorName ?? conversation.pendingDoctor ?? "");
+      const doctorName = act.doctorName ?? conversation.pendingDoctor ?? "";
+      // Same shortcut for a tapped dentist button; a stale or past day word falls back to the list.
+      if (act.doctorName !== undefined && conversation.pendingDayWord && conversation.pendingDayWord >= clinicNow().dateKey) {
+        await listTimes(conversation.pendingDayWord, doctorName);
+      } else {
+        listDays(doctorName);
+      }
     } else if (act.type === "relist") {
       if (conversation.state === "booking_time" && conversation.pendingDate && conversation.pendingTimes?.length) {
         replyText = RELIST_PREFIX + renderTimeList(conversation.pendingDate, conversation.pendingTimes);

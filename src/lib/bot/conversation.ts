@@ -86,6 +86,13 @@ export interface BotConversation {
   /** The service the patient named when they asked to book, carried onto the appointment. */
   pendingTreatment?: string;
   /**
+   * A day the patient named when they asked to book, kept across the dentist step.
+   *
+   * A clinic with several dentists has to ask which one before it can check a day, so "بكره"
+   * waits here and the chosen dentist's times for that day come back instead of a list of days.
+   */
+  pendingDayWord?: string;
+  /**
    * The booking is for someone else — a wife, a child, a parent — and the name we are about to
    * ask for is theirs, not the sender's. Without this "عايز احجز لمراتي" booked the husband.
    */
@@ -226,6 +233,7 @@ export async function loadConversation(
     pendingDoctors: !expired && Array.isArray(d.pendingDoctors) ? d.pendingDoctors.map(String) : undefined,
     pendingDoctor: !expired && typeof d.pendingDoctor === "string" ? d.pendingDoctor : undefined,
     pendingTreatment: !expired && typeof d.pendingTreatment === "string" ? d.pendingTreatment : undefined,
+    pendingDayWord: !expired && typeof d.pendingDayWord === "string" ? d.pendingDayWord : undefined,
     pendingForRelative: !expired && d.pendingForRelative === true,
     aiReplies: !expired ? Number(d.aiReplies) || 0 : 0,
     aiHistory:
@@ -261,7 +269,7 @@ export async function saveConversation(
     patientId?: string;
     patientName?: string;
     /** Booking options offered this turn. Absent = clear them — stale lists must not linger. */
-    pending?: { days?: string[]; times?: string[]; date?: string; doctors?: string[]; doctor?: string; treatment?: string; forRelative?: boolean };
+    pending?: { days?: string[]; times?: string[]; date?: string; doctors?: string[]; doctor?: string; treatment?: string; forRelative?: boolean; dayWord?: string };
     /**
      * A spent AI exchange. Unlike pending options, absence PRESERVES what is stored: the AI
      * budget survives menu turns — a patient cannot refill it by pressing a button.
@@ -286,6 +294,7 @@ export async function saveConversation(
     pendingDoctors: next.pending?.doctors ?? null,
     pendingDoctor: next.pending?.doctor ?? null,
     pendingTreatment: next.pending?.treatment ?? null,
+    pendingDayWord: next.pending?.dayWord ?? null,
     pendingForRelative: next.pending?.forRelative === true,
     aiReplies: (c.aiReplies ?? 0) + (next.aiExchange ? 1 : 0),
     // Trimmed hard: this is continuity for a three-answer conversation, not an archive.
