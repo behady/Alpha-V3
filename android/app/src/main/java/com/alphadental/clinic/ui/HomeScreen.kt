@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.CircularProgressIndicator
@@ -103,6 +104,8 @@ fun HomeScreen(
     /** WhatsApp threads waiting for a person. Null opener for roles that may not read them. */
     chatsWaiting: Int = 0,
     onOpenChats: (() -> Unit)? = null,
+    /** Null for roles without access.lab. */
+    onOpenLab: (() -> Unit)? = null,
     onOpenAssistant: () -> Unit,
     /** Null for roles that do not work the CRM inbox. */
     onOpenLeads: (() -> Unit)?,
@@ -185,17 +188,17 @@ fun HomeScreen(
             when {
                 session.isDentist -> dentistHome(
                     session, appointments, active, nowMinutes, arabic,
-                    onOpenAppointment, onOpenPatients, onOpenOrtho, onOpenInventory, onOpenAssistant,
+                    onOpenAppointment, onOpenPatients, onOpenOrtho, onOpenInventory, onOpenLab, onOpenAssistant,
                 )
 
                 session.isReception -> receptionHome(
                     appointments, active, arabic, whatsappWaiting, chatsWaiting,
-                    onOpenAppointment, onOpenMoney, onOpenPatients, onOpenWhatsappQueue, onOpenChats, onOpenAssistant, onOpenLeads,
+                    onOpenAppointment, onOpenMoney, onOpenPatients, onOpenWhatsappQueue, onOpenChats, onOpenLab, onOpenAssistant, onOpenLeads,
                 )
 
                 else -> ownerHome(
                     active, arabic, whatsappWaiting, chatsWaiting,
-                    onOpenAppointment, onOpenReports, onOpenMoney, onOpenInventory, onOpenChats, onOpenAssistant, onOpenLeads,
+                    onOpenAppointment, onOpenReports, onOpenMoney, onOpenInventory, onOpenChats, onOpenLab, onOpenAssistant, onOpenLeads,
                 )
             }
 
@@ -400,6 +403,7 @@ private fun LazyListScope.dentistHome(
     onOpenPatients: () -> Unit,
     onOpenOrtho: () -> Unit,
     onOpenInventory: () -> Unit,
+    onOpenLab: (() -> Unit)?,
     onOpenAssistant: () -> Unit,
 ) {
     // Filtered by doctor name because that is what an appointment stores — there is
@@ -438,8 +442,10 @@ private fun LazyListScope.dentistHome(
     }
 
     quickActions(
-        listOf(
+        listOfNotNull(
             QuickAction(Icons.Filled.People, if (arabic) "المرضى" else "Patients", onClick = onOpenPatients),
+            // The lab board is the dentist's tool as much as reception's: a fitted crown is closed chairside.
+            onOpenLab?.let { QuickAction(Icons.Filled.Science, if (arabic) "المعمل" else "Lab", onClick = it) },
             QuickAction(Icons.Filled.Timeline, if (arabic) "التقويم" else "Ortho", onClick = onOpenOrtho),
             QuickAction(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", onClick = onOpenAssistant),
             QuickAction(Icons.Filled.Inventory2, if (arabic) "المخزون" else "Stock", onClick = onOpenInventory),
@@ -466,6 +472,7 @@ private fun LazyListScope.receptionHome(
     onOpenPatients: () -> Unit,
     onOpenWhatsappQueue: () -> Unit,
     onOpenChats: (() -> Unit)?,
+    onOpenLab: (() -> Unit)?,
     onOpenAssistant: () -> Unit,
     onOpenLeads: (() -> Unit)?,
 ) {
@@ -473,6 +480,7 @@ private fun LazyListScope.receptionHome(
         listOfNotNull(
             // Chats first: a patient waiting for a person is the most time-bound thing on the desk.
             onOpenChats?.let { QuickAction(Icons.AutoMirrored.Filled.Chat, if (arabic) "المحادثات" else "Chats", badge = chatsWaiting, onClick = it) },
+            onOpenLab?.let { QuickAction(Icons.Filled.Science, if (arabic) "المعمل" else "Lab", onClick = it) },
             onOpenLeads?.let { QuickAction(Icons.Filled.PersonSearch, if (arabic) "عملاء" else "Leads", onClick = it) },
             onOpenMoney?.let { QuickAction(Icons.Filled.Payments, if (arabic) "الحسابات" else "Money", onClick = it) },
             QuickAction(Icons.Filled.People, if (arabic) "المرضى" else "Patients", onClick = onOpenPatients),
@@ -538,12 +546,14 @@ private fun LazyListScope.ownerHome(
     onOpenMoney: (() -> Unit)?,
     onOpenInventory: () -> Unit,
     onOpenChats: (() -> Unit)?,
+    onOpenLab: (() -> Unit)?,
     onOpenAssistant: () -> Unit,
     onOpenLeads: (() -> Unit)?,
 ) {
     quickActions(
         listOfNotNull(
             onOpenChats?.let { QuickAction(Icons.AutoMirrored.Filled.Chat, if (arabic) "المحادثات" else "Chats", badge = chatsWaiting, onClick = it) },
+            onOpenLab?.let { QuickAction(Icons.Filled.Science, if (arabic) "المعمل" else "Lab", onClick = it) },
             onOpenLeads?.let { QuickAction(Icons.Filled.PersonSearch, if (arabic) "عملاء" else "Leads", onClick = it) },
             onOpenReports?.let { QuickAction(Icons.Filled.BarChart, if (arabic) "التقارير" else "Reports", onClick = it) },
             onOpenMoney?.let { QuickAction(Icons.Filled.Payments, if (arabic) "الحسابات" else "Money", onClick = it) },
