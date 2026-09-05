@@ -24,6 +24,26 @@ export const runtime = "nodejs";
  * message. Handoffs are raised BY a patient message, so a same-day reply is always in-window;
  * the inbox warns when a row is old enough for that to matter.
  */
+async function captureStaffAnswer(clinicId: string, phone: string, answer: string, staffName?: string): Promise<void> {
+  const conv = adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(phone));
+  const inbound = await conv.collection("messages").where("direction", "==", "in").orderBy("at", "desc").limit(1).get();
+  const question = String(inbound.docs[0]?.data()?.text || "").trim();
+  if (question.length < 8 || /^\d+$/.test(question) || question.startsWith("[")) return;
+  // The same question answered twice by staff is one lesson, not two.
+  const dup = await adminClinicCollection(clinicId, "bot_knowledge").where("question", "==", question).limit(1).get();
+  if (!dup.empty) return;
+  await adminClinicCollection(clinicId, "bot_knowledge").add({
+    question: question.slice(0, 300),
+    answer: answer.slice(0, 1000),
+    status: "pending",
+    source: "staff",
+    staffName: staffName || null,
+    phone,
+    atMs: Date.now(),
+    createdAt: FieldValue.serverTimestamp(),
+  });
+}
+
 export async function POST(request: Request) {
   const requestedClinicId = await request
     .clone()
@@ -118,6 +138,16 @@ export async function POST(request: Request) {
       sentBy: authz.uid,
       createdAt: FieldValue.serverTimestamp(),
     });
+
+    /*
+     * What a person typed back is what the bot could not say. The patient's last message and
+     * this reply are saved as a pending Q&A on the Bot tab; one tap of approval and the model
+     * uses it next time. Templates, one-liners and replies to a number (a stray "3") are not
+     * knowledge and are skipped.
+     */
+    if (!isTemplate && text.length >= 15) {
+      await captureStaffAnswer(clinicId, phone, text, authz.name || undefined).catch(() => {});
+    }
 
     // Keep the patient record's contact trail honest too, when there is a record to keep it on.
     if (patientId) {

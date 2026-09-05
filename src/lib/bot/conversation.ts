@@ -102,6 +102,8 @@ export interface BotConversation {
    * Set by the reschedule flow; the final pick moves this appointment instead of adding one.
    */
   pendingReschedule?: string;
+  /** How the conversation ended, for the playbook: booked, handoff, or unset while it is live. */
+  outcome?: string;
   /**
    * A person owns this thread right now.
    *
@@ -241,6 +243,7 @@ export async function loadConversation(
     pendingDayWord: !expired && typeof d.pendingDayWord === "string" ? d.pendingDayWord : undefined,
     pendingForRelative: !expired && d.pendingForRelative === true,
     pendingReschedule: !expired && typeof d.pendingReschedule === "string" ? d.pendingReschedule : undefined,
+    outcome: !expired && typeof d.outcome === "string" ? d.outcome : undefined,
     aiReplies: !expired ? Number(d.aiReplies) || 0 : 0,
     aiHistory:
       !expired && Array.isArray(d.aiHistory)

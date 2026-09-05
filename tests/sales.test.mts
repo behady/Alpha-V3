@@ -87,4 +87,18 @@ run("an ended offer is told honestly, not handed to a person", () => {
   assert.equal(none.reason, "offers_unknown", "no offer ever written still fetches a person");
 });
 
+run("salesperson mode: the model leads, the calendar and safety stay fixed", () => {
+  const ai = { ...base, aiFirst: true, aiAvailable: true, hoursText: "من 3 م إلى 11 م" };
+  assert.equal(decideBotReply({ state: "new", text: "السلام عليكم", ctx: ai }).action?.type, "ai", "even the greeting is the model's");
+  assert.equal(decideBotReply({ state: "awaiting_choice", text: "مواعيدكم ايه", ctx: ai }).action?.type, "ai", "hours go to the model, not the canned line");
+  assert.equal(decideBotReply({ state: "awaiting_choice", text: "غالي اوي", ctx: ai }).action?.type, "ai", "objections are the model's job here");
+  assert.equal(decideBotReply({ state: "awaiting_choice", text: "عايز احجز", ctx: ai }).action?.type, "list_days", "booking stays deterministic");
+  assert.equal(decideBotReply({ state: "awaiting_choice", text: "2", ctx: ai }).reason, "hours", "digits still mean the menu");
+  assert.equal(decideBotReply({ state: "awaiting_choice", text: "تمام", ctx: ai }).action?.type, "ack", "a confirmation still confirms");
+  assert.equal(decideBotReply({ state: "awaiting_choice", text: "سناني بتوجعني", ctx: ai }).reason, "clinical", "pain never reaches the model");
+  assert.equal(decideBotReply({ state: "awaiting_choice", text: "عايز اكلم حد", ctx: ai }).reason, "asked_for_human");
+  // Budget spent: the old ladder stands.
+  assert.equal(decideBotReply({ state: "awaiting_choice", text: "مواعيدكم ايه", ctx: { ...ai, aiAvailable: false } }).reason, "hours");
+});
+
 console.log("sales: all suites passed");

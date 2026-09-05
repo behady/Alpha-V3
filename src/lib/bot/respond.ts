@@ -29,7 +29,7 @@ import {
   saveConversation,
   type HandoffSeverity,
 } from "./conversation";
-import { answerWithAi } from "./aiReply";
+import { answerWithAi, type AiPatientContext, type AiThreadLine } from "./aiReply";
 import { SALES_CLOSE_REASONS, LEAD_INTEREST_REASONS, activeOffers, closingLine, offerForService } from "./sales";
 import { markBotLeadBooked, upsertBotLead } from "./botLeads";
 import { recordThreadMessage } from "./thread";
@@ -69,6 +69,12 @@ interface BotSettings {
   aiEnabled: boolean;
   /** The clinic's own answers to the questions its data cannot supply. */
   facts: BotFacts;
+  /** The model leads the conversation (sales mode) instead of answering last. */
+  aiFirst: boolean;
+  /** AI replies per conversation; 0 means no cap. */
+  aiMaxReplies: number;
+  /** The owner's coaching notes for the model. */
+  coaching: string;
 }
 
 async function loadBotSettings(clinicId: string): Promise<BotSettings> {
@@ -78,8 +84,12 @@ async function loadBotSettings(clinicId: string): Promise<BotSettings> {
     enabled: d.botEnabled === true,
     answerStrangers: d.botAnswerStrangers === true,
     autoConfirm: d.botAutoConfirmBookings === true,
-    aiEnabled: d.botAiEnabled === true,
+    aiEnabled: d.botAiEnabled === true || d.botMode === "ai_first",
     facts: (d.botFacts && typeof d.botFacts === "object" ? d.botFacts : {}) as BotFacts,
+    aiFirst: d.botMode === "ai_first",
+    aiMaxReplies:
+      typeof d.botAiMaxReplies === "number" && d.botAiMaxReplies >= 0 ? Math.floor(d.botAiMaxReplies) : d.botMode === "ai_first" ? 0 : 3,
+    coaching: typeof d.botCoaching === "string" ? d.botCoaching : "",
   };
 }
 
@@ -496,7 +506,8 @@ export async function respondToPatientMessage(args: {
   ctx.relative = mentionsRelative(text);
   ctx.forRelative = conversation.pendingForRelative === true;
   ctx.serviceMatch = (await matchService(clinicId, text)) || undefined;
-  ctx.aiAvailable = settings.aiEnabled && (conversation.aiReplies ?? 0) < 3;
+  ctx.aiAvailable = settings.aiEnabled && (settings.aiMaxReplies === 0 || (conversation.aiReplies ?? 0) < settings.aiMaxReplies);
+  ctx.aiFirst = settings.aiFirst;
   if (conversation.state === "booking_doctor") ctx.optionCount = conversation.pendingDoctors?.length ?? 0;
   if (conversation.state === "booking_day") ctx.optionCount = conversation.pendingDays?.length ?? 0;
   if (conversation.state === "booking_time") ctx.optionCount = conversation.pendingTimes?.length ?? 0;
@@ -738,6 +749,14 @@ export async function respondToPatientMessage(args: {
         reason = "no_price_list";
       }
     } else if (act.type === "ai") {
+      /*
+       * Sales mode feeds the model everything a good receptionist would know before answering:
+       * the thread so far (every voice), who this is and whether they are already booked, the
+       * owner's coaching, the answers staff approved, and the playbook. Assisted mode keeps the
+       * cheap call it always made.
+       */
+      const sales = settings.aiFirst;
+      const salesContext = sales ? await loadSalesContext(clinicId, chatId, patient, ctx) : null;
       const ai = await answerWithAi({
         clinicId,
         clinicName,
@@ -748,11 +767,39 @@ export async function respondToPatientMessage(args: {
         clinicPhone: ctx.clinicPhone,
         facts: ctx.facts,
         history: conversation.aiHistory ?? [],
+        mode: sales ? "sales" : "assisted",
+        thread: salesContext?.thread,
+        patient: salesContext?.patient,
+        coaching: settings.coaching,
+        knowledge: salesContext?.knowledge,
+        playbook: salesContext?.playbook,
+        canBook: Boolean(ctx.canOfferBooking || ctx.canRegister),
       });
-      if (ai.kind === "answer") {
+      if (ai.kind === "answer" && ai.openBooking && (ctx.canOfferBooking || ctx.canRegister)) {
+        // The model judged the moment right. The calendar part stays deterministic: its line
+        // introduces the same lists a tapped "book" button would have produced.
+        const intro = ai.text.trim();
+        aiExchange = { q: act.question, a: intro };
+        if (ai.interest && !ctx.serviceMatch) ctx.serviceMatch = (await matchService(clinicId, ai.interest)) || undefined;
+        if (ctx.canOfferBooking) {
+          if ((profile?.doctors.length ?? 0) >= 2) listDoctors();
+          else listDays();
+          if (intro) {
+            replyText = `${intro}\n\n${replyText}`;
+            if (structure) structure = { ...structure, body: `${intro}\n\n${structure.body}` };
+          }
+          reason = "ai_booking";
+        } else {
+          const askName = `${v.welcome} 🙏 عشان نسجل الحجز، ياريت حضرتك ${v.send === "ابعتي" ? "تبعتيلنا" : "تبعتلنا"} الاسم الكامل.`;
+          replyText = intro ? `${intro}\n\n${askName}` : askName;
+          nextState = "booking_name";
+          reason = "ai_ask_name";
+        }
+      } else if (ai.kind === "answer") {
         replyText = ai.text;
         structure = { body: ai.text, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
         aiExchange = { q: act.question, a: ai.text };
+        if (ai.interest && !ctx.serviceMatch) ctx.serviceMatch = (await matchService(clinicId, ai.interest)) || ai.interest;
         reason = "ai_answer";
       } else if (ai.kind === "handoff") {
         // The model recognised a person's job — a complaint, a named dentist, something medical,
@@ -953,7 +1000,7 @@ export async function respondToPatientMessage(args: {
 
   // A name is being asked for: remember whose, and what they came for, until it arrives.
   if (reason === "ask_relative_name") pending = { forRelative: true, treatment: ctx.serviceMatch };
-  if (reason === "ask_name") pending = { treatment: ctx.serviceMatch };
+  if (reason === "ask_name" || reason === "ai_ask_name") pending = { treatment: ctx.serviceMatch };
 
   /*
    * The salesman's turn, after the receptionist's.
@@ -974,7 +1021,8 @@ export async function respondToPatientMessage(args: {
   if (salesTurn && ctx.serviceMatch && offersActive && (SALES_CLOSE_REASONS.has(reason) || reason.startsWith("booking_") || reason === "ask_name")) {
     appendLine(offerForService(offersActive, ctx.serviceMatch));
   }
-  if (salesTurn && SALES_CLOSE_REASONS.has(reason) && (ctx.canOfferBooking || ctx.canRegister)) {
+  // In sales mode the model writes its own close; a second one under it reads as a stutter.
+  if (salesTurn && SALES_CLOSE_REASONS.has(reason) && (ctx.canOfferBooking || ctx.canRegister) && !(settings.aiFirst && reason === "ai_answer")) {
     const upcoming = patient ? await findNextAppointment(clinicId, patient.id) : null;
     appendLine(closingLine({ gender: ctx.gender, facts: ctx.facts, alreadyBooked: Boolean(upcoming) }));
     // The button block below builds its own structure for menu-shaped replies; everything else
@@ -1176,5 +1224,68 @@ export async function respondToPatientMessage(args: {
     now
   );
 
+  /*
+   * The outcome, for the weekly playbook. "booked" and "handoff" are settled here; a conversation
+   * that simply stops is judged "quiet" by the playbook job after a day of silence. `aiUsed`
+   * marks the conversations the model took part in — the only ones the playbook learns from.
+   */
+  const outcomeUpdate: Record<string, unknown> = {};
+  if (aiExchange || reason.startsWith("ai_")) outcomeUpdate.aiUsed = true;
+  if (reason === "booked" || reason === "rescheduled") {
+    outcomeUpdate.outcome = "booked";
+    outcomeUpdate.outcomeAt = now;
+  } else if (handoff && conversation.outcome !== "booked") {
+    outcomeUpdate.outcome = "handoff";
+    outcomeUpdate.outcomeAt = now;
+  }
+  if (Object.keys(outcomeUpdate).length) {
+    void adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(chatId)).set(outcomeUpdate, { merge: true }).catch(() => {});
+  }
+
   return { status: "replied", text: body, handoff, reason };
+}
+
+/**
+ * Everything the sales-mode model is shown beyond the message itself.
+ *
+ * The thread (last 16 lines, every voice), the patient as the desk would know them, the answers
+ * the owner approved on the Bot tab, and the playbook. Four reads, only on sales-mode turns —
+ * the cost of a model that remembers what it said.
+ */
+async function loadSalesContext(
+  clinicId: string,
+  chatId: string,
+  patient: { id: string; data: Record<string, unknown> } | null,
+  ctx: BotContext
+): Promise<{ thread: AiThreadLine[]; patient: AiPatientContext; knowledge: Array<{ q: string; a: string }>; playbook: string }> {
+  const key = conversationKey(chatId);
+  const [threadSnap, knowledgeSnap, playbookSnap, upcoming] = await Promise.all([
+    adminClinicDoc(clinicId, "whatsapp_conversations", key).collection("messages").orderBy("at", "desc").limit(16).get().catch(() => null),
+    adminClinicCollection(clinicId, "bot_knowledge").where("status", "==", "approved").limit(40).get().catch(() => null),
+    adminClinicDoc(clinicId, "settings", "bot_playbook").get().catch(() => null),
+    patient ? findNextAppointment(clinicId, patient.id).catch(() => null) : Promise.resolve(null),
+  ]);
+  const thread: AiThreadLine[] = (threadSnap?.docs ?? [])
+    .map((d) => d.data() || {})
+    .reverse()
+    .map((m) => ({ author: (m.author as AiThreadLine["author"]) || "bot", text: String(m.text || "") }))
+    .filter((l) => l.text.trim() && !l.text.startsWith("[") );
+  const knowledge = (knowledgeSnap?.docs ?? []).map((d) => {
+    const k = d.data() || {};
+    return { q: String(k.question || ""), a: String(k.answer || "") };
+  });
+  const pb = playbookSnap?.data() || {};
+  const lastVisit = typeof patient?.data.lastVisit === "string" ? patient.data.lastVisit : undefined;
+  return {
+    thread,
+    knowledge,
+    playbook: String(pb.editedText || pb.text || ""),
+    patient: {
+      known: Boolean(patient),
+      name: ctx.patientName,
+      gender: ctx.gender,
+      upcomingAppointment: upcoming ? appointmentLine(upcoming).replace(/\n/g, " ") : undefined,
+      lastVisit,
+    },
+  };
 }

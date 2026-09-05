@@ -8,44 +8,56 @@ import type { Clinic } from "@/types/saas";
 import type { BotFacts } from "@/types/whatsapp";
 
 /**
- * The AI fallback for the WhatsApp assistant — the receptionist's voice for the questions the
- * buttons cannot answer.
+ * The model's voice on the clinic's WhatsApp — receptionist by default, salesperson when the
+ * clinic switches it on.
  *
- * It exists to be CHEAP and RARE: buttons and digits handle the bulk of traffic for free, and
- * this runs only when a message matched nothing — which is also why it draws from the clinic's
- * existing AI credit pool at one credit per answer instead of needing its own meter. The caps
- * around it (three answers per conversation, the hourly reply budget) are enforced by the caller;
- * this module enforces the two limits that belong to it alone: the plan gate and the credit pool.
+ * Two modes share this one call. "assisted" is the original fallback: rare, cheap, three answers
+ * per conversation, runs only after every free route failed. "sales" is the mode a clinic
+ * chooses when it wants the model to carry the whole conversation: it sees the thread, the
+ * patient's record, the clinic's own words, the owner's coaching notes, the answers staff have
+ * given before, and the playbook distilled from what actually led to bookings — and it may
+ * decide the moment has come to open the booking. Even then it books nothing itself: it hands
+ * that decision to the deterministic flow, which is the only thing that writes to a calendar.
  *
- * It answers questions. It performs nothing. An AI that can write to a calendar is an AI that can
- * wreck one, so booking stays with the deterministic flow and the model is not offered a single
- * tool — the strongest sandbox is an empty toolbox.
+ * In both modes the red lines are the same and are in the prompt verbatim: prices as ranges,
+ * nothing medical, nothing invented, complaints and named dentists to a person.
  */
 
 const MODEL = "gemini-flash-latest";
 /** One WhatsApp answer costs one credit — same unit the in-app assistant charges. */
 const CREDITS_PER_ANSWER = 1;
-/**
- * How long to wait for the model before giving the patient the old re-prompt instead.
- *
- * Measured, not guessed: the same question answered in 2.9s, 8.2s and 12.2s on three consecutive
- * calls, so latency here has a long tail that has nothing to do with the prompt. At 9s a third of
- * answers were thrown away and the patient got "معلش مفهمتش" for a question the model had answered
- * perfectly — which reads, correctly, as a broken bot.
- *
- * Nobody waits on this any more: the webhook returns to Meta immediately and the reply is composed
- * afterwards (see the meta-whatsapp route). So the budget is set by what a patient will tolerate
- * between sending a question and hearing back, not by an HTTP deadline. Past this it is better to
- * show the menu than to leave them watching an empty chat.
- */
+/** Measured tail latency runs past 12s; nobody waits on this since the webhook answers first. */
 const TIMEOUT_MS = 25000;
 
 export type AiReplyResult =
-  | { kind: "answer"; text: string }
+  | {
+      kind: "answer";
+      text: string;
+      /** Sales mode: the model judged the patient ready; the caller opens the booking lists. */
+      openBooking?: boolean;
+      /** Sales mode: the service the patient is interested in, as the model read it. */
+      interest?: string;
+    }
   /** The model classified the message as something a human must handle. */
   | { kind: "handoff"; topic: "medical" | "complaint" | "staff" | "other" }
   /** No key, no plan, no credits, timeout, or model error — caller falls back to the old path. */
   | { kind: "unavailable"; reason: string };
+
+export interface AiThreadLine {
+  author: "patient" | "bot" | "staff" | "system";
+  text: string;
+}
+
+export interface AiPatientContext {
+  /** Somebody on file, or a stranger who has never been to the clinic. */
+  known: boolean;
+  name?: string;
+  gender?: "male" | "female" | "unknown";
+  /** "الثلاثاء 9/9 الساعة 5:00 م مع د. أحمد", when they have one coming. */
+  upcomingAppointment?: string;
+  /** YYYY-MM-DD of their last completed visit, when known. */
+  lastVisit?: string;
+}
 
 /**
  * The clinic's own written answers, as context lines.
@@ -83,21 +95,70 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
+const HARD_RULES = [
+  "قواعد صارمة لا تُكسر أبداً:",
+  "- جاوب فقط من المعلومات المكتوبة تحت. لو المعلومة مش موجودة، اختار handoff_other — ممنوع التخمين أو الاختراع.",
+  "- أي سؤال طبي (ألم، ورم، دواء، تشخيص، هل ده طبيعي): اختار handoff_medical.",
+  "- أي شكوى أو زعل أو كلام عن تجربة سيئة: اختار handoff_complaint.",
+  "- أي سؤال عن طبيب معيّن بالاسم (شطارته، مواعيده الشخصية، رأيك فيه): اختار handoff_staff.",
+  "- الأسعار: جاوب من القايمة تحت بصيغة \"يبدأ من\"، ودايماً اختم بأن الاستقبال بيأكد السعر النهائي. لو المريض سأل عن حاجة ليها خدمة مشابهة أو قريبة في القايمة (مثلاً سأل عن التقويم والقايمة فيها \"تقويم معدن\") اعتبرها موجودة وجاوب بسعرها. بس لو مفيش أي خدمة قريبة منها خالص: handoff_other.",
+  "- أسئلة \"بتعملوا كذا؟\": لو الخدمة أو حاجة قريبة منها في القايمة، الإجابة أيوه مع السعر. متحوّلش سؤال تقدر تجاوبه.",
+  "- أي خدمة مكتوبة في \"خدمات إحنا مش بنعملها\" الإجابة عنها لأ بوضوح، وممنوع تديله سعر خدمة قريبة منها.",
+  "- مدة العلاج، عدد الجلسات، الضمان، مدة ما العلاج بيفضل: جاوب بس لو مكتوبة تحت حرفياً. لو مش مكتوبة اختار handoff_other — ممنوع تقول رقم من معلوماتك العامة عن طب الأسنان.",
+  "- ممنوع تخترع خصم أو عرض أو تقسيط مش مكتوب تحت. ممنوع توعد بنتيجة علاج.",
+  "- متقولش انك انسان لو اتسألت. متحددش مواعيد بنفسك — الحجز بيتم من النظام.",
+];
+
+const ASSISTED_PERSONA = [
+  (clinicName: string) => `انت موظف استقبال ودود في عيادة أسنان اسمها "${clinicName}" وبترد على واتساب العيادة بالعامية المصرية.`,
+  "- الرد قصير: جملتين لتلاتة بالكتير.",
+  "- متختمش الرد بدعوة للحجز أو بسؤال \"تحب تحجز؟\" — الأزرار تحت الرسالة بتعمل ده.",
+];
+
+const SALES_PERSONA = [
+  (clinicName: string) =>
+    `انت أشطر موظف استقبال ومبيعات في عيادة أسنان اسمها "${clinicName}"، وبتكلم المرضى على واتساب العيادة بالعامية المصرية. هدفك إن المريض يطمّن ويحجز كشف — من غير ما تكذب ومن غير ما تضغط عليه.`,
+  "أسلوبك في البيع (اتبعه بالترتيب على مدار المحادثة، مش كله في رسالة واحدة):",
+  "1) اسمع وافهم: أول ما حد يسأل، جاوب على سؤاله الأول بوضوح، وبعدين اسأل سؤال واحد بس يفهّمك احتياجه (الحالة إيه؟ بقاله قد إيه؟ الهدف تجميلي ولا علاجي؟). سؤال واحد في الرسالة، مش استبيان.",
+  "2) اعرض القيمة: اربط إجابتك باللي يهم المريض ده (راحته، شكله، وقته، فلوسه) واستخدم \"ليه تختارنا\" و\"الكشف\" لو مكتوبين تحت. جملة أو اتنين، مش خطبة.",
+  "3) عالج الاعتراض: \"غالي\" → التقسيط وقيمة اللي بياخده لو مكتوبين. \"هفكر\" → طبيعي، سيبله الباب مفتوح من غير إلحاح. \"في أرخص\" → متهاجمش حد، قول إحنا بنتميز في إيه لو مكتوب.",
+  "4) اقفل: لما تحس إن المريض مرتاح أو قال كلمة توافق (تمام، ماشي، طب إمتى، عايز أحجز، ممكن ميعاد)، اختار open_booking واكتب في reply جملة قصيرة بتمهّد للمواعيد (مثلاً: \"تمام، هختارلك أقرب المواعيد المتاحة 👇\"). النظام هيعرض له الأيام والساعات بنفسه — متكتبش مواعيد أنت.",
+  "قواعد الأسلوب:",
+  "- كل رد من جملتين لأربع جمل. سطر فاضي بين الفكرة والفكرة. إيموجي واحد بالكتير.",
+  "- استخدم اسم المريض مرة واحدة في المحادثة لو معروف، مش في كل رسالة. لو بنت أو ست خاطبها بصيغة المؤنث.",
+  "- متكررش كلام قلته قبل كده في المحادثة (شوف الرسايل اللي فاتت). لو المريض سأل نفس السؤال تاني، جاوب باختصار وامشي خطوة لقدام.",
+  "- لو المريض عنده ميعاد جاي بالفعل، متبعش له كشف جديد — ساعده في اللي هو محتاجه.",
+  "- لو المريض غريب (مش معروف)، open_booking برضه شغال: النظام هيسأله اسمه الأول.",
+  "- في خانة interest اكتب اسم الخدمة اللي المريض مهتم بيها لو واضحة (زي \"تبييض\" أو \"تقويم\")، وإلا سيبها فاضية.",
+];
+
 export async function answerWithAi(args: {
   clinicId: string;
   clinicName: string;
   question: string;
   patientName?: string;
   hoursText?: string;
-  /** Where the clinic is, and how to ring it. Withheld before, so it handed off on "فين العيادة". */
   addressText?: string;
   clinicPhone?: string;
-  /** The clinic's own answers to the questions its data cannot supply. */
   facts?: BotFacts;
-  /** Prior AI exchanges in this conversation, oldest first, for continuity. */
+  /** Prior AI exchanges in this conversation, oldest first — the assisted mode's memory. */
   history: Array<{ q: string; a: string }>;
+  /** "sales" lets the model lead the conversation and open bookings; default "assisted". */
+  mode?: "assisted" | "sales";
+  /** The whole recent thread, oldest first, every voice — sales mode's memory. */
+  thread?: AiThreadLine[];
+  patient?: AiPatientContext;
+  /** The owner's standing instructions, verbatim. */
+  coaching?: string;
+  /** Answers staff gave that the owner approved for reuse. */
+  knowledge?: Array<{ q: string; a: string }>;
+  /** What has worked with this clinic's patients, distilled weekly (or edited by the owner). */
+  playbook?: string;
+  /** Whether the caller can actually open a booking if asked to. */
+  canBook?: boolean;
 }): Promise<AiReplyResult> {
   const { clinicId, clinicName, question, patientName, hoursText, addressText, clinicPhone, facts, history } = args;
+  const sales = args.mode === "sales";
 
   const apiKey = process.env.GEMINI_API_KEY || "";
   if (!apiKey) return { kind: "unavailable", reason: "no_api_key" };
@@ -142,36 +203,43 @@ export async function answerWithAi(args: {
     /* no prices in context simply means the model must refuse price questions */
   }
 
+  const persona = (sales ? SALES_PERSONA : ASSISTED_PERSONA).map((p) => (typeof p === "function" ? p(clinicName) : p));
+
+  const patient = args.patient;
+  const patientLines = patient
+    ? [
+        "\nالمريض اللي بتكلمه:",
+        patient.known ? `- معروف عندنا${patient.name ? `، اسمه ${patient.name}` : ""}.` : "- رقم جديد، مش مسجل عندنا.",
+        patient.gender === "female" ? "- أنثى: خاطبيها بصيغة المؤنث." : "",
+        patient.upcomingAppointment ? `- عنده ميعاد جاي: ${patient.upcomingAppointment}` : "- معندوش ميعاد جاي.",
+        patient.lastVisit ? `- آخر زيارة: ${patient.lastVisit}` : "",
+      ].filter(Boolean)
+    : patientName
+      ? [`\nاسم المريض: ${patientName}`]
+      : [];
+
+  const coaching = args.coaching?.trim();
+  const knowledge = (args.knowledge || []).filter((k) => k.q?.trim() && k.a?.trim()).slice(0, 40);
+  const playbook = args.playbook?.trim();
+
   const system = [
-    `انت موظف استقبال ودود في عيادة أسنان اسمها "${clinicName}" وبترد على واتساب العيادة بالعامية المصرية.`,
-    "قواعد صارمة لا تُكسر أبداً:",
-    "- جاوب فقط من المعلومات المكتوبة تحت. لو المعلومة مش موجودة، اختار handoff_other — ممنوع التخمين أو الاختراع.",
-    "- أي سؤال طبي (ألم، ورم، دواء، تشخيص، هل ده طبيعي): اختار handoff_medical.",
-    "- أي شكوى أو زعل أو كلام عن تجربة سيئة: اختار handoff_complaint.",
-    "- أي سؤال عن طبيب معيّن بالاسم (شطارته، مواعيده الشخصية، رأيك فيه): اختار handoff_staff.",
-    "- الأسعار: جاوب من القايمة تحت بصيغة \"يبدأ من\"، ودايماً اختم بأن الاستقبال بيأكد السعر النهائي. لو المريض سأل عن حاجة ليها خدمة مشابهة أو قريبة في القايمة (مثلاً سأل عن التقويم والقايمة فيها \"تقويم معدن\") اعتبرها موجودة وجاوب بسعرها. بس لو مفيش أي خدمة قريبة منها خالص: handoff_other.",
-    "- أسئلة \"بتعملوا كذا؟\": لو الخدمة أو حاجة قريبة منها في القايمة، الإجابة أيوه مع السعر. متحوّلش سؤال تقدر تجاوبه.",
-    "- أي خدمة مكتوبة في \"خدمات إحنا مش بنعملها\" الإجابة عنها لأ بوضوح، وممنوع تديله سعر خدمة قريبة منها.",
-    "- مدة العلاج، عدد الجلسات، الضمان، مدة ما العلاج بيفضل: جاوب بس لو مكتوبة تحت حرفياً. لو مش مكتوبة اختار handoff_other — ممنوع تقول رقم من معلوماتك العامة عن طب الأسنان.",
-    "- أسلوبك أسلوب موظف مبيعات شاطر ومحترم: واثق، إيجابي، بيبرز قيمة العيادة من غير مبالغة ومن غير ضغط. لو السؤال عن سعر أو خدمة، بعد الإجابة ضيف جملة واحدة بس من \"ليه تختارنا\" لو مكتوبة تحت، ولو في عرض مكتوب تحت يخص الخدمة دي اذكره. لو \"الكشف\" مكتوب تحت اذكره في أسئلة الأسعار.",
-    "- متختمش الرد بدعوة للحجز أو بسؤال \"تحب تحجز؟\" — الأزرار تحت الرسالة بتعمل ده.",
-    "- متقولش انك انسان. متوعدش بحاجة. متحددش مواعيد — الحجز بيتم من الأزرار.",
-    "- الرد قصير: جملتين لتلاتة بالكتير.",
+    ...persona,
+    "",
+    ...HARD_RULES,
+    ...(sales && args.canBook === false ? ["- الحجز مش متاح للرقم ده دلوقتي: متختارش open_booking، ولو المريض عايز يحجز اختار handoff_other."] : []),
     "",
     "معلومات العيادة:",
     hoursText?.trim() ? `مواعيد العمل:\n${hoursText.trim()}` : "مواعيد العمل: غير متوفرة هنا (حوّل لو اتسألت).",
-    // The address was deliberately withheld before, so the model handed off on "فين العيادة"
-    // while the menu two taps away had the answer.
     addressText?.trim() ? `العنوان: ${addressText.trim()}` : "",
     clinicPhone?.trim() ? `تليفون العيادة: ${clinicPhone.trim()}` : "",
     priceLines ? `\nقائمة الخدمات والأسعار:\n${priceLines}` : "\nقائمة الأسعار: غير متوفرة (حوّل أي سؤال سعر).",
-    /*
-     * What the clinic itself wrote. Anything missing here stays missing: these are exactly the
-     * questions — treatment length, session counts, instalments — where a model reaches for
-     * textbook dentistry and delivers it in the clinic's voice on the clinic's number.
-     */
     factLines(facts),
-    patientName ? `\nاسم المريض: ${patientName}` : "",
+    ...patientLines,
+    coaching ? `\nتعليمات صاحب العيادة (التزم بيها حرفياً):\n${coaching.slice(0, 2000)}` : "",
+    knowledge.length
+      ? `\nإجابات اعتمدها فريق العيادة لأسئلة اتسألت قبل كده (استخدمها لما السؤال يشبهها):\n${knowledge.map((k) => `س: ${k.q.trim().slice(0, 200)}\nج: ${k.a.trim().slice(0, 400)}`).join("\n")}`
+      : "",
+    playbook ? `\nخلاصة اللي بينجح مع مرضى العيادة دي (اتعلمها من محادثات حقيقية):\n${playbook.slice(0, 2500)}` : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -188,90 +256,102 @@ export async function answerWithAi(args: {
           properties: {
             action: {
               type: SchemaType.STRING,
-              enum: ["answer", "handoff_medical", "handoff_complaint", "handoff_staff", "handoff_other"],
+              enum: ["answer", "open_booking", "handoff_medical", "handoff_complaint", "handoff_staff", "handoff_other"],
               format: "enum",
             },
             reply: { type: SchemaType.STRING },
+            interest: { type: SchemaType.STRING },
           },
           required: ["action"],
         },
-        // Arabic is token-hungry and the reply travels inside JSON: 400 tokens truncated the
-        // first live answer mid-string, and a broken JSON read as "the model refused". Three
-        // short sentences of Arabic plus scaffolding fit comfortably in 1500 with margin for the
-        // model's own overhead — and the hard length guard on `reply` below caps what a rambling
-        // answer can cost regardless.
+        // Arabic is token-hungry and the reply travels inside JSON; 1500 leaves margin, and the
+        // hard length guard on `reply` below caps what a rambling answer can cost regardless.
         maxOutputTokens: 1500,
-        temperature: 0.3,
+        temperature: sales ? 0.5 : 0.3,
       },
     });
 
-    const contents = [
-      ...history.flatMap((h) => [
-        { role: "user" as const, parts: [{ text: h.q }] },
-        { role: "model" as const, parts: [{ text: JSON.stringify({ action: "answer", reply: h.a }) }] },
-      ]),
-      { role: "user" as const, parts: [{ text: question }] },
-    ];
+    /*
+     * Memory. Sales mode replays the real thread — every voice, including the bot's own menus
+     * and a staff member's replies — so the model knows what has already been said and does not
+     * quote the price a third time. Assisted mode keeps its cheap three-exchange memory.
+     */
+    const thread = (args.thread || []).filter((l) => l.text?.trim());
+    const contents =
+      sales && thread.length
+        ? [
+            ...thread.slice(-16).map((l) => ({
+              role: l.author === "patient" ? ("user" as const) : ("model" as const),
+              parts: [{ text: l.author === "patient" ? l.text : JSON.stringify({ action: "answer", reply: l.text.slice(0, 600) }) }],
+            })),
+            ...(thread[thread.length - 1]?.author === "patient" && thread[thread.length - 1]?.text.trim() === question.trim()
+              ? []
+              : [{ role: "user" as const, parts: [{ text: question }] }]),
+          ]
+        : [
+            ...history.flatMap((h) => [
+              { role: "user" as const, parts: [{ text: h.q }] },
+              { role: "model" as const, parts: [{ text: JSON.stringify({ action: "answer", reply: h.a }) }] },
+            ]),
+            { role: "user" as const, parts: [{ text: question }] },
+          ];
+    // Gemini requires the first turn to be the user's; a thread that opens with a bot line
+    // (a reminder, a template) is trimmed to the first patient message.
+    while (contents.length && contents[0].role !== "user") contents.shift();
+    if (!contents.length) contents.push({ role: "user" as const, parts: [{ text: question }] });
 
     const result = await withTimeout(model.generateContent({ contents }), TIMEOUT_MS);
     const raw = result.response.text();
 
-    // The flight recorder. A wrong classification in production is invisible from the outside —
-    // the patient just sees a handoff — and the difference between "the model was never shown
-    // the price list" and "the model saw it and refused anyway" decides which fix is real.
-    // One small doc per call, read only by debugging sessions.
+    // The flight recorder: one small doc per call, read only by debugging sessions.
     await adminClinicCollection(clinicId, "ai_debug")
       .doc(new Date().toISOString().replace(/[:.]/g, "-"))
       .set({
         question: question.slice(0, 300),
         raw: raw.slice(0, 1000),
+        mode: sales ? "sales" : "assisted",
+        threadLines: thread.length,
         priceLineCount: priceLines ? priceLines.split("\n").length : 0,
         hoursGiven: Boolean(hoursText?.trim()),
         createdAt: FieldValue.serverTimestamp(),
       })
       .catch(() => {});
 
-    const parsed = JSON.parse(raw) as { action?: string; reply?: string };
+    const parsed = JSON.parse(raw) as { action?: string; reply?: string; interest?: string };
 
     if (parsed.action === "handoff_medical") return { kind: "handoff", topic: "medical" };
     if (parsed.action === "handoff_complaint") return { kind: "handoff", topic: "complaint" };
     if (parsed.action === "handoff_staff") return { kind: "handoff", topic: "staff" };
-    if (parsed.action !== "answer") return { kind: "handoff", topic: "other" };
+    if (parsed.action !== "answer" && parsed.action !== "open_booking") return { kind: "handoff", topic: "other" };
 
-    const text = String(parsed.reply || "").trim().slice(0, 700);
-    if (!text) return { kind: "handoff", topic: "other" };
+    const text = String(parsed.reply || "").trim().slice(0, 900);
+    const openBooking = sales && parsed.action === "open_booking" && args.canBook !== false;
+    if (!text && !openBooking) return { kind: "handoff", topic: "other" };
 
-    // Charged only for a delivered answer, after the model produced one — the same
-    // bill-on-success rule the in-app assistant follows. Handoffs cost the clinic nothing.
+    // Charged only for a delivered answer, after the model produced one. Handoffs cost nothing.
     await usageRef.set(
       { monthKey, creditsUsed: FieldValue.increment(CREDITS_PER_ANSWER), updatedAt: FieldValue.serverTimestamp() },
       { merge: true }
     );
     await logAiCreditUsage({
       clinicId,
-      feature: "whatsapp_bot",
+      feature: sales ? "whatsapp_sales" : "whatsapp_bot",
       credits: CREDITS_PER_ANSWER,
       userId: "whatsapp_bot",
       userName: "WhatsApp Bot",
       detail: question.slice(0, 120),
     }).catch(() => {});
 
-    return { kind: "answer", text };
+    const interest = String(parsed.interest || "").trim().slice(0, 60) || undefined;
+    return { kind: "answer", text: text || "تمام 👍", openBooking, interest };
   } catch (e) {
     const reason = e instanceof Error ? e.message : "model_error";
-    /*
-     * Failures get a flight-recorder entry too.
-     *
-     * Only successful calls were recorded before, so a timed-out answer looked from the outside
-     * exactly like a model that had refused — the patient saw "معلش مفهمتش" and nothing said why.
-     * Finding that the timeout was firing on a third of calls took a live probe and a stopwatch;
-     * this line is so the next one takes a query.
-     */
     await adminClinicCollection(clinicId, "ai_debug")
       .doc(new Date().toISOString().replace(/[:.]/g, "-"))
       .set({
         question: question.slice(0, 300),
         failed: reason,
+        mode: sales ? "sales" : "assisted",
         createdAt: FieldValue.serverTimestamp(),
       })
       .catch(() => {});

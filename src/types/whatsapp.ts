@@ -115,6 +115,16 @@ export interface WhatsAppSettingsDocument {
    * complaints, named-staff questions and anything medical hand to a person.
    */
   botAiEnabled?: boolean;
+  /**
+   * "ai_first": the model leads every conversation like a salesperson and decides when to open
+   * the booking; the fixed routes keep only safety (pain, complaints, opt-out) and the calendar.
+   * "assisted" (default): buttons and keyword answers first, the model last.
+   */
+  botMode?: "assisted" | "ai_first";
+  /** AI replies allowed per conversation. 0 = unlimited. Absent: 3 assisted, unlimited in ai_first. */
+  botAiMaxReplies?: number;
+  /** The owner's standing instructions to the bot, in their own words. Sent verbatim. */
+  botCoaching?: string;
   /** Answers to the questions the clinic's data cannot supply. See BotFacts. */
   botFacts?: BotFacts;
   /**

@@ -168,6 +168,11 @@ export interface BotContext {
    */
   aiAvailable?: boolean;
   /**
+   * Sales mode: the model leads. Every informational message goes to it; the fixed routes keep
+   * safety, the calendar actions, and the two one-word courtesies that confirm an appointment.
+   */
+  aiFirst?: boolean;
+  /**
    * How many numbered options the last booking message listed. The options themselves live in
    * the conversation document; the engine only needs to know whether "4" is a choice or noise.
    */
@@ -569,6 +574,19 @@ export function decideBotReply(args: {
   // same days at someone who just said "cancel" is the loop that has no exit.
   if (inBooking && intent === "cancel") {
     return { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "booking_abandoned" };
+  }
+
+  /*
+   * Sales mode. Anything that is talk rather than an action goes to the model, before the
+   * keyword answers — the clinic asked for a salesperson, not a menu with a model behind it.
+   * Actions stay deterministic (booking, cancelling, "my appointment"), digits still mean the
+   * menu, and "تمام" still confirms tomorrow's appointment instead of costing a credit.
+   */
+  if (!inBooking && ctx.aiFirst && ctx.aiAvailable && numberChoice(text) === null) {
+    const ACTIONS = new Set<QuickIntent>(["complaint", "cancel", "late", "reschedule", "my_appointment", "booking", "ack", "thanks"]);
+    if (!intent || !ACTIONS.has(intent)) {
+      return { reply: "", action: { type: "ai", question: text }, next: "awaiting_choice", handoff: false, reason: "ai" };
+    }
   }
 
   if (!inBooking && intent) {

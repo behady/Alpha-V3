@@ -16,6 +16,10 @@
     {
       "path": "/api/automation/lead-followup",
       "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/automation/bot-playbook",
+      "schedule": "0 4 * * 1"
     }
   ]
 }

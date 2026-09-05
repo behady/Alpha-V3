@@ -143,6 +143,9 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     botAnswerStrangers: data?.botAnswerStrangers === true,
     botAutoConfirmBookings: data?.botAutoConfirmBookings === true,
     botAiEnabled: data?.botAiEnabled === true,
+    botMode: data?.botMode === "ai_first" ? "ai_first" : "assisted",
+    ...(typeof data?.botAiMaxReplies === "number" ? { botAiMaxReplies: data.botAiMaxReplies } : {}),
+    botCoaching: typeof data?.botCoaching === "string" ? data.botCoaching : "",
     // Same rule as deliveryMode below: spread conditionally so an absent map stays absent. A key
     // holding `undefined` is rejected by Firestore on the next write, which reads on screen as a
     // save that silently did nothing.
@@ -397,6 +400,26 @@ export default function WhatsAppSettings() {
         language === "ar"
           ? "مقفولة: الحجز بيوصل «غير مؤكد» والاستقبال بيراجعه — البوت مش هيملى الأجندة لوحده. مفتوحة: الحجز بيتأكد فوراً لحظة ما المريض يختار الميعاد."
           : "Off: bookings arrive Unconfirmed and the desk reviews them — the bot cannot fill the calendar alone. On: the booking is final the moment the patient picks a time.",
+      botSales: language === "ar" ? "الذكاء الاصطناعي يقود المحادثة (وضع البائع)" : "AI leads the conversation (salesperson mode)",
+      botSalesHint:
+        language === "ar"
+          ? "البوت بيكلم المريض زي موظف مبيعات شاطر: بيجاوب، بيسأل سؤال يفهم احتياجه، بيعرض القيمة، بيرد على «غالي» و«هفكر»، وبيفتح الحجز لما يحس إن المريض جاهز. الأزرار والكلمات الجاهزة بتفضل بس للأمان (الألم، الشكاوى، إيقاف الرسائل) وللأجندة. كل رد بياخد ١ كريدت."
+          : "The bot talks like a good salesperson: answers, asks one question to understand the need, presents value, handles \"expensive\" and \"I'll think about it\", and opens the booking when the patient is ready. Fixed routes remain only for safety (pain, complaints, opt-out) and the calendar. Each reply costs 1 credit.",
+      botAiCap: language === "ar" ? "أقصى عدد ردود ذكية في المحادثة الواحدة" : "Max AI replies per conversation",
+      botAiCapUnlimited: language === "ar" ? "بدون حد" : "Unlimited",
+      botAiCapHint:
+        language === "ar"
+          ? "بعد الحد، البوت بيحوّل لموظف. فاضية = ٣ في الوضع العادي، وبدون حد في وضع البائع."
+          : "Past the cap the bot hands to a person. Empty = 3 in normal mode, unlimited in salesperson mode.",
+      botCoaching: language === "ar" ? "تعليماتك للبوت (زي ما تبرّف موظف جديد)" : "Your coaching notes (as you'd brief a new hire)",
+      botCoachingPh:
+        language === "ar"
+          ? "مثال: دايماً اذكر إن الكشف مجاني. ركّز على التبييض الشهر ده. متستخدمش كلمة «حضرتك» كتير. لو حد سأل عن الزراعة قوله إنها بتتعمل على مرحلتين."
+          : "e.g. Always mention the consultation is free. Push whitening this month. Don't overuse formal address. If someone asks about implants, say it's done in two stages.",
+      botCoachingHint:
+        language === "ar"
+          ? "بتتطبق فوراً على كل رد. الإجابات اللي فريقك بيكتبها والكتيب اللي بيتعلمه البوت من النتايج موجودين في صفحة الذكاء ← تبويب البوت."
+          : "Applies immediately to every reply. Staff-taught answers and the playbook learned from outcomes live on the Intelligence page → Bot tab.",
       botAi: language === "ar" ? "الرد الذكي على الأسئلة الحرة" : "AI answers for free-text questions",
       botAiHint:
         language === "ar"
@@ -1708,6 +1731,79 @@ export default function WhatsAppSettings() {
               </label>
               <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botAiHint}</p>
               <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botLimits}</p>
+
+              {/* Salesperson mode: the model leads, with a cap the clinic chooses and its own coaching. */}
+              <div className="pt-4 mt-2 border-t border-line space-y-3">
+                <label className="flex items-center justify-between gap-4 cursor-pointer">
+                  <span className="text-sm font-bold text-ink leading-relaxed">{txt.botSales}</span>
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
+                    checked={state.botMode === "ai_first"}
+                    onChange={(e) => {
+                      const on = e.target.checked;
+                      setState((s) => {
+                        const next = { ...s, botMode: on ? ("ai_first" as const) : ("assisted" as const), ...(on ? { botAiEnabled: true } : {}) };
+                        void persist(next, "silent");
+                        return next;
+                      });
+                    }}
+                  />
+                </label>
+                <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botSalesHint}</p>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="text-xs font-bold text-ink">{txt.botAiCap}</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={200}
+                    disabled={state.botAiMaxReplies === 0}
+                    className="w-24 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-ink disabled:opacity-40"
+                    value={state.botAiMaxReplies === 0 || state.botAiMaxReplies === undefined ? "" : state.botAiMaxReplies}
+                    placeholder={state.botMode === "ai_first" ? "∞" : "3"}
+                    onChange={(e) => {
+                      const n = Math.max(1, Math.min(200, Number(e.target.value) || 0));
+                      setState((s) => ({ ...s, botAiMaxReplies: e.target.value === "" ? undefined : n }));
+                    }}
+                    onBlur={() => void persist(state, "silent")}
+                  />
+                  <label className="flex items-center gap-2 text-xs font-bold text-ink cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-line-strong"
+                      checked={state.botAiMaxReplies === 0 || (state.botAiMaxReplies === undefined && state.botMode === "ai_first")}
+                      onChange={(e) => {
+                        const unlimited = e.target.checked;
+                        setState((s) => {
+                          const next = { ...s, botAiMaxReplies: unlimited ? 0 : 12 };
+                          void persist(next, "silent");
+                          return next;
+                        });
+                      }}
+                    />
+                    {txt.botAiCapUnlimited}
+                  </label>
+                </div>
+                <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botAiCapHint}</p>
+
+                <label className="block space-y-1 pt-1">
+                  <span className="text-xs font-bold text-ink">{txt.botCoaching}</span>
+                  <textarea
+                    rows={4}
+                    dir="auto"
+                    className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:border-accent-soft focus:ring-1 focus:ring-accent-soft/30 resize-y"
+                    placeholder={txt.botCoachingPh}
+                    value={state.botCoaching ?? ""}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setState((s) => ({ ...s, botCoaching: value }));
+                    }}
+                    onBlur={() => void persist(state, "silent")}
+                  />
+                </label>
+                <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botCoachingHint}</p>
+              </div>
 
               {/*
                 The answers the system does not otherwise hold.
