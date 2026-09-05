@@ -1243,12 +1243,16 @@ export async function respondToPatientMessage(args: {
   if (pace) await new Promise((r) => setTimeout(r, Math.min(6500, 1200 + body.length * 28)));
 
   let waMessageId: string | undefined;
+  // Each bubble's thread line keeps the moment it actually went out, so two bubbles read in the
+  // order the patient saw them — the first line is written after both sends.
+  let firstSentAt = Date.now();
   try {
     if (!args.dryRun) waMessageId = await sendPatientWhatsAppRich(clinicId, replyTo, body, structure);
+    firstSentAt = Date.now();
     if (secondBubble) {
       await new Promise((r) => setTimeout(r, Math.min(7000, 1500 + secondBubble.length * 30)));
       await sendPatientWhatsAppRich(clinicId, replyTo, secondBubble, undefined);
-      await recordThreadMessage(clinicId, replyTo, { direction: "out", author: "bot", text: secondBubble, kind: reason }).catch(() => {});
+      await recordThreadMessage(clinicId, replyTo, { direction: "out", author: "bot", text: secondBubble, kind: reason }, Date.now()).catch(() => {});
     }
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
@@ -1280,7 +1284,7 @@ export async function respondToPatientMessage(args: {
     text: body,
     kind: reason,
     waMessageId,
-  }).catch(() => {});
+  }, firstSentAt).catch(() => {});
 
   await saveConversation(
     clinicId,
