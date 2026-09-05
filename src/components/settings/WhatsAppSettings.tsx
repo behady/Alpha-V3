@@ -168,7 +168,7 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
 }
 
 /** The four jobs this page does, in the order someone new to it needs them. */
-const WHATSAPP_TABS = ["connection", "messages", "wording", "incoming"] as const;
+const WHATSAPP_TABS = ["connection", "assistant", "answers", "playground", "messages", "wording", "alerts"] as const;
 type WhatsAppTab = (typeof WHATSAPP_TABS)[number];
 
 export default function WhatsAppSettings() {
@@ -299,9 +299,23 @@ export default function WhatsAppSettings() {
       savingNow: language === "ar" ? "جارٍ الحفظ..." : "Saving...",
       savedAll: language === "ar" ? "كل التغييرات محفوظة" : "All changes saved",
       tab_connection: language === "ar" ? "الاتصال" : "Connection",
-      tab_messages: language === "ar" ? "الرسائل" : "Messages",
+      tab_assistant: language === "ar" ? "المساعد" : "Assistant",
+      tab_answers: language === "ar" ? "الردود الجاهزة" : "Ready answers",
+      tab_playground: language === "ar" ? "جرّب البوت" : "Try it",
+      tab_messages: language === "ar" ? "الرسائل التلقائية" : "Automations",
       tab_wording: language === "ar" ? "الصياغة" : "Wording",
-      tab_incoming: language === "ar" ? "الوارد" : "Incoming",
+      tab_alerts: language === "ar" ? "تنبيهات المالك" : "Owner alerts",
+      tabHint_connection: language === "ar" ? "ربط رقم الواتساب بالنظام واختبار الإرسال." : "Link the clinic's WhatsApp number and test sending.",
+      tabHint_assistant: language === "ar" ? "البوت اللي بيرد على المرضى: شغّله، اختار أسلوبه، واكتبله تعليماتك." : "The bot that answers patients: switch it on, choose its style, write it your instructions.",
+      tabHint_answers: language === "ar" ? "إجابات بكلماتك للأسئلة اللي النظام معندوش بياناتها. كل خانة تملاها بتوفر رد بشري." : "Your own words for the questions the system has no data for. Every box you fill saves a staff reply.",
+      tabHint_playground: language === "ar" ? "اتكلم مع البوت زي المريض وشوف بيرد إزاي. مفيش حاجة بتتبعت لحد." : "Chat with the bot as a patient and see what it says. Nothing is sent to anyone.",
+      tabHint_messages: language === "ar" ? "الرسايل اللي العيادة بتبعتها لوحدها: تأكيدات، تذكيرات، متابعة بعد الزيارة، واسترجاع الغايبين." : "Messages the clinic sends by itself: confirmations, reminders, after-visit follow-ups, winning back the absent.",
+      tabHint_wording: language === "ar" ? "نص كل رسالة تلقائية، بالعربي أو بلغتين." : "The text of each automatic message, Arabic or bilingual.",
+      tabHint_alerts: language === "ar" ? "إيه اللي يوصلك انت على واتساب لما حاجة تحصل في النظام." : "What reaches you on WhatsApp when something happens in the system.",
+      botOffFirst: language === "ar" ? "شغّل المساعد الأول من تبويب «المساعد»." : "Switch the assistant on first, in the Assistant tab.",
+      groupAppointments: language === "ar" ? "المواعيد" : "Appointments",
+      groupAfterVisit: language === "ar" ? "بعد الزيارة" : "After the visit",
+      groupWinBack: language === "ar" ? "استرجاع اللي غابوا" : "Winning people back",
       title: language === "ar" ? "واتساب" : "WhatsApp",
       patientCard: language === "ar" ? "أتمتة رسائل المرضى" : "Patient automation",
     saveRefused:
@@ -1081,6 +1095,7 @@ export default function WhatsAppSettings() {
           ))}
         </div>
       </div>
+      <p className="text-xs font-bold text-ink-muted leading-relaxed">{txt[`tabHint_${tab}` as keyof typeof txt] as string}</p>
 
       {tab === "connection" && (
         <div className="space-y-6">
@@ -1392,15 +1407,19 @@ export default function WhatsAppSettings() {
             first, so they ship switched off and the hint says what unlocks them. */}
         {(
           [
-            { key: "useReminderButtons", label: txt.reminderButtonsToggle, hint: txt.reminderButtonsHint },
-            { key: "isLeadFollowupEnabled", label: txt.leadFollowupToggle, hint: txt.leadFollowupHint },
-            { key: "isCheckinEnabled", label: txt.checkinToggle, hint: txt.checkinHint },
-            { key: "isNoShowRecoveryEnabled", label: txt.noshowToggle, hint: txt.noshowHint },
-            { key: "isReviewRequestEnabled", label: txt.reviewToggle, hint: txt.reviewHint },
-            { key: "isRecallEnabled", label: txt.recallToggle, hint: txt.recallHint },
+            { key: "useReminderButtons", group: txt.groupAppointments, label: txt.reminderButtonsToggle, hint: txt.reminderButtonsHint },
+            { key: "isCheckinEnabled", group: txt.groupAfterVisit, label: txt.checkinToggle, hint: txt.checkinHint },
+            { key: "isReviewRequestEnabled", group: txt.groupAfterVisit, label: txt.reviewToggle, hint: txt.reviewHint },
+            { key: "isNoShowRecoveryEnabled", group: txt.groupWinBack, label: txt.noshowToggle, hint: txt.noshowHint },
+            { key: "isLeadFollowupEnabled", group: txt.groupWinBack, label: txt.leadFollowupToggle, hint: txt.leadFollowupHint },
+            { key: "isRecallEnabled", group: txt.groupWinBack, label: txt.recallToggle, hint: txt.recallHint },
           ] as const
-        ).map((row) => (
-          <div key={row.key} className="rounded-xl border border-line bg-surface-subtle px-4 py-3">
+        ).map((row, i, rows) => (
+          <div key={row.key} className="space-y-2">
+            {(i === 0 || rows[i - 1].group !== row.group) && (
+              <p className="pt-2 text-[11px] font-black uppercase tracking-widest text-ink-muted">{row.group}</p>
+            )}
+          <div className="rounded-xl border border-line bg-surface-subtle px-4 py-3">
             <label className="flex items-center justify-between gap-4 cursor-pointer">
               <span className="text-sm font-bold text-ink-body">{row.label}</span>
               <input
@@ -1439,6 +1458,7 @@ export default function WhatsAppSettings() {
                 </select>
               </label>
             )}
+          </div>
           </div>
         ))}
 
@@ -1681,13 +1701,14 @@ export default function WhatsAppSettings() {
       </div>
       )}
 
-      {tab === "incoming" && (
+      {(tab === "assistant" || tab === "answers" || tab === "playground" || tab === "alerts") && (
         <div className="space-y-6">
-      <div className="flex flex-col gap-8">
+      <div hidden={tab === "alerts"} className="flex flex-col gap-8">
         {/* Answering inbound messages. Sits under the opt-out card because it shares the same
             risk: this is the one feature that talks to a patient with no staff member deciding
             to, so its off-switch and its limits belong where they can be read together. */}
         <div className="space-y-3">
+          <div hidden={tab !== "assistant"} className="space-y-3">
           <p className="text-[11px] font-black uppercase tracking-widest text-ink-body">{txt.botTitle}</p>
           <label className="flex items-center justify-between gap-4 cursor-pointer">
             <span className="text-sm font-black text-ink leading-relaxed">{txt.botToggle}</span>
@@ -1706,9 +1727,14 @@ export default function WhatsAppSettings() {
             />
           </label>
           <p className="text-xs text-ink-body leading-relaxed">{txt.botHint}</p>
+          </div>
+          {state.botEnabled !== true && tab !== "assistant" && (
+            <p className="text-xs font-bold text-warn bg-warn-tint border border-warn/25 rounded-lg px-3 py-2">{txt.botOffFirst}</p>
+          )}
 
           {state.botEnabled === true && (
             <>
+              <div hidden={tab !== "assistant"} className="space-y-3">
               {(state.deliveryMode ?? (canSendAutomatically ? "auto" : "manual")) !== "auto" && (
                 <p className="text-xs font-bold text-warn bg-warn-tint border border-warn/25 rounded-lg px-3 py-2 leading-relaxed">
                   {txt.botNeedsGateway}
@@ -1912,6 +1938,7 @@ export default function WhatsAppSettings() {
                 </label>
                 <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botCoachingHint}</p>
               </div>
+              </div>
 
               {/*
                 The answers the system does not otherwise hold.
@@ -1919,7 +1946,7 @@ export default function WhatsAppSettings() {
                 the model with no data and came back as general dentistry in the clinic's voice.
                 Empty stays safe — the bot says a person will follow up rather than guessing.
               */}
-              <div className="pt-4 mt-2 border-t border-line space-y-3">
+              <div hidden={tab !== "answers"} className="space-y-3">
                 <p className="text-[11px] font-black uppercase tracking-widest text-ink-body">{txt.factsTitle}</p>
                 <p className="text-xs text-ink-body leading-relaxed">{txt.factsHint}</p>
                 <div className="grid gap-3">
@@ -1974,14 +2001,14 @@ export default function WhatsAppSettings() {
                 </div>
               </div>
 
-              <BotPlayground />
+              <div hidden={tab !== "playground"}><BotPlayground /></div>
             </>
           )}
         </div>
 
       </div>
         {/* Owner alerts */}
-        <section className="rounded-2xl xl:rounded-3xl bg-surface border border-line shadow-sm ring-1 ring-line p-5 xl:p-6 flex flex-col gap-5">
+        <section hidden={tab !== "alerts"} className="rounded-2xl xl:rounded-3xl bg-surface border border-line shadow-sm ring-1 ring-line p-5 xl:p-6 flex flex-col gap-5">
           <h3 className="text-sm font-black uppercase tracking-wider text-ink">{txt.ownerCard}</h3>
 
           <label className="block">
