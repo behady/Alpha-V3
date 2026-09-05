@@ -128,6 +128,27 @@ export interface MetaSendResult {
  * template; that policy lives with the caller, which knows whether it is answering the patient
  * (free-form, in-window) or starting a conversation (must be a template).
  */
+/**
+ * Blue ticks and "typing…" on the patient's message, before the reply is even composed.
+ *
+ * The two tells of a bot are the instant answer and the message that was never "read". The
+ * Cloud API lets a business mark a message read and show a typing indicator for up to 25
+ * seconds in one call; the reply that follows a few seconds later then reads like a person
+ * who picked up the phone. Failures are ignored — this is manners, not delivery.
+ */
+export async function sendMetaTypingIndicator(config: MetaWhatsappConfig, messageId: string): Promise<void> {
+  if (!messageId) return;
+  try {
+    await fetch(`${GRAPH}/${config.phoneNumberId}/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ messaging_product: "whatsapp", status: "read", message_id: messageId, typing_indicator: { type: "text" } }),
+    });
+  } catch {
+    /* cosmetic */
+  }
+}
+
 export async function sendMetaWhatsappText(args: {
   config: MetaWhatsappConfig;
   to: string;
