@@ -47,6 +47,7 @@ import { patientMatchesSearch } from "@/lib/flexibleSearch";
 import { phoneMatchKey } from "@/lib/patientPhone";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
+import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
 
 /**
@@ -289,6 +290,8 @@ export default function ChatsPanel({
   const { language, isRTL } = useLanguage();
   const isAr = language === "ar";
   const { user } = useAuth();
+  // The clinic is resolved a beat after the user on a direct page load; every read below needs it.
+  const { clinicId } = useClinic();
   const { showToast } = useUI();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -304,7 +307,7 @@ export default function ChatsPanel({
   // How long a staff reply keeps the bot out of a thread — the clinic's setting, default 15 min.
   const [claimMs, setClaimMs] = useState(HUMAN_CLAIM_MS);
   useEffect(() => {
-    if (!user) return;
+    if (!user || !clinicId) return;
     getDoc(getClinicDoc("settings", "whatsapp"))
       .then((snap) => {
         const m = Number(snap.data()?.botHumanClaimMinutes);
@@ -315,7 +318,7 @@ export default function ChatsPanel({
   const myUid = user?.uid || "";
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !clinicId) return;
     const unsub = onSnapshot(
       getClinicCollection("whatsapp_conversations"),
       (snap) => {
@@ -399,6 +402,16 @@ export default function ChatsPanel({
     }
     open(key);
   };
+
+  // Nothing below can read a chat until the clinic is known — and a child mounted early would
+  // throw from inside its own effect, which is what took the whole page down on a hard load.
+  if (!clinicId) {
+    return (
+      <div className={`flex items-center justify-center ${heightClass}`} style={{ color: WA.muted }}>
+        <Loader2 size={22} className="animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div
