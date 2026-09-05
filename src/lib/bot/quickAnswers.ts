@@ -197,7 +197,7 @@ const ACK = [
   // The reminder template's first button ("تأكيد الحضور") arrives as its label.
   "تأكيد الحضور", "تاكيد الحضور", "تأكيد", "تاكيد", "اكد", "مؤكد", "confirm", "confirmed",
   // The recall template's "not now" button: a polite no, answered with one line and no menu.
-  "مش دلوقتي", "مش دلوقت", "بعدين",
+  "مش دلوقتي", "مش دلوقت",
 ];
 const THANKS = [
   "شكرا", "شكرآ", "متشكر", "متشكره", "مشكور", "تسلم", "تسلمو", "تسلم ايدك", "تسلم ايديكم",
