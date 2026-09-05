@@ -4,7 +4,7 @@ import { adminClinicCollection } from "@/lib/adminClinicDb";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { respondToPatientMessage } from "@/lib/bot/respond";
 import { transcribeWhatsappAudio } from "@/lib/bot/transcribe";
-import { recordThreadMessage, updateThreadStatus } from "@/lib/bot/thread";
+import { attachTranscript, recordThreadMessage, updateThreadStatus } from "@/lib/bot/thread";
 import { attachInboundMedia } from "@/lib/bot/media";
 import { applyInboundOptOut } from "@/lib/optOutInbound";
 import { isOptOutReply } from "@/lib/patientMessaging";
@@ -331,13 +331,9 @@ export async function POST(request: NextRequest) {
             if (t.ok) {
               text = t.text;
               media = undefined;
-              await recordThreadMessage(clinicId, msg.from, {
-                direction: "in",
-                author: "patient",
-                text: `🎤 ${t.text}`,
-                messageId: `${msg.messageId}_transcript`,
-                channel: "meta",
-              }).catch(() => {});
+              // Under the voice note's own bubble, not as a second message: one recording is one
+              // line in the thread and one unread in the list.
+              await attachTranscript(clinicId, msg.from, lineId, t.text).catch(() => {});
             }
           }
           await respondToPatientMessage({

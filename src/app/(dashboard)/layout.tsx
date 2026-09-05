@@ -28,6 +28,7 @@ import { TutorialProvider } from "@/context/TutorialContext";
 import TutorialOverlay from "@/components/TutorialOverlay";
 import WhatsAppIcon from "@/components/icons/WhatsAppIcon";
 import { useUnreadChatCount } from "@/lib/useUnreadChatCount";
+import { useChatAlerts } from "@/lib/useChatAlerts";
 
 const plusJakartaSans = Plus_Jakarta_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
 const cairo = Cairo({ subsets: ["arabic"] });
@@ -42,6 +43,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { appointmentsVisibility } = useUI();
   // Unopened patient WhatsApp messages, for the count on the WhatsApp icon in both navs.
   const unreadChats = useUnreadChatCount();
+  // And the chime + desktop notification when a new one arrives, on whichever page is open.
+  useChatAlerts();
 
   const [isOpen, setIsOpen] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);

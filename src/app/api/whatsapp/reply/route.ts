@@ -6,7 +6,14 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { conversationKey, markHumanActive } from "@/lib/bot/conversation";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { deliverWhatsAppMessage } from "@/lib/whatsappDelivery";
-import { followupTemplateText } from "@/lib/metaWhatsapp";
+import {
+  followupTemplateText,
+  loadMetaWhatsappConfig,
+  sendMetaWhatsappMedia,
+  type MetaMediaKind,
+} from "@/lib/metaWhatsapp";
+import { sendWhatsAppPdfFromUrl } from "@/lib/whatsapp";
+import { recordThreadMessage } from "@/lib/bot/thread";
 import { clinicDisplayName } from "@/lib/sms/events";
 
 export const runtime = "nodejs";
@@ -74,6 +81,11 @@ export async function POST(request: Request) {
      * last message; its whole job is to make them write back, which re-opens the window.
      */
     template?: string;
+    /**
+     * A file the clinic is sending: already uploaded to the clinic's Storage folder by the
+     * browser, so what arrives here is a download URL Meta can fetch. `text` becomes the caption.
+     */
+    media?: { url?: string; mime?: string; kind?: string; filename?: string };
   };
 
   const phone = normalizeToE164AssumingCountry(String(body.phone || ""));
@@ -83,6 +95,21 @@ export async function POST(request: Request) {
   const patientName = typeof body.patientName === "string" ? body.patientName.trim() : "";
   const isTemplate = body.template === "followup";
 
+  const media = body.media && typeof body.media === "object" ? body.media : null;
+  const mediaKind = media?.kind as MetaMediaKind | undefined;
+  const mediaUrl = String(media?.url || "").trim();
+  const isMedia = !!media && !!mediaUrl;
+  if (isMedia) {
+    if (!mediaKind || !["image", "video", "audio", "document"].includes(mediaKind)) {
+      return NextResponse.json({ ok: false, error: "Unsupported file kind" }, { status: 400 });
+    }
+    // Only files the app itself stored. Meta fetches the link server-side, so an arbitrary URL
+    // here would make the clinic's number relay anything on the internet.
+    if (!/^https:\/\/firebasestorage\.googleapis\.com\//.test(mediaUrl)) {
+      return NextResponse.json({ ok: false, error: "File must be uploaded through the app" }, { status: 400 });
+    }
+  }
+
   let text = String(body.text || "").trim();
   let metaTemplate: { kind: string; params: string[] } | undefined;
   if (isTemplate) {
@@ -91,32 +118,85 @@ export async function POST(request: Request) {
     const clinicName = await clinicDisplayName(clinicId);
     text = followupTemplateText(who, clinicName);
     metaTemplate = { kind: "followup", params: [who, clinicName] };
-  } else {
+  } else if (!isMedia) {
     if (!text) return NextResponse.json({ ok: false, error: "Message text is required" }, { status: 400 });
     if (text.length > 1500) return NextResponse.json({ ok: false, error: "Message is too long" }, { status: 400 });
+  } else if (text.length > 1000) {
+    return NextResponse.json({ ok: false, error: "Caption is too long" }, { status: 400 });
   }
 
   try {
-    const delivery = await deliverWhatsAppMessage({
-      clinicId,
-      to: phone,
-      text,
-      audience: "patient",
-      queue: {
-        key: `reply_${phone.replace(/\D/g, "")}_${Date.now()}`,
-        type: "staff_reply",
-        ...(patientId ? { patientId } : {}),
-        ...(patientName ? { patientName } : {}),
-      },
-      metaTemplate,
-      // Credited by name in the chat thread, so the next person to open it knows who said what.
-      thread: {
+    let delivery: { mode: "auto" | "queued" | "manual" };
+    if (isMedia && mediaKind) {
+      /*
+       * Files do not pass through deliverWhatsAppMessage: that path composes text and queues
+       * for the manual list, neither of which fits a photo. On the official channel Meta fetches
+       * the link; the unofficial gateway can only forward documents, so a photo there is refused
+       * rather than sent as a broken link.
+       */
+      const meta = await loadMetaWhatsappConfig(clinicId);
+      let waMessageId: string | undefined;
+      if (meta) {
+        const r = await sendMetaWhatsappMedia({
+          config: meta,
+          to: phone,
+          kind: mediaKind,
+          link: mediaUrl,
+          caption: text || undefined,
+          filename: media?.filename || undefined,
+        });
+        if (!r.ok) throw new Error(r.error || "Send failed");
+        waMessageId = r.messageId;
+      } else if (mediaKind === "document") {
+        await sendWhatsAppPdfFromUrl({
+          clinicId,
+          to: phone,
+          fileUrl: mediaUrl,
+          filename: media?.filename || "file.pdf",
+          caption: text || undefined,
+        });
+      } else {
+        return NextResponse.json(
+          { ok: false, error: "This clinic's WhatsApp channel can only send documents, not photos or audio" },
+          { status: 400 }
+        );
+      }
+      await recordThreadMessage(clinicId, phone, {
+        direction: "out",
         author: "staff",
+        text,
+        media: mediaKind,
+        mediaUrl,
+        mime: String(media?.mime || "").slice(0, 100) || undefined,
         uid: authz.uid,
         name: authz.name || undefined,
-        kind: isTemplate ? "followup_template" : "staff_reply",
-      },
-    });
+        kind: "staff_media",
+        waMessageId,
+        channel: meta ? "meta" : "wapilot",
+      }).catch(() => {});
+      delivery = { mode: "auto" };
+    } else {
+      delivery = await deliverWhatsAppMessage({
+        clinicId,
+        to: phone,
+        text,
+        audience: "patient",
+        queue: {
+          key: `reply_${phone.replace(/\D/g, "")}_${Date.now()}`,
+          type: "staff_reply",
+          ...(patientId ? { patientId } : {}),
+          ...(patientName ? { patientName } : {}),
+        },
+        metaTemplate,
+        // Credited by name in the chat thread, so the next person to open it knows who said what.
+        thread: {
+          author: "staff",
+          uid: authz.uid,
+          name: authz.name || undefined,
+          kind: isTemplate ? "followup_template" : "staff_reply",
+        },
+      });
+    }
 
     // The thread is a person's now; the bot stays out of it for an hour and the inbox row closes.
     await markHumanActive(clinicId, phone, authz.uid);
@@ -132,8 +212,8 @@ export async function POST(request: Request) {
     // Same audit trail the bot writes to, so the Messages history shows both voices in order.
     await adminClinicCollection(clinicId, "whatsapp_logs").add({
       patientId: patientId || null,
-      type: isTemplate ? "staff_followup_template" : "staff_reply",
-      message: text,
+      type: isMedia ? "staff_media" : isTemplate ? "staff_followup_template" : "staff_reply",
+      message: isMedia ? `[${mediaKind}] ${text}`.trim() : text,
       status: delivery.mode === "auto" ? "success" : "queued",
       sentBy: authz.uid,
       createdAt: FieldValue.serverTimestamp(),
