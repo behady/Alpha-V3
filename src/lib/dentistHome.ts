@@ -107,22 +107,24 @@ export function moneyToday(ledger: Row[], me: DentistIdentity, todayKey: string)
     if (String(row.type) !== "payment") continue;
     if (String(row.date || "") !== todayKey) continue;
     if (!isMine(row, me)) continue;
-    const amount = rowMoney(row);
-    paid += amount;
-    const stored = row.doctorCommissionAmount;
-    if (typeof stored === "number" && Number.isFinite(stored)) {
-      share += stored;
-      continue;
-    }
-    const labFee = Number(row.labFee ?? 0) || 0;
-    const pct = commissionPctForPayment(
-      { id: String(row.id || ""), doctorCommissionPercentage: null, doctorCommissionAmount: 0 },
-      amount,
-      labFee
-    ) || me.commissionPct;
-    share += recalcCommissionFromPayment(amount, labFee, pct).doctorCommissionAmount;
+    paid += rowMoney(row);
+    share += shareOf(row, me);
   }
   return { paid: round2(paid), share: round2(share) };
+}
+
+/** The dentist's share of one payment — stored when the payment was taken, else recomputed. */
+export function shareOf(payment: Row, me: DentistIdentity): number {
+  const stored = payment.doctorCommissionAmount;
+  if (typeof stored === "number" && Number.isFinite(stored)) return stored;
+  const amount = rowMoney(payment);
+  const labFee = Number(payment.labFee ?? 0) || 0;
+  const pct = commissionPctForPayment(
+    { id: String(payment.id || ""), doctorCommissionPercentage: null, doctorCommissionAmount: 0 },
+    amount,
+    labFee
+  ) || me.commissionPct;
+  return recalcCommissionFromPayment(amount, labFee, pct).doctorCommissionAmount;
 }
 
 /**

@@ -25,6 +25,7 @@ import { suggestCategory } from "@/lib/dentalIcons";
 import { saveBooking } from "@/lib/bookingService";
 import BookingModal from "@/components/BookingModal";
 import ServiceEditorDrawer from "@/components/clinical-notes/ServiceEditorDrawer";
+import DentistReport from "@/components/dashboard/DentistReport";
 import type { Note, Service, Staff } from "@/components/clinical-notes/types";
 import type { ToothData } from "@/lib/diagnosisCatalog";
 import {
@@ -629,6 +630,9 @@ export default function DentistHome() {
             )}
           </Card>
         </div>
+
+        {/* How the period went — the dentist's own numbers, charted. */}
+        <DentistReport me={me} ledger={ledger} patients={patients} showShare={showShare} today={today} isAr={isAr} />
       </div>
 
       {booking && config && (
