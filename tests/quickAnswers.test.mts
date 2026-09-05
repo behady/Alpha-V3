@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { quickIntent } from "../src/lib/bot/quickAnswers";
+import { quickIntent, mentionsRelative } from "../src/lib/bot/quickAnswers";
 import { decideBotReply, type BotContext } from "../src/lib/bot/engine";
 
 /**
@@ -229,6 +229,51 @@ run("complaints and courtesy openers never reach the paid path", () => {
   // The doorknock Egyptians send before the real question.
   assert.equal(quickIntent("لو سمحت"), "greeting");
   assert.equal(quickIntent("عندي استفسار"), "greeting");
+});
+
+run("the replies a reminder actually gets are read as cancel or confirm", () => {
+  assert.equal(quickIntent("مش هينفع"), "cancel");
+  assert.equal(quickIntent("مش هقدر بكره"), "cancel");
+  assert.equal(quickIntent("معلش مش هعرف"), "cancel");
+  assert.equal(quickIntent("تمام"), "ack");
+  assert.equal(quickIntent("هحضر ان شاء الله"), "ack");
+  // The engine hands "تمام" to the caller as an action, so it can confirm the appointment.
+  const d = decideBotReply({ state: "awaiting_choice", text: "تمام", ctx });
+  assert.equal(d.action?.type, "ack");
+});
+
+run("booking for somebody else asks whose name first", () => {
+  assert.equal(mentionsRelative("عايز احجز لمراتي"), true);
+  assert.equal(mentionsRelative("ممكن ميعاد لوالدتي"), true);
+  assert.equal(mentionsRelative("عايز احجز"), false);
+  // "عايز احجز لمراتي" used to book the husband.
+  const d = decideBotReply({ state: "awaiting_choice", text: "عايز احجز لمراتي", ctx: { ...ctx, relative: true } });
+  assert.equal(d.next, "booking_name");
+  assert.equal(d.reason, "ask_relative_name");
+  // The name that arrives is registered as the relative's, not the sender's.
+  const r = decideBotReply({ state: "booking_name", text: "منى أحمد", ctx: { ...ctx, forRelative: true } });
+  assert.equal(r.action?.type, "register");
+  assert.equal((r.action as { forRelative?: boolean }).forRelative, true);
+});
+
+run("a named day skips the day list and offers that day's times", () => {
+  // "ممكن ميعاد بكره" used to open the list of days and discard "بكره".
+  const d = decideBotReply({ state: "awaiting_choice", text: "ممكن ميعاد بكره", ctx: { ...ctx, dayWord: "2026-09-02" } });
+  assert.equal(d.action?.type, "list_times_date");
+  assert.equal((d.action as { dateKey?: string }).dateKey, "2026-09-02");
+  // With a dentist to choose, the dentist comes first and the day word waits.
+  const two = decideBotReply({ state: "awaiting_choice", text: "ممكن ميعاد بكره", ctx: { ...ctx, dayWord: "2026-09-02", doctorCount: 2 } });
+  assert.equal(two.action?.type, "list_doctors");
+});
+
+run("the greeting speaks to a woman as a woman, and to everyone as حضرتك", () => {
+  const her = decideBotReply({ state: "new", text: "السلام عليكم", ctx: { ...ctx, patientName: "منى", gender: "female" } });
+  assert.ok(her.reply.includes("معاكي"), "feminine 'with you'");
+  assert.ok(her.reply.includes("ابعتي"), "feminine imperative");
+  assert.ok(her.reply.includes("حضرتك"));
+  const him = decideBotReply({ state: "new", text: "السلام عليكم", ctx: { ...ctx, patientName: "أحمد", gender: "unknown" } });
+  assert.ok(him.reply.includes("معاك "), "masculine default");
+  assert.ok(!him.reply.includes("معاكي"));
 });
 
 console.log("\nquickAnswers: all suites passed");

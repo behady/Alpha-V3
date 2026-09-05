@@ -115,6 +115,35 @@ const OPT_OUT_REPLIES = new Set([
   "لا تراسلوني",
   "مش عايز رسائل",
   "مش عايز رسايل",
+  // The ways people actually say it. None of these were recognised, so a patient who wrote
+  // "بلاش رسايل" kept receiving reminders while formally still consenting — which on WhatsApp is
+  // the exact behaviour that gets a business number restricted.
+  "بلاش رسايل",
+  "بلاش رسائل",
+  "بلاش رسايل تاني",
+  "مش عايزه رسايل",
+  "مش عايزة رسائل",
+  "مش عاوز رسايل",
+  "مش عاوز رسائل",
+  "امسحوا رقمي",
+  "امسح رقمي",
+  "شيلوا رقمي",
+  "شيلوني",
+  "شيلوني من القايمه",
+  "شيلوني من القائمة",
+  "سيبوني في حالي",
+  "سيبوني",
+  "متبعتوش تاني",
+  "متبعتش تاني",
+  "كفايه رسايل",
+  "كفاية رسائل",
+  "الغاء الاشتراك",
+  "stop messaging me",
+  "stop messages",
+  "unsubscribe me",
+  "remove my number",
+  "dont message me",
+  "don't message me",
 ]);
 
 /**

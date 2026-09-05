@@ -83,6 +83,13 @@ export interface BotConversation {
   pendingDoctors?: string[];
   /** The dentist the patient chose for this booking; "" or absent means any. */
   pendingDoctor?: string;
+  /** The service the patient named when they asked to book, carried onto the appointment. */
+  pendingTreatment?: string;
+  /**
+   * The booking is for someone else — a wife, a child, a parent — and the name we are about to
+   * ask for is theirs, not the sender's. Without this "عايز احجز لمراتي" booked the husband.
+   */
+  pendingForRelative?: boolean;
   /**
    * A person owns this thread right now.
    *
@@ -214,6 +221,8 @@ export async function loadConversation(
     pendingDate: !expired && typeof d.pendingDate === "string" ? d.pendingDate : undefined,
     pendingDoctors: !expired && Array.isArray(d.pendingDoctors) ? d.pendingDoctors.map(String) : undefined,
     pendingDoctor: !expired && typeof d.pendingDoctor === "string" ? d.pendingDoctor : undefined,
+    pendingTreatment: !expired && typeof d.pendingTreatment === "string" ? d.pendingTreatment : undefined,
+    pendingForRelative: !expired && d.pendingForRelative === true,
     aiReplies: !expired ? Number(d.aiReplies) || 0 : 0,
     aiHistory:
       !expired && Array.isArray(d.aiHistory)
@@ -248,7 +257,7 @@ export async function saveConversation(
     patientId?: string;
     patientName?: string;
     /** Booking options offered this turn. Absent = clear them — stale lists must not linger. */
-    pending?: { days?: string[]; times?: string[]; date?: string; doctors?: string[]; doctor?: string };
+    pending?: { days?: string[]; times?: string[]; date?: string; doctors?: string[]; doctor?: string; treatment?: string; forRelative?: boolean };
     /**
      * A spent AI exchange. Unlike pending options, absence PRESERVES what is stored: the AI
      * budget survives menu turns — a patient cannot refill it by pressing a button.
@@ -272,6 +281,8 @@ export async function saveConversation(
     pendingDate: next.pending?.date ?? null,
     pendingDoctors: next.pending?.doctors ?? null,
     pendingDoctor: next.pending?.doctor ?? null,
+    pendingTreatment: next.pending?.treatment ?? null,
+    pendingForRelative: next.pending?.forRelative === true,
     aiReplies: (c.aiReplies ?? 0) + (next.aiExchange ? 1 : 0),
     // Trimmed hard: this is continuity for a three-answer conversation, not an archive.
     aiHistory: next.aiExchange

@@ -322,8 +322,16 @@ export async function createPatientBooking(args: {
   autoConfirm?: boolean;
   /** Dentist display name, or empty for "any chair". */
   doctorName?: string;
+  /**
+   * What the patient said they are coming for, when they said it.
+   *
+   * "عايز احجز تنظيف" used to land on the calendar as "Consultation" — the one word the patient
+   * volunteered was the one word the desk did not get. Empty keeps the old default.
+   */
+  treatment?: string;
 }): Promise<PatientBookingResult> {
   const { clinicId, profile, patientId, patientName, phone, dateKey, time, source, autoConfirm } = args;
+  const treatment = String(args.treatment || "").trim() || "Consultation";
   const doctorName = String(args.doctorName || "").trim();
   const appointmentsRef = clinicRef(clinicId).collection("appointments");
 
@@ -361,7 +369,7 @@ export async function createPatientBooking(args: {
     // The stable id too, when the name resolves to one: conflict checks match renamed dentists
     // by id, and a booking that only carries a display string ages badly.
     doctorId: doctorName ? profile.doctorIdsByName[doctorName.toLowerCase()] || null : null,
-    treatment: "Consultation",
+    treatment,
     status: autoConfirm ? "Confirmed" : "Scheduled",
     source,
     notes: "WhatsApp assistant booking",

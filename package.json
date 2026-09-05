@@ -28,6 +28,7 @@
   "test:bot": "npx tsx tests/botEngine.test.mts",
   "test:triage": "npx tsx tests/clinicalTriage.test.mts",
   "test:quick": "npx tsx tests/quickAnswers.test.mts",
+  "test:daywords": "npx tsx tests/dayWords.test.mts",
   "test:phone": "npx tsx tests/patientPhone.test.mjs",
   "test:optout": "npx tsx tests/patientMessaging.test.mjs",
     "test:attendance": "npx tsx tests/attendanceGeofence.test.mjs",

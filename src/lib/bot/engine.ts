@@ -1,5 +1,6 @@
 import { isOptOutReply, normalizeReplyText } from "@/lib/patientMessaging";
 import type { BotFacts } from "@/types/whatsapp";
+import { voiceFor, type Gender } from "@/lib/arabicNames";
 
 /**
  * What the bot says next, given what it said last.
@@ -53,8 +54,18 @@ export type BotAction =
   | { type: "list_times_date"; dateKey: string; doctorName?: string }
   /** A tapped time button — date and time both travel in the id. */
   | { type: "book_slot"; dateKey: string; time: string; doctorName?: string }
-  /** An unrecognised sender told us their name; create the patient, then continue booking. */
-  | { type: "register"; name: string }
+  /**
+   * An unrecognised sender told us their name; create the patient, then continue booking.
+   * `forRelative` means the name is somebody else's — the sender is booking for a wife, a child,
+   * a parent — and the record is theirs, not the sender's.
+   */
+  | { type: "register"; name: string; forRelative?: boolean }
+  /**
+   * "تمام" / "اوك" / 👍. Mostly a reply to the clinic's own reminder, so the caller checks for an
+   * appointment in the next two days and confirms it — that reply is a patient saying "I'll be
+   * there", and it used to be answered with a menu.
+   */
+  | { type: "ack" }
   /** The reply was not a valid pick; show the same options again. */
   | { type: "relist" }
   /** Read this patient's next appointment out of the calendar and tell them about it. */
@@ -123,6 +134,16 @@ export interface BotContext {
   clinicPhone?: string;
   /** Answers the clinic wrote for the questions its data cannot supply. Any field may be absent. */
   facts?: BotFacts;
+  /** Guessed from the patient's name, so the reply is not addressed to every woman as a man. */
+  gender?: Gender;
+  /** A day the patient named in THIS message ("بكره", "الخميس"), as a date key. */
+  dayWord?: string;
+  /** A service the patient named in this message, matched against the clinic's own list. */
+  serviceMatch?: string;
+  /** This message asks to book for somebody else. */
+  relative?: boolean;
+  /** The name being collected is a relative's (stored on the conversation by the caller). */
+  forRelative?: boolean;
   /** Whether real booking can be offered: schedule configured AND the sender is a known patient. */
   canOfferBooking?: boolean;
   /**
@@ -174,13 +195,23 @@ export { needsHuman, triageMessage } from "./clinicalTriage";
 import { needsHuman } from "./clinicalTriage";
 import { quickIntent, type QuickIntent } from "./quickAnswers";
 
+/*
+ * The voice.
+ *
+ * Every reply used to address the patient as a man with a bare imperative — `معاك`, `ابعت`,
+ * `اختار` — in a specialty where most adult patients are women, and with a formal-Arabic phrase
+ * every few lines (`شكراً لتواصلك`, `في انتظارك`). Egyptians read that texture as a call-centre
+ * template. A receptionist says `حضرتك`, softens the imperative, and inflects for who is in front
+ * of her; the name on the record is enough to do the same.
+ */
 function greeting(ctx: BotContext): string {
-  const who = ctx.patientName?.trim() ? ` ${ctx.patientName.trim()}` : "";
+  const v = voiceFor(ctx.gender ?? "unknown");
+  const who = ctx.patientName?.trim() ? ` يا ${ctx.patientName.trim()}` : "";
   const lines = [
-    `أهلاً${who} 👋`,
-    `معاك المساعد الآلي لـ *${ctx.clinicName}*.`,
+    `أهلاً بحضرتك${who} 👋`,
+    `${v.withYou} المساعد الآلي لـ *${ctx.clinicName}*.`,
     "",
-    "ابعت رقم الاختيار:",
+    `${v.send} رقم الاختيار:`,
     ctx.canOfferBooking ? "*1* — حجز موعد" : "*1* — التحدث مع الاستقبال للحجز",
     "*2* — مواعيد العمل والعنوان",
     "*3* — التحدث مع الاستقبال",
@@ -200,11 +231,12 @@ function hoursAndAddress(ctx: BotContext): string {
     // Nothing configured. Saying so beats inventing hours, and beats an empty message.
     return "الاستقبال هيبعتلك مواعيد العمل والعنوان حالاً.";
   }
-  lines.push("", "لأي حاجة تانية ابعت *3* وهيرد عليك حد من الاستقبال.");
+  const v = voiceFor(ctx.gender ?? "unknown");
+  lines.push("", `لأي حاجة تانية ${v.send} *3* وحد من الاستقبال هيرد على حضرتك.`);
   return lines.join("\n");
 }
 
-const HANDOFF_REPLY = "تمام 👍 الاستقبال هيتواصل معاك في أقرب وقت.";
+const HANDOFF_REPLY = "تمام، حد من الاستقبال هيتواصل مع حضرتك في أقرب وقت 🙏";
 
 /**
  * The reply to a message that needs a clinician.
@@ -215,9 +247,9 @@ const HANDOFF_REPLY = "تمام 👍 الاستقبال هيتواصل معاك 
  */
 export function clinicalReplyText(clinicPhone?: string): string {
   const urgent = clinicPhone?.trim()
-    ? `لو الموضوع طارئ، كلمنا على طول على ${clinicPhone.trim()}`
-    : "لو الموضوع طارئ، كلمنا على تليفون العيادة على طول.";
-  return `شكراً لتواصلك 🙏\nالرسالة دي محتاجة حد من العيادة يشوفها بنفسه، وهيتواصل معاك في أقرب وقت.\n\n${urgent}`;
+    ? `لو الموضوع مستعجل، كلمنا على طول على ${clinicPhone.trim()}`
+    : "لو الموضوع مستعجل، كلمنا على تليفون العيادة على طول.";
+  return `وصلتنا رسالتك 🙏\nالرسالة دي محتاجة حد من العيادة يشوفها بنفسه، وهيتواصل مع حضرتك في أقرب وقت.\n\n${urgent}`;
 }
 
 /** A bare number 1..99 in any digit script, or null. "٣" and "3." are the same answer. */
@@ -257,7 +289,9 @@ function startBooking(ctx: BotContext): BotDecision {
   }
   if (ctx.canRegister) {
     // A real phone with nobody on file: a NEW patient. Their name is the only missing piece.
-    return { reply: "أهلاً بيك 🌟 عشان نسجل حجزك، ابعتلنا اسمك الكامل من فضلك.", next: "booking_name", handoff: false, reason: "ask_name" };
+    const v = voiceFor(ctx.gender ?? "unknown");
+    const sendUs = v.send === "ابعتي" ? "تبعتيلنا" : "تبعتلنا";
+    return { reply: `${v.welcome} 🙏 عشان نسجل الحجز، ياريت حضرتك ${sendUs} الاسم الكامل.`, next: "booking_name", handoff: false, reason: "ask_name" };
   }
   // No configured schedule, or an unidentifiable sender: the honest answer is a person — never a
   // promise that a slot is held, which is the one lie a clinic cannot afford.
@@ -316,8 +350,19 @@ function answerIntent(intent: QuickIntent, ctx: BotContext): BotDecision | null 
         reason: "complaint",
       };
 
-    case "booking":
+    case "booking": {
+      // For somebody else: their name first, then the usual flow books under that record.
+      if (ctx.relative && (ctx.canOfferBooking || ctx.canRegister)) {
+        return { reply: "تمام، الحجز لمين؟ ياريت تبعتلنا الاسم الكامل بتاعه 🙏", next: "booking_name", handoff: false, reason: "ask_relative_name" };
+      }
+      // "ممكن ميعاد بكره": the day is already chosen, so offer its times rather than a list of
+      // days that starts with the one they just named. Clinics with a dentist choice still ask
+      // that first — the day cannot be checked against a calendar nobody has picked.
+      if (ctx.dayWord && ctx.canOfferBooking && (ctx.doctorCount ?? 0) < 2) {
+        return { reply: "", action: { type: "list_times_date", dateKey: ctx.dayWord }, next: "booking_time", handoff: false, reason: "booking_times" };
+      }
       return startBooking(ctx);
+    }
 
     case "my_appointment":
       return { reply: "", action: { type: "my_appointment" }, next: "awaiting_choice", handoff: false, reason: "my_appointment" };
@@ -377,9 +422,10 @@ function answerIntent(intent: QuickIntent, ctx: BotContext): BotDecision | null 
      * attendance by teaching them how to opt out.
      */
     case "ack":
-      return { reply: "تمام 👍 لو محتاج أي حاجة تانية إحنا هنا.", next: "awaiting_choice", handoff: false, reason: "ack" };
+      // The caller decides what "تمام" confirms — usually tomorrow's appointment.
+      return { reply: "", action: { type: "ack" }, next: "awaiting_choice", handoff: false, reason: "ack" };
     case "thanks":
-      return { reply: "العفو 🌟 تحت أمرك في أي وقت.", next: "awaiting_choice", handoff: false, reason: "thanks" };
+      return { reply: "العفو 🙏 تحت أمر حضرتك في أي وقت.", next: "awaiting_choice", handoff: false, reason: "thanks" };
     case "greeting":
       return { reply: greeting(ctx), next: "awaiting_choice", handoff: false, reason: "greeted" };
   }
@@ -477,9 +523,9 @@ export function decideBotReply(args: {
      */
     const name = text.replace(/\s+/g, " ").trim();
     if (numberChoice(name) !== null || name.length < 2 || name.length > 80) {
-      return { reply: "معلش، ابعت اسمك بالحروف (مش أرقام) عشان نكمل الحجز 🙏", next: "booking_name", handoff: false, reason: "ask_name_again" };
+      return { reply: "معلش، ياريت الاسم بالحروف (مش أرقام) عشان نكمل الحجز 🙏", next: "booking_name", handoff: false, reason: "ask_name_again" };
     }
-    return { reply: "", action: { type: "register", name }, next: "booking_day", handoff: false, reason: "registered" };
+    return { reply: "", action: { type: "register", name, forRelative: ctx.forRelative === true }, next: "booking_day", handoff: false, reason: "registered" };
   }
 
   const inBooking = state === "booking_doctor" || state === "booking_day" || state === "booking_time";
@@ -553,7 +599,7 @@ export function decideBotReply(args: {
 
   if (state === "awaiting_choice") {
     return {
-      reply: `معلش مفهمتش 🙏\n\n${greeting(ctx)}`,
+      reply: `معلش، مفهمتش قصد حضرتك 🙏\n\n${greeting(ctx)}`,
       next: "reprompted",
       handoff: false,
       reason: "reprompt",

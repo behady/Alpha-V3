@@ -214,10 +214,10 @@ console.log("✓ tap ids: buttons mean what they say, whenever and wherever they
 const newPatientCtx: BotContext = { clinicName: "Alpha Dental", canOfferBooking: false, canRegister: true };
 const askName = decideBotReply({ state: "awaiting_choice", text: "1", ctx: newPatientCtx });
 assert.equal(askName.next, "booking_name");
-assert.ok(askName.reply.includes("اسمك"), "asks for the name");
+assert.ok(askName.reply.includes("الاسم"), "asks for the name");
 
 const named = decideBotReply({ state: "booking_name", text: "  محمد   صلاح ", ctx: newPatientCtx });
-assert.deepEqual(named.action, { type: "register", name: "محمد صلاح" }, "whitespace folds, name registers");
+assert.deepEqual(named.action, { type: "register", name: "محمد صلاح", forRelative: false }, "whitespace folds, name registers");
 assert.equal(named.next, "booking_day");
 
 // Digits are not names — they are stray taps at old lists, and nobody gets registered as "3".

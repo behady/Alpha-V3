@@ -109,6 +109,9 @@ const HUMAN = [
 ];
 const CANCEL = [
   "مش هعرف اجي", "مش هقدر اجي", "مش هاجي", "مش جاي", "مش هينفع اجي", "هلغي", "الغي الحجز",
+  // The replies a reminder actually gets when the answer is no.
+  "مش هينفع", "مش هقدر", "مش هلحق", "مش هعرف", "معلش مش هعرف", "مش هينفع بكره", "مش هقدر بكره",
+  "الغي", "الغيه", "الغيها", "كنسل", "cancel",
   "الغي الميعاد", "عايز الغي", "عاوز الغي", "معتذر", "اعتذر", "الغاء الحجز", "الغاء الميعاد",
   "cancel my appointment", "cant come", "can not come", "cancel booking",
 ];
@@ -206,6 +209,25 @@ const COURTESY_OPENER = [
   "لو سمحت", "لو سمحتوا", "من فضلك", "من فضلكم", "ممكن سؤال", "عندي سؤال", "عندي استفسار",
   "ممكن استفسار", "ممكن اسأل", "ممكن اساله", "excuse me", "quick question", "a question",
 ];
+/**
+ * A booking for somebody else.
+ *
+ * "عايز احجز لمراتي" booked the husband: the flow resolved the patient from the sender's phone
+ * and never read who the visit was for. When one of these appears beside a booking, the flow asks
+ * for the other person's name before it asks for a day.
+ */
+const RELATIVE_WORDS = [
+  "لمراتي", "لجوزي", "لابني", "لبنتي", "لولدي", "لوالدتي", "لوالدي", "لامي", "لابويا", "لاخويا",
+  "لاختي", "لجدي", "لجدتي", "لخالتي", "لعمتي", "لعمي", "لخالي", "للولد", "للبنت", "لحد",
+  "لمامتي", "لبابا", "لماما", "لابنى", "لبنتى", "لطفلي", "للطفل", "لعيالي", "لولادي",
+  "مراتي", "جوزي", "ابني", "بنتي", "والدتي", "والدي", "امي", "ابويا",
+  "for my wife", "for my husband", "for my son", "for my daughter", "for my mother", "for my father", "for my kid",
+];
+
+export function mentionsRelative(raw: string): boolean {
+  return has(normalize(raw), RELATIVE_WORDS);
+}
+
 const GREETING = [
   "السلام عليكم", "سلام عليكم", "سلام", "صباح الخير", "مساء الخير", "صباح النور", "اهلا",
   "اهلين", "هاي", "هلا", "مرحبا", "ازيك", "ازيكم", "عامل ايه", "الو", "السلام",

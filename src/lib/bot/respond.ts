@@ -19,7 +19,7 @@ import { resolveWhatsappDeliveryMode, sendPatientWhatsAppRich } from "@/lib/what
 import type { MetaInteractive } from "@/lib/metaWhatsapp";
 import type { BotFacts } from "@/types/whatsapp";
 import { arabicClock, arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
-import { appendOptOutFooter, WHATSAPP_OPT_OUT_FOOTER_AR } from "@/lib/patientMessaging";
+import { appendOptOutFooter, normalizeReplyText, WHATSAPP_OPT_OUT_FOOTER_AR } from "@/lib/patientMessaging";
 import {
   conversationKey,
   loadConversation,
@@ -30,6 +30,11 @@ import {
 } from "./conversation";
 import { answerWithAi } from "./aiReply";
 import { clinicalReplyText, decideBotReply, type BotContext } from "./engine";
+import { needsHuman } from "./clinicalTriage";
+import { mentionsRelative } from "./quickAnswers";
+import { parseDayWord } from "./dayWords";
+import { guessGender, voiceFor } from "@/lib/arabicNames";
+import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
 
 /**
  * Answering a patient's WhatsApp message, if the clinic has asked for that.
@@ -219,6 +224,67 @@ function openRightNow(schedule: ClinicScheduleConfig): { open: boolean; opensLat
   return { open: now.minutes >= start && now.minutes < end, opensLaterToday: now.minutes < start };
 }
 
+/**
+ * When the clinic next opens, for a patient writing while it is shut.
+ *
+ * "Someone will contact you" at 1am is a promise with no time on it. The bot has the schedule;
+ * the honest version names the hour. Today counts only if opening time has not passed yet.
+ */
+function nextOpening(schedule: ClinicScheduleConfig): { dateKey: string; clock: string } | null {
+  const now = clinicNow();
+  const start = schedule.startHour * 60 + schedule.startMinute;
+  const d = new Date(`${now.dateKey}T12:00:00`);
+  for (let i = 0; i < 8; i++) {
+    const key = d.toISOString().slice(0, 10);
+    const off = schedule.offDays.includes(DAY_KEYS[new Date(`${key}T12:00:00`).getDay()]);
+    if (!off && (i > 0 || now.minutes < start)) {
+      return { dateKey: key, clock: arabicClock(schedule.startHour, schedule.startMinute) };
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  return null;
+}
+
+function closedNote(schedule: ClinicScheduleConfig): string {
+  const n = nextOpening(schedule);
+  if (!n) return "العيادة مقفولة دلوقتي، وهنرد على حضرتك أول ما نفتح 🙏";
+  const today = clinicNow().dateKey;
+  const tomorrow = new Date(`${today}T12:00:00`);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const when =
+    n.dateKey === today ? "النهارده" : n.dateKey === tomorrow.toISOString().slice(0, 10) ? "بكره" : arabicDayLabel(n.dateKey);
+  return `العيادة مقفولة دلوقتي — بنفتح ${when} الساعة ${n.clock}، وهنرد على حضرتك ساعتها 🙏`;
+}
+
+/**
+ * The service a patient named, matched against the clinic's own list.
+ *
+ * "عايز احجز تنظيف" landed on the calendar as "Consultation": the one word the patient volunteered
+ * was the one word the desk did not get. Longest full-name match first; failing that, the first
+ * word of a service name (≥ 3 letters) appearing in the message, so "تنظيف" finds "تنظيف الجير".
+ */
+async function matchService(clinicId: string, text: string): Promise<string> {
+  const t = ` ${normalizeReplyText(text)} `;
+  if (t.trim().length < 3) return "";
+  try {
+    const snap = await adminClinicCollection(clinicId, "services").limit(200).get();
+    const names = snap.docs.map((d) => String((d.data() || {}).name || "").trim()).filter(Boolean);
+    let best = "";
+    for (const name of names) {
+      const n = normalizeReplyText(name);
+      if (n.length >= 3 && t.includes(` ${n} `) && n.length > normalizeReplyText(best).length) best = name;
+    }
+    if (best) return best;
+    for (const name of names) {
+      const first = normalizeReplyText(name).split(" ")[0] || "";
+      if (first.length >= 3 && t.includes(` ${first} `)) return name;
+    }
+  } catch {
+    /* no services, no match */
+  }
+  return "";
+}
+
 /** The patient behind this number, if the clinic knows them. */
 async function findPatient(
   clinicId: string,
@@ -341,7 +407,17 @@ export async function respondToPatientMessage(args: {
 
   // A patient who asked to be left alone asked to be left alone. This is checked before the
   // engine, so no branch of it can ever talk to someone who opted out.
-  if (patient?.data.whatsappOptOut === true) return skip("opted_out");
+  if (patient?.data.whatsappOptOut === true) {
+    // Opt-out means no automated messages TO them. It does not mean a swollen face goes unseen:
+    // a person is still told, the bot just does not answer.
+    if (needsHuman(text)) {
+      await markHandoff(clinicId, conversationKey(chatId), "opted_out_urgent", {
+        text, phone, patientId: patient.id, patientName: String(patient.data.name || ""), severity: "urgent",
+      });
+      void sendClinicPush(clinicId, { title: "⚠️ مريض (موقف الرسايل) محتاج رد فوري", body: `${String(patient.data.name || phone)} — ${text.slice(0, 90)}` }, { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { patientId: patient.id } });
+    }
+    return skip("opted_out");
+  }
 
   if (!patient && !settings.answerStrangers) {
     // The cautious default. Answering unknown numbers means answering wrong numbers, spam and
@@ -360,7 +436,13 @@ export async function respondToPatientMessage(args: {
 
   // A stop request recorded against this sender directly — the only place it can live when a lid
   // hides the patient record. Survives conversation expiry; see markConversationOptedOut.
-  if (conversation.optedOut) return skip("opted_out");
+  if (conversation.optedOut) {
+    if (needsHuman(text)) {
+      await markHandoff(clinicId, conversation.phoneKey, "opted_out_urgent", { text, phone, severity: "urgent" });
+      void sendClinicPush(clinicId, { title: "⚠️ مريض (موقف الرسايل) محتاج رد فوري", body: `${phone} — ${text.slice(0, 90)}` }, { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } });
+    }
+    return skip("opted_out");
+  }
 
   const allowance = replyAllowance(conversation);
   if (!allowance.allowed) {
@@ -400,6 +482,11 @@ export async function respondToPatientMessage(args: {
   ctx.canRegister = Boolean(profile?.schedule.isConfigured && !patient && phone);
   ctx.doctorCount = profile?.doctors.length ?? 0;
   if (patient && typeof patient.data.name === "string") ctx.patientName = patient.data.name;
+  ctx.gender = guessGender(ctx.patientName);
+  ctx.dayWord = parseDayWord(text, clinicNow().dateKey) || undefined;
+  ctx.relative = mentionsRelative(text);
+  ctx.forRelative = conversation.pendingForRelative === true;
+  ctx.serviceMatch = (await matchService(clinicId, text)) || undefined;
   ctx.aiAvailable = settings.aiEnabled && (conversation.aiReplies ?? 0) < 3;
   if (conversation.state === "booking_doctor") ctx.optionCount = conversation.pendingDoctors?.length ?? 0;
   if (conversation.state === "booking_day") ctx.optionCount = conversation.pendingDays?.length ?? 0;
@@ -437,7 +524,7 @@ export async function respondToPatientMessage(args: {
   let nextState = decision.next;
   let reason = decision.reason;
   let handoff = decision.handoff;
-  let pending: { days?: string[]; times?: string[]; date?: string; doctors?: string[]; doctor?: string } | undefined;
+  let pending: { days?: string[]; times?: string[]; date?: string; doctors?: string[]; doctor?: string; treatment?: string; forRelative?: boolean } | undefined;
   let aiExchange: { q: string; a: string } | undefined;
   /** Buttons/lists for the official channel; the text above is what every other channel sends. */
   let structure: MetaInteractive | undefined;
@@ -447,6 +534,9 @@ export async function respondToPatientMessage(args: {
     const branchId = profile.branches.length === 1 ? profile.branches[0].id : null;
 
     const ANY_DOCTOR = "أي دكتور 👌";
+    // Named at the start of the booking, carried through every step, written on the appointment.
+    const treatment = conversation.pendingTreatment || ctx.serviceMatch || "";
+    const v = voiceFor(ctx.gender ?? "unknown");
 
     const listDoctors = () => {
       // The stored list carries "" last, meaning "any chair" — the same convention the ids use.
@@ -464,7 +554,7 @@ export async function respondToPatientMessage(args: {
         list: optionList("اختيار الدكتور", doctors, label, (d) => `dr|${d}`, { id: "back_menu", title: "رجوع للقائمة" }),
       };
       nextState = "booking_doctor";
-      pending = { doctors };
+      pending = { doctors, treatment };
     };
 
     const listDays = (doctorName = "") => {
@@ -484,7 +574,7 @@ export async function respondToPatientMessage(args: {
         list: optionList("اختيار اليوم", days, arabicDayLabel, (d) => `d${d}|${doctorName}`, { id: "back_menu", title: "رجوع للقائمة" }),
       };
       nextState = "booking_day";
-      pending = { days, doctor: doctorName };
+      pending = { days, doctor: doctorName, treatment };
     };
 
     const listTimes = async (dateKey: string, doctorName = "") => {
@@ -498,7 +588,7 @@ export async function respondToPatientMessage(args: {
         };
         nextState = "booking_day";
         reason = "booking_day_full";
-        pending = { days, doctor: doctorName };
+        pending = { days, doctor: doctorName, treatment };
         return;
       }
       const times = slots.slice(0, 8);
@@ -508,10 +598,37 @@ export async function respondToPatientMessage(args: {
         list: optionList("اختيار الميعاد", times, arabicTimeLabel, (t) => `t${dateKey}|${t}|${doctorName}`, { id: "back_days", title: "رجوع لاختيار اليوم" }),
       };
       nextState = "booking_time";
-      pending = { days: conversation.pendingDays, times, date: dateKey, doctor: doctorName };
+      pending = { days: conversation.pendingDays, times, date: dateKey, doctor: doctorName, treatment };
     };
 
-    if (act.type === "my_appointment") {
+    if (act.type === "ack") {
+      /*
+       * "تمام" is, overwhelmingly, a patient answering the clinic's own reminder. It used to get the
+       * full booking menu. Now, if there is an appointment in the next two days that the desk has
+       * not confirmed, this reply confirms it — which is exactly what the patient meant — and says
+       * so. With nothing to confirm it is a courtesy and gets one line back.
+       */
+      const appt = patient ? await findNextAppointment(clinicId, patient.id) : null;
+      const soon = new Date(`${clinicNow().dateKey}T12:00:00`);
+      soon.setDate(soon.getDate() + 2);
+      const within = appt && appt.date <= soon.toISOString().slice(0, 10);
+      if (appt && within) {
+        if (normalizeAppointmentStatus(appt.status) === "Scheduled") {
+          await adminClinicDoc(clinicId, "appointments", appt.id).set(
+            { status: "Confirmed", confirmedAt: FieldValue.serverTimestamp(), confirmedVia: "whatsapp_reply" },
+            { merge: true }
+          );
+          reason = "ack_confirmed";
+        } else {
+          reason = "ack";
+        }
+        replyText = [`تمام، ${v.waitingForYou} 🦷`, "", appointmentLine(appt)].join("\n");
+      } else {
+        const need = ctx.gender === "female" ? "محتاجة" : "محتاج";
+        replyText = `تمام 🙏 لو حضرتك ${need} أي حاجة تانية إحنا هنا.`;
+        reason = "ack";
+      }
+    } else if (act.type === "my_appointment") {
       const appt = patient ? await findNextAppointment(clinicId, patient.id) : null;
       if (appt) {
         replyText = [`ميعادك الجاي 👇`, "", appointmentLine(appt), "", "لو حابب تعدله أو تلغيه ابعتلنا وهنظبطهولك."].join("\n");
@@ -617,7 +734,7 @@ export async function respondToPatientMessage(args: {
         // No key, no credits, model down — the ladder the AI replaced stands back up, so the
         // patient experience degrades to yesterday's, never to silence.
         if (conversation.state === "awaiting_choice" || conversation.state === "new") {
-          replyText = `معلش مفهمتش 🙏\n\nأهلاً${ctx.patientName ? ` ${ctx.patientName}` : ""} 👋 اختار من الأزرار تحت أو ابعت رقم الاختيار.`;
+          replyText = `معلش، مفهمتش قصد حضرتك 🙏 ${v.choose} من الأزرار تحت أو ${v.send} رقم الاختيار.`;
           structure = { body: replyText, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
           nextState = "reprompted";
           reason = "reprompt";
@@ -647,7 +764,12 @@ export async function respondToPatientMessage(args: {
         phone,
         createdAt: FieldValue.serverTimestamp(),
         lastVisit: null,
-        notes: "Created via WhatsApp assistant",
+        // A relative shares the sender's phone. The link says whose phone it is, so the desk is
+        // not puzzled by two records on one number, and the sender's own record stays the one
+        // this number resolves to next time.
+        ...(act.forRelative && patient
+          ? { notes: `Created via WhatsApp assistant — booked by ${ctx.patientName || phone}`, bookedBy: patient.id }
+          : { notes: "Created via WhatsApp assistant" }),
         source: "whatsapp_bot",
       });
       patient = { id: created.id, data: { name: act.name, phone } };
@@ -664,7 +786,7 @@ export async function respondToPatientMessage(args: {
           body: RELIST_PREFIX.trim(),
           list: optionList("اختيار الميعاد", conversation.pendingTimes, arabicTimeLabel, (t) => `t${conversation.pendingDate}|${t}`, { id: "back_days", title: "رجوع لاختيار اليوم" }),
         };
-        pending = { days: conversation.pendingDays, times: conversation.pendingTimes, date: conversation.pendingDate };
+        pending = { days: conversation.pendingDays, times: conversation.pendingTimes, date: conversation.pendingDate, treatment };
       } else if (conversation.pendingDays?.length) {
         replyText = RELIST_PREFIX + renderDayList(conversation.pendingDays);
         structure = {
@@ -672,7 +794,7 @@ export async function respondToPatientMessage(args: {
           list: optionList("اختيار اليوم", conversation.pendingDays, arabicDayLabel, (d) => `d${d}`, { id: "back_menu", title: "رجوع للقائمة" }),
         };
         nextState = "booking_day";
-        pending = { days: conversation.pendingDays };
+        pending = { days: conversation.pendingDays, treatment };
       } else {
         // The stored options are gone — a fresh list beats an apology about lost state.
         listDays();
@@ -705,6 +827,7 @@ export async function respondToPatientMessage(args: {
           source: "whatsapp_bot",
           autoConfirm: settings.autoConfirm,
           doctorName,
+          treatment,
         });
         if (booked.ok) {
           replyText = [
@@ -712,10 +835,11 @@ export async function respondToPatientMessage(args: {
             `📅 ${arabicDayLabel(dateKey)}`,
             `⏰ ${arabicTimeLabel(time)}`,
             ...(doctorName ? [`👨‍⚕️ ${doctorName}`] : []),
+            ...(treatment ? [`🦷 ${treatment}`] : []),
             "",
             settings.autoConfirm
-              ? "في انتظارك 🦷 لو حبيت تعدّل، ابعت *3* للتواصل مع الاستقبال."
-              : "العيادة هتراجع الطلب وتتواصل معاك للتأكيد. لو حبيت تعدّل، ابعت *3* للتواصل مع الاستقبال.",
+              ? `${v.waitingForYou} 🦷 لو حبيت تعدّل الميعاد، ${v.send} *3*.`
+              : `العيادة هتراجع الطلب وهتتواصل مع حضرتك للتأكيد. لو حبيت تعدّل، ${v.send} *3*.`,
           ].join("\n");
           nextState = "awaiting_choice";
           reason = "booked";
@@ -743,6 +867,38 @@ export async function respondToPatientMessage(args: {
     nextState = "handed_off";
     handoff = true;
     reason = "no_profile";
+  }
+
+  // A name is being asked for: remember whose, and what they came for, until it arrives.
+  if (reason === "ask_relative_name") pending = { forRelative: true, treatment: ctx.serviceMatch };
+  if (reason === "ask_name") pending = { treatment: ctx.serviceMatch };
+
+  /*
+   * What the bot could not answer, recorded as it happens.
+   *
+   * This is the list the Intelligence page's "Bot" tab shows and the only honest source of what
+   * to improve next: a question that repeats here is a fact worth writing into Settings or a word
+   * worth teaching the matcher. Handoffs the bot chose on purpose — medical, complaints, appointment
+   * changes — are not misses and are not recorded.
+   */
+  const MISS = /^(gave_up|reprompt|ai_handoff_other|ai_handoff_staff|asked_for_human|booking_abandoned)$|_unknown$/;
+  if (MISS.test(reason) && text.trim() && !args.media) {
+    void adminClinicCollection(clinicId, "bot_misses")
+      .add({
+        text: text.trim().slice(0, 300),
+        reason,
+        atMs: Date.now(),
+        ...(ctx.patientName ? { patientName: ctx.patientName } : {}),
+        createdAt: FieldValue.serverTimestamp(),
+      })
+      .catch(() => {});
+  }
+
+  // A promise of a person, made while the clinic is shut, says when the person will actually be
+  // there. "في أقرب وقت" at 1am on a Thursday and on the Friday it is closed were the same words.
+  if (handoff && profile && replyText.trim() && !reason.startsWith("appointment_")) {
+    const st = openRightNow(profile.schedule);
+    if (!st.open) replyText = `${replyText}\n\n${closedNote(profile.schedule)}`;
   }
 
   // Menu-shaped replies become tappable buttons on the official channel. Attached here rather

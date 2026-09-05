@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { MessageCircle, Newspaper, Sparkles, UserCheck } from "lucide-react";
+import { Bot, MessageCircle, Newspaper, Sparkles, UserCheck } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
@@ -10,6 +10,7 @@ import PermissionGuard from "@/components/PermissionGuard";
 import BriefPanel from "@/components/ai/BriefPanel";
 import MessageQueuePanel from "@/components/ai/MessageQueuePanel";
 import NoShowPanel from "@/components/ai/NoShowPanel";
+import BotMissesPanel from "@/components/ai/BotMissesPanel";
 
 /**
  * One page for everything the system worked out on its own.
@@ -28,7 +29,7 @@ import NoShowPanel from "@/components/ai/NoShowPanel";
  * three pages guarded on before.
  */
 
-type TabKey = "brief" | "messages" | "noshows";
+type TabKey = "brief" | "messages" | "noshows" | "bot";
 
 /** Query values the old routes redirect with. Kept short — these end up in people's bookmarks. */
 const TAB_FROM_QUERY: Record<string, TabKey> = {
@@ -37,6 +38,7 @@ const TAB_FROM_QUERY: Record<string, TabKey> = {
   messages: "messages",
   noshows: "noshows",
   attendance: "noshows",
+  bot: "bot",
 };
 
 export default function IntelligencePage() {
@@ -90,6 +92,16 @@ function IntelligenceHub() {
       blurb: isAr
         ? "أغلق المواعيد السابقة التي لم يُسجَّل ما حدث فيها. هذا وحده ما يجعل أرقام الغياب ذات معنى."
         : "Close out past appointments nobody answered for. That is the only thing that makes attendance figures mean anything.",
+    },
+    {
+      key: "bot" as const,
+      permission: "access.patients",
+      icon: Bot,
+      label: isAr ? "البوت" : "The Bot",
+      heading: isAr ? "اللي البوت معرفش يرد عليه" : "What the bot couldn't answer",
+      blurb: isAr
+        ? "أسئلة المرضى الحقيقية اللي المساعد حوّلها لموظف. اللي بيتكرر هنا هو اللي يستاهل إجابة جاهزة أو كلمة جديدة."
+        : "Real patient questions the assistant handed to a person. Whatever repeats here is worth a ready answer or a new keyword.",
     },
   ].filter((tab) => can(tab.permission));
 
@@ -161,6 +173,7 @@ function IntelligenceHub() {
         {current.key === "brief" && <BriefPanel />}
         {current.key === "messages" && <MessageQueuePanel />}
         {current.key === "noshows" && <NoShowPanel />}
+        {current.key === "bot" && <BotMissesPanel />}
       </div>
     </div>
   );
