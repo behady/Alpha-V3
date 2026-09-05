@@ -280,6 +280,11 @@ export const META_TEMPLATE_FOR_KIND: Record<string, { name: string; paramCount: 
   cancel: { name: "alpha_appt_cancel_ar", paramCount: 2 }, // clinic, date
   reminder24h: { name: "alpha_appt_reminder_ar", paramCount: 3 }, // clinic, date, time
   invoice: { name: "alpha_payment_ar", paramCount: 3 }, // amount, clinic, balance
+  // Reminder with "تأكيد الحضور" / "تعديل الميعاد" quick-reply buttons. Same params; the tap
+  // comes back as the button label, which the assistant already reads as confirm / reschedule.
+  reminder24h_btn: { name: "alpha_appt_reminder_btn_ar", paramCount: 3 }, // clinic, date, time
+  recall: { name: "alpha_recall_ar", paramCount: 1 }, // clinic
+  review: { name: "alpha_review_ar", paramCount: 2 }, // clinic, link
 };
 
 /** Send one of the registered templates. Throws nothing; the result carries the error. */

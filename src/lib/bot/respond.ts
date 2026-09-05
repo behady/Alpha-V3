@@ -3,6 +3,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import {
   computeAvailableSlots,
   createPatientBooking,
+  movePatientBooking,
   loadPublicClinicProfile,
   type PublicClinicProfile,
 } from "@/lib/publicBooking";
@@ -525,7 +526,9 @@ export async function respondToPatientMessage(args: {
   let nextState = decision.next;
   let reason = decision.reason;
   let handoff = decision.handoff;
-  let pending: { days?: string[]; times?: string[]; date?: string; doctors?: string[]; doctor?: string; treatment?: string; forRelative?: boolean; dayWord?: string } | undefined;
+  let pending: { days?: string[]; times?: string[]; date?: string; doctors?: string[]; doctor?: string; treatment?: string; forRelative?: boolean; dayWord?: string; reschedule?: string } | undefined;
+  // The appointment being moved, if the patient is mid-reschedule. Rides on every list step.
+  let rescheduleId = conversation.pendingReschedule || "";
   let aiExchange: { q: string; a: string } | undefined;
   /** Buttons/lists for the official channel; the text above is what every other channel sends. */
   let structure: MetaInteractive | undefined;
@@ -643,6 +646,31 @@ export async function respondToPatientMessage(args: {
         replyText = "مالقيتش ليك ميعاد محجوز حالياً 🙏 تحب نحجزلك؟";
         structure = { body: replyText, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
         reason = "no_appointment";
+      }
+    } else if (act.type === "reschedule_start") {
+      /*
+       * A move, done by the bot.
+       *
+       * The appointment is found by phone, shown back, and the same day list booking uses comes
+       * next — with the appointment's own dentist, since a move is not a change of doctor. The
+       * final tap lands on `book`, which sees `rescheduleId` and moves instead of adding. No
+       * appointment: offer one, the way "my appointment" does.
+       */
+      const appt = patient ? await findNextAppointment(clinicId, patient.id) : null;
+      if (!appt) {
+        replyText = "مالقيتش ليك ميعاد محجوز حالياً 🙏 تحب نحجزلك؟";
+        structure = { body: replyText, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
+        reason = "reschedule_no_appointment";
+      } else {
+        rescheduleId = appt.id;
+        const doctorName = appt.doctor && appt.doctor.toLowerCase() !== "any" ? appt.doctor : "";
+        listDays(doctorName);
+        if (nextState === "booking_day") {
+          const intro = ["تمام، هنعدّل ميعادك ده 🔁", "", appointmentLine(appt), ""].join("\n");
+          replyText = intro + "\n" + replyText;
+          if (structure) structure = { ...structure, body: `${intro}\n${structure.body}` };
+          reason = "reschedule_days";
+        }
       }
     } else if (act.type === "appointment_change") {
       /*
@@ -828,6 +856,36 @@ export async function respondToPatientMessage(args: {
       const doctorName = (act.type === "book_slot" ? act.doctorName : conversation.pendingDoctor) ?? "";
       if (!time || !dateKey || !patient || !phone) {
         listDays();
+      } else if (rescheduleId) {
+        const moved = await movePatientBooking({ clinicId, profile, appointmentId: rescheduleId, dateKey, time, doctorName, autoConfirm: settings.autoConfirm });
+        if (moved.ok) {
+          replyText = [
+            "✅ تم تعديل ميعادك:",
+            `📅 ${arabicDayLabel(dateKey)}`,
+            `⏰ ${arabicTimeLabel(time)}`,
+            ...(doctorName ? [`👨‍⚕️ ${doctorName}`] : []),
+            "",
+            `${v.waitingForYou} 🦷`,
+          ].join("\n");
+          nextState = "awaiting_choice";
+          reason = "rescheduled";
+          rescheduleId = "";
+          void sendClinicPush(
+            clinicId,
+            { title: "تعديل ميعاد من واتساب 🔁", body: `${ctx.patientName || phone} — ${dateKey} ${time}${doctorName ? ` — ${doctorName}` : ""}` },
+            { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
+          );
+        } else if (moved.reason === "slot_taken") {
+          await listTimes(dateKey, doctorName);
+          replyText = `الميعاد ده اتحجز في نفس اللحظة 🙏\n\n${replyText}`;
+          reason = "slot_taken";
+        } else {
+          // The appointment vanished mid-flow (the desk cancelled it). Book fresh instead.
+          rescheduleId = "";
+          listDays(doctorName);
+          replyText = `الميعاد القديم مش موجود، نحجزلك ميعاد جديد 👇\n\n${replyText}`;
+          reason = "reschedule_gone";
+        }
       } else {
         const booked = await createPatientBooking({
           clinicId,
@@ -881,6 +939,10 @@ export async function respondToPatientMessage(args: {
     handoff = true;
     reason = "no_profile";
   }
+
+  // Mid-reschedule, the appointment id rides on every list step so the final pick moves it.
+  // Any step that leaves the booking lists (menu, handoff, done) drops it.
+  if (rescheduleId && pending && typeof nextState === "string" && nextState.startsWith("booking_")) pending = { ...pending, reschedule: rescheduleId };
 
   // A name is being asked for: remember whose, and what they came for, until it arrives.
   if (reason === "ask_relative_name") pending = { forRelative: true, treatment: ctx.serviceMatch };

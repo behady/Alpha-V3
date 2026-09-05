@@ -188,6 +188,8 @@ async function sendWhatsAppLeg(args: {
 
   const { text, skipped } = await buildReminderText(clinicId, appointment, patientName, clinicName);
   if (skipped) return { status: "skipped", reason: skipped };
+  // Button variant of the template, once the clinic has switched it on (after Meta approval).
+  const settings = (await adminClinicDoc(clinicId, "settings", "whatsapp").get()).data() || {};
 
   const msg =
     text.trim() ||
@@ -221,7 +223,7 @@ async function sendWhatsAppLeg(args: {
     // Read the way a patient reads: "الثلاثاء 1/9" and "6:30 م", not the stored ISO date and
     // "06:30 PM". This is the one message that goes out unprompted to everybody.
     metaTemplate: {
-      kind: "reminder24h",
+      kind: settings?.useReminderButtons === true ? "reminder24h_btn" : "reminder24h",
       params: [
         clinicName,
         arabicDayLabel(appointment.date ?? "") || "—",

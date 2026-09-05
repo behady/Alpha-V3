@@ -378,3 +378,52 @@ export async function createPatientBooking(args: {
 
   return { ok: true, dateKey, time };
 }
+
+/**
+ * Move an existing appointment to a new slot the patient picked in the chat.
+ *
+ * Same slot recomputation as a new booking, so a move can no more double-book than a booking
+ * can. The record keeps its id — the desk's notes, the reminder history and the patient link all
+ * stay attached — and remembers where it came from, so a "who moved this?" has an answer.
+ */
+export async function movePatientBooking(args: {
+  clinicId: string;
+  profile: PublicClinicProfile;
+  appointmentId: string;
+  dateKey: string;
+  time: string;
+  doctorName?: string;
+  autoConfirm?: boolean;
+}): Promise<PatientBookingResult | { ok: false; reason: "not_found" }> {
+  const { clinicId, profile, appointmentId, dateKey, time, autoConfirm } = args;
+  const doctorName = String(args.doctorName || "").trim();
+  const ref = clinicRef(clinicId).collection("appointments").doc(appointmentId);
+  const snap = await ref.get();
+  if (!snap.exists) return { ok: false, reason: "not_found" };
+  const current = snap.data() || {};
+  if (dateKey < clinicNow().dateKey) return { ok: false, reason: "slot_taken" };
+
+  const branchId = profile.branches.length === 1 ? profile.branches[0].id : null;
+  const free = await computeAvailableSlots({ clinicId, dateKey, doctorName: doctorName || null, branchId, profile });
+  // The appointment's own slot is "taken" by itself; moving onto it is a no-op, not a clash.
+  const sameSlot = String(current.date) === dateKey && String(current.time) === time;
+  if (!free.includes(time) && !sameSlot) return { ok: false, reason: "slot_taken" };
+
+  await ref.set(
+    {
+      date: dateKey,
+      time,
+      doctor: doctorName || String(current.doctor || "Any"),
+      doctorId: doctorName ? profile.doctorIdsByName[doctorName.toLowerCase()] || null : current.doctorId ?? null,
+      status: autoConfirm ? "Confirmed" : "Scheduled",
+      previousDate: String(current.date || ""),
+      previousTime: String(current.time || ""),
+      rescheduledAt: FieldValue.serverTimestamp(),
+      rescheduledVia: "whatsapp_bot",
+      // A moved appointment is a new appointment as far as the 24h reminder is concerned.
+      reminder24hSentAt: FieldValue.delete(),
+    },
+    { merge: true }
+  );
+  return { ok: true, dateKey, time };
+}

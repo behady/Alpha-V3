@@ -98,6 +98,11 @@ export interface BotConversation {
    */
   pendingForRelative?: boolean;
   /**
+   * The appointment being moved, while the patient walks through the day and time lists.
+   * Set by the reschedule flow; the final pick moves this appointment instead of adding one.
+   */
+  pendingReschedule?: string;
+  /**
    * A person owns this thread right now.
    *
    * True while a handoff is open (raised by the bot, not yet marked handled by staff, and younger
@@ -235,6 +240,7 @@ export async function loadConversation(
     pendingTreatment: !expired && typeof d.pendingTreatment === "string" ? d.pendingTreatment : undefined,
     pendingDayWord: !expired && typeof d.pendingDayWord === "string" ? d.pendingDayWord : undefined,
     pendingForRelative: !expired && d.pendingForRelative === true,
+    pendingReschedule: !expired && typeof d.pendingReschedule === "string" ? d.pendingReschedule : undefined,
     aiReplies: !expired ? Number(d.aiReplies) || 0 : 0,
     aiHistory:
       !expired && Array.isArray(d.aiHistory)
@@ -269,7 +275,7 @@ export async function saveConversation(
     patientId?: string;
     patientName?: string;
     /** Booking options offered this turn. Absent = clear them — stale lists must not linger. */
-    pending?: { days?: string[]; times?: string[]; date?: string; doctors?: string[]; doctor?: string; treatment?: string; forRelative?: boolean; dayWord?: string };
+    pending?: { days?: string[]; times?: string[]; date?: string; doctors?: string[]; doctor?: string; treatment?: string; forRelative?: boolean; dayWord?: string; reschedule?: string };
     /**
      * A spent AI exchange. Unlike pending options, absence PRESERVES what is stored: the AI
      * budget survives menu turns — a patient cannot refill it by pressing a button.
@@ -296,6 +302,7 @@ export async function saveConversation(
     pendingTreatment: next.pending?.treatment ?? null,
     pendingDayWord: next.pending?.dayWord ?? null,
     pendingForRelative: next.pending?.forRelative === true,
+    pendingReschedule: next.pending?.reschedule ?? null,
     aiReplies: (c.aiReplies ?? 0) + (next.aiExchange ? 1 : 0),
     // Trimmed hard: this is continuity for a three-answer conversation, not an archive.
     aiHistory: next.aiExchange

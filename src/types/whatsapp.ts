@@ -57,6 +57,13 @@ export type WhatsAppDeliveryMode = "auto" | "manual";
 
 export interface WhatsAppSettingsDocument {
   isPatientAutomationEnabled: boolean;
+  /** Weekly "we miss you" to patients whose last completed visit is older than `recallAfterMonths`. */
+  isRecallEnabled?: boolean;
+  recallAfterMonths?: number;
+  /** The day after a completed visit, ask for a Google review (needs the clinic's review link). */
+  isReviewRequestEnabled?: boolean;
+  /** Send the 24h reminder as the template with confirm / reschedule buttons. Needs Meta approval. */
+  useReminderButtons?: boolean;
   templates: WhatsAppMessageTemplate[];
   ownerNumber: string;
   ownerAlerts: WhatsAppOwnerAlerts;

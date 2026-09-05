@@ -79,6 +79,13 @@ export type BotAction =
    * changes versus before is only that the message stops being thrown away.
    */
   | { type: "appointment_change"; kind: "cancel" | "reschedule" | "late" }
+  /**
+   * Move an existing appointment through the same day/time lists booking uses.
+   *
+   * "عايز اغير الميعاد" used to be a handoff. It is the commonest request after booking itself
+   * and the one the calendar can answer alone: find the appointment, offer days, move it.
+   */
+  | { type: "reschedule_start" }
   /** Is the clinic open at this exact moment? Needs the clock, which the engine does not have. */
   | { type: "open_now" }
   /** The clinic's own service list, rendered from Firestore. */
@@ -370,7 +377,7 @@ function answerIntent(intent: QuickIntent, ctx: BotContext): BotDecision | null 
     case "cancel":
       return { reply: "", action: { type: "appointment_change", kind: "cancel" }, next: "handed_off", handoff: true, reason: "cancel_request" };
     case "reschedule":
-      return { reply: "", action: { type: "appointment_change", kind: "reschedule" }, next: "handed_off", handoff: true, reason: "reschedule_request" };
+      return { reply: "", action: { type: "reschedule_start" }, next: "awaiting_choice", handoff: false, reason: "reschedule_start" };
     case "late":
       return { reply: "", action: { type: "appointment_change", kind: "late" }, next: "handed_off", handoff: true, reason: "late_notice" };
 

@@ -97,5 +97,88 @@
         }
       }
     ]
+  },
+  {
+    "name": "alpha_appt_reminder_btn_ar",
+    "language": "ar",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "تذكير: موعدك في {{1}} غداً {{2}} الساعة {{3}}. في انتظارك.",
+        "example": {
+          "body_text": [
+            [
+              "Alpha Dental",
+              "الثلاثاء 1/9",
+              "4:30 م"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "تأكيد الحضور"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "تعديل الميعاد"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "alpha_recall_ar",
+    "language": "ar",
+    "category": "MARKETING",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "وحشتنا في {{1}} 🦷 عدى وقت من آخر زيارة ليك، والكشف الدوري بيحافظ على أسنانك. تحب نحجزلك ميعاد؟",
+        "example": {
+          "body_text": [
+            [
+              "Alpha Dental"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "عايز أحجز"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "مش دلوقتي"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "alpha_review_ar",
+    "language": "ar",
+    "category": "UTILITY",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "شكراً لزيارتك {{1}} 🙏 رأيك بيفرق معانا، لو حابب تسيبلنا تقييم على جوجل من هنا: {{2}} — شكراً لثقتك.",
+        "example": {
+          "body_text": [
+            [
+              "Alpha Dental",
+              "https://g.page/r/example/review"
+            ]
+          ]
+        }
+      }
+    ]
   }
 ]

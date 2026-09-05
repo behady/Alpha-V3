@@ -123,6 +123,10 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
   return {
     isPatientAutomationEnabled: Boolean(data?.isPatientAutomationEnabled),
     isLeadAutoReplyEnabled: Boolean(data?.isLeadAutoReplyEnabled),
+    isRecallEnabled: Boolean(data?.isRecallEnabled),
+    recallAfterMonths: Number(data?.recallAfterMonths) || 6,
+    isReviewRequestEnabled: Boolean(data?.isReviewRequestEnabled),
+    useReminderButtons: Boolean(data?.useReminderButtons),
     templates,
     ownerNumber: typeof data?.ownerNumber === "string" ? data.ownerNumber : "",
     ownerAlerts,
@@ -184,6 +188,10 @@ export default function WhatsAppSettings() {
   const [state, setState] = useState<WhatsAppSettingsDocument>({
     isPatientAutomationEnabled: false,
     isLeadAutoReplyEnabled: false,
+    isRecallEnabled: false,
+    recallAfterMonths: 6,
+    isReviewRequestEnabled: false,
+    useReminderButtons: false,
     templates: defaultTemplates(),
     ownerNumber: "",
     ownerAlerts: {},
@@ -287,6 +295,22 @@ export default function WhatsAppSettings() {
         ? "لم يُحفظ هذا التغيير، وأُعيد ما هو مخزَّن بالفعل. إعدادات الواتساب لا يغيّرها إلا مدير العيادة، ولا تُحفظ إذا كان اشتراك العيادة منتهياً."
         : "That change was not saved, and the screen has been put back to what is stored. Only a clinic Admin can change WhatsApp settings, and nothing saves while the clinic's subscription has lapsed.",
       patientToggle: language === "ar" ? "تفعيل الرسائل التلقائية للمرضى" : "Enable automated patient messages",
+      recallToggle: language === "ar" ? "رسالة \"وحشتنا\" للمرضى الغايبين" : "\"We miss you\" to patients who stopped coming",
+      recallHint:
+        language === "ar"
+          ? "كل يوم أحد، رسالة واحدة لكل مريض عدّى على آخر زيارة مكتملة له المدة دي ومعندوش ميعاد قادم."
+          : "Every Sunday, one message to each patient whose last completed visit is older than this and who has nothing booked.",
+      recallMonths: language === "ar" ? "بعد كام شهر" : "After how many months",
+      reviewToggle: language === "ar" ? "طلب تقييم جوجل بعد الزيارة" : "Ask for a Google review after visits",
+      reviewHint:
+        language === "ar"
+          ? "صباح اليوم التالي لكل زيارة مكتملة. يحتاج رابط تقييم جوجل في ملف العيادة، ولا يتكرر لنفس المريض خلال شهر."
+          : "The morning after each completed visit. Needs the Google review link in the clinic profile; never twice to the same patient within a month.",
+      reminderButtonsToggle: language === "ar" ? "أزرار \"تأكيد الحضور\" و\"تعديل الميعاد\" في التذكير" : "Confirm / reschedule buttons on the reminder",
+      reminderButtonsHint:
+        language === "ar"
+          ? "فعّلها بعد ما ميتا توافق على قالب alpha_appt_reminder_btn_ar. الضغطة بتأكد الميعاد أو تفتح خطوات التعديل في البوت."
+          : "Turn on once Meta approves the alpha_appt_reminder_btn_ar template. A tap confirms the appointment or starts the reschedule steps in the assistant.",
       deliveryTitle: language === "ar" ? "طريقة الإرسال" : "How messages are sent",
       deliveryAuto: language === "ar" ? "إرسال تلقائي" : "Send automatically",
       deliveryAutoHint:
@@ -1290,6 +1314,57 @@ export default function WhatsAppSettings() {
             }}
           />
         </label>
+
+        {/* The three business-initiated automations. Each is a template Meta has to approve
+            first, so they ship switched off and the hint says what unlocks them. */}
+        {(
+          [
+            { key: "useReminderButtons", label: txt.reminderButtonsToggle, hint: txt.reminderButtonsHint },
+            { key: "isReviewRequestEnabled", label: txt.reviewToggle, hint: txt.reviewHint },
+            { key: "isRecallEnabled", label: txt.recallToggle, hint: txt.recallHint },
+          ] as const
+        ).map((row) => (
+          <div key={row.key} className="rounded-xl border border-line bg-surface-subtle px-4 py-3">
+            <label className="flex items-center justify-between gap-4 cursor-pointer">
+              <span className="text-sm font-bold text-ink-body">{row.label}</span>
+              <input
+                type="checkbox"
+                className="h-5 w-5 rounded border-line-strong text-accent focus:ring-accent shrink-0"
+                checked={Boolean(state[row.key])}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setState((s) => {
+                    const next = { ...s, [row.key]: checked };
+                    void persist(next, "silent");
+                    return next;
+                  });
+                }}
+              />
+            </label>
+            <p className="mt-1.5 text-xs text-ink-muted leading-relaxed">{row.hint}</p>
+            {row.key === "isRecallEnabled" && state.isRecallEnabled && (
+              <label className="mt-3 flex items-center gap-3 text-xs font-semibold text-ink-body">
+                {txt.recallMonths}
+                <select
+                  className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm"
+                  value={state.recallAfterMonths ?? 6}
+                  onChange={(e) => {
+                    const months = Number(e.target.value) || 6;
+                    setState((s) => {
+                      const next = { ...s, recallAfterMonths: months };
+                      void persist(next, "silent");
+                      return next;
+                    });
+                  }}
+                >
+                  {[3, 4, 6, 9, 12].map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+        ))}
 
         {/* A refused save, said once and left on screen. A toast for this was
             missed every time, which is how a setting that never saved looked

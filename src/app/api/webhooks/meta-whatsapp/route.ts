@@ -3,6 +3,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection } from "@/lib/adminClinicDb";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { respondToPatientMessage } from "@/lib/bot/respond";
+import { transcribeWhatsappAudio } from "@/lib/bot/transcribe";
 import { recordThreadMessage } from "@/lib/bot/thread";
 import { applyInboundOptOut } from "@/lib/optOutInbound";
 import { isOptOutReply } from "@/lib/patientMessaging";
@@ -115,6 +116,8 @@ interface InboundMessage {
    * exactly why a person has to.
    */
   media?: "image" | "video" | "audio" | "document" | "sticker" | "location" | "contacts";
+  /** Meta's media id for a voice note, so the assistant can fetch and transcribe it. */
+  audioId?: string;
 }
 
 /** WhatsApp message types that carry no words the assistant can act on. */
@@ -159,7 +162,8 @@ function extractMessages(body: unknown): InboundMessage[] {
         // Media with no caption still counts as a message: it needs an answer and a person, and
         // dropping it here is why photos of swollen faces reached nobody.
         const messageId = String(m?.id || "");
-        if (from && (text || media)) out.push({ phoneNumberId, from, text, fromMe: false, media, messageId });
+        const audioId = media === "audio" ? String(m?.audio?.id || "") : "";
+        if (from && (text || media)) out.push({ phoneNumberId, from, text, fromMe: false, media, messageId, ...(audioId ? { audioId } : {}) });
       }
     }
   }
@@ -273,12 +277,33 @@ export async function POST(request: NextRequest) {
       queued += 1;
       after(async () => {
         try {
+          /*
+           * A voice note is read before it is answered. The transcript is handled exactly as
+           * typed text — triage, intents, booking — so a spoken "وشي وارم" reaches the emergency
+           * path. Any failure keeps the old behaviour: an acknowledgement and a person.
+           */
+          let text = msg.text;
+          let media = msg.media;
+          if (msg.media === "audio" && msg.audioId && !text) {
+            const t = await transcribeWhatsappAudio(clinicId, msg.audioId);
+            if (t.ok) {
+              text = t.text;
+              media = undefined;
+              await recordThreadMessage(clinicId, msg.from, {
+                direction: "in",
+                author: "patient",
+                text: `🎤 ${t.text}`,
+                messageId: `${msg.messageId}_transcript`,
+                channel: "meta",
+              }).catch(() => {});
+            }
+          }
           await respondToPatientMessage({
             clinicId,
             chatId: msg.from,
             phone: msg.from,
-            text: msg.text,
-            media: msg.media,
+            text,
+            media,
           });
         } catch (e) {
           // Nothing is waiting on this promise any more, so an error here would otherwise vanish.
