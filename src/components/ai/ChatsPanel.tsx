@@ -877,7 +877,8 @@ function Thread({
 
   const send = async () => {
     const body = text.trim();
-    if ((!body && !pending) || !chat.phone || sending) return;
+    // The rehearsal has no phone — it has nowhere to send to, which is the point of it.
+    if ((!body && !pending) || (!chat.phone && !chat.isPlayground) || sending) return;
     setSending(true);
     try {
       if (pending) {

@@ -84,12 +84,13 @@ export default function AiChatWidget() {
    * It normally sits opposite the reading direction (bottom-right in LTR). The reception assistant
    * fills that same corner with its composer, so while that panel is open this moves to the other
    * side — hiding it would take away the clinic-wide assistant on the one screen people use most.
-   * The WhatsApp page puts its send button in that corner too, so the same move applies there:
-   * the launcher sat exactly on top of Send.
+   * The WhatsApp page puts its send button in that corner too, but the other corner is under
+   * the rail there — so on that page the launcher stays on its side and lifts above the
+   * composer instead.
    */
   const pathname = usePathname();
-  const cornerIsTaken = receptionPanelActive || pathname === "/chats";
-  const onFarSide = cornerIsTaken ? !isRTL : isRTL;
+  const onFarSide = receptionPanelActive ? !isRTL : isRTL;
+  const lifted = pathname === "/chats";
   const cornerClass = onFarSide ? "left-4 sm:left-6" : "right-4 sm:right-6";
   const launcherCornerClass = onFarSide ? "left-5" : "right-5";
 
@@ -557,7 +558,7 @@ export default function AiChatWidget() {
           Below lg the mobile bottom nav bar (fixed bottom-4, h-16, z-[80], opaque) owns the
           bottom 80px of the screen; bottom-5 sat entirely behind it, which is why the
           assistant never appeared on phones or tablets. bottom-24 clears the bar. */}
-      <div className={`fixed bottom-24 lg:bottom-5 ${launcherCornerClass} z-50 transition-all duration-300`}>
+      <div className={`fixed bottom-24 ${lifted ? "lg:bottom-28" : "lg:bottom-5"} ${launcherCornerClass} z-50 transition-all duration-300`}>
         <button
           onClick={() => setIsOpen((prev) => !prev)}
           title={alphaName}
@@ -573,7 +574,7 @@ export default function AiChatWidget() {
       {/* The assistant panel — same glass shell as the reception panel beside the schedule. */}
       {isOpen && (
         <div
-          className={`fixed bottom-44 lg:bottom-24 ${cornerClass} z-50 w-[calc(100vw-2rem)] sm:w-[400px] h-[560px] max-h-[calc(100dvh-13rem)] lg:max-h-[75vh] bg-white/80 backdrop-blur-3xl border border-white/60 shadow-[0_8px_40px_rgba(0,0,0,0.12)] rounded-[2rem] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200`}
+          className={`fixed bottom-44 ${lifted ? "lg:bottom-[11.5rem]" : "lg:bottom-24"} ${cornerClass} z-50 w-[calc(100vw-2rem)] sm:w-[400px] h-[560px] max-h-[calc(100dvh-13rem)] lg:max-h-[75vh] bg-white/80 backdrop-blur-3xl border border-white/60 shadow-[0_8px_40px_rgba(0,0,0,0.12)] rounded-[2rem] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200`}
           dir={isRTL ? "rtl" : "ltr"}
         >
           {/* Header */}
