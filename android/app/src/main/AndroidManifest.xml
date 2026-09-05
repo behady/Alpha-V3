@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -86,6 +87,16 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.AlphaDental">
+
+        <!-- The google-services plugin (added for Crashlytics) would initialise Firebase from
+             google-services.json before Application.onCreate runs. AlphaApp configures Firebase
+             itself from firebase.properties and must stay the only place that does, or a stale
+             json quietly wins over the values the build was given. Crashlytics still starts:
+             it registers as a component and is picked up by AlphaApp's own initialisation. -->
+        <provider
+            android:name="com.google.firebase.provider.FirebaseInitProvider"
+            android:authorities="${applicationId}.firebaseinitprovider"
+            tools:node="remove" />
 
         <activity
             android:name=".MainActivity"

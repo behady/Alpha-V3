@@ -177,6 +177,14 @@ data class AppState(
     val chatNotice: String? = null,
     /** How long a staff reply keeps the bot out of a thread; the clinic's setting. */
     val chatClaimMs: Long = Chats.DEFAULT_HUMAN_CLAIM_MS,
+    /**
+     * A conversation opened from a patient's file before they have ever written in. Lives only
+     * here until the first send; the real row replaces it the moment the server writes one.
+     */
+    val chatDraft: Chats.ChatRow? = null,
+    /** Ready answers, read once per session when the chats screen first opens. */
+    val quickReplies: List<Chats.QuickReply> = emptyList(),
+    val quickRepliesLoaded: Boolean = false,
     // --- reads that failed ---
     /**
      * One per screen that reads once. Blank while the last read went through; a plain sentence
@@ -374,6 +382,7 @@ class AppViewModel : ViewModel() {
         chatsJob?.cancel()
         chatLinesJob?.cancel()
         labJob?.cancel()
+        Crash.clear()
         Repository.signOut()
         _state.value = AppState(loading = false)
     }
@@ -1091,6 +1100,7 @@ class AppViewModel : ViewModel() {
 
     /** The clinic-wide feeds that carry badges: the manual send list and the chat threads. */
     private fun watchClinicFeeds(session: Session) {
+        Crash.identify(session)
         watchWhatsappQueue(session.clinicId)
         watchChats(session)
     }
@@ -1120,11 +1130,119 @@ class AppViewModel : ViewModel() {
 
     fun openChats() {
         _state.value = _state.value.copy(chatsOpen = true)
+        loadQuickReplies()
     }
 
     fun closeChats() {
         closeChat()
-        _state.value = _state.value.copy(chatsOpen = false)
+        _state.value = _state.value.copy(chatsOpen = false, chatDraft = null)
+    }
+
+    /** The thread on screen: a real row, or the draft standing in for one. */
+    private fun currentChat(): Chats.ChatRow? {
+        val id = _state.value.openChatId
+        return _state.value.chats.firstOrNull { it.id == id } ?: _state.value.chatDraft?.takeIf { it.id == id }
+    }
+
+    /**
+     * Message the patient whose file is open, from the clinic's own number.
+     *
+     * The thread already there is opened when there is one; otherwise a draft is, and the first
+     * send creates the real conversation. The file is closed first because the chats screen sits
+     * under the file in draw order (so a file opened FROM a chat lands on top) — leaving it open
+     * would put the new thread behind the file it was opened from.
+     */
+    fun startChatWithOpenPatient() {
+        val patient = _state.value.patientFile?.patient ?: return
+        val session = _state.value.session ?: return
+        if (!canSeeChats(session)) return
+        val draft = Chats.draftFor(patient.id, patient.name, patient.phone) ?: run {
+            _state.value = _state.value.copy(
+                message = if (_state.value.arabic) "لا يوجد رقم هاتف صالح لهذا المريض." else "This patient has no usable phone number.",
+            )
+            return
+        }
+        closePatient()
+        val existing = _state.value.chats.firstOrNull { it.id == draft.id }
+        _state.value = _state.value.copy(chatsOpen = true, chatDraft = if (existing == null) draft else null)
+        loadQuickReplies()
+        openChat(draft.id)
+    }
+
+    private fun loadQuickReplies() {
+        val session = _state.value.session ?: return
+        if (_state.value.quickRepliesLoaded) return
+        viewModelScope.launch {
+            val rows = Chats.loadQuickReplies(session.clinicId, _state.value.arabic)
+            _state.value = _state.value.copy(quickReplies = rows, quickRepliesLoaded = true)
+        }
+    }
+
+    /** A sentence the desk says more than twice a day, kept for next time. */
+    fun addQuickReply(title: String, text: String) {
+        val session = _state.value.session ?: return
+        if (title.isBlank() || text.isBlank()) return
+        viewModelScope.launch {
+            Chats.addQuickReply(session.clinicId, session.uid, title, text)
+                .onSuccess {
+                    _state.value = _state.value.copy(quickRepliesLoaded = false)
+                    loadQuickReplies()
+                }
+                .onFailure { error ->
+                    _state.value = _state.value.copy(message = error.message ?: "Could not save.")
+                }
+        }
+    }
+
+    /**
+     * A photo or file to the patient, with `caption` as its words.
+     *
+     * Uploaded to the clinic's Storage folder first, then the server hands Meta the link — the
+     * same two steps the website takes, so the bubble on both screens renders from one URL.
+     */
+    fun sendChatFile(bytes: ByteArray, mime: String, filename: String, caption: String) {
+        val session = _state.value.session ?: return
+        val chat = currentChat() ?: return
+        if (_state.value.chatSending) return
+        val kind = Chats.kindFor(mime)
+        if (bytes.size > Chats.sizeLimit(kind)) {
+            val mb = Chats.sizeLimit(kind) / 1024 / 1024
+            _state.value = _state.value.copy(chatError = if (_state.value.arabic) "الملف أكبر من $mb ميجا" else "File is larger than ${mb}MB")
+            return
+        }
+        _state.value = _state.value.copy(chatSending = true, chatError = null)
+        viewModelScope.launch {
+            runCatching {
+                val url = Chats.uploadOutbound(session.clinicId, bytes, mime, filename)
+                ChatReplyClient.sendMedia(
+                    session.clinicId, chat.phone, chat.patientId, chat.patientName,
+                    caption.trim(), url, mime, kind, filename,
+                )
+            }.onSuccess { sent ->
+                afterChatSend(session, chat, sent.mode)
+            }.onFailure { error ->
+                _state.value = _state.value.copy(
+                    chatSending = false,
+                    chatError = error.message ?: if (_state.value.arabic) "لم يتم الإرسال." else "Could not send.",
+                )
+            }
+        }
+    }
+
+    /** What every successful send does next: claim the thread, retire the draft, note a queued mode. */
+    private fun afterChatSend(session: Session, chat: Chats.ChatRow, mode: String) {
+        if (chat.assignedTo.isBlank() && _state.value.chatDraft?.id != chat.id) {
+            viewModelScope.launch { Chats.assign(session.clinicId, chat.id, session.uid, session.name) }
+        }
+        _state.value = _state.value.copy(
+            chatSending = false,
+            // The server has written the real row now; the listener delivers it within a moment.
+            chatDraft = if (_state.value.chatDraft?.id == chat.id) null else _state.value.chatDraft,
+            chatNotice = if (mode == "queued") {
+                if (_state.value.arabic) "العيادة دي مش متوصلة بواتساب الرسمي — الرسالة اتحطت في قائمة الإرسال اليدوي."
+                else "This clinic has no WhatsApp gateway — the message went to the manual send list."
+            } else null,
+        )
     }
 
     /**
@@ -1173,7 +1291,7 @@ class AppViewModel : ViewModel() {
      */
     fun sendChatReply(text: String) {
         val session = _state.value.session ?: return
-        val chat = _state.value.chats.firstOrNull { it.id == _state.value.openChatId } ?: return
+        val chat = currentChat() ?: return
         val body = text.trim()
         if (body.isBlank() || _state.value.chatSending) return
         _state.value = _state.value.copy(chatSending = true, chatError = null)
@@ -1181,16 +1299,7 @@ class AppViewModel : ViewModel() {
             runCatching {
                 ChatReplyClient.sendText(session.clinicId, chat.phone, chat.patientId, chat.patientName, body)
             }.onSuccess { sent ->
-                if (chat.assignedTo.isBlank()) {
-                    Chats.assign(session.clinicId, chat.id, session.uid, session.name)
-                }
-                _state.value = _state.value.copy(
-                    chatSending = false,
-                    chatNotice = if (sent.mode == "queued") {
-                        if (_state.value.arabic) "العيادة دي مش متوصلة بواتساب الرسمي — الرسالة اتحطت في قائمة الإرسال اليدوي."
-                        else "This clinic has no WhatsApp gateway — the message went to the manual send list."
-                    } else null,
-                )
+                afterChatSend(session, chat, sent.mode)
             }.onFailure { error ->
                 _state.value = _state.value.copy(
                     chatSending = false,
@@ -1203,14 +1312,14 @@ class AppViewModel : ViewModel() {
     /** The re-engagement template, for a thread whose 24-hour window has closed. */
     fun sendChatFollowup() {
         val session = _state.value.session ?: return
-        val chat = _state.value.chats.firstOrNull { it.id == _state.value.openChatId } ?: return
+        val chat = currentChat() ?: return
         if (_state.value.chatSending) return
         _state.value = _state.value.copy(chatSending = true, chatError = null)
         viewModelScope.launch {
             runCatching {
                 ChatReplyClient.sendFollowupTemplate(session.clinicId, chat.phone, chat.patientId, chat.patientName)
-            }.onSuccess {
-                _state.value = _state.value.copy(chatSending = false)
+            }.onSuccess { sent ->
+                afterChatSend(session, chat, sent.mode)
             }.onFailure { error ->
                 _state.value = _state.value.copy(
                     chatSending = false,
@@ -2432,6 +2541,8 @@ class AppViewModel : ViewModel() {
             error is java.net.UnknownHostException ||
             error is java.net.SocketTimeoutException ||
             error.message?.contains("offline", ignoreCase = true) == true
+        // No signal is the phone's problem; anything else is ours, and worth a report.
+        if (!offline) Crash.record(error, "load failed")
         return when {
             offline -> if (arabic) "لا يوجد اتصال. اسحب للأسفل للمحاولة مرة أخرى." else "No connection. Pull down to try again."
             code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED ->

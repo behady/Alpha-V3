@@ -621,6 +621,10 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     onToggleAssign = viewModel::toggleChatAssign,
                     onSetArchived = viewModel::setChatArchived,
                     onDismissNotice = viewModel::dismissChatNotice,
+                    draft = state.chatDraft,
+                    quickReplies = state.quickReplies,
+                    onSendFile = viewModel::sendChatFile,
+                    onAddQuickReply = viewModel::addQuickReply,
                     // The file opens over the thread; closing it lands back on the chat.
                     onOpenPatient = { id -> viewModel.openPatient(id) },
                     onClose = viewModel::closeChats,
@@ -695,6 +699,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     onUploadPhoto = if (session.can("patients.edit")) {
                         viewModel::uploadPatientPhoto
                     } else null,
+                    onMessage = if (viewModel.canSeeChats(session)) ({ viewModel.startChatWithOpenPatient() }) else null,
                     onClose = viewModel::closePatient,
                 )
             }

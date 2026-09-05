@@ -3,6 +3,10 @@ package com.alphadental.clinic.ui
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -27,6 +31,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -35,6 +40,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Mic
@@ -50,6 +60,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -57,6 +69,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -116,11 +129,18 @@ fun ChatsScreen(
     onToggleAssign: () -> Unit,
     onSetArchived: (Boolean) -> Unit,
     onDismissNotice: () -> Unit,
+    /** A conversation opened from a patient's file that has no document yet. */
+    draft: Chats.ChatRow? = null,
+    quickReplies: List<Chats.QuickReply> = emptyList(),
+    /** (bytes, mime, filename, caption). */
+    onSendFile: (ByteArray, String, String, String) -> Unit = { _, _, _, _ -> },
+    onAddQuickReply: (String, String) -> Unit = { _, _ -> },
     /** Null for roles that may not open a patient's file. */
     onOpenPatient: ((String) -> Unit)?,
     onClose: () -> Unit,
 ) {
-    val open = chats.firstOrNull { it.id == openChatId }
+    // The real row wins the moment it exists: the first send creates it, and the draft retires.
+    val open = chats.firstOrNull { it.id == openChatId } ?: draft?.takeIf { it.id == openChatId }
     if (openChatId.isNotBlank() && open != null) {
         ChatThread(
             chat = open,
@@ -138,6 +158,10 @@ fun ChatsScreen(
             onToggleAssign = onToggleAssign,
             onSetArchived = onSetArchived,
             onDismissNotice = onDismissNotice,
+            isDraft = draft?.id == open.id && chats.none { it.id == open.id },
+            quickReplies = quickReplies,
+            onSendFile = onSendFile,
+            onAddQuickReply = onAddQuickReply,
             onOpenPatient = onOpenPatient,
             onBack = onCloseChat,
         )
@@ -465,6 +489,10 @@ private fun ChatThread(
     onToggleAssign: () -> Unit,
     onSetArchived: (Boolean) -> Unit,
     onDismissNotice: () -> Unit,
+    isDraft: Boolean,
+    quickReplies: List<Chats.QuickReply>,
+    onSendFile: (ByteArray, String, String, String) -> Unit,
+    onAddQuickReply: (String, String) -> Unit,
     onOpenPatient: ((String) -> Unit)?,
     onBack: () -> Unit,
 ) {
@@ -473,6 +501,9 @@ private fun ChatThread(
 
     var draft by rememberSaveable(chat.id) { mutableStateOf("") }
     var menuOpen by remember { mutableStateOf(false) }
+    var repliesOpen by remember { mutableStateOf(false) }
+    /** A file picked and not yet sent: bytes, mime, name. Held here, handed to the send. */
+    var pending by remember(chat.id) { mutableStateOf<PendingFile?>(null) }
     val listState = rememberLazyListState()
 
     // A new line lands: follow it, the way a chat does. The person opened the thread for its end.
@@ -518,6 +549,7 @@ private fun ChatThread(
                         overflow = TextOverflow.Ellipsis,
                     )
                     val status = when {
+                        isDraft -> if (arabic) "محادثة جديدة" else "New conversation"
                         chat.optedOut -> if (arabic) "طلب إيقاف الرسائل" else "Asked not to be messaged"
                         chat.needsHuman -> if (arabic) "في انتظار رد من شخص" else "Waiting for a person"
                         isMine -> if (arabic) "أنت تتولى المحادثة" else "You are handling this"
@@ -578,7 +610,7 @@ private fun ChatThread(
             }
 
             // The switch that matters: one button for every reason the bot is quiet.
-            Surface(
+            if (!isDraft) Surface(
                 color = if (chat.needsHuman) Alpha.DangerSoft else if (botQuiet) Alpha.WarnBg else Alpha.Card,
                 shape = Alpha.CardShape,
                 modifier = Modifier
@@ -665,6 +697,10 @@ private fun ChatThread(
                 )
             }
 
+            pending?.let { file ->
+                PendingFileRow(file, arabic) { pending = null }
+            }
+
             Composer(
                 chat = chat,
                 draft = draft,
@@ -672,13 +708,74 @@ private fun ChatThread(
                 sending = sending,
                 arabic = arabic,
                 now = now,
+                isDraft = isDraft,
+                hasFile = pending != null,
                 onSend = {
+                    val file = pending
                     lastSent = draft
-                    onSend(draft)
+                    if (file != null) {
+                        onSendFile(file.bytes, file.mime, file.name, draft)
+                        pending = null
+                    } else {
+                        onSend(draft)
+                    }
                     draft = ""
                 },
                 onSendFollowup = onSendFollowup,
+                onPick = { pending = it },
+                onQuickReplies = { repliesOpen = true },
             )
+        }
+    }
+
+    if (repliesOpen) {
+        QuickRepliesSheet(
+            replies = quickReplies,
+            patientName = chat.patientName,
+            arabic = arabic,
+            onInsert = { text ->
+                // Appended under what is already typed, the way the desk's box does it.
+                draft = if (draft.isBlank()) text else draft.trimEnd() + "\n" + text
+                repliesOpen = false
+            },
+            onAdd = onAddQuickReply,
+            onDismiss = { repliesOpen = false },
+        )
+    }
+}
+
+/** A file picked and not yet sent. */
+private data class PendingFile(val bytes: ByteArray, val mime: String, val name: String) {
+    val kind: String get() = Chats.kindFor(mime)
+}
+
+@Composable
+private fun PendingFileRow(file: PendingFile, arabic: Boolean, onRemove: () -> Unit) {
+    Surface(
+        color = Alpha.Card,
+        shape = Alpha.CardShape,
+        border = BorderStroke(1.dp, Alpha.Slate200),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp)) {
+            Icon(
+                if (file.kind == "image") Icons.Filled.Image else Icons.Filled.InsertDriveFile,
+                contentDescription = null,
+                tint = Alpha.Green,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(file.name, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Alpha.Slate900, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    "${file.bytes.size / 1024} KB · " + (if (arabic) "اكتب تعليقاً أو أرسل كما هو" else "add a caption, or send as is"),
+                    fontSize = 11.5.sp,
+                    color = Alpha.Slate500,
+                )
+            }
+            IconButton(onClick = onRemove) {
+                Icon(Icons.Filled.Close, contentDescription = "Remove", tint = Alpha.Slate500, modifier = Modifier.size(18.dp))
+            }
         }
     }
 }
@@ -698,12 +795,32 @@ private fun Composer(
     sending: Boolean,
     arabic: Boolean,
     now: Long,
+    isDraft: Boolean,
+    hasFile: Boolean,
     onSend: () -> Unit,
     onSendFollowup: () -> Unit,
+    onPick: (PendingFile) -> Unit,
+    onQuickReplies: () -> Unit,
 ) {
+    val context = LocalContext.current
+    var chooserOpen by remember { mutableStateOf(false) }
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            // Downscaled on the phone, as patient photos are: a 12-megapixel shot is over Meta's
+            // 5MB image ceiling and nobody needs it at that size in a chat.
+            readScaledJpeg(context, uri)?.let { onPick(PendingFile(it, "image/jpeg", "photo_${System.currentTimeMillis()}.jpg")) }
+        }
+    }
+    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) context.readPicked(uri)?.let(onPick)
+    }
+
     val reason = when {
         chat.isLid -> if (arabic) "المرسل مخفي رقمه؛ لا يمكن الرد من هنا." else "This sender hides their number; there is no way to reply from here."
         chat.optedOut -> if (arabic) "المريض طلب إيقاف الرسائل. لا يمكن المراسلة." else "This patient asked not to be messaged."
+        isDraft ->
+            if (arabic) "المريض لم يراسل العيادة من قبل. واتساب لا يسمح إلا بقالب المتابعة المعتمد لبدء المحادثة؛ بعد أن يرد يمكنك الكتابة بحرية."
+            else "This patient has not written to the clinic yet. WhatsApp only allows the approved template to open a conversation; once they reply you can type freely."
         chat.channel == "meta" && chat.windowClosed(now) ->
             if (arabic) "مر أكثر من ٢٤ ساعة على آخر رسالة من المريض. واتساب لا يوصّل غير قالب المتابعة المعتمد."
             else "More than 24 hours since they last wrote. WhatsApp only delivers the approved follow-up template now."
@@ -739,23 +856,44 @@ private fun Composer(
         return
     }
 
+    if (chooserOpen) {
+        AttachChooser(
+            arabic = arabic,
+            onPhoto = {
+                chooserOpen = false
+                pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            onFile = {
+                chooserOpen = false
+                pickFile.launch("*/*")
+            },
+            onDismiss = { chooserOpen = false },
+        )
+    }
+
     Row(
         verticalAlignment = Alignment.Bottom,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 12.dp, end = 8.dp, top = 4.dp, bottom = 8.dp),
+            .padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 8.dp),
     ) {
+        IconButton(onClick = onQuickReplies, enabled = !sending, modifier = Modifier.padding(bottom = 2.dp)) {
+            Icon(Icons.Filled.Bolt, contentDescription = if (arabic) "ردود جاهزة" else "Quick replies", tint = Alpha.Slate600)
+        }
+        IconButton(onClick = { chooserOpen = true }, enabled = !sending && !hasFile, modifier = Modifier.padding(bottom = 2.dp)) {
+            Icon(Icons.Filled.AttachFile, contentDescription = if (arabic) "إرفاق" else "Attach", tint = if (hasFile) Alpha.Slate300 else Alpha.Slate600)
+        }
         OutlinedTextField(
             value = draft,
             onValueChange = onDraft,
-            placeholder = { Text(if (arabic) "اكتب رسالة" else "Type a message", color = Alpha.Slate400) },
+            placeholder = { Text(if (hasFile) (if (arabic) "تعليق (اختياري)" else "Caption (optional)") else if (arabic) "اكتب رسالة" else "Type a message", color = Alpha.Slate400) },
             colors = chatFieldColors(),
             shape = RoundedCornerShape(22.dp),
             maxLines = 5,
             modifier = Modifier.weight(1f),
         )
         Spacer(Modifier.width(6.dp))
-        val canSend = draft.isNotBlank() && !sending
+        val canSend = (draft.isNotBlank() || hasFile) && !sending
         Surface(
             onClick = onSend,
             enabled = canSend,
@@ -938,6 +1076,157 @@ private fun MediaRow(icon: androidx.compose.ui.graphics.vector.ImageVector, labe
         }
     }
 }
+
+/** Photo or file: two rows, because the pickers behind them are different system screens. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AttachChooser(arabic: Boolean, onPhoto: () -> Unit, onFile: () -> Unit, onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Alpha.Card) {
+        Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 28.dp)) {
+            ChooserRow(Icons.Filled.Image, if (arabic) "صورة من المعرض" else "Photo from gallery", if (arabic) "حتى ٥ ميجا" else "Up to 5MB", onPhoto)
+            ChooserRow(Icons.Filled.InsertDriveFile, if (arabic) "ملف" else "File", if (arabic) "PDF أو مستند، حتى ٢٠ ميجا" else "PDF or document, up to 20MB", onFile)
+        }
+    }
+}
+
+@Composable
+private fun ChooserRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, hint: String, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(Alpha.CardShape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+    ) {
+        Box(Modifier.size(40.dp).clip(CircleShape).background(Alpha.GreenSoft), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, tint = Alpha.Green, modifier = Modifier.size(20.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text(title, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Alpha.Slate900)
+            Text(hint, fontSize = 12.sp, color = Alpha.Slate500)
+        }
+    }
+}
+
+/**
+ * Ready answers, one tap from the box.
+ *
+ * Two sources shown as one list, as the website does: the clinic's ready answers from Settings
+ * (the sentences the bot already quotes verbatim) and the list the desk keeps itself. The
+ * second can be added to from here — anything said more than twice a day, in the desk's words.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun QuickRepliesSheet(
+    replies: List<Chats.QuickReply>,
+    patientName: String,
+    arabic: Boolean,
+    onInsert: (String) -> Unit,
+    onAdd: (String, String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var q by remember { mutableStateOf("") }
+    var adding by remember { mutableStateOf(false) }
+    var newTitle by remember { mutableStateOf("") }
+    var newText by remember { mutableStateOf("") }
+    val needle = q.trim().lowercase()
+    val shown = if (needle.isBlank()) replies else replies.filter { "${it.title} ${it.text}".lowercase().contains(needle) }
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Alpha.Card) {
+        Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(start = 16.dp, end = 16.dp, bottom = 28.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (arabic) "ردود جاهزة" else "Quick replies",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontFamily = AlphaType.Display,
+                    color = Alpha.Slate900,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { adding = !adding }) {
+                    Text(if (adding) (if (arabic) "إلغاء" else "Cancel") else (if (arabic) "＋ جديد" else "＋ New"), fontWeight = FontWeight.ExtraBold, color = Alpha.Green)
+                }
+            }
+
+            if (adding) {
+                OutlinedTextField(
+                    value = newTitle, onValueChange = { newTitle = it }, singleLine = true,
+                    placeholder = { Text(if (arabic) "عنوان قصير" else "Short title", color = Alpha.Slate400) },
+                    colors = chatFieldColors(), shape = Alpha.CardShape, modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = newText, onValueChange = { newText = it }, maxLines = 5,
+                    placeholder = { Text(if (arabic) "النص. اكتب {name} ليُستبدل باسم المريض" else "The text. {name} becomes the patient's first name", color = Alpha.Slate400) },
+                    colors = chatFieldColors(), shape = Alpha.CardShape, modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = {
+                        onAdd(newTitle, newText)
+                        newTitle = ""; newText = ""; adding = false
+                    },
+                    enabled = newTitle.isNotBlank() && newText.isNotBlank(),
+                    shape = Alpha.PillShape,
+                    colors = ButtonDefaults.buttonColors(containerColor = Alpha.Ink, contentColor = Color.White),
+                ) { Text(if (arabic) "حفظ" else "Save", fontWeight = FontWeight.Bold) }
+                Spacer(Modifier.height(12.dp))
+            }
+
+            if (replies.size > 6) {
+                OutlinedTextField(
+                    value = q, onValueChange = { q = it }, singleLine = true,
+                    placeholder = { Text(if (arabic) "ابحث" else "Search", color = Alpha.Slate400) },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = Alpha.Slate400) },
+                    colors = chatFieldColors(), shape = Alpha.CardShape, modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+
+            if (shown.isEmpty()) {
+                EmptyState(
+                    if (arabic) "لا توجد ردود جاهزة بعد. أضف واحداً هنا، أو املأ الإجابات الجاهزة في الإعدادات ← واتساب على الموقع."
+                    else "No quick replies yet. Add one here, or fill in the ready answers under Settings → WhatsApp on the website."
+                )
+            } else {
+                shown.forEach { reply ->
+                    Surface(
+                        onClick = { onInsert(Chats.fillQuickReply(reply.text, patientName)) },
+                        shape = Alpha.CardShape,
+                        color = Alpha.Ground,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                    ) {
+                        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(reply.title, fontSize = 13.5.sp, fontWeight = FontWeight.ExtraBold, color = Alpha.Slate900, modifier = Modifier.weight(1f))
+                                if (!reply.custom) Tag(if (arabic) "من الإعدادات" else "Settings", Alpha.Slate100, Alpha.Slate500)
+                            }
+                            Text(reply.text, fontSize = 12.5.sp, color = Alpha.Slate600, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Bytes, type and display name for a document the person picked. Null if it cannot be read. */
+private fun Context.readPicked(uri: Uri): PendingFile? = runCatching {
+    val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+    val mime = contentResolver.getType(uri) ?: "application/octet-stream"
+    var name = ""
+    contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+        if (c.moveToFirst()) name = c.getString(0).orEmpty()
+    }
+    PendingFile(bytes, mime, name.ifBlank { "file_${System.currentTimeMillis()}" })
+}.getOrNull()
 
 // ---------------------------------------------------------------------------------------------
 // Words

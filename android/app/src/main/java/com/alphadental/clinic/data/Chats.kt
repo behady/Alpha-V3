@@ -252,6 +252,137 @@ object Chats {
         conversations(clinicId).document(chatId).update(mapOf("archived" to archived)).await()
     }
 
+    // ---------------------------------------------------------------- starting a conversation
+
+    /**
+     * The conversation document's id for a phone number, as the server derives it.
+     *
+     * Mirrors `conversationKey` → `phoneMatchKey` on the website: digits only, international and
+     * trunk prefixes dropped, the last nine kept. Same input, same id, or the phone would open a
+     * second thread beside the one the desk already has with this patient.
+     */
+    fun conversationKeyFor(phone: String): String {
+        var digits = phone.map { c ->
+            // Arabic-Indic digits, as some patients are entered.
+            when (c) {
+                in '\u0660'..'\u0669' -> '0' + (c - '\u0660')
+                in '\u06F0'..'\u06F9' -> '0' + (c - '\u06F0')
+                else -> c
+            }
+        }.filter { it.isDigit() }.joinToString("")
+        if (digits.isBlank()) return ""
+        if (digits.startsWith("00")) digits = digits.drop(2)
+        while (digits.startsWith("0")) digits = digits.drop(1)
+        return if (digits.length > 9) digits.takeLast(9) else digits
+    }
+
+    /**
+     * A conversation the clinic is about to open with a patient who has never written in.
+     *
+     * Exists only in the app's memory until the first message is sent, at which point the server
+     * writes the real document and this one is replaced by it. Marked as the official channel
+     * with no inbound message, which is exactly the state where only a template delivers.
+     */
+    fun draftFor(patientId: String, patientName: String, phone: String): ChatRow? {
+        val key = conversationKeyFor(phone)
+        if (key.length < 7) return null
+        return ChatRow(id = key, phone = phone, patientId = patientId, patientName = patientName, channel = "meta")
+    }
+
+    // ---------------------------------------------------------------- files
+
+    /** Meta's own per-type ceilings, with the bucket's 20MB as the outer wall. */
+    fun sizeLimit(kind: String): Long = when (kind) {
+        "image" -> 5L * 1024 * 1024
+        "video", "audio" -> 16L * 1024 * 1024
+        else -> 20L * 1024 * 1024
+    }
+
+    fun kindFor(mime: String): String = when {
+        mime.startsWith("image/") -> "image"
+        mime.startsWith("video/") -> "video"
+        mime.startsWith("audio/") -> "audio"
+        else -> "document"
+    }
+
+    /**
+     * Put a file the clinic is sending into the clinic's own Storage folder and return the link.
+     *
+     * The same path the website uses. The server then hands Meta the download URL rather than
+     * the bytes, so the file travels once — and the same URL is what the bubble renders from.
+     * The reply route accepts only links into this bucket, which is why the upload cannot be
+     * skipped in favour of some other host.
+     */
+    suspend fun uploadOutbound(clinicId: String, bytes: ByteArray, mime: String, name: String): String {
+        val safeName = name.replace(Regex("[^\\w.\\-\u0600-\u06FF]+"), "_").take(80).ifBlank { "file" }
+        val path = "clinics/$clinicId/whatsapp_media/outbound/${System.currentTimeMillis()}_$safeName"
+        val ref = com.google.firebase.storage.FirebaseStorage.getInstance().reference.child(path)
+        val metadata = com.google.firebase.storage.StorageMetadata.Builder()
+            .setContentType(mime.ifBlank { "application/octet-stream" })
+            .build()
+        ref.putBytes(bytes, metadata).await()
+        return ref.downloadUrl.await().toString()
+    }
+
+    // ---------------------------------------------------------------- quick replies
+
+    /** A ready answer, one tap from the box. `custom` rows are the desk's own; the rest come from Settings. */
+    data class QuickReply(val id: String, val title: String, val text: String, val custom: Boolean)
+
+    /** Which ready answers from Settings → WhatsApp are worth a row, and what to call them. */
+    private val FACT_ROWS = listOf(
+        Triple("consultation", "Consultation", "الكشف"),
+        Triple("mapsUrl", "Location link", "اللوكيشن"),
+        Triple("parking", "Parking", "الباركينج"),
+        Triple("walkIn", "Walk-ins", "من غير حجز"),
+        Triple("installments", "Instalments", "التقسيط"),
+        Triple("offers", "Offers", "العروض"),
+        Triple("insurance", "Insurance", "التأمين"),
+        Triple("durations", "How long it takes", "مدة الجلسة"),
+        Triple("sessions", "Number of sessions", "عدد الجلسات"),
+        Triple("aftercare", "Aftercare", "التعليمات بعد العلاج"),
+        Triple("whyUs", "Why us", "ليه إحنا"),
+    )
+
+    /**
+     * Two sources, one list, as the website shows them: the sentences the bot already quotes
+     * verbatim from Settings, and the list the desk keeps itself in `whatsapp_quick_replies`.
+     */
+    suspend fun loadQuickReplies(clinicId: String, arabic: Boolean): List<QuickReply> {
+        val clinic = Firebase.db().collection("clinics").document(clinicId)
+        val custom = runCatching {
+            clinic.collection("whatsapp_quick_replies").orderBy("createdAt").get().await().documents.map { d ->
+                QuickReply(d.id, d.str("title"), d.str("text"), custom = true)
+            }.filter { it.title.isNotBlank() && it.text.isNotBlank() }
+        }.getOrDefault(emptyList())
+        val facts = runCatching {
+            val map = clinic.collection("settings").document("whatsapp").get().await().get("botFacts") as? Map<*, *>
+            FACT_ROWS.mapNotNull { (key, en, ar) ->
+                val text = map?.get(key)?.toString()?.trim().orEmpty()
+                if (text.isBlank()) null else QuickReply("fact_$key", if (arabic) ar else en, text, custom = false)
+            }
+        }.getOrDefault(emptyList())
+        return custom + facts
+    }
+
+    suspend fun addQuickReply(clinicId: String, uid: String, title: String, text: String): Result<Unit> = runCatching {
+        Firebase.db().collection("clinics").document(clinicId).collection("whatsapp_quick_replies").add(
+            mapOf(
+                "title" to title.trim().take(60),
+                "text" to text.trim().take(1500),
+                "createdBy" to uid,
+                "createdAt" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+            )
+        ).await()
+        Unit
+    }
+
+    /** `{name}` becomes the patient's first name, so a saved greeting reads as written to them. */
+    fun fillQuickReply(text: String, patientName: String): String {
+        val first = patientName.trim().split(Regex("\\s+")).firstOrNull().orEmpty()
+        return text.replace("{name}", first).replace(Regex(" {2,}"), " ").trim()
+    }
+
     /** How long a staff reply keeps the bot out of a thread — the clinic's setting, or the default. */
     suspend fun loadHumanClaimMs(clinicId: String): Long {
         val snap = runCatching {

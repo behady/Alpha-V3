@@ -4,6 +4,8 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.gms.google-services")
+    id("com.google.firebase.crashlytics")
 }
 
 /**
@@ -13,6 +15,13 @@ plugins {
  * google-services.json, because that file requires registering an Android app in
  * the Firebase console. Everything this app uses — email sign-in and Firestore —
  * works from these five values alone, so the build has no console step.
+ *
+ * google-services.json now sits beside it (also gitignored), but it is there for the
+ * BUILD, not the app: the Crashlytics plugin reads the app id from it to upload the
+ * release mapping file. The app itself still configures Firebase from the values
+ * below — the auto-initialiser the google-services plugin would otherwise add is
+ * removed in the manifest — so there is one source of truth at runtime, and a
+ * mismatch between the two files cannot produce two half-configured apps.
  *
  * If the file is missing the build fails with an explanation rather than
  * producing an app that installs and then silently cannot reach the database.
@@ -47,8 +56,8 @@ android {
         applicationId = "com.alphadental.clinic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 74
-        versionName = "5.30.0"
+        versionCode = 75
+        versionName = "5.31.0"
 
         buildConfigField("String", "FB_PROJECT_ID", "\"${firebase("firebase.projectId")}\"")
         buildConfigField("String", "FB_API_KEY", "\"${firebase("firebase.apiKey")}\"")
@@ -91,6 +100,11 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            // Nothing to symbolicate in an unminified build, and nobody wants Android Studio
+            // runs mixed into the release crash list.
+            configure<com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension> {
+                mappingFileUploadEnabled = false
+            }
         }
     }
 
@@ -150,6 +164,7 @@ dependencies {
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
 
     implementation(platform("com.google.firebase:firebase-bom:33.5.1"))
+    implementation("com.google.firebase:firebase-crashlytics")
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-storage")
     implementation("com.google.firebase:firebase-messaging")

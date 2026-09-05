@@ -56,7 +56,12 @@ object Repository {
      * who made the change may have put the phone in their pocket and walked to another room.
      */
     private fun Task<*>.queueLocally(what: String) {
-        addOnFailureListener { error -> Log.w(TAG, "$what was rejected by the server: ${error.message}") }
+        addOnFailureListener { error ->
+            Log.w(TAG, "$what was rejected by the server: ${error.message}")
+            // Nobody on the phone is told (see above), so this is the only place the fault
+            // surfaces at all. A rules rejection here is a bug on one side or the other.
+            com.alphadental.clinic.Crash.record(error, "$what was rejected by the server")
+        }
     }
 
     /**
