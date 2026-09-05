@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { X, Send, Loader2, Trash2, Zap, AlertTriangle, GraduationCap, Sparkles, MessageCircle, LifeBuoy, Bug, Lightbulb, Camera, ImagePlus } from "lucide-react";
 import { useClinic } from "@/context/ClinicContext";
 import { useAuth } from "@/context/AuthContext";
@@ -84,8 +84,12 @@ export default function AiChatWidget() {
    * It normally sits opposite the reading direction (bottom-right in LTR). The reception assistant
    * fills that same corner with its composer, so while that panel is open this moves to the other
    * side — hiding it would take away the clinic-wide assistant on the one screen people use most.
+   * The WhatsApp page puts its send button in that corner too, so the same move applies there:
+   * the launcher sat exactly on top of Send.
    */
-  const onFarSide = receptionPanelActive ? !isRTL : isRTL;
+  const pathname = usePathname();
+  const cornerIsTaken = receptionPanelActive || pathname === "/chats";
+  const onFarSide = cornerIsTaken ? !isRTL : isRTL;
   const cornerClass = onFarSide ? "left-4 sm:left-6" : "right-4 sm:right-6";
   const launcherCornerClass = onFarSide ? "left-5" : "right-5";
 
