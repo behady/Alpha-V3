@@ -26,6 +26,8 @@ import DesktopSidebar from "@/components/dashboard/DesktopSidebar";
 import AiChatWidget from "@/components/AiChatWidget";
 import { TutorialProvider } from "@/context/TutorialContext";
 import TutorialOverlay from "@/components/TutorialOverlay";
+import WhatsAppIcon from "@/components/icons/WhatsAppIcon";
+import { useUnreadChatCount } from "@/lib/useUnreadChatCount";
 
 const plusJakartaSans = Plus_Jakarta_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
 const cairo = Cairo({ subsets: ["arabic"] });
@@ -38,7 +40,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { user, loading: authLoading } = useAuth();
   const { clinicId, clinic, isAdmin, isReadOnly, readOnlyReason } = useClinic();
   const { appointmentsVisibility } = useUI();
-  
+  // Unopened patient WhatsApp messages, for the count on the WhatsApp icon in both navs.
+  const unreadChats = useUnreadChatCount();
+
   const [isOpen, setIsOpen] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [searchVal, setSearchVal] = useState("");
@@ -110,6 +114,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const allNavItems = [
     { key: "dashboard", href: "/", icon: LayoutDashboard },
     { key: "leads", href: "/leads", icon: Inbox },
+    /**
+     * The clinic's WhatsApp, with the unread count on the icon. Near the top because it is the
+     * one page a receptionist opens all day — a patient writing is a patient at the desk.
+     */
+    { key: "chats", href: "/chats", icon: WhatsAppIcon, badge: unreadChats },
     { key: "marketing", href: "/marketing", icon: Megaphone },
     { key: "patients", href: "/patients", icon: Users },
     { key: "appointments", href: "/appointments", icon: Calendar },
@@ -167,6 +176,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       return canAccessNavItem('leads', user, isAdmin) || canAccessNavItem('patients', user, isAdmin);
     }
 
+    // Same key the message queue has always used, so reception has it without a permissions edit.
+    if (key === 'chats') return canAccessNavItem('patients', user, isAdmin);
+
     return canAccessNavItem(key, user, isAdmin);
   }, [user, isAdmin, appointmentsVisibility, clinic]);
 
@@ -210,12 +222,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   }
 
+  // Reports gave up its slot to WhatsApp: on a phone, reports is a monthly visit and a patient
+  // writing is now. Reports stays in the menu sheet.
   const mobileCandidates = [
     { key: "dashboard", href: "/", icon: LayoutDashboard },
+    { key: "chats", href: "/chats", icon: WhatsAppIcon, badge: unreadChats },
     { key: "intelligence", href: "/ai", icon: Sparkles },
     { key: "appointments", href: "/appointments", icon: Calendar },
     { key: "finance", href: "/finance", icon: Wallet },
-    { key: "reports", href: "/reports", icon: FileBarChart },
     { key: "patients", href: "/patients", icon: Users },
   ];
 
@@ -288,6 +302,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                        >
                          <item.icon size={22} />
                          <span className="text-base">{label}</span>
+                         {"badge" in item && (item.badge ?? 0) > 0 && (
+                           <span className="ms-auto min-w-[22px] h-[22px] px-1.5 rounded-full bg-[#25d366] text-white text-[11px] font-black flex items-center justify-center">
+                             {item.badge}
+                           </span>
+                         )}
                        </Link>
                     )
                  })}
@@ -368,8 +387,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
              const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
              return (
                 <Link key={item.key} href={item.href} data-tour={`nav-${item.key}`} className="flex items-center justify-center transition-all active:scale-95 group outline-none">
-                   <div className={`p-2.5 rounded-full transition-all duration-300 flex items-center justify-center ${isActive ? 'bg-white text-black scale-110 shadow-sm' : 'text-white/50 group-hover:bg-white/10 group-hover:text-white'}`}>
+                   <div className={`relative p-2.5 rounded-full transition-all duration-300 flex items-center justify-center ${isActive ? 'bg-white text-black scale-110 shadow-sm' : 'text-white/50 group-hover:bg-white/10 group-hover:text-white'}`}>
                       <item.icon size={24} strokeWidth={isActive ? 2.5 : 2} />
+                      {"badge" in item && (item.badge ?? 0) > 0 && (
+                        <span className="absolute -top-0.5 -end-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[#25d366] text-white text-[10px] font-black flex items-center justify-center ring-2 ring-ink-slab">
+                          {item.badge}
+                        </span>
+                      )}
                    </div>
                 </Link>
              );

@@ -94,14 +94,16 @@ export async function resolveWhatsappDeliveryMode(clinicId: string): Promise<Wha
  * a migration wants the drop-proof one. Throws on failure exactly as `sendWhatsApp` did, so the
  * callers' existing try/catch (which records a failed log row) keeps working unchanged.
  */
-export async function sendPatientWhatsAppAuto(clinicId: string, to: string, text: string): Promise<void> {
+export async function sendPatientWhatsAppAuto(clinicId: string, to: string, text: string): Promise<string | undefined> {
   const meta = await loadMetaWhatsappConfig(clinicId);
   if (meta) {
     const result = await sendMetaWhatsappText({ config: meta, to, text });
     if (!result.ok) throw new Error(`Meta Cloud API failed: ${result.error || "unknown"}`);
-    return;
+    // Meta's id for the message: the handle its delivered/read/failed statuses arrive under.
+    return result.messageId;
   }
   await sendWhatsApp({ clinicId, to, text });
+  return undefined;
 }
 
 /**
@@ -157,7 +159,7 @@ export async function deliverWhatsAppMessage(args: {
   const mode = await resolveWhatsappDeliveryMode(args.clinicId);
 
   /** Every patient message that actually left goes into the thread, whichever shape it took. */
-  const remember = () =>
+  const remember = (waMessageId?: string, channel?: "meta" | "wapilot") =>
     args.audience === "patient"
       ? recordThreadMessage(args.clinicId, args.to, {
           direction: "out",
@@ -166,6 +168,10 @@ export async function deliverWhatsAppMessage(args: {
           uid: args.thread?.uid,
           name: args.thread?.name,
           kind: args.thread ? args.thread.kind || "staff_reply" : args.queue?.type || args.metaTemplate?.kind || "message",
+          waMessageId,
+          // The chat screen decides from this whether free text can deliver — a conversation the
+          // clinic opened has no inbound message to have learned it from.
+          channel,
         }).catch(() => {})
       : Promise.resolve();
 
@@ -186,11 +192,11 @@ export async function deliverWhatsAppMessage(args: {
         params: args.metaTemplate!.params.slice(0, tpl.paramCount),
       });
       if (!result.ok) throw new Error(`Meta template failed: ${result.error || "unknown"}`);
-      await remember();
+      await remember(result.messageId, "meta");
       return { mode: "auto", sent: true };
     }
-    await sendPatientWhatsAppAuto(args.clinicId, args.to, text);
-    await remember();
+    const waMessageId = await sendPatientWhatsAppAuto(args.clinicId, args.to, text);
+    await remember(waMessageId, meta ? "meta" : "wapilot");
     return { mode: "auto", sent: true };
   }
 
@@ -249,15 +255,15 @@ export async function sendPatientWhatsAppRich(
   to: string,
   textFallback: string,
   structure?: MetaInteractive
-): Promise<void> {
+): Promise<string | undefined> {
   const meta = await loadMetaWhatsappConfig(clinicId);
   if (meta && structure) {
     const rich = await sendMetaWhatsappInteractive({ config: meta, to, message: structure });
-    if (rich.ok) return;
+    if (rich.ok) return rich.messageId;
     // A rejected structure (length rules, API drift) must degrade to words, not to silence.
     const plain = await sendMetaWhatsappText({ config: meta, to, text: textFallback });
     if (!plain.ok) throw new Error(`Meta Cloud API failed: ${plain.error || rich.error || "unknown"}`);
-    return;
+    return plain.messageId;
   }
-  await sendPatientWhatsAppAuto(clinicId, to, textFallback);
+  return sendPatientWhatsAppAuto(clinicId, to, textFallback);
 }

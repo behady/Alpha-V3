@@ -1126,8 +1126,9 @@ export async function respondToPatientMessage(args: {
     structure = { ...structure, body };
   }
 
+  let waMessageId: string | undefined;
   try {
-    await sendPatientWhatsAppRich(clinicId, replyTo, body, structure);
+    waMessageId = await sendPatientWhatsAppRich(clinicId, replyTo, body, structure);
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
     console.warn("[bot] reply failed to send:", detail);
@@ -1150,9 +1151,13 @@ export async function respondToPatientMessage(args: {
   });
 
   // The bot's own words, in the thread staff read. Never allowed to fail the turn.
-  await recordThreadMessage(clinicId, replyTo, { direction: "out", author: "bot", text: body, kind: reason }).catch(
-    () => {}
-  );
+  await recordThreadMessage(clinicId, replyTo, {
+    direction: "out",
+    author: "bot",
+    text: body,
+    kind: reason,
+    waMessageId,
+  }).catch(() => {});
 
   await saveConversation(
     clinicId,

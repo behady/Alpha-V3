@@ -23,6 +23,8 @@ export interface SidebarNavItem {
   key: string;
   href: string;
   icon: any;
+  /** A count to pin on the icon — unread WhatsApp messages. Hidden when zero or absent. */
+  badge?: number;
 }
 
 /**
@@ -154,7 +156,8 @@ export default function DesktopSidebar({
     label: string,
     active: boolean,
     onClick?: () => void,
-    tone?: "danger" | "success"
+    tone?: "danger" | "success",
+    badge?: number
   ) => {
     const toneIdle =
       tone === "danger"
@@ -163,14 +166,23 @@ export default function DesktopSidebar({
           ? "bg-emerald-50 text-emerald-600 hover:bg-emerald-100 shadow-sm border border-emerald-100"
           : idleClass;
 
+    // WhatsApp's own green, so the count reads as "messages waiting" before the label is read.
+    const badgeDot =
+      badge && badge > 0 ? (
+        <span className="absolute -top-1 -end-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#25d366] text-white text-[10px] font-black flex items-center justify-center ring-2 ring-white">
+          {badge > 99 ? "99+" : badge}
+        </span>
+      ) : null;
+
     const inner = expanded ? (
       <>
         <span
-          className={`${buttonSize} shrink-0 rounded-full flex items-center justify-center transition-all duration-300 ${
+          className={`relative ${buttonSize} shrink-0 rounded-full flex items-center justify-center transition-all duration-300 ${
             active ? activeClass : toneIdle
           }`}
         >
           <Icon className={iconSize} strokeWidth={active ? 2.5 : 2} />
+          {badgeDot}
         </span>
         <span
           className={`text-sm font-bold truncate ${
@@ -182,11 +194,12 @@ export default function DesktopSidebar({
       </>
     ) : (
       <span
-        className={`${buttonSize} rounded-full flex items-center justify-center transition-all duration-300 ${
+        className={`relative ${buttonSize} rounded-full flex items-center justify-center transition-all duration-300 ${
           active ? activeClass : toneIdle
         }`}
       >
         <Icon className={iconSize} strokeWidth={active ? 2.5 : 2} />
+        {badgeDot}
       </span>
     );
 
@@ -289,7 +302,7 @@ export default function DesktopSidebar({
       {/* MAIN NAV — the only part allowed to scroll, so a long list never squashes the rest */}
       <nav className={`flex min-h-0 w-full flex-1 flex-col items-center overflow-y-auto no-scrollbar ${rowGap} mt-1`}>
         {primaryItems.map((item) =>
-          railRow(item.href, item.href, item.icon, labelFor(item.key), isRouteActive(item.href))
+          railRow(item.href, item.href, item.icon, labelFor(item.key), isRouteActive(item.href), undefined, undefined, item.badge)
         )}
       </nav>
 

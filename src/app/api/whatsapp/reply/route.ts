@@ -3,7 +3,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { adminDb } from "@/lib/firebaseAdmin";
-import { markHumanActive } from "@/lib/bot/conversation";
+import { conversationKey, markHumanActive } from "@/lib/bot/conversation";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { deliverWhatsAppMessage } from "@/lib/whatsappDelivery";
 import { followupTemplateText } from "@/lib/metaWhatsapp";
@@ -100,6 +100,14 @@ export async function POST(request: Request) {
 
     // The thread is a person's now; the bot stays out of it for an hour and the inbox row closes.
     await markHumanActive(clinicId, phone, authz.uid);
+
+    // A conversation the clinic started has no inbound message to learn the patient from, so
+    // the name comes from the picker instead — otherwise the new chat lists as a bare number.
+    if (patientId || patientName) {
+      await adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(phone))
+        .set({ ...(patientId ? { patientId } : {}), ...(patientName ? { patientName } : {}) }, { merge: true })
+        .catch(() => {});
+    }
 
     // Same audit trail the bot writes to, so the Messages history shows both voices in order.
     await adminClinicCollection(clinicId, "whatsapp_logs").add({

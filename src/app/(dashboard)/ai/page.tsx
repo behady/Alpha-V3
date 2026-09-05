@@ -1,14 +1,13 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Bot, MessageCircle, MessageSquareText, Newspaper, Sparkles, UserCheck } from "lucide-react";
+import { Bot, MessageCircle, Newspaper, Sparkles, UserCheck } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import PermissionGuard from "@/components/PermissionGuard";
 import BriefPanel from "@/components/ai/BriefPanel";
-import ChatsPanel from "@/components/ai/ChatsPanel";
 import MessageQueuePanel from "@/components/ai/MessageQueuePanel";
 import NoShowPanel from "@/components/ai/NoShowPanel";
 import BotMissesPanel from "@/components/ai/BotMissesPanel";
@@ -30,13 +29,12 @@ import BotMissesPanel from "@/components/ai/BotMissesPanel";
  * three pages guarded on before.
  */
 
-type TabKey = "brief" | "chats" | "messages" | "noshows" | "bot";
+type TabKey = "brief" | "messages" | "noshows" | "bot";
 
 /** Query values the old routes redirect with. Kept short — these end up in people's bookmarks. */
 const TAB_FROM_QUERY: Record<string, TabKey> = {
   brief: "brief",
   briefing: "brief",
-  chats: "chats",
   messages: "messages",
   noshows: "noshows",
   attendance: "noshows",
@@ -62,6 +60,13 @@ function IntelligenceHub() {
 
   const can = (permission: string) => isAdmin || !!user?.permissions?.includes(permission);
 
+  // The chat screen lived here as a tab for one day; links from that day still point at it.
+  const wantsChats = searchParams.get("tab") === "chats";
+  const chatParam = searchParams.get("chat") || "";
+  useEffect(() => {
+    if (wantsChats) router.replace(chatParam ? `/chats?chat=${encodeURIComponent(chatParam)}` : "/chats");
+  }, [wantsChats, chatParam, router]);
+
   // Rebuilt every render rather than memoized: it is three objects, and hand-memoizing it only
   // gives the React Compiler a dependency list to disagree with.
   const tabs = [
@@ -74,16 +79,6 @@ function IntelligenceHub() {
       blurb: isAr
         ? "الأرقام والأسماء التي تحتاجها لإدارة اليوم: الحسابات، الإنتاج، فريق العمل، وما سيضيع إن لم يتحرك أحد. كل رقم مقروء من سجلاتك، وليس تقديراً."
         : "The numbers and names it takes to run the place: money, production, the floor, and what slips if nobody acts. Every figure is read from your records — nothing is estimated.",
-    },
-    {
-      key: "chats" as const,
-      permission: "access.patients",
-      icon: MessageSquareText,
-      label: isAr ? "المحادثات" : "Chats",
-      heading: isAr ? "محادثات واتساب" : "WhatsApp chats",
-      blurb: isAr
-        ? "كل محادثة على رقم العيادة: كلام المريض، ردود البوت، وردود الفريق في مكان واحد. افتح أي محادثة ورد منها مباشرة."
-        : "Every conversation on the clinic's number: what the patient wrote, what the bot answered, what the team said. Open one and reply from here.",
     },
     {
       key: "messages" as const,
@@ -183,7 +178,6 @@ function IntelligenceHub() {
         )}
 
         {current.key === "brief" && <BriefPanel />}
-        {current.key === "chats" && <ChatsPanel />}
         {current.key === "messages" && <MessageQueuePanel />}
         {current.key === "noshows" && <NoShowPanel />}
         {current.key === "bot" && <BotMissesPanel />}
