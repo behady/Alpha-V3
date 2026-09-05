@@ -226,9 +226,12 @@ export default function WhatsAppSettings() {
     setMetaRegistering(true);
     setMetaRegisterResult(null);
     try {
+      const u = auth.currentUser;
+      if (!u) throw new Error("Not signed in");
+      const idToken = await u.getIdToken();
       const res = await fetch("/api/admin/meta-whatsapp-register", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({ phoneNumberId: metaPhoneNumberId.trim(), pin: metaPin.trim() }),
       });
       const data = await res.json().catch(() => ({}));
