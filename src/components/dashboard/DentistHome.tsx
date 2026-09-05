@@ -6,7 +6,7 @@ import {
   arrayUnion, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where,
 } from "firebase/firestore";
 import {
-  Armchair, ArrowUpRight, CalendarPlus, Check, FlaskConical, Loader2, PenLine,
+  Armchair, ArrowUpRight, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, FlaskConical, Loader2, PenLine,
 } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
@@ -102,6 +102,12 @@ export default function DentistHome() {
 
   // --- Live rows -----------------------------------------------------------------------------
   const [todayAppts, setTodayAppts] = useState<Row[]>([]);
+  /**
+   * The day the list is showing. The chair and the money are always today — they are live things —
+   * but the list can page to tomorrow to see what is coming, or back to see what happened.
+   */
+  const [viewDate, setViewDate] = useState(today);
+  const [dayAppts, setDayAppts] = useState<Row[]>([]);
   const [futureAppts, setFutureAppts] = useState<Row[]>([]);
   const [ledger, setLedger] = useState<Row[]>([]);
   const [labCases, setLabCases] = useState<Row[]>([]);
@@ -155,12 +161,25 @@ export default function DentistHome() {
     return () => unsubs.forEach((u) => u());
   }, [me, clinicId, today]);
 
+  // The viewed day's list. Its own subscription so paging never disturbs the chair's.
+  useEffect(() => {
+    if (!me || !clinicId) return;
+    return onSnapshot(query(getClinicCollection("appointments"), where("date", "==", viewDate)), (s) =>
+      setDayAppts(s.docs.map((d) => ({ id: d.id, ...d.data() })))
+    );
+  }, [me, clinicId, viewDate]);
+
   // --- What the screen is made of --------------------------------------------------------------
   const mine = useMemo(
     () => (me ? todayAppts.filter((a) => isMine(a, me) && matches(a.branchId as string | null | undefined)) : []),
     [todayAppts, me, matches]
   );
-  const day = useMemo(() => sortDay(mine), [mine]);
+  const dayMine = useMemo(
+    () => (me ? dayAppts.filter((a) => isMine(a, me) && matches(a.branchId as string | null | undefined)) : []),
+    [dayAppts, me, matches]
+  );
+  const day = useMemo(() => sortDay(dayMine), [dayMine]);
+  const viewingToday = viewDate === today;
   const chair = useMemo(() => pickChair(mine), [mine]);
   const hero = chair.current || chair.next;
   const heroIsCurrent = !!chair.current;
@@ -191,7 +210,20 @@ export default function DentistHome() {
   const heroWaiting = hero && String(hero.status) === "Checked In" ? waitingMinutes(hero.checkInTime, now) : null;
 
   const fmt = (n: number) => n.toLocaleString(isAr ? "ar-EG" : "en-US");
-  const doneCount = mine.filter((a) => isDone(a.status)).length;
+  const dayDone = dayMine.filter((a) => isDone(a.status)).length;
+  const dayLabel = (() => {
+    const delta = daysBetween(today, viewDate);
+    if (delta === 0) return isAr ? "النهارده" : "Today";
+    if (delta === 1) return isAr ? "بكرة" : "Tomorrow";
+    if (delta === -1) return isAr ? "إمبارح" : "Yesterday";
+    const d = new Date(`${viewDate}T12:00:00`);
+    return d.toLocaleDateString(isAr ? "ar-EG" : "en-GB", { weekday: "long", day: "numeric", month: "short" });
+  })();
+  const shiftDay = (delta: number) => {
+    const d = new Date(`${viewDate}T12:00:00`);
+    d.setDate(d.getDate() + delta);
+    setViewDate(localYmd(d));
+  };
 
   // --- Acting from it ---------------------------------------------------------------------------
   const [busyId, setBusyId] = useState("");
@@ -323,6 +355,8 @@ export default function DentistHome() {
   const eyebrow = "font-display text-[11px] font-black uppercase tracking-[0.12em] text-ink-muted";
   const ghost =
     "inline-flex items-center gap-1.5 h-[34px] px-3.5 rounded-xl bg-surface border border-line text-ink text-[12px] font-extrabold uppercase tracking-wide shadow-sm hover:bg-surface-subtle transition-colors disabled:opacity-50 whitespace-nowrap";
+  const navBtn =
+    "relative inline-flex items-center justify-center w-7 h-7 rounded-lg bg-surface border border-line text-ink-body hover:bg-surface-subtle hover:text-ink transition-colors";
 
   return (
     <div className="min-h-screen lg:min-h-0 lg:h-full pb-24 lg:pb-4 text-ink-strong" dir={isRTL ? "rtl" : "ltr"}>
@@ -438,14 +472,49 @@ export default function DentistHome() {
           </div>
 
           <Card className="lg:col-span-2 min-h-[360px]">
-            <CardHead title={isAr ? "يومي" : "My day"} right={`${mine.length} ${isAr ? "مرضى" : "patients"} · ${doneCount} ${isAr ? "خلصوا" : "done"}`} eyebrow={eyebrow} />
+            <div className="flex items-center justify-between gap-3 px-6 pt-5 pb-1">
+              <div className="flex items-baseline gap-2 min-w-0">
+                <span className={eyebrow}>{isAr ? "يومي" : "My day"}</span>
+                <span className={`font-figure text-xs font-bold truncate ${viewingToday ? "text-ink-faint" : "text-ink"}`}>· {dayLabel}</span>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                <button onClick={() => shiftDay(-1)} aria-label={isAr ? "اليوم اللي قبله" : "Previous day"} className={navBtn}>
+                  <ChevronLeft size={14} className="rtl:rotate-180" />
+                </button>
+                {!viewingToday && (
+                  <button onClick={() => setViewDate(today)} className="h-7 px-2.5 rounded-lg bg-ink-slab text-white text-[11px] font-extrabold uppercase tracking-wide">
+                    {isAr ? "النهارده" : "Today"}
+                  </button>
+                )}
+                <label className={navBtn} title={isAr ? "اختار يوم" : "Pick a day"}>
+                  <CalendarDays size={14} />
+                  <input
+                    type="date"
+                    value={viewDate}
+                    onChange={(e) => e.target.value && setViewDate(e.target.value)}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                  />
+                </label>
+                <button onClick={() => shiftDay(1)} aria-label={isAr ? "اليوم اللي بعده" : "Next day"} className={navBtn}>
+                  <ChevronRight size={14} className="rtl:rotate-180" />
+                </button>
+              </div>
+            </div>
+            <p className="px-6 pb-2 font-figure text-xs font-bold text-ink-faint">
+              {dayMine.length} {isAr ? "مرضى" : "patients"}
+              {viewDate <= today ? ` · ${dayDone} ${isAr ? "خلصوا" : "done"}` : ""}
+            </p>
             {day.length === 0 ? (
-              <Empty>{isAr ? "مفيش مواعيد ليك النهارده." : "Nothing booked for you today."}</Empty>
+              <Empty>
+                {viewingToday
+                  ? (isAr ? "مفيش مواعيد ليك النهارده." : "Nothing booked for you today.")
+                  : (isAr ? "مفيش مواعيد ليك في اليوم ده." : "Nothing booked for you on this day.")}
+              </Empty>
             ) : (
               <div className="flex flex-col">
                 {day.map((a) => {
                   const done = isDone(a.status);
-                  const isHero = hero?.id === a.id;
+                  const isHero = viewingToday && hero?.id === a.id;
                   return (
                     <div
                       key={String(a.id)}
@@ -462,7 +531,7 @@ export default function DentistHome() {
                           {getAppointmentStageLabel(String(a.status || ""), isAr ? "ar" : "en")}
                         </p>
                       </div>
-                      {!done && String(a.status) !== "In Chair" && SEATABLE.has(String(a.status)) && !chair.current && (
+                      {viewingToday && !done && String(a.status) !== "In Chair" && SEATABLE.has(String(a.status)) && !chair.current && (
                         <button
                           onClick={(e) => { e.stopPropagation(); void setStatus(a, "In Chair"); }}
                           disabled={!!busyId}
