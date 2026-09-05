@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.CircularProgressIndicator
@@ -87,6 +88,7 @@ import com.alphadental.clinic.ui.AppearanceScreen
 import com.alphadental.clinic.ui.AddLeadSheet
 import com.alphadental.clinic.ui.AddNoteSheet
 import com.alphadental.clinic.ui.ChatsScreen
+import com.alphadental.clinic.ui.LabScreen
 import com.alphadental.clinic.ui.LeadsScreen
 import com.alphadental.clinic.ui.ClockCard
 import com.alphadental.clinic.ui.AppointmentSheet
@@ -381,6 +383,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                                 onOpenChats = if (viewModel.canSeeChats(session)) {
                                     { viewModel.openChats() }
                                 } else null,
+                                onOpenLab = if (session.can("access.lab")) ({ viewModel.openLab() }) else null,
                                 onOpenAssistant = { viewModel.openAssistant(context) },
                                 briefing = state.briefing,
                                 onOpenBriefing = viewModel::openBriefing,
@@ -478,6 +481,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             onOpenChats = if (viewModel.canSeeChats(session)) {
                                 { viewModel.openChats() }
                             } else null,
+                            // The same key the website's Lab page is gated on; the rules enforce it too.
+                            onOpenLab = if (session.can("access.lab")) ({ viewModel.openLab() }) else null,
                             // Owners and reception only. A dentist seeing the clinic's whole
                             // takings is a different conversation from them seeing their own.
                             onOpenReports = if (session.can("access.reports")) {
@@ -565,6 +570,30 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         }
                     } else null,
                     onDismiss = { openAppointment = null },
+                )
+            }
+
+            // Lab tracking: where every case is, and the stage button. Before the patient file
+            // for the same reason as the chats below: a file opened from a case sits over it.
+            if (state.labOpen) {
+                LabScreen(
+                    cases = state.labCases,
+                    loaded = state.labLoaded,
+                    error = state.labError,
+                    openCaseId = state.labOpenCaseId,
+                    busyId = state.labBusyId,
+                    arrived = state.labArrived,
+                    arabic = state.arabic,
+                    onOpenCase = viewModel::openLabCase,
+                    onCloseCase = viewModel::closeLabCase,
+                    onAdvance = viewModel::advanceLabCase,
+                    onDismissArrived = viewModel::dismissLabArrived,
+                    onOpenPatient = { id ->
+                        viewModel.closeLabCase()
+                        viewModel.openPatient(id)
+                    },
+                    onRetry = viewModel::retryLab,
+                    onClose = viewModel::closeLab,
                 )
             }
 
@@ -1017,6 +1046,8 @@ private fun MoreScreen(
     /** Threads waiting for a person. Null opener for roles that may not read the clinic's WhatsApp. */
     chatsWaiting: Int,
     onOpenChats: (() -> Unit)?,
+    /** Null for roles without access.lab. */
+    onOpenLab: (() -> Unit)?,
     /** Null for roles that may not see the clinic's takings. */
     onOpenReports: (() -> Unit)?,
     /** Null for roles that do not work the CRM inbox. */
@@ -1154,6 +1185,7 @@ private fun MoreScreen(
             onOpenChats?.let {
                 ToolSpec(Icons.AutoMirrored.Filled.Chat, if (arabic) "المحادثات" else "Chats", badge = chatsWaiting, onClick = it)
             },
+            onOpenLab?.let { ToolSpec(Icons.Filled.Science, if (arabic) "المعمل" else "Lab", onClick = it) },
             ToolSpec(
                 Icons.Filled.Send, if (arabic) "قائمة الإرسال" else "Send list",
                 badge = whatsappWaiting, onClick = onOpenWhatsappQueue,

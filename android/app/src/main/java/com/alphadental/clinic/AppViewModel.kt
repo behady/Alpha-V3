@@ -38,6 +38,7 @@ import com.alphadental.clinic.ai.AiClient
 import com.alphadental.clinic.ai.AnswerCache
 import com.alphadental.clinic.ai.ChatReplyClient
 import com.alphadental.clinic.data.Chats
+import com.alphadental.clinic.data.LabCases
 import com.alphadental.clinic.ai.ChatMessage
 import com.alphadental.clinic.ai.ChatStore
 import com.alphadental.clinic.ai.interpretYesNo
@@ -192,6 +193,18 @@ data class AppState(
     val homeRefreshing: Boolean = false,
     /** A pull on an open patient file: re-read without blanking the file underneath. */
     val patientRefreshing: Boolean = false,
+    // --- lab tracking ---
+    val labOpen: Boolean = false,
+    /** Live while the screen is open; the listener is dropped when it closes. */
+    val labCases: List<LabCases.LabCase> = emptyList(),
+    val labLoaded: Boolean = false,
+    val labError: String? = null,
+    /** The case on screen, by id, so a live update redraws it rather than a stale copy. */
+    val labOpenCaseId: String = "",
+    /** The case whose stage is being written, so only its own buttons wait. */
+    val labBusyId: String = "",
+    /** A case just marked back at the clinic: the prompt to call the patient, one at a time. */
+    val labArrived: LabCases.LabCase? = null,
     // --- reports ---
     val reportsOpen: Boolean = false,
     val reportRange: ReportRange = ReportRange.MONTH,
@@ -360,6 +373,7 @@ class AppViewModel : ViewModel() {
         whatsappJob?.cancel()
         chatsJob?.cancel()
         chatLinesJob?.cancel()
+        labJob?.cancel()
         Repository.signOut()
         _state.value = AppState(loading = false)
     }
@@ -991,6 +1005,83 @@ class AppViewModel : ViewModel() {
 
     fun closeWhatsappQueue() {
         _state.value = _state.value.copy(whatsappQueueOpen = false)
+    }
+
+    // --- lab tracking ---------------------------------------------------------------------
+
+    private var labJob: Job? = null
+
+    /**
+     * Open the board and start listening. The listener lives only while the screen is open:
+     * lab cases are read by whoever is holding a bag, not watched all day for a badge.
+     */
+    fun openLab() {
+        val session = _state.value.session ?: return
+        _state.value = _state.value.copy(labOpen = true, labError = null)
+        labJob?.cancel()
+        labJob = viewModelScope.launch {
+            LabCases.observeCases(session.clinicId).collect { result ->
+                result.onSuccess { cases ->
+                    _state.value = _state.value.copy(labCases = cases, labLoaded = true, labError = null)
+                }.onFailure { error ->
+                    _state.value = _state.value.copy(labLoaded = true, labError = loadFailure(error))
+                }
+            }
+        }
+    }
+
+    /** Retry after a failed listen: the same open again. */
+    fun retryLab() = openLab()
+
+    fun closeLab() {
+        labJob?.cancel()
+        labJob = null
+        _state.value = _state.value.copy(labOpen = false, labOpenCaseId = "", labArrived = null)
+    }
+
+    fun openLabCase(id: String) {
+        _state.value = _state.value.copy(labOpenCaseId = id)
+    }
+
+    fun closeLabCase() {
+        _state.value = _state.value.copy(labOpenCaseId = "")
+    }
+
+    fun dismissLabArrived() {
+        _state.value = _state.value.copy(labArrived = null)
+    }
+
+    /**
+     * Move a case to its next stage.
+     *
+     * Marking a case back does two more things, as the website does: rings the bell for whoever
+     * is not looking at this screen, and prompts whoever just tapped — because they are the one
+     * holding the case — to call the patient and book the fitting.
+     */
+    fun advanceLabCase(case: LabCases.LabCase, next: String) {
+        val session = _state.value.session ?: return
+        if (_state.value.labBusyId.isNotBlank()) return
+        _state.value = _state.value.copy(labBusyId = case.id)
+        viewModelScope.launch {
+            LabCases.advance(session.clinicId, case, next, by = session.name, today = today())
+                .onSuccess {
+                    if (next == "back") {
+                        _state.value = _state.value.copy(labBusyId = "", labArrived = case)
+                        LabCases.notifyBack(session.clinicId, case, _state.value.arabic)
+                    } else {
+                        _state.value = _state.value.copy(
+                            labBusyId = "",
+                            message = "${case.code} · ${LabCases.statusLabel(next, _state.value.arabic)}",
+                        )
+                    }
+                }
+                .onFailure {
+                    _state.value = _state.value.copy(
+                        labBusyId = "",
+                        message = if (_state.value.arabic) "فشل تحديث الحالة." else "Could not update the case.",
+                    )
+                }
+        }
     }
 
     // --- WhatsApp chats -------------------------------------------------------------------
