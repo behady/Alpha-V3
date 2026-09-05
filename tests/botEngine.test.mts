@@ -322,3 +322,15 @@ const digitMidDoctors = decideBotReply({ state: "booking_doctor", text: "2", ctx
 assert.equal(digitMidDoctors.action?.type, "list_days_doctor_index", "a digit at the dentist step still picks");
 
 console.log("✓ questions mid-form: answered, never registered as a name or read as a pick");
+
+// ================================================================================================
+// Sales mode: a typed booking request is a conversation the model runs; only its open_booking,
+// a tapped button or a digit opens the lists.
+// ================================================================================================
+const salesCtx: BotContext = { ...aiCtx, aiFirst: true };
+assert.equal(decideBotReply({ state: "awaiting_choice", text: "عايز احجز", ctx: salesCtx }).action?.type, "ai", "typed booking words go to the model in sales mode");
+assert.equal(decideBotReply({ state: "awaiting_choice", text: "m1", ctx: salesCtx }).action?.type, "list_days", "the book button still opens the lists");
+assert.equal(decideBotReply({ state: "awaiting_choice", text: "1", ctx: salesCtx }).action?.type, "list_days", "and so does its digit");
+assert.equal(decideBotReply({ state: "awaiting_choice", text: "عايز الغي الميعاد", ctx: salesCtx }).reason, "cancel_request", "cancelling stays deterministic");
+
+console.log("✓ sales mode: booking opens only from the model, a button, or a digit");

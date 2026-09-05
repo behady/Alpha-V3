@@ -618,11 +618,18 @@ export function decideBotReply(args: {
   /*
    * Sales mode. Anything that is talk rather than an action goes to the model, before the
    * keyword answers — the clinic asked for a salesperson, not a menu with a model behind it.
-   * Actions stay deterministic (booking, cancelling, "my appointment"), digits still mean the
-   * menu, and "تمام" still confirms tomorrow's appointment instead of costing a credit.
+   * Actions stay deterministic (cancelling, "my appointment"), digits still mean the menu, and
+   * "تمام" still confirms tomorrow's appointment instead of costing a credit.
+   *
+   * Booking is deliberately NOT on that list. "عايز احجز" typed at a salesperson is the start of
+   * a conversation — what for, when, which dentist — and the model runs it, opening the day and
+   * time lists (open_booking) when it judges the moment right. A typed booking word used to
+   * jump straight to the lists, which is how a price question landed at the dentist step. A
+   * tapped "book" button and a typed digit still open the lists directly: those are the
+   * clinic's own buttons, and a tap is not talk.
    */
   if (!inBooking && ctx.aiFirst && ctx.aiAvailable && numberChoice(text) === null) {
-    const ACTIONS = new Set<QuickIntent>(["complaint", "cancel", "late", "reschedule", "my_appointment", "booking", "ack", "thanks"]);
+    const ACTIONS = new Set<QuickIntent>(["complaint", "cancel", "late", "reschedule", "my_appointment", "ack", "thanks"]);
     if (!intent || !ACTIONS.has(intent)) {
       return { reply: "", action: { type: "ai", question: text }, next: "awaiting_choice", handoff: false, reason: "ai" };
     }
