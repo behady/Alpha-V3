@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import { buildMoneySection, buildProductionSection } from "../src/lib/automation/briefing/money";
 import { buildHrSection, rosteredOn } from "../src/lib/automation/briefing/hr";
 import { buildStaleBalances, buildGrowthSection } from "../src/lib/automation/briefing/operations";
-import { resolveBriefingAccess } from "../src/lib/automation/briefing/build";
+import { resolveBriefingAccess, briefingWindow } from "../src/lib/automation/briefing/build";
 
 let passed = 0;
 const check = (name: string, fn: () => void) => {
@@ -487,6 +487,41 @@ check("a user with no per-clinic permission record is granted nothing, as the ru
 
 check("an admin is unaffected by a missing permission record", () => {
   assert.deepEqual(resolveBriefingAccess("Admin", null), { money: true, hr: true });
+});
+
+// --- 4. Which days a brief covers, and which it compares against ---------------------------------
+//
+// The owner's home asks for "this month". Month-to-date on the 12th must compare with the 1st to
+// the 12th of last month, not with all of last month — or every month reads as a collapse until
+// its final day.
+
+check("a day compares with the same weekday last week", () => {
+  const w = briefingWindow("day", "2026-09-09");
+  assert.equal(w.startDate, "2026-09-09");
+  assert.equal(w.sameWeekday, "2026-09-02");
+  assert.equal(w.comparisonStart, "2026-09-02");
+  assert.equal(w.aheadEnd, "2026-09-10");
+});
+
+check("a week is the seven days ending today, against the seven before", () => {
+  const w = briefingWindow("week", "2026-09-09");
+  assert.equal(w.startDate, "2026-09-03");
+  assert.deepEqual([w.previousStart, w.previousEnd], ["2026-08-27", "2026-09-02"]);
+  assert.equal(w.sameWeekday, null);
+  assert.equal(w.aheadEnd, "2026-09-16");
+});
+
+check("a month is month-to-date, against the same number of days at the start of last month", () => {
+  const w = briefingWindow("month", "2026-09-12");
+  assert.equal(w.startDate, "2026-09-01");
+  assert.deepEqual([w.previousStart, w.previousEnd], ["2026-08-01", "2026-08-12"]);
+  assert.equal(w.comparisonStart, "2026-08-01", "the ledger read starts where the comparison does");
+  assert.equal(w.previousLabel, "2026-08-01 – 2026-08-12");
+});
+
+check("a month-to-date longer than last month is clamped to last month's end", () => {
+  const w = briefingWindow("month", "2026-03-31");
+  assert.deepEqual([w.previousStart, w.previousEnd], ["2026-02-01", "2026-02-28"]);
 });
 
 console.log(`\n${passed} checks passed`);

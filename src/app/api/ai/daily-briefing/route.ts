@@ -34,7 +34,8 @@ export async function GET(request: Request) {
 
   try {
     const clinicId = await resolveUserClinicId(authz.uid, requestedClinicId);
-    const period = url.searchParams.get("period") === "week" ? "week" : "day";
+    const requested = url.searchParams.get("period");
+    const period = requested === "week" || requested === "month" ? requested : "day";
     const endDate = url.searchParams.get("date")?.trim() || ymdInTimeZone(clinicTimeZone());
 
     const briefing = await buildBriefing({

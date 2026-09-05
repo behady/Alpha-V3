@@ -20,6 +20,7 @@
     "test:settings": "npx tsx tests/settingsRegistry.test.mts",
     "test:dentist": "npx tsx tests/dentistHome.test.mts",
     "test:dentist-report": "npx tsx tests/dentistReport.test.mts",
+    "test:owner": "npx tsx tests/ownerHome.test.mts",
     "test:recovery": "npx tsx tests/revenueRecovery.test.mjs",
     "test:dues": "npx tsx tests/paymentRecovery.test.mjs",
     "test:ledgercash": "npx tsx tests/ledgerCashValue.test.mjs",

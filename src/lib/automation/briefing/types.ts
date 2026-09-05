@@ -11,7 +11,7 @@
  * rendering a shorter page that looks like a slow day.
  */
 
-export type BriefingPeriod = "day" | "week";
+export type BriefingPeriod = "day" | "week" | "month";
 
 /** Which sections a reader may see. Resolved on the server from role + clinic permissions. */
 export interface BriefingAccess {
@@ -218,6 +218,8 @@ export interface TrendPoint {
 export interface TrendSection {
   points: TrendPoint[];
   daily: { dateKey: string; weekday: number; collected: number | null; patientsSeen: number }[];
+  /** The comparison period day by day, so a chart can draw last month under this one. */
+  previousDaily: { dateKey: string; collected: number | null; patientsSeen: number }[];
   bestDay: string | null;
   quietestDay: string | null;
   topProcedures: { name: string; count: number; revenue: number | null }[];

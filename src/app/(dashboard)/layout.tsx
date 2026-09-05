@@ -46,8 +46,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
    * same URL as the desk but is an ordinary page that grows with its content — lock it and a
    * tablet in landscape (wide enough for the desktop rule) simply cannot scroll to the report.
    */
-  const dentistHome = role === "Dentist" || homeView === "chair";
-  const isFullHeightPage = pathname === "/appointments" || (pathname === "/" && !dentistHome);
+  const ownHome = role === "Dentist" || homeView === "chair" || (homeView === "owner" && isAdmin);
+  const isFullHeightPage = pathname === "/appointments" || (pathname === "/" && !ownHome);
   // Unopened patient WhatsApp messages, for the count on the WhatsApp icon in both navs.
   const unreadChats = useUnreadChatCount();
   // And the chime + desktop notification when a new one arrives, on whichever page is open.
