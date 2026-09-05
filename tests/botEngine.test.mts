@@ -278,3 +278,25 @@ assert.equal(decideBotReply({ state: "reprompted", text: "طب وبعدين", ct
 assert.equal(decideBotReply({ state: "booking_day", text: "بكرة ينفع؟", ctx: { ...aiCtx, optionCount: 4 } }).action?.type, "relist");
 
 console.log("✓ ai fallback: last in line, never above the refusals, and the old ladder stands when it cannot run");
+
+// ================================================================================================
+// Dentist mode: a symptom becomes a conversation with the AI, then a booking — unless it is the
+// kind of message that must reach a person whatever the setting, or there is no AI to answer.
+// ================================================================================================
+const dentistCtx: BotContext = { ...ctx, aiAvailable: true, clinicalMode: "dentist" };
+const pain = decideBotReply({ state: "awaiting_choice", text: "ضرسي بيوجعني من امبارح", ctx: dentistCtx });
+assert.equal(pain.action?.type, "ai", "an ordinary symptom goes to the AI in dentist mode");
+assert.equal((pain.action as any).clinical, true, "and the AI is told it is a symptom");
+assert.equal(pain.handoff, false, "with no hand-off promise made");
+
+const diabetic = decideBotReply({ state: "awaiting_choice", text: "عندي سكر وضرسي وارم", ctx: dentistCtx });
+assert.equal(diabetic.reason, "clinical", "a systemic condition still reaches a person in dentist mode");
+assert.equal(diabetic.handoff, true);
+
+const noAi = decideBotReply({ state: "awaiting_choice", text: "ضرسي بيوجعني", ctx: { ...ctx, clinicalMode: "dentist", aiAvailable: false } });
+assert.equal(noAi.reason, "clinical", "without the AI there is no dentist to answer, so the person is promised");
+
+const defaultMode = decideBotReply({ state: "awaiting_choice", text: "ضرسي بيوجعني", ctx: { ...ctx, aiAvailable: true } });
+assert.equal(defaultMode.reason, "clinical", "the cautious default is unchanged");
+
+console.log("✓ dentist mode: symptoms go to the AI, emergencies and systemic conditions still go to a person");

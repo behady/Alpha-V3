@@ -147,6 +147,7 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     botAutoConfirmBookings: data?.botAutoConfirmBookings === true,
     botAiEnabled: data?.botAiEnabled === true,
     botMode: data?.botMode === "ai_first" ? "ai_first" : "assisted",
+    botClinicalMode: data?.botClinicalMode === "dentist" ? "dentist" : "handoff",
     ...(typeof data?.botAiMaxReplies === "number" ? { botAiMaxReplies: data.botAiMaxReplies } : {}),
     botCoaching: typeof data?.botCoaching === "string" ? data.botCoaching : "",
     // Same rule as deliveryMode below: spread conditionally so an absent map stays absent. A key
@@ -434,6 +435,11 @@ export default function WhatsAppSettings() {
         language === "ar"
           ? "بحد أقصى ١٥ رد للرقم الواحد في الساعة، وبيوقف ويحوّل لموظف لو المحادثة طالت."
           : "At most 15 replies to one number per hour, and it stops and hands over if a conversation drags on.",
+      botDentist: language === "ar" ? "يرد على الأعراض كطبيب أسنان أولاً، وبعدها يعرض الحجز" : "Answer symptoms like a dentist first, then offer a booking",
+      botDentistHint:
+        language === "ar"
+          ? "لما المريض يقول «ضرسي بيوجعني» أو «لثتي وارمة»، بدل ما يوعده بمكالمة، الذكاء الاصطناعي يسأله سؤال أو اتنين (فين؟ بقاله قد إيه؟)، يطمّنه بنصايح عامة آمنة من غير تشخيص أو أدوية بالاسم، وبعدين يعرض عليه أقرب ميعاد. الحالات الطارئة (نزيف مش بيقف، ورم في الوش مع سخونية، إصابة، صعوبة بلع) ومرضى السكر والضغط بتتحول لموظف زي ما هي."
+          : "When a patient says \"my tooth hurts\" or \"my gum is swollen\", instead of promising a call-back the AI asks one or two questions (where? since when?), reassures with safe general advice — no diagnosis, no drug names — and then offers the earliest appointment. Emergencies (bleeding that won't stop, facial swelling with fever, injuries, trouble swallowing) and diabetic or blood-pressure patients still go straight to a person.",
       factsTitle: language === "ar" ? "ردود جاهزة على أسئلة المرضى" : "Ready answers for common questions",
       factsHint:
         language === "ar"
@@ -1748,6 +1754,26 @@ export default function WhatsAppSettings() {
               </label>
               <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botAiHint}</p>
               <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botLimits}</p>
+
+              {/* Symptoms: a person, or the AI as a dentist first. Needs the AI on to mean anything. */}
+              <label className={`flex items-center justify-between gap-4 pt-1 ${state.botAiEnabled ? "cursor-pointer" : "opacity-50"}`}>
+                <span className="text-sm font-bold text-ink leading-relaxed">{txt.botDentist}</span>
+                <input
+                  type="checkbox"
+                  className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
+                  disabled={!state.botAiEnabled}
+                  checked={state.botClinicalMode === "dentist"}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    setState((s) => {
+                      const next = { ...s, botClinicalMode: on ? ("dentist" as const) : ("handoff" as const) };
+                      void persist(next, "silent");
+                      return next;
+                    });
+                  }}
+                />
+              </label>
+              <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botDentistHint}</p>
 
               {/* Salesperson mode: the model leads, with a cap the clinic chooses and its own coaching. */}
               <div className="pt-4 mt-2 border-t border-line space-y-3">

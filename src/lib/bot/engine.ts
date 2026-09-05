@@ -95,7 +95,12 @@ export type BotAction =
    * the model; the engine only decides that this message has earned the expensive path — which
    * is exactly the clinic's cost model: buttons free, AI only for what buttons cannot do.
    */
-  | { type: "ai"; question: string };
+  | {
+      type: "ai";
+      question: string;
+      /** The message is a symptom and the clinic chose dentist mode: answer as one, then book. */
+      clinical?: boolean;
+    };
 
 /**
  * A button tap, decoded from the id the button carried.
@@ -172,6 +177,8 @@ export interface BotContext {
    * safety, the calendar actions, and the two one-word courtesies that confirm an appointment.
    */
   aiFirst?: boolean;
+  /** Settings → WhatsApp: what a symptom gets — a person (default) or the AI as a dentist first. */
+  clinicalMode?: "handoff" | "dentist";
   /**
    * How many numbered options the last booking message listed. The options themselves live in
    * the conversation document; the engine only needs to know whether "4" is a choice or noise.
@@ -206,7 +213,7 @@ const SILENT = (next: BotState, reason: string): BotDecision => ({ reply: "", ne
  * and let a knocked-out tooth through. Re-exported so callers keep one import.
  */
 export { needsHuman, triageMessage } from "./clinicalTriage";
-import { needsHuman } from "./clinicalTriage";
+import { needsHuman, triageMessage } from "./clinicalTriage";
 import { competitorReply, expensiveReply, offersExpiredReply, thinkingReply } from "./sales";
 import { quickIntent, type QuickIntent } from "./quickAnswers";
 
@@ -494,6 +501,18 @@ export function decideBotReply(args: {
   // Checked before everything, including the menu: a patient in pain who happens to type "2"
   // is still a patient in pain.
   if (needsHuman(text)) {
+    /*
+     * Dentist mode: the clinic chose to have the AI answer a symptom the way a dentist at the
+     * desk would — ask what hurts and since when, reassure, then offer the earliest slot —
+     * instead of promising a call-back. Only ordinary symptoms qualify. The phrase list is the
+     * systemic and emergency material (diabetes, blood pressure, cannot swallow, after the
+     * anaesthetic) and stays with a person whatever the setting; and without the AI switched on
+     * there is nobody to answer as a dentist, so the promise of a person stands.
+     */
+    const dentist = ctx.clinicalMode === "dentist" && ctx.aiAvailable && triageMessage(text).reason !== "phrase";
+    if (dentist) {
+      return { reply: "", action: { type: "ai", question: text, clinical: true }, next: "awaiting_choice", handoff: false, reason: "clinical_ai" };
+    }
     return { reply: clinicalReplyText(ctx.clinicPhone), next: "handed_off", handoff: true, reason: "clinical" };
   }
 

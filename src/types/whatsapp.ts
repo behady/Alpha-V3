@@ -125,6 +125,15 @@ export interface WhatsAppSettingsDocument {
    * "assisted" (default): buttons and keyword answers first, the model last.
    */
   botMode?: "assisted" | "ai_first";
+  /**
+   * What the bot does with a symptom ("my tooth hurts", "my gum is swollen").
+   *
+   * "handoff" (default): a person is told and the bot steps back — the cautious setting.
+   * "dentist": the AI answers like a dentist first — asks what hurts and since when, gives safe
+   * general advice, then offers the earliest appointment. Real emergencies (bleeding that will
+   * not stop, a swollen face with fever, trauma, trouble swallowing) still go to a person.
+   */
+  botClinicalMode?: "handoff" | "dentist";
   /** AI replies allowed per conversation. 0 = unlimited. Absent: 3 assisted, unlimited in ai_first. */
   botAiMaxReplies?: number;
   /** The owner's standing instructions to the bot, in their own words. Sent verbatim. */

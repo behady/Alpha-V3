@@ -71,6 +71,8 @@ interface BotSettings {
   facts: BotFacts;
   /** The model leads the conversation (sales mode) instead of answering last. */
   aiFirst: boolean;
+  /** Symptoms go to the AI as a dentist (then to booking) instead of straight to a person. */
+  clinicalDentist: boolean;
   /** AI replies per conversation; 0 means no cap. */
   aiMaxReplies: number;
   /** The owner's coaching notes for the model. */
@@ -87,6 +89,7 @@ async function loadBotSettings(clinicId: string): Promise<BotSettings> {
     aiEnabled: d.botAiEnabled === true || d.botMode === "ai_first",
     facts: (d.botFacts && typeof d.botFacts === "object" ? d.botFacts : {}) as BotFacts,
     aiFirst: d.botMode === "ai_first",
+    clinicalDentist: d.botClinicalMode === "dentist",
     aiMaxReplies:
       typeof d.botAiMaxReplies === "number" && d.botAiMaxReplies >= 0 ? Math.floor(d.botAiMaxReplies) : d.botMode === "ai_first" ? 0 : 3,
     coaching: typeof d.botCoaching === "string" ? d.botCoaching : "",
@@ -518,6 +521,7 @@ export async function respondToPatientMessage(args: {
   ctx.serviceMatch = (await matchService(clinicId, text)) || undefined;
   ctx.aiAvailable = settings.aiEnabled && (settings.aiMaxReplies === 0 || (conversation.aiReplies ?? 0) < settings.aiMaxReplies);
   ctx.aiFirst = settings.aiFirst;
+  ctx.clinicalMode = settings.clinicalDentist ? "dentist" : "handoff";
   if (conversation.state === "booking_doctor") ctx.optionCount = conversation.pendingDoctors?.length ?? 0;
   if (conversation.state === "booking_day") ctx.optionCount = conversation.pendingDays?.length ?? 0;
   if (conversation.state === "booking_time") ctx.optionCount = conversation.pendingTimes?.length ?? 0;
@@ -786,6 +790,7 @@ export async function respondToPatientMessage(args: {
         knowledge: salesContext?.knowledge,
         playbook: salesContext?.playbook,
         canBook: Boolean(ctx.canOfferBooking || ctx.canRegister),
+        clinical: act.clinical === true,
       });
       if (ai.kind === "answer" && ai.openBooking && (ctx.canOfferBooking || ctx.canRegister)) {
         // The model judged the moment right. The calendar part stays deterministic: its line
