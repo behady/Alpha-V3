@@ -30,6 +30,8 @@ export interface ThreadMessageInput {
   media?: string;
   /** WhatsApp's own id for an inbound message, kept for later media download. */
   messageId?: string;
+  /** Meta's id for an OUTBOUND message — the key its sent/delivered/read/failed statuses carry. */
+  waMessageId?: string;
   /** For staff messages: who typed it. */
   uid?: string;
   name?: string;
@@ -80,6 +82,11 @@ export async function recordThreadMessage(
   // Firestore rejects an explicit undefined; these are optional by nature.
   if (m.media) line.media = m.media;
   if (m.messageId) line.messageId = m.messageId;
+  if (m.waMessageId) {
+    line.waMessageId = m.waMessageId;
+    // The API accepted it; Meta's status webhook moves it on from here (see updateThreadStatus).
+    line.status = "sent";
+  }
   if (m.uid) line.uid = m.uid;
   if (m.name) line.name = m.name;
   if (m.kind) line.kind = m.kind;
@@ -111,6 +118,46 @@ export async function recordThreadMessage(
 
   // The line's id, so a background step (media download) can find it again.
   return lineRef.id;
+}
+
+export type ThreadDeliveryStatus = "sent" | "delivered" | "read" | "failed";
+
+/** WhatsApp's own ordering: a status never moves backwards, whatever order webhooks arrive in. */
+const STATUS_RANK: Record<ThreadDeliveryStatus, number> = { sent: 1, delivered: 2, read: 3, failed: 4 };
+
+/**
+ * What Meta did with a message after accepting it.
+ *
+ * "Accepted by the API" and "on the patient's phone" are not the same thing — a free-form reply
+ * outside the 24-hour window returns 200 and then fails in a status webhook a second later. The
+ * ticks in the chat are drawn from this, so a receptionist sees the difference instead of being
+ * told "sent" about a message nobody received.
+ */
+export async function updateThreadStatus(
+  clinicId: string,
+  recipient: string,
+  waMessageId: string,
+  status: ThreadDeliveryStatus,
+  error?: { code?: number | string; message?: string }
+): Promise<void> {
+  if (!waMessageId) return;
+  const key = conversationKey(recipient);
+  const hit = await adminClinicDoc(clinicId, "whatsapp_conversations", key)
+    .collection("messages")
+    .where("waMessageId", "==", waMessageId)
+    .limit(1)
+    .get();
+  if (hit.empty) return;
+  const doc = hit.docs[0];
+  const current = (doc.data().status as ThreadDeliveryStatus | undefined) || "sent";
+  if (STATUS_RANK[status] <= STATUS_RANK[current] && status !== "failed") return;
+
+  const patch: Record<string, unknown> = { status, statusAt: Date.now() };
+  if (status === "failed" && error) {
+    patch.errorCode = error.code ?? null;
+    patch.errorMessage = String(error.message || "").slice(0, 300);
+  }
+  await doc.ref.set(patch, { merge: true });
 }
 
 async function attachPatientIfMissing(clinicId: string, key: string, address: string): Promise<void> {

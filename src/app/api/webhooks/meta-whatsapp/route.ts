@@ -4,7 +4,7 @@ import { adminClinicCollection } from "@/lib/adminClinicDb";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { respondToPatientMessage } from "@/lib/bot/respond";
 import { transcribeWhatsappAudio } from "@/lib/bot/transcribe";
-import { recordThreadMessage } from "@/lib/bot/thread";
+import { recordThreadMessage, updateThreadStatus } from "@/lib/bot/thread";
 import { attachInboundMedia } from "@/lib/bot/media";
 import { applyInboundOptOut } from "@/lib/optOutInbound";
 import { isOptOutReply } from "@/lib/patientMessaging";
@@ -192,6 +192,43 @@ async function rememberInbound(clinicId: string, msg: InboundMessage): Promise<s
   });
 }
 
+/** Meta's sent/delivered/read/failed updates, onto the thread lines they belong to. */
+async function recordStatuses(body: unknown): Promise<void> {
+  const entries = (body as any)?.entry;
+  if (!Array.isArray(entries)) return;
+  for (const entry of entries) {
+    for (const change of entry?.changes || []) {
+      const value = change?.value;
+      const pid = String(value?.metadata?.phone_number_id || "").trim();
+      const statuses = Array.isArray(value?.statuses) ? value.statuses : [];
+      if (statuses.length === 0) continue;
+      const cid = await clinicIdForPhoneNumberId(pid);
+      if (!cid) continue;
+      for (const st of statuses) {
+        const status = String(st?.status || "");
+        const id = String(st?.id || "");
+        const to = String(st?.recipient_id || "");
+        const failed = status === "failed";
+        const firstError = failed && Array.isArray(st?.errors) && st.errors.length ? st.errors[0] : undefined;
+        if (failed && firstError) {
+          await recordUnparsed(cid, { to, errors: st.errors }, `delivery_failed_${firstError?.code ?? "unknown"}`);
+        }
+        if (id && to && (status === "sent" || status === "delivered" || status === "read" || failed)) {
+          await updateThreadStatus(
+            cid,
+            to,
+            id,
+            status as "sent" | "delivered" | "read" | "failed",
+            firstError
+              ? { code: firstError.code, message: firstError?.error_data?.details || firstError?.title || firstError?.message }
+              : undefined
+          ).catch((e) => console.warn("[meta-whatsapp] status update failed:", e));
+        }
+      }
+    }
+  }
+}
+
 async function recordUnparsed(clinicId: string, body: unknown, reason: string): Promise<void> {
   if (!clinicId) return;
   try {
@@ -212,30 +249,13 @@ export async function POST(request: NextRequest) {
     let queued = 0;
     let lastBot: Awaited<ReturnType<typeof respondToPatientMessage>> | null = null;
 
-    // No messages is normal: most calls are delivery/read status updates. But a status carrying
-    // an error is a message Meta ACCEPTED and then refused to deliver — the free-form-outside-
-    // the-window case — and without recording it, "the API said ok" and "the patient got it"
-    // look identical. That exact gap cost a live debugging round.
+    // No messages is normal: most calls are delivery/read status updates. Every status moves the
+    // ticks on the chat screen; a status carrying an error is a message Meta ACCEPTED and then
+    // refused to deliver — the free-form-outside-the-window case — and without recording it,
+    // "the API said ok" and "the patient got it" look identical. That exact gap cost a live
+    // debugging round.
+    await recordStatuses(body);
     if (messages.length === 0) {
-      const entries = (body as any)?.entry;
-      if (Array.isArray(entries)) {
-        for (const entry of entries) {
-          for (const change of entry?.changes || []) {
-            const value = change?.value;
-            const pid = String(value?.metadata?.phone_number_id || "").trim();
-            for (const st of value?.statuses || []) {
-              if (st?.status === "failed" && Array.isArray(st?.errors) && st.errors.length) {
-                const cid = await clinicIdForPhoneNumberId(pid);
-                await recordUnparsed(
-                  cid,
-                  { to: st.recipient_id, errors: st.errors },
-                  `delivery_failed_${st.errors[0]?.code ?? "unknown"}`
-                );
-              }
-            }
-          }
-        }
-      }
       return NextResponse.json({ ok: true, ignored: "no_message" });
     }
 

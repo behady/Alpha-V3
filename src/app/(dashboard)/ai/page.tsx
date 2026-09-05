@@ -8,7 +8,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import PermissionGuard from "@/components/PermissionGuard";
 import BriefPanel from "@/components/ai/BriefPanel";
-import ChatsPanel from "@/components/ai/ChatsPanel";
+import ChatsPanel, { useUnreadChatCount } from "@/components/ai/ChatsPanel";
 import MessageQueuePanel from "@/components/ai/MessageQueuePanel";
 import NoShowPanel from "@/components/ai/NoShowPanel";
 import BotMissesPanel from "@/components/ai/BotMissesPanel";
@@ -61,6 +61,9 @@ function IntelligenceHub() {
   const searchParams = useSearchParams();
 
   const can = (permission: string) => isAdmin || !!user?.permissions?.includes(permission);
+
+  // Patient messages nobody has opened yet — the green count on the Chats pill.
+  const unreadChats = useUnreadChatCount();
 
   // Rebuilt every render rather than memoized: it is three objects, and hand-memoizing it only
   // gives the React Compiler a dependency list to disagree with.
@@ -176,6 +179,11 @@ function IntelligenceHub() {
                 >
                   <Icon size={14} />
                   {tab.label}
+                  {tab.key === "chats" && unreadChats > 0 && (
+                    <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-[#00a884] text-white text-[10px] font-black flex items-center justify-center">
+                      {unreadChats}
+                    </span>
+                  )}
                 </button>
               );
             })}
