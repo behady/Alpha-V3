@@ -86,8 +86,11 @@ data class PushTarget(
     val screen: String?,
     val appointmentId: String? = null,
     val patientId: String? = null,
+    /** A WhatsApp thread: the conversation key, for a hand-off the phone should open on. */
+    val chatId: String? = null,
 ) {
-    val isEmpty: Boolean get() = screen.isNullOrBlank() && appointmentId.isNullOrBlank() && patientId.isNullOrBlank()
+    val isEmpty: Boolean get() =
+        screen.isNullOrBlank() && appointmentId.isNullOrBlank() && patientId.isNullOrBlank() && chatId.isNullOrBlank()
 }
 
 object PushNav {
@@ -183,6 +186,7 @@ class AlphaMessagingService : FirebaseMessagingService() {
                     message.data["screen"]?.let { putExtra("screen", it) }
                     message.data["appointmentId"]?.let { putExtra("appointmentId", it) }
                     message.data["patientId"]?.let { putExtra("patientId", it) }
+                    message.data["chatId"]?.let { putExtra("chatId", it) }
                 },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )

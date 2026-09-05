@@ -36,6 +36,8 @@ import com.alphadental.clinic.data.summariseReport
 import com.alphadental.clinic.ui.ReportRange
 import com.alphadental.clinic.ai.AiClient
 import com.alphadental.clinic.ai.AnswerCache
+import com.alphadental.clinic.ai.ChatReplyClient
+import com.alphadental.clinic.data.Chats
 import com.alphadental.clinic.ai.ChatMessage
 import com.alphadental.clinic.ai.ChatStore
 import com.alphadental.clinic.ai.interpretYesNo
@@ -154,6 +156,25 @@ data class AppState(
      */
     val whatsappQueue: List<Repository.PendingWhatsapp> = emptyList(),
     val whatsappQueueOpen: Boolean = false,
+    // --- WhatsApp chats: the threads the server keeps on the official channel ---
+    /**
+     * Watched from sign-in, like the queue above, and for the same reason: the badge on the
+     * Chats tile is how a receptionist learns a patient is waiting for a person.
+     */
+    val chats: List<Chats.ChatRow> = emptyList(),
+    val chatsLoaded: Boolean = false,
+    val chatsOpen: Boolean = false,
+    /** The thread on screen, or blank for the list. */
+    val openChatId: String = "",
+    val chatLines: List<Chats.ChatLine> = emptyList(),
+    val chatLinesLoading: Boolean = false,
+    val chatSending: Boolean = false,
+    /** A send that failed, shown above the composer until the next attempt. */
+    val chatError: String? = null,
+    /** A one-line notice — "went to the manual send list" — shown once and cleared. */
+    val chatNotice: String? = null,
+    /** How long a staff reply keeps the bot out of a thread; the clinic's setting. */
+    val chatClaimMs: Long = Chats.DEFAULT_HUMAN_CLAIM_MS,
     // --- reports ---
     val reportsOpen: Boolean = false,
     val reportRange: ReportRange = ReportRange.MONTH,
@@ -204,7 +225,11 @@ data class AppState(
     val briefingOpen: Boolean = false,
     val loadingBriefing: Boolean = false,
     val briefingError: String? = null,
-)
+) {
+    /** Threads a person needs to answer: an open hand-off, or a patient message nobody has read. */
+    val chatsWaiting: Int
+        get() = chats.count { !it.archived && (it.needsHuman || it.unreadCount > 0) }
+}
 
 /** Null target means a new booking; a set one means that appointment is being moved. */
 data class BookingTarget(val moving: Appointment? = null)
@@ -248,7 +273,7 @@ class AppViewModel : ViewModel() {
                 watchDay(session.clinicId, _state.value.date)
                 refreshShift()
                 refreshTakings()
-                watchWhatsappQueue(session.clinicId)
+                watchClinicFeeds(session)
             }
             .onFailure { error ->
                 // The account exists in Firebase but not in this clinic system — a
@@ -272,7 +297,7 @@ class AppViewModel : ViewModel() {
                     watchDay(session.clinicId, _state.value.date)
                     refreshShift()
                     refreshTakings()
-                    watchWhatsappQueue(session.clinicId)
+                    watchClinicFeeds(session)
                 }
                 .onFailure { error ->
                     _state.value = _state.value.copy(signingIn = false, signInError = error.message ?: "Could not sign in.")
@@ -289,7 +314,7 @@ class AppViewModel : ViewModel() {
                     watchDay(session.clinicId, _state.value.date)
                     refreshShift()
                     refreshTakings()
-                    watchWhatsappQueue(session.clinicId)
+                    watchClinicFeeds(session)
                 }
                 .onFailure { error ->
                     // The Google account authenticated but has no staff profile here.
@@ -316,6 +341,8 @@ class AppViewModel : ViewModel() {
         // old clinic's message queue with credentials the rules now reject — a stream of permission
         // errors, and a stale queue briefly shown if a different account signed in next.
         whatsappJob?.cancel()
+        chatsJob?.cancel()
+        chatLinesJob?.cancel()
         Repository.signOut()
         _state.value = AppState(loading = false)
     }
@@ -926,6 +953,179 @@ class AppViewModel : ViewModel() {
 
     fun closeWhatsappQueue() {
         _state.value = _state.value.copy(whatsappQueueOpen = false)
+    }
+
+    // --- WhatsApp chats -------------------------------------------------------------------
+
+    private var chatsJob: Job? = null
+    private var chatLinesJob: Job? = null
+
+    /** The clinic-wide feeds that carry badges: the manual send list and the chat threads. */
+    private fun watchClinicFeeds(session: Session) {
+        watchWhatsappQueue(session.clinicId)
+        watchChats(session)
+    }
+
+    /** May this account see the clinic's WhatsApp at all? The same key the website's Chats page uses. */
+    fun canSeeChats(session: Session): Boolean = session.can("access.patients")
+
+    /**
+     * Watch every thread for as long as the session lasts, for the roles that may read them.
+     *
+     * The list is what the Chats tile's badge is drawn from — the count of patients waiting for a
+     * person — and a badge that only updates when the screen is open is not a badge.
+     */
+    private fun watchChats(session: Session) {
+        chatsJob?.cancel()
+        if (!canSeeChats(session)) {
+            _state.value = _state.value.copy(chats = emptyList(), chatsLoaded = true)
+            return
+        }
+        chatsJob = viewModelScope.launch {
+            _state.value = _state.value.copy(chatClaimMs = Chats.loadHumanClaimMs(session.clinicId))
+            Chats.observeChats(session.clinicId).collect { rows ->
+                _state.value = _state.value.copy(chats = rows, chatsLoaded = true)
+            }
+        }
+    }
+
+    fun openChats() {
+        _state.value = _state.value.copy(chatsOpen = true)
+    }
+
+    fun closeChats() {
+        closeChat()
+        _state.value = _state.value.copy(chatsOpen = false)
+    }
+
+    /**
+     * Open one thread. Opening it reads it: the unread count is cleared on the conversation so
+     * the badge on every other phone and desk goes with it.
+     */
+    fun openChat(chatId: String) {
+        val session = _state.value.session ?: return
+        chatLinesJob?.cancel()
+        _state.value = _state.value.copy(
+            chatsOpen = true,
+            openChatId = chatId,
+            chatLines = emptyList(),
+            chatLinesLoading = true,
+            chatError = null,
+            chatNotice = null,
+        )
+        chatLinesJob = viewModelScope.launch {
+            Chats.observeLines(session.clinicId, chatId).collect { lines ->
+                if (_state.value.openChatId == chatId) {
+                    _state.value = _state.value.copy(chatLines = lines, chatLinesLoading = false)
+                    // Read on every delivery, not just on open: a message that lands while the
+                    // thread is on screen has been seen too.
+                    if ((_state.value.chats.firstOrNull { it.id == chatId }?.unreadCount ?: 0) > 0) {
+                        Chats.markRead(session.clinicId, chatId)
+                    }
+                }
+            }
+        }
+    }
+
+    fun closeChat() {
+        chatLinesJob?.cancel()
+        chatLinesJob = null
+        _state.value = _state.value.copy(openChatId = "", chatLines = emptyList(), chatLinesLoading = false, chatError = null)
+    }
+
+    fun dismissChatNotice() {
+        _state.value = _state.value.copy(chatNotice = null)
+    }
+
+    /**
+     * Send what was typed. Not optimistic: the line appears when the server has recorded it,
+     * which is a second later and honest — a bubble drawn before the send could still fail.
+     * Answering claims the thread when nobody has it yet, so the row says who is handling it.
+     */
+    fun sendChatReply(text: String) {
+        val session = _state.value.session ?: return
+        val chat = _state.value.chats.firstOrNull { it.id == _state.value.openChatId } ?: return
+        val body = text.trim()
+        if (body.isBlank() || _state.value.chatSending) return
+        _state.value = _state.value.copy(chatSending = true, chatError = null)
+        viewModelScope.launch {
+            runCatching {
+                ChatReplyClient.sendText(session.clinicId, chat.phone, chat.patientId, chat.patientName, body)
+            }.onSuccess { sent ->
+                if (chat.assignedTo.isBlank()) {
+                    Chats.assign(session.clinicId, chat.id, session.uid, session.name)
+                }
+                _state.value = _state.value.copy(
+                    chatSending = false,
+                    chatNotice = if (sent.mode == "queued") {
+                        if (_state.value.arabic) "العيادة دي مش متوصلة بواتساب الرسمي — الرسالة اتحطت في قائمة الإرسال اليدوي."
+                        else "This clinic has no WhatsApp gateway — the message went to the manual send list."
+                    } else null,
+                )
+            }.onFailure { error ->
+                _state.value = _state.value.copy(
+                    chatSending = false,
+                    chatError = error.message ?: if (_state.value.arabic) "لم يتم الإرسال." else "Could not send.",
+                )
+            }
+        }
+    }
+
+    /** The re-engagement template, for a thread whose 24-hour window has closed. */
+    fun sendChatFollowup() {
+        val session = _state.value.session ?: return
+        val chat = _state.value.chats.firstOrNull { it.id == _state.value.openChatId } ?: return
+        if (_state.value.chatSending) return
+        _state.value = _state.value.copy(chatSending = true, chatError = null)
+        viewModelScope.launch {
+            runCatching {
+                ChatReplyClient.sendFollowupTemplate(session.clinicId, chat.phone, chat.patientId, chat.patientName)
+            }.onSuccess {
+                _state.value = _state.value.copy(chatSending = false)
+            }.onFailure { error ->
+                _state.value = _state.value.copy(
+                    chatSending = false,
+                    chatError = error.message ?: if (_state.value.arabic) "لم يتم الإرسال." else "Could not send.",
+                )
+            }
+        }
+    }
+
+    /** Take the thread from the bot, or hand it back. */
+    fun toggleChatBot() {
+        val session = _state.value.session ?: return
+        val chat = _state.value.chats.firstOrNull { it.id == _state.value.openChatId } ?: return
+        val quietNow = chat.botQuiet(_state.value.chatClaimMs)
+        viewModelScope.launch {
+            Chats.setBotQuiet(session.clinicId, chat.id, quiet = !quietNow, uid = session.uid)
+                .onFailure { error ->
+                    _state.value = _state.value.copy(chatError = error.message ?: "Could not update.")
+                }
+        }
+    }
+
+    /** Claim the thread for yourself, release it, or take it over from a colleague. */
+    fun toggleChatAssign() {
+        val session = _state.value.session ?: return
+        val chat = _state.value.chats.firstOrNull { it.id == _state.value.openChatId } ?: return
+        val mine = chat.assignedTo == session.uid
+        viewModelScope.launch {
+            val result = if (mine) Chats.assign(session.clinicId, chat.id, null, null)
+            else Chats.assign(session.clinicId, chat.id, session.uid, session.name)
+            result.onFailure { error ->
+                _state.value = _state.value.copy(chatError = error.message ?: "Could not update.")
+            }
+        }
+    }
+
+    fun setChatArchived(archived: Boolean) {
+        val session = _state.value.session ?: return
+        val chat = _state.value.chats.firstOrNull { it.id == _state.value.openChatId } ?: return
+        viewModelScope.launch {
+            Chats.setArchived(session.clinicId, chat.id, archived).onFailure { error ->
+                _state.value = _state.value.copy(chatError = error.message ?: "Could not update.")
+            }
+        }
     }
 
     // --- reports ---------------------------------------------------------------------------

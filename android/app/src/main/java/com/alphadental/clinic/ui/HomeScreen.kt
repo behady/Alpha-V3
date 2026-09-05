@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonSearch
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.CircularProgressIndicator
@@ -98,6 +99,9 @@ fun HomeScreen(
     onOpenOrtho: () -> Unit,
     onOpenInventory: () -> Unit,
     onOpenWhatsappQueue: () -> Unit,
+    /** WhatsApp threads waiting for a person. Null opener for roles that may not read them. */
+    chatsWaiting: Int = 0,
+    onOpenChats: (() -> Unit)? = null,
     onOpenAssistant: () -> Unit,
     /** Null for roles that do not work the CRM inbox. */
     onOpenLeads: (() -> Unit)?,
@@ -180,13 +184,13 @@ fun HomeScreen(
             )
 
             session.isReception -> receptionHome(
-                appointments, active, arabic, whatsappWaiting,
-                onOpenAppointment, onOpenMoney, onOpenPatients, onOpenWhatsappQueue, onOpenAssistant, onOpenLeads,
+                appointments, active, arabic, whatsappWaiting, chatsWaiting,
+                onOpenAppointment, onOpenMoney, onOpenPatients, onOpenWhatsappQueue, onOpenChats, onOpenAssistant, onOpenLeads,
             )
 
             else -> ownerHome(
-                active, arabic, whatsappWaiting,
-                onOpenAppointment, onOpenReports, onOpenMoney, onOpenInventory, onOpenAssistant, onOpenLeads,
+                active, arabic, whatsappWaiting, chatsWaiting,
+                onOpenAppointment, onOpenReports, onOpenMoney, onOpenInventory, onOpenChats, onOpenAssistant, onOpenLeads,
             )
         }
 
@@ -450,20 +454,24 @@ private fun LazyListScope.receptionHome(
     active: List<Appointment>,
     arabic: Boolean,
     whatsappWaiting: Int,
+    chatsWaiting: Int,
     onOpen: (Appointment) -> Unit,
     onOpenMoney: (() -> Unit)?,
     onOpenPatients: () -> Unit,
     onOpenWhatsappQueue: () -> Unit,
+    onOpenChats: (() -> Unit)?,
     onOpenAssistant: () -> Unit,
     onOpenLeads: (() -> Unit)?,
 ) {
     quickActions(
         listOfNotNull(
+            // Chats first: a patient waiting for a person is the most time-bound thing on the desk.
+            onOpenChats?.let { QuickAction(Icons.AutoMirrored.Filled.Chat, if (arabic) "المحادثات" else "Chats", badge = chatsWaiting, onClick = it) },
             onOpenLeads?.let { QuickAction(Icons.Filled.PersonSearch, if (arabic) "عملاء" else "Leads", onClick = it) },
             onOpenMoney?.let { QuickAction(Icons.Filled.Payments, if (arabic) "الحسابات" else "Money", onClick = it) },
             QuickAction(Icons.Filled.People, if (arabic) "المرضى" else "Patients", onClick = onOpenPatients),
             QuickAction(
-                Icons.Filled.Send, if (arabic) "واتساب" else "WhatsApp",
+                Icons.Filled.Send, if (arabic) "قائمة الإرسال" else "Send list",
                 badge = whatsappWaiting, onClick = onOpenWhatsappQueue,
             ),
             QuickAction(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", onClick = onOpenAssistant),
@@ -518,15 +526,18 @@ private fun LazyListScope.ownerHome(
     active: List<Appointment>,
     arabic: Boolean,
     whatsappWaiting: Int,
+    chatsWaiting: Int,
     onOpen: (Appointment) -> Unit,
     onOpenReports: (() -> Unit)?,
     onOpenMoney: (() -> Unit)?,
     onOpenInventory: () -> Unit,
+    onOpenChats: (() -> Unit)?,
     onOpenAssistant: () -> Unit,
     onOpenLeads: (() -> Unit)?,
 ) {
     quickActions(
         listOfNotNull(
+            onOpenChats?.let { QuickAction(Icons.AutoMirrored.Filled.Chat, if (arabic) "المحادثات" else "Chats", badge = chatsWaiting, onClick = it) },
             onOpenLeads?.let { QuickAction(Icons.Filled.PersonSearch, if (arabic) "عملاء" else "Leads", onClick = it) },
             onOpenReports?.let { QuickAction(Icons.Filled.BarChart, if (arabic) "التقارير" else "Reports", onClick = it) },
             onOpenMoney?.let { QuickAction(Icons.Filled.Payments, if (arabic) "الحسابات" else "Money", onClick = it) },

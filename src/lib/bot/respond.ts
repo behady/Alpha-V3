@@ -447,7 +447,7 @@ export async function respondToPatientMessage(args: {
       await markHandoff(clinicId, conversationKey(chatId), "opted_out_urgent", {
         text, phone, patientId: patient.id, patientName: String(patient.data.name || ""), severity: "urgent",
       });
-      void push(clinicId, { title: "⚠️ مريض (موقف الرسايل) محتاج رد فوري", body: `${String(patient.data.name || phone)} — ${text.slice(0, 90)}` }, { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { patientId: patient.id } });
+      void push(clinicId, { title: "⚠️ مريض (موقف الرسايل) محتاج رد فوري", body: `${String(patient.data.name || phone)} — ${text.slice(0, 90)}` }, { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { chatId: conversationKey(chatId), patientId: patient.id } });
     }
     return skip("opted_out");
   }
@@ -472,7 +472,7 @@ export async function respondToPatientMessage(args: {
   if (conversation.optedOut) {
     if (needsHuman(text)) {
       await markHandoff(clinicId, conversation.phoneKey, "opted_out_urgent", { text, phone, severity: "urgent" });
-      void push(clinicId, { title: "⚠️ مريض (موقف الرسايل) محتاج رد فوري", body: `${phone} — ${text.slice(0, 90)}` }, { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } });
+      void push(clinicId, { title: "⚠️ مريض (موقف الرسايل) محتاج رد فوري", body: `${phone} — ${text.slice(0, 90)}` }, { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { chatId: conversation.phoneKey, screen: "day" } });
     }
     return skip("opted_out");
   }
@@ -1168,8 +1168,10 @@ export async function respondToPatientMessage(args: {
         {
           roles: ["Owner", "Admin", "Receptionist"],
           channel: "alpha_bookings",
-          // A known patient opens straight to their record on the phone; a stranger lands on the day.
-          data: patient?.id ? { patientId: patient.id } : { screen: "day" },
+          // The phone opens the conversation itself (chatId) where the app is new enough to have
+          // a chats screen; an older build ignores it and falls back to the patient's record, or
+          // to the day for a stranger.
+          data: { chatId: conversation.phoneKey, ...(patient?.id ? { patientId: patient.id } : { screen: "day" }) },
         }
       );
     }
