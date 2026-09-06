@@ -34,21 +34,20 @@
  */
 
 import { expiryDate } from "./clinicStatus";
+import { DEFAULT_TRIAL_DAYS } from "./trialPolicy";
 
 /**
- * How long a free trial runs.
+ * How long to assume a trial runs when the clinic document does not say.
  *
- * Sized to match the allowance note in `lib/subscriptions.ts` ("Fourteen days, so this is
- * deliberately more per-day than Pro"), which is the only other place the trial length has ever
- * been written down — and it was written in a comment, not in code.
+ * Re-exported from `trialPolicy.ts` rather than declared, so the number the guide counts down and
+ * the number signup stamps onto `expiresAt` cannot drift apart.
  *
- * Note what this constant does NOT do: it does not end anything. `/api/onboarding/create-clinic`
- * writes no `expiresAt`, so a trial clinic stays writable until a human sets one in the superadmin
- * panel. That is left exactly as it was — locking new signups out on day fifteen is a billing
- * decision, not a side effect of building a welcome screen. This constant only says how long the
- * clinic is *coached* for when nothing else says otherwise.
+ * This is only ever a fallback now. Signup writes a real `expiresAt` from the policy the
+ * superadmin dashboard controls, and `trialStatus` below prefers that field whenever it is
+ * present — which it will be for every clinic created from now on. The fallback still matters for
+ * the clinics created before that existed, which genuinely have no expiry date at all.
  */
-export const TRIAL_DAYS = 14;
+export const TRIAL_DAYS = DEFAULT_TRIAL_DAYS;
 
 export interface Localized {
   en: string;
@@ -557,10 +556,15 @@ export interface TrialStatus {
 /**
  * How far into the trial this clinic is.
  *
- * `expiresAt` wins when a human has set one in the superadmin panel, because that is the date the
- * clinic will actually be held to. Otherwise the end is derived from `createdAt + TRIAL_DAYS`,
- * which is the only thing available: self-signup writes no expiry at all. A clinic whose dates
- * cannot be read at all gets `isTrial` from its tier and no countdown, rather than a made-up one.
+ * `expiresAt` wins, because that is the date the clinic will actually be held to — by
+ * `firestore.rules` on every browser write and by `clinicStatus` on every server one. Signup
+ * stamps it from the platform trial policy, and the superadmin panel can move it per clinic.
+ *
+ * The `createdAt + TRIAL_DAYS` fallback is for the clinics that predate signup writing the field,
+ * and for a policy with expiry switched off. It is a coaching estimate in both cases, never an
+ * enforcement claim: nothing goes read-only on a date this function invented. A clinic whose
+ * dates cannot be read at all gets `isTrial` from its tier and no countdown rather than a
+ * made-up one.
  */
 export function trialStatus(
   clinic: Record<string, unknown> | null | undefined,

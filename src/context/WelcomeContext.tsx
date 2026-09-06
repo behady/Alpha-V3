@@ -1,9 +1,21 @@
 "use client";
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { hasFeature } from "@/lib/subscriptions";
+import { expiryDate } from "@/lib/clinicStatus";
+import {
+  DEFAULT_TRIAL_POLICY,
+  PLATFORM_SETTINGS_COLLECTION,
+  TRIAL_POLICY_DOC,
+  normalizeTrialPolicy,
+  trialWarning,
+  type TrialPolicy,
+  type TrialWarning,
+} from "@/lib/trialPolicy";
 import { readWelcomeSignals } from "@/lib/welcomeSignals";
 import {
   WELCOME_CHANGED_EVENT,
@@ -54,6 +66,14 @@ interface WelcomeContextType {
   locked: Mission[];
   progress: JourneyProgress;
   trial: TrialStatus;
+  /**
+   * Whether to tell the clinic its trial is about to end, and how many days are left.
+   *
+   * It lives here because this provider already holds the trial clock, and because the answer
+   * needs the platform policy's `warnWithinDays` — one document read, made only for clinics
+   * actually on a trial.
+   */
+  trialEnding: TrialWarning;
   /** Whether the coach should be on screen, and why not when it should not. */
   coach: CoachDecision;
   /** True while the coach has been switched off for good at this clinic. */
@@ -170,6 +190,45 @@ export function WelcomeProvider({
   );
   const trial = useMemo(() => trialStatus(clinic as Record<string, unknown> | null), [clinic]);
 
+  /**
+   * The platform trial policy, for the countdown banner's window.
+   *
+   * Read only for clinics that are actually on a trial — a paying clinic has no countdown, so
+   * asking would be a Firestore read spent on an answer nothing renders. A failure falls back to
+   * the built-in default rather than switching the warning off: a clinic about to go read-only
+   * with no notice is the outcome this banner exists to prevent, and a settings document that
+   * cannot be read is not a reason to accept it.
+   */
+  const [policy, setPolicy] = useState<TrialPolicy>(DEFAULT_TRIAL_POLICY);
+  useEffect(() => {
+    if (!trial.isTrial) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const snap = await getDoc(doc(db, PLATFORM_SETTINGS_COLLECTION, TRIAL_POLICY_DOC));
+        if (!cancelled && snap.exists()) setPolicy(normalizeTrialPolicy(snap.data()));
+      } catch {
+        /* Default stands. */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [trial.isTrial]);
+
+  const trialEnding = useMemo(
+    () =>
+      trialWarning({
+        // The clinic's own `expiresAt`, never the estimate `trialStatus` derives from `createdAt`.
+        // Only the stored field is what the rules will actually hold the clinic to, and warning
+        // someone about a deadline nothing enforces is how a banner stops being believed.
+        expiresAt: expiryDate((clinic as Record<string, unknown> | null)?.expiresAt),
+        isTrial: trial.isTrial,
+        policy,
+      }),
+    [clinic, trial.isTrial, policy],
+  );
+
   const coach = useMemo(
     () =>
       // While the probes are still out, every mission looks unfinished. Speaking then means a
@@ -198,6 +257,7 @@ export function WelcomeProvider({
       locked,
       progress,
       trial,
+      trialEnding,
       coach,
       coachDismissed: local.dismissed,
       refresh,
@@ -205,7 +265,7 @@ export function WelcomeProvider({
       dismiss,
       restore,
     }),
-    [loading, missions, locked, progress, trial, coach, local.dismissed, refresh, snooze, dismiss, restore],
+    [loading, missions, locked, progress, trial, trialEnding, coach, local.dismissed, refresh, snooze, dismiss, restore],
   );
 
   return <WelcomeContext.Provider value={value}>{children}</WelcomeContext.Provider>;

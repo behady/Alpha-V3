@@ -8,7 +8,7 @@ import { query, getDocs, updateDoc, doc, deleteDoc, onSnapshot, collection } fro
 import { useRouter } from "next/navigation";
 import { Clinic, SubscriptionTier } from "@/types/saas";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-import { ShieldCheck, Search, Loader2, Check, X, Building2, BarChart3, Users, MoreVertical, RefreshCcw, Trash2, ExternalLink, Megaphone, HardDriveDownload } from "lucide-react";
+import { ShieldCheck, Search, Loader2, Check, X, Building2, BarChart3, Users, MoreVertical, RefreshCcw, Trash2, ExternalLink, Megaphone, HardDriveDownload, SlidersHorizontal } from "lucide-react";
 import { useUI } from "@/context/UIContext";
 import { KpiStrip } from "@/components/superadmin/KpiStrip";
 import { ClinicDetailPanel } from "@/components/superadmin/ClinicDetailPanel";
@@ -17,9 +17,10 @@ import { UsersTab } from "@/components/superadmin/UsersTab";
 import { MetaTab } from "@/components/superadmin/MetaTab";
 import { MigrateTab } from "@/components/superadmin/MigrateTab";
 import MisplacedRecordsTab from "@/components/superadmin/MisplacedRecordsTab";
+import { PlatformTab } from "@/components/superadmin/PlatformTab";
 
 // Tabs
-type Tab = 'clinics' | 'analytics' | 'users' | 'meta' | 'migrate' | 'misplaced';
+type Tab = 'clinics' | 'analytics' | 'users' | 'meta' | 'migrate' | 'misplaced' | 'platform';
 
 interface RichClinic extends Clinic {
   ownerEmail?: string;
@@ -216,6 +217,9 @@ export default function SuperAdminDashboard() {
             <button onClick={() => setActiveTab('misplaced')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'misplaced' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
               <Search size={16} /> Audit
             </button>
+            <button onClick={() => setActiveTab('platform')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'platform' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
+              <SlidersHorizontal size={16} /> Platform
+            </button>
           </div>
         </div>
       </div>
@@ -382,6 +386,7 @@ export default function SuperAdminDashboard() {
 
         {activeTab === 'migrate' && <MigrateTab clinics={clinics} />}
         {activeTab === 'misplaced' && <MisplacedRecordsTab />}
+        {activeTab === 'platform' && <PlatformTab />}
 
       </div>
       

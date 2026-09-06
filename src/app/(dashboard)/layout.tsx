@@ -28,6 +28,7 @@ import { TutorialProvider, useTutorial } from "@/context/TutorialContext";
 import TutorialOverlay from "@/components/TutorialOverlay";
 import { WelcomeProvider } from "@/context/WelcomeContext";
 import WelcomeCoach from "@/components/welcome/WelcomeCoach";
+import TrialCountdownBanner from "@/components/welcome/TrialCountdownBanner";
 import WhatsAppIcon from "@/components/icons/WhatsAppIcon";
 import { useUnreadChatCount } from "@/lib/useUnreadChatCount";
 import { useChatAlerts } from "@/lib/useChatAlerts";
@@ -374,6 +375,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         {/* MAIN CONTENT AREA */}
         <div className="flex-1 flex flex-col min-w-0 bg-transparent">
            
+           {/* The last few days of a trial. Mutually exclusive with the read-only notice below —
+               the countdown stops the moment the date passes and that one takes over. */}
+           <TrialCountdownBanner />
+
            {isReadOnly && (
              <div className="bg-red-50 border-b border-red-200 px-4 py-3 flex items-center justify-center gap-3 z-50 shadow-sm relative">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-red-600"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>

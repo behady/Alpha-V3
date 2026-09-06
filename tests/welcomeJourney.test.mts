@@ -14,9 +14,10 @@
 //      `adminOnly` was added to `tutorials.ts` to prevent.
 //   4. A signal no probe answers. `welcomeSignals.ts` and `welcomeJourney.ts` are separate files
 //      and nothing but this test connects a mission's `signal` to the read that resolves it.
-//   5. The trial clock. Self-signup writes no `expiresAt` at all, so the countdown is derived —
-//      and a derivation that is one day out is a countdown that lies on the last day, which is
-//      the only day it matters.
+//   5. The trial clock. Signup stamps a real `expiresAt` from the platform policy now, and the
+//      countdown must prefer it — a guide promising four more days than the rules will allow is
+//      worse than no countdown. The derived fallback still runs for the clinics created before
+//      that existed, and a derivation one day out lies on the last day, the only day it matters.
 //
 // Run with tsx so the TS modules load directly: npm run test:welcome
 import assert from "node:assert/strict";
@@ -362,7 +363,9 @@ const DAY = 86400000;
 }
 
 {
-  // Self-signup writes no expiry at all, so the end is derived. This is the common case.
+  // No stored expiry: a clinic created before signup stamped the field, or a policy with expiry
+  // switched off. The end is derived from signup — a coaching estimate, never an enforcement
+  // claim, since nothing goes read-only on a date this function invented.
   const created = new Date("2026-09-01T00:00:00Z");
   const t = trialStatus(
     { subscriptionTier: "Free Trial", createdAt: created },
