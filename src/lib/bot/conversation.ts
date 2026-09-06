@@ -118,6 +118,8 @@ export interface BotConversation {
   pendingReschedule?: string;
   /** How the conversation ended, for the playbook: booked, handoff, or unset while it is live. */
   outcome?: string;
+  /** A staff member replied recently or paused the bot (not merely a handoff flag). */
+  staffActive?: boolean;
   /** The service the model last heard the patient wanting; the treatment when a booking follows. */
   lastInterest?: string;
   /** What the assistant remembers from earlier conversations with this number (nightly summary). */
@@ -251,6 +253,8 @@ export async function loadConversation(
     // The conversation resets; the rate limit, a recorded opt-out and a live handoff do not.
     state: humanOwned ? "handed_off" : expired ? "new" : released ? "awaiting_choice" : storedState,
     humanOwned,
+    // A person has actually written or paused the bot — as opposed to a flag raised for one.
+    staffActive: humanActiveAtMs > now - humanClaimMs || d.botPaused === true,
     turns: expired ? 0 : Number(d.turns) || 0,
     patientId: typeof d.patientId === "string" ? d.patientId : undefined,
     patientName: typeof d.patientName === "string" ? d.patientName : undefined,

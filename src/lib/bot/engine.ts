@@ -600,6 +600,11 @@ export function decideBotReply(args: {
      * stray tap at an old list, so the question is asked again rather than a patient called "3".
      */
     const name = text.replace(/\s+/g, " ").trim();
+    // In AI mode a greeting, a question or a booking word at the name step is talk, not a name:
+    // "Hi" must not be registered as somebody called Hi.
+    if (ctx.aiFirst && ctx.aiAvailable && (quickIntent(name) !== null || /[?؟]/.test(name))) {
+      return { reply: "", action: { type: "ai", question: text }, next: state, handoff: false, reason: "ai" };
+    }
     if (numberChoice(name) !== null || name.length < 2 || name.length > 80) {
       return { reply: "معلش، ياريت الاسم بالحروف (مش أرقام) عشان نكمل الحجز 🙏", next: "booking_name", handoff: false, reason: "ask_name_again" };
     }
@@ -679,8 +684,13 @@ export function decideBotReply(args: {
         ? { reply: "", action: { type: "list_times", index: n }, next: "booking_time", handoff: false, reason: "booking_times" }
         : { reply: "", action: { type: "book", index: n }, next: "awaiting_choice", handoff: false, reason: "booking_book" };
     }
-    // Not a pick. Same options again rather than a human: mis-typing a digit is not confusion,
-    // and the turn caps in lib/bot/conversation still bound how long this can go on.
+    // Not a pick. In AI mode the model answers with the options still on the table — a "Hi" or
+    // a question mid-list used to get the same list thrown back, which reads as a machine.
+    if (ctx.aiFirst && ctx.aiAvailable) {
+      return { reply: "", action: { type: "ai", question: text }, next: state, handoff: false, reason: "ai" };
+    }
+    // Same options again rather than a human: mis-typing a digit is not confusion, and the turn
+    // caps in lib/bot/conversation still bound how long this can go on.
     return { reply: "", action: { type: "relist" }, next: state, handoff: false, reason: "booking_relist" };
   }
 

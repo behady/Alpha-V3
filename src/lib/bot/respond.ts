@@ -31,6 +31,7 @@ import {
   saveConversation,
   type HandoffSeverity,
 } from "./conversation";
+import type { BotConversation } from "./conversation";
 import { answerWithAi, type AiPatientContext, type AiThreadLine } from "./aiReply";
 import { SALES_CLOSE_REASONS, LEAD_INTEREST_REASONS, activeOffers, closingLine, offerForService } from "./sales";
 import { markBotLeadBooked, upsertBotLead } from "./botLeads";
@@ -566,7 +567,13 @@ export async function respondToPatientMessage(args: {
           handoff: true,
           reason: `media_${args.media}`,
         }
-      : decideBotReply({ state: conversation.state, text, ctx });
+      : decideBotReply({
+          // A handoff flag with nobody behind it must not mute the salesperson: the flag stays
+          // for the desk, the model keeps helping. A person who actually wrote still owns it.
+          state: settings.aiFirst && conversation.state === "handed_off" && !conversation.staffActive ? "awaiting_choice" : conversation.state,
+          text,
+          ctx,
+        });
 
   /*
    * Perform whatever data work the engine asked for and compose the visible text. The engine
@@ -759,6 +766,33 @@ export async function respondToPatientMessage(args: {
       }
     };
 
+    /*
+     * A move, done by the bot.
+     *
+     * The appointment is found by phone, shown back, and the same day list booking uses comes
+     * next — with the appointment's own dentist, since a move is not a change of doctor. The
+     * final pick lands on `bookAt`, which sees `rescheduleId` and moves instead of adding. No
+     * appointment: offer one. Reached from the typed intent and from the model's own decision.
+     */
+    const startReschedule = async () => {
+      const appt = patient ? await findNextAppointment(clinicId, patient.id) : null;
+      if (!appt) {
+        replyText = "مالقيتش ليك ميعاد محجوز حالياً 🙏 تحب نحجزلك؟";
+        structure = { body: replyText, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
+        reason = "reschedule_no_appointment";
+        return;
+      }
+      rescheduleId = appt.id;
+      const doctorName = appt.doctor && appt.doctor.toLowerCase() !== "any" ? appt.doctor : "";
+      listDays(doctorName);
+      if (nextState === "booking_day") {
+        const intro = ["تمام، هنعدّل ميعادك ده 🔁", "", appointmentLine(appt), ""].join("\n");
+        replyText = intro + "\n" + replyText;
+        if (structure) structure = { ...structure, body: `${intro}\n${structure.body}` };
+        reason = "reschedule_days";
+      }
+    };
+
     if (act.type === "ack") {
       /*
        * "تمام" is, overwhelmingly, a patient answering the clinic's own reminder. It used to get the
@@ -799,30 +833,7 @@ export async function respondToPatientMessage(args: {
         reason = "no_appointment";
       }
     } else if (act.type === "reschedule_start") {
-      /*
-       * A move, done by the bot.
-       *
-       * The appointment is found by phone, shown back, and the same day list booking uses comes
-       * next — with the appointment's own dentist, since a move is not a change of doctor. The
-       * final tap lands on `book`, which sees `rescheduleId` and moves instead of adding. No
-       * appointment: offer one, the way "my appointment" does.
-       */
-      const appt = patient ? await findNextAppointment(clinicId, patient.id) : null;
-      if (!appt) {
-        replyText = "مالقيتش ليك ميعاد محجوز حالياً 🙏 تحب نحجزلك؟";
-        structure = { body: replyText, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
-        reason = "reschedule_no_appointment";
-      } else {
-        rescheduleId = appt.id;
-        const doctorName = appt.doctor && appt.doctor.toLowerCase() !== "any" ? appt.doctor : "";
-        listDays(doctorName);
-        if (nextState === "booking_day") {
-          const intro = ["تمام، هنعدّل ميعادك ده 🔁", "", appointmentLine(appt), ""].join("\n");
-          replyText = intro + "\n" + replyText;
-          if (structure) structure = { ...structure, body: `${intro}\n${structure.body}` };
-          reason = "reschedule_days";
-        }
-      }
+      await startReschedule();
     } else if (act.type === "appointment_change") {
       /*
        * A cancellation, a move, or "I'm running late".
@@ -913,9 +924,20 @@ export async function respondToPatientMessage(args: {
         slots: slotOffer,
         media: salesContext?.media,
         memory: conversation.memory,
+        flaggedForStaff: conversation.humanOwned && !conversation.staffActive,
+        bookingStep: bookingStepLabel(conversation),
       });
       if (ai.kind === "answer" && ai.sendMedia) aiMedia = salesContext?.media?.find((m) => m.id === ai.sendMedia) ?? null;
-      if (ai.kind === "answer" && ai.bookSlot && (ctx.canOfferBooking || ctx.canRegister)) {
+      if (ai.kind === "answer" && ai.reschedule && ctx.canOfferBooking) {
+        // "عايز أعدل الميعاد" heard by the model: the same move flow the typed intent opens.
+        const intro = ai.text.trim();
+        aiExchange = { q: act.question, a: intro };
+        await startReschedule();
+        if (intro && reason === "reschedule_days") {
+          replyText = `${intro}\n\n${replyText}`;
+          if (structure) structure = { ...structure, body: `${intro}\n\n${structure.body}` };
+        }
+      } else if (ai.kind === "answer" && ai.bookSlot && (ctx.canOfferBooking || ctx.canRegister)) {
         /*
          * The spoken close: "بكره 5" became a slot key the model was given, validated there.
          * A known patient is booked on the spot; a stranger gives a name first and the slot
@@ -970,6 +992,21 @@ ${askName}` : askName;
         if (ai.interest && !ctx.serviceMatch) ctx.serviceMatch = (await matchService(clinicId, ai.interest)) || ai.interest;
         if (ai.interest) aiInterest = (await matchService(clinicId, ai.interest)) || ai.interest;
         reason = "ai_answer";
+        // Mid-list talk answered: the list the patient was shown is still the list they can pick from.
+        if (conversation.state.startsWith("booking_")) {
+          nextState = conversation.state;
+          pending = {
+            days: conversation.pendingDays,
+            times: conversation.pendingTimes,
+            date: conversation.pendingDate,
+            doctors: conversation.pendingDoctors,
+            doctor: conversation.pendingDoctor,
+            treatment: conversation.pendingTreatment,
+            forRelative: conversation.pendingForRelative,
+            dayWord: conversation.pendingDayWord,
+            reschedule: conversation.pendingReschedule,
+          };
+        }
       } else if (ai.kind === "handoff") {
         // The model recognised a person's job — a complaint, a named dentist, something medical,
         // or a question it has no facts for. Same promise as every other handoff: the patient is
@@ -1415,6 +1452,22 @@ ${askName}` : askName;
   }
 
   return { status: "replied", text: body, handoff, reason, structure };
+}
+
+/** Where the patient is in the booking lists, for the model — or nothing when they are not. */
+function bookingStepLabel(c: BotConversation): string {
+  switch (c.state) {
+    case "booking_doctor":
+      return `اختيار الدكتور من قايمة: ${(c.pendingDoctors ?? []).map((d) => d || "أي دكتور").join("، ")}`;
+    case "booking_day":
+      return `اختيار اليوم من قايمة: ${(c.pendingDays ?? []).map(arabicDayLabel).join("، ")}${c.pendingReschedule ? " (لتعديل ميعاد موجود)" : ""}`;
+    case "booking_time":
+      return `اختيار الساعة يوم ${c.pendingDate ? arabicDayLabel(c.pendingDate) : ""} من: ${(c.pendingTimes ?? []).map(arabicTimeLabel).join("، ")}`;
+    case "booking_name":
+      return "طلبنا منه اسمه الكامل عشان نسجل الحجز";
+    default:
+      return "";
+  }
 }
 
 /**
