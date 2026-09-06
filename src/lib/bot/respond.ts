@@ -34,6 +34,7 @@ import {
 import type { BotConversation } from "./conversation";
 import { answerWithAi, type AiPatientContext, type AiThreadLine } from "./aiReply";
 import { isLatinMessage, localizeOutbound } from "./localize";
+import { loadPatientDossier, type PatientDossier } from "./patientDossier";
 import { SALES_CLOSE_REASONS, LEAD_INTEREST_REASONS, activeOffers, closingLine, offerForService } from "./sales";
 import { markBotLeadBooked, upsertBotLead } from "./botLeads";
 import { recordThreadMessage } from "./thread";
@@ -997,6 +998,7 @@ export async function respondToPatientMessage(args: {
         slots: slotOffer,
         media: salesContext?.media,
         memory: conversation.memory,
+        dossier: salesContext?.dossier,
         flaggedForStaff: conversation.humanOwned && !conversation.staffActive,
         bookingStep: bookingStepLabel(conversation),
         sessionGapMinutes: salesContext?.gapMinutes,
@@ -1716,6 +1718,7 @@ async function loadSalesContext(
   playbook: string;
   media: Array<{ id: string; label: string; when: string; url: string; kind: "image" | "document" }>;
   gapMinutes: number;
+  dossier?: PatientDossier;
 }> {
   const key = conversationKey(chatId);
   const [threadSnap, knowledgeSnap, playbookSnap, upcoming, mediaSnap, convSnap] = await Promise.all([
@@ -1758,11 +1761,16 @@ async function loadSalesContext(
   });
   const pb = playbookSnap?.data() || {};
   const lastVisit = typeof patient?.data.lastVisit === "string" ? patient.data.lastVisit : undefined;
+  // Their own file: what was done, what is owed, what the dentist prescribed. Only ever for a
+  // number the clinic has already identified — a stranger has no record to read.
+  const dossier = patient ? await loadPatientDossier(clinicId, patient.id).catch(() => undefined) : undefined;
+
   return {
     thread,
     knowledge,
     media,
     gapMinutes,
+    dossier,
     playbook: String(pb.editedText || pb.text || ""),
     patient: {
       known: Boolean(patient),

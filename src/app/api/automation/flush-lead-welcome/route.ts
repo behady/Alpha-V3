@@ -25,8 +25,13 @@ export const maxDuration = 300;
  * They cannot simply be sent: a lead from an ad form has never written to us, so WhatsApp's
  * 24-hour service window is shut and only a pre-approved template delivers — free text is
  * accepted by the API and then dropped, which looks exactly like success. So this waits for
- * `alpha_lead_welcome_ar` to be approved, checks that on every run, and drains the queue as soon
- * as the answer is yes. Until then it is a no-op that reports what it is waiting for.
+ * `alpha_lead_welcome_ar` to be approved and checks that on every run.
+ *
+ * The backlog is NOT sent. A greeting that arrives a week after somebody filled in a form reads
+ * as a clinic that does not know what day it is, and the clinic's own instruction was to start
+ * with the new leads. Everything queued before this job first ran is marked as skipped, with the
+ * moment of that decision stored, so a lead that arrives from now on is greeted within the hour
+ * and nobody is greeted about a form they have forgotten filling in.
  */
 
 const TEMPLATE = "alpha_lead_welcome_ar";
@@ -87,14 +92,45 @@ async function runForClinic(clinicId: string): Promise<FlushResult> {
   const rows = queued.docs.filter((d) => String((d.data() || {}).type || "") === "lead_welcome");
   if (!rows.length) return out;
 
+  /*
+   * Where "new" starts.
+   *
+   * The first time this runs for a clinic it draws the line at that moment and retires everything
+   * already waiting: those leads were never greeted because of a broken gateway, and a welcome
+   * that arrives days late does more harm than the silence did. From then on the line stays put,
+   * so a lead queued a minute ago is sent and one queued before the fix never is.
+   */
+  const markerRef = adminClinicDoc(clinicId, "settings", "bot_alerts");
+  const marker = (await markerRef.get()).data() || {};
+  let startFrom = Number(marker.leadFlushFromMs) || 0;
+  if (!startFrom) {
+    startFrom = Date.now();
+    await markerRef.set({ leadFlushFromMs: startFrom }, { merge: true });
+  }
+  for (const doc of rows) {
+    const created = Date.now() - ageMs((doc.data() || {}).createdAt);
+    if (Number.isFinite(created) && created < startFrom) {
+      await doc.ref.set(
+        { status: "expired", expiredAt: FieldValue.serverTimestamp(), expiredReason: "backlog_before_automation" },
+        { merge: true }
+      );
+      out.expired += 1;
+    }
+  }
+  const fresh = rows.filter((d) => {
+    const created = Date.now() - ageMs((d.data() || {}).createdAt);
+    return Number.isFinite(created) && created >= startFrom;
+  });
+  if (!fresh.length) return out;
+
   const config = await loadMetaWhatsappConfig(clinicId);
   if (!config?.token) {
-    out.waiting = rows.length;
+    out.waiting = fresh.length;
     out.reason = "no_meta_config";
     return out;
   }
   if (!(await templateApproved(config.token, config.wabaId || ""))) {
-    out.waiting = rows.length;
+    out.waiting = fresh.length;
     out.reason = "template_pending";
     return out;
   }
@@ -110,7 +146,7 @@ async function runForClinic(clinicId: string): Promise<FlushResult> {
       .filter((k) => k.length >= 7)
   );
 
-  for (const doc of rows) {
+  for (const doc of fresh) {
     if (out.sent >= MAX_PER_RUN) break;
     const d = doc.data() || {};
     const to = String(d.to || "").trim();
