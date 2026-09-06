@@ -122,6 +122,7 @@ import com.alphadental.clinic.sms.SmsWorker
 import com.alphadental.clinic.ui.SectionHeading
 import com.alphadental.clinic.ui.SmsSenderCard
 import com.alphadental.clinic.ui.ToolTile
+import com.alphadental.clinic.ui.UpdateBanner
 import com.alphadental.clinic.ui.rememberPunchAction
 
 class MainActivity : ComponentActivity() {
@@ -298,6 +299,9 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
             // simply grows a line when it lands.
             LaunchedEffect(session.uid) { viewModel.refreshBriefing() }
 
+            // Once a day, after sign-in: is this build behind? Quietly, in the background.
+            LaunchedEffect(session.uid) { viewModel.checkForUpdate(context) }
+
             LaunchedEffect(session.uid) {
                 com.alphadental.clinic.push.PushNav.requested.collect { target ->
                     if (target != null) {
@@ -392,6 +396,9 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                                 onOpenBriefing = viewModel::openBriefing,
                                 refreshing = state.homeRefreshing,
                                 onRefresh = viewModel::refreshHome,
+                                update = state.update,
+                                onDownloadUpdate = { state.update?.let { context.openUpdateLink(it.url) } },
+                                onDismissUpdate = { viewModel.dismissUpdate(context) },
                                 onOpenLeads = if (session.can("access.marketing")) {
                                     { viewModel.openLeads() }
                                 } else null,
@@ -466,6 +473,9 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         )
 
                         Tab.MORE -> MoreScreen(
+                            update = state.update,
+                            onDownloadUpdate = { state.update?.let { context.openUpdateLink(it.url) } },
+                            onDismissUpdate = { viewModel.dismissUpdate(context) },
                             name = session.name,
                             email = session.email,
                             role = session.role,
@@ -1058,6 +1068,10 @@ private fun NavItem(
  */
 @Composable
 private fun MoreScreen(
+    /** A newer build is published; shown at the top, above the account card. */
+    update: com.alphadental.clinic.UpdateCheck.Update? = null,
+    onDownloadUpdate: () -> Unit = {},
+    onDismissUpdate: () -> Unit = {},
     name: String,
     email: String,
     role: String,
@@ -1135,6 +1149,17 @@ private fun MoreScreen(
             .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (update != null) {
+            UpdateBanner(
+                versionName = update.versionName,
+                sizeBytes = update.sizeBytes,
+                notes = update.notes,
+                arabic = arabic,
+                onDownload = onDownloadUpdate,
+                onDismiss = onDismissUpdate,
+            )
+        }
+
         AlphaCard(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(18.dp)) {
                 Text(name, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = Alpha.Slate900)
@@ -1341,4 +1366,17 @@ private fun MoreRow(
 private fun prettyDay(dateKey: String, arabic: Boolean): String {
     val locale = if (arabic) java.util.Locale("ar", "EG") else java.util.Locale.US
     return java.text.SimpleDateFormat("EEE, d MMM", locale).format(AppViewModel.parseDate(dateKey))
+}
+
+/**
+ * The APK link, in the browser: it downloads there, and tapping the finished download offers to
+ * install over the old app — the same last step as a file copied across, without the copying.
+ */
+private fun android.content.Context.openUpdateLink(url: String) {
+    runCatching {
+        startActivity(
+            android.content.Intent(android.content.Intent.ACTION_VIEW, url.toUri())
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
+    }
 }

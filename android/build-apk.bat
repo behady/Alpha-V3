@@ -82,6 +82,10 @@ echo    Done. The app is here:
 echo    %~dp0AlphaDental.apk
 echo.
 echo    Copy that file to an Android phone and tap it to install.
+echo.
+echo    Or publish it so every phone offers the update by itself:
+echo      npm run publish:apk -- --notes "what changed"
+echo    (run from the website folder, one level up)
 echo   ==================================================================
 echo.
 pause

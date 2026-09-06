@@ -203,6 +203,9 @@ data class AppState(
     val homeRefreshing: Boolean = false,
     /** A pull on an open patient file: re-read without blanking the file underneath. */
     val patientRefreshing: Boolean = false,
+    // --- a newer build of this app ---
+    /** Null until a check finds a higher version code than this build's, and not dismissed. */
+    val update: UpdateCheck.Update? = null,
     // --- attendance (the owner's view) ---
     val attendanceOpen: Boolean = false,
     val attendanceStaff: List<Attendance.StaffMember> = emptyList(),
@@ -1029,6 +1032,22 @@ class AppViewModel : ViewModel() {
 
     fun closeWhatsappQueue() {
         _state.value = _state.value.copy(whatsappQueueOpen = false)
+    }
+
+    // --- a newer build ----------------------------------------------------------------------
+
+    /** Once a day, and on demand: is there a newer APK published? Never blocks, never throws. */
+    fun checkForUpdate(context: android.content.Context, force: Boolean = false) {
+        viewModelScope.launch {
+            val found = UpdateCheck.check(context.applicationContext, force)
+            _state.value = _state.value.copy(update = found)
+        }
+    }
+
+    fun dismissUpdate(context: android.content.Context) {
+        val update = _state.value.update ?: return
+        UpdateCheck.dismiss(context.applicationContext, update)
+        _state.value = _state.value.copy(update = null)
     }
 
     // --- attendance -----------------------------------------------------------------------
