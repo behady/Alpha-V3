@@ -392,7 +392,9 @@ export async function respondToPatientMessage(args: {
   // as a fallback — broken on their side today, fails fast and quietly, and starts contributing
   // the day they fix it with no change here.
   const isLidChat = /@lid$/i.test(chatId);
-  let phone = args.phone || "";
+  // E.164 everywhere: the patient record, the appointment and the lead all compare phones as
+  // strings, and a Meta payload arrives without the plus.
+  let phone = /^\d{8,15}$/.test(args.phone || "") ? `+${args.phone}` : args.phone || "";
   let patient: Awaited<ReturnType<typeof findPatient>> = null;
   if (!phone && isLidChat) {
     patient = await findPatientByLid(clinicId, chatId);
@@ -1392,7 +1394,7 @@ export async function respondToPatientMessage(args: {
  * already settled on or any chair. Each carries a key the model must echo back exactly — the
  * calendar is consulted again at booking time, so a slot taken in the meantime is caught there.
  */
-async function nextSlots(
+export async function nextSlots(
   clinicId: string,
   profile: NonNullable<Awaited<ReturnType<typeof loadPublicClinicProfile>>>,
   branchId: string | null,
@@ -1408,8 +1410,11 @@ async function nextSlots(
       }
       if (out.length >= 6) break;
     }
-  } catch {
-    /* no calendar, no offer */
+  } catch (e) {
+    // No calendar, no offer — but say why in the flight recorder; silence here hid a bug once.
+    void adminClinicCollection(clinicId, "ai_debug")
+      .add({ kind: "slots_error", error: e instanceof Error ? e.message : String(e), createdAt: FieldValue.serverTimestamp() })
+      .catch(() => {});
   }
   return out;
 }
