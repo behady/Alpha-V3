@@ -36,6 +36,7 @@ import { answerWithAi, type AiPatientContext, type AiThreadLine } from "./aiRepl
 import { isLatinMessage, localizeOutbound } from "./localize";
 import { loadPatientDossier, type PatientDossier } from "./patientDossier";
 import { resolveSpokenPick } from "./spokenPick";
+import { stripRepeatIntro } from "./repeatIntro";
 import { SALES_CLOSE_REASONS, LEAD_INTEREST_REASONS, activeOffers, closingLine, offerForService } from "./sales";
 import { markBotLeadBooked, upsertBotLead } from "./botLeads";
 import { recordThreadMessage } from "./thread";
@@ -336,7 +337,12 @@ function closedNoteEn(schedule: ClinicScheduleConfig): string {
   const tomorrow = new Date(`${today}T12:00:00`);
   tomorrow.setDate(tomorrow.getDate() + 1);
   const when = n.dateKey === today ? "today" : n.dateKey === tomorrow.toISOString().slice(0, 10) ? "tomorrow" : `on ${new Date(`${n.dateKey}T12:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "numeric" })}`;
-  return `The clinic is closed right now — we open ${when} at ${n.clock}, and we'll get back to you then 🙏`;
+  // The clock comes back as "3:00 م" because everything else that reads it is Arabic. This note is
+  // appended after the localiser has already run, so it has to finish the job itself — otherwise an
+  // English sentence ends in an Arabic meridiem, which is exactly the seam this whole path exists
+  // to remove.
+  const clock = n.clock.replace(/\s*م$/, " PM").replace(/\s*ص$/, " AM");
+  return `The clinic is closed right now — we open ${when} at ${clock}, and we'll get back to you then 🙏`;
 }
 
 function closedNote(schedule: ClinicScheduleConfig): string {
@@ -673,6 +679,8 @@ export async function respondToPatientMessage(args: {
   let pending: PendingOptions | undefined;
   // The appointment being moved, if the patient is mid-reschedule. Rides on every list step.
   let rescheduleId = conversation.pendingReschedule || "";
+  /** Has this patient already been introduced to the assistant by name in this thread? */
+  let heardIntroBefore = false;
   /** The slot keys this reply names in its own sentence, so the next turn can answer "the first". */
   let spokenSlotKeys: string[] = [];
   /** Attach them to whatever this turn was already storing, without disturbing the rest. */
@@ -1011,6 +1019,9 @@ export async function respondToPatientMessage(args: {
       const sales = settings.aiFirst;
       const salesContext = sales ? await loadSalesContext(clinicId, chatId, patient, ctx) : null;
       const slotOffer = sales && profile?.schedule.isConfigured && (ctx.canOfferBooking || ctx.canRegister) ? await nextSlots(clinicId, profile, branchId, conversation.pendingDoctor ?? "", rescheduleId || null) : [];
+      heardIntroBefore = (salesContext?.thread || []).some(
+        (line) => line.author === "bot" && Boolean(settings.personaName) && line.text.includes(settings.personaName)
+      );
       const ai = await answerWithAi({
         clinicId,
         clinicName,
@@ -1514,6 +1525,24 @@ ${askWho}` : askWho;
    * the patient writes English, which is how an Arabic patient who pressed a button used to get
    * the rest of their booking in English.
    */
+  /*
+   * The introduction, once.
+   *
+   * The prompt has asked for that since the assistant was given a name, and over an eight-message
+   * conversation it still said "معاكي سارة من العيادة" six times. Nothing gives it away as
+   * software faster. If this patient has already heard it in this thread, the clause comes off
+   * here — the greeting around it, which is answering their own, stays.
+   */
+  if (settings.personaName && replyText.trim()) {
+    if (heardIntroBefore) {
+      const trimmed = stripRepeatIntro(replyText, settings.personaName, clinicName);
+      if (trimmed !== replyText) {
+        replyText = trimmed;
+        if (structure) structure = { ...structure, body: stripRepeatIntro(structure.body, settings.personaName, clinicName) };
+      }
+    }
+  }
+
   const latinPatient = settings.aiFirst && (latinNow || (conversation.lastLatin === true && !/[؀-ۿ]/.test(text)));
   if (latinPatient) {
     const localized = localizeOutbound(replyText, structure);
