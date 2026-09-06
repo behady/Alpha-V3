@@ -30,13 +30,17 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -99,6 +103,12 @@ fun LabScreen(
     onOpenPatient: ((String) -> Unit)?,
     onRetry: () -> Unit,
     onClose: () -> Unit,
+    /** Raise a new order. Null for roles that may not write lab cases. */
+    onNewOrder: (() -> Unit)? = null,
+    /** Edit a saved order's details. */
+    onEditCase: ((LabCase) -> Unit)? = null,
+    /** Raise a replacement for one that came back wrong. */
+    onRemakeCase: ((LabCase) -> Unit)? = null,
 ) {
     BackHandler { onClose() }
     val today = AppViewModel.today()
@@ -135,6 +145,7 @@ fun LabScreen(
     }
 
     Surface(color = Alpha.Ground, modifier = Modifier.fillMaxSize()) {
+      Box(Modifier.fillMaxSize()) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -242,7 +253,7 @@ fun LabScreen(
                             q.isNotBlank() -> if (arabic) "لا توجد حالة بهذا الرقم أو الاسم." else "No case matches that number or name."
                             filter == "overdue" -> if (arabic) "لا شيء متأخر." else "Nothing is overdue."
                             filter == "back" -> if (arabic) "لا توجد حالات تنتظر مريضاً." else "Nothing is waiting on a patient."
-                            cases.isEmpty() -> if (arabic) "لا توجد حالات معمل بعد. تُفتح الطلبات من الموقع." else "No lab cases yet. Orders are raised on the website."
+                            cases.isEmpty() -> if (arabic) "لا توجد حالات معمل بعد. اضغط \"طلب جديد\"." else "No lab cases yet. Tap New order."
                             else -> if (arabic) "لا توجد حالات هنا." else "Nothing here."
                         }
                     )
@@ -258,6 +269,23 @@ fun LabScreen(
                 }
             }
         }
+
+        if (onNewOrder != null) {
+            ExtendedFloatingActionButton(
+                onClick = onNewOrder,
+                containerColor = Alpha.Ink,
+                contentColor = Color.White,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(20.dp),
+            ) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(if (arabic) "طلب جديد" else "New order", fontWeight = FontWeight.ExtraBold)
+            }
+        }
+      }
     }
 
     cases.firstOrNull { it.id == openCaseId }?.let { case ->
@@ -268,6 +296,8 @@ fun LabScreen(
             arabic = arabic,
             onAdvance = { next -> onAdvance(case, next) },
             onOpenPatient = onOpenPatient,
+            onEdit = onEditCase?.let { edit -> { edit(case) } },
+            onRemake = onRemakeCase?.let { remake -> { remake(case) } },
             onDismiss = onCloseCase,
         )
     }
@@ -450,6 +480,8 @@ private fun CaseSheet(
     arabic: Boolean,
     onAdvance: (String) -> Unit,
     onOpenPatient: ((String) -> Unit)?,
+    onEdit: (() -> Unit)?,
+    onRemake: (() -> Unit)?,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -552,6 +584,28 @@ private fun CaseSheet(
                             Icon(Icons.Filled.Folder, contentDescription = null, modifier = Modifier.size(16.dp), tint = Alpha.Slate900)
                             Spacer(Modifier.width(6.dp))
                             Text(if (arabic) "الملف" else "File", color = Alpha.Slate900, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
+            if (onEdit != null || onRemake != null) {
+                Spacer(Modifier.height(14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    onEdit?.let {
+                        OutlinedButton(onClick = it, shape = Alpha.PillShape) {
+                            Icon(Icons.Filled.Edit, contentDescription = null, modifier = Modifier.size(16.dp), tint = Alpha.Slate900)
+                            Spacer(Modifier.width(6.dp))
+                            Text(if (arabic) "تعديل" else "Edit", color = Alpha.Slate900, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    // Only worth offering once the work has actually come back: a remake of a
+                    // case still at the lab is a case that should be chased, not re-ordered.
+                    if (onRemake != null && case.status in setOf("back", "fitted", "tryin_back")) {
+                        OutlinedButton(onClick = onRemake, shape = Alpha.PillShape) {
+                            Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp), tint = Alpha.WarnText)
+                            Spacer(Modifier.width(6.dp))
+                            Text(if (arabic) "إعادة عمل" else "Remake", color = Alpha.WarnText, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

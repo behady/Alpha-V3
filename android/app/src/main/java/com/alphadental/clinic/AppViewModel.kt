@@ -40,6 +40,10 @@ import com.alphadental.clinic.ai.ChatReplyClient
 import com.alphadental.clinic.data.Chats
 import com.alphadental.clinic.data.LabCases
 import com.alphadental.clinic.data.Attendance
+import com.alphadental.clinic.data.ClinicSettings
+import com.alphadental.clinic.ai.JoinRequestClient
+import com.alphadental.clinic.ui.SettingsSection
+import com.alphadental.clinic.ui.SettingsState
 import com.alphadental.clinic.ai.PayrollClient
 import com.alphadental.clinic.ai.ChatMessage
 import com.alphadental.clinic.ai.ChatStore
@@ -218,6 +222,9 @@ data class AppState(
     val attendancePayroll: PayrollClient.Payroll? = null,
     val attendancePayrollLoading: Boolean = false,
     val attendancePayrollError: String? = null,
+    // --- settings ---
+    val settingsOpen: Boolean = false,
+    val settings: SettingsState = SettingsState(),
     // --- lab tracking ---
     val labOpen: Boolean = false,
     /** Live while the screen is open; the listener is dropped when it closes. */
@@ -230,6 +237,16 @@ data class AppState(
     val labBusyId: String = "",
     /** A case just marked back at the clinic: the prompt to call the patient, one at a time. */
     val labArrived: LabCases.LabCase? = null,
+    // --- raising and editing an order ---
+    /** True while the order form is on screen; `labEditing`/`labRemakeOf` say which kind. */
+    val labOrderOpen: Boolean = false,
+    val labEditing: LabCases.LabCase? = null,
+    val labRemakeOf: LabCases.LabCase? = null,
+    val labSaving: Boolean = false,
+    val labSaveError: String? = null,
+    /** The clinic's labs and branches, read when the board opens. */
+    val labDirectory: List<LabCases.Lab> = emptyList(),
+    val labBranches: List<LabCases.Branch> = emptyList(),
     // --- reports ---
     val reportsOpen: Boolean = false,
     val reportRange: ReportRange = ReportRange.MONTH,
@@ -1148,6 +1165,142 @@ class AppViewModel : ViewModel() {
         }
     }
 
+    // --- settings ---------------------------------------------------------------------------
+
+    /**
+     * Who may open Settings at all.
+     *
+     * The same gate as the website: an admin, or somebody the admin ticked the settings box for.
+     * Individual sections are gated again inside the hub, so a receptionist granted `access.lab`
+     * sees the labs directory and nothing else.
+     */
+    fun canSeeSettings(session: Session): Boolean =
+        session.isAdmin || session.can("access.settings") || session.can("settings.edit") || session.can("access.lab")
+
+    fun openSettings() {
+        _state.value = _state.value.copy(settingsOpen = true, settings = SettingsState(section = SettingsSection.HUB))
+    }
+
+    fun closeSettings() {
+        _state.value = _state.value.copy(settingsOpen = false)
+    }
+
+    private fun settings() = _state.value.settings
+    private fun setSettings(block: (SettingsState) -> SettingsState) {
+        _state.value = _state.value.copy(settings = block(_state.value.settings))
+    }
+
+    /**
+     * Open one section and read exactly what it needs.
+     *
+     * Per section rather than all at once: the whole of Settings is a dozen documents and two
+     * collections, and reading them on every visit to change one price would be a dozen reads
+     * nobody asked for.
+     */
+    fun openSettingsSection(section: SettingsSection) {
+        val session = _state.value.session ?: return
+        // These two already have their own screens; the hub is a doorway to them.
+        if (section == SettingsSection.APPEARANCE || section == SettingsSection.HOURS) return
+        setSettings { it.copy(section = section, loading = true, error = null) }
+        viewModelScope.launch {
+            // Read first, then set: the reads suspend and the state update must not.
+            runCatching {
+                val clinicId = session.clinicId
+                when (section) {
+                    SettingsSection.PROFILE -> ClinicSettings.loadProfile(clinicId).let { v -> setSettings { it.copy(profile = v) } }
+                    SettingsSection.ATTENDANCE -> ClinicSettings.loadAttendanceRules(clinicId).let { v -> setSettings { it.copy(attendanceRules = v) } }
+                    SettingsSection.BRANCHES -> LabCases.loadBranches(clinicId).let { v -> setSettings { it.copy(branches = v) } }
+                    SettingsSection.LABS -> LabCases.loadLabs(clinicId).let { v -> setSettings { it.copy(labs = v) } }
+                    SettingsSection.PRICES -> ClinicSettings.loadServices(clinicId).let { v -> setSettings { it.copy(services = v) } }
+                    SettingsSection.VISIT_REASONS -> ClinicSettings.loadList(clinicId, ClinicSettings.VISIT_REASONS).let { v -> setSettings { it.copy(visitReasons = v) } }
+                    SettingsSection.SOURCES -> ClinicSettings.loadList(clinicId, ClinicSettings.PATIENT_SOURCES).let { v -> setSettings { it.copy(sources = v) } }
+                    SettingsSection.TEAM -> ClinicSettings.loadStaff(clinicId).let { v -> setSettings { it.copy(staff = v) } }
+                    SettingsSection.JOIN_REQUESTS -> ClinicSettings.loadJoinRequests(clinicId).let { v -> setSettings { it.copy(joinRequests = v) } }
+                    SettingsSection.ALERTS -> ClinicSettings.loadAlerts(clinicId).let { v -> setSettings { it.copy(alerts = v) } }
+                    SettingsSection.BOT -> ClinicSettings.loadBot(clinicId).let { v -> setSettings { it.copy(bot = v) } }
+                    SettingsSection.RECALL -> ClinicSettings.loadRecall(clinicId).let { v -> setSettings { it.copy(recall = v) } }
+                    SettingsSection.ONLINE_BOOKING -> ClinicSettings.loadOnlineBooking(clinicId).let { v -> setSettings { it.copy(onlineBooking = v) } }
+                    SettingsSection.LOGS -> ClinicSettings.loadLogs(clinicId).let { v -> setSettings { it.copy(logs = v) } }
+                    else -> Unit
+                }
+            }.onFailure { error ->
+                Crash.record(error, "settings load ${section.id}")
+                setSettings { it.copy(error = loadFailure(error)) }
+            }
+            setSettings { it.copy(loading = false) }
+        }
+    }
+
+    fun settingsBack() {
+        setSettings { it.copy(section = SettingsSection.HUB, error = null) }
+    }
+
+    /**
+     * Every save goes through here: the same spinner, the same message, the same reload.
+     *
+     * Reloading afterwards is what keeps the phone honest — a save that the rules rejected, or
+     * that landed differently from what was typed, shows the stored truth rather than the draft.
+     */
+    private fun saveSetting(what: String, block: suspend (String) -> Result<Unit>) {
+        val session = _state.value.session ?: return
+        if (settings().saving) return
+        setSettings { it.copy(saving = true, error = null) }
+        viewModelScope.launch {
+            block(session.clinicId)
+                .onSuccess {
+                    setSettings { it.copy(saving = false) }
+                    _state.value = _state.value.copy(
+                        message = if (_state.value.arabic) "تم الحفظ." else "Saved."
+                    )
+                    openSettingsSection(settings().section)
+                }
+                .onFailure { error ->
+                    Crash.record(error, "settings save $what")
+                    setSettings {
+                        it.copy(
+                            saving = false,
+                            error = if ((error as? com.google.firebase.firestore.FirebaseFirestoreException)?.code ==
+                                com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED
+                            ) {
+                                if (_state.value.arabic) "حسابك لا يملك صلاحية تغيير هذا." else "Your account is not allowed to change this."
+                            } else {
+                                if (_state.value.arabic) "تعذّر الحفظ." else "Could not save."
+                            },
+                        )
+                    }
+                }
+        }
+    }
+
+    fun saveClinicProfile(p: ClinicSettings.ClinicProfile) = saveSetting("profile") { ClinicSettings.saveProfile(it, p) }
+    fun saveAttendanceRules(r: ClinicSettings.AttendanceRules) = saveSetting("attendance") { ClinicSettings.saveAttendanceRules(it, r) }
+    fun saveBranches(rows: List<LabCases.Branch>) = saveSetting("branches") { ClinicSettings.saveBranchesKeepingRooms(it, rows) }
+    fun saveLabs(rows: List<LabCases.Lab>) = saveSetting("labs") { clinicId ->
+        ClinicSettings.saveLabs(clinicId, rows).onSuccess {
+            // The order form reads this list; refresh it so a lab added here is pickable at once.
+            _state.value = _state.value.copy(labDirectory = rows)
+        }
+    }
+    fun saveService(row: ClinicSettings.ServiceRow) = saveSetting("service") { ClinicSettings.saveService(it, row) }
+    fun deleteService(row: ClinicSettings.ServiceRow) = saveSetting("service delete") { ClinicSettings.deleteService(it, row.id) }
+    fun saveSettingsList(list: ClinicSettings.NamedList, values: List<String>) = saveSetting("list ${list.docId}") {
+        ClinicSettings.saveList(it, list, values)
+    }
+    fun saveStaffRow(row: ClinicSettings.StaffRow) = saveSetting("staff") { ClinicSettings.saveStaff(it, row) }
+    fun saveAlerts(values: Map<String, Boolean>) = saveSetting("alerts") { ClinicSettings.saveAlerts(it, values) }
+    fun saveBotSettings(b: ClinicSettings.BotSettings) = saveSetting("bot") { ClinicSettings.saveBot(it, b) }
+    fun saveRecallSettings(r: ClinicSettings.Recall) = saveSetting("recall") { ClinicSettings.saveRecall(it, r) }
+    fun saveOnlineBooking(b: ClinicSettings.OnlineBooking) = saveSetting("online booking") { ClinicSettings.saveOnlineBooking(it, b) }
+
+    /** Approval runs on the server; only it may write a person's clinic roles. */
+    fun approveJoinRequest(req: ClinicSettings.JoinRequest, role: String) = saveSetting("join approve") { clinicId ->
+        JoinRequestClient.approve(clinicId, req.id, role)
+    }
+
+    fun rejectJoinRequest(req: ClinicSettings.JoinRequest) = saveSetting("join reject") {
+        ClinicSettings.rejectJoinRequest(req.id)
+    }
+
     // --- lab tracking ---------------------------------------------------------------------
 
     private var labJob: Job? = null
@@ -1159,6 +1312,7 @@ class AppViewModel : ViewModel() {
     fun openLab() {
         val session = _state.value.session ?: return
         _state.value = _state.value.copy(labOpen = true, labError = null)
+        loadLabDirectory(session.clinicId)
         labJob?.cancel()
         labJob = viewModelScope.launch {
             LabCases.observeCases(session.clinicId).collect { result ->
@@ -1173,6 +1327,102 @@ class AppViewModel : ViewModel() {
 
     /** Retry after a failed listen: the same open again. */
     fun retryLab() = openLab()
+
+    /**
+     * The labs directory and the branch list, for the order form.
+     *
+     * Read when the board opens rather than at sign-in: they are only needed by the form, they
+     * change about once a year, and two settings reads on every launch is two reads nobody asked
+     * for. Failure is silent — the form says "no labs in Settings yet" either way, which is the
+     * same sentence and the same next step.
+     */
+    private fun loadLabDirectory(clinicId: String) {
+        viewModelScope.launch {
+            val labs = runCatching { LabCases.loadLabs(clinicId) }.getOrDefault(emptyList())
+            val branches = runCatching { LabCases.loadBranches(clinicId) }.getOrDefault(emptyList())
+            _state.value = _state.value.copy(labDirectory = labs, labBranches = branches)
+        }
+    }
+
+    /** Raise a new order, edit a saved one, or open a remake of one that came back wrong. */
+    fun openLabOrder(editing: LabCases.LabCase? = null, remakeOf: LabCases.LabCase? = null) {
+        val session = _state.value.session ?: return
+        if (_state.value.labDirectory.isEmpty()) loadLabDirectory(session.clinicId)
+        // The order form has a dentist picker; the register search it shares with the Patients tab.
+        if (_state.value.doctors.isEmpty()) {
+            viewModelScope.launch {
+                val doctors = runCatching { Repository.loadDoctors(session.clinicId) }.getOrDefault(emptyList())
+                _state.value = _state.value.copy(doctors = doctors)
+            }
+        }
+        _state.value = _state.value.copy(
+            labOrderOpen = true,
+            labEditing = editing,
+            labRemakeOf = remakeOf,
+            labSaveError = null,
+            labOpenCaseId = "",
+        )
+    }
+
+    fun closeLabOrder() {
+        _state.value = _state.value.copy(labOrderOpen = false, labEditing = null, labRemakeOf = null, labSaveError = null)
+    }
+
+    /**
+     * Write the order.
+     *
+     * An edit patches the saved document; anything else mints a code and creates one, which is
+     * the same call a remake makes with the original attached. The board is a live listener, so
+     * the new row appears by itself — there is nothing to refresh.
+     */
+    fun saveLabOrder(draft: LabCases.Draft, remakeReason: String, remakeFault: String) {
+        val session = _state.value.session ?: return
+        if (_state.value.labSaving) return
+        _state.value = _state.value.copy(labSaving = true, labSaveError = null)
+        val editing = _state.value.labEditing
+        val remakeOf = _state.value.labRemakeOf
+        viewModelScope.launch {
+            if (editing != null) {
+                LabCases.updateCase(session.clinicId, editing.id, draft)
+                    .onSuccess {
+                        _state.value = _state.value.copy(
+                            labSaving = false, labOrderOpen = false, labEditing = null,
+                            message = if (_state.value.arabic) "تم حفظ التعديلات." else "Changes saved.",
+                        )
+                    }
+                    .onFailure { error -> failLabSave(error) }
+            } else {
+                LabCases.createCase(
+                    clinicId = session.clinicId,
+                    draft = draft,
+                    by = session.name,
+                    remakeOf = remakeOf,
+                    remakeReason = remakeReason,
+                    remakeFault = remakeFault,
+                ).onSuccess { created ->
+                    _state.value = _state.value.copy(
+                        labSaving = false, labOrderOpen = false, labRemakeOf = null,
+                        // The code is the thing to write on the bag, so it is what the app says.
+                        message = if (_state.value.arabic) "تم فتح الحالة ${created.code}" else "${created.code} raised",
+                    )
+                }.onFailure { error -> failLabSave(error) }
+            }
+        }
+    }
+
+    private fun failLabSave(error: Throwable) {
+        Crash.record(error, "lab order save")
+        _state.value = _state.value.copy(
+            labSaving = false,
+            labSaveError = if ((error as? com.google.firebase.firestore.FirebaseFirestoreException)?.code ==
+                com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED
+            ) {
+                if (_state.value.arabic) "حسابك لا يملك صلاحية فتح طلبات معمل." else "Your account is not allowed to raise lab orders."
+            } else {
+                if (_state.value.arabic) "تعذّر الحفظ. حاول مرة أخرى." else "Could not save. Try again."
+            },
+        )
+    }
 
     fun closeLab() {
         labJob?.cancel()

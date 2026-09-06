@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Timeline
@@ -90,6 +91,9 @@ import com.alphadental.clinic.ui.AddLeadSheet
 import com.alphadental.clinic.ui.AddNoteSheet
 import com.alphadental.clinic.ui.ChatsScreen
 import com.alphadental.clinic.ui.AttendanceScreen
+import com.alphadental.clinic.ui.LabOrderSheet
+import com.alphadental.clinic.ui.SettingsActions
+import com.alphadental.clinic.ui.SettingsScreen
 import com.alphadental.clinic.ui.LabScreen
 import com.alphadental.clinic.ui.LeadsScreen
 import com.alphadental.clinic.ui.ClockCard
@@ -498,6 +502,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             onOpenLab = if (session.can("access.lab")) ({ viewModel.openLab() }) else null,
                             // The website's Team Overview gate: admins, or a granted key.
                             onOpenAttendance = if (viewModel.canSeeAttendance(session)) ({ viewModel.openAttendance() }) else null,
+                            // Everything the website's Settings has, gated the same way.
+                            onOpenSettings = if (viewModel.canSeeSettings(session)) ({ viewModel.openSettings() }) else null,
                             // Owners and reception only. A dentist seeing the clinic's whole
                             // takings is a different conversation from them seeing their own.
                             onOpenReports = if (session.can("access.reports")) {
@@ -588,6 +594,43 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                 )
             }
 
+            // Settings: the clinic itself, its prices, its team and its bot.
+            if (state.settingsOpen) {
+                SettingsScreen(
+                    state = state.settings,
+                    session = session,
+                    arabic = state.arabic,
+                    actions = SettingsActions(
+                        onOpen = { section ->
+                            when (section) {
+                                // Both already have a screen of their own; the hub opens those.
+                                com.alphadental.clinic.ui.SettingsSection.APPEARANCE -> appearanceOpen = true
+                                com.alphadental.clinic.ui.SettingsSection.HOURS -> viewModel.openHours()
+                                else -> viewModel.openSettingsSection(section)
+                            }
+                        },
+                        onBack = viewModel::settingsBack,
+                        onSaveProfile = viewModel::saveClinicProfile,
+                        onSaveAttendanceRules = viewModel::saveAttendanceRules,
+                        onSaveBranches = viewModel::saveBranches,
+                        onSaveLabs = viewModel::saveLabs,
+                        onSaveService = viewModel::saveService,
+                        onDeleteService = viewModel::deleteService,
+                        onSaveList = viewModel::saveSettingsList,
+                        onSaveStaff = viewModel::saveStaffRow,
+                        onApproveJoin = viewModel::approveJoinRequest,
+                        onRejectJoin = viewModel::rejectJoinRequest,
+                        onSaveAlerts = viewModel::saveAlerts,
+                        onSaveBot = viewModel::saveBotSettings,
+                        onSaveRecall = viewModel::saveRecallSettings,
+                        onSaveOnlineBooking = viewModel::saveOnlineBooking,
+                        onOpenAppearance = { appearanceOpen = true },
+                        onOpenHours = { viewModel.openHours() },
+                    ),
+                    onClose = viewModel::closeSettings,
+                )
+            }
+
             // The owner's roster: who is in, who is late, and the period's hours.
             if (state.attendanceOpen) {
                 AttendanceScreen(
@@ -627,6 +670,29 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     },
                     onRetry = viewModel::retryLab,
                     onClose = viewModel::closeLab,
+                    // Raising and editing an order: the reason someone had to find a laptop.
+                    onNewOrder = if (session.can("access.lab")) ({ viewModel.openLabOrder() }) else null,
+                    onEditCase = if (session.can("access.lab")) ({ viewModel.openLabOrder(editing = it) }) else null,
+                    onRemakeCase = if (session.can("access.lab")) ({ viewModel.openLabOrder(remakeOf = it) }) else null,
+                )
+            }
+
+            // Over the board, because it is raised from it and returns to it.
+            if (state.labOrderOpen) {
+                LabOrderSheet(
+                    editing = state.labEditing,
+                    remakeOf = state.labRemakeOf,
+                    labs = state.labDirectory,
+                    branches = state.labBranches,
+                    doctors = state.doctors,
+                    patientResults = state.patientResults,
+                    patientSearching = state.patientSearching,
+                    onSearchPatients = viewModel::searchPatientsTab,
+                    saving = state.labSaving,
+                    error = state.labSaveError,
+                    arabic = state.arabic,
+                    onSave = viewModel::saveLabOrder,
+                    onClose = viewModel::closeLabOrder,
                 )
             }
 
@@ -1092,6 +1158,8 @@ private fun MoreScreen(
     onOpenLab: (() -> Unit)?,
     /** The team's roster and hours. Null for anyone who is not an admin or granted the key. */
     onOpenAttendance: (() -> Unit)?,
+    /** The clinic's settings. Null for anyone with no settings reach at all. */
+    onOpenSettings: (() -> Unit)?,
     /** Null for roles that may not see the clinic's takings. */
     onOpenReports: (() -> Unit)?,
     /** Null for roles that do not work the CRM inbox. */
@@ -1242,6 +1310,7 @@ private fun MoreScreen(
             },
             onOpenLab?.let { ToolSpec(Icons.Filled.Science, if (arabic) "المعمل" else "Lab", onClick = it) },
             onOpenAttendance?.let { ToolSpec(Icons.Filled.Groups, if (arabic) "الحضور" else "Attendance", onClick = it) },
+            onOpenSettings?.let { ToolSpec(Icons.Filled.Settings, if (arabic) "الإعدادات" else "Settings", onClick = it) },
             ToolSpec(
                 Icons.Filled.Send, if (arabic) "قائمة الإرسال" else "Send list",
                 badge = whatsappWaiting, onClick = onOpenWhatsappQueue,
