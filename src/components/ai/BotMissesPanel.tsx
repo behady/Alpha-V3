@@ -102,6 +102,7 @@ export default function BotMissesPanel() {
   const [coach, setCoach] = useState<CoachSuggestion[]>([]);
   const [playbookDraft, setPlaybookDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [writeError, setWriteError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -149,6 +150,8 @@ export default function BotMissesPanel() {
     try {
       const answer = (drafts[k.id] ?? k.answer).trim();
       await updateDoc(doc(getClinicCollection("bot_knowledge"), k.id), { answer, status: "approved", approvedAt: Date.now(), approvedBy: user?.uid || null });
+    } catch (e) {
+      setWriteError(e instanceof Error ? e.message : "failed");
     } finally {
       setBusy(null);
     }
@@ -157,6 +160,8 @@ export default function BotMissesPanel() {
     setBusy(k.id);
     try {
       await deleteDoc(doc(getClinicCollection("bot_knowledge"), k.id));
+    } catch (e) {
+      setWriteError(e instanceof Error ? e.message : "failed");
     } finally {
       setBusy(null);
     }
@@ -171,6 +176,8 @@ export default function BotMissesPanel() {
       const line = c.line.startsWith("-") ? c.line : `- ${c.line}`;
       await setDoc(ref, { botCoaching: existing ? `${existing}\n${line}` : line, updatedAt: new Date().toISOString() }, { merge: true });
       await updateDoc(doc(getClinicCollection("bot_coach_suggestions"), c.id), { status: "applied", appliedAt: Date.now() });
+    } catch (e) {
+      setWriteError(e instanceof Error ? e.message : "failed");
     } finally {
       setBusy(null);
     }
@@ -179,6 +186,8 @@ export default function BotMissesPanel() {
     setBusy(c.id);
     try {
       await updateDoc(doc(getClinicCollection("bot_coach_suggestions"), c.id), { status: "dismissed", dismissedAt: Date.now() });
+    } catch (e) {
+      setWriteError(e instanceof Error ? e.message : "failed");
     } finally {
       setBusy(null);
     }
@@ -187,14 +196,24 @@ export default function BotMissesPanel() {
   const savePlaybook = async () => {
     if (playbookDraft === null) return;
     setBusy("playbook");
+    setWriteError(null);
     try {
       await setDoc(getClinicDoc("settings", "bot_playbook"), { editedText: playbookDraft.trim(), editedAt: Date.now() }, { merge: true });
       setPlaybookDraft(null);
+    } catch (e) {
+      setWriteError(e instanceof Error ? e.message : "failed");
     } finally {
       setBusy(null);
     }
   };
 
+  /*
+   * Two of the controls on this tab write to `settings/*`, which firestore.rules lets only a
+   * clinic Admin write. A receptionist could see them, press them, and watch nothing happen —
+   * the rejection was swallowed. They are hidden from anyone who cannot use them, and any
+   * refusal that does occur is now shown rather than discarded.
+   */
+  const canEditSettings = user?.role === "Admin";
   const pending = knowledge.filter((k) => k.status === "pending");
   const approved = knowledge.filter((k) => k.status === "approved");
   const stats = playbook?.stats;
@@ -218,6 +237,20 @@ export default function BotMissesPanel() {
         </Link>
       </div>
 
+      {writeError && (
+        <p role="alert" className="text-xs font-bold border border-danger/25 bg-danger-tint text-danger rounded-xl px-3 py-2.5 leading-relaxed">
+          {isAr ? "التغيير ده مااتحفظش: " : "That change was not saved: "}
+          {writeError}
+        </p>
+      )}
+      {!canEditSettings && (coach.length > 0 || playbookText) && (
+        <p className="text-xs font-bold text-ink-muted">
+          {isAr
+            ? "تعديل تعليمات البوت وكتيب المبيعات لمدير العيادة فقط."
+            : "Editing the bot's coaching and the sales playbook is limited to a clinic Admin."}
+        </p>
+      )}
+
       <BotFunnelCard />
 
       {/* This morning's coaching suggestions from yesterday's chats. */}
@@ -236,7 +269,7 @@ export default function BotMissesPanel() {
                 <p className="text-sm font-bold text-ink" dir="auto">{c.line}</p>
                 <p className="mt-1 text-xs text-ink-muted" dir="auto">{c.why}</p>
                 <div className="mt-2 flex items-center gap-2">
-                  <button type="button" disabled={busy === c.id} onClick={() => void applyCoach(c)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-ink text-surface text-xs font-black disabled:opacity-50">
+                  <button type="button" hidden={!canEditSettings} disabled={busy === c.id} onClick={() => void applyCoach(c)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-ink text-surface text-xs font-black disabled:opacity-50">
                     <Check size={13} /> {isAr ? "أضف للتعليمات" : "Add to coaching"}
                   </button>
                   <button type="button" disabled={busy === c.id} onClick={() => void dismissCoach(c)} className="px-3 py-1.5 rounded-lg border border-line text-xs font-bold text-ink-muted disabled:opacity-50">
@@ -343,6 +376,7 @@ export default function BotMissesPanel() {
             <div className="mt-2 flex items-center gap-3">
               <button
                 type="button"
+                hidden={!canEditSettings}
                 disabled={playbookDraft === null || busy === "playbook"}
                 onClick={() => void savePlaybook()}
                 className="px-3 py-1.5 rounded-lg bg-ink text-surface text-xs font-black disabled:opacity-40"

@@ -52,8 +52,24 @@ export default function BotFunnelCard() {
       ]);
       if (cancelled) return;
       const convRows = (convs?.docs ?? []).map((d) => d.data()).filter((c) => !String(c.phone || "").startsWith("play_"));
-      const leadRows = (leads?.docs ?? []).map((d) => d.data()).filter((l) => (l.createdAt?.seconds ?? 0) * 1000 >= since);
-      const apptRows = (appts?.docs ?? []).map((d) => d.data()).filter((a) => String(a.date || "") >= sinceKey);
+      /*
+       * Only what the BOT did.
+       *
+       * "source: WhatsApp" is also what reception types when a lead phones in, so hand-entered
+       * leads were being counted as the assistant's own work; `botLead` is the flag the bot sets
+       * itself. And a booking belongs to the week it was MADE, not the week it is FOR — counting
+       * by appointment date meant next month's bookings vanished from this month's funnel and
+       * the conversion rate read far below the truth.
+       */
+      const leadRows = (leads?.docs ?? [])
+        .map((d) => d.data())
+        .filter((l) => l.botLead === true && (l.createdAt?.seconds ?? 0) * 1000 >= since);
+      const apptRows = (appts?.docs ?? [])
+        .map((d) => d.data())
+        .filter((a) => {
+          const made = (a.createdAt?.seconds ?? 0) * 1000;
+          return made ? made >= since : String(a.date || "") >= sinceKey;
+        });
       const services = new Map<string, number>();
       for (const a of apptRows) {
         const t = String(a.treatment || "").trim();

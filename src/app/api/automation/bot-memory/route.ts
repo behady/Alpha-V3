@@ -4,6 +4,9 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { forEachActiveClinic } from "@/lib/automation/forEachActiveClinic";
+import { adminDb } from "@/lib/firebaseAdmin";
+import { hasFeature } from "@/lib/subscriptions";
+import type { Clinic } from "@/types/saas";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,6 +45,18 @@ async function authorize(request: Request) {
 async function runForClinic(clinicId: string): Promise<{ updated: number; skipped: number }> {
   const apiKey = process.env.GEMINI_API_KEY || "";
   if (!apiKey) return { updated: 0, skipped: 0 };
+  /*
+   * The same gate every other AI feature answers to. Without it this sent every clinic's patient
+   * conversations to the model every night — including clinics with no AI on their plan and
+   * clinics that had switched the assistant off — and charged nobody for it.
+   */
+  const settings = ((await adminClinicDoc(clinicId, "settings", "whatsapp").get()).data() || {}) as Record<string, unknown>;
+  if (settings.botEnabled !== true) return { updated: 0, skipped: 0 };
+  if (settings.botAiEnabled !== true && settings.botMode !== "ai_first") return { updated: 0, skipped: 0 };
+  const clinicSnap = await adminDb().collection("clinics").doc(clinicId).get();
+  if (!clinicSnap.exists || !hasFeature({ id: clinicSnap.id, ...clinicSnap.data() } as Clinic, "aiChat")) {
+    return { updated: 0, skipped: 0 };
+  }
   const since = Date.now() - LOOKBACK_MS;
   const snap = await adminClinicCollection(clinicId, "whatsapp_conversations").where("lastMessageAt", ">=", since).limit(500).get();
   const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({ model: MODEL, generationConfig: { temperature: 0.2, maxOutputTokens: 1024 } });

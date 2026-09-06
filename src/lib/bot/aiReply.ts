@@ -390,13 +390,44 @@ export async function answerWithAi(args: {
      * that says 15,000. One corrective retry, then a person.
      */
     const allowedNumbers = new Set<string>();
-    for (const src of [priceLines, factLines(facts), coaching || "", playbook || "", hoursText || "", ...knowledge.map((k) => k.a)]) {
+    // The clinic's own phone and address are in the prompt and belong in the reply; leaving them
+    // out meant a correct answer to "where are you?" was thrown away as an invented figure.
+    for (const src of [
+      priceLines,
+      factLines(facts),
+      coaching || "",
+      playbook || "",
+      hoursText || "",
+      addressText || "",
+      clinicPhone || "",
+      args.memory || "",
+      (args.slots || []).map((s) => s.label).join(" "),
+      question,
+      ...thread.map((l) => l.text),
+      ...knowledge.map((k) => k.a),
+    ]) {
       for (const m of src.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)).matchAll(/\d[\d,]*/g)) allowedNumbers.add(m[0].replace(/,/g, ""));
     }
-    const strayNumbers = (reply: string): string[] =>
-      [...reply.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)).matchAll(/\d[\d,]*/g)]
-        .map((m) => m[0].replace(/,/g, ""))
-        .filter((n) => Number(n) >= 50 && !allowedNumbers.has(n));
+    /*
+     * A figure the clinic never supplied.
+     *
+     * Large numbers were the only ones checked, so "خصم 20%", "على 3 دفعات" and "12 ألف" — an
+     * invented discount, an invented instalment plan and a price written in words — all shipped
+     * unchecked. Anything attached to money, a percentage or the word thousand is now checked at
+     * any size; everything else keeps the old threshold, so a time, a tooth count or a street
+     * number does not trip the guard.
+     */
+    const strayNumbers = (reply: string): string[] => {
+      const norm = reply.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660));
+      const out: string[] = [];
+      for (const m of norm.matchAll(/(\d[\d,]*)\s*(%|ج\.?م|جنيه|جنية|الف|ألف|EGP|LE|pound)?/gi)) {
+        const n = m[1].replace(/,/g, "");
+        if (allowedNumbers.has(n)) continue;
+        const moneyish = Boolean(m[2]);
+        if (moneyish || Number(n) >= 50) out.push(n);
+      }
+      return out;
+    };
 
     let raw = "";
     let modelMs = 0;

@@ -1049,6 +1049,23 @@ ${askName}` : askName;
           pending = { date: slotDate, times: [slotTime], doctor: slotDoctor, treatment: ctx.serviceMatch || aiInterest || conversation.lastInterest };
           reason = "ai_ask_name_slot";
         }
+      } else if (ai.kind === "answer" && (ai.openBooking || ai.bookSlot) && ctx.relative && ctx.canOfferBooking) {
+        /*
+         * "عايز أحجز لمراتي" — the booking belongs to somebody else.
+         *
+         * The deterministic path asked whose name it was; in AI mode that branch became
+         * unreachable, so a wife's or a child's appointment was written on the sender's own
+         * record and the desk saw the wrong patient in the chair. The model's own sentence still
+         * carries the conversation; the name question is added to it.
+         */
+        const intro = ai.text.trim();
+        aiExchange = { q: act.question, a: intro };
+        const askWho = "الحجز لمين بالظبط؟ ياريت تبعتلي الاسم الكامل بتاعه 🙏";
+        replyText = intro ? `${intro}
+
+${askWho}` : askWho;
+        nextState = "booking_name";
+        reason = "ask_relative_name";
       } else if (ai.kind === "answer" && ai.openBooking && (ctx.canOfferBooking || ctx.canRegister)) {
         // The model judged the moment right. The calendar part stays deterministic: its line
         // introduces the same lists a tapped "book" button would have produced.
@@ -1109,9 +1126,34 @@ ${askName}` : askName;
         handoff = true;
         reason = `ai_handoff_${ai.topic}`;
       } else {
-        // No key, no credits, model down — the ladder the AI replaced stands back up, so the
-        // patient experience degrades to yesterday's, never to silence.
-        if (conversation.state === "awaiting_choice" || conversation.state === "new") {
+        /*
+         * Out of credits, or off the plan: the patient asked a perfectly good question and the
+         * clinic simply cannot afford to answer it today. Telling them "I didn't understand"
+         * blames them for the clinic's balance, so they get a person instead — and the owner is
+         * told, because a silent bot that has stopped selling is worth knowing about.
+         */
+        if (ai.reason === "no_credits" || ai.reason === "plan") {
+          replyText = "تمام، حد من الاستقبال هيتواصل مع حضرتك في أقرب وقت 🙏";
+          nextState = "handed_off";
+          handoff = true;
+          reason = "ai_no_credits";
+          void adminClinicDoc(clinicId, "settings", "bot_alerts")
+            .get()
+            .then((s) => {
+              const last = Number(s.data()?.creditsAlertAtMs) || 0;
+              if (Date.now() - last < 12 * 60 * 60 * 1000) return;
+              void adminClinicDoc(clinicId, "settings", "bot_alerts").set({ creditsAlertAtMs: Date.now() }, { merge: true });
+              void push(
+                clinicId,
+                {
+                  title: "رصيد الذكاء الاصطناعي خلص 🤖",
+                  body: "البوت وقف عن الرد على أسئلة المرضى وبيحولهم للاستقبال. جدّد الرصيد عشان يرجع يشتغل.",
+                },
+                { roles: ["Owner", "Admin"], channel: "alpha_leads", data: { screen: "settings" } }
+              );
+            })
+            .catch(() => {});
+        } else if (conversation.state === "awaiting_choice" || conversation.state === "new") {
           replyText = `معلش، مفهمتش قصد حضرتك 🙏 ${v.choose} من الأزرار تحت أو ${v.send} رقم الاختيار.`;
           structure = { body: replyText, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
           nextState = "reprompted";

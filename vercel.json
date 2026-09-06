@@ -2,8 +2,9 @@
   "framework": "nextjs",
   "crons": [
     {
+      "_comment": "17:00 Cairo. At 03:00 UTC this fired at 05:00-06:00 local: a reminder for tomorrow that woke the patient today.",
       "path": "/api/automation/reminders",
-      "schedule": "0 3 * * *"
+      "schedule": "0 15 * * *"
     },
     {
       "path": "/api/automation/recall",
