@@ -37,7 +37,7 @@ import { markBotLeadBooked, upsertBotLead } from "./botLeads";
 import { recordThreadMessage } from "./thread";
 import { clinicalReplyText, decideBotReply, type BotContext } from "./engine";
 import { needsHuman } from "./clinicalTriage";
-import { mentionsRelative } from "./quickAnswers";
+import { mentionsRelative, quickIntent } from "./quickAnswers";
 import { parseDayWord } from "./dayWords";
 import { guessGender, voiceFor } from "@/lib/arabicNames";
 import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
@@ -532,6 +532,13 @@ export async function respondToPatientMessage(args: {
   ctx.serviceMatch = (await matchService(clinicId, text)) || undefined;
   ctx.aiAvailable = settings.aiEnabled && (settings.aiMaxReplies === 0 || (conversation.aiReplies ?? 0) < settings.aiMaxReplies);
   ctx.aiFirst = settings.aiFirst;
+  // Only asked when it matters: sales mode and a one-word acknowledgement on the table.
+  if (settings.aiFirst && patient && quickIntent(text) === "ack") {
+    const soon = await findNextAppointment(clinicId, patient.id).catch(() => null);
+    const limit = new Date(`${clinicNow().dateKey}T12:00:00`);
+    limit.setDate(limit.getDate() + 2);
+    ctx.hasSoonAppointment = Boolean(soon && soon.date <= limit.toISOString().slice(0, 10));
+  }
   ctx.clinicalMode = settings.clinicalDentist ? "dentist" : "handoff";
   if (conversation.state === "booking_doctor") ctx.optionCount = conversation.pendingDoctors?.length ?? 0;
   if (conversation.state === "booking_day") ctx.optionCount = conversation.pendingDays?.length ?? 0;

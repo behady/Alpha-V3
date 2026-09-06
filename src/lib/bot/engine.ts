@@ -148,6 +148,8 @@ export interface BotContext {
   facts?: BotFacts;
   /** The clinic wrote an offer and its end date has passed: `facts.offers` is blank on purpose. */
   offersExpired?: boolean;
+  /** The patient has an appointment within two days — a one-word "تمام" then confirms it. */
+  hasSoonAppointment?: boolean;
   /** Guessed from the patient's name, so the reply is not addressed to every woman as a man. */
   gender?: Gender;
   /** A day the patient named in THIS message ("بكره", "الخميس"), as a date key. */
@@ -629,7 +631,9 @@ export function decideBotReply(args: {
    * clinic's own buttons, and a tap is not talk.
    */
   if (!inBooking && ctx.aiFirst && ctx.aiAvailable && numberChoice(text) === null) {
-    const ACTIONS = new Set<QuickIntent>(["complaint", "cancel", "late", "reschedule", "my_appointment", "ack", "thanks"]);
+    // "تمام" confirms an appointment only when there is one to confirm; after a sales pitch it
+    // is agreement, and agreement is the model's moment, not a canned "we're here if you need us".
+    const ACTIONS = new Set<QuickIntent>(["complaint", "cancel", "late", "reschedule", "my_appointment", "thanks", ...(ctx.hasSoonAppointment ? (["ack"] as QuickIntent[]) : [])]);
     if (!intent || !ACTIONS.has(intent)) {
       return { reply: "", action: { type: "ai", question: text }, next: "awaiting_choice", handoff: false, reason: "ai" };
     }
