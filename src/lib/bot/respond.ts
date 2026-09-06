@@ -1258,6 +1258,21 @@ ${askName}` : askName;
       ["وصلتنا رسالتك بخصوص تعديل الميعاد 👍", "We've received your request to move the appointment 👍"],
       ["وصلتنا رسالتك بخصوص تأخير الميعاد 👍", "Noted that you're running late 👍"],
       ["مالقيتش ليك ميعاد محجوز حالياً 🙏 تحب نحجزلك؟", "I couldn't find an upcoming appointment for you 🙏 would you like to book one?"],
+      ["✅ تم تأكيد حجزك:", "✅ Your appointment is confirmed:"],
+      ["✅ تم تسجيل طلب حجزك:", "✅ Your booking request is registered:"],
+      ["✅ تم تعديل ميعادك:", "✅ Your appointment has been moved:"],
+      ["مستنينك 🦷 لو حبيت تعدّل الميعاد، ابعت *3*.", "See you then 🦷 If you need to change it, just tell me."],
+      ["مستنينكي 🦷 لو حبيت تعدّل الميعاد، ابعتي *3*.", "See you then 🦷 If you need to change it, just tell me."],
+      ["العيادة هتراجع الطلب وهتتواصل مع حضرتك للتأكيد. لو حبيت تعدّل، ابعت *3*.", "The clinic will review the request and contact you to confirm. If you need to change it, just tell me."],
+      ["العيادة هتراجع الطلب وهتتواصل مع حضرتك للتأكيد. لو حبيت تعدّل، ابعتي *3*.", "The clinic will review the request and contact you to confirm. If you need to change it, just tell me."],
+      ["أهلاً بيك 🙏 عشان أسجل الحجز باسمك، ابعتلي اسمك الكامل.", "Great 🙏 to put the booking under your name, please send me your full name."],
+      ["أهلاً بيكي 🙏 عشان أسجل الحجز باسمك، ابعتيلي اسمك الكامل.", "Great 🙏 to put the booking under your name, please send me your full name."],
+      ["أهلاً بيك 🙏 عشان نسجل الحجز، ياريت حضرتك تبعتلنا الاسم الكامل.", "Great 🙏 to register the booking, please send us your full name."],
+      ["أهلاً بيكي 🙏 عشان نسجل الحجز، ياريت حضرتك تبعتيلنا الاسم الكامل.", "Great 🙏 to register the booking, please send us your full name."],
+      ["معلش، ياريت الاسم بالحروف (مش أرقام) عشان نكمل الحجز 🙏", "Sorry — please send your name in letters (not numbers) so we can complete the booking 🙏"],
+      ["تمام، هنعدّل ميعادك ده 🔁", "Sure, let's move this appointment 🔁"],
+      ["📅 اختار اليوم اللي يناسبك:", "📅 Pick the day that suits you:"],
+      ["*0* — رجوع للقائمة", "*0* — back to the menu"],
     ];
     for (const [ar, en] of EN) replyText = replyText.split(ar).join(en);
   }
@@ -1371,7 +1386,7 @@ ${askName}` : askName;
   const courtesy = reason === "ack" || reason === "thanks";
   let body =
     conversation.state === "new" && !courtesy
-      ? appendOptOutFooter(replyText, WHATSAPP_OPT_OUT_FOOTER_AR)
+      ? appendOptOutFooter(replyText, latinPatient ? "— To stop these messages, reply: STOP" : WHATSAPP_OPT_OUT_FOOTER_AR)
       : replyText;
   // A structure that mirrors the text mirrors its footer too — the tapped and typed experiences
   // must read identically, opt-out line included.
