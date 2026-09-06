@@ -638,7 +638,10 @@ export function decideBotReply(args: {
   if (!inBooking && ctx.aiFirst && ctx.aiAvailable && numberChoice(text) === null) {
     // "تمام" confirms an appointment only when there is one to confirm; after a sales pitch it
     // is agreement, and agreement is the model's moment, not a canned "we're here if you need us".
-    const ACTIONS = new Set<QuickIntent>(["complaint", "cancel", "late", "reschedule", "my_appointment", "thanks", ...(ctx.hasSoonAppointment ? (["ack"] as QuickIntent[]) : [])]);
+    // Cancelling, running late, moving, "my appointment": the model handles these too — it has
+    // actions for the first three and the appointment in its context — so the answer comes in
+    // the patient's own language instead of a fixed Arabic line. Complaints still escalate.
+    const ACTIONS = new Set<QuickIntent>(["complaint", "thanks", ...(ctx.hasSoonAppointment ? (["ack"] as QuickIntent[]) : [])]);
     if (!intent || !ACTIONS.has(intent)) {
       return { reply: "", action: { type: "ai", question: text }, next: "awaiting_choice", handoff: false, reason: "ai" };
     }

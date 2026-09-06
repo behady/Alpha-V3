@@ -43,6 +43,8 @@ export type AiReplyResult =
       sendMedia?: string;
       /** Sales mode: the patient wants to move an existing appointment. */
       reschedule?: boolean;
+      /** Sales mode: the patient is cancelling or running late — the desk is told, the model replies. */
+      appointmentChange?: "cancel" | "late";
     }
   /** The model classified the message as something a human must handle. */
   | { kind: "handoff"; topic: "medical" | "complaint" | "staff" | "other" }
@@ -109,6 +111,8 @@ const HARD_RULES = [
   "- شكوى عن العيادة أو الخدمة أو موظف أو علاج أو فلوس (تجربة سيئة، معاملة، تأخير): اختار handoff_complaint. أما لو المريض متضايق منك انت أو من الرد نفسه (زي: انت غبي؟ مش فاهم؟ بتلف وتدور؟): ده مش شكوى — اعتذر بخفة من غير دفاع، واسأله يقولك بالظبط محتاج إيه، ومتحوّلش.",
   "- لو اتسألت \"انت مين؟\" أو \"انت بوت؟\": قول بصراحة وباختصار إنك المساعد الذكي بتاع العيادة (باسمك لو ليك اسم)، وإن الاستقبال موجود لو حب يكلم حد، وكمّل مساعدته عادي.",
   "- لو المريض عنده ميعاد جاي (مكتوب في بيانات المريض تحت) وعايز يغيره أو يأجله أو يقدمه: اختار action reschedule — مش open_booking — والنظام هيعرض له أيام بديلة لنفس الميعاد.",
+  "- لو عايز يلغي ميعاده: اختار action cancel واكتب في reply إنك بلّغت الاستقبال وهيأكدوله الإلغاء، واسأله بلطف لو يحب يحجز وقت تاني بدل ما يلغي. لو بيقول إنه هيتأخر على ميعاده: اختار action late وطمّنه إنك بلّغت العيادة. الإلغاء والتأخير بيتبلّغوا للاستقبال، مش بيتنفذوا لوحدهم.",
+  "- اللغة بتتحدد من آخر رسالة المريض بعتها (مش من المحادثة كلها): إنجليزي → إنجليزي، عربي → عامية مصرية، فرانكو → فرانكو.",
   "- أي سؤال عن طبيب معيّن بالاسم: جاوب من خانة \"الأطباء\" لو مكتوبة تحت (تخصصه، خبرته، أسلوبه) ورشّح المناسب للحالة. لو مش مكتوبة، أو السؤال عن حاجة مش فيها (رأيك الشخصي، مواعيده الخاصة، مقارنة بين الدكاترة مين أشطر): اختار handoff_staff.",
   "- الأسعار: جاوب من القايمة تحت بصيغة \"يبدأ من\"، ودايماً اختم بأن الاستقبال بيأكد السعر النهائي. لو المريض سأل عن حاجة ليها خدمة مشابهة أو قريبة في القايمة (مثلاً سأل عن التقويم والقايمة فيها \"تقويم معدن\") اعتبرها موجودة وجاوب بسعرها. بس لو مفيش أي خدمة قريبة منها خالص: handoff_other.",
   "- أسئلة \"بتعملوا كذا؟\": لو الخدمة أو حاجة قريبة منها في القايمة، الإجابة أيوه مع السعر. متحوّلش سؤال تقدر تجاوبه.",
@@ -195,6 +199,8 @@ export async function answerWithAi(args: {
   flaggedForStaff?: boolean;
   /** The patient is mid-booking-list; the options they were shown. */
   bookingStep?: string;
+  /** Minutes since the previous exchange when this message opened a new sitting (0 = same sitting). */
+  sessionGapMinutes?: number;
   /** Answers staff gave that the owner approved for reuse. */
   knowledge?: Array<{ q: string; a: string }>;
   /** What has worked with this clinic's patients, distilled weekly (or edited by the owner). */
@@ -299,6 +305,9 @@ export async function answerWithAi(args: {
       ? `\nإجابات اعتمدها فريق العيادة لأسئلة اتسألت قبل كده (استخدمها لما السؤال يشبهها):\n${knowledge.map((k) => `س: ${k.q.trim().slice(0, 200)}\nج: ${k.a.trim().slice(0, 400)}`).join("\n")}`
       : "",
     playbook ? `\nخلاصة اللي بينجح مع مرضى العيادة دي (اتعلمها من محادثات حقيقية):\n${playbook.slice(0, 2500)}` : "",
+    args.sessionGapMinutes && args.sessionGapMinutes >= 45
+      ? `\nملاحظة: المريض رجع يكتب بعد ${args.sessionGapMinutes >= 120 ? `${Math.round(args.sessionGapMinutes / 60)} ساعة` : `${args.sessionGapMinutes} دقيقة`} من آخر كلام. اعتبرها بداية جديدة: رد على رسالته دي بس، متجاوبش على رسايل قديمة، ومتكملش سؤال قديم كأنه لسه مفتوح. الرسايل القديمة موجودة عشان تفتكر السياق بس.`
+      : "",
     args.flaggedForStaff ? "\nملاحظة: المحادثة دي متعلّم عليها إن حد من الاستقبال يتابعها، بس محدش رد لسه. كمّل مساعدة المريض عادي، ولو سأل عن حد قوله إن الاستقبال هيتواصل معاه أول ما يفتحوا." : "",
     args.bookingStep ? `\nالمريض دلوقتي في خطوة حجز: ${args.bookingStep}. جاوب على كلامه، ولو لسه عايز يحجز ذكّره باختصار إنه يختار من القايمة اللي فوق أو اعرض عليه ميعاد من \"أقرب مواعيد متاحة\".` : "",
     args.memory?.trim() ? `\nذاكرة من محادثات سابقة مع المريض ده (ابدأ من مكان ما وقفتوا، ومتعيدش اللي هو عارفه):\n${args.memory.trim().slice(0, 900)}` : "",
@@ -324,7 +333,7 @@ export async function answerWithAi(args: {
           properties: {
             action: {
               type: SchemaType.STRING,
-              enum: ["answer", "open_booking", "book_slot", "reschedule", "handoff_medical", "handoff_complaint", "handoff_staff", "handoff_other"],
+              enum: ["answer", "open_booking", "book_slot", "reschedule", "cancel", "late", "handoff_medical", "handoff_complaint", "handoff_staff", "handoff_other"],
               format: "enum",
             },
             reply: { type: SchemaType.STRING },
@@ -406,7 +415,7 @@ export async function answerWithAi(args: {
         if (attempt === 0) continue;
         throw new Error("ai_bad_json");
       }
-      strays = ["answer", "open_booking", "book_slot", "reschedule"].includes(String(parsed.action)) ? strayNumbers(String(parsed.reply || "")) : [];
+      strays = ["answer", "open_booking", "book_slot", "reschedule", "cancel", "late"].includes(String(parsed.action)) ? strayNumbers(String(parsed.reply || "")) : [];
       if (!strays.length) break;
       if (attempt === 0) {
         contents.push({ role: "model" as const, parts: [{ text: raw }] });
@@ -445,8 +454,9 @@ export async function answerWithAi(args: {
     if (parsed.action === "handoff_medical") return { kind: "handoff", topic: "medical" };
     if (parsed.action === "handoff_complaint") return { kind: "handoff", topic: "complaint" };
     if (parsed.action === "handoff_staff") return { kind: "handoff", topic: "staff" };
-    if (parsed.action !== "answer" && parsed.action !== "open_booking" && parsed.action !== "book_slot" && parsed.action !== "reschedule") return { kind: "handoff", topic: "other" };
+    if (!["answer", "open_booking", "book_slot", "reschedule", "cancel", "late"].includes(String(parsed.action))) return { kind: "handoff", topic: "other" };
     const reschedule = sales && parsed.action === "reschedule" && args.canBook !== false;
+    const appointmentChange = sales && (parsed.action === "cancel" || parsed.action === "late") ? (parsed.action as "cancel" | "late") : undefined;
 
     const text = String(parsed.reply || "").trim().slice(0, 900);
     // A slot the model names must be one it was given; anything else is a wish, and opens the lists.
@@ -455,7 +465,7 @@ export async function answerWithAi(args: {
     const openBooking = sales && args.canBook !== false && (parsed.action === "open_booking" || (parsed.action === "book_slot" && !bookSlot));
     const mediaId = String(parsed.sendMedia || "").trim();
     const sendMedia = (args.media || []).some((m) => m.id === mediaId) ? mediaId : undefined;
-    if (!text && !openBooking && !bookSlot && !reschedule) return { kind: "handoff", topic: "other" };
+    if (!text && !openBooking && !bookSlot && !reschedule && !appointmentChange) return { kind: "handoff", topic: "other" };
 
     // Charged only for a delivered answer, after the model produced one. Handoffs cost nothing.
     await usageRef.set(
@@ -472,7 +482,7 @@ export async function answerWithAi(args: {
     }).catch(() => {});
 
     const interest = String(parsed.interest || "").trim().slice(0, 60) || undefined;
-    return { kind: "answer", text: text || "تمام 👍", openBooking, interest, bookSlot, sendMedia, reschedule };
+    return { kind: "answer", text: text || "تمام 👍", openBooking, interest, bookSlot, sendMedia, reschedule, appointmentChange };
   } catch (e) {
     const reason = e instanceof Error ? e.message : "model_error";
     await adminClinicCollection(clinicId, "ai_debug")

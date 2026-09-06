@@ -274,6 +274,16 @@ function nextOpening(schedule: ClinicScheduleConfig): { dateKey: string; clock: 
   return null;
 }
 
+function closedNoteEn(schedule: ClinicScheduleConfig): string {
+  const n = nextOpening(schedule);
+  if (!n) return "The clinic is closed right now; we'll reply as soon as we open 🙏";
+  const today = clinicNow().dateKey;
+  const tomorrow = new Date(`${today}T12:00:00`);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const when = n.dateKey === today ? "today" : n.dateKey === tomorrow.toISOString().slice(0, 10) ? "tomorrow" : `on ${new Date(`${n.dateKey}T12:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "numeric" })}`;
+  return `The clinic is closed right now — we open ${when} at ${n.clock}, and we'll get back to you then 🙏`;
+}
+
 function closedNote(schedule: ClinicScheduleConfig): string {
   const n = nextOpening(schedule);
   if (!n) return "العيادة مقفولة دلوقتي، وهنرد على حضرتك أول ما نفتح 🙏";
@@ -793,6 +803,33 @@ export async function respondToPatientMessage(args: {
       }
     };
 
+    /*
+     * A cancellation, a move, or "I'm running late".
+     *
+     * The bot does not touch the calendar here on purpose — a keyword match is not enough
+     * evidence to move somebody's slot. What it does is stop the message evaporating: it finds
+     * the appointment, tells a person with the details in hand, and confirms to the patient that
+     * a human now has it. Reached from the typed intent and from the model's own decision.
+     */
+    const flagAppointmentChange = async (kind: "cancel" | "reschedule" | "late") => {
+      const appt = patient ? await findNextAppointment(clinicId, patient.id) : null;
+      const label = kind === "cancel" ? "إلغاء" : kind === "reschedule" ? "تعديل" : "تأخير";
+      replyText = appt
+        ? [`وصلتنا رسالتك بخصوص ${label} الميعاد 👍`, "", appointmentLine(appt), "", "الاستقبال هيتواصل معاك حالاً يأكدلك."].join("\n")
+        : `وصلتنا رسالتك بخصوص ${label} الميعاد 👍 الاستقبال هيتواصل معاك حالاً.`;
+      reason = `appointment_${kind}`;
+      // The desk hears about it now. A running-late message has a shelf life measured in minutes,
+      // and a passive flag on a document nobody has open is not a notification.
+      void push(
+        clinicId,
+        {
+          title: kind === "cancel" ? "طلب إلغاء ميعاد ❌" : kind === "reschedule" ? "طلب تعديل ميعاد 🔁" : "مريض هيتأخر ⏳",
+          body: `${ctx.patientName || phone} — ${appt ? `${appt.date} ${appt.time}` : "من غير ميعاد محجوز"}`,
+        },
+        { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
+      );
+    };
+
     if (act.type === "ack") {
       /*
        * "تمام" is, overwhelmingly, a patient answering the clinic's own reminder. It used to get the
@@ -835,31 +872,7 @@ export async function respondToPatientMessage(args: {
     } else if (act.type === "reschedule_start") {
       await startReschedule();
     } else if (act.type === "appointment_change") {
-      /*
-       * A cancellation, a move, or "I'm running late".
-       *
-       * The bot does not touch the calendar here on purpose — a keyword match is not enough
-       * evidence to move somebody's slot. What it does is stop the message evaporating: it finds
-       * the appointment, tells a person with the details in hand, and confirms to the patient that
-       * a human now has it. Before this the reply was the booking menu and nobody was told at all.
-       */
-      const appt = patient ? await findNextAppointment(clinicId, patient.id) : null;
-      const label = act.kind === "cancel" ? "إلغاء" : act.kind === "reschedule" ? "تعديل" : "تأخير";
-      replyText = appt
-        ? [`وصلتنا رسالتك بخصوص ${label} الميعاد 👍`, "", appointmentLine(appt), "", "الاستقبال هيتواصل معاك حالاً يأكدلك."].join("\n")
-        : `وصلتنا رسالتك بخصوص ${label} الميعاد 👍 الاستقبال هيتواصل معاك حالاً.`;
-      reason = `appointment_${act.kind}`;
-      // The desk hears about it now. A running-late message has a shelf life measured in minutes,
-      // and a passive flag on a document nobody has open is not a notification.
-      void push(
-        clinicId,
-        {
-          title:
-            act.kind === "cancel" ? "طلب إلغاء ميعاد ❌" : act.kind === "reschedule" ? "طلب تعديل ميعاد 🔁" : "مريض هيتأخر ⏳",
-          body: `${ctx.patientName || phone} — ${appt ? `${appt.date} ${appt.time}` : "من غير ميعاد محجوز"}`,
-        },
-        { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
-      );
+      await flagAppointmentChange(act.kind);
     } else if (act.type === "open_now") {
       const state = openRightNow(profile.schedule);
       const hours = ctx.hoursText?.trim() ? `\n\n🕐 مواعيدنا:\n${ctx.hoursText.trim()}` : "";
@@ -926,9 +939,20 @@ export async function respondToPatientMessage(args: {
         memory: conversation.memory,
         flaggedForStaff: conversation.humanOwned && !conversation.staffActive,
         bookingStep: bookingStepLabel(conversation),
+        sessionGapMinutes: salesContext?.gapMinutes,
       });
       if (ai.kind === "answer" && ai.sendMedia) aiMedia = salesContext?.media?.find((m) => m.id === ai.sendMedia) ?? null;
-      if (ai.kind === "answer" && ai.reschedule && ctx.canOfferBooking) {
+      if (ai.kind === "answer" && ai.appointmentChange) {
+        // The desk is told exactly as the typed intent tells it; the patient hears it in the
+        // model's words and language, and the conversation stays open for a rebooking.
+        const intro = ai.text.trim();
+        aiExchange = { q: act.question, a: intro };
+        await flagAppointmentChange(ai.appointmentChange);
+        if (intro) replyText = intro;
+        handoff = true;
+        nextState = "awaiting_choice";
+        reason = `ai_${ai.appointmentChange}`;
+      } else if (ai.kind === "answer" && ai.reschedule && ctx.canOfferBooking) {
         // "عايز أعدل الميعاد" heard by the model: the same move flow the typed intent opens.
         const intro = ai.text.trim();
         aiExchange = { q: act.question, a: intro };
@@ -1215,11 +1239,34 @@ ${askName}` : askName;
       .catch(() => {});
   }
 
+  /*
+   * The fixed lines, in the patient's script.
+   *
+   * In AI mode the model writes in whatever the patient wrote — and then a handoff, a closed-
+   * clinic note or a cancellation acknowledgement arrived in Arabic under an English chat. The
+   * few sentences the code itself composes are swapped for their English form when the message
+   * being answered has Latin letters and no Arabic ones.
+   */
+  const latinPatient = settings.aiFirst && /[A-Za-z]/.test(text) && !/[\u0600-\u06FF]/.test(text);
+  if (latinPatient) {
+    const EN: Array<[string, string]> = [
+      ["تمام، حد من الاستقبال هيتواصل مع حضرتك في أقرب وقت 🙏", "Sure — someone from reception will get back to you shortly 🙏"],
+      ["تمام 👍 الاستقبال هيتواصل معاك في أقرب وقت.", "Got it 👍 reception will get back to you shortly."],
+      ["وصلتنا رسالتك 🙏 حد من إدارة العيادة هيتواصل معاك في أقرب وقت.", "We've received your message 🙏 someone from the clinic's management will contact you shortly."],
+      ["الاستقبال هيتواصل معاك حالاً يأكدلك.", "Reception will contact you shortly to confirm."],
+      ["وصلتنا رسالتك بخصوص إلغاء الميعاد 👍", "We've received your cancellation request 👍"],
+      ["وصلتنا رسالتك بخصوص تعديل الميعاد 👍", "We've received your request to move the appointment 👍"],
+      ["وصلتنا رسالتك بخصوص تأخير الميعاد 👍", "Noted that you're running late 👍"],
+      ["مالقيتش ليك ميعاد محجوز حالياً 🙏 تحب نحجزلك؟", "I couldn't find an upcoming appointment for you 🙏 would you like to book one?"],
+    ];
+    for (const [ar, en] of EN) replyText = replyText.split(ar).join(en);
+  }
+
   // A promise of a person, made while the clinic is shut, says when the person will actually be
   // there. "في أقرب وقت" at 1am on a Thursday and on the Friday it is closed were the same words.
-  if (handoff && profile && replyText.trim() && !reason.startsWith("appointment_")) {
+  if (handoff && profile && replyText.trim() && !reason.startsWith("appointment_") && !reason.startsWith("ai_cancel") && !reason.startsWith("ai_late")) {
     const st = openRightNow(profile.schedule);
-    if (!st.open) replyText = `${replyText}\n\n${closedNote(profile.schedule)}`;
+    if (!st.open) replyText = `${replyText}\n\n${latinPatient ? closedNoteEn(profile.schedule) : closedNote(profile.schedule)}`;
   }
 
   // Menu-shaped replies become tappable buttons on the official channel. Attached here rather
@@ -1520,6 +1567,7 @@ async function loadSalesContext(
   knowledge: Array<{ q: string; a: string }>;
   playbook: string;
   media: Array<{ id: string; label: string; when: string; url: string; kind: "image" | "document" }>;
+  gapMinutes: number;
 }> {
   const key = conversationKey(chatId);
   const [threadSnap, knowledgeSnap, playbookSnap, upcoming, mediaSnap, convSnap] = await Promise.all([
@@ -1538,8 +1586,21 @@ async function loadSalesContext(
       return { id: d.id, label: String(m.label || ""), when: String(m.when || ""), url: String(m.url || ""), kind: (m.kind === "document" ? "document" : "image") as "image" | "document" };
     })
     .filter((m) => m.url && m.label && !sentMedia.has(m.id));
-  const thread: AiThreadLine[] = (threadSnap?.docs ?? [])
-    .map((d) => d.data() || {})
+  /*
+   * A sitting, not a lifetime. The thread is read newest-first and cut at the first silence of
+   * 45 minutes or more that precedes the message being answered: what came before it is still
+   * shown (context), but the model is told it is history — a "Hi" twenty minutes after an
+   * unanswered "who are you" must be met as a fresh hello, not as a reply to the old question.
+   */
+  const rows = (threadSnap?.docs ?? []).map((d) => d.data() || {});
+  let gapMinutes = 0;
+  if (rows.length >= 2) {
+    // rows[0] is the newest (the patient's current message); the gap is between it and rows[1].
+    const newest = Number(rows[0].at) || 0;
+    const prev = Number(rows[1].at) || 0;
+    if (newest && prev) gapMinutes = Math.round((newest - prev) / 60000);
+  }
+  const thread: AiThreadLine[] = rows
     .reverse()
     .map((m) => ({ author: (m.author as AiThreadLine["author"]) || "bot", text: String(m.text || "") }))
     .filter((l) => l.text.trim() && !l.text.startsWith("[") );
@@ -1553,6 +1614,7 @@ async function loadSalesContext(
     thread,
     knowledge,
     media,
+    gapMinutes,
     playbook: String(pb.editedText || pb.text || ""),
     patient: {
       known: Boolean(patient),
