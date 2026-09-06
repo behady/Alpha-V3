@@ -1,0 +1,97 @@
+# Deploying the security rules, without a terminal.
+#
+# Vercel ships the Next.js app on every push to main and knows nothing about Firestore or Storage
+# rules — those are a separate deploy to Firebase. Until now that meant somebody running
+# `firebase deploy --only firestore:rules` by hand from a laptop, which is the same gap that let
+# functions/ drift for months (see deploy-functions.yml) and, worse, let storage.rules sit
+# UNDEPLOYED FOR THREE DAYS with a Firestore lookup in it that can never resolve in this project
+# — the incident tests/storage.rules.test.mjs was written after.
+#
+# Rules are the one thing in this system where the deployed copy and the copy in git being
+# different is invisible: everything keeps working, because the OLD rules are still enforcing.
+# A rule you added to close a hole is not closing it until this runs.
+#
+# Two ways to fire it:
+#   - the "Run workflow" button on the Actions tab (use this to deploy a rules change that is not
+#     on main yet — pick the branch from the dropdown)
+#   - automatically, on a push to main that actually changes a rules file
+#
+# Nothing here can deploy application code, functions, or Firestore indexes. `--only
+# firestore:rules,storage` is the whole blast radius: two declarative rulesets, both of which are
+# exercised against the real rules engine in the step above the deploy.
+
+name: Deploy Security Rules
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "firestore.rules"
+      - "storage.rules"
+      - ".github/workflows/deploy-rules.yml"
+
+# Never two rules deploys at once, and never cancel one half-way: an interrupted deploy would
+# leave whichever ruleset went first live beside the old copy of the other.
+concurrency:
+  group: deploy-rules
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: firebase deploy --only firestore:rules,storage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The emulator suites are Java. Pinned to 21 to match the CI rules job.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - run: npm ci
+
+      # Both suites run BEFORE the deploy, not after, and a failure stops it. A ruleset that
+      # denies something it should allow takes the whole product down for every clinic at once,
+      # and rolling back means noticing first — which, per the note at the top, is exactly the
+      # thing nobody does with rules.
+      - name: Firestore rules, against the real rules engine
+        run: npm run --silent test:rules
+
+      - name: Storage rules, against the real rules engine
+        run: npm run --silent test:storage-rules
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Deploy
+        env:
+          # The auth step above writes a credentials file and exports this for the CLI to find.
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ env.GOOGLE_APPLICATION_CREDENTIALS }}
+          FIREBASE_PROJECT: ${{ secrets.FIREBASE_PROJECT_ID }}
+        run: |
+          # firebase-tools is pinned to 13 for the same reason the test scripts pin it: 14+
+          # requires JDK 21 tooling this repo has not moved to wholesale.
+          #
+          # Indexes are deliberately NOT deployed here. `--only firestore:indexes` can DELETE
+          # indexes that are absent from firestore.indexes.json, and an index disappearing under
+          # a live query is a page that starts failing minutes later for reasons nobody connects
+          # to a rules deploy. That stays a deliberate, separate, human action.
+          npx firebase-tools@13 deploy \
+            --only firestore:rules,storage \
+            --project "$FIREBASE_PROJECT" \
+            --non-interactive
+
+      - name: What is live now
+        run: |
+          echo "Deployed from ${{ github.ref_name }} @ ${{ github.sha }}"
+          echo "firestore.rules  $(sha256sum firestore.rules | cut -c1-16)"
+          echo "storage.rules    $(sha256sum storage.rules  | cut -c1-16)"

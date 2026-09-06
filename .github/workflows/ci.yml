@@ -65,6 +65,15 @@ jobs:
         run: npm run --silent test:recyclebin
       - name: Clinic expiry gate
         run: npm run --silent test:clinicstatus
+      # When a free trial actually stops, and who decides. Sits beside the expiry gate above
+      # because the two are halves of one mechanism: that one is the decision, this one is the
+      # date it reads — and the date went unwritten for so long that the decision was dead code.
+      - name: Trial policy and expiry
+        run: npm run --silent test:trial
+      - name: Welcome guide route
+        run: npm run --silent test:welcome
+      - name: Settings registry and tutorial anchors
+        run: npm run --silent test:settings
       - name: Storage paths and rules
         run: npm run --silent test:storage
       - name: Per-clinic restore policy
