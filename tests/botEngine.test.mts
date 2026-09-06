@@ -331,6 +331,7 @@ const salesCtx: BotContext = { ...aiCtx, aiFirst: true };
 assert.equal(decideBotReply({ state: "awaiting_choice", text: "عايز احجز", ctx: salesCtx }).action?.type, "ai", "typed booking words go to the model in sales mode");
 assert.equal(decideBotReply({ state: "awaiting_choice", text: "m1", ctx: salesCtx }).action?.type, "list_days", "the book button still opens the lists");
 assert.equal(decideBotReply({ state: "awaiting_choice", text: "1", ctx: salesCtx }).action?.type, "list_days", "and so does its digit");
-assert.equal(decideBotReply({ state: "awaiting_choice", text: "عايز الغي الميعاد", ctx: salesCtx }).reason, "cancel_request", "cancelling stays deterministic");
+assert.equal(decideBotReply({ state: "awaiting_choice", text: "عايز الغي الميعاد", ctx: salesCtx }).action?.type, "ai", "cancelling is the model's too in sales mode — its cancel action still tells the desk, in the patient's language");
+assert.equal(decideBotReply({ state: "awaiting_choice", text: "عايز الغي الميعاد", ctx: aiCtx }).reason, "cancel_request", "outside sales mode it stays deterministic");
 
 console.log("✓ sales mode: booking opens only from the model, a button, or a digit");

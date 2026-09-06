@@ -392,7 +392,25 @@ async function runUpcoming24hForClinic(clinicId: string) {
 
   const results = [];
   for (const appointment of candidates) {
-    results.push(await sendForAppointment(clinicId, appointment, false));
+    /*
+     * One patient at a time, and one patient's failure stays with that patient.
+     *
+     * An unhandled throw here — a bad phone, a Meta rejection, a missing template — aborted the
+     * whole clinic's sweep, so everybody after the first failure went unreminded and the run
+     * still reported success. Now the failure is recorded against its own appointment.
+     */
+    try {
+      results.push(await sendForAppointment(clinicId, appointment, false));
+    } catch (e) {
+      results.push({
+        appointmentId: appointment.id,
+        patientName: appointment.patientName ?? "",
+        status: "failed" as const,
+        reason: e instanceof Error ? e.message : "send_failed",
+        whatsapp: null,
+        sms: null,
+      });
+    }
   }
   return { results, tomorrowStr, timeZone: tz };
 }

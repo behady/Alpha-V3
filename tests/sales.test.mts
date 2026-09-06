@@ -95,7 +95,8 @@ run("salesperson mode: the model leads, the calendar and safety stay fixed", () 
   assert.equal(decideBotReply({ state: "awaiting_choice", text: "عايز احجز", ctx: ai }).action?.type, "ai", "even 'book me' is the model's call — it opens the lists itself");
   assert.equal(decideBotReply({ state: "awaiting_choice", text: "m1", ctx: ai }).action?.type, "list_days", "a tapped book button still opens the lists");
   assert.equal(decideBotReply({ state: "awaiting_choice", text: "2", ctx: ai }).reason, "hours", "digits still mean the menu");
-  assert.equal(decideBotReply({ state: "awaiting_choice", text: "تمام", ctx: ai }).action?.type, "ack", "a confirmation still confirms");
+  assert.equal(decideBotReply({ state: "awaiting_choice", text: "تمام", ctx: { ...ai, hasSoonAppointment: true } }).action?.type, "ack", "with an appointment tomorrow, 'تمام' confirms it");
+  assert.equal(decideBotReply({ state: "awaiting_choice", text: "تمام", ctx: ai }).action?.type, "ai", "with nothing to confirm, 'تمام' after a pitch is agreement — the model's moment");
   assert.equal(decideBotReply({ state: "awaiting_choice", text: "سناني بتوجعني", ctx: ai }).reason, "clinical", "pain never reaches the model");
   assert.equal(decideBotReply({ state: "awaiting_choice", text: "عايز اكلم حد", ctx: ai }).reason, "asked_for_human");
   // Budget spent: the old ladder stands.

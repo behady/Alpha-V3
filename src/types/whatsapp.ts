@@ -151,6 +151,8 @@ export interface WhatsAppSettingsDocument {
    * seconds apart, and no menu buttons under ordinary answers in salesperson mode. Default on.
    */
   botHumanTouch?: boolean;
+  /** One free in-window "still there?" 20 minutes after a patient goes quiet mid-chat. Default on. */
+  botQuietNudge?: boolean;
   /** Answers to the questions the clinic's data cannot supply. See BotFacts. */
   botFacts?: BotFacts;
   /**
@@ -213,6 +215,11 @@ export interface BotFacts {
   consultation?: string;
   /** YYYY-MM-DD. After this day the offers text is treated as ended everywhere, automatically. */
   offersUntil?: string;
+  /**
+   * A few lines per dentist — specialty, years, manner — so "who is best for braces" gets an
+   * answer instead of a person. Anything about a dentist not written here still hands over.
+   */
+  dentists?: string;
 }
 
 /** Firestore path helper */

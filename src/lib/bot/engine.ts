@@ -148,6 +148,8 @@ export interface BotContext {
   facts?: BotFacts;
   /** The clinic wrote an offer and its end date has passed: `facts.offers` is blank on purpose. */
   offersExpired?: boolean;
+  /** The patient has an appointment within two days — a one-word "تمام" then confirms it. */
+  hasSoonAppointment?: boolean;
   /** Guessed from the patient's name, so the reply is not addressed to every woman as a man. */
   gender?: Gender;
   /** A day the patient named in THIS message ("بكره", "الخميس"), as a date key. */
@@ -598,6 +600,11 @@ export function decideBotReply(args: {
      * stray tap at an old list, so the question is asked again rather than a patient called "3".
      */
     const name = text.replace(/\s+/g, " ").trim();
+    // In AI mode a greeting, a question or a booking word at the name step is talk, not a name:
+    // "Hi" must not be registered as somebody called Hi.
+    if (ctx.aiFirst && ctx.aiAvailable && (quickIntent(name) !== null || /[?؟]/.test(name))) {
+      return { reply: "", action: { type: "ai", question: text }, next: state, handoff: false, reason: "ai" };
+    }
     if (numberChoice(name) !== null || name.length < 2 || name.length > 80) {
       return { reply: "معلش، ياريت الاسم بالحروف (مش أرقام) عشان نكمل الحجز 🙏", next: "booking_name", handoff: false, reason: "ask_name_again" };
     }
@@ -629,7 +636,21 @@ export function decideBotReply(args: {
    * clinic's own buttons, and a tap is not talk.
    */
   if (!inBooking && ctx.aiFirst && ctx.aiAvailable && numberChoice(text) === null) {
-    const ACTIONS = new Set<QuickIntent>(["complaint", "cancel", "late", "reschedule", "my_appointment", "ack", "thanks"]);
+    // "تمام" confirms an appointment only when there is one to confirm; after a sales pitch it
+    // is agreement, and agreement is the model's moment, not a canned "we're here if you need us".
+    // Cancelling, running late, moving, "my appointment": the model handles these too — it has
+    // actions for the first three and the appointment in its context — so the answer comes in
+    // the patient's own language instead of a fixed Arabic line. Complaints still escalate.
+    /*
+     * A complaint goes to the model too now.
+     *
+     * The fixed line — "we've received your message, management will contact you" — is correct
+     * and completely cold: it does not apologise, does not ask what happened, and reads like a
+     * form. The model answers an angry patient in their own words and STILL raises the same
+     * flag and the same notification through handoff_complaint, so nothing is lost but the
+     * coldness. Only the courtesies stay deterministic, because they cost nothing to get right.
+     */
+    const ACTIONS = new Set<QuickIntent>(["thanks", ...(ctx.hasSoonAppointment ? (["ack"] as QuickIntent[]) : [])]);
     if (!intent || !ACTIONS.has(intent)) {
       return { reply: "", action: { type: "ai", question: text }, next: "awaiting_choice", handoff: false, reason: "ai" };
     }
@@ -675,8 +696,13 @@ export function decideBotReply(args: {
         ? { reply: "", action: { type: "list_times", index: n }, next: "booking_time", handoff: false, reason: "booking_times" }
         : { reply: "", action: { type: "book", index: n }, next: "awaiting_choice", handoff: false, reason: "booking_book" };
     }
-    // Not a pick. Same options again rather than a human: mis-typing a digit is not confusion,
-    // and the turn caps in lib/bot/conversation still bound how long this can go on.
+    // Not a pick. In AI mode the model answers with the options still on the table — a "Hi" or
+    // a question mid-list used to get the same list thrown back, which reads as a machine.
+    if (ctx.aiFirst && ctx.aiAvailable) {
+      return { reply: "", action: { type: "ai", question: text }, next: state, handoff: false, reason: "ai" };
+    }
+    // Same options again rather than a human: mis-typing a digit is not confusion, and the turn
+    // caps in lib/bot/conversation still bound how long this can go on.
     return { reply: "", action: { type: "relist" }, next: state, handoff: false, reason: "booking_relist" };
   }
 

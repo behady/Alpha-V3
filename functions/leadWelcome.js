@@ -90,6 +90,83 @@ async function sendViaGateway(config, phone, text) {
 }
 
 /**
+ * The clinic's official WhatsApp credentials, when it has moved to the Meta Cloud API.
+ *
+ * This module was written when Wapilot was the only gateway. A clinic on the official channel has
+ * no Wapilot config at all, so every greeting fell through to the human queue and sat there — 52
+ * real leads, unanswered, before anyone noticed. The Cloud API is tried first now, exactly as the
+ * web app does it.
+ */
+async function loadMetaConfig(db, clinicId) {
+  try {
+    const snap = await db.doc(`clinic_secrets/${clinicId}`).get();
+    const meta = (snap.exists && snap.data().metaWhatsapp) || null;
+    if (!meta || !meta.token || !meta.phoneNumberId) return null;
+    return { token: String(meta.token), phoneNumberId: String(meta.phoneNumberId) };
+  } catch (_) {
+    return null;
+  }
+}
+
+/** Has this number written to us inside WhatsApp's 24-hour window? Free text only delivers if so. */
+async function hasOpenWindow(db, clinicId, phone) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (!digits) return false;
+  try {
+    const key = digits.length > 10 ? digits.slice(-10) : digits;
+    const snap = await db.collection(`clinics/${clinicId}/whatsapp_conversations`).get();
+    for (const doc of snap.docs) {
+      const c = doc.data() || {};
+      const p = String(c.phone || doc.id).replace(/\D/g, "");
+      if (!p.endsWith(key)) continue;
+      const at = Number(c.lastInboundAt) || 0;
+      return at > 0 && Date.now() - at < 23 * 60 * 60 * 1000;
+    }
+  } catch (_) {
+    /* no window we can prove */
+  }
+  return false;
+}
+
+/**
+ * Send through the official channel.
+ *
+ * A lead from an ad form has never written to us, so the 24-hour service window is shut and only a
+ * pre-approved template delivers — free-form text is accepted by the API and then silently dropped,
+ * which is indistinguishable from success. So: template first, and free text only when the patient
+ * really did write to us recently (a click-to-WhatsApp lead does).
+ */
+async function sendViaMeta(config, phone, text, params, canFreeText) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (!digits) throw new Error("invalid_phone");
+  const post = (payload) =>
+    fetch(`https://graph.facebook.com/v21.0/${config.phoneNumberId}/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ messaging_product: "whatsapp", to: digits, ...payload }),
+    });
+
+  if (!canFreeText) {
+    const res = await post({
+      type: "template",
+      template: {
+        name: "alpha_lead_welcome_ar",
+        language: { code: "ar" },
+        components: [{ type: "body", parameters: params.map((t) => ({ type: "text", text: t || "-" })) }],
+      },
+    });
+    const body = await res.text();
+    if (!res.ok) throw new Error(`Meta template ${res.status}: ${body.slice(0, 200)}`);
+    return "template";
+  }
+
+  const res = await post({ type: "text", text: { body: text } });
+  const body = await res.text();
+  if (!res.ok) throw new Error(`Meta text ${res.status}: ${body.slice(0, 200)}`);
+  return "text";
+}
+
+/**
  * Puts the message on the clinic's to-send list. The document id is derived from the lead so a
  * replayed event cannot queue the same greeting twice — the trick `enqueueWhatsapp` uses on the
  * web side — and the Android queue sheet reads these fields as they are.
@@ -161,15 +238,34 @@ async function sendLeadWelcome(db, clinicId, lead) {
     return record;
   };
 
-  const config = await loadWapilotConfig(db, clinicId);
+  const meta = await loadMetaConfig(db, clinicId);
+  const config = meta ? null : await loadWapilotConfig(db, clinicId);
   // Absent an explicit choice, the server decides the way the rest of the system does:
   // unattended when a gateway exists, click-to-send when it does not.
   const wanted =
     settings.deliveryMode === "auto" || settings.deliveryMode === "manual"
       ? settings.deliveryMode
-      : config
+      : meta || config
         ? "auto"
         : "manual";
+
+  if (wanted === "auto" && meta) {
+    try {
+      const canFreeText = await hasOpenWindow(db, clinicId, phone);
+      const how = await sendViaMeta(
+        meta,
+        phone,
+        text,
+        [String(current.name || lead.name || "").trim() || "عميلنا العزيز", clinicName || "عيادتنا"],
+        canFreeText
+      );
+      return stamp({ status: "sent", mode: "auto", channel: "meta", how, at: FieldValue.serverTimestamp(), text });
+    } catch (e) {
+      console.warn(`leadWelcome: Meta send failed for ${clinicId}, queueing instead:`, e);
+      const queued = await queueForHuman(db, clinicId, lead, phone, text);
+      return stamp({ ...queued, error: String((e && e.message) || e).slice(0, 300) });
+    }
+  }
 
   if (wanted === "auto" && config) {
     try {

@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/automation/reminders",
-      "schedule": "0 3 * * *"
+      "schedule": "0 15 * * *"
     },
     {
       "path": "/api/automation/recall",
@@ -28,6 +28,18 @@
     {
       "path": "/api/automation/noshow",
       "schedule": "0 11 * * *"
+    },
+    {
+      "path": "/api/automation/bot-memory",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/automation/bot-coach",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/automation/flush-lead-welcome",
+      "schedule": "0 6 * * *"
     }
   ]
 }

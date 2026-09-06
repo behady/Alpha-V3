@@ -435,7 +435,14 @@ export async function POST(request: Request) {
           ? outboxKey(ledgerIdBody || clinicalNoteIdBody, kind)
           : "";
 
-      const delivery = await deliverWhatsAppMessage({
+      /*
+     * On the official channel, free-form text outside the 24-hour service window is accepted by
+     * the API and then dropped — the send returns success, the log says "sent", and the patient
+     * receives nothing. Receipts, invoices and review requests are exactly the messages that go
+     * out days after the patient last wrote, so they carry their approved template; the caller
+     * that has none is told plainly rather than being lied to.
+     */
+    const delivery = await deliverWhatsAppMessage({
         clinicId,
         to: phone,
         text: merged,

@@ -204,8 +204,16 @@ export async function computeAvailableSlots(args: {
   doctorName?: string | null;
   branchId?: string | null;
   profile: PublicClinicProfile;
+  /**
+   * An appointment to ignore when working out what is taken.
+   *
+   * A move has to be measured against the calendar WITHOUT the appointment being moved, or the
+   * patient's own slot blocks them: "3:30 to 4:00 on the same day" came back as "someone just
+   * took it", and a whole day could read as full when only their own booking was on it.
+   */
+  ignoreAppointmentId?: string | null;
 }): Promise<string[]> {
-  const { clinicId, dateKey, doctorName, branchId, profile } = args;
+  const { clinicId, dateKey, doctorName, branchId, profile, ignoreAppointmentId } = args;
   const schedule = profile.schedule;
 
   if (isClinicClosedOn(dateKey, schedule)) return [];
@@ -218,6 +226,7 @@ export async function computeAvailableSlots(args: {
   const busy: Array<{ start: number; end: number }> = [];
 
   for (const doc of snap.docs) {
+    if (ignoreAppointmentId && doc.id === ignoreAppointmentId) continue;
     const a = doc.data() || {};
     if (RELEASED_STATUSES.has(normalizeAppointmentStatus(String(a.status || "")))) continue;
 
@@ -404,8 +413,15 @@ export async function movePatientBooking(args: {
   if (dateKey < clinicNow().dateKey) return { ok: false, reason: "slot_taken" };
 
   const branchId = profile.branches.length === 1 ? profile.branches[0].id : null;
-  const free = await computeAvailableSlots({ clinicId, dateKey, doctorName: doctorName || null, branchId, profile });
-  // The appointment's own slot is "taken" by itself; moving onto it is a no-op, not a clash.
+  const free = await computeAvailableSlots({
+    clinicId,
+    dateKey,
+    doctorName: doctorName || null,
+    branchId,
+    profile,
+    ignoreAppointmentId: appointmentId,
+  });
+  // Belt and braces: the same slot is trivially free once its own appointment is excluded.
   const sameSlot = String(current.date) === dateKey && String(current.time) === time;
   if (!free.includes(time) && !sameSlot) return { ok: false, reason: "slot_taken" };
 

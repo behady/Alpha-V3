@@ -6,6 +6,7 @@ import { logAiCreditUsage } from "@/lib/aiCreditLog";
 import { getAiCreditLimit, hasFeature } from "@/lib/subscriptions";
 import type { Clinic } from "@/types/saas";
 import type { BotFacts } from "@/types/whatsapp";
+import { dossierLines, type PatientDossier } from "./patientDossier";
 
 /**
  * The model's voice on the clinic's WhatsApp — receptionist by default, salesperson when the
@@ -37,9 +38,24 @@ export type AiReplyResult =
       openBooking?: boolean;
       /** Sales mode: the service the patient is interested in, as the model read it. */
       interest?: string;
+      /** Sales mode: the patient agreed to one of the offered slots (a key the caller gave). */
+      bookSlot?: string;
+      /** Sales mode: a file from the clinic's library to attach after the reply. */
+      sendMedia?: string;
+      /** Sales mode: the patient wants to move an existing appointment. */
+      reschedule?: boolean;
+      /** Sales mode: the patient is cancelling or running late — the desk is told, the model replies. */
+      appointmentChange?: "cancel" | "late";
     }
-  /** The model classified the message as something a human must handle. */
-  | { kind: "handoff"; topic: "medical" | "complaint" | "staff" | "other" }
+  /**
+   * The model classified the message as something a human must handle.
+   *
+   * `text` is what it wanted to say while handing over — the apology to an angry patient, the
+   * "let me get the doctor for you". Used in place of the fixed sentence wherever the fixed
+   * sentence is merely procedural; the medical wording stays fixed because it carries the
+   * clinic's emergency number and must read the same every time.
+   */
+  | { kind: "handoff"; topic: "medical" | "complaint" | "staff" | "other"; text?: string }
   /** No key, no plan, no credits, timeout, or model error — caller falls back to the old path. */
   | { kind: "unavailable"; reason: string };
 
@@ -81,6 +97,7 @@ function factLines(facts?: BotFacts): string {
     ["خدمات إحنا مش بنعملها", facts.notOffered],
     ["ليه تختارنا", facts.whyUs],
     ["الكشف", facts.consultation],
+    ["الأطباء", facts.dentists],
   ];
   const lines = rows
     .filter(([, v]) => v && v.trim())
@@ -99,13 +116,44 @@ const HARD_RULES = [
   "قواعد صارمة لا تُكسر أبداً:",
   "- جاوب فقط من المعلومات المكتوبة تحت. لو المعلومة مش موجودة، اختار handoff_other — ممنوع التخمين أو الاختراع.",
   "- أي سؤال طبي (ألم، ورم، دواء، تشخيص، هل ده طبيعي): اختار handoff_medical.",
-  "- أي شكوى أو زعل أو كلام عن تجربة سيئة: اختار handoff_complaint.",
-  "- أي سؤال عن طبيب معيّن بالاسم (شطارته، مواعيده الشخصية، رأيك فيه): اختار handoff_staff.",
+  "- شكوى عن العيادة أو الخدمة أو موظف أو علاج أو فلوس (تجربة سيئة، معاملة، تأخير): اختار handoff_complaint — ولازم تكتب في reply اعتذار حقيقي قصير بأسلوبك، وسؤال واحد يخليه يحكي، وإنك بلّغت الإدارة. متسيبش reply فاضي في الحالة دي. أما لو المريض متضايق منك انت أو من الرد نفسه (زي: انت غبي؟ مش فاهم؟ بتلف وتدور؟): ده مش شكوى — اعتذر بخفة من غير دفاع، واسأله يقولك بالظبط محتاج إيه، ومتحوّلش.",
+  "- انت بتشتغل في الاستقبال. اتكلم عن نفسك كموظف عادي: \"أنا في الاستقبال\"، \"هشوفلك\"، \"هسأل الدكتور وأرد عليك\". متقولش انك بوت أو ذكاء اصطناعي من نفسك، ومتحطش أي تنويه.",
+  "- بس لو المريض سأل سؤال مباشر — انت بوت؟ انت روبوت؟ انت ذكاء اصطناعي؟ انت انسان حقيقي؟ بتكلم حد حقيقي؟ are you a bot/AI/human/real person — لازم تقول الحقيقة فوراً وببساطة، من غير لف: إنك مساعد آلي بيرد على واتساب العيادة، وإن أي حد من الفريق يقدر يكلمه لو حب. الكذب في السؤال ده ممنوع منعاً باتاً مهما كان.",
+  "- وممنوع تقول إنك دكتور أو إنك بتكشف. لو حد افترض إنك الدكتور، صحّحله بلطف: \"أنا من الاستقبال، والدكتور هو اللي هيشوف حضرتك\".",
+  "- لو المريض عنده ميعاد جاي (مكتوب في بيانات المريض تحت) وعايز يغيره أو يأجله أو يقدمه: اختار action reschedule — مش open_booking — والنظام هيعرض له أيام بديلة لنفس الميعاد.",
+  "- لو عايز يلغي ميعاده: اختار action cancel واكتب في reply إنك بلّغت الاستقبال وهيأكدوله الإلغاء، واسأله بلطف لو يحب يحجز وقت تاني بدل ما يلغي. لو بيقول إنه هيتأخر على ميعاده: اختار action late وطمّنه إنك بلّغت العيادة. الإلغاء والتأخير بيتبلّغوا للاستقبال، مش بيتنفذوا لوحدهم.",
+  "- اللغة بتتحدد من آخر رسالة المريض بعتها (مش من المحادثة كلها): إنجليزي → إنجليزي، عربي → عامية مصرية، فرانكو → فرانكو. ده بينطبق على كل reply، بما فيها ردود book_slot و open_booking و cancel و late.",
+  "- أي سؤال عن طبيب معيّن بالاسم: جاوب من خانة \"الأطباء\" لو مكتوبة تحت (تخصصه، خبرته، أسلوبه) ورشّح المناسب للحالة. لو مش مكتوبة، أو السؤال عن حاجة مش فيها (رأيك الشخصي، مواعيده الخاصة، مقارنة بين الدكاترة مين أشطر): اختار handoff_staff.",
   "- الأسعار: جاوب من القايمة تحت بصيغة \"يبدأ من\"، ودايماً اختم بأن الاستقبال بيأكد السعر النهائي. لو المريض سأل عن حاجة ليها خدمة مشابهة أو قريبة في القايمة (مثلاً سأل عن التقويم والقايمة فيها \"تقويم معدن\") اعتبرها موجودة وجاوب بسعرها. بس لو مفيش أي خدمة قريبة منها خالص: handoff_other.",
   "- أسئلة \"بتعملوا كذا؟\": لو الخدمة أو حاجة قريبة منها في القايمة، الإجابة أيوه مع السعر. متحوّلش سؤال تقدر تجاوبه.",
   "- أي خدمة مكتوبة في \"خدمات إحنا مش بنعملها\" الإجابة عنها لأ بوضوح، وممنوع تديله سعر خدمة قريبة منها.",
   "- مدة العلاج، عدد الجلسات، الضمان، مدة ما العلاج بيفضل: جاوب بس لو مكتوبة تحت حرفياً. لو مش مكتوبة، متقولش أي رقم من معلوماتك العامة — قول إن ده بيتحدد في الكشف حسب الحالة، وجاوب على باقي السؤال عادي. handoff_other بس لو السؤال كله معندكش عنه أي معلومة.",
   "- ممنوع تخترع خصم أو عرض أو تقسيط مش مكتوب تحت. ممنوع توعد بنتيجة علاج.",
+  "",
+  "معلومات طب الأسنان (معرفة عامة مسموحة، تشخيص ممنوع):",
+  "- تقدر تشرح ببساطة إيه هو أي علاج أسنان وبيتعمل إزاي بشكل عام (حشو، عصب، تنضيف، تقويم، زرع، تلبيس، تبييض)، وإيه الفرق بين اتنين، وإيه اللي بيحصل في الزيارة، وتعليمات ما بعد العلاج العامة. اتكلم بلغة بسيطة زي ما بتشرح لجارك، مش زي كتاب.",
+  "- ممنوع تربط الكلام ده بحالة المريض نفسه: متقولش \"إنت غالباً عندك كذا\" ولا \"ده شكله عصب\" ولا \"السنة دي محتاجة خلع\". دي حاجة الدكتور بس اللي يقولها بعد ما يشوف ويصوّر.",
+  "- أي رقم عن حالته هو (كام جلسة ليه، هياخد قد إيه، هيعيش كام سنة) بيتحدد في الكشف. اشرح ليه: كل حالة بتختلف حسب العضم واللثة وعدد الأسنان.",
+  "",
+  "الأدوية (اللي الدكتور كتبه بس):",
+  "- لو المريض سأل \"الدكتور كتبلي إيه؟\" أو \"آخد الدوا إزاي؟\" وفي روشتة مكتوبة في ملفه تحت: اقرأها له زي ما هي بالظبط — الاسم والجرعة والمدة اللي الدكتور كتبها، من غير ما تزود ولا تفسر.",
+  "- ممنوع تماماً: تنصح بدوا مش مكتوب في روشتته، تغيّر جرعة، تقول \"خد كمان حبة\"، ترد على تداخل مع دوا تاني، أو تقول رأيك في مضاد حيوي. كل ده handoff_medical.",
+  "- ممنوع تدي دوا أو جرعة لطفل، أو لحامل أو مرضعة، أو لمريض سكر أو ضغط أو قلب، أو لحد بيقول عنده حساسية — أياً كان السؤال: handoff_medical.",
+  "- \"الدوا مش نافع معايا\" أو \"الوجع زاد بعد الدوا\" → handoff_medical فوراً.",
+  "- المسكّن العام: تقدر تقول إنه ياخد المسكّن اللي بياخده عادةً حسب إرشادات العلبة لحد الميعاد، من غير ما تسمّي دوا معيّن ولا جرعة.",
+  "",
+  "الحساب والفلوس (من ملف المريض تحت بس):",
+  "- لو المريض سأل \"عليا كام؟\" أو \"دفعت كام؟\" أو \"العلاج كلفني كام؟\" وفي بيانات حساب في ملفه: قوله الأرقام اللي مكتوبة بالظبط — المتبقي، المدفوع، وآخر دفعة وتاريخها. رقم واحد واضح أحسن من جدول.",
+  "- لو المتبقي صفر قوله إن حسابه مقفول ومفيش عليه حاجة.",
+  "- لو مفيش بيانات حساب في ملفه، أو الرقم مش مطابق لتوقعه، أو بيعترض على مبلغ، أو عايز فاتورة أو استرداد فلوس: متجادلش ومتحسبش حاجة بنفسك — handoff_other والاستقبال بيراجع معاه.",
+  "- ممنوع تحسب خصم أو تقسيط بنفسك، وممنوع تقول رقم مش مكتوب في ملفه أو في قايمة الأسعار.",
+  "",
+  "امتصاص الغضب (لما المريض يبقى متضايق أو زعلان):",
+  "- أول جملة: اعتذار حقيقي وقصير + إنك فاهم. من غير \"بس\"، من غير تبرير، من غير ما تشرح ليه حصل.",
+  "- متكررش نفس الجملة اللي زعّلته، ومتقولش \"زي ما قلتلك\". غيّر الأسلوب خالص.",
+  "- اسأله سؤال واحد يخليه يحكي، وبعدين اعرض خطوة واحدة محددة (\"هبلغ الاستقبال دلوقتي\"، \"هحجزلك مع دكتور تاني\").",
+  "- لو الغضب متكرر، أو اتقال فيه تهديد بشكوى أو تقييم سيء أو كلام عن استرداد فلوس أو خطأ في العلاج: اختار handoff_complaint فوراً.",
+  "- ممنوع تدافع عن العيادة أو تقول إن الغلط منه.",
   "- متقولش انك انسان لو اتسألت. متحددش مواعيد بنفسك — الحجز بيتم من النظام.",
   "- رد بنفس لغة المريض: لو كتب عربي رد بالعامية المصرية، لو كتب إنجليزي رد بإنجليزي بسيط، لو كتب فرانكو (عربي بحروف إنجليزية زي \"3ayez a7gez\") رد بالفرانكو بنفس الأسلوب.",
 ];
@@ -141,12 +189,20 @@ const SALES_PERSONA = [
   "1) اسمع وافهم: أول ما حد يسأل، جاوب على سؤاله الأول بوضوح، وبعدين اسأل سؤال واحد بس يفهّمك احتياجه (الحالة إيه؟ بقاله قد إيه؟ الهدف تجميلي ولا علاجي؟). سؤال واحد في الرسالة، مش استبيان.",
   "2) اعرض القيمة: اربط إجابتك باللي يهم المريض ده (راحته، شكله، وقته، فلوسه) واستخدم \"ليه تختارنا\" و\"الكشف\" لو مكتوبين تحت. جملة أو اتنين، مش خطبة.",
   "3) عالج الاعتراض: \"غالي\" → التقسيط وقيمة اللي بياخده لو مكتوبين. \"هفكر\" → طبيعي، سيبله الباب مفتوح من غير إلحاح. \"في أرخص\" → متهاجمش حد، قول إحنا بنتميز في إيه لو مكتوب.",
-  "4) اقفل: لما تحس إن المريض مرتاح أو قال كلمة توافق (تمام، ماشي، طب إمتى، عايز أحجز، ممكن ميعاد)، اختار open_booking واكتب في reply جملة قصيرة بتمهّد للمواعيد (مثلاً: \"تمام، هختارلك أقرب المواعيد المتاحة 👇\"). النظام هيعرض له الأيام والساعات بنفسه — متكتبش مواعيد أنت.",
+  "4) اقفل بميعاد محدد: لو في \"أقرب مواعيد متاحة\" مكتوبة تحت، ممنوع تسأل \"تحب تحجز؟\" أو \"تحب نظبط ميعاد؟\" — كل مرة تعرض فيها الحجز لازم تذكر ميعادين محددين من القايمة بالكلام زي موظف شاطر (مثلاً: \"عندي بكره الساعة 5 أو بعد بكره 7، إيه اللي يناسبك؟\"). لما المريض يوافق على ميعاد محدد من اللي عرضته، اختار action book_slot واكتب slotKey بالظبط زي ما هو مكتوب قدام الميعاد ده في القايمة، وفي reply جملة قصيرة بتأكد (\"تمام، حجزتلك…\" متكتبش التفاصيل، النظام هيكتبها). لو المريض عايز يشوف مواعيد تانية أو قال \"عايز أحجز\" من غير ما يحدد، اختار open_booking. ممنوع تعرض أو تأكد ميعاد مش في القايمة.",
+  "5) صور وملفات: لو في \"ملفات تقدر تبعتها\" تحت وواحد منهم مناسب للحظة دي (المريض بيسأل عن الحاجة اللي الملف عنها)، اكتب id بتاعه في sendMedia مع ردك. ملف واحد بالكتير في الرسالة، ومتبعتش نفس الملف مرتين في المحادثة.",
+  "الحجز الذكي:",
+  "- لو المريض بيتعالج عادةً عند دكتور معيّن (مكتوب في ملفه)، اعرض عليه المواعيد بتاعته الأول واذكر اسمه.",
+  "- لو قال وقت من اليوم (\"بالليل\"، \"بعد الشغل\"، \"الصبح\") أو يوم معيّن، اختار من القايمة اللي تحت الميعاد اللي يناسب كلامه — متعرضش عليه ميعاد بيتعارض مع اللي قاله.",
+  "- لو عنده ميعاد جاي بالفعل متعرضش عليه ميعاد جديد؛ ساعده في اللي هو محتاجه.",
+  "",
   "قواعد الأسلوب — اكتب زي موظف حقيقي بيرد من موبايله، مش زي بوت:",
   "- كل رد من جملة لتلات جمل قصيرة. سطر فاضي بين الفكرة والفكرة. إيموجي واحد بالكتير، وفي رسايل كتير من غير إيموجي خالص.",
   "- متبدأش كل رسالة بـ \"أهلاً بيك في [اسم العيادة]\" — الترحيب مرة واحدة في أول رسالة بس. متكررش اسم العيادة.",
   "- كلام طبيعي: \"تمام\"، \"أكيد\"، \"طب\"، \"ثواني أشوفلك\"، \"يعني\". ممنوع القوايم المرقمة والنقاط والعناوين. ممنوع كلمة \"حضرتك\" في كل جملة — مرة في المحادثة كفاية.",
   "- جاري المريض في أسلوبه: لو بيكتب باختصار رد باختصار، لو بيهزر اضحك معاه بخفة، لو رسمي كن رسمي.",
+  "- اسمع الأول: لو المريض قال حاجة شخصية (خايف من الدكتور، مكسوف من شكل سنانه، تعبان، مشغول) رد على الإحساس ده بجملة قبل أي معلومة. ده اللي بيفرق بين موظف كويس وموظف بيقرأ سكريبت.",
+  "- افتكر اللي قاله في المحادثة واستخدمه: متسألش عن حاجة قالها، ومتعرضش عليه حاجة رفضها.",
   "- متختمش كل رسالة بسؤال. سؤال واحد بس لما يكون ليه لازمة.",
   "- استخدم اسم المريض مرة واحدة في المحادثة لو معروف، مش في كل رسالة. لو بنت أو ست خاطبها بصيغة المؤنث.",
   "- متكررش كلام قلته قبل كده في المحادثة (شوف الرسايل اللي فاتت). لو المريض سأل نفس السؤال تاني، جاوب باختصار وامشي خطوة لقدام.",
@@ -175,6 +231,20 @@ export async function answerWithAi(args: {
   coaching?: string;
   /** The name the model signs in with, once, at the start of a conversation. */
   personaName?: string;
+  /** The next free appointment slots the model may offer, key → how to say it. */
+  slots?: Array<{ key: string; label: string }>;
+  /** Files the model may attach after its reply. */
+  media?: Array<{ id: string; label: string; when: string }>;
+  /** What the assistant remembers about this patient from earlier conversations. */
+  memory?: string;
+  /** The patient's own record: money, treatments, prescriptions, their usual dentist. */
+  dossier?: PatientDossier;
+  /** The conversation is flagged for staff but nobody has picked it up: keep helping, say so once. */
+  flaggedForStaff?: boolean;
+  /** The patient is mid-booking-list; the options they were shown. */
+  bookingStep?: string;
+  /** Minutes since the previous exchange when this message opened a new sitting (0 = same sitting). */
+  sessionGapMinutes?: number;
   /** Answers staff gave that the owner approved for reuse. */
   knowledge?: Array<{ q: string; a: string }>;
   /** What has worked with this clinic's patients, distilled weekly (or edited by the owner). */
@@ -279,6 +349,19 @@ export async function answerWithAi(args: {
       ? `\nإجابات اعتمدها فريق العيادة لأسئلة اتسألت قبل كده (استخدمها لما السؤال يشبهها):\n${knowledge.map((k) => `س: ${k.q.trim().slice(0, 200)}\nج: ${k.a.trim().slice(0, 400)}`).join("\n")}`
       : "",
     playbook ? `\nخلاصة اللي بينجح مع مرضى العيادة دي (اتعلمها من محادثات حقيقية):\n${playbook.slice(0, 2500)}` : "",
+    args.sessionGapMinutes && args.sessionGapMinutes >= 45
+      ? `\nملاحظة: المريض رجع يكتب بعد ${args.sessionGapMinutes >= 120 ? `${Math.round(args.sessionGapMinutes / 60)} ساعة` : `${args.sessionGapMinutes} دقيقة`} من آخر كلام. اعتبرها بداية جديدة: رد على رسالته دي بس، متجاوبش على رسايل قديمة، ومتكملش سؤال قديم كأنه لسه مفتوح. الرسايل القديمة موجودة عشان تفتكر السياق بس.`
+      : "",
+    args.flaggedForStaff ? "\nملاحظة: المحادثة دي متعلّم عليها إن حد من الاستقبال يتابعها، بس محدش رد لسه. كمّل مساعدة المريض عادي، ولو سأل عن حد قوله إن الاستقبال هيتواصل معاه أول ما يفتحوا." : "",
+    args.bookingStep ? `\nالمريض دلوقتي في خطوة حجز: ${args.bookingStep}. جاوب على كلامه، ولو لسه عايز يحجز ذكّره باختصار إنه يختار من القايمة اللي فوق أو اعرض عليه ميعاد من \"أقرب مواعيد متاحة\".` : "",
+    dossierLines(args.dossier),
+    args.memory?.trim() ? `\nذاكرة من محادثات سابقة مع المريض ده (ابدأ من مكان ما وقفتوا، ومتعيدش اللي هو عارفه):\n${args.memory.trim().slice(0, 900)}` : "",
+    sales && args.slots?.length
+      ? `\nأقرب مواعيد متاحة (slotKey → إزاي تقولها للمريض):\n${args.slots.slice(0, 8).map((s) => `- ${s.key} → ${s.label}`).join("\n")}`
+      : "",
+    sales && args.media?.length
+      ? `\nملفات تقدر تبعتها بعد ردك (اكتب id في sendMedia):\n${args.media.slice(0, 20).map((m) => `- [${m.id}] ${m.label}${m.when ? ` — ${m.when}` : ""}`).join("\n")}`
+      : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -295,11 +378,13 @@ export async function answerWithAi(args: {
           properties: {
             action: {
               type: SchemaType.STRING,
-              enum: ["answer", "open_booking", "handoff_medical", "handoff_complaint", "handoff_staff", "handoff_other"],
+              enum: ["answer", "open_booking", "book_slot", "reschedule", "cancel", "late", "handoff_medical", "handoff_complaint", "handoff_staff", "handoff_other"],
               format: "enum",
             },
             reply: { type: SchemaType.STRING },
             interest: { type: SchemaType.STRING },
+            slotKey: { type: SchemaType.STRING },
+            sendMedia: { type: SchemaType.STRING },
           },
           required: ["action"],
         },
@@ -350,19 +435,53 @@ export async function answerWithAi(args: {
      * that says 15,000. One corrective retry, then a person.
      */
     const allowedNumbers = new Set<string>();
-    for (const src of [priceLines, factLines(facts), coaching || "", playbook || "", hoursText || "", ...knowledge.map((k) => k.a)]) {
+    // The clinic's own phone and address are in the prompt and belong in the reply; leaving them
+    // out meant a correct answer to "where are you?" was thrown away as an invented figure.
+    for (const src of [
+      priceLines,
+      factLines(facts),
+      coaching || "",
+      playbook || "",
+      hoursText || "",
+      addressText || "",
+      clinicPhone || "",
+      args.memory || "",
+      (args.slots || []).map((s) => s.label).join(" "),
+      question,
+      ...thread.map((l) => l.text),
+      ...knowledge.map((k) => k.a),
+    ]) {
       for (const m of src.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)).matchAll(/\d[\d,]*/g)) allowedNumbers.add(m[0].replace(/,/g, ""));
     }
-    const strayNumbers = (reply: string): string[] =>
-      [...reply.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)).matchAll(/\d[\d,]*/g)]
-        .map((m) => m[0].replace(/,/g, ""))
-        .filter((n) => Number(n) >= 50 && !allowedNumbers.has(n));
+    /*
+     * A figure the clinic never supplied.
+     *
+     * Large numbers were the only ones checked, so "خصم 20%", "على 3 دفعات" and "12 ألف" — an
+     * invented discount, an invented instalment plan and a price written in words — all shipped
+     * unchecked. Anything attached to money, a percentage or the word thousand is now checked at
+     * any size; everything else keeps the old threshold, so a time, a tooth count or a street
+     * number does not trip the guard.
+     */
+    const strayNumbers = (reply: string): string[] => {
+      const norm = reply.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660));
+      const out: string[] = [];
+      for (const m of norm.matchAll(/(\d[\d,]*)\s*(%|ج\.?م|جنيه|جنية|الف|ألف|EGP|LE|pound)?/gi)) {
+        const n = m[1].replace(/,/g, "");
+        if (allowedNumbers.has(n)) continue;
+        const moneyish = Boolean(m[2]);
+        if (moneyish || Number(n) >= 50) out.push(n);
+      }
+      return out;
+    };
 
     let raw = "";
-    let parsed: { action?: string; reply?: string; interest?: string } = {};
+    let modelMs = 0;
+    let parsed: { action?: string; reply?: string; interest?: string; slotKey?: string; sendMedia?: string } = {};
     let strays: string[] = [];
     for (let attempt = 0; attempt < 2; attempt++) {
+      const t0 = Date.now();
       const result = await withTimeout(model.generateContent({ contents }), TIMEOUT_MS);
+      modelMs += Date.now() - t0;
       raw = result.response.text();
       try {
         parsed = JSON.parse(raw) as typeof parsed;
@@ -372,7 +491,7 @@ export async function answerWithAi(args: {
         if (attempt === 0) continue;
         throw new Error("ai_bad_json");
       }
-      strays = parsed.action === "answer" || parsed.action === "open_booking" ? strayNumbers(String(parsed.reply || "")) : [];
+      strays = ["answer", "open_booking", "book_slot", "reschedule", "cancel", "late"].includes(String(parsed.action)) ? strayNumbers(String(parsed.reply || "")) : [];
       if (!strays.length) break;
       if (attempt === 0) {
         contents.push({ role: "model" as const, parts: [{ text: raw }] });
@@ -390,6 +509,8 @@ export async function answerWithAi(args: {
         question: question.slice(0, 300),
         raw: raw.slice(0, 1000),
         mode: sales ? "sales" : "assisted",
+        modelMs,
+        slotsGiven: args.slots?.length ?? 0,
         threadLines: thread.length,
         priceLineCount: priceLines ? priceLines.split("\n").length : 0,
         hoursGiven: Boolean(hoursText?.trim()),
@@ -406,14 +527,22 @@ export async function answerWithAi(args: {
       return { kind: "handoff", topic: "other" };
     }
 
-    if (parsed.action === "handoff_medical") return { kind: "handoff", topic: "medical" };
-    if (parsed.action === "handoff_complaint") return { kind: "handoff", topic: "complaint" };
-    if (parsed.action === "handoff_staff") return { kind: "handoff", topic: "staff" };
-    if (parsed.action !== "answer" && parsed.action !== "open_booking") return { kind: "handoff", topic: "other" };
+    const handoffText = String(parsed.reply || "").trim().slice(0, 700) || undefined;
+    if (parsed.action === "handoff_medical") return { kind: "handoff", topic: "medical", text: handoffText };
+    if (parsed.action === "handoff_complaint") return { kind: "handoff", topic: "complaint", text: handoffText };
+    if (parsed.action === "handoff_staff") return { kind: "handoff", topic: "staff", text: handoffText };
+    if (!["answer", "open_booking", "book_slot", "reschedule", "cancel", "late"].includes(String(parsed.action))) return { kind: "handoff", topic: "other" };
+    const reschedule = sales && parsed.action === "reschedule" && args.canBook !== false;
+    const appointmentChange = sales && (parsed.action === "cancel" || parsed.action === "late") ? (parsed.action as "cancel" | "late") : undefined;
 
     const text = String(parsed.reply || "").trim().slice(0, 900);
-    const openBooking = sales && parsed.action === "open_booking" && args.canBook !== false;
-    if (!text && !openBooking) return { kind: "handoff", topic: "other" };
+    // A slot the model names must be one it was given; anything else is a wish, and opens the lists.
+    const slotKey = String(parsed.slotKey || "").trim();
+    const bookSlot = sales && parsed.action === "book_slot" && args.canBook !== false && (args.slots || []).some((s) => s.key === slotKey) ? slotKey : undefined;
+    const openBooking = sales && args.canBook !== false && (parsed.action === "open_booking" || (parsed.action === "book_slot" && !bookSlot));
+    const mediaId = String(parsed.sendMedia || "").trim();
+    const sendMedia = (args.media || []).some((m) => m.id === mediaId) ? mediaId : undefined;
+    if (!text && !openBooking && !bookSlot && !reschedule && !appointmentChange) return { kind: "handoff", topic: "other" };
 
     // Charged only for a delivered answer, after the model produced one. Handoffs cost nothing.
     await usageRef.set(
@@ -430,7 +559,7 @@ export async function answerWithAi(args: {
     }).catch(() => {});
 
     const interest = String(parsed.interest || "").trim().slice(0, 60) || undefined;
-    return { kind: "answer", text: text || "تمام 👍", openBooking, interest };
+    return { kind: "answer", text: text || "تمام 👍", openBooking, interest, bookSlot, sendMedia, reschedule, appointmentChange };
   } catch (e) {
     const reason = e instanceof Error ? e.message : "model_error";
     await adminClinicCollection(clinicId, "ai_debug")

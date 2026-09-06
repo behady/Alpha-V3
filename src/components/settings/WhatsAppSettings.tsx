@@ -5,6 +5,7 @@ import { MessageCircle, Save, Loader2, Send, Plug, CheckCircle2, AlertCircle } f
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import BotPlayground from "./BotPlayground";
+import BotMediaLibrary from "./BotMediaLibrary";
 import { WHATSAPP_DIAL_COUNTRIES, buildE164FromDialAndNational } from "@/lib/whatsappDialCountries";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
@@ -152,6 +153,7 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     botCoaching: typeof data?.botCoaching === "string" ? data.botCoaching : "",
     botPersonaName: typeof data?.botPersonaName === "string" ? data.botPersonaName : "",
     botHumanTouch: data?.botHumanTouch !== false,
+    botQuietNudge: data?.botQuietNudge !== false,
     ...(typeof data?.botHumanClaimMinutes === "number" ? { botHumanClaimMinutes: data.botHumanClaimMinutes } : {}),
     // Same rule as deliveryMode below: spread conditionally so an absent map stays absent. A key
     // holding `undefined` is rejected by Firestore on the next write, which reads on screen as a
@@ -514,6 +516,12 @@ export default function WhatsAppSettings() {
         language === "ar"
           ? "مثال: أطباء متخصصين، تعقيم كامل لكل مريض، وضمان سنة على التركيبات. السعر بيشمل المتابعة."
           : "e.g. Specialist dentists, full sterilisation for every patient, one-year warranty on crowns.",
+      factDentists: language === "ar" ? "الأطباء (كام سطر لكل دكتور عشان البوت يرشّح ويجاوب)" : "Your dentists (a few lines each, so the bot can recommend and answer)",
+      factDentistsPh:
+        language === "ar"
+          ? "مثال: د. محمد إيهاب — أخصائي زراعة وتركيبات، 10 سنين خبرة، هادي مع اللي بيخافوا من الدكتور. د. يحيى جمال — أخصائي تقويم…"
+          : "e.g. Dr. Mohamed Ehab — implants and crowns, 10 years, calm with anxious patients. Dr. Yahia Gamal — orthodontics…",
+      botQuietNudge: language === "ar" ? "لو المريض سكت في نص الكلام، البوت يسأله بعد 20 دقيقة «لسه معاك؟» مرة واحدة" : "If a patient goes quiet mid-chat, ask once after 20 minutes: \"still there?\"",
       factConsultation: language === "ar" ? "الكشف (البوت بيختم بيه عرض الحجز)" : "Consultation terms (used in the booking invitation)",
       factConsultationPh:
         language === "ar" ? "مثال: الكشف مجاني / الكشف 200 ج.م وبيتخصم من العلاج" : "e.g. Consultation is free / 200 EGP, deducted from treatment",
@@ -1945,6 +1953,23 @@ export default function WhatsAppSettings() {
                   />
                 </label>
 
+                <label className="flex items-center justify-between gap-4 cursor-pointer">
+                  <span className="text-xs font-bold text-ink leading-relaxed">{txt.botQuietNudge}</span>
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
+                    checked={state.botQuietNudge !== false}
+                    onChange={(e) => {
+                      const on = e.target.checked;
+                      setState((s) => {
+                        const next = { ...s, botQuietNudge: on };
+                        void persist(next, "silent");
+                        return next;
+                      });
+                    }}
+                  />
+                </label>
+
                 <label className="block space-y-1 pt-1">
                   <span className="text-xs font-bold text-ink">{txt.botCoaching}</span>
                   <textarea
@@ -1978,6 +2003,7 @@ export default function WhatsAppSettings() {
                     [
                       { key: "whyUs" as const, label: txt.factWhyUs, ph: txt.factWhyUsPh },
                       { key: "consultation" as const, label: txt.factConsultation, ph: txt.factConsultationPh },
+                      { key: "dentists" as const, label: txt.factDentists, ph: txt.factDentistsPh },
                       { key: "walkIn" as const, label: txt.factWalkIn, ph: txt.factWalkInPh },
                       { key: "durations" as const, label: txt.factDurations, ph: txt.factDurationsPh },
                       { key: "sessions" as const, label: txt.factSessions, ph: txt.factSessionsPh },
@@ -2025,6 +2051,7 @@ export default function WhatsAppSettings() {
                 </div>
               </div>
 
+              <div hidden={tab !== "answers"}><BotMediaLibrary /></div>
               <div hidden={tab !== "playground"}><BotPlayground /></div>
             </>
           )}

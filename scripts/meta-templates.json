@@ -290,5 +290,37 @@
         ]
       }
     ]
+  },
+  {
+    "name": "alpha_lead_welcome_ar",
+    "language": "ar",
+    "category": "MARKETING",
+    "components": [
+      {
+        "type": "BODY",
+        "text": "مرحباً {{1}} 👋 شكراً لتواصلك مع {{2}}. وصلنا استفسارك وحابين نساعدك — رد على الرسالة دي وقولنا محتاج إيه وهنظبطلك كل حاجة.",
+        "example": {
+          "body_text": [
+            [
+              "أحمد",
+              "Alpha Dental Clinic"
+            ]
+          ]
+        }
+      },
+      {
+        "type": "BUTTONS",
+        "buttons": [
+          {
+            "type": "QUICK_REPLY",
+            "text": "عايز أحجز"
+          },
+          {
+            "type": "QUICK_REPLY",
+            "text": "عندي سؤال"
+          }
+        ]
+      }
+    ]
   }
 ]
