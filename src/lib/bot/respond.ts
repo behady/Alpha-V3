@@ -35,6 +35,7 @@ import type { BotConversation } from "./conversation";
 import { answerWithAi, type AiPatientContext, type AiThreadLine } from "./aiReply";
 import { isLatinMessage, localizeOutbound } from "./localize";
 import { loadPatientDossier, type PatientDossier } from "./patientDossier";
+import { resolveSpokenPick } from "./spokenPick";
 import { SALES_CLOSE_REASONS, LEAD_INTEREST_REASONS, activeOffers, closingLine, offerForService } from "./sales";
 import { markBotLeadBooked, upsertBotLead } from "./botLeads";
 import { recordThreadMessage } from "./thread";
@@ -170,6 +171,19 @@ function renderTimeList(dateKey: string, times: string[]): string {
 const RELIST_PREFIX = "معلش مفهمتش 🙏 ابعت رقم من الاختيارات دي:\n\n";
 
 /**
+ * Does this sentence say the booking is done?
+ *
+ * On the ask-for-a-name path the model has already written "done, I've booked it for you" — and
+ * from where it sits that is true, it picked the slot. Registration still stands between that
+ * sentence and an actual appointment, and a patient told "booked" and then "send me your full
+ * name" in the same message reasonably believes the first half. The claim is dropped rather than
+ * softened: a warm sentence that is not true costs more than no sentence at all.
+ */
+function claimsBooked(text: string): boolean {
+  return /حجزت|تم الحجز|تم تأكيد|اتحجز|booked|reserved|confirmed/i.test(text);
+}
+
+/**
  * Reasons that mean "a NEW booking is starting", so a reschedule in flight is abandoned.
  *
  * Without this, a patient who asked to move Tuesday's appointment, changed their mind, and then
@@ -177,11 +191,26 @@ const RELIST_PREFIX = "معلش مفهمتش 🙏 ابعت رقم من الاخ�
  */
 const FRESH_BOOKING_REASONS = new Set(["booking_doctors", "booking_days", "ask_name", "ai_ask_name", "ai_ask_name_slot", "registered", "back_to_menu", "greeted"]);
 
+/** Everything a turn can leave on the conversation for the next one to read. */
+type PendingOptions = {
+  days?: string[];
+  times?: string[];
+  slots?: string[];
+  date?: string;
+  doctors?: string[];
+  doctor?: string;
+  treatment?: string;
+  forRelative?: boolean;
+  dayWord?: string;
+  reschedule?: string;
+};
+
 /** The options already on the patient's screen, for a turn that is not replacing them. */
 function pendingFrom(c: BotConversation) {
   return {
     days: c.pendingDays,
     times: c.pendingTimes,
+    slots: c.pendingSlots,
     date: c.pendingDate,
     doctors: c.pendingDoctors,
     doctor: c.pendingDoctor,
@@ -641,9 +670,14 @@ export async function respondToPatientMessage(args: {
   let nextState = decision.next;
   let reason = decision.reason;
   let handoff = decision.handoff;
-  let pending: { days?: string[]; times?: string[]; date?: string; doctors?: string[]; doctor?: string; treatment?: string; forRelative?: boolean; dayWord?: string; reschedule?: string } | undefined;
+  let pending: PendingOptions | undefined;
   // The appointment being moved, if the patient is mid-reschedule. Rides on every list step.
   let rescheduleId = conversation.pendingReschedule || "";
+  /** The slot keys this reply names in its own sentence, so the next turn can answer "the first". */
+  let spokenSlotKeys: string[] = [];
+  /** Attach them to whatever this turn was already storing, without disturbing the rest. */
+  const withSpokenSlots = (p: PendingOptions | undefined): PendingOptions | undefined =>
+    spokenSlotKeys.length ? { ...(p ?? {}), slots: spokenSlotKeys } : p;
   let aiExchange: { q: string; a: string } | undefined;
   let aiInterest = "";
   let aiMedia: { id: string; label: string; url: string; kind: "image" | "document" } | null = null;
@@ -1004,6 +1038,56 @@ export async function respondToPatientMessage(args: {
         bookingStep: bookingStepLabel(conversation),
         sessionGapMinutes: salesContext?.gapMinutes,
       });
+      /*
+       * A pick the model turned into "let's open the booking" instead of "book this one".
+       *
+       * It happens on roughly half of the short answers — "the first one", "الاول", the hour said
+       * back — and every time it happened the patient was handed the dentist menu and started
+       * again, or worse, gave their name and was registered with no appointment. The keys they
+       * were offered are on the conversation, so the choice is read here rather than argued about
+       * in the prompt. Anything ambiguous still falls through to the model's own judgement.
+       */
+      if (ai.kind === "answer" && ai.openBooking && !ai.bookSlot && (conversation.pendingSlots?.length || 0) > 0) {
+        const offered = (conversation.pendingSlots || [])
+          .map((key) => slotOffer.find((s) => s.key === key))
+          .filter((s): s is { key: string; label: string } => Boolean(s));
+        const picked = resolveSpokenPick(act.question, offered);
+        if (picked) {
+          ai.bookSlot = picked;
+          ai.openBooking = false;
+        }
+      }
+
+      /*
+       * Which of the offered times this reply actually says out loud.
+       *
+       * Recorded for EVERY answer, not only the ones the model labelled `open_booking`, because
+       * the turn that offers two times is almost always a plain answer — which is how the memory
+       * came to be written on the wrong turns, leaving "the first one" with nothing to resolve
+       * against exactly when it mattered.
+       */
+      if (ai.kind === "answer" && ai.text) {
+        const said = ai.text;
+        // The clock alone is not an identifier: four different days share "3:00 م", and storing
+        // all four made "the third one" resolve to a time nobody was offered. A slot counts as
+        // spoken only when its date or its day name is in the sentence beside its clock — or when
+        // that clock belongs to exactly one slot anyway.
+        const hits: Array<{ key: string; at: number }> = [];
+        for (const s of slotOffer) {
+          // The digits only: the assistant says "10:30 بالليل" as often as "10:30 م", and matching
+          // the marker missed every one of those.
+          const clock = s.label.match(/\d{1,2}:\d{2}/)?.[0];
+          if (!clock) continue;
+          const at = said.indexOf(clock);
+          if (at < 0) continue;
+          const date = s.label.match(/\d{1,2}\/\d{1,2}/)?.[0];
+          const day = s.label.match(/^(\S+)/)?.[1] || "";
+          const unique = slotOffer.filter((o) => o.label.includes(clock)).length === 1;
+          if (unique || (date && said.includes(date)) || (day.length > 2 && said.includes(day))) hits.push({ key: s.key, at });
+        }
+        // In the order the patient heard them, which is the order "the first one" counts in.
+        spokenSlotKeys = hits.sort((a, b) => a.at - b.at).map((h) => h.key);
+      }
       if (ai.kind === "answer" && ai.sendMedia) aiMedia = salesContext?.media?.find((m) => m.id === ai.sendMedia) ?? null;
       if (ai.kind === "answer" && ai.appointmentChange) {
         // The desk is told exactly as the typed intent tells it; the patient hears it in the
@@ -1045,7 +1129,8 @@ ${replyText}`;
           if (!["booked", "rescheduled", "slot_taken", "reschedule_gone"].includes(reason)) reason = "ai_slot_failed";
         } else {
           const askName = `${v.welcome} 🙏 عشان أسجل الحجز باسمك، ${v.send === "ابعتي" ? "ابعتيلي" : "ابعتلي"} اسمك الكامل.`;
-          replyText = intro ? `${intro}
+          const lead = intro && !claimsBooked(intro) ? intro : "";
+          replyText = lead ? `${lead}
 
 ${askName}` : askName;
           nextState = "booking_name";
@@ -1087,13 +1172,15 @@ ${askWho}` : askWho;
         const alreadyOffered =
           Boolean(intro) &&
           slotOffer.some((s) => {
-            const clock = s.label.match(/\d{1,2}:\d{2}\s*[صم]/)?.[0];
+            const clock = s.label.match(/\d{1,2}:\d{2}/)?.[0];
             return Boolean(clock && intro.includes(clock));
           });
         if (alreadyOffered) {
           replyText = intro;
           structure = undefined;
           reason = "ai_answer";
+          nextState = conversation.state.startsWith("booking_") ? conversation.state : "awaiting_choice";
+          pending = pendingFrom(conversation);
         } else if (ctx.canOfferBooking) {
           if ((profile?.doctors.length ?? 0) >= 2) listDoctors();
           else listDays();
@@ -1104,7 +1191,8 @@ ${askWho}` : askWho;
           reason = "ai_booking";
         } else {
           const askName = `${v.welcome} 🙏 عشان نسجل الحجز، ياريت حضرتك ${v.send === "ابعتي" ? "تبعتيلنا" : "تبعتلنا"} الاسم الكامل.`;
-          replyText = intro ? `${intro}\n\n${askName}` : askName;
+          const lead = intro && !claimsBooked(intro) ? intro : "";
+          replyText = lead ? `${lead}\n\n${askName}` : askName;
           nextState = "booking_name";
           reason = "ai_ask_name";
         }
@@ -1191,6 +1279,21 @@ ${askWho}` : askWho;
               );
             })
             .catch(() => {});
+        } else if (sales && conversation.lastReason !== "ai_unavailable") {
+          /*
+           * The model fell over — a timeout, or output that would not parse. In salesperson mode
+           * there is no menu on the patient's screen to fall back to, and "I didn't understand,
+           * pick from the buttons" arrives as an insult when what they sent was "the first one".
+           *
+           * So: ask again the way a person whose signal dropped would, keep the state and the
+           * options they were already holding, and let the next turn work. Twice in a row is a
+           * real fault rather than a blip, and that goes to a human below.
+           */
+          replyText = `معلش، الرسالة مأخدتش عندي كويس 🙏 ${v.send} تاني آخر حاجة كتبتها؟`;
+          structure = undefined;
+          nextState = conversation.state;
+          pending = pendingFrom(conversation);
+          reason = "ai_unavailable";
         } else if (conversation.state === "awaiting_choice" || conversation.state === "new") {
           replyText = `معلش، مفهمتش قصد حضرتك 🙏 ${v.choose} من الأزرار تحت أو ${v.send} رقم الاختيار.`;
           structure = { body: replyText, buttons: menuButtons(Boolean(ctx.canOfferBooking)) };
@@ -1514,7 +1617,7 @@ ${askWho}` : askWho;
         // Absent `pending` CLEARS the stored options. A turn that says nothing — a sticker, a
         // silent handoff, a duplicate — has not replaced the list the patient is looking at, so
         // it must carry that list forward or the next tap books against nothing.
-        pending: pending ?? (String(nextState).startsWith("booking_") ? pendingFrom(conversation) : undefined),
+        pending: withSpokenSlots(pending ?? (String(nextState).startsWith("booking_") ? pendingFrom(conversation) : undefined)),
       },
       now
     );
@@ -1657,7 +1760,7 @@ ${askWho}` : askWho;
       reason,
       patientId: patient?.id,
       patientName: ctx.patientName,
-      pending,
+      pending: withSpokenSlots(pending),
       aiExchange,
       latin: latinNow ? true : /[؀-ۿ]/.test(text) ? false : undefined,
     },

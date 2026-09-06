@@ -99,6 +99,14 @@ export interface BotConversation {
    */
   pendingDays?: string[];
   pendingTimes?: string[];
+  /**
+   * The slot keys the assistant offered in its own sentence last turn, in the order it said them.
+   *
+   * Not the same thing as `pendingTimes`, which belongs to the numbered list. This is what makes
+   * "the first one" answerable: without it, a patient picking from two times the assistant spoke
+   * aloud was sent back to the dentist menu to start again.
+   */
+  pendingSlots?: string[];
   /** The day the pending times belong to. */
   pendingDate?: string;
   /** The dentist list last offered; the final entry "" means "any chair". */
@@ -134,6 +142,9 @@ export interface BotConversation {
   memory?: string;
   /** The patient last wrote in Latin script, so the fixed lines and the buttons go out in English. */
   lastLatin?: boolean;
+  /** Why the previous turn answered the way it did. Read so a fault can tell a blip from a
+   * pattern: one model failure is asked about again, two in a row goes to a person. */
+  lastReason?: string;
   /**
    * A person owns this thread right now.
    *
@@ -283,6 +294,7 @@ export async function loadConversation(
     // wrong day if a stray "1" arrives after the chat lapses.
     pendingDays: !expired && Array.isArray(d.pendingDays) ? d.pendingDays.map(String) : undefined,
     pendingTimes: !expired && Array.isArray(d.pendingTimes) ? d.pendingTimes.map(String) : undefined,
+    pendingSlots: !expired && Array.isArray(d.pendingSlots) ? d.pendingSlots.map(String) : undefined,
     pendingDate: !expired && typeof d.pendingDate === "string" ? d.pendingDate : undefined,
     pendingDoctors: !expired && Array.isArray(d.pendingDoctors) ? d.pendingDoctors.map(String) : undefined,
     pendingDoctor: !expired && typeof d.pendingDoctor === "string" ? d.pendingDoctor : undefined,
@@ -296,6 +308,7 @@ export async function loadConversation(
     memory: typeof d.memory === "string" ? d.memory : undefined,
     // Survives expiry with the memory: the language somebody speaks does not lapse in an hour.
     lastLatin: d.lastLatin === true,
+    lastReason: typeof d.lastReason === "string" ? d.lastReason : undefined,
     aiReplies: !expired ? Number(d.aiReplies) || 0 : 0,
     aiHistory:
       !expired && Array.isArray(d.aiHistory)
@@ -330,7 +343,7 @@ export async function saveConversation(
     patientId?: string;
     patientName?: string;
     /** Booking options offered this turn. Absent = clear them — stale lists must not linger. */
-    pending?: { days?: string[]; times?: string[]; date?: string; doctors?: string[]; doctor?: string; treatment?: string; forRelative?: boolean; dayWord?: string; reschedule?: string };
+    pending?: { days?: string[]; times?: string[]; slots?: string[]; date?: string; doctors?: string[]; doctor?: string; treatment?: string; forRelative?: boolean; dayWord?: string; reschedule?: string };
     /**
      * A spent AI exchange. Unlike pending options, absence PRESERVES what is stored: the AI
      * budget survives menu turns — a patient cannot refill it by pressing a button.
@@ -359,6 +372,7 @@ export async function saveConversation(
     // context is how a stray digit books the wrong day.
     pendingDays: next.pending?.days ?? null,
     pendingTimes: next.pending?.times ?? null,
+    pendingSlots: next.pending?.slots ?? null,
     pendingDate: next.pending?.date ?? null,
     pendingDoctors: next.pending?.doctors ?? null,
     pendingDoctor: next.pending?.doctor ?? null,

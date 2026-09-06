@@ -31,6 +31,56 @@ const CREDITS_PER_ANSWER = 1;
 /** Measured tail latency runs past 12s; nobody waits on this since the webhook answers first. */
 const TIMEOUT_MS = 25000;
 
+/**
+ * Read the model's JSON, allowing for the wrapping it sometimes adds.
+ *
+ * The schema is enforced server-side and the reply is almost always clean, but "almost" was
+ * costing whole conversations: one malformed response and a patient who had just chosen a time
+ * was answered "sorry, I didn't understand, pick from the buttons". A fenced block or a stray
+ * sentence in front of the object is not a reason to lose a booking, so the braces are found and
+ * parsed. Genuinely broken output still fails, and still gets a retry.
+ */
+function parseModelJson(raw: string): Record<string, unknown> | null {
+  const text = String(raw || "").trim();
+  if (!text) return null;
+  const candidates = [text];
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenced?.[1]) candidates.push(fenced[1].trim());
+  const first = text.indexOf("{");
+  const last = text.lastIndexOf("}");
+  if (first >= 0 && last > first) candidates.push(text.slice(first, last + 1));
+  for (const c of candidates) {
+    try {
+      const value = JSON.parse(c);
+      if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+    } catch {
+      // Try the next shape.
+    }
+  }
+
+  /*
+   * Last resort: read the fields out of a response that stopped mid-string.
+   *
+   * A reply cut off at the token limit is not gibberish — the fields before the cut are exactly
+   * what the model meant, and throwing them away costs the patient their turn. Only the two that
+   * decide what happens next are salvaged, and both are validated by the caller anyway.
+   */
+  const action = text.match(/"action"\s*:\s*"([a-z_]+)"/)?.[1];
+  if (!action) return null;
+  const salvaged: Record<string, unknown> = { action };
+  const reply = text.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/)?.[1];
+  if (reply) {
+    try {
+      salvaged.reply = JSON.parse(`"${reply}"`);
+    } catch {
+      // A broken escape: better no sentence than a mangled one.
+    }
+  }
+  const slot = text.match(/"slotKey"\s*:\s*"((?:[^"\\]|\\.)*)/)?.[1];
+  if (slot) salvaged.slotKey = slot;
+  return salvaged;
+}
+
 export type AiReplyResult =
   | {
       kind: "answer";
@@ -197,9 +247,11 @@ const SALES_PERSONA = [
   "1) اسمع وافهم: أول ما حد يسأل، جاوب على سؤاله الأول بوضوح، وبعدين اسأل سؤال واحد بس يفهّمك احتياجه (الحالة إيه؟ بقاله قد إيه؟ الهدف تجميلي ولا علاجي؟). سؤال واحد في الرسالة، مش استبيان.",
   "2) اعرض القيمة: اربط إجابتك باللي يهم المريض ده (راحته، شكله، وقته، فلوسه) واستخدم \"ليه تختارنا\" و\"الكشف\" لو مكتوبين تحت. جملة أو اتنين، مش خطبة.",
   "3) عالج الاعتراض: \"غالي\" → التقسيط وقيمة اللي بياخده لو مكتوبين. \"هفكر\" → طبيعي، سيبله الباب مفتوح من غير إلحاح. \"في أرخص\" → متهاجمش حد، قول إحنا بنتميز في إيه لو مكتوب.",
-  "4) اقفل بميعاد محدد: لو في \"أقرب مواعيد متاحة\" مكتوبة تحت، ممنوع تسأل \"تحب تحجز؟\" أو \"تحب نظبط ميعاد؟\" — كل مرة تعرض فيها الحجز لازم تذكر ميعادين محددين من القايمة بالكلام زي موظف شاطر (مثلاً: \"عندي بكره الساعة 5 أو بعد بكره 7، إيه اللي يناسبك؟\"). لما المريض يوافق على ميعاد محدد من اللي عرضته، اختار action book_slot واكتب slotKey بالظبط زي ما هو مكتوب قدام الميعاد ده في القايمة، وفي reply جملة قصيرة بتأكد (\"تمام، حجزتلك…\" متكتبش التفاصيل، النظام هيكتبها). لو المريض عايز يشوف مواعيد تانية أو قال \"عايز أحجز\" من غير ما يحدد، اختار open_booking. ممنوع تعرض أو تأكد ميعاد مش في القايمة.",
+  "4) اقفل بميعاد محدد: لو في \"أقرب مواعيد متاحة\" مكتوبة تحت، ممنوع تسأل \"تحب تحجز؟\" أو \"تحب نظبط ميعاد؟\" — كل مرة تعرض فيها الحجز لازم تذكر ميعادين محددين من القايمة بالكلام زي موظف شاطر (مثلاً: \"عندي بكره الساعة 5 أو بعد بكره 7، إيه اللي يناسبك؟\"). لما المريض يوافق على ميعاد محدد من اللي عرضته، اختار action book_slot واكتب في slotKey الكود القصير بتاع الميعاد (s1، s2…) زي ما هو مكتوب قدامه في القايمة — كود واحد قصير وبس، متكتبش أي حاجة تانية في الخانة دي، وفي reply جملة قصيرة بتأكد (\"تمام، حجزتلك…\" متكتبش التفاصيل، النظام هيكتبها). لو المريض عايز يشوف مواعيد تانية أو قال \"عايز أحجز\" من غير ما يحدد، اختار open_booking. ممنوع تعرض أو تأكد ميعاد مش في القايمة.",
   "5) صور وملفات: لو في \"ملفات تقدر تبعتها\" تحت وواحد منهم مناسب للحظة دي (المريض بيسأل عن الحاجة اللي الملف عنها)، اكتب id بتاعه في sendMedia مع ردك. ملف واحد بالكتير في الرسالة، ومتبعتش نفس الملف مرتين في المحادثة.",
   "الحجز الذكي:",
+  "- لو المريض ذكر خدمة معينة أو قال إنه عايز يحجز: اعرض عليه ميعادين محددين في نفس الرسالة مع الإجابة. السؤال الاستكشافي بييجي بعد العرض مش بداله — اللي بيسأل عن خدمة جاهز يحجز دلوقتي.",
+  "- رد قصير بعد ما تعرض مواعيد = اختيار. لو المريض رد بـ \"الأول\" أو \"التاني\" أو \"the first\" أو \"1\" أو باليوم أو بالساعة أو \"تمام\" بعد ما عرضت عليه ميعادين: ده اختيار لميعاد من اللي عرضته — اختار book_slot بالـ slotKey بتاعه. متختارش open_booking وترجعه لقايمة الدكاترة من الأول — ده بيضيع الحجز. بس لو رده غامض فعلاً (\"الميعاد ده\" وانت عارض أربعة) اسأله سؤال واحد يحدد.",
   "- لو المريض بيتعالج عادةً عند دكتور معيّن (مكتوب في ملفه)، اعرض عليه المواعيد بتاعته الأول واذكر اسمه.",
   "- لو قال وقت من اليوم (\"بالليل\"، \"بعد الشغل\"، \"الصبح\") أو يوم معيّن، اختار من القايمة اللي تحت الميعاد اللي يناسب كلامه — متعرضش عليه ميعاد بيتعارض مع اللي قاله.",
   "- لو عنده ميعاد جاي بالفعل متعرضش عليه ميعاد جديد؛ ساعده في اللي هو محتاجه.",
@@ -312,6 +364,17 @@ export async function answerWithAi(args: {
     /* no prices in context simply means the model must refuse price questions */
   }
 
+  /*
+   * The slots the model may choose from, behind a short id.
+   *
+   * They used to be offered as their own storage key — "2026-09-07|03:00 PM|Mohamed Ehab" — and
+   * asking a model to copy that back verbatim was the single largest cause of lost bookings: it
+   * would start the string, fall into repeating the pipe-separated tail, and run to the token
+   * limit, leaving JSON that could not be parsed and a patient who had already chosen a time
+   * being told "sorry, I didn't catch that". "s1" is not a shape anything loops on.
+   */
+  const offeredSlots = (args.slots || []).slice(0, 8).map((s, i) => ({ id: `s${i + 1}`, key: s.key, label: s.label }));
+
   const persona = (sales ? SALES_PERSONA : ASSISTED_PERSONA).map((p) => (typeof p === "function" ? p(clinicName) : p));
 
   const patient = args.patient;
@@ -368,8 +431,8 @@ export async function answerWithAi(args: {
     args.bookingStep ? `\nالمريض دلوقتي في خطوة حجز: ${args.bookingStep}. جاوب على كلامه، ولو لسه عايز يحجز ذكّره باختصار إنه يختار من القايمة اللي فوق أو اعرض عليه ميعاد من \"أقرب مواعيد متاحة\".` : "",
     dossierLines(args.dossier),
     args.memory?.trim() ? `\nذاكرة من محادثات سابقة مع المريض ده (ابدأ من مكان ما وقفتوا، ومتعيدش اللي هو عارفه):\n${args.memory.trim().slice(0, 900)}` : "",
-    sales && args.slots?.length
-      ? `\nأقرب مواعيد متاحة (slotKey → إزاي تقولها للمريض):\n${args.slots.slice(0, 8).map((s) => `- ${s.key} → ${s.label}`).join("\n")}`
+    sales && offeredSlots.length
+      ? `\nأقرب مواعيد متاحة (slotKey → إزاي تقولها للمريض):\n${offeredSlots.map((s) => `- ${s.id} → ${s.label}`).join("\n")}`
       : "",
     sales && args.media?.length
       ? `\nملفات تقدر تبعتها بعد ردك (اكتب id في sendMedia):\n${args.media.slice(0, 20).map((m) => `- [${m.id}] ${m.label}${m.when ? ` — ${m.when}` : ""}`).join("\n")}`
@@ -378,6 +441,8 @@ export async function answerWithAi(args: {
     .filter(Boolean)
     .join("\n");
 
+  // Kept outside the try so a parse failure can record what the model actually sent.
+  let lastRaw = "";
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({
@@ -496,19 +561,28 @@ export async function answerWithAi(args: {
      */
     const drugsAllowed = [question, ...(args.dossier?.prescriptions || []).flatMap((p) => p.items)].join(" \n ");
     let namedDrugs: string[] = [];
-    for (let attempt = 0; attempt < 2; attempt++) {
+    const ATTEMPTS = 3;
+    for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
       const t0 = Date.now();
       const result = await withTimeout(model.generateContent({ contents }), TIMEOUT_MS);
       modelMs += Date.now() - t0;
       raw = result.response.text();
-      try {
-        parsed = JSON.parse(raw) as typeof parsed;
-      } catch {
-        // A cut-off or malformed JSON: one more try before the fallback ladder.
+      lastRaw = raw;
+      const decoded = parseModelJson(raw);
+      if (!decoded) {
+        // Cut off or malformed. Say so rather than re-asking the identical question into the void.
         parsed = {};
-        if (attempt === 0) continue;
+        if (attempt < ATTEMPTS - 1) {
+          contents.push({ role: "model" as const, parts: [{ text: raw.slice(0, 400) }] });
+          contents.push({
+            role: "user" as const,
+            parts: [{ text: "(ملاحظة من النظام: الرد السابق مكانش JSON صالح. ابعت الرد تاني كـ JSON بس، من غير أي كلام قبله أو بعده.)" }],
+          });
+          continue;
+        }
         throw new Error("ai_bad_json");
       }
+      parsed = decoded as typeof parsed;
       const spoken = ["answer", "open_booking", "book_slot", "reschedule", "cancel", "late"].includes(String(parsed.action));
       strays = spoken ? strayNumbers(String(parsed.reply || "")) : [];
       namedDrugs = spoken ? strayDrugNames(String(parsed.reply || ""), drugsAllowed) : [];
@@ -566,7 +640,10 @@ export async function answerWithAi(args: {
     const text = String(parsed.reply || "").trim().slice(0, 900);
     // A slot the model names must be one it was given; anything else is a wish, and opens the lists.
     const slotKey = String(parsed.slotKey || "").trim();
-    const bookSlot = sales && parsed.action === "book_slot" && args.canBook !== false && (args.slots || []).some((s) => s.key === slotKey) ? slotKey : undefined;
+    // The id it was given, the storage key if it echoed one, or the prefix of a key it began to
+    // repeat — all three name exactly one slot, and anything else names none.
+    const chosenSlot = offeredSlots.find((s) => s.id === slotKey || s.key === slotKey || slotKey.startsWith(s.key));
+    const bookSlot = sales && parsed.action === "book_slot" && args.canBook !== false && chosenSlot ? chosenSlot.key : undefined;
     const openBooking = sales && args.canBook !== false && (parsed.action === "open_booking" || (parsed.action === "book_slot" && !bookSlot));
     const mediaId = String(parsed.sendMedia || "").trim();
     const sendMedia = (args.media || []).some((m) => m.id === mediaId) ? mediaId : undefined;
@@ -595,6 +672,8 @@ export async function answerWithAi(args: {
       .set({
         question: question.slice(0, 300),
         failed: reason,
+        // What the model actually sent back. Without it a parse failure is unfalsifiable.
+        raw: String(lastRaw || "").slice(0, 1200),
         mode: sales ? "sales" : "assisted",
         createdAt: FieldValue.serverTimestamp(),
       })
