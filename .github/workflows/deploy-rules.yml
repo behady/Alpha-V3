@@ -16,9 +16,18 @@
 #     on main yet — pick the branch from the dropdown)
 #   - automatically, on a push to main that actually changes a rules file
 #
-# Nothing here can deploy application code, functions, or Firestore indexes. `--only
-# firestore:rules,storage` is the whole blast radius: two declarative rulesets, both of which are
-# exercised against the real rules engine in the step above the deploy.
+# Nothing here can deploy application code, functions, or Firestore indexes. Two declarative
+# rulesets are the whole blast radius, both exercised against the real rules engine before either
+# is released.
+#
+# They deploy in TWO separate steps, Firestore first, and that ordering is load-bearing. The first
+# version of this workflow asked for `--only firestore:rules,storage` in one invocation, and
+# `firebase deploy` prepares every target before releasing any: the storage half called
+# `firebasestorage.defaultBucket.get`, the service account did not hold that permission, and the
+# whole command died at 403 having released NOTHING. A missing IAM grant on the bucket silently
+# took the Firestore rules down with it — the exact "it ran, so it must be deployed" failure this
+# workflow exists to end. Split, a storage problem is still a red job, but the Firestore rules
+# land first and stay landed.
 
 name: Deploy Security Rules
 
@@ -39,7 +48,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: firebase deploy --only firestore:rules,storage
+    name: Deploy Firestore + Storage rules
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -72,25 +81,47 @@ jobs:
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
 
-      - name: Deploy
+      # Firestore first, on its own. This is the one that gates whether a clinic's data is
+      # reachable, and it must not be able to fail because of a permission on a storage bucket.
+      #
+      # firebase-tools is pinned to 13 for the same reason the test scripts pin it: 14+ requires
+      # JDK 21 tooling this repo has not moved to wholesale.
+      #
+      # Indexes are deliberately NOT deployed. `--only firestore:indexes` can DELETE an index
+      # absent from firestore.indexes.json, and an index disappearing under a live query is a
+      # page that starts failing minutes later for reasons nobody connects to a rules deploy.
+      - name: Deploy Firestore rules
         env:
           # The auth step above writes a credentials file and exports this for the CLI to find.
           GOOGLE_APPLICATION_CREDENTIALS: ${{ env.GOOGLE_APPLICATION_CREDENTIALS }}
           FIREBASE_PROJECT: ${{ secrets.FIREBASE_PROJECT_ID }}
         run: |
-          # firebase-tools is pinned to 13 for the same reason the test scripts pin it: 14+
-          # requires JDK 21 tooling this repo has not moved to wholesale.
-          #
-          # Indexes are deliberately NOT deployed here. `--only firestore:indexes` can DELETE
-          # indexes that are absent from firestore.indexes.json, and an index disappearing under
-          # a live query is a page that starts failing minutes later for reasons nobody connects
-          # to a rules deploy. That stays a deliberate, separate, human action.
           npx firebase-tools@13 deploy \
-            --only firestore:rules,storage \
+            --only firestore:rules \
+            --project "$FIREBASE_PROJECT" \
+            --non-interactive
+
+      # Storage second, and still required: a failure here is a real problem to fix, not something
+      # to code around. It needs `firebasestorage.defaultBucket.get` on the service account —
+      # granted by roles/firebase.developAdmin (or roles/firebasestorage.admin) in Google Cloud
+      # IAM. Until that grant exists this step 403s, the job goes red, and the Firestore rules
+      # above are live regardless.
+      #
+      # `always()` so a red Firestore step does not skip this one silently; the job's conclusion
+      # still reflects both.
+      - name: Deploy Storage rules
+        if: ${{ always() }}
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ env.GOOGLE_APPLICATION_CREDENTIALS }}
+          FIREBASE_PROJECT: ${{ secrets.FIREBASE_PROJECT_ID }}
+        run: |
+          npx firebase-tools@13 deploy \
+            --only storage \
             --project "$FIREBASE_PROJECT" \
             --non-interactive
 
       - name: What is live now
+        if: ${{ always() }}
         run: |
           echo "Deployed from ${{ github.ref_name }} @ ${{ github.sha }}"
           echo "firestore.rules  $(sha256sum firestore.rules | cut -c1-16)"
