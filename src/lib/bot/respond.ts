@@ -1410,6 +1410,9 @@ export async function nextSlots(
       }
       if (out.length >= 6) break;
     }
+    void adminClinicCollection(clinicId, "ai_debug")
+      .add({ kind: "slots_debug", days, offered: out.length, configured: profile.schedule.isConfigured, offDays: profile.schedule.offDays, doctorName, branchId, createdAt: FieldValue.serverTimestamp() })
+      .catch(() => {});
   } catch (e) {
     // No calendar, no offer — but say why in the flight recorder; silence here hid a bug once.
     void adminClinicCollection(clinicId, "ai_debug")
