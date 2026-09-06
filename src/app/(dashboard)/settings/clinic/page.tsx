@@ -325,6 +325,7 @@ export default function ClinicProfileSettingsPage() {
         <Field label={txt.name}>
           <input
             required
+            data-tour="clinic-name"
             disabled={readOnly}
             value={form.clinicName ?? ""}
             onChange={(e) => setForm((f) => ({ ...f, clinicName: e.target.value }))}
@@ -344,6 +345,7 @@ export default function ClinicProfileSettingsPage() {
             <input
               type="file"
               accept="image/*"
+              data-tour="clinic-logo"
               disabled={readOnly}
               onChange={handleLogoChange}
               className="block w-full min-w-0 text-xs font-medium text-ink-body file:me-3 file:rounded-xl file:border-0 file:bg-accent file:px-4 file:py-2 file:text-xs file:font-semibold file:text-ink-on-accent hover:file:bg-accent-strong disabled:opacity-60"
@@ -441,6 +443,7 @@ export default function ClinicProfileSettingsPage() {
             </button>
             <button
               type="submit"
+              data-tour="clinic-save"
               disabled={busy}
               className="inline-flex items-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-bold text-ink-on-accent transition hover:bg-accent-strong disabled:opacity-50"
             >

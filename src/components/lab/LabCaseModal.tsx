@@ -579,7 +579,7 @@ export default function LabCaseModal({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className={LABEL}>{isAr ? "المعمل" : "Lab"} *</label>
-              <select value={labId} onChange={(e) => setLabId(e.target.value)} className={INPUT}>
+              <select data-tour="lab-case-lab" value={labId} onChange={(e) => setLabId(e.target.value)} className={INPUT}>
                 <option value="">{isAr ? "اختار معمل…" : "Choose a lab…"}</option>
                 {labs.map((l) => (
                   <option key={l.id} value={l.id}>
@@ -1070,6 +1070,7 @@ export default function LabCaseModal({
             {isAr ? "إلغاء" : "Cancel"}
           </button>
           <button
+            data-tour="lab-case-save"
             onClick={() => void handleSave()}
             disabled={!canSave}
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-black uppercase tracking-wide shadow-md hover:bg-slate-700 disabled:opacity-40 transition-all"

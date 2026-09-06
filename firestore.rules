@@ -709,6 +709,27 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // --- PLATFORM SETTINGS ---
+    //
+    // Decisions that belong to the platform rather than to any one clinic — today, how long a
+    // free trial lasts and whether trials expire at all (see src/lib/trialPolicy.ts).
+    //
+    // Top-level, and WRITE is superadmin-only for the obvious reason: this document decides when
+    // a clinic stops being able to write, so a clinic Admin who could edit it could grant their
+    // own clinic an indefinite trial.
+    //
+    // Read is open to any signed-in user, deliberately. It holds no secret — how long a free
+    // trial lasts is the first thing the marketing page says — and the dashboard needs
+    // `warnWithinDays` to know when to start the countdown banner. Superadmin-only reads would
+    // mean that setting could be saved and would then be silently ignored by the only screen
+    // that consumes it, which is a worse outcome than a signed-in user learning the trial is
+    // fourteen days. Enforcement never consults this document anyway: the rules and
+    // `lib/clinicStatus.ts` read `expiresAt` on the clinic itself.
+    match /platform_settings/{docId} {
+      allow read: if isAuth();
+      allow write: if isSuperAdmin();
+    }
+
     // --- PER-CLINIC SECRETS ---
     // WhatsApp access tokens and any future third-party credentials live here, NOT under
     // clinics/{clinicId}/. That subtree is covered by `match /{subcollection}/{document=**}`

@@ -142,6 +142,40 @@ async function main() {
       status: "Active",
     });
     await setDoc(doc(db, "users/adminB"), { clinicRoles: { clinicB: "Admin" } });
+
+    /**
+     * A trial that has run out, and one that has not.
+     *
+     * `expiresAt` is the field the whole trial story rests on: signup stamps it from the platform
+     * policy and `isClinicActive()` refuses every write once it has passed. Nothing wrote it for
+     * a long time, so this end of the mechanism had never actually been exercised against the
+     * rules engine — only reasoned about. These two clinics are that exercise.
+     */
+    await setDoc(doc(db, "clinics/clinicExpired"), {
+      name: "Lapsed Trial",
+      ownerId: "ownerExpired",
+      subscriptionTier: "Free Trial",
+      status: "Active", // Deliberately still Active: expiry must not need a status flip.
+      expiresAt: new Date("2020-01-01T00:00:00Z"),
+    });
+    await setDoc(doc(db, "users/adminExpired"), { clinicRoles: { clinicExpired: "Admin" } });
+    await setDoc(doc(db, "clinics/clinicExpired/patients/patX1"), { name: "Existing Patient" });
+
+    await setDoc(doc(db, "clinics/clinicLive"), {
+      name: "Running Trial",
+      ownerId: "ownerLive",
+      subscriptionTier: "Free Trial",
+      status: "Active",
+      expiresAt: new Date("2099-01-01T00:00:00Z"),
+    });
+    await setDoc(doc(db, "users/adminLive"), { clinicRoles: { clinicLive: "Admin" } });
+
+    // The platform trial policy — how long a trial lasts, and whether trials expire at all.
+    await setDoc(doc(db, "platform_settings/trials"), {
+      trialDays: 14,
+      expireTrials: true,
+      warnWithinDays: 3,
+    });
     // Belongs to both — multi-clinic access has to keep working, or the fix is too blunt.
     await setDoc(doc(db, "users/multi1"), {
       clinicRoles: { clinicA: "Assistant", clinicB: "Admin" },
@@ -258,6 +292,8 @@ async function main() {
   const nolist1 = testEnv.authenticatedContext("nolist1").firestore();
   const empty1 = testEnv.authenticatedContext("empty1").firestore();
   const anon = testEnv.unauthenticatedContext().firestore();
+  const adminExpired = testEnv.authenticatedContext("adminExpired").firestore();
+  const adminLive = testEnv.authenticatedContext("adminLive").firestore();
 
   console.log("clinics/{clinicId}");
   await check(
@@ -933,6 +969,104 @@ async function main() {
   console.log("money stays tenant-isolated");
   await check("another clinic's Admin cannot read this ledger", getDoc(doc(adminB, "clinics/clinicA/ledger/ledA1")), "deny");
   await check("another clinic's Admin cannot read this price list", getDoc(doc(adminB, "clinics/clinicA/services/svcA1")), "deny");
+
+  /**
+   * A free trial that has actually run out.
+   *
+   * This is the end of the mechanism that had never been exercised: `isClinicActive()` has read
+   * `expiresAt` for a long time, but nothing wrote the field, so every trial was immortal and
+   * this branch of the rules was dead code in practice. Signup stamps it now, from the policy on
+   * the superadmin dashboard — which makes these the checks that say the trial really ends.
+   *
+   * The shape that matters: reads keep working. A lapsed subscription must never hold a
+   * dentist's patient history hostage; it stops new entries, nothing else.
+   */
+  console.log("an expired trial goes read-only, not dark");
+  await check(
+    "its own Admin can still READ the clinic's records",
+    getDoc(doc(adminExpired, "clinics/clinicExpired/patients/patX1")),
+    "allow"
+  );
+  await check(
+    "…and can still read the clinic document",
+    getDoc(doc(adminExpired, "clinics/clinicExpired")),
+    "allow"
+  );
+  await check(
+    "but cannot add a patient",
+    setDoc(doc(adminExpired, "clinics/clinicExpired/patients/patX2"), { name: "Too Late" }),
+    "deny"
+  );
+  await check(
+    "cannot book an appointment",
+    setDoc(doc(adminExpired, "clinics/clinicExpired/appointments/apptX1"), { date: "2026-09-06" }),
+    "deny"
+  );
+  await check(
+    "cannot edit a record that already exists",
+    updateDoc(doc(adminExpired, "clinics/clinicExpired/patients/patX1"), { name: "Renamed" }),
+    "deny"
+  );
+  await check(
+    "cannot change the clinic's own settings",
+    setDoc(doc(adminExpired, "clinics/clinicExpired/settings/clinic_info"), { name: "Nope" }),
+    "deny"
+  );
+  // The obvious escape: extend your own trial. `clinics/{id}` update is superadmin-only, so the
+  // date can only be moved from the Super Admin Hub.
+  await check(
+    "and above all cannot extend its own expiry date",
+    updateDoc(doc(adminExpired, "clinics/clinicExpired"), { expiresAt: new Date("2099-01-01T00:00:00Z") }),
+    "deny"
+  );
+  await check(
+    "…nor mark itself Active again",
+    updateDoc(doc(adminExpired, "clinics/clinicExpired"), { status: "Active" }),
+    "deny"
+  );
+  // Status is still "Active" on that clinic. If expiry needed a status flip, everything above
+  // would have passed and no cron exists to do the flipping.
+  await check(
+    "a trial still inside its dates writes normally",
+    setDoc(doc(adminLive, "clinics/clinicLive/patients/patL1"), { name: "In Time" }),
+    "allow"
+  );
+
+  console.log("platform_settings — who decides how long a trial lasts");
+  await check(
+    "a superadmin can set the trial policy",
+    setDoc(doc(super1, "platform_settings/trials"), { trialDays: 21, expireTrials: true, warnWithinDays: 3 }),
+    "allow"
+  );
+  // The whole reason this document is not a clinic setting: a clinic Admin who could write it
+  // would be granting themselves — and everyone else — an indefinite free trial.
+  await check(
+    "a clinic Admin cannot change the trial length",
+    setDoc(doc(admin1, "platform_settings/trials"), { trialDays: 9999 }),
+    "deny"
+  );
+  await check(
+    "…nor switch trial expiry off",
+    updateDoc(doc(admin1, "platform_settings/trials"), { expireTrials: false }),
+    "deny"
+  );
+  await check(
+    "a clinic Owner cannot either",
+    updateDoc(doc(owner1, "platform_settings/trials"), { trialDays: 9999 }),
+    "deny"
+  );
+  // Read is open on purpose: the dashboard needs warnWithinDays for the countdown banner, and
+  // the trial length is not a secret. Enforcement never consults this document anyway.
+  await check(
+    "any signed-in user may read it — the countdown banner needs the warning window",
+    getDoc(doc(admin1, "platform_settings/trials")),
+    "allow"
+  );
+  await check(
+    "an unauthenticated visitor may not",
+    getDoc(doc(anon, "platform_settings/trials")),
+    "deny"
+  );
 
   // The public booking page reads nothing directly for exactly this reason. If someone ever
   // "fixes" that page by loosening these rules, these four fail and say so.
