@@ -109,7 +109,7 @@ export default function BotPlayground() {
   };
 
   return (
-    <div className="pt-4 mt-2 border-t border-line space-y-3">
+    <div className="space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <p className="text-[11px] font-black uppercase tracking-widest text-ink-body">{isAr ? "جرّب البوت بنفسك" : "Try the bot yourself"}</p>
@@ -181,7 +181,7 @@ export default function BotPlayground() {
       >
         <input
           dir="auto"
-          className="flex-1 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:border-accent-soft focus:ring-1 focus:ring-accent-soft/30"
+          className="flex-1 min-w-0 rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-muted focus:border-accent-soft focus:ring-1 focus:ring-accent-soft/30"
           placeholder={isAr ? "اكتب رسالة زي المريض…" : "Type a message as the patient…"}
           value={text}
           onChange={(e) => setText(e.target.value)}
@@ -190,7 +190,7 @@ export default function BotPlayground() {
         <button
           type="submit"
           disabled={busy || !text.trim()}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-ink text-surface text-xs font-black disabled:opacity-40"
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-ink text-surface text-xs font-black shrink-0 disabled:opacity-40"
         >
           <Send size={13} /> {isAr ? "ابعت" : "Send"}
         </button>
