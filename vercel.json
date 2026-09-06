@@ -37,6 +37,11 @@
     {
       "path": "/api/automation/bot-coach",
       "schedule": "0 5 * * *"
+    },
+    {
+      "_comment": "Every 4 hours: drains the queued lead welcomes as soon as Meta approves alpha_lead_welcome_ar.",
+      "path": "/api/automation/flush-lead-welcome",
+      "schedule": "0 */4 * * *"
     }
   ]
 }
