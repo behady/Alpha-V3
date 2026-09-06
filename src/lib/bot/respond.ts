@@ -1275,6 +1275,10 @@ ${askName}` : askName;
       ["*0* — رجوع للقائمة", "*0* — back to the menu"],
     ];
     for (const [ar, en] of EN) replyText = replyText.split(ar).join(en);
+    // Day names and the م/ص clock markers inside the confirmation lines.
+    const DAYS_EN: Array<[string, string]> = [["الأحد", "Sunday"], ["الإثنين", "Monday"], ["الثلاثاء", "Tuesday"], ["الأربعاء", "Wednesday"], ["الخميس", "Thursday"], ["الجمعة", "Friday"], ["السبت", "Saturday"]];
+    for (const [ar, en] of DAYS_EN) replyText = replyText.split(`📅 ${ar}`).join(`📅 ${en}`);
+    replyText = replyText.replace(/(\d{1,2}:\d{2}) م(?![؀-ۿ])/g, "$1 PM").replace(/(\d{1,2}:\d{2}) ص(?![؀-ۿ])/g, "$1 AM");
   }
 
   // A promise of a person, made while the clinic is shut, says when the person will actually be
