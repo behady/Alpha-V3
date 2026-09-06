@@ -37,6 +37,7 @@ import { isLatinMessage, localizeOutbound } from "./localize";
 import { loadPatientDossier, type PatientDossier } from "./patientDossier";
 import { resolveSpokenPick } from "./spokenPick";
 import { stripRepeatIntro } from "./repeatIntro";
+import { feminizeAddress } from "./voiceFix";
 import { SALES_CLOSE_REASONS, LEAD_INTEREST_REASONS, activeOffers, closingLine, offerForService } from "./sales";
 import { markBotLeadBooked, upsertBotLead } from "./botLeads";
 import { recordThreadMessage } from "./thread";
@@ -1525,6 +1526,24 @@ ${askWho}` : askWho;
    * the patient writes English, which is how an Arabic patient who pressed a button used to get
    * the rest of their booking in English.
    */
+  /*
+   * And she is addressed as a woman.
+   *
+   * The prompt says so, in its own paragraph, and still loses about one reply in ten — because
+   * every other line it is reading is written in the masculine to address the assistant itself.
+   * The list of forms rewritten here is tiny and second-person only; see voiceFix.
+   */
+  if (replyText.trim() && ctx.gender === "female") {
+    replyText = feminizeAddress(replyText, "female");
+    if (structure) {
+      structure = {
+        ...structure,
+        body: feminizeAddress(structure.body, "female"),
+        ...(structure.buttons ? { buttons: structure.buttons.map((b) => ({ ...b, title: feminizeAddress(b.title, "female") })) } : {}),
+      };
+    }
+  }
+
   /*
    * The introduction, once.
    *

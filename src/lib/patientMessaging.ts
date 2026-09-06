@@ -147,13 +147,77 @@ const OPT_OUT_REPLIES = new Set([
 ]);
 
 /**
+ * The words people wrap a request in, which carry no meaning of their own.
+ *
+ * "بلاش رسايل تاني لو سمحتوا" is the same request as "بلاش رسايل", and it was not recognised as
+ * one: the whole-message rule is right, but it was being applied to a message nobody writes.
+ * Politeness is stripped from both ends first — never from the middle, where removing a word
+ * could change what the sentence says.
+ */
+const POLITENESS = [
+  "لو سمحت",
+  "لو سمحتو",
+  "لو سمحتوا",
+  "لو سمحتي",
+  "من فضلك",
+  "من فضلكم",
+  "من فضلكو",
+  "برجاء",
+  "رجاء",
+  "ارجوكم",
+  "ارجوك",
+  "ياريت",
+  "يا ريت",
+  "معلش",
+  "بجد",
+  "شكرا",
+  "متشكر",
+  "متشكره",
+  "please",
+  "pls",
+  "plz",
+  "thanks",
+  "thank you",
+  "kindly",
+  "sorry",
+];
+
+/** Trailing intensifiers that do not change the request either: "بلاش رسايل تاني خالص". */
+const INTENSIFIERS = ["تاني", "تانى", "خالص", "ابدا", "بقي", "بقى", "again", "anymore", "any more", "at all"];
+
+function stripPoliteness(text: string): string {
+  let out = text;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const w of [...POLITENESS, ...INTENSIFIERS]) {
+      for (const candidate of [
+        out.startsWith(`${w} `) ? out.slice(w.length + 1) : null,
+        out.endsWith(` ${w}`) ? out.slice(0, -(w.length + 1)) : null,
+      ]) {
+        if (candidate && candidate.trim()) {
+          out = candidate.trim();
+          changed = true;
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Is this inbound message a request to stop?
  *
- * Whole-message match only. "Please don't stop my treatment" contains the word and means the
- * opposite, and a substring match would opt that patient out of every future reminder.
+ * Whole-message match only, after the politeness around it is removed. "Please don't stop my
+ * treatment" contains the word and means the opposite, and a substring match would opt that
+ * patient out of every future reminder — so the message still has to BE the request, not merely
+ * contain it. What changed is that "بلاش رسايل تاني لو سمحتوا" now counts as being it.
  */
 export function isOptOutReply(raw: string): boolean {
-  return OPT_OUT_REPLIES.has(normalizeReplyText(raw));
+  const normalized = normalizeReplyText(raw);
+  if (OPT_OUT_REPLIES.has(normalized)) return true;
+  const stripped = stripPoliteness(normalized);
+  return stripped !== normalized && OPT_OUT_REPLIES.has(stripped);
 }
 
 /** The word the footer asks for, in each language. Keep these in the keyword set above. */

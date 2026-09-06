@@ -178,6 +178,23 @@ assert.equal(appendOptOutFooter(selfWrittenEn, WHATSAPP_OPT_OUT_FOOTER_BILINGUAL
   assert.equal(withSmsOptOutFooter("", true), "", "an empty body stays empty rather than becoming a bare footer");
 }
 
+// --- politeness is not a different request ---
+// A live probe found "بلاش رسايل تاني لو سمحتوا" sailing straight past the matcher: the message was
+// recognised by the model, answered "of course, we won’t message you again" — and then the next
+// message got a full price pitch, because nothing had been recorded. On WhatsApp that is the
+// behaviour that gets a business number restricted, so the wrapper words come off first.
+assert.equal(isOptOutReply("بلاش رسايل تاني لو سمحتوا"), true);
+assert.equal(isOptOutReply("لو سمحت بلاش رسايل"), true);
+assert.equal(isOptOutReply("ياريت مش عايزة رسائل خالص"), true);
+assert.equal(isOptOutReply("امسحوا رقمي من فضلكم"), true);
+assert.equal(isOptOutReply("please unsubscribe me"), true);
+assert.equal(isOptOutReply("stop messaging me please"), true);
+// And the wrapper cannot turn something else into a stop request.
+assert.equal(isOptOutReply("لو سمحت عايزة ألغي ميعادي"), false, "cancelling an appointment is still not an opt-out");
+assert.equal(isOptOutReply("ممكن تبعتولي الرسايل على الواتس"), false);
+assert.equal(isOptOutReply("please don't stop my treatment"), false, "the word is in there and means the opposite");
+assert.equal(isOptOutReply("لو سمحت"), false, "politeness alone is not a request");
+
 // --- the word the footer asks for is a word the matcher accepts ---
 // These two drifting apart is the quiet failure: the message would tell every patient to send a
 // word that does nothing, which is worse than printing no footer at all.

@@ -142,8 +142,12 @@ export interface BotConversation {
   memory?: string;
   /** The patient last wrote in Latin script, so the fixed lines and the buttons go out in English. */
   lastLatin?: boolean;
-  /** Why the previous turn answered the way it did. Read so a fault can tell a blip from a
-   * pattern: one model failure is asked about again, two in a row goes to a person. */
+  /**
+   * Why the previous turn answered the way it did.
+   *
+   * Read so a fault can tell a blip from a pattern: one model failure is asked about again, the
+   * way a person whose signal dropped would; two in a row is a fault and goes to a human.
+   */
   lastReason?: string;
   /**
    * A person owns this thread right now.
