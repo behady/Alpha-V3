@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.RequestQuote
 import androidx.compose.material.icons.filled.Settings
@@ -97,6 +98,7 @@ import com.alphadental.clinic.ui.LabOrderSheet
 import com.alphadental.clinic.ui.SettingsActions
 import com.alphadental.clinic.ui.SettingsScreen
 import com.alphadental.clinic.ui.IntelligenceScreen
+import com.alphadental.clinic.ui.MarketingScreen
 import com.alphadental.clinic.ui.RecoveryScreen
 import com.alphadental.clinic.ui.TreatmentPlanScreen
 import com.alphadental.clinic.ui.LabScreen
@@ -513,6 +515,8 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             onOpenRecovery = if (session.can("access.finance")) ({ viewModel.openRecovery() }) else null,
                             // Both scans read money and patient history, so the finance key gates them.
                             onOpenIntelligence = if (session.can("access.finance")) ({ viewModel.openIntelligence() }) else null,
+                            // The same key the leads inbox uses: this is marketing work.
+                            onOpenMarketing = if (session.can("access.marketing")) ({ viewModel.openMarketing() }) else null,
                             // Owners and reception only. A dentist seeing the clinic's whole
                             // takings is a different conversation from them seeing their own.
                             onOpenReports = if (session.can("access.reports")) {
@@ -600,6 +604,22 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         }
                     } else null,
                     onDismiss = { openAppointment = null },
+                )
+            }
+
+            // The content studio: writing a post where the idea for it happens.
+            if (state.marketingOpen) {
+                MarketingScreen(
+                    variants = state.marketingVariants,
+                    library = state.marketingLibrary,
+                    services = state.services.map { it.name }.filter { it.isNotBlank() },
+                    generating = state.marketingGenerating,
+                    savingId = state.marketingSavingId,
+                    error = state.marketingError,
+                    arabic = state.arabic,
+                    onGenerate = viewModel::generateMarketing,
+                    onSave = viewModel::saveMarketing,
+                    onClose = viewModel::closeMarketing,
                 )
             }
 
@@ -1233,6 +1253,8 @@ private fun MoreScreen(
     onOpenRecovery: (() -> Unit)?,
     /** The two find-money scans. Null for anyone who may not see the clinic's money. */
     onOpenIntelligence: (() -> Unit)?,
+    /** The content studio. Null for anyone outside marketing. */
+    onOpenMarketing: (() -> Unit)?,
     /** Null for roles that may not see the clinic's takings. */
     onOpenReports: (() -> Unit)?,
     /** Null for roles that do not work the CRM inbox. */
@@ -1385,6 +1407,7 @@ private fun MoreScreen(
             onOpenAttendance?.let { ToolSpec(Icons.Filled.Groups, if (arabic) "الحضور" else "Attendance", onClick = it) },
             onOpenRecovery?.let { ToolSpec(Icons.Filled.RequestQuote, if (arabic) "التحصيل" else "Collect", onClick = it) },
             onOpenIntelligence?.let { ToolSpec(Icons.Filled.Insights, if (arabic) "اكتشاف" else "Find money", onClick = it) },
+            onOpenMarketing?.let { ToolSpec(Icons.Filled.Campaign, if (arabic) "المحتوى" else "Content", onClick = it) },
             onOpenSettings?.let { ToolSpec(Icons.Filled.Settings, if (arabic) "الإعدادات" else "Settings", onClick = it) },
             ToolSpec(
                 Icons.Filled.Send, if (arabic) "قائمة الإرسال" else "Send list",

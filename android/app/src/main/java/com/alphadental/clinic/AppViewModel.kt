@@ -44,6 +44,7 @@ import com.alphadental.clinic.data.ClinicSettings
 import com.alphadental.clinic.data.TreatmentPlans
 import com.alphadental.clinic.data.Recovery
 import com.alphadental.clinic.ai.IntelligenceClient
+import com.alphadental.clinic.ai.MarketingClient
 import com.alphadental.clinic.ai.JoinRequestClient
 import com.alphadental.clinic.ui.SettingsSection
 import com.alphadental.clinic.ui.SettingsState
@@ -225,6 +226,14 @@ data class AppState(
     val attendancePayroll: PayrollClient.Payroll? = null,
     val attendancePayrollLoading: Boolean = false,
     val attendancePayrollError: String? = null,
+    // --- the content studio ---
+    val marketingOpen: Boolean = false,
+    val marketingVariants: List<MarketingClient.Variant> = emptyList(),
+    val marketingLibrary: List<MarketingClient.SavedItem> = emptyList(),
+    val marketingGenerating: Boolean = false,
+    /** The variant being kept, by its title, so only its own button waits. */
+    val marketingSavingId: String = "",
+    val marketingError: String? = null,
     // --- the two scans that look for money already earned ---
     val intelligenceOpen: Boolean = false,
     val dormancy: IntelligenceClient.DormancyReport? = null,
@@ -1206,6 +1215,87 @@ class AppViewModel : ViewModel() {
                             attendancePayrollError = error.message ?: loadFailure(error),
                         )
                     }
+                }
+        }
+    }
+
+    // --- the content studio -----------------------------------------------------------------
+
+    /** Open the studio and read the library and the price list it offers as subjects. */
+    fun openMarketing() {
+        val session = _state.value.session ?: return
+        _state.value = _state.value.copy(marketingOpen = true, marketingError = null)
+        viewModelScope.launch {
+            val library = runCatching { MarketingClient.library(session.clinicId) }.getOrDefault(emptyList())
+            if (_state.value.services.isEmpty()) {
+                val services = runCatching { Repository.loadServices(session.clinicId) }.getOrDefault(emptyList())
+                _state.value = _state.value.copy(services = services)
+            }
+            _state.value = _state.value.copy(marketingLibrary = library)
+        }
+    }
+
+    fun closeMarketing() {
+        _state.value = _state.value.copy(marketingOpen = false)
+    }
+
+    /** Ask the server to write a piece. Costs AI credit, which is why nothing runs on open. */
+    fun generateMarketing(
+        kind: String,
+        language: String,
+        goal: String,
+        service: String,
+        occasion: String,
+        tone: String,
+        offer: String,
+        notes: String,
+    ) {
+        val session = _state.value.session ?: return
+        if (_state.value.marketingGenerating) return
+        _state.value = _state.value.copy(marketingGenerating = true, marketingError = null, marketingVariants = emptyList())
+        viewModelScope.launch {
+            runCatching {
+                MarketingClient.generate(session.clinicId, kind, language, goal, service, occasion, tone, offer, notes)
+            }.onSuccess { rows ->
+                _state.value = _state.value.copy(marketingGenerating = false, marketingVariants = rows)
+            }.onFailure { error ->
+                Crash.record(error, "marketing generate")
+                _state.value = _state.value.copy(
+                    marketingGenerating = false,
+                    marketingError = error.message ?: if (_state.value.arabic) "تعذّرت الكتابة." else "Nothing could be written.",
+                )
+            }
+        }
+    }
+
+    /** Keep a piece in the clinic's library, where the website's studio reads it too. */
+    fun saveMarketing(
+        variant: MarketingClient.Variant,
+        kind: String,
+        language: String,
+        goal: String,
+        service: String,
+        occasion: String,
+        tone: String,
+    ) {
+        val session = _state.value.session ?: return
+        _state.value = _state.value.copy(marketingSavingId = variant.title)
+        viewModelScope.launch {
+            MarketingClient.save(session.clinicId, variant, kind, language, goal, service, occasion, tone, session.uid, session.name)
+                .onSuccess {
+                    val library = runCatching { MarketingClient.library(session.clinicId) }.getOrDefault(_state.value.marketingLibrary)
+                    _state.value = _state.value.copy(
+                        marketingSavingId = "",
+                        marketingLibrary = library,
+                        message = if (_state.value.arabic) "تم الحفظ في المكتبة." else "Kept in the library.",
+                    )
+                }
+                .onFailure { error ->
+                    Crash.record(error, "marketing save")
+                    _state.value = _state.value.copy(
+                        marketingSavingId = "",
+                        marketingError = if (_state.value.arabic) "تعذّر الحفظ." else "Could not keep it.",
+                    )
                 }
         }
     }
