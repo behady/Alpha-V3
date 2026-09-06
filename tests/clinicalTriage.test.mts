@@ -144,6 +144,24 @@ run("an attached و does not hide a phrase behind it", () => {
   assert.equal(needsHuman("وجعني ومش قادر ابلع"), true);
 });
 
+run("a dose for a child or a pregnant patient is never the assistant's to answer", () => {
+  /*
+   * The model was told this at length and complied about four times in five. One in five is the
+   * wrong shape of answer to "how many millilitres do I give my four-year-old", so the rule moved
+   * here — a medicine word AND somebody whose dose depends on facts a chat cannot establish.
+   */
+  assert.equal(needsHuman("بنتي عندها 4 سنين وسنها بتوجعها، اديها بنادول اطفال كام مل؟"), true);
+  assert.equal(needsHuman("انا حامل ينفع اخد المسكن ده؟"), true);
+  assert.equal(needsHuman("ابني موجوع وعايزة اديه جرعة مسكن"), true);
+  assert.equal(needsHuman("my daughter is 5 years old, what dose of panadol do I give her?"), true);
+  assert.equal(needsHuman("I am pregnant, can I take this antibiotic?"), true);
+
+  // Both halves are required, or every parent booking a cleaning reaches a person for nothing.
+  assert.equal(needsHuman("عندي طفلين عايزة احجزلهم تنظيف"), false);
+  assert.equal(needsHuman("عايزة اعرف سعر تنظيف الاسنان للاطفال"), false);
+  assert.equal(needsHuman("التقويم للأطفال بكام؟"), false);
+});
+
 run("empty and trivial input is never an emergency", () => {
   assert.equal(needsHuman(""), false);
   assert.equal(needsHuman("   "), false);

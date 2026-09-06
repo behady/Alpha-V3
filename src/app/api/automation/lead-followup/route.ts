@@ -20,15 +20,25 @@ export const maxDuration = 300;
  *
  * Somebody asked about a price yesterday, got the answer, and went quiet. Every sales desk knows
  * the next day's "still interested?" recovers a share of those — and that nobody at the clinic
- * has time to send it by hand. This sends exactly one, the day after, to leads the bot created
- * that are still open, still not booked, and not opted out. Business-initiated, so it goes as
- * the approved template with a "book me" button; the tap lands in the bot's booking flow.
+ * has time to send it by hand. This sends exactly one, the day after, to leads that are still
+ * open, still not booked, and not opted out. Business-initiated, so it goes as the approved
+ * template with a "book me" button; the tap lands in the bot's booking flow.
+ *
+ * It used to ask only for leads the bot itself created (`botLead`), which quietly excluded the
+ * ones the clinic pays for: a lead from a Meta ad form is written by the ads webhook, not by a
+ * conversation, so it never carried that flag. Those were supposed to be covered by the welcome
+ * message instead — and the welcome had been failing since the gateway changed, so sixty-six
+ * people who filled in a form asking a dental clinic to contact them heard nothing from either
+ * path. The age window is what keeps this honest: 18 to 72 hours, so widening it reaches the
+ * leads arriving now and never wakes up a form somebody filled in last month.
  */
 
 const HOUR_MS = 60 * 60 * 1000;
 const MIN_AGE_MS = 18 * HOUR_MS;
 const MAX_AGE_MS = 72 * HOUR_MS;
 const MAX_PER_RUN = 40;
+/** Where a lead the clinic paid for comes from: the ads webhook writes "Meta ads". */
+const PAID_SOURCE = /meta|facebook|instagram|ads?/i;
 
 function isCronAuthorized(request: Request): boolean {
   const secret = process.env.CRON_SECRET?.trim();
@@ -65,13 +75,23 @@ async function runForClinic(clinicId: string): Promise<{ results: FollowupResult
   if (settings.isLeadFollowupEnabled !== true) return { results: [] };
 
   const clinicName = await clinicDisplayName(clinicId);
-  const leads = await adminClinicCollection(clinicId, "leads").where("botLead", "==", true).where("stage", "==", "new").limit(500).get();
+  /*
+   * Every open lead, then filtered here rather than in the query.
+   *
+   * "botLead == true AND stage == new" needs a composite index and, worse, encodes the assumption
+   * that only the bot makes leads worth chasing. A single-field query and a predicate covers both
+   * origins with no index and no second code path.
+   */
+  const leads = await adminClinicCollection(clinicId, "leads").where("stage", "==", "new").limit(500).get();
   const results: FollowupResult[] = [];
   let sent = 0;
   for (const d of leads.docs) {
     if (sent >= MAX_PER_RUN) break;
     const lead = d.data() || {};
     if (lead.followUpSentAt) continue;
+    // From the bot, or from an ad the clinic paid for. Anything else is a lead somebody typed in
+    // by hand, and chasing those without being asked is the clinic's call, not this job's.
+    if (lead.botLead !== true && !PAID_SOURCE.test(String(lead.source || ""))) continue;
     const createdMs = lead.createdAt?.toMillis?.() ?? 0;
     const age = Date.now() - createdMs;
     if (!createdMs || age < MIN_AGE_MS || age > MAX_AGE_MS) continue;

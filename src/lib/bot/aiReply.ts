@@ -32,6 +32,15 @@ const CREDITS_PER_ANSWER = 1;
 const TIMEOUT_MS = 25000;
 
 /**
+ * What stands in for a reply the model chose not to write.
+ *
+ * Exported because it is not evidence of anything: callers that read the reply to work out which
+ * language the model answered in must not count this word as an answer in Arabic — doing so sent
+ * an English patient an Arabic booking confirmation.
+ */
+export const AI_DEFAULT_ACK = "تمام 👍";
+
+/**
  * Read the model's JSON, allowing for the wrapping it sometimes adds.
  *
  * The schema is enforced server-side and the reply is almost always clean, but "almost" was
@@ -664,7 +673,7 @@ export async function answerWithAi(args: {
     }).catch(() => {});
 
     const interest = String(parsed.interest || "").trim().slice(0, 60) || undefined;
-    return { kind: "answer", text: text || "تمام 👍", openBooking, interest, bookSlot, sendMedia, reschedule, appointmentChange };
+    return { kind: "answer", text: text || AI_DEFAULT_ACK, openBooking, interest, bookSlot, sendMedia, reschedule, appointmentChange };
   } catch (e) {
     const reason = e instanceof Error ? e.message : "model_error";
     await adminClinicCollection(clinicId, "ai_debug")

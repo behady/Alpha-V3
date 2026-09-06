@@ -32,7 +32,7 @@ import {
   type HandoffSeverity,
 } from "./conversation";
 import type { BotConversation } from "./conversation";
-import { answerWithAi, type AiPatientContext, type AiThreadLine } from "./aiReply";
+import { answerWithAi, type AiPatientContext, type AiThreadLine, AI_DEFAULT_ACK } from "./aiReply";
 import { isLatinMessage, localizeOutbound } from "./localize";
 import { loadPatientDossier, type PatientDossier } from "./patientDossier";
 import { resolveSpokenPick } from "./spokenPick";
@@ -682,6 +682,8 @@ export async function respondToPatientMessage(args: {
   let rescheduleId = conversation.pendingReschedule || "";
   /** Has this patient already been introduced to the assistant by name in this thread? */
   let heardIntroBefore = false;
+  /** Did the model answer in Arabic? Undefined when no model reply was composed this turn. */
+  let modelWroteInArabic: boolean | undefined;
   /** The slot keys this reply names in its own sentence, so the next turn can answer "the first". */
   let spokenSlotKeys: string[] = [];
   /** Attach them to whatever this turn was already storing, without disturbing the rest. */
@@ -1099,6 +1101,15 @@ export async function respondToPatientMessage(args: {
         }
         // In the order the patient heard them, which is the order "the first one" counts in.
         spokenSlotKeys = hits.sort((a, b) => a.at - b.at).map((h) => h.key);
+      }
+      if (ai.kind === "answer" || ai.kind === "handoff") {
+        const wrote = ai.text || "";
+        // Which script it is MOSTLY in, not merely which letters appear: an English reply that
+        // names "دكتور محمد إيهاب" contains Arabic without being Arabic, and treating that as
+        // Arabic would leave an English patient reading Arabic day names.
+        const arabic = (wrote.match(/[؀-ۿ]/g) || []).length;
+        const latin = (wrote.match(/[A-Za-z]/g) || []).length;
+        if (wrote.trim() && wrote !== AI_DEFAULT_ACK) modelWroteInArabic = arabic > latin;
       }
       if (ai.kind === "answer" && ai.sendMedia) aiMedia = salesContext?.media?.find((m) => m.id === ai.sendMedia) ?? null;
       if (ai.kind === "answer" && ai.appointmentChange) {
@@ -1563,7 +1574,18 @@ ${askWho}` : askWho;
   }
 
   const latinPatient = settings.aiFirst && (latinNow || (conversation.lastLatin === true && !/[؀-ۿ]/.test(text)));
-  if (latinPatient) {
+  /*
+   * ...and whether the model actually wrote in Latin script.
+   *
+   * Franco-Arabic is the case that breaks "the patient's script decides": "tmam 3ayza a7gz" is
+   * Latin without being English, and the model answers it in Arabic about as often as in Franco.
+   * When it chose Arabic and the fixed lines were translated anyway, one message came out reading
+   * "عندي مثلاً Monday 7/9 الساعة 3:00 PM" — two languages in one sentence, which is worse than
+   * either language would have been. The reply the model wrote is the better witness, so it gets
+   * the casting vote; a turn with no model reply falls back to the patient's own script.
+   */
+  const localize = modelWroteInArabic === true ? false : latinPatient;
+  if (localize) {
     const localized = localizeOutbound(replyText, structure);
     replyText = localized.text;
     structure = localized.structure;

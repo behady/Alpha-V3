@@ -236,6 +236,35 @@ function hasAny(text: string, tokens: string[], words: string[]): boolean {
   });
 }
 
+/**
+ * A medicine question asked on behalf of someone it is not safe to guess about.
+ *
+ * The assistant is told, at length, that a dose for a child or a pregnant patient goes to the
+ * dentist. It complies about four times in five — which is the wrong shape of answer to "my
+ * four-year-old's tooth hurts, how many millilitres of Panadol do I give her". So the combination
+ * is decided here instead: a question ABOUT a medicine, AND somebody in the sentence for whom the
+ * answer depends on facts a WhatsApp thread cannot establish.
+ *
+ * Both halves are required. "عندي طفلين عايزة أحجزلهم تنظيف" is a booking, and "الدكتور كتبلي
+ * إيه؟" is a question about a prescription the clinic itself wrote; neither is this.
+ */
+const MEDICINE_WORDS = [
+  "دوا", "دواء", "الدوا", "جرعة", "جرعه", "مسكن", "مسكنات", "مضاد", "حباية", "حبايه", "شراب",
+  "بنادول", "بانادول", "بروفين", "كتافلام", "كتافاست", "أدول", "ادول", "أوجمنتين", "اوجمنتين",
+  "medicine", "medication", "dose", "dosage", "painkiller", "antibiotic", "panadol", "brufen",
+];
+
+/** People for whom a dose is never a general question. */
+const VULNERABLE_PHRASES = [
+  "حامل", "مرضع", "برضع", "برضعة", "رضاعة", "رضاعه",
+  "بنتي", "ابني", "ابنه", "ولدي", "طفلي", "طفلتي", "للطفل", "للأطفال", "للاطفال", "للبيبي", "رضيع",
+  "حساسية من", "عندي حساسية", "عنده حساسية",
+  "pregnant", "breastfeeding", "my daughter", "my son", "my kid", "my child", "for a child", "years old", "allergic",
+];
+
+/** "عندها 4 سنين" — an age in digits, which no phrase list can enumerate. */
+const CHILD_AGE = /(?:عندها|عنده|سنها|سنه|عمرها|عمره)\s*(\d{1,2})\s*(?:سنة|سنه|سنين|سنوات|شهور|شهر)/;
+
 export interface TriageResult {
   needsHuman: boolean;
   /** Why, for the conversation log — a false handoff should be explainable after the fact. */
@@ -252,6 +281,22 @@ export function triageMessage(raw: string): TriageResult {
 
   for (const phrase of PHRASES) {
     if (hasPhrase(text, phrase)) return { needsHuman: true, reason: "phrase", matched: phrase };
+  }
+
+  /*
+   * A medicine, asked about on behalf of somebody a thread cannot assess. Reported as "phrase" so
+   * that it reaches a person even where the clinic has put the assistant in dentist mode.
+   *
+   * Matched against `candidates`, not the raw tokens: "المضاد الحيوي" is how anybody actually
+   * writes it, and a needle of "مضاد" tested against the token "المضاد" is the definite-article
+   * trap this file has been bitten by before.
+   */
+  const stems = tokens.flatMap((t) => candidates(t));
+  if (hasAny(text, stems, MEDICINE_WORDS)) {
+    const who = VULNERABLE_PHRASES.find((p) => (p.includes(" ") ? hasPhrase(text, p) : stems.includes(normalize(p))));
+    if (who) return { needsHuman: true, reason: "phrase", matched: who };
+    const age = text.match(CHILD_AGE);
+    if (age && Number(age[1]) <= 15) return { needsHuman: true, reason: "phrase", matched: age[0] };
   }
 
   const shopping = hasAny(text, tokens, COMMERCE_WORDS);

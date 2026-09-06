@@ -21,6 +21,8 @@ const SENTENCES: Array<[string, string]> = [
   ["وصلتنا رسالتك 🙏 حد من إدارة العيادة هيتواصل معاك في أقرب وقت.", "We've received your message 🙏 someone from the clinic's management will contact you shortly."],
   ["الاستقبال هيتواصل معاك حالاً يأكدلك.", "Reception will contact you shortly to confirm."],
   ["وصلتنا رسالتك 🙏 عشان دي حاجة طبية، حد من العيادة هيرد على حضرتك بنفسه في أقرب وقت.", "We've received your message 🙏 because this is a medical question, someone from the clinic will answer you personally, as soon as possible."],
+  ["ألف سلامة عليك 🙏", "I'm sorry to hear that 🙏"],
+  ["الكلام ده لازم الدكتور يشوفه بنفسه عشان نطمن عليك، وأنا بوصّل رسالتك للعيادة دلوقتي حالاً.", "This needs the dentist to look at it personally so we can be sure, and I'm passing your message to the clinic right now."],
   ["لو الموضوع مستعجل، كلمنا على طول على", "If it's urgent, please call us straight away on"],
   ["لو الموضوع مستعجل، كلمنا على تليفون العيادة على طول.", "If it's urgent, please call the clinic straight away."],
   // --- appointment changes -------------------------------------------------------------------
@@ -70,6 +72,9 @@ const SENTENCES: Array<[string, string]> = [
   ["وصلتنا الصورة 📷 حد من العيادة هيشوفها ويرد عليك حالاً.", "Got your photo 📷 someone from the clinic will look at it and reply to you shortly."],
   ["لو الموضوع طارئ كلمنا على طول.", "If it's an emergency, please call us straight away."],
   // --- courtesies -----------------------------------------------------------------------------
+  // What stands in for a reply the model chose not to write (aiReply.AI_DEFAULT_ACK). It is the
+  // one line the assistant sends that was never written in anybody's language.
+  ["تمام 👍", "Got it 👍"],
   ["مالقيتش ليك ميعاد محجوز حالياً 🙏", "I couldn't find an upcoming appointment for you 🙏"],
   ["أيوه احنا فاتحين دلوقتي ✅", "Yes, we're open right now ✅"],
   ["احنا مقفولين دلوقتي 🙏", "We're closed right now 🙏"],

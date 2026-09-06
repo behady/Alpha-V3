@@ -270,7 +270,16 @@ const HANDOFF_REPLY = "تمام، حد من الاستقبال هيتواصل م
  * given nothing to phone, on a channel where looking the number up means leaving the conversation.
  */
 export function clinicalReplyText(clinicPhone?: string): string {
-  return `وصلتنا رسالتك 🙏\nالرسالة دي محتاجة حد من العيادة يشوفها بنفسه، وهيتواصل مع حضرتك في أقرب وقت.\n\n${urgentCallLine(clinicPhone)}`;
+  /*
+   * Written to be read by somebody in pain, or by a parent asking about their child.
+   *
+   * The old wording — "your message has reached us, this message needs someone from the clinic to
+   * look at it themselves" — described the clinic's internal procedure to a person who had just
+   * said their face was swollen. It is the one reply the model never gets to soften, because
+   * triage runs before the model precisely so that these messages cannot be answered by it, so it
+   * has to carry its own warmth.
+   */
+  return `ألف سلامة عليك 🙏\nالكلام ده لازم الدكتور يشوفه بنفسه عشان نطمن عليك، وأنا بوصّل رسالتك للعيادة دلوقتي حالاً.\n\n${urgentCallLine(clinicPhone)}`;
 }
 
 /**
