@@ -56,8 +56,8 @@ android {
         applicationId = "com.alphadental.clinic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 76
-        versionName = "5.32.0"
+        versionCode = 77
+        versionName = "5.33.0"
 
         buildConfigField("String", "FB_PROJECT_ID", "\"${firebase("firebase.projectId")}\"")
         buildConfigField("String", "FB_API_KEY", "\"${firebase("firebase.apiKey")}\"")
@@ -65,6 +65,15 @@ android {
         buildConfigField("String", "FB_SENDER_ID", "\"${firebase("firebase.senderId")}\"")
         buildConfigField("String", "FB_STORAGE_BUCKET", "\"${firebase("firebase.storageBucket")}\"")
         buildConfigField("String", "FB_WEB_CLIENT_ID", "\"${firebase("firebase.webClientId")}\"")
+
+        // Where the app asks whether it is behind. A Storage download-token link to
+        // app/android/latest.json, written by scripts/publish-android-apk.mjs with the same
+        // token (firebase.updateToken). Optional on purpose: a build without the token still
+        // builds, and simply never checks — see UpdateCheck.kt.
+        val updateToken = firebaseProps.getProperty("firebase.updateToken")?.trim().orEmpty()
+        val updateUrl = if (updateToken.isBlank()) "" else
+            "https://firebasestorage.googleapis.com/v0/b/${firebase("firebase.storageBucket")}/o/app%2Fandroid%2Flatest.json?alt=media&token=$updateToken"
+        buildConfigField("String", "UPDATE_MANIFEST_URL", "\"$updateUrl\"")
 
         // ====================================================================
         //  THE CLINIC'S WEB ADDRESS — the one line to change if it ever moves.

@@ -118,6 +118,10 @@ fun HomeScreen(
     /** A pull on the dashboard re-reads the slab: takings, shift, briefing. The day is live. */
     refreshing: Boolean = false,
     onRefresh: () -> Unit = {},
+    /** A newer build is published. One line under the slab; see UpdateBanner. */
+    update: com.alphadental.clinic.UpdateCheck.Update? = null,
+    onDownloadUpdate: () -> Unit = {},
+    onDismissUpdate: () -> Unit = {},
 ) {
     val active = appointments.filterNot { normalizeStatus(it.status) in FINISHED }
     val nowMinutes = Calendar.getInstance().let { it.get(Calendar.HOUR_OF_DAY) * 60 + it.get(Calendar.MINUTE) }
@@ -158,7 +162,22 @@ fun HomeScreen(
                 }
             }
 
-            // Today's briefing, but only when it has something to say. It arrives in
+            // A newer version of this app, when one is published. Above the briefing because it
+        // is the one line on this screen that is about the phone rather than the clinic.
+        if (update != null) {
+            row {
+                UpdateBanner(
+                    versionName = update.versionName,
+                    sizeBytes = update.sizeBytes,
+                    notes = update.notes,
+                    arabic = arabic,
+                    onDownload = onDownloadUpdate,
+                    onDismiss = onDismissUpdate,
+                )
+            }
+        }
+
+        // Today's briefing, but only when it has something to say. It arrives in
             // the background a moment after the dashboard, so it must not be a hole
             // in the layout while it is missing — one line, or nothing at all.
             if (briefing != null && !briefing.isEmpty) {

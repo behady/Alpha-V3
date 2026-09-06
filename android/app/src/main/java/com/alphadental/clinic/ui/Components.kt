@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.TextButton
@@ -489,6 +490,59 @@ fun LoadErrorBanner(message: String, arabic: Boolean, onRetry: () -> Unit, modif
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 12.5.sp,
                     color = Alpha.DangerText,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * "Version X is available", one line, with the two answers a person has: get it, or not now.
+ *
+ * Shown on the dashboard and on More, because those are the two screens everyone opens. Kept
+ * to one line so it informs rather than nags — and "Not now" hides it until the NEXT version,
+ * so nobody is asked twice about the same build.
+ */
+@Composable
+fun UpdateBanner(
+    versionName: String,
+    sizeBytes: Long,
+    notes: String,
+    arabic: Boolean,
+    onDownload: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(shape = Alpha.CardShape, color = Alpha.Ink, modifier = modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+        ) {
+            Icon(Icons.Filled.SystemUpdate, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (arabic) "الإصدار $versionName متاح" else "Version $versionName is available",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White,
+                )
+                val mb = if (sizeBytes > 0) "${"%.1f".format(sizeBytes / 1024.0 / 1024.0)} MB" else ""
+                val line = listOf(notes.trim(), mb).filter { it.isNotBlank() }.joinToString(" · ")
+                if (line.isNotBlank()) {
+                    Text(line, fontSize = 11.5.sp, color = Color.White.copy(alpha = .75f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            TextButton(onClick = onDismiss) {
+                Text(if (arabic) "لاحقاً" else "Not now", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = .75f))
+            }
+            Surface(onClick = onDownload, shape = Alpha.PillShape, color = Color.White) {
+                Text(
+                    if (arabic) "تنزيل" else "Download",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Alpha.Ink,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
                 )
             }
         }

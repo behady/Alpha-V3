@@ -259,3 +259,22 @@ whose package name matches the build.
 
 The app does **not** read this file at runtime — `firebase.properties` stays the one source of
 truth, and the auto-initialiser the google-services plugin would add is removed in the manifest.
+
+## Telling phones about a new version
+
+Since 5.33.0 the app checks once a day (and on every sign-in) for a newer build and shows a
+one-line banner with a **Download** button on Home and on More. Download opens the APK in the
+browser; tapping the finished download installs it over the old app.
+
+After `build-apk.bat`, publish from the website folder:
+
+```
+npm run publish:apk -- --notes "What changed, in one sentence"
+```
+
+That uploads the release APK to Firebase Storage (`app/android/`) and rewrites
+`app/android/latest.json`, which is what the phones read. The link carries a Storage download
+token from `firebase.properties` (`firebase.updateToken`); the app bakes the same token into its
+check URL at build time, so no sign-in and no rules change are involved. If the token is missing
+the script adds one and asks you to rebuild first, because the APK you just built would not know
+the address.
