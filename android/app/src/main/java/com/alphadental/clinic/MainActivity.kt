@@ -46,6 +46,8 @@ import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.RequestQuote
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Send
@@ -94,6 +96,8 @@ import com.alphadental.clinic.ui.AttendanceScreen
 import com.alphadental.clinic.ui.LabOrderSheet
 import com.alphadental.clinic.ui.SettingsActions
 import com.alphadental.clinic.ui.SettingsScreen
+import com.alphadental.clinic.ui.IntelligenceScreen
+import com.alphadental.clinic.ui.RecoveryScreen
 import com.alphadental.clinic.ui.TreatmentPlanScreen
 import com.alphadental.clinic.ui.LabScreen
 import com.alphadental.clinic.ui.LeadsScreen
@@ -505,6 +509,10 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                             onOpenAttendance = if (viewModel.canSeeAttendance(session)) ({ viewModel.openAttendance() }) else null,
                             // Everything the website's Settings has, gated the same way.
                             onOpenSettings = if (viewModel.canSeeSettings(session)) ({ viewModel.openSettings() }) else null,
+                            // Chasing money is a finance job, so the finance key gates it.
+                            onOpenRecovery = if (session.can("access.finance")) ({ viewModel.openRecovery() }) else null,
+                            // Both scans read money and patient history, so the finance key gates them.
+                            onOpenIntelligence = if (session.can("access.finance")) ({ viewModel.openIntelligence() }) else null,
                             // Owners and reception only. A dentist seeing the clinic's whole
                             // takings is a different conversation from them seeing their own.
                             onOpenReports = if (session.can("access.reports")) {
@@ -595,6 +603,43 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                 )
             }
 
+            // The two scans: who stopped coming, and what was earned and never collected.
+            if (state.intelligenceOpen) {
+                IntelligenceScreen(
+                    dormancy = state.dormancy,
+                    revenue = state.revenueScan,
+                    scanning = state.scanning,
+                    error = state.scanError,
+                    arabic = state.arabic,
+                    onScanDormant = { viewModel.runScan("dormant") },
+                    onScanRevenue = { viewModel.runScan("revenue") },
+                    onOpenPatient = { id ->
+                        viewModel.closeIntelligence()
+                        viewModel.openPatient(id)
+                    },
+                    onClose = viewModel::closeIntelligence,
+                )
+            }
+
+            // The call list: who owes what, and what came of ringing them.
+            if (state.recoveryOpen) {
+                RecoveryScreen(
+                    debtors = state.debtors,
+                    loading = state.recoveryLoading,
+                    error = state.recoveryError,
+                    clinicName = state.clinicName,
+                    busyPatientId = state.recoveryBusyId,
+                    arabic = state.arabic,
+                    onSetStatus = viewModel::setRecoveryStatus,
+                    onOpenPatient = { id ->
+                        viewModel.closeRecovery()
+                        viewModel.openPatient(id)
+                    },
+                    onRefresh = viewModel::openRecovery,
+                    onClose = viewModel::closeRecovery,
+                )
+            }
+
             // The plan, over the file it belongs to.
             if (state.plansOpen) {
                 TreatmentPlanScreen(
@@ -644,6 +689,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         onSaveOnlineBooking = viewModel::saveOnlineBooking,
                         onOpenAppearance = { appearanceOpen = true },
                         onOpenHours = { viewModel.openHours() },
+                        onSaveDentistShare = viewModel::saveDentistShowShare,
                     ),
                     onClose = viewModel::closeSettings,
                 )
@@ -1183,6 +1229,10 @@ private fun MoreScreen(
     onOpenAttendance: (() -> Unit)?,
     /** The clinic's settings. Null for anyone with no settings reach at all. */
     onOpenSettings: (() -> Unit)?,
+    /** The debtor call list. Null for anyone who may not see the clinic's money. */
+    onOpenRecovery: (() -> Unit)?,
+    /** The two find-money scans. Null for anyone who may not see the clinic's money. */
+    onOpenIntelligence: (() -> Unit)?,
     /** Null for roles that may not see the clinic's takings. */
     onOpenReports: (() -> Unit)?,
     /** Null for roles that do not work the CRM inbox. */
@@ -1333,6 +1383,8 @@ private fun MoreScreen(
             },
             onOpenLab?.let { ToolSpec(Icons.Filled.Science, if (arabic) "المعمل" else "Lab", onClick = it) },
             onOpenAttendance?.let { ToolSpec(Icons.Filled.Groups, if (arabic) "الحضور" else "Attendance", onClick = it) },
+            onOpenRecovery?.let { ToolSpec(Icons.Filled.RequestQuote, if (arabic) "التحصيل" else "Collect", onClick = it) },
+            onOpenIntelligence?.let { ToolSpec(Icons.Filled.Insights, if (arabic) "اكتشاف" else "Find money", onClick = it) },
             onOpenSettings?.let { ToolSpec(Icons.Filled.Settings, if (arabic) "الإعدادات" else "Settings", onClick = it) },
             ToolSpec(
                 Icons.Filled.Send, if (arabic) "قائمة الإرسال" else "Send list",

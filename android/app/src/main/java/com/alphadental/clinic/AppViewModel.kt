@@ -42,6 +42,8 @@ import com.alphadental.clinic.data.LabCases
 import com.alphadental.clinic.data.Attendance
 import com.alphadental.clinic.data.ClinicSettings
 import com.alphadental.clinic.data.TreatmentPlans
+import com.alphadental.clinic.data.Recovery
+import com.alphadental.clinic.ai.IntelligenceClient
 import com.alphadental.clinic.ai.JoinRequestClient
 import com.alphadental.clinic.ui.SettingsSection
 import com.alphadental.clinic.ui.SettingsState
@@ -223,6 +225,22 @@ data class AppState(
     val attendancePayroll: PayrollClient.Payroll? = null,
     val attendancePayrollLoading: Boolean = false,
     val attendancePayrollError: String? = null,
+    // --- the two scans that look for money already earned ---
+    val intelligenceOpen: Boolean = false,
+    val dormancy: IntelligenceClient.DormancyReport? = null,
+    val revenueScan: IntelligenceClient.RecoveryReport? = null,
+    /** "dormant", "revenue" or blank: which scan is running, so only its own button waits. */
+    val scanning: String = "",
+    val scanError: String? = null,
+    // --- collecting what the clinic is owed ---
+    val recoveryOpen: Boolean = false,
+    val debtors: List<Recovery.Debtor> = emptyList(),
+    val recoveryLoading: Boolean = false,
+    val recoveryError: String? = null,
+    /** The debtor whose follow-up is being written, so only their own pills wait. */
+    val recoveryBusyId: String = "",
+    /** For the reminder's wording. Read with the list. */
+    val clinicName: String = "",
     // --- treatment plans, for the patient whose file is open ---
     val plansOpen: Boolean = false,
     val plans: List<TreatmentPlans.Plan> = emptyList(),
@@ -1192,6 +1210,104 @@ class AppViewModel : ViewModel() {
         }
     }
 
+    // --- the scans --------------------------------------------------------------------------
+
+    fun openIntelligence() {
+        _state.value = _state.value.copy(intelligenceOpen = true, scanError = null)
+    }
+
+    fun closeIntelligence() {
+        _state.value = _state.value.copy(intelligenceOpen = false)
+    }
+
+    /**
+     * Run one of the scans.
+     *
+     * Neither runs on opening the screen: both are heavy, both cost the clinic AI credit, and a
+     * scan nobody asked for is a bill nobody asked for. The button asks.
+     */
+    fun runScan(which: String) {
+        val session = _state.value.session ?: return
+        if (_state.value.scanning.isNotBlank()) return
+        _state.value = _state.value.copy(scanning = which, scanError = null)
+        viewModelScope.launch {
+            runCatching {
+                if (which == "dormant") IntelligenceClient.scanDormant(session.clinicId)
+                else IntelligenceClient.scanRevenue(session.clinicId)
+            }.onSuccess { result ->
+                _state.value = when (result) {
+                    is IntelligenceClient.DormancyReport -> _state.value.copy(scanning = "", dormancy = result)
+                    is IntelligenceClient.RecoveryReport -> _state.value.copy(scanning = "", revenueScan = result)
+                    else -> _state.value.copy(scanning = "")
+                }
+            }.onFailure { error ->
+                Crash.record(error, "scan $which")
+                _state.value = _state.value.copy(
+                    scanning = "",
+                    scanError = error.message ?: if (_state.value.arabic) "تعذّر الفحص." else "The scan could not run.",
+                )
+            }
+        }
+    }
+
+    // --- collecting dues --------------------------------------------------------------------
+
+    /**
+     * Open the call list.
+     *
+     * The whole ledger is read to build it, which is why this is opened rather than watched: it
+     * is a job somebody sits down to do, not a number on the dashboard.
+     */
+    fun openRecovery() {
+        val session = _state.value.session ?: return
+        _state.value = _state.value.copy(recoveryOpen = true, recoveryLoading = true, recoveryError = null)
+        viewModelScope.launch {
+            val name = runCatching { ClinicSettings.loadProfile(session.clinicId).name }.getOrDefault("")
+            runCatching { Recovery.loadDebtors(session.clinicId) }
+                .onSuccess { rows ->
+                    _state.value = _state.value.copy(debtors = rows, clinicName = name, recoveryLoading = false)
+                }
+                .onFailure { error ->
+                    Crash.record(error, "recovery load")
+                    _state.value = _state.value.copy(recoveryLoading = false, recoveryError = loadFailure(error))
+                }
+        }
+    }
+
+    fun closeRecovery() {
+        _state.value = _state.value.copy(recoveryOpen = false)
+    }
+
+    /**
+     * Record what came of the call.
+     *
+     * Applied on screen straight away rather than after a re-read: the person is holding the
+     * phone to their ear and the pill has to move when they tap it. A rejection puts it back.
+     */
+    fun setRecoveryStatus(debtor: Recovery.Debtor, status: String) {
+        val session = _state.value.session ?: return
+        val before = _state.value.debtors
+        _state.value = _state.value.copy(
+            recoveryBusyId = debtor.patientId,
+            debtors = before.map {
+                if (it.patientId == debtor.patientId) it.copy(followUp = it.followUp.copy(status = status, updatedByName = session.name))
+                else it
+            },
+        )
+        viewModelScope.launch {
+            Recovery.setFollowUp(session.clinicId, debtor, status, session.name)
+                .onSuccess { _state.value = _state.value.copy(recoveryBusyId = "") }
+                .onFailure { error ->
+                    Crash.record(error, "recovery follow-up")
+                    _state.value = _state.value.copy(
+                        recoveryBusyId = "",
+                        debtors = before,
+                        recoveryError = if (_state.value.arabic) "تعذّر حفظ الحالة." else "Could not save that.",
+                    )
+                }
+        }
+    }
+
     // --- treatment plans --------------------------------------------------------------------
 
     /**
@@ -1337,6 +1453,9 @@ class AppViewModel : ViewModel() {
                     SettingsSection.RECALL -> ClinicSettings.loadRecall(clinicId).let { v -> setSettings { it.copy(recall = v) } }
                     SettingsSection.ONLINE_BOOKING -> ClinicSettings.loadOnlineBooking(clinicId).let { v -> setSettings { it.copy(onlineBooking = v) } }
                     SettingsSection.LOGS -> ClinicSettings.loadLogs(clinicId).let { v -> setSettings { it.copy(logs = v) } }
+                    SettingsSection.SMS -> ClinicSettings.loadSmsStatus(clinicId).let { v -> setSettings { it.copy(smsStatus = v) } }
+                    SettingsSection.AI_CREDITS -> ClinicSettings.loadAiUsage(clinicId).let { v -> setSettings { it.copy(aiUsage = v) } }
+                    SettingsSection.DENTISTS -> ClinicSettings.loadDentistShowShare(clinicId).let { v -> setSettings { it.copy(dentistShowShare = v) } }
                     else -> Unit
                 }
             }.onFailure { error ->
@@ -1407,6 +1526,7 @@ class AppViewModel : ViewModel() {
     fun saveBotSettings(b: ClinicSettings.BotSettings) = saveSetting("bot") { ClinicSettings.saveBot(it, b) }
     fun saveRecallSettings(r: ClinicSettings.Recall) = saveSetting("recall") { ClinicSettings.saveRecall(it, r) }
     fun saveOnlineBooking(b: ClinicSettings.OnlineBooking) = saveSetting("online booking") { ClinicSettings.saveOnlineBooking(it, b) }
+    fun saveDentistShowShare(show: Boolean) = saveSetting("dentist home") { ClinicSettings.saveDentistShowShare(it, show) }
 
     /** Approval runs on the server; only it may write a person's clinic roles. */
     fun approveJoinRequest(req: ClinicSettings.JoinRequest, role: String) = saveSetting("join approve") { clinicId ->

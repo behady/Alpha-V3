@@ -536,6 +536,91 @@ object ClinicSettings {
         ).getOrThrow()
     }
 
+    // ------------------------------------------------------------------ SMS, read-only
+
+    /**
+     * What the SMS setup currently is — shown, never written from here.
+     *
+     * Reminders go out through a paired phone's own SIM, a queue and a nightly job that are live
+     * and working. Editing that configuration from a second surface is a good way to stop a
+     * clinic's reminders without anybody noticing until patients do not turn up, so the phone
+     * reports the setup and leaves changing it to the website. Reading is free of that risk.
+     */
+    data class SmsStatus(
+        val enabled: Boolean,
+        val optOutFooterEnabled: Boolean,
+        val templates: Map<String, String>,
+        val devices: List<SmsDevice>,
+        val queued: Int,
+    )
+
+    data class SmsDevice(val id: String, val name: String, val enabled: Boolean, val lastSeenAt: String)
+
+    suspend fun loadSmsStatus(clinicId: String): SmsStatus {
+        val d = loadDoc(clinicId, "sms")
+        val templates = (d["templates"] as? Map<*, *>).orEmpty().mapNotNull { (k, v) ->
+            val key = k?.toString() ?: return@mapNotNull null
+            key to v?.toString().orEmpty()
+        }.toMap()
+        val devices = runCatching {
+            clinic(clinicId).collection("sms_devices").get().await().documents.map { doc ->
+                SmsDevice(
+                    id = doc.id,
+                    name = doc.getString("name").orEmpty(),
+                    enabled = doc.getBoolean("enabled") == true,
+                    lastSeenAt = doc.getString("lastSeenAt").orEmpty(),
+                )
+            }
+        }.getOrDefault(emptyList())
+        val queued = runCatching {
+            clinic(clinicId).collection("sms_outbox").whereEqualTo("status", "queued").get().await().size()
+        }.getOrDefault(0)
+        return SmsStatus(
+            enabled = d["enabled"] == true,
+            optOutFooterEnabled = d["optOutFooterEnabled"] == true,
+            templates = templates,
+            devices = devices,
+            queued = queued,
+        )
+    }
+
+    // ------------------------------------------------------------------ AI credits
+
+    /** One month's AI spend, from the same counter every AI route charges. */
+    data class AiMonth(val month: String, val creditsUsed: Double, val byFeature: Map<String, Double>)
+
+    suspend fun loadAiUsage(clinicId: String): List<AiMonth> {
+        val snap = runCatching { clinic(clinicId).collection("ai_usage").get().await() }.getOrNull()
+            ?: return emptyList()
+        return snap.documents
+            .filter { Regex("^\\d{4}-\\d{2}$").matches(it.id) }
+            .map { d ->
+                val byFeature = (d.get("byFeature") as? Map<*, *>).orEmpty().mapNotNull { (k, v) ->
+                    val key = k?.toString() ?: return@mapNotNull null
+                    val n = (v as? Number)?.toDouble() ?: return@mapNotNull null
+                    key to n
+                }.toMap()
+                AiMonth(d.id, (d.get("creditsUsed") as? Number)?.toDouble() ?: 0.0, byFeature)
+            }
+            .filter { it.creditsUsed > 0 || it.byFeature.isNotEmpty() }
+            .sortedByDescending { it.month }
+    }
+
+    // ------------------------------------------------------------------ the dentist's own screen
+
+    /** Whether a dentist's home shows their share of the day's takings. Absent reads as on. */
+    suspend fun loadDentistShowShare(clinicId: String): Boolean {
+        val home = loadDoc(clinicId, "clinic_info")["dentistHome"] as? Map<*, *>
+        return home?.get("showShare") != false
+    }
+
+    suspend fun saveDentistShowShare(clinicId: String, show: Boolean): Result<Unit> = runCatching {
+        // Merged into whatever else that object holds, so a key this screen does not know survives.
+        val existing = (loadDoc(clinicId, "clinic_info")["dentistHome"] as? Map<*, *>).orEmpty()
+            .mapNotNull { (k, v) -> (k?.toString() ?: return@mapNotNull null) to v }.toMap()
+        saveDoc(clinicId, "clinic_info", mapOf("dentistHome" to (existing + mapOf("showShare" to show)))).getOrThrow()
+    }
+
     // ------------------------------------------------------------------ activity log
 
     data class LogRow(val id: String, val action: String, val details: String, val by: String, val atMillis: Long)

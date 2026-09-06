@@ -46,6 +46,8 @@ import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.RotateLeft
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material.icons.filled.Source
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -111,6 +113,9 @@ enum class SettingsSection(val id: String) {
     ONLINE_BOOKING("online_booking"),
     LOGS("logs"),
     APPEARANCE("appearance"),
+    SMS("sms"),
+    AI_CREDITS("ai_credits"),
+    DENTISTS("dentists"),
 }
 
 /** What the hub lists: an icon, a name, a line saying what it is for, and where it goes. */
@@ -153,6 +158,7 @@ private val SECTION_GROUPS: List<Triple<String, String, List<SectionRow>>> = lis
         "TALKING TO PATIENTS", "التواصل مع المرضى",
         listOf(
             SectionRow(SettingsSection.BOT, Icons.Filled.Chat, "The WhatsApp bot", "بوت واتساب", "Whether it answers, who it answers, what it knows", "هل يرد، ولمن، وماذا يعرف", adminOnly = true),
+            SectionRow(SettingsSection.SMS, Icons.Filled.Sms, "SMS reminders", "الرسائل النصية", "How reminders go out, and which phone sends them", "كيف تُرسل التذكيرات وأي هاتف يرسلها", adminOnly = true),
             SectionRow(SettingsSection.ALERTS, Icons.Filled.Notifications, "Alerts", "التنبيهات", "Which events ring the bell", "أي الأحداث تُطلق التنبيه", adminOnly = true),
             SectionRow(SettingsSection.RECALL, Icons.Filled.RotateLeft, "Recall", "المتابعة الدورية", "How long until a patient is due back", "متى يصبح المريض مستحقاً للمتابعة", adminOnly = true),
             SectionRow(SettingsSection.ONLINE_BOOKING, Icons.Filled.Language, "Online booking", "الحجز الإلكتروني", "The public page patients book from", "الصفحة العامة التي يحجز منها المرضى", adminOnly = true),
@@ -164,6 +170,8 @@ private val SECTION_GROUPS: List<Triple<String, String, List<SectionRow>>> = lis
             SectionRow(SettingsSection.VISIT_REASONS, Icons.Filled.Bolt, "Visit reasons", "أسباب الزيارة", "What reception picks from when booking", "ما يختاره الاستقبال عند الحجز"),
             SectionRow(SettingsSection.SOURCES, Icons.Filled.Source, "How patients hear of you", "مصادر المرضى", "The list behind “how did you hear about us”", "قائمة “كيف عرفت عنا”"),
             SectionRow(SettingsSection.APPEARANCE, Icons.Filled.Palette, "Appearance", "المظهر", "Light, dark, and the app's language", "الفاتح والداكن ولغة التطبيق"),
+            SectionRow(SettingsSection.DENTISTS, Icons.Filled.Person, "The dentist's screen", "شاشة الطبيب", "What a dentist sees on their own home", "ما يراه الطبيب على شاشته", adminOnly = true),
+            SectionRow(SettingsSection.AI_CREDITS, Icons.Filled.Bolt, "AI credits", "رصيد الذكاء", "Where this month's AI spend went", "أين ذهب رصيد الذكاء هذا الشهر", adminOnly = true),
             SectionRow(SettingsSection.LOGS, Icons.Filled.History, "Activity log", "سجل النشاط", "What people did, in order", "ما فعله الناس بالترتيب", adminOnly = true),
         ),
     ),
@@ -189,6 +197,9 @@ data class SettingsState(
     val recall: ClinicSettings.Recall = ClinicSettings.Recall(),
     val onlineBooking: ClinicSettings.OnlineBooking = ClinicSettings.OnlineBooking(),
     val logs: List<ClinicSettings.LogRow> = emptyList(),
+    val smsStatus: ClinicSettings.SmsStatus? = null,
+    val aiUsage: List<ClinicSettings.AiMonth> = emptyList(),
+    val dentistShowShare: Boolean = true,
 )
 
 /** Every callback the sections need, gathered so the screen's signature stays readable. */
@@ -211,6 +222,7 @@ class SettingsActions(
     val onSaveOnlineBooking: (ClinicSettings.OnlineBooking) -> Unit,
     val onOpenAppearance: () -> Unit,
     val onOpenHours: () -> Unit,
+    val onSaveDentistShare: (Boolean) -> Unit,
 )
 
 @Composable
@@ -271,6 +283,9 @@ fun SettingsScreen(
                     SettingsSection.RECALL -> RecallSection(state, arabic, actions)
                     SettingsSection.ONLINE_BOOKING -> OnlineBookingSection(state, arabic, actions)
                     SettingsSection.LOGS -> LogsSection(state, arabic)
+                    SettingsSection.SMS -> SmsSection(state, arabic)
+                    SettingsSection.AI_CREDITS -> AiCreditsSection(state, arabic)
+                    SettingsSection.DENTISTS -> DentistScreenSection(state, arabic, actions)
                     // These two already have their own screens; the hub simply opens them.
                     SettingsSection.HOURS, SettingsSection.APPEARANCE -> Unit
                 }
@@ -1299,6 +1314,148 @@ private fun EditorSheet(
                 if (saving) CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
                 else Text(if (arabic) "حفظ" else "Save", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
             }
+        }
+    }
+}
+
+/**
+ * What the SMS setup is, without a way to change it.
+ *
+ * Reminders leave through a paired phone's own SIM, a queue and a nightly job — all of it live
+ * and working in the clinic. A second surface that could edit that configuration is a good way to
+ * stop a clinic's reminders with nobody noticing until patients fail to arrive, so the phone
+ * reports the setup and leaves changing it to the website. Reading carries none of that risk.
+ */
+@Composable
+private fun SmsSection(state: SettingsState, arabic: Boolean) {
+    val sms = state.smsStatus
+    SectionBody {
+        Spacer(Modifier.height(8.dp))
+        if (sms == null) {
+            EmptyState(if (arabic) "لم يتم إعداد الرسائل النصية." else "SMS has not been set up.")
+            return@SectionBody
+        }
+
+        Surface(shape = Alpha.CardShape, color = if (sms.enabled) Alpha.GreenSoft else Alpha.Slate100, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp)) {
+                Text(
+                    if (sms.enabled) (if (arabic) "الرسائل النصية مفعّلة" else "SMS reminders are on")
+                    else (if (arabic) "الرسائل النصية متوقفة" else "SMS reminders are off"),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (sms.enabled) Alpha.Green else Alpha.Slate600,
+                )
+                Text(
+                    if (arabic) "${sms.queued} رسالة في قائمة الانتظار" else "${sms.queued} message${if (sms.queued == 1) "" else "s"} waiting to send",
+                    fontSize = 12.sp,
+                    color = Alpha.Slate600,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        SectionHeading(if (arabic) "الهواتف المرسِلة" else "SENDING PHONES")
+        Spacer(Modifier.height(6.dp))
+        if (sms.devices.isEmpty()) {
+            Text(
+                if (arabic) "لا يوجد هاتف مقترن. تُقرن الهواتف من شاشة \"المزيد\"."
+                else "No phone is paired. A phone is paired from the More screen.",
+                fontSize = 12.5.sp,
+                color = Alpha.Slate500,
+            )
+        } else {
+            sms.devices.forEach { device ->
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                    Box(
+                        Modifier.size(9.dp).clip(CircleShape)
+                            .background(if (device.enabled) Alpha.Green else Alpha.Slate300)
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(device.name.ifBlank { device.id }, fontSize = 13.5.sp, fontWeight = FontWeight.Bold, color = Alpha.Slate900)
+                        Text(
+                            if (device.enabled) (if (arabic) "جاهز للإرسال" else "ready to send")
+                            else (if (arabic) "متوقف" else "switched off"),
+                            fontSize = 11.5.sp,
+                            color = Alpha.Slate500,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (sms.templates.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            SectionHeading(if (arabic) "نصوص الرسائل" else "MESSAGE TEMPLATES")
+            Spacer(Modifier.height(6.dp))
+            sms.templates.entries.sortedBy { it.key }.forEach { (key, text) ->
+                if (text.isNotBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(key, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, color = Alpha.Slate400)
+                    Text(text, fontSize = 12.5.sp, color = Alpha.Slate700, lineHeight = 18.sp)
+                }
+            }
+        }
+
+        Spacer(Modifier.height(18.dp))
+        Text(
+            if (arabic) "الإعداد يُعدَّل من الموقع فقط: مسار الإرسال يعمل الآن وتغييره من مكانين يوقفه بهدوء."
+            else "This is changed on the website only. The sending path is live, and editing it from two places is how it stops quietly.",
+            fontSize = 11.5.sp,
+            color = Alpha.Slate400,
+        )
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+/** Where the month's AI spend went. Read-only by nature: it is a meter, not a setting. */
+@Composable
+private fun AiCreditsSection(state: SettingsState, arabic: Boolean) {
+    SectionBody {
+        Spacer(Modifier.height(8.dp))
+        if (state.aiUsage.isEmpty()) {
+            EmptyState(if (arabic) "لم يُستخدم أي رصيد بعد." else "No AI credits used yet.")
+            return@SectionBody
+        }
+        state.aiUsage.forEach { month ->
+            Spacer(Modifier.height(10.dp))
+            AlphaCard(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(month.month, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Alpha.Slate900, modifier = Modifier.weight(1f))
+                        Text(
+                            month.creditsUsed.toInt().toString(),
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontFamily = AlphaType.Display,
+                            color = Alpha.Slate900,
+                        )
+                    }
+                    month.byFeature.entries.sortedByDescending { it.value }.forEach { (feature, credits) ->
+                        Row(modifier = Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                            Text(feature.replace('_', ' '), fontSize = 12.sp, color = Alpha.Slate600, modifier = Modifier.weight(1f))
+                            Text(credits.toInt().toString(), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Alpha.Slate600)
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun DentistScreenSection(state: SettingsState, arabic: Boolean, actions: SettingsActions) {
+    var show by remember(state.dentistShowShare) { mutableStateOf(state.dentistShowShare) }
+    SectionBody {
+        Spacer(Modifier.height(8.dp))
+        SettingsSwitch(
+            if (arabic) "الطبيب يرى نصيبه من تحصيل اليوم" else "A dentist sees their share of the day's takings",
+            if (arabic) "أوقفه ليرى مواعيده فقط" else "Switch off and they see only their appointments",
+            show,
+        ) { show = it }
+        SaveBar(show != state.dentistShowShare, state.saving, arabic, { show = state.dentistShowShare }) {
+            actions.onSaveDentistShare(show)
         }
     }
 }
