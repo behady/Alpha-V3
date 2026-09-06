@@ -6,6 +6,9 @@ import { X, ArrowRight, ArrowLeft, GraduationCap } from "lucide-react";
 import { useTutorial } from "@/context/TutorialContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
+import { useAuth } from "@/context/AuthContext";
+import { useClinic } from "@/context/ClinicContext";
+import { markLessonDone } from "@/lib/welcomeStore";
 
 /**
  * The hand that points.
@@ -65,6 +68,8 @@ export default function TutorialOverlay() {
   const { activeTutorial, stepIndex, cancelTutorial, advanceStep } = useTutorial();
   const { language, isRTL } = useLanguage();
   const { showToast } = useUI();
+  const { user } = useAuth();
+  const { clinicId } = useClinic();
   const isAr = language === "ar";
   const router = useRouter();
   const pathname = usePathname();
@@ -86,6 +91,17 @@ export default function TutorialOverlay() {
   /** Completion lives here, not in the provider: the toast needs UIContext and the language. */
   const finishOrAdvance = useCallback(() => {
     if (isLastStep) {
+      /**
+       * Reaching the last step is the only moment anything knows a lesson was FINISHED, as
+       * opposed to started and abandoned — which is why the welcome guide is told from here
+       * rather than from whatever launched the lesson.
+       *
+       * It is written straight to the local store instead of through WelcomeContext on purpose:
+       * this overlay predates the guide, is mounted by the layout, and must keep working
+       * unchanged if the guide is ever removed. The store fires an event the provider listens
+       * for, so the checklist and the coach update without the two knowing about each other.
+       */
+      markLessonDone({ clinicId, uid: user?.uid }, activeTutorial!.id);
       showToast(
         isAr
           ? `أحسنت! خلّصت درس "${activeTutorial!.title.ar}" 🎉`
@@ -96,7 +112,7 @@ export default function TutorialOverlay() {
     } else {
       advanceStep();
     }
-  }, [isLastStep, activeTutorial, isAr, showToast, cancelTutorial, advanceStep]);
+  }, [isLastStep, activeTutorial, isAr, showToast, cancelTutorial, advanceStep, clinicId, user?.uid]);
 
   // New step: reset the found/lost state and, if the step lives on another route, go there.
   useEffect(() => {

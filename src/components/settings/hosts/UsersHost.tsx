@@ -163,6 +163,7 @@ export default function UsersHost() {
                   <User size={18} className={iconClass} />
                   <input
                     required
+                    data-tour="user-name"
                     value={form.name}
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
                     className={fieldClass}
@@ -204,6 +205,7 @@ export default function UsersHost() {
                 <div className="relative">
                   <Badge size={18} className={iconClass} />
                   <select
+                    data-tour="user-role"
                     value={form.role}
                     onChange={(e) =>
                       setForm({
@@ -238,6 +240,7 @@ export default function UsersHost() {
 
               <button
                 type="submit"
+                data-tour="user-save"
                 disabled={saving}
                 className="w-full bg-accent text-ink-on-accent py-4 rounded-xl font-bold text-sm shadow-md mt-6 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-60"
               >

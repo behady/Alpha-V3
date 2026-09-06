@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Users, Calendar, Wallet, Settings, Sparkles,
   FileBarChart, Menu, X, LogOut, Loader2, Languages,
   Package, ChevronLeft, ChevronRight, Clock, FlaskConical, ShieldCheck,
-  LifeBuoy, Inbox, Megaphone
+  LifeBuoy, Inbox, Megaphone, Rocket
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { auth } from "@/lib/firebase";
@@ -24,14 +24,29 @@ import { useUI } from "@/context/UIContext";
 import ClinicSwitcher from "@/components/dashboard/ClinicSwitcher";
 import DesktopSidebar from "@/components/dashboard/DesktopSidebar";
 import AiChatWidget from "@/components/AiChatWidget";
-import { TutorialProvider } from "@/context/TutorialContext";
+import { TutorialProvider, useTutorial } from "@/context/TutorialContext";
 import TutorialOverlay from "@/components/TutorialOverlay";
+import { WelcomeProvider } from "@/context/WelcomeContext";
+import WelcomeCoach from "@/components/welcome/WelcomeCoach";
 import WhatsAppIcon from "@/components/icons/WhatsAppIcon";
 import { useUnreadChatCount } from "@/lib/useUnreadChatCount";
 import { useChatAlerts } from "@/lib/useChatAlerts";
 
 const plusJakartaSans = Plus_Jakarta_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
 const cairo = Cairo({ subsets: ["arabic"] });
+
+/**
+ * Sits between the two providers so the welcome guide can know whether a lesson is on screen.
+ *
+ * `WelcomeProvider` takes that as a prop rather than reading `useTutorial()` itself — the guide
+ * works perfectly well in an app with no tutorials, and the only reason it cares is to stop the
+ * coach talking over a walkthrough's ring. A component is needed here because `DashboardLayout`
+ * is the thing that renders `TutorialProvider` and therefore cannot consume it.
+ */
+function WelcomeLayer({ children }: { children: React.ReactNode }) {
+  const { activeTutorial } = useTutorial();
+  return <WelcomeProvider tutorialRunning={!!activeTutorial}>{children}</WelcomeProvider>;
+}
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -250,6 +265,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <TutorialProvider>
+    <WelcomeLayer>
     <div className={`min-h-[100dvh] lg:h-[100dvh] lg:overflow-hidden bg-surface-page text-slate-700 flex ${isRTL ? cairo.className : plusJakartaSans.className} relative z-0`} dir={isRTL ? 'rtl' : 'ltr'}>
       {/* Decorative Minimal Background - Stronger Green/White Gradient */}
       <div className="hidden lg:block absolute inset-0 w-full h-full overflow-hidden pointer-events-none -z-10 bg-gradient-to-br from-surface-subtle via-surface-page to-accent-tint">
@@ -330,6 +346,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       <span className="text-base">{t('settings' as any) || (language === 'ar' ? 'الإعدادات' : 'Settings')}</span>
                    </Link>
                  )}
+                 {/* Ungated for the same reason Help is: the people who most need the guide are
+                     the ones with the fewest permissions, and it already shows each role only the
+                     steps that role can finish. */}
+                 <Link href="/welcome" onClick={() => setIsOpen(false)} className={`flex items-center gap-4 px-5 py-3.5 rounded-2xl font-bold transition-all ${pathname.startsWith('/welcome') ? 'bg-ink-slab text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}>
+                    <Rocket size={22} />
+                    <span className="text-base">{language === 'ar' ? 'البداية' : 'Getting started'}</span>
+                 </Link>
                  <Link href="/help" onClick={() => setIsOpen(false)} className={`flex items-center gap-4 px-5 py-3.5 rounded-2xl font-bold transition-all ${pathname.startsWith('/help') ? 'bg-ink-slab text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}>
                     <LifeBuoy size={22} />
                     <span className="text-base">{language === 'ar' ? 'مركز المساعدة' : 'Help Center'}</span>
@@ -413,9 +436,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* AI CHAT WIDGET & BUBBLE */}
       <AiChatWidget />
 
+      {/* The assistant speaking first: the next setup step, above the same orb. Renders nothing
+          once the guide is finished, while a lesson runs, or after it has been sent away. */}
+      <WelcomeCoach />
+
       {/* Guided-tutorial ring + instruction card; renders nothing unless a lesson is running. */}
       <TutorialOverlay />
     </div>
+    </WelcomeLayer>
     </TutorialProvider>
   );
 }

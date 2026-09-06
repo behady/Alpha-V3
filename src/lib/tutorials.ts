@@ -64,6 +64,133 @@ export function tutorialsFor(isAdmin: boolean, permissions: readonly string[] | 
 
 export const TUTORIALS: Tutorial[] = [
   {
+    id: "clinic-profile",
+    title: { en: "Put your clinic's name on it", ar: "حط اسم عيادتك عليه" },
+    description: {
+      en: "Set the clinic's name, logo and contact details — they print on every document. Admins only.",
+      ar: "ظبط اسم العيادة والشعار وبيانات التواصل — بيتطبعوا على كل مستند. للمدير فقط.",
+    },
+    // settings/clinic_info, which firestore.rules restricts to Admins outright.
+    adminOnly: true,
+    steps: [
+      {
+        route: "/settings",
+        anchor: "settings-tab-clinic",
+        text: {
+          en: "In Settings, click Clinic profile (under Clinic Management). On a phone, open the sections menu at the top first.",
+          ar: "في الإعدادات، اضغط ملف العيادة (تحت إدارة العيادة). على الموبايل افتح قايمة الأقسام اللي فوق الأول.",
+        },
+      },
+      {
+        anchor: "clinic-name",
+        advanceOn: "next",
+        text: {
+          en: "Type the clinic's name here. The black card at the top is your letterhead, drawn exactly as it will print — watch it change as you type.",
+          ar: "اكتب اسم العيادة هنا. الكارت الأسود اللي فوق هو ورق العيادة زي ما هيتطبع بالظبط — بصّ عليه وانت بتكتب.",
+        },
+      },
+      {
+        anchor: "clinic-logo",
+        advanceOn: "next",
+        text: {
+          en: "Pick your logo. It goes on every prescription, invoice and report — and on the sidebar. Skip it for now if you don't have the file to hand.",
+          ar: "اختار شعارك. هيظهر على كل روشتة وفاتورة وتقرير — وعلى القايمة الجانبية. لو الملف مش معاك دلوقتي عدّيها.",
+        },
+      },
+      {
+        anchor: "clinic-save",
+        text: {
+          en: "The save bar appears at the bottom the moment you change anything. Press Save — the phone and address you set here are what patients see on their documents.",
+          ar: "شريط الحفظ بيظهر تحت أول ما تغيّر أي حاجة. اضغط حفظ — التليفون والعنوان اللي هنا هما اللي المريض بيشوفهم على مستنداته.",
+        },
+      },
+    ],
+  },
+  {
+    id: "invite-team",
+    title: { en: "Add a team member", ar: "إضافة عضو للفريق" },
+    description: {
+      en: "Create a login for a colleague and choose what they're allowed to see. Admins only.",
+      ar: "إنشاء حساب لزميل واختيار الصلاحيات اللي يشوفها. للمدير فقط.",
+    },
+    // Staff creation goes through /api/staff/create, which requires Admin.
+    adminOnly: true,
+    steps: [
+      {
+        route: "/settings",
+        anchor: "settings-tab-users",
+        text: {
+          en: "In Settings, click Users (under People). On a phone, open the sections menu at the top first.",
+          ar: "في الإعدادات، اضغط المستخدمين (تحت الأشخاص). على الموبايل افتح قايمة الأقسام اللي فوق الأول.",
+        },
+      },
+      {
+        anchor: "users-add",
+        text: {
+          en: "Click Add user to create a login for a colleague.",
+          ar: "اضغط إضافة مستخدم عشان تعمل حساب لزميلك.",
+        },
+      },
+      {
+        anchor: "user-name",
+        advanceOn: "next",
+        text: {
+          en: "Their name, their email, and a first password — they can change it later. The email is what they sign in with.",
+          ar: "اسمه وإيميله وباسورد مبدئي — يقدر يغيّرها بعدين. الإيميل هو اللي بيسجّل بيه الدخول.",
+        },
+      },
+      {
+        anchor: "user-role",
+        advanceOn: "next",
+        text: {
+          en: "The role sets what they can reach: a receptionist books and takes money, an assistant works the chair, a dentist owns the clinical record. You can fine-tune each person afterwards from their row.",
+          ar: "الدور بيحدد يوصل لإيه: الاستقبال بيحجز ويستلم فلوس، المساعد بيشتغل على الكرسي، الدكتور مسؤول عن الملف الإكلينيكي. وتقدر تظبط كل واحد بالتفصيل بعدين من السطر بتاعه.",
+        },
+      },
+      {
+        anchor: "user-save",
+        text: {
+          en: "Press Create — they can sign in straight away with that email and password.",
+          ar: "اضغط إنشاء — يقدر يسجّل دخول على طول بالإيميل والباسورد دول.",
+        },
+      },
+    ],
+  },
+  {
+    id: "lab-order",
+    title: { en: "Send a case to the lab", ar: "إرسال شغل للمعمل" },
+    description: {
+      en: "Raise a lab order for a crown or a denture and track it until it comes back.",
+      ar: "عمل أمر معمل لتركيبة أو طقم ومتابعته لحد ما يرجع.",
+    },
+    requires: "access.lab",
+    steps: [
+      {
+        route: "/lab",
+        anchor: "lab-new-order",
+        text: {
+          en: "This is the Lab board — every case that's left the building. Click New lab order.",
+          ar: "دي لوحة المعمل — كل شغل خرج من العيادة. اضغط أمر معمل جديد.",
+        },
+      },
+      {
+        anchor: "lab-case-lab",
+        advanceOn: "next",
+        text: {
+          en: "Choose which lab it's going to. If the list is empty, add your labs first under Settings → Dental Labs — the lab's turnaround days are what set the due date.",
+          ar: "اختار المعمل اللي رايحله. لو القايمة فاضية ضيف معاملك الأول من الإعدادات ← المعامل — أيام التسليم بتاعة المعمل هي اللي بتحدد تاريخ الاستحقاق.",
+        },
+      },
+      {
+        anchor: "lab-case-save",
+        text: {
+          en: "Press Create order. The case gets a code you can write on the bag, and the board tracks it until you mark it arrived.",
+          ar: "اضغط إنشاء الأمر. الشغل بياخد كود تكتبه على الشنطة، واللوحة بتتابعه لحد ما تسجّل إنه وصل.",
+        },
+      },
+    ],
+  },
+  {
     id: "add-patient",
     title: { en: "Add a new patient", ar: "إضافة مريض جديد" },
     description: {
@@ -523,11 +650,21 @@ export const TUTORIALS: Tutorial[] = [
     id: "update-prices",
     title: { en: "Update the price list", ar: "تحديث قائمة الأسعار" },
     description: {
-      en: "Add or change a treatment's price in Settings → Prices — the catalog every charge and the assistant's answers draw from. Needs settings access.",
-      ar: "إضافة أو تعديل سعر علاج من الإعدادات → الأسعار — الكتالوج اللي كل الحسابات وإجابات المساعد بتعتمد عليه. محتاج صلاحية الإعدادات.",
+      en: "Add or change a treatment's price in Settings → Prices — the catalog every charge and the assistant's answers draw from. Admins only.",
+      ar: "إضافة أو تعديل سعر علاج من الإعدادات → الأسعار — الكتالوج اللي كل الحسابات وإجابات المساعد بتعتمد عليه. للمدير فقط.",
     },
-    // The Prices tab is gated on this, so without it step one rings a button that never renders.
-    requires: "access.settings",
+    /**
+     * Admin, not `access.settings`.
+     *
+     * This lesson used to carry `requires: "access.settings"` because that is what the Prices tab
+     * was once gated on. It is not any more: the settings registry lists `services` as ADMIN for
+     * both view and edit, and the note there explains why — all three things that screen writes
+     * (`services`, `settings/price_lists`, `settings/discounts`) are Admin-only in
+     * firestore.rules, so a non-admin holding `access.settings` was being offered a walkthrough
+     * whose very first ring points at a tab their role does not render. Exactly the failure
+     * `adminOnly` was added to prevent, on the lesson that documents the gate.
+     */
+    adminOnly: true,
     steps: [
       {
         route: "/settings",
