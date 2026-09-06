@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Bot, BookOpen, Check, GraduationCap, Settings2, Trash2 } from "lucide-react";
-import { deleteDoc, doc, onSnapshot, query, setDoc, updateDoc, where } from "firebase/firestore";
+import { Bot, BookOpen, Check, GraduationCap, Settings2, Sparkles, Trash2 } from "lucide-react";
+import { deleteDoc, doc, getDoc, onSnapshot, query, setDoc, updateDoc, where } from "firebase/firestore";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
@@ -34,6 +34,14 @@ interface Knowledge {
   answer: string;
   status: "pending" | "approved";
   staffName?: string;
+  atMs: number;
+}
+
+interface CoachSuggestion {
+  id: string;
+  line: string;
+  why: string;
+  status: "pending" | "applied" | "dismissed";
   atMs: number;
 }
 
@@ -91,6 +99,7 @@ export default function BotMissesPanel() {
   const [knowledge, setKnowledge] = useState<Knowledge[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [playbook, setPlaybook] = useState<Playbook | null>(null);
+  const [coach, setCoach] = useState<CoachSuggestion[]>([]);
   const [playbookDraft, setPlaybookDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -116,10 +125,16 @@ export default function BotMissesPanel() {
       () => {}
     );
     const unsubP = onSnapshot(getClinicDoc("settings", "bot_playbook"), (snap) => setPlaybook((snap.data() as Playbook) || {}), () => {});
+    const unsubC = onSnapshot(
+      query(getClinicCollection("bot_coach_suggestions"), where("status", "==", "pending")),
+      (snap) => setCoach(snap.docs.map((d) => ({ id: d.id, ...d.data() } as CoachSuggestion)).sort((a, b) => b.atMs - a.atMs)),
+      () => {}
+    );
     return () => {
       unsub();
       unsubK();
       unsubP();
+      unsubC();
     };
   }, [user]);
 
@@ -146,6 +161,29 @@ export default function BotMissesPanel() {
       setBusy(null);
     }
   };
+  // One tap: the line joins the coaching notes the model reads on every turn.
+  const applyCoach = async (c: CoachSuggestion) => {
+    setBusy(c.id);
+    try {
+      const ref = getClinicDoc("settings", "whatsapp");
+      const cur = (await getDoc(ref)).data() || {};
+      const existing = String(cur.botCoaching || "").trim();
+      const line = c.line.startsWith("-") ? c.line : `- ${c.line}`;
+      await setDoc(ref, { botCoaching: existing ? `${existing}\n${line}` : line, updatedAt: new Date().toISOString() }, { merge: true });
+      await updateDoc(doc(getClinicCollection("bot_coach_suggestions"), c.id), { status: "applied", appliedAt: Date.now() });
+    } finally {
+      setBusy(null);
+    }
+  };
+  const dismissCoach = async (c: CoachSuggestion) => {
+    setBusy(c.id);
+    try {
+      await updateDoc(doc(getClinicCollection("bot_coach_suggestions"), c.id), { status: "dismissed", dismissedAt: Date.now() });
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const savePlaybook = async () => {
     if (playbookDraft === null) return;
     setBusy("playbook");
@@ -181,6 +219,35 @@ export default function BotMissesPanel() {
       </div>
 
       <BotFunnelCard />
+
+      {/* This morning's coaching suggestions from yesterday's chats. */}
+      {coach.length > 0 && (
+        <section className="bg-surface rounded-2xl border border-line shadow-sm p-4 sm:p-5">
+          <div className="flex items-center gap-2 mb-1">
+            <Sparkles size={16} className="text-ink-body" />
+            <h2 className="text-sm font-black text-ink">{isAr ? "اقتراحات تدريب من محادثات امبارح" : "Coaching suggestions from yesterday's chats"}</h2>
+          </div>
+          <p className="text-xs text-ink-muted font-bold mb-3">
+            {isAr ? "كل اقتراح مبني على حاجة حصلت فعلاً. اضغط «أضف» وهيتحط في تعليماتك للبوت فوراً." : "Each one is based on something that actually happened. Tap Add and it joins your coaching notes immediately."}
+          </p>
+          <ul className="space-y-2">
+            {coach.slice(0, 6).map((c) => (
+              <li key={c.id} className="rounded-xl border border-line bg-surface-subtle p-3">
+                <p className="text-sm font-bold text-ink" dir="auto">{c.line}</p>
+                <p className="mt-1 text-xs text-ink-muted" dir="auto">{c.why}</p>
+                <div className="mt-2 flex items-center gap-2">
+                  <button type="button" disabled={busy === c.id} onClick={() => void applyCoach(c)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-ink text-surface text-xs font-black disabled:opacity-50">
+                    <Check size={13} /> {isAr ? "أضف للتعليمات" : "Add to coaching"}
+                  </button>
+                  <button type="button" disabled={busy === c.id} onClick={() => void dismissCoach(c)} className="px-3 py-1.5 rounded-lg border border-line text-xs font-bold text-ink-muted disabled:opacity-50">
+                    {isAr ? "تجاهل" : "Dismiss"}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* Learned answers: what staff typed on a handed-off thread, awaiting one tap. */}
       <section className="bg-surface rounded-2xl border border-line shadow-sm p-4 sm:p-5">

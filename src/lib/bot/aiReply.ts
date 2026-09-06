@@ -37,6 +37,10 @@ export type AiReplyResult =
       openBooking?: boolean;
       /** Sales mode: the service the patient is interested in, as the model read it. */
       interest?: string;
+      /** Sales mode: the patient agreed to one of the offered slots (a key the caller gave). */
+      bookSlot?: string;
+      /** Sales mode: a file from the clinic's library to attach after the reply. */
+      sendMedia?: string;
     }
   /** The model classified the message as something a human must handle. */
   | { kind: "handoff"; topic: "medical" | "complaint" | "staff" | "other" }
@@ -81,6 +85,7 @@ function factLines(facts?: BotFacts): string {
     ["خدمات إحنا مش بنعملها", facts.notOffered],
     ["ليه تختارنا", facts.whyUs],
     ["الكشف", facts.consultation],
+    ["الأطباء", facts.dentists],
   ];
   const lines = rows
     .filter(([, v]) => v && v.trim())
@@ -100,7 +105,7 @@ const HARD_RULES = [
   "- جاوب فقط من المعلومات المكتوبة تحت. لو المعلومة مش موجودة، اختار handoff_other — ممنوع التخمين أو الاختراع.",
   "- أي سؤال طبي (ألم، ورم، دواء، تشخيص، هل ده طبيعي): اختار handoff_medical.",
   "- أي شكوى أو زعل أو كلام عن تجربة سيئة: اختار handoff_complaint.",
-  "- أي سؤال عن طبيب معيّن بالاسم (شطارته، مواعيده الشخصية، رأيك فيه): اختار handoff_staff.",
+  "- أي سؤال عن طبيب معيّن بالاسم: جاوب من خانة \"الأطباء\" لو مكتوبة تحت (تخصصه، خبرته، أسلوبه) ورشّح المناسب للحالة. لو مش مكتوبة، أو السؤال عن حاجة مش فيها (رأيك الشخصي، مواعيده الخاصة، مقارنة بين الدكاترة مين أشطر): اختار handoff_staff.",
   "- الأسعار: جاوب من القايمة تحت بصيغة \"يبدأ من\"، ودايماً اختم بأن الاستقبال بيأكد السعر النهائي. لو المريض سأل عن حاجة ليها خدمة مشابهة أو قريبة في القايمة (مثلاً سأل عن التقويم والقايمة فيها \"تقويم معدن\") اعتبرها موجودة وجاوب بسعرها. بس لو مفيش أي خدمة قريبة منها خالص: handoff_other.",
   "- أسئلة \"بتعملوا كذا؟\": لو الخدمة أو حاجة قريبة منها في القايمة، الإجابة أيوه مع السعر. متحوّلش سؤال تقدر تجاوبه.",
   "- أي خدمة مكتوبة في \"خدمات إحنا مش بنعملها\" الإجابة عنها لأ بوضوح، وممنوع تديله سعر خدمة قريبة منها.",
@@ -141,7 +146,8 @@ const SALES_PERSONA = [
   "1) اسمع وافهم: أول ما حد يسأل، جاوب على سؤاله الأول بوضوح، وبعدين اسأل سؤال واحد بس يفهّمك احتياجه (الحالة إيه؟ بقاله قد إيه؟ الهدف تجميلي ولا علاجي؟). سؤال واحد في الرسالة، مش استبيان.",
   "2) اعرض القيمة: اربط إجابتك باللي يهم المريض ده (راحته، شكله، وقته، فلوسه) واستخدم \"ليه تختارنا\" و\"الكشف\" لو مكتوبين تحت. جملة أو اتنين، مش خطبة.",
   "3) عالج الاعتراض: \"غالي\" → التقسيط وقيمة اللي بياخده لو مكتوبين. \"هفكر\" → طبيعي، سيبله الباب مفتوح من غير إلحاح. \"في أرخص\" → متهاجمش حد، قول إحنا بنتميز في إيه لو مكتوب.",
-  "4) اقفل: لما تحس إن المريض مرتاح أو قال كلمة توافق (تمام، ماشي، طب إمتى، عايز أحجز، ممكن ميعاد)، اختار open_booking واكتب في reply جملة قصيرة بتمهّد للمواعيد (مثلاً: \"تمام، هختارلك أقرب المواعيد المتاحة 👇\"). النظام هيعرض له الأيام والساعات بنفسه — متكتبش مواعيد أنت.",
+  "4) اقفل بميعاد محدد: لو في \"أقرب مواعيد متاحة\" مكتوبة تحت، متقولش \"تحب تحجز؟\" — اعرض اتنين منهم بالكلام زي موظف شاطر (مثلاً: \"عندي بكره الساعة 5 أو بعد بكره 7، إيه اللي يناسبك؟\"). لما المريض يوافق على ميعاد محدد من اللي عرضته، اختار action book_slot واكتب slotKey بالظبط زي ما هو مكتوب قدام الميعاد ده في القايمة، وفي reply جملة قصيرة بتأكد (\"تمام، حجزتلك…\" متكتبش التفاصيل، النظام هيكتبها). لو المريض عايز يشوف مواعيد تانية أو قال \"عايز أحجز\" من غير ما يحدد، اختار open_booking. ممنوع تعرض أو تأكد ميعاد مش في القايمة.",
+  "5) صور وملفات: لو في \"ملفات تقدر تبعتها\" تحت وواحد منهم مناسب للحظة دي (المريض بيسأل عن الحاجة اللي الملف عنها)، اكتب id بتاعه في sendMedia مع ردك. ملف واحد بالكتير في الرسالة، ومتبعتش نفس الملف مرتين في المحادثة.",
   "قواعد الأسلوب — اكتب زي موظف حقيقي بيرد من موبايله، مش زي بوت:",
   "- كل رد من جملة لتلات جمل قصيرة. سطر فاضي بين الفكرة والفكرة. إيموجي واحد بالكتير، وفي رسايل كتير من غير إيموجي خالص.",
   "- متبدأش كل رسالة بـ \"أهلاً بيك في [اسم العيادة]\" — الترحيب مرة واحدة في أول رسالة بس. متكررش اسم العيادة.",
@@ -175,6 +181,12 @@ export async function answerWithAi(args: {
   coaching?: string;
   /** The name the model signs in with, once, at the start of a conversation. */
   personaName?: string;
+  /** The next free appointment slots the model may offer, key → how to say it. */
+  slots?: Array<{ key: string; label: string }>;
+  /** Files the model may attach after its reply. */
+  media?: Array<{ id: string; label: string; when: string }>;
+  /** What the assistant remembers about this patient from earlier conversations. */
+  memory?: string;
   /** Answers staff gave that the owner approved for reuse. */
   knowledge?: Array<{ q: string; a: string }>;
   /** What has worked with this clinic's patients, distilled weekly (or edited by the owner). */
@@ -279,6 +291,13 @@ export async function answerWithAi(args: {
       ? `\nإجابات اعتمدها فريق العيادة لأسئلة اتسألت قبل كده (استخدمها لما السؤال يشبهها):\n${knowledge.map((k) => `س: ${k.q.trim().slice(0, 200)}\nج: ${k.a.trim().slice(0, 400)}`).join("\n")}`
       : "",
     playbook ? `\nخلاصة اللي بينجح مع مرضى العيادة دي (اتعلمها من محادثات حقيقية):\n${playbook.slice(0, 2500)}` : "",
+    args.memory?.trim() ? `\nذاكرة من محادثات سابقة مع المريض ده (ابدأ من مكان ما وقفتوا، ومتعيدش اللي هو عارفه):\n${args.memory.trim().slice(0, 900)}` : "",
+    sales && args.slots?.length
+      ? `\nأقرب مواعيد متاحة (slotKey → إزاي تقولها للمريض):\n${args.slots.slice(0, 8).map((s) => `- ${s.key} → ${s.label}`).join("\n")}`
+      : "",
+    sales && args.media?.length
+      ? `\nملفات تقدر تبعتها بعد ردك (اكتب id في sendMedia):\n${args.media.slice(0, 20).map((m) => `- [${m.id}] ${m.label}${m.when ? ` — ${m.when}` : ""}`).join("\n")}`
+      : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -295,11 +314,13 @@ export async function answerWithAi(args: {
           properties: {
             action: {
               type: SchemaType.STRING,
-              enum: ["answer", "open_booking", "handoff_medical", "handoff_complaint", "handoff_staff", "handoff_other"],
+              enum: ["answer", "open_booking", "book_slot", "handoff_medical", "handoff_complaint", "handoff_staff", "handoff_other"],
               format: "enum",
             },
             reply: { type: SchemaType.STRING },
             interest: { type: SchemaType.STRING },
+            slotKey: { type: SchemaType.STRING },
+            sendMedia: { type: SchemaType.STRING },
           },
           required: ["action"],
         },
@@ -359,10 +380,13 @@ export async function answerWithAi(args: {
         .filter((n) => Number(n) >= 50 && !allowedNumbers.has(n));
 
     let raw = "";
-    let parsed: { action?: string; reply?: string; interest?: string } = {};
+    let modelMs = 0;
+    let parsed: { action?: string; reply?: string; interest?: string; slotKey?: string; sendMedia?: string } = {};
     let strays: string[] = [];
     for (let attempt = 0; attempt < 2; attempt++) {
+      const t0 = Date.now();
       const result = await withTimeout(model.generateContent({ contents }), TIMEOUT_MS);
+      modelMs += Date.now() - t0;
       raw = result.response.text();
       try {
         parsed = JSON.parse(raw) as typeof parsed;
@@ -372,7 +396,7 @@ export async function answerWithAi(args: {
         if (attempt === 0) continue;
         throw new Error("ai_bad_json");
       }
-      strays = parsed.action === "answer" || parsed.action === "open_booking" ? strayNumbers(String(parsed.reply || "")) : [];
+      strays = parsed.action === "answer" || parsed.action === "open_booking" || parsed.action === "book_slot" ? strayNumbers(String(parsed.reply || "")) : [];
       if (!strays.length) break;
       if (attempt === 0) {
         contents.push({ role: "model" as const, parts: [{ text: raw }] });
@@ -390,6 +414,7 @@ export async function answerWithAi(args: {
         question: question.slice(0, 300),
         raw: raw.slice(0, 1000),
         mode: sales ? "sales" : "assisted",
+        modelMs,
         threadLines: thread.length,
         priceLineCount: priceLines ? priceLines.split("\n").length : 0,
         hoursGiven: Boolean(hoursText?.trim()),
@@ -409,11 +434,16 @@ export async function answerWithAi(args: {
     if (parsed.action === "handoff_medical") return { kind: "handoff", topic: "medical" };
     if (parsed.action === "handoff_complaint") return { kind: "handoff", topic: "complaint" };
     if (parsed.action === "handoff_staff") return { kind: "handoff", topic: "staff" };
-    if (parsed.action !== "answer" && parsed.action !== "open_booking") return { kind: "handoff", topic: "other" };
+    if (parsed.action !== "answer" && parsed.action !== "open_booking" && parsed.action !== "book_slot") return { kind: "handoff", topic: "other" };
 
     const text = String(parsed.reply || "").trim().slice(0, 900);
-    const openBooking = sales && parsed.action === "open_booking" && args.canBook !== false;
-    if (!text && !openBooking) return { kind: "handoff", topic: "other" };
+    // A slot the model names must be one it was given; anything else is a wish, and opens the lists.
+    const slotKey = String(parsed.slotKey || "").trim();
+    const bookSlot = sales && parsed.action === "book_slot" && args.canBook !== false && (args.slots || []).some((s) => s.key === slotKey) ? slotKey : undefined;
+    const openBooking = sales && args.canBook !== false && (parsed.action === "open_booking" || (parsed.action === "book_slot" && !bookSlot));
+    const mediaId = String(parsed.sendMedia || "").trim();
+    const sendMedia = (args.media || []).some((m) => m.id === mediaId) ? mediaId : undefined;
+    if (!text && !openBooking && !bookSlot) return { kind: "handoff", topic: "other" };
 
     // Charged only for a delivered answer, after the model produced one. Handoffs cost nothing.
     await usageRef.set(
@@ -430,7 +460,7 @@ export async function answerWithAi(args: {
     }).catch(() => {});
 
     const interest = String(parsed.interest || "").trim().slice(0, 60) || undefined;
-    return { kind: "answer", text: text || "تمام 👍", openBooking, interest };
+    return { kind: "answer", text: text || "تمام 👍", openBooking, interest, bookSlot, sendMedia };
   } catch (e) {
     const reason = e instanceof Error ? e.message : "model_error";
     await adminClinicCollection(clinicId, "ai_debug")

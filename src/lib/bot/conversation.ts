@@ -120,6 +120,8 @@ export interface BotConversation {
   outcome?: string;
   /** The service the model last heard the patient wanting; the treatment when a booking follows. */
   lastInterest?: string;
+  /** What the assistant remembers from earlier conversations with this number (nightly summary). */
+  memory?: string;
   /**
    * A person owns this thread right now.
    *
@@ -269,6 +271,8 @@ export async function loadConversation(
     pendingReschedule: !expired && typeof d.pendingReschedule === "string" ? d.pendingReschedule : undefined,
     outcome: !expired && typeof d.outcome === "string" ? d.outcome : undefined,
     lastInterest: !expired && typeof d.lastInterest === "string" ? d.lastInterest : undefined,
+    // Memory outlives the conversation on purpose: it is what makes the next one warm.
+    memory: typeof d.memory === "string" ? d.memory : undefined,
     aiReplies: !expired ? Number(d.aiReplies) || 0 : 0,
     aiHistory:
       !expired && Array.isArray(d.aiHistory)

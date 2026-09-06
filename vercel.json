@@ -28,6 +28,14 @@
     {
       "path": "/api/automation/noshow",
       "schedule": "0 11 * * *"
+    },
+    {
+      "path": "/api/automation/bot-memory",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/automation/bot-coach",
+      "schedule": "0 5 * * *"
     }
   ]
 }

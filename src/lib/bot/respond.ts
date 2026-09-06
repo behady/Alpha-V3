@@ -17,6 +17,7 @@ import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { resolveLidToPhone } from "@/lib/whatsapp";
 import { findPatientByLid } from "@/lib/whatsappLid";
 import { resolveWhatsappDeliveryMode, sendPatientWhatsAppRich } from "@/lib/whatsappDelivery";
+import { loadMetaWhatsappConfig, sendMetaWhatsappMedia } from "@/lib/metaWhatsapp";
 import type { MetaInteractive } from "@/lib/metaWhatsapp";
 import type { BotFacts } from "@/types/whatsapp";
 import { arabicClock, arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
@@ -573,6 +574,7 @@ export async function respondToPatientMessage(args: {
   let rescheduleId = conversation.pendingReschedule || "";
   let aiExchange: { q: string; a: string } | undefined;
   let aiInterest = "";
+  let aiMedia: { id: string; label: string; url: string; kind: "image" | "document" } | null = null;
   /** Buttons/lists for the official channel; the text above is what every other channel sends. */
   let structure: MetaInteractive | undefined;
 
@@ -650,6 +652,102 @@ export async function respondToPatientMessage(args: {
       // Reached from a dentist pick too, whose own reason says "days"; the log should say what was sent.
       reason = "booking_times";
       pending = { days: conversation.pendingDays, times, date: dateKey, doctor: doctorName, treatment };
+    };
+
+
+    /*
+     * Write one appointment at the given slot, or move the one being rescheduled there.
+     * Shared by the tapped/typed slot picks and the salesperson's spoken close ("بكره 5"),
+     * so a booking born in conversation is written exactly like one born from a list.
+     */
+    const bookAt = async (dateKey: string, time: string, doctorName: string) => {
+      if (!patient || !phone) {
+        listDays();
+        return;
+      }
+      if (rescheduleId) {
+        const moved = await movePatientBooking({ clinicId, profile, appointmentId: rescheduleId, dateKey, time, doctorName, autoConfirm: settings.autoConfirm });
+        if (moved.ok) {
+          replyText = [
+            "✅ تم تعديل ميعادك:",
+            `📅 ${arabicDayLabel(dateKey)}`,
+            `⏰ ${arabicTimeLabel(time)}`,
+            ...(doctorName ? [`👨‍⚕️ ${doctorName}`] : []),
+            "",
+            `${v.waitingForYou} 🦷`,
+          ].join("\n");
+          nextState = "awaiting_choice";
+          reason = "rescheduled";
+          rescheduleId = "";
+          void push(
+            clinicId,
+            { title: "تعديل ميعاد من واتساب 🔁", body: `${ctx.patientName || phone} — ${dateKey} ${time}${doctorName ? ` — ${doctorName}` : ""}` },
+            { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
+          );
+        } else if (moved.reason === "slot_taken") {
+          await listTimes(dateKey, doctorName);
+          replyText = `الميعاد ده اتحجز في نفس اللحظة 🙏\n\n${replyText}`;
+          reason = "slot_taken";
+        } else {
+          // The appointment vanished mid-flow (the desk cancelled it). Book fresh instead.
+          rescheduleId = "";
+          listDays(doctorName);
+          replyText = `الميعاد القديم مش موجود، نحجزلك ميعاد جديد 👇\n\n${replyText}`;
+          reason = "reschedule_gone";
+        }
+      } else {
+        const booked = await createPatientBooking({
+          clinicId,
+          profile,
+          patientId: patient.id,
+          patientName: ctx.patientName || "Patient",
+          phone,
+          dateKey,
+          time,
+          source: "whatsapp_bot",
+          autoConfirm: settings.autoConfirm,
+          doctorName,
+          treatment,
+        });
+        if (booked.ok) {
+          replyText = [
+            settings.autoConfirm ? "✅ تم تأكيد حجزك:" : "✅ تم تسجيل طلب حجزك:",
+            `📅 ${arabicDayLabel(dateKey)}`,
+            `⏰ ${arabicTimeLabel(time)}`,
+            ...(doctorName ? [`👨‍⚕️ ${doctorName}`] : []),
+            ...(treatment ? [`🦷 ${treatment}`] : []),
+            "",
+            settings.autoConfirm
+              ? `${v.waitingForYou} 🦷 لو حبيت تعدّل الميعاد، ${v.send} *3*.`
+              : `العيادة هتراجع الطلب وهتتواصل مع حضرتك للتأكيد. لو حبيت تعدّل، ${v.send} *3*.`,
+            // The care note: where to come, how to park, what the first visit is. The message a
+            // receptionist adds by hand when there is time, which is never.
+            ...(ctx.addressText?.trim() ? ["", `📍 ${ctx.addressText.trim()}`] : []),
+            ...(ctx.facts?.mapsUrl?.trim() ? [ctx.facts.mapsUrl.trim()] : []),
+            ...(ctx.facts?.parking?.trim() ? [`🅿️ ${ctx.facts.parking.trim()}`] : []),
+            ...(ctx.facts?.consultation?.trim() ? [`ℹ️ ${ctx.facts.consultation.trim()}`] : []),
+          ].join("\n");
+          nextState = "awaiting_choice";
+          reason = "booked";
+          // The desk hears about it the moment it lands, same as an online booking — the whole
+          // point of a bot is that nobody was at a screen when this arrived.
+          void push(
+            clinicId,
+            { title: "حجز جديد من واتساب 🤖", body: `${ctx.patientName || "Patient"} — ${dateKey} ${time}${doctorName ? ` — ${doctorName}` : ""}` },
+            { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
+          );
+        } else if (booked.reason === "slot_taken") {
+          await listTimes(dateKey, doctorName);
+          replyText = `الميعاد ده اتحجز في نفس اللحظة 🙏\n\n${replyText}`;
+          reason = "slot_taken";
+        } else {
+          replyText = "عندك أكتر من حجز مفتوح بالفعل — ابعت *3* والاستقبال هيظبطهالك.";
+          nextState = "handed_off";
+          handoff = true;
+          reason = "too_many_open";
+        }
+      
+      }
     };
 
     if (act.type === "ack") {
@@ -783,6 +881,7 @@ export async function respondToPatientMessage(args: {
        */
       const sales = settings.aiFirst;
       const salesContext = sales ? await loadSalesContext(clinicId, chatId, patient, ctx) : null;
+      const slotOffer = sales && profile?.schedule.isConfigured && (ctx.canOfferBooking || ctx.canRegister) ? await nextSlots(clinicId, profile, branchId, conversation.pendingDoctor ?? "") : [];
       const ai = await answerWithAi({
         clinicId,
         clinicName,
@@ -894,9 +993,15 @@ export async function respondToPatientMessage(args: {
       });
       patient = { id: created.id, data: { name: act.name, phone } };
       ctx.patientName = act.name;
-      if ((profile?.doctors.length ?? 0) >= 2) listDoctors();
-      else listDays();
-      reason = "registered";
+      // The salesperson already agreed a time before asking the name: book it, no lists.
+      if (conversation.pendingDate && conversation.pendingTimes?.length === 1) {
+        await bookAt(conversation.pendingDate, conversation.pendingTimes[0], conversation.pendingDoctor ?? "");
+        if (reason !== "booked") reason = "registered";
+      } else {
+        if ((profile?.doctors.length ?? 0) >= 2) listDoctors();
+        else listDays();
+        reason = "registered";
+      }
     } else if (act.type === "list_days") {
       const doctorName = act.doctorName ?? conversation.pendingDoctor ?? "";
       // Same shortcut for a tapped dentist button; a stale or past day word falls back to the list.
@@ -945,81 +1050,8 @@ export async function respondToPatientMessage(args: {
       const doctorName = (act.type === "book_slot" ? act.doctorName : conversation.pendingDoctor) ?? "";
       if (!time || !dateKey || !patient || !phone) {
         listDays();
-      } else if (rescheduleId) {
-        const moved = await movePatientBooking({ clinicId, profile, appointmentId: rescheduleId, dateKey, time, doctorName, autoConfirm: settings.autoConfirm });
-        if (moved.ok) {
-          replyText = [
-            "✅ تم تعديل ميعادك:",
-            `📅 ${arabicDayLabel(dateKey)}`,
-            `⏰ ${arabicTimeLabel(time)}`,
-            ...(doctorName ? [`👨‍⚕️ ${doctorName}`] : []),
-            "",
-            `${v.waitingForYou} 🦷`,
-          ].join("\n");
-          nextState = "awaiting_choice";
-          reason = "rescheduled";
-          rescheduleId = "";
-          void push(
-            clinicId,
-            { title: "تعديل ميعاد من واتساب 🔁", body: `${ctx.patientName || phone} — ${dateKey} ${time}${doctorName ? ` — ${doctorName}` : ""}` },
-            { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
-          );
-        } else if (moved.reason === "slot_taken") {
-          await listTimes(dateKey, doctorName);
-          replyText = `الميعاد ده اتحجز في نفس اللحظة 🙏\n\n${replyText}`;
-          reason = "slot_taken";
-        } else {
-          // The appointment vanished mid-flow (the desk cancelled it). Book fresh instead.
-          rescheduleId = "";
-          listDays(doctorName);
-          replyText = `الميعاد القديم مش موجود، نحجزلك ميعاد جديد 👇\n\n${replyText}`;
-          reason = "reschedule_gone";
-        }
       } else {
-        const booked = await createPatientBooking({
-          clinicId,
-          profile,
-          patientId: patient.id,
-          patientName: ctx.patientName || "Patient",
-          phone,
-          dateKey,
-          time,
-          source: "whatsapp_bot",
-          autoConfirm: settings.autoConfirm,
-          doctorName,
-          treatment,
-        });
-        if (booked.ok) {
-          replyText = [
-            settings.autoConfirm ? "✅ تم تأكيد حجزك:" : "✅ تم تسجيل طلب حجزك:",
-            `📅 ${arabicDayLabel(dateKey)}`,
-            `⏰ ${arabicTimeLabel(time)}`,
-            ...(doctorName ? [`👨‍⚕️ ${doctorName}`] : []),
-            ...(treatment ? [`🦷 ${treatment}`] : []),
-            "",
-            settings.autoConfirm
-              ? `${v.waitingForYou} 🦷 لو حبيت تعدّل الميعاد، ${v.send} *3*.`
-              : `العيادة هتراجع الطلب وهتتواصل مع حضرتك للتأكيد. لو حبيت تعدّل، ${v.send} *3*.`,
-          ].join("\n");
-          nextState = "awaiting_choice";
-          reason = "booked";
-          // The desk hears about it the moment it lands, same as an online booking — the whole
-          // point of a bot is that nobody was at a screen when this arrived.
-          void push(
-            clinicId,
-            { title: "حجز جديد من واتساب 🤖", body: `${ctx.patientName || "Patient"} — ${dateKey} ${time}${doctorName ? ` — ${doctorName}` : ""}` },
-            { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
-          );
-        } else if (booked.reason === "slot_taken") {
-          await listTimes(dateKey, doctorName);
-          replyText = `الميعاد ده اتحجز في نفس اللحظة 🙏\n\n${replyText}`;
-          reason = "slot_taken";
-        } else {
-          replyText = "عندك أكتر من حجز مفتوح بالفعل — ابعت *3* والاستقبال هيظبطهالك.";
-          nextState = "handed_off";
-          handoff = true;
-          reason = "too_many_open";
-        }
+        await bookAt(dateKey, time, doctorName);
       }
     }
   } else if (decision.action && !profile) {
@@ -1036,6 +1068,8 @@ export async function respondToPatientMessage(args: {
   // A name is being asked for: remember whose, and what they came for, until it arrives.
   if (reason === "ask_relative_name") pending = { forRelative: true, treatment: ctx.serviceMatch };
   if (reason === "ask_name" || reason === "ai_ask_name") pending = { treatment: ctx.serviceMatch || conversation.lastInterest };
+  // A stranger's chosen slot rides the ask-name turn; the register step books it.
+  if (reason === "ai_ask_name_slot" && !pending) pending = { treatment: ctx.serviceMatch || conversation.lastInterest };
 
   /*
    * The salesman's turn, after the receptionist's.
@@ -1240,7 +1274,14 @@ export async function respondToPatientMessage(args: {
       body = body.slice(0, cut).trim();
     }
   }
-  if (pace) await new Promise((r) => setTimeout(r, Math.min(6500, 1200 + body.length * 28)));
+  // The pause is measured from when the message arrived, not from when the model finished:
+  // a slow model already looks like a person reading, and adding a full pause on top of it made
+  // replies land 15 seconds later than a receptionist would.
+  if (pace) {
+    const target = Math.min(6500, 1200 + body.length * 28);
+    const elapsed = Date.now() - now;
+    if (target > elapsed) await new Promise((r) => setTimeout(r, target - elapsed));
+  }
 
   let waMessageId: string | undefined;
   // Each bubble's thread line keeps the moment it actually went out, so two bubbles read in the
@@ -1253,6 +1294,20 @@ export async function respondToPatientMessage(args: {
       await new Promise((r) => setTimeout(r, Math.min(7000, 1500 + secondBubble.length * 30)));
       await sendPatientWhatsAppRich(clinicId, replyTo, secondBubble, undefined);
       await recordThreadMessage(clinicId, replyTo, { direction: "out", author: "bot", text: secondBubble, kind: reason }, Date.now()).catch(() => {});
+    }
+    // The file the model chose to attach: a before/after photo, the price sheet. After the words.
+    // Cast: the assignment happens inside the action dispatch and TS's flow analysis loses it here.
+    const attach = aiMedia as { id: string; label: string; url: string; kind: "image" | "document" } | null;
+    if (attach && !args.dryRun) {
+      const cfg = await loadMetaWhatsappConfig(clinicId);
+      if (cfg) {
+        await new Promise((r) => setTimeout(r, 1200));
+        const sent = await sendMetaWhatsappMedia({ config: cfg, to: replyTo, kind: attach.kind, link: attach.url, caption: attach.label });
+        if (sent.ok) {
+          await recordThreadMessage(clinicId, replyTo, { direction: "out", author: "bot", text: attach.label, media: attach.kind, kind: "ai_media", waMessageId: sent.messageId }, Date.now()).catch(() => {});
+          void adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(chatId)).set({ sentMedia: FieldValue.arrayUnion(attach.id) }, { merge: true }).catch(() => {});
+        }
+      }
     }
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
@@ -1324,6 +1379,35 @@ export async function respondToPatientMessage(args: {
 }
 
 /**
+ * The next free appointment slots, as the salesperson may offer them.
+ *
+ * Two per day across the next few open days, up to six, for the dentist the conversation has
+ * already settled on or any chair. Each carries a key the model must echo back exactly — the
+ * calendar is consulted again at booking time, so a slot taken in the meantime is caught there.
+ */
+async function nextSlots(
+  clinicId: string,
+  profile: NonNullable<Awaited<ReturnType<typeof loadPublicClinicProfile>>>,
+  branchId: string | null,
+  doctorName: string
+): Promise<Array<{ key: string; label: string }>> {
+  const out: Array<{ key: string; label: string }> = [];
+  try {
+    const days = upcomingOpenDays(profile.schedule).slice(0, 4);
+    for (const dateKey of days) {
+      const free = await computeAvailableSlots({ clinicId, dateKey, doctorName: doctorName || null, branchId, profile });
+      for (const time of free.slice(0, 2)) {
+        out.push({ key: `${dateKey}|${time}|${doctorName}`, label: `${arabicDayLabel(dateKey)} الساعة ${arabicTimeLabel(time)}${doctorName ? ` مع ${doctorName}` : ""}` });
+      }
+      if (out.length >= 6) break;
+    }
+  } catch {
+    /* no calendar, no offer */
+  }
+  return out;
+}
+
+/**
  * Everything the sales-mode model is shown beyond the message itself.
  *
  * The thread (last 16 lines, every voice), the patient as the desk would know them, the answers
@@ -1335,14 +1419,30 @@ async function loadSalesContext(
   chatId: string,
   patient: { id: string; data: Record<string, unknown> } | null,
   ctx: BotContext
-): Promise<{ thread: AiThreadLine[]; patient: AiPatientContext; knowledge: Array<{ q: string; a: string }>; playbook: string }> {
+): Promise<{
+  thread: AiThreadLine[];
+  patient: AiPatientContext;
+  knowledge: Array<{ q: string; a: string }>;
+  playbook: string;
+  media: Array<{ id: string; label: string; when: string; url: string; kind: "image" | "document" }>;
+}> {
   const key = conversationKey(chatId);
-  const [threadSnap, knowledgeSnap, playbookSnap, upcoming] = await Promise.all([
+  const [threadSnap, knowledgeSnap, playbookSnap, upcoming, mediaSnap, convSnap] = await Promise.all([
     adminClinicDoc(clinicId, "whatsapp_conversations", key).collection("messages").orderBy("at", "desc").limit(16).get().catch(() => null),
     adminClinicCollection(clinicId, "bot_knowledge").where("status", "==", "approved").limit(40).get().catch(() => null),
     adminClinicDoc(clinicId, "settings", "bot_playbook").get().catch(() => null),
     patient ? findNextAppointment(clinicId, patient.id).catch(() => null) : Promise.resolve(null),
+    adminClinicCollection(clinicId, "bot_media").limit(20).get().catch(() => null),
+    adminClinicDoc(clinicId, "whatsapp_conversations", key).get().catch(() => null),
   ]);
+  // A file already sent in this conversation is not offered again.
+  const sentMedia = new Set<string>(Array.isArray(convSnap?.data()?.sentMedia) ? (convSnap!.data()!.sentMedia as string[]) : []);
+  const media = (mediaSnap?.docs ?? [])
+    .map((d) => {
+      const m = d.data() || {};
+      return { id: d.id, label: String(m.label || ""), when: String(m.when || ""), url: String(m.url || ""), kind: (m.kind === "document" ? "document" : "image") as "image" | "document" };
+    })
+    .filter((m) => m.url && m.label && !sentMedia.has(m.id));
   const thread: AiThreadLine[] = (threadSnap?.docs ?? [])
     .map((d) => d.data() || {})
     .reverse()
@@ -1357,6 +1457,7 @@ async function loadSalesContext(
   return {
     thread,
     knowledge,
+    media,
     playbook: String(pb.editedText || pb.text || ""),
     patient: {
       known: Boolean(patient),
