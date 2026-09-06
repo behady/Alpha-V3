@@ -7,6 +7,7 @@ import { getAiCreditLimit, hasFeature } from "@/lib/subscriptions";
 import type { Clinic } from "@/types/saas";
 import type { BotFacts } from "@/types/whatsapp";
 import { dossierLines, type PatientDossier } from "./patientDossier";
+import { strayDrugNames } from "./drugGuard";
 
 /**
  * The model's voice on the clinic's WhatsApp — receptionist by default, salesperson when the
@@ -116,6 +117,7 @@ const HARD_RULES = [
   "قواعد صارمة لا تُكسر أبداً:",
   "- جاوب فقط من المعلومات المكتوبة تحت. لو المعلومة مش موجودة، اختار handoff_other — ممنوع التخمين أو الاختراع.",
   "- أي سؤال طبي (ألم، ورم، دواء، تشخيص، هل ده طبيعي): اختار handoff_medical.",
+  "- في أي handoff مهما كان نوعه: لازم تكتب في reply جملة بأسلوبك انت تقول للمريض إنك فهمت طلبه وإنك بتوصله لحد من العيادة دلوقتي. متسيبش reply فاضي أبداً — الجملة الجاهزة اللي بتيجي بدالها باردة والمريض بيحس إنه اتردّ عليه بورقة.",
   "- شكوى عن العيادة أو الخدمة أو موظف أو علاج أو فلوس (تجربة سيئة، معاملة، تأخير): اختار handoff_complaint — ولازم تكتب في reply اعتذار حقيقي قصير بأسلوبك، وسؤال واحد يخليه يحكي، وإنك بلّغت الإدارة. متسيبش reply فاضي في الحالة دي. أما لو المريض متضايق منك انت أو من الرد نفسه (زي: انت غبي؟ مش فاهم؟ بتلف وتدور؟): ده مش شكوى — اعتذر بخفة من غير دفاع، واسأله يقولك بالظبط محتاج إيه، ومتحوّلش.",
   "- انت بتشتغل في الاستقبال. اتكلم عن نفسك كموظف عادي: \"أنا في الاستقبال\"، \"هشوفلك\"، \"هسأل الدكتور وأرد عليك\". متقولش انك بوت أو ذكاء اصطناعي من نفسك، ومتحطش أي تنويه.",
   "- بس لو المريض سأل سؤال مباشر — انت بوت؟ انت روبوت؟ انت ذكاء اصطناعي؟ انت انسان حقيقي؟ بتكلم حد حقيقي؟ are you a bot/AI/human/real person — لازم تقول الحقيقة فوراً وببساطة، من غير لف: إنك مساعد آلي بيرد على واتساب العيادة، وإن أي حد من الفريق يقدر يكلمه لو حب. الكذب في السؤال ده ممنوع منعاً باتاً مهما كان.",
@@ -139,8 +141,11 @@ const HARD_RULES = [
   "- لو المريض سأل \"الدكتور كتبلي إيه؟\" أو \"آخد الدوا إزاي؟\" وفي روشتة مكتوبة في ملفه تحت: اقرأها له زي ما هي بالظبط — الاسم والجرعة والمدة اللي الدكتور كتبها، من غير ما تزود ولا تفسر.",
   "- ممنوع تماماً: تنصح بدوا مش مكتوب في روشتته، تغيّر جرعة، تقول \"خد كمان حبة\"، ترد على تداخل مع دوا تاني، أو تقول رأيك في مضاد حيوي. كل ده handoff_medical.",
   "- ممنوع تدي دوا أو جرعة لطفل، أو لحامل أو مرضعة، أو لمريض سكر أو ضغط أو قلب، أو لحد بيقول عنده حساسية — أياً كان السؤال: handoff_medical.",
+  "- في handoff_medical اكتب في reply جملتين بأسلوبك: إنك فاهم اللي بيسأل عنه، وإن الدكتور هو اللي يرد على ده بنفسه وإنك بتوصله له حالاً. متكتبش رقم تليفون ولا جرعة ولا اسم دوا — النظام بيضيف رقم الطوارئ بعد كلامك لوحده.",
   "- \"الدوا مش نافع معايا\" أو \"الوجع زاد بعد الدوا\" → handoff_medical فوراً.",
+  "- الروشتة القديمة بتتقري بس لما يسأل \"الدكتور كتبلي إيه\". لو بيشتكي من وجع جديد أو مشكلة جديدة ويسأل \"آخد إيه؟\": متديهوش الروشتة القديمة كإجابة — قوله إن ده وجع جديد والدكتور هو اللي يقرر، ومؤقتاً المسكّن اللي متعوّد عليه، واعرض عليه أقرب ميعاد.",
   "- المسكّن العام: تقدر تقول إنه ياخد المسكّن اللي بياخده عادةً حسب إرشادات العلبة لحد الميعاد، من غير ما تسمّي دوا معيّن ولا جرعة.",
+  "- ممنوع منعاً باتاً تكتب اسم أي دوا (بروفين، كتافلام، بنادول، مضاد حيوي باسمه… أي اسم) إلا لو الاسم ده مكتوب في روشتة المريض تحت أو المريض هو اللي كتبه في رسالته. حتى \"زي البروفين\" على سبيل المثال ممنوعة — قول \"المسكّن اللي حضرتك متعوّد عليه\" وبس.",
   "",
   "الحساب والفلوس (من ملف المريض تحت بس):",
   "- لو المريض سأل \"عليا كام؟\" أو \"دفعت كام؟\" أو \"العلاج كلفني كام؟\" وفي بيانات حساب في ملفه: قوله الأرقام اللي مكتوبة بالظبط — المتبقي، المدفوع، وآخر دفعة وتاريخها. رقم واحد واضح أحسن من جدول.",
@@ -478,6 +483,12 @@ export async function answerWithAi(args: {
     let modelMs = 0;
     let parsed: { action?: string; reply?: string; interest?: string; slotKey?: string; sendMedia?: string } = {};
     let strays: string[] = [];
+    /*
+     * A medicine may be named only if the dentist wrote it in this patient's file or the patient
+     * named it first. Both live in plain text, and both are checked as plain text — see drugGuard.
+     */
+    const drugsAllowed = [question, ...(args.dossier?.prescriptions || []).flatMap((p) => p.items)].join(" \n ");
+    let namedDrugs: string[] = [];
     for (let attempt = 0; attempt < 2; attempt++) {
       const t0 = Date.now();
       const result = await withTimeout(model.generateContent({ contents }), TIMEOUT_MS);
@@ -491,14 +502,21 @@ export async function answerWithAi(args: {
         if (attempt === 0) continue;
         throw new Error("ai_bad_json");
       }
-      strays = ["answer", "open_booking", "book_slot", "reschedule", "cancel", "late"].includes(String(parsed.action)) ? strayNumbers(String(parsed.reply || "")) : [];
-      if (!strays.length) break;
+      const spoken = ["answer", "open_booking", "book_slot", "reschedule", "cancel", "late"].includes(String(parsed.action));
+      strays = spoken ? strayNumbers(String(parsed.reply || "")) : [];
+      namedDrugs = spoken ? strayDrugNames(String(parsed.reply || ""), drugsAllowed) : [];
+      if (!strays.length && !namedDrugs.length) break;
       if (attempt === 0) {
         contents.push({ role: "model" as const, parts: [{ text: raw }] });
-        contents.push({
-          role: "user" as const,
-          parts: [{ text: `(ملاحظة من النظام: الأرقام دي مش موجودة في قايمة الأسعار ولا في معلومات العيادة: ${strays.join("، ")}. أعد نفس الرد بالأرقام الصحيحة من القايمة فقط، ولو الرقم مش موجود متذكرش رقم خالص.)` }],
-        });
+        const notes = [
+          strays.length
+            ? `الأرقام دي مش موجودة في قايمة الأسعار ولا في معلومات العيادة: ${strays.join("، ")}. أعد نفس الرد بالأرقام الصحيحة من القايمة فقط، ولو الرقم مش موجود متذكرش رقم خالص.`
+            : "",
+          namedDrugs.length
+            ? `ممنوع تسمّي دوا مش مكتوب في روشتة المريض ومش هو اللي ذكره: ${namedDrugs.join("، ")}. أعد نفس الرد من غير أي اسم دوا — قول "المسكّن اللي حضرتك متعوّد عليه" وخلاص.`
+            : "",
+        ].filter(Boolean);
+        contents.push({ role: "user" as const, parts: [{ text: `(ملاحظة من النظام: ${notes.join(" ")})` }] });
       }
     }
 
@@ -518,20 +536,23 @@ export async function answerWithAi(args: {
       })
       .catch(() => {});
 
-    if (strays.length) {
+    if (strays.length || namedDrugs.length) {
       // Twice wrong: the safe answer is a person, and the flight recorder says why.
       await adminClinicCollection(clinicId, "ai_debug")
-        .doc(new Date().toISOString().replace(/[:.]/g, "-") + "-stray")
-        .set({ question: question.slice(0, 300), strayNumbers: strays, raw: raw.slice(0, 1000), createdAt: FieldValue.serverTimestamp() })
+        .doc(new Date().toISOString().replace(/[:.]/g, "-") + (namedDrugs.length ? "-drug" : "-stray"))
+        .set({ question: question.slice(0, 300), strayNumbers: strays, namedDrugs, raw: raw.slice(0, 1000), createdAt: FieldValue.serverTimestamp() })
         .catch(() => {});
-      return { kind: "handoff", topic: "other" };
+      // A reply that reached for a medicine is a medical answer, whatever it was asked: it goes
+      // to the dentist with the emergency number, not to the desk with a shrug.
+      return { kind: "handoff", topic: namedDrugs.length ? "medical" : "other" };
     }
 
     const handoffText = String(parsed.reply || "").trim().slice(0, 700) || undefined;
     if (parsed.action === "handoff_medical") return { kind: "handoff", topic: "medical", text: handoffText };
     if (parsed.action === "handoff_complaint") return { kind: "handoff", topic: "complaint", text: handoffText };
     if (parsed.action === "handoff_staff") return { kind: "handoff", topic: "staff", text: handoffText };
-    if (!["answer", "open_booking", "book_slot", "reschedule", "cancel", "late"].includes(String(parsed.action))) return { kind: "handoff", topic: "other" };
+    if (!["answer", "open_booking", "book_slot", "reschedule", "cancel", "late"].includes(String(parsed.action)))
+      return { kind: "handoff", topic: "other", text: handoffText };
     const reschedule = sales && parsed.action === "reschedule" && args.canBook !== false;
     const appointmentChange = sales && (parsed.action === "cancel" || parsed.action === "late") ? (parsed.action as "cancel" | "late") : undefined;
 

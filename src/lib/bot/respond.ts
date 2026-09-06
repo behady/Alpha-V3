@@ -38,7 +38,8 @@ import { loadPatientDossier, type PatientDossier } from "./patientDossier";
 import { SALES_CLOSE_REASONS, LEAD_INTEREST_REASONS, activeOffers, closingLine, offerForService } from "./sales";
 import { markBotLeadBooked, upsertBotLead } from "./botLeads";
 import { recordThreadMessage } from "./thread";
-import { clinicalReplyText, decideBotReply, type BotContext } from "./engine";
+import { clinicalReplyText,
+  urgentCallLine, decideBotReply, type BotContext } from "./engine";
 import { needsHuman } from "./clinicalTriage";
 import { mentionsRelative, quickIntent } from "./quickAnswers";
 import { parseDayWord } from "./dayWords";
@@ -1074,7 +1075,26 @@ ${askWho}` : askWho;
         const intro = ai.text.trim();
         aiExchange = { q: act.question, a: intro };
         if (ai.interest && !ctx.serviceMatch) ctx.serviceMatch = (await matchService(clinicId, ai.interest)) || undefined;
-        if (ctx.canOfferBooking) {
+        /*
+         * Two questions in one message is the surest way to get neither answered.
+         *
+         * The model often writes "I have Sunday 9:30 or Monday 3, which suits you?" and asks to
+         * open the lists in the same breath — so the patient received a spoken offer of two times
+         * followed by a menu of four dentists, and had to work out which one they were meant to
+         * reply to. When its own sentence already names times we handed it, that sentence IS the
+         * booking step: the pick comes back next turn as book_slot, the way a spoken close does.
+         */
+        const alreadyOffered =
+          Boolean(intro) &&
+          slotOffer.some((s) => {
+            const clock = s.label.match(/\d{1,2}:\d{2}\s*[صم]/)?.[0];
+            return Boolean(clock && intro.includes(clock));
+          });
+        if (alreadyOffered) {
+          replyText = intro;
+          structure = undefined;
+          reason = "ai_answer";
+        } else if (ctx.canOfferBooking) {
           if ((profile?.doctors.length ?? 0) >= 2) listDoctors();
           else listDays();
           if (intro) {
@@ -1119,20 +1139,27 @@ ${askWho}` : askWho;
         // The medical wording is the engine's, phone number included. Two paths reaching the same
         // conclusion must not give the patient two different amounts of help getting there.
         /*
-         * The model's own words when it has them.
+         * The model's own words, whatever the topic.
          *
-         * An angry patient answered with a form sentence stays angry; the apology it wrote is
-         * the whole point of routing complaints through it. The medical line is the exception —
-         * it carries the clinic's emergency number and must read identically every time.
+         * An angry patient answered with a form sentence stays angry, and so does a pregnant one
+         * asking whether she may take the antibiotic her own dentist prescribed: the reason those
+         * questions are routed through the model at all is the sentence it writes on the way out.
+         * What the clinic actually needs guaranteed on a medical handoff is the emergency NUMBER,
+         * not the paragraph around it — so the number is appended to whatever it said, and the
+         * form reply survives only for the turn where it said nothing.
          */
+        const spoken = ai.text?.trim();
+        const gender = ctx.gender ?? "unknown";
         replyText =
           ai.topic === "medical"
-            ? clinicalReplyText(ctx.clinicPhone)
-            : ai.text?.trim()
-              ? ai.text.trim()
+            ? spoken
+              ? `${spoken}${spoken.includes(ctx.clinicPhone || "\u0000") ? "" : `\n\n${urgentCallLine(ctx.clinicPhone)}`}`
+              : clinicalReplyText(ctx.clinicPhone)
+            : spoken
+              ? spoken
               : ai.topic === "complaint"
-                ? "وصلتنا رسالتك 🙏 حد من إدارة العيادة هيتواصل معاك في أقرب وقت."
-                : "تمام 👍 الاستقبال هيتواصل معاك في أقرب وقت.";
+                ? `وصلتنا رسالتك 🙏 حد من إدارة العيادة هيتواصل ${voiceFor(gender).withYou} في أقرب وقت.`
+                : `تمام 👍 الاستقبال هيتواصل ${voiceFor(gender).withYou} في أقرب وقت.`;
         nextState = "handed_off";
         handoff = true;
         reason = `ai_handoff_${ai.topic}`;

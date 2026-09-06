@@ -270,10 +270,20 @@ const HANDOFF_REPLY = "تمام، حد من الاستقبال هيتواصل م
  * given nothing to phone, on a channel where looking the number up means leaving the conversation.
  */
 export function clinicalReplyText(clinicPhone?: string): string {
-  const urgent = clinicPhone?.trim()
+  return `وصلتنا رسالتك 🙏\nالرسالة دي محتاجة حد من العيادة يشوفها بنفسه، وهيتواصل مع حضرتك في أقرب وقت.\n\n${urgentCallLine(clinicPhone)}`;
+}
+
+/**
+ * Where to call when it cannot wait.
+ *
+ * Kept apart from the sentence in front of it because those two things answer to different
+ * masters: the number must appear on every medical handoff, word for word, while the sentence
+ * introducing it is better written fresh each time by whoever is actually talking to the patient.
+ */
+export function urgentCallLine(clinicPhone?: string): string {
+  return clinicPhone?.trim()
     ? `لو الموضوع مستعجل، كلمنا على طول على ${clinicPhone.trim()}`
     : "لو الموضوع مستعجل، كلمنا على تليفون العيادة على طول.";
-  return `وصلتنا رسالتك 🙏\nالرسالة دي محتاجة حد من العيادة يشوفها بنفسه، وهيتواصل مع حضرتك في أقرب وقت.\n\n${urgent}`;
 }
 
 /** A bare number 1..99 in any digit script, or null. "٣" and "3." are the same answer. */
