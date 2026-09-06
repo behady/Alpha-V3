@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import {
   LEGACY_PREFIXES,
   bookingHeroPath,
+  botMediaPath,
   clinicLogoPath,
   patientAvatarPath,
   patientMediaPath,
@@ -39,6 +40,7 @@ const clinicScoped = [
   toothImagePath(CLINIC, 11),
   clinicLogoPath(CLINIC, "my logo.png"),
   bookingHeroPath(CLINIC),
+  botMediaPath(CLINIC, "before after.jpg"),
 ];
 for (const path of clinicScoped) {
   assert.ok(path.startsWith(`clinics/${CLINIC}/`), `not clinic-scoped: ${path}`);
@@ -64,6 +66,21 @@ for (const bad of [null, undefined, "", "   "]) {
   assert.throws(() => toothImagePath(bad, 11), /No clinic selected/);
   assert.throws(() => clinicLogoPath(bad, "x.png"), /No clinic selected/);
   assert.throws(() => bookingHeroPath(bad), /No clinic selected/);
+  // The one that actually happened. BotMediaLibrary read the clinic with `currentClinicId()`,
+  // which returns null rather than throwing, and interpolated it — so `null` became the string
+  // "null" and the upload SUCCEEDED into `clinics/null/bot_media/`, a folder shared by every
+  // clinic in the same state. storage.rules accepts it: to a rule, "null" is just a clinic id.
+  assert.throws(() => botMediaPath(bad, "x.jpg"), /No clinic selected/);
+}
+// And the literal strings, which are what a template literal makes of a nullish. A builder that
+// let these through would be no better than the inline path it replaced: "null" passes every
+// other check here, and storage.rules treats it as an ordinary clinic id.
+for (const stringified of ["null", "undefined", "NaN", "[object Object]"]) {
+  assert.throws(() => botMediaPath(stringified, "x.jpg"), /Invalid clinic id/);
+  assert.throws(() => patientAvatarPath(stringified, "p1", "jpg"), /Invalid clinic id/);
+  assert.throws(() => toothImagePath(stringified, 11), /Invalid clinic id/);
+  assert.throws(() => patientMediaPath(CLINIC, stringified, "jpg"), /Invalid patient id/);
+  assert.throws(() => staffProfilePath(stringified), /Invalid user id/);
 }
 assert.throws(() => patientMediaPath(CLINIC, "", "jpg"), /Missing patient id/);
 assert.throws(() => staffProfilePath(""), /Missing user id/);
@@ -75,6 +92,15 @@ assert.throws(() => staffProfilePath(""), /Missing user id/);
 assert.throws(() => patientAvatarPath("a/b", "p1", "jpg"), /Invalid clinic id/);
 assert.throws(() => patientMediaPath(CLINIC, "../../other", "jpg"), /Invalid patient id/);
 assert.throws(() => staffProfilePath("a/b"), /Invalid user id/);
+
+// Bot media: the filename is free text from a file picker, and the tail is what is kept so a long
+// name still ends in its extension — these are PDFs as often as images.
+assert.match(botMediaPath(CLINIC, "before after.jpg"), /^clinics\/clinicA\/bot_media\/\d+_before_after\.jpg$/);
+assert.ok(!botMediaPath(CLINIC, "../../../etc/passwd").includes(".."));
+assert.match(botMediaPath(CLINIC, `${"n".repeat(200)}.pdf`), /\.pdf$/);
+assert.match(botMediaPath(CLINIC, ""), /\d+_file$/);
+// A name that scrubs away to nothing must not leave a path ending in a bare separator.
+assert.match(botMediaPath(CLINIC, "..."), /\d+_file$/);
 
 // Free-text that reaches a filename is scrubbed rather than trusted.
 assert.ok(!clinicLogoPath(CLINIC, "../../../etc/passwd").includes(".."));
