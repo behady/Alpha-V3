@@ -36,10 +36,6 @@
     {
       "path": "/api/automation/bot-coach",
       "schedule": "0 5 * * *"
-    },
-    {
-      "path": "/api/automation/flush-lead-welcome",
-      "schedule": "0 */4 * * *"
     }
   ]
 }
