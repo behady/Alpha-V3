@@ -113,7 +113,11 @@ const ACK_EMOJI_ALLOWED = ["👍", "👌", "✅", "🙏", "❤", "❤️", "😊
 const HUMAN = [
   "عايز اكلم حد", "عاوز اكلم حد", "اكلم حد", "عايز حد", "عاوز حد", "حد يكلمني", "حد يرد عليا",
   "عايز اتكلم", "ممكن اكلم حد", "موظف", "الاستقبال", "حد من الاستقبال", "بشري", "مش عايز بوت",
-  "عايز ادكتور", "الدكتور", "customer service", "talk to someone", "human", "agent", "operator",
+  // "الدكتور" on its own is not a request for a person: "الدكتور كتبلي إيه؟", "الدكتور قال
+  // إيه؟", "مين الدكتور؟" are questions ABOUT the dentist, and reading them as "put me through"
+  // sent a patient asking about their own prescription to an empty reception desk at 4am.
+  "عايز ادكتور", "عايز اكلم الدكتور", "ممكن اكلم الدكتور", "وصلني بالدكتور",
+  "customer service", "talk to someone", "human", "agent", "operator",
 ];
 const CANCEL = [
   "مش هعرف اجي", "مش هقدر اجي", "مش هاجي", "مش جاي", "مش هينفع اجي", "هلغي", "الغي الحجز",

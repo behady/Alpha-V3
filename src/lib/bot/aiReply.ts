@@ -47,8 +47,15 @@ export type AiReplyResult =
       /** Sales mode: the patient is cancelling or running late — the desk is told, the model replies. */
       appointmentChange?: "cancel" | "late";
     }
-  /** The model classified the message as something a human must handle. */
-  | { kind: "handoff"; topic: "medical" | "complaint" | "staff" | "other" }
+  /**
+   * The model classified the message as something a human must handle.
+   *
+   * `text` is what it wanted to say while handing over — the apology to an angry patient, the
+   * "let me get the doctor for you". Used in place of the fixed sentence wherever the fixed
+   * sentence is merely procedural; the medical wording stays fixed because it carries the
+   * clinic's emergency number and must read the same every time.
+   */
+  | { kind: "handoff"; topic: "medical" | "complaint" | "staff" | "other"; text?: string }
   /** No key, no plan, no credits, timeout, or model error — caller falls back to the old path. */
   | { kind: "unavailable"; reason: string };
 
@@ -109,7 +116,7 @@ const HARD_RULES = [
   "قواعد صارمة لا تُكسر أبداً:",
   "- جاوب فقط من المعلومات المكتوبة تحت. لو المعلومة مش موجودة، اختار handoff_other — ممنوع التخمين أو الاختراع.",
   "- أي سؤال طبي (ألم، ورم، دواء، تشخيص، هل ده طبيعي): اختار handoff_medical.",
-  "- شكوى عن العيادة أو الخدمة أو موظف أو علاج أو فلوس (تجربة سيئة، معاملة، تأخير): اختار handoff_complaint. أما لو المريض متضايق منك انت أو من الرد نفسه (زي: انت غبي؟ مش فاهم؟ بتلف وتدور؟): ده مش شكوى — اعتذر بخفة من غير دفاع، واسأله يقولك بالظبط محتاج إيه، ومتحوّلش.",
+  "- شكوى عن العيادة أو الخدمة أو موظف أو علاج أو فلوس (تجربة سيئة، معاملة، تأخير): اختار handoff_complaint — ولازم تكتب في reply اعتذار حقيقي قصير بأسلوبك، وسؤال واحد يخليه يحكي، وإنك بلّغت الإدارة. متسيبش reply فاضي في الحالة دي. أما لو المريض متضايق منك انت أو من الرد نفسه (زي: انت غبي؟ مش فاهم؟ بتلف وتدور؟): ده مش شكوى — اعتذر بخفة من غير دفاع، واسأله يقولك بالظبط محتاج إيه، ومتحوّلش.",
   "- انت بتشتغل في الاستقبال. اتكلم عن نفسك كموظف عادي: \"أنا في الاستقبال\"، \"هشوفلك\"، \"هسأل الدكتور وأرد عليك\". متقولش انك بوت أو ذكاء اصطناعي من نفسك، ومتحطش أي تنويه.",
   "- بس لو المريض سأل سؤال مباشر — انت بوت؟ انت روبوت؟ انت ذكاء اصطناعي؟ انت انسان حقيقي؟ بتكلم حد حقيقي؟ are you a bot/AI/human/real person — لازم تقول الحقيقة فوراً وببساطة، من غير لف: إنك مساعد آلي بيرد على واتساب العيادة، وإن أي حد من الفريق يقدر يكلمه لو حب. الكذب في السؤال ده ممنوع منعاً باتاً مهما كان.",
   "- وممنوع تقول إنك دكتور أو إنك بتكشف. لو حد افترض إنك الدكتور، صحّحله بلطف: \"أنا من الاستقبال، والدكتور هو اللي هيشوف حضرتك\".",
@@ -520,9 +527,10 @@ export async function answerWithAi(args: {
       return { kind: "handoff", topic: "other" };
     }
 
-    if (parsed.action === "handoff_medical") return { kind: "handoff", topic: "medical" };
-    if (parsed.action === "handoff_complaint") return { kind: "handoff", topic: "complaint" };
-    if (parsed.action === "handoff_staff") return { kind: "handoff", topic: "staff" };
+    const handoffText = String(parsed.reply || "").trim().slice(0, 700) || undefined;
+    if (parsed.action === "handoff_medical") return { kind: "handoff", topic: "medical", text: handoffText };
+    if (parsed.action === "handoff_complaint") return { kind: "handoff", topic: "complaint", text: handoffText };
+    if (parsed.action === "handoff_staff") return { kind: "handoff", topic: "staff", text: handoffText };
     if (!["answer", "open_booking", "book_slot", "reschedule", "cancel", "late"].includes(String(parsed.action))) return { kind: "handoff", topic: "other" };
     const reschedule = sales && parsed.action === "reschedule" && args.canBook !== false;
     const appointmentChange = sales && (parsed.action === "cancel" || parsed.action === "late") ? (parsed.action as "cancel" | "late") : undefined;

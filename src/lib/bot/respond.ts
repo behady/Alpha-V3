@@ -1118,12 +1118,21 @@ ${askWho}` : askWho;
         // told someone is coming, and the conversation is flagged so someone actually comes.
         // The medical wording is the engine's, phone number included. Two paths reaching the same
         // conclusion must not give the patient two different amounts of help getting there.
+        /*
+         * The model's own words when it has them.
+         *
+         * An angry patient answered with a form sentence stays angry; the apology it wrote is
+         * the whole point of routing complaints through it. The medical line is the exception —
+         * it carries the clinic's emergency number and must read identically every time.
+         */
         replyText =
           ai.topic === "medical"
             ? clinicalReplyText(ctx.clinicPhone)
-            : ai.topic === "complaint"
-              ? "وصلتنا رسالتك 🙏 حد من إدارة العيادة هيتواصل معاك في أقرب وقت."
-              : "تمام 👍 الاستقبال هيتواصل معاك في أقرب وقت.";
+            : ai.text?.trim()
+              ? ai.text.trim()
+              : ai.topic === "complaint"
+                ? "وصلتنا رسالتك 🙏 حد من إدارة العيادة هيتواصل معاك في أقرب وقت."
+                : "تمام 👍 الاستقبال هيتواصل معاك في أقرب وقت.";
         nextState = "handed_off";
         handoff = true;
         reason = `ai_handoff_${ai.topic}`;

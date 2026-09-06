@@ -641,7 +641,16 @@ export function decideBotReply(args: {
     // Cancelling, running late, moving, "my appointment": the model handles these too — it has
     // actions for the first three and the appointment in its context — so the answer comes in
     // the patient's own language instead of a fixed Arabic line. Complaints still escalate.
-    const ACTIONS = new Set<QuickIntent>(["complaint", "thanks", ...(ctx.hasSoonAppointment ? (["ack"] as QuickIntent[]) : [])]);
+    /*
+     * A complaint goes to the model too now.
+     *
+     * The fixed line — "we've received your message, management will contact you" — is correct
+     * and completely cold: it does not apologise, does not ask what happened, and reads like a
+     * form. The model answers an angry patient in their own words and STILL raises the same
+     * flag and the same notification through handoff_complaint, so nothing is lost but the
+     * coldness. Only the courtesies stay deterministic, because they cost nothing to get right.
+     */
+    const ACTIONS = new Set<QuickIntent>(["thanks", ...(ctx.hasSoonAppointment ? (["ack"] as QuickIntent[]) : [])]);
     if (!intent || !ACTIONS.has(intent)) {
       return { reply: "", action: { type: "ai", question: text }, next: "awaiting_choice", handoff: false, reason: "ai" };
     }
