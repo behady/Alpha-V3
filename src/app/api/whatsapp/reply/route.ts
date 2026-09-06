@@ -33,9 +33,21 @@ export const runtime = "nodejs";
  */
 async function captureStaffAnswer(clinicId: string, phone: string, answer: string, staffName?: string): Promise<void> {
   const conv = adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(phone));
-  const inbound = await conv.collection("messages").where("direction", "==", "in").orderBy("at", "desc").limit(1).get();
-  const question = String(inbound.docs[0]?.data()?.text || "").trim();
-  if (question.length < 8 || /^\d+$/.test(question) || question.startsWith("[")) return;
+  /*
+   * The patient's last question — read by time and filtered here rather than with a where+orderBy,
+   * which needs a composite index this project never declared: the query threw, the caller
+   * swallowed it, and not one staff answer was ever learned.
+   *
+   * `author` matters as much as `direction`: the assistant writes its own lines into the thread
+   * too — the "🖼️ وصف الصورة (للفريق)" note it writes about a photo is an inbound line — and
+   * filing a staff reply as the answer to the BOT's own description taught it nonsense.
+   */
+  const recent = await conv.collection("messages").orderBy("at", "desc").limit(12).get();
+  const lastPatientLine = recent.docs
+    .map((d) => d.data() || {})
+    .find((m) => m.direction === "in" && m.author === "patient");
+  const question = String(lastPatientLine?.text || "").trim();
+  if (question.length < 8 || /^\d+$/.test(question) || question.startsWith("[") || question.startsWith("🖼️") || question.startsWith("🎤")) return;
   // The same question answered twice by staff is one lesson, not two.
   const dup = await adminClinicCollection(clinicId, "bot_knowledge").where("question", "==", question).limit(1).get();
   if (!dup.empty) return;

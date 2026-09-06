@@ -60,8 +60,11 @@ async function runForClinic(clinicId: string): Promise<{ results: Result[] }> {
     if (!patientId || normalizeAppointmentStatus(String(a.status || "")) !== "No Show" || a.noShowRecoveryAt) continue;
 
     // Already rebooked: the door is open, no need to knock.
-    const upcoming = await adminClinicCollection(clinicId, "appointments").where("patientId", "==", patientId).where("date", ">=", today).limit(5).get();
-    if (upcoming.docs.some((u) => !/cancel|no.?show/i.test(String(u.data().status || "")))) {
+    // One equality, filtered in memory: an equality plus an inequality on a different field needs
+    // a composite index, and without it this threw and aborted the whole clinic's run — while the
+    // cron still reported success.
+    const upcoming = await adminClinicCollection(clinicId, "appointments").where("patientId", "==", patientId).limit(50).get();
+    if (upcoming.docs.some((u) => String(u.data().date || "") >= today && !/cancel|no.?show/i.test(String(u.data().status || "")))) {
       results.push({ appointmentId: d.id, status: "skipped", reason: "rebooked" });
       continue;
     }

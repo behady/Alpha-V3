@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse, after } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
-import { adminClinicCollection } from "@/lib/adminClinicDb";
+import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { respondToPatientMessage } from "@/lib/bot/respond";
+import { conversationKey } from "@/lib/bot/conversation";
 import { transcribeWhatsappAudio } from "@/lib/bot/transcribe";
 import { describeWhatsappImage } from "@/lib/bot/describeImage";
 import { loadMetaWhatsappConfig, sendMetaTypingIndicator } from "@/lib/metaWhatsapp";
@@ -22,7 +23,7 @@ export const dynamic = "force-dynamic";
  * and the model's slow tail is what it is spent on. Without this the platform default cuts the
  * background work off mid-turn and the patient gets nothing at all.
  */
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 /**
  * The official WhatsApp Cloud API inbound webhook.
@@ -98,8 +99,17 @@ async function claimMessage(clinicId: string, messageId: string): Promise<boolea
       .doc(messageId.replace(/[/\\]/g, "_").slice(0, 200))
       .create({ at: FieldValue.serverTimestamp() });
     return true;
-  } catch {
-    return false; // already claimed by an earlier delivery of the same message
+  } catch (e) {
+    /*
+     * Only ALREADY_EXISTS means somebody else has this message. Treating every error as a claim
+     * meant one blip on the write path silently deleted a patient's message: no reply, no thread
+     * line, and a 200 that stopped Meta ever retrying it. A duplicate answer is embarrassing; a
+     * swallowed question is a lost patient, so anything else fails open.
+     */
+    const code = (e as { code?: number | string })?.code;
+    const already = code === 6 || code === "already-exists" || /already exists/i.test(String((e as Error)?.message || ""));
+    if (!already) console.warn("[meta-whatsapp] claim write failed, answering anyway:", e);
+    return !already;
   }
 }
 
@@ -333,13 +343,26 @@ export async function POST(request: NextRequest) {
         }
         try {
           /*
+           * Reading costs money, so it happens only for a message the assistant may actually
+           * answer. Transcription and photo description each spend a credit and a Gemini call,
+           * and they ran BEFORE every gate — a clinic with the bot switched off, a number that
+           * had said STOP, and a thread a human had taken over were all billed for answers that
+           * were then never sent.
+           */
+          const gate = await adminClinicDoc(clinicId, "settings", "whatsapp").get().catch(() => null);
+          const botOn = gate?.data()?.botEnabled === true;
+          const convGate = await adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(msg.from)).get().catch(() => null);
+          const cg = convGate?.data() || {};
+          const mayRead = botOn && cg.optedOut !== true && cg.botPaused !== true;
+
+          /*
            * A voice note is read before it is answered. The transcript is handled exactly as
            * typed text — triage, intents, booking — so a spoken "وشي وارم" reaches the emergency
            * path. Any failure keeps the old behaviour: an acknowledgement and a person.
            */
           let text = msg.text;
           let media = msg.media;
-          if (msg.media === "audio" && msg.mediaId && !text) {
+          if (mayRead && msg.media === "audio" && msg.mediaId && !text) {
             const t = await transcribeWhatsappAudio(clinicId, msg.mediaId);
             if (t.ok) {
               text = t.text;
@@ -355,7 +378,7 @@ export async function POST(request: NextRequest) {
            * look" — the description goes into the thread and the handoff, never to them.
            */
           let mediaNote: { summary: string; urgent: boolean; interest?: string } | undefined;
-          if (msg.media === "image" && msg.mediaId && !text) {
+          if (mayRead && msg.media === "image" && msg.mediaId && !text) {
             const d = await describeWhatsappImage(clinicId, msg.mediaId);
             if (d.ok) {
               mediaNote = { summary: d.summary, urgent: d.urgent, interest: d.interest || undefined };

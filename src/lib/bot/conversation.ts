@@ -50,6 +50,14 @@ export const MAX_TURNS = 40;
  * later; bounded so a handoff nobody clears cannot mute a patient's number for good. Staff
  * marking it handled ends it early.
  */
+/**
+ * How long a staff "take over" holds the thread before the bot may speak again.
+ *
+ * Twelve hours: long enough to cover a shift and any reasonable back-and-forth, short enough that
+ * a forgotten pause does not mute a patient's number for the rest of its life.
+ */
+export const BOT_PAUSE_MAX_MS = 12 * 60 * 60 * 1000;
+
 export const HANDOFF_HOLD_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -124,6 +132,8 @@ export interface BotConversation {
   lastInterest?: string;
   /** What the assistant remembers from earlier conversations with this number (nightly summary). */
   memory?: string;
+  /** The patient last wrote in Latin script, so the fixed lines and the buttons go out in English. */
+  lastLatin?: boolean;
   /**
    * A person owns this thread right now.
    *
@@ -232,8 +242,15 @@ export async function loadConversation(
   // A third signal, with no clock on it: staff pressed "take over" in the chat screen. It holds
   // until they hand the thread back, because a person mid-conversation should not have to keep
   // re-claiming it every hour to stop the bot barging in.
-  const humanOwned =
-    openHandoff || humanActiveAtMs > now - humanClaimMs || d.botPaused === true;
+  /*
+   * "Take over" used to be forever. A receptionist who paused the bot on a Thursday and forgot
+   * silenced that patient's number permanently — no bot, no nudge, no SLA, because botPaused is
+   * excluded from all three. It now lapses like every other claim, just far more slowly: a shift,
+   * not an hour. "Hand back" still clears it instantly.
+   */
+  const pausedAt = Number(d.botPausedAtMs) || Number(d.botPausedAt) || 0;
+  const paused = d.botPaused === true && (pausedAt === 0 || pausedAt > now - BOT_PAUSE_MAX_MS);
+  const humanOwned = openHandoff || humanActiveAtMs > now - humanClaimMs || paused;
 
   /*
    * A handoff staff have marked handled releases the bot — including from the stored state.
@@ -254,7 +271,7 @@ export async function loadConversation(
     state: humanOwned ? "handed_off" : expired ? "new" : released ? "awaiting_choice" : storedState,
     humanOwned,
     // A person has actually written or paused the bot — as opposed to a flag raised for one.
-    staffActive: humanActiveAtMs > now - humanClaimMs || d.botPaused === true,
+    staffActive: humanActiveAtMs > now - humanClaimMs || paused,
     turns: expired ? 0 : Number(d.turns) || 0,
     patientId: typeof d.patientId === "string" ? d.patientId : undefined,
     patientName: typeof d.patientName === "string" ? d.patientName : undefined,
@@ -277,6 +294,8 @@ export async function loadConversation(
     lastInterest: !expired && typeof d.lastInterest === "string" ? d.lastInterest : undefined,
     // Memory outlives the conversation on purpose: it is what makes the next one warm.
     memory: typeof d.memory === "string" ? d.memory : undefined,
+    // Survives expiry with the memory: the language somebody speaks does not lapse in an hour.
+    lastLatin: d.lastLatin === true,
     aiReplies: !expired ? Number(d.aiReplies) || 0 : 0,
     aiHistory:
       !expired && Array.isArray(d.aiHistory)
@@ -317,17 +336,25 @@ export async function saveConversation(
      * budget survives menu turns — a patient cannot refill it by pressing a button.
      */
     aiExchange?: { q: string; a: string };
+    /** The script of THIS message: true Latin, false Arabic, absent when it says nothing either way. */
+    latin?: boolean;
   },
   now: number
 ): Promise<void> {
   const payload: Record<string, unknown> = {
     phone: c.phone,
     state: next.state,
-    turns: c.turns + 1,
+    // Counted by the server, not by whoever read the document first. Three messages arriving in
+    // the same second used to read the same `repliesInWindow`, each add one to it, and each write
+    // the same number back — so the hourly ban-protection cap counted one reply instead of three.
+    turns: FieldValue.increment(1),
     lastMessageAt: now,
     lastReason: next.reason,
     windowStartedAt: c.windowStartedAt,
-    repliesInWindow: c.repliesInWindow + (next.replied ? 1 : 0),
+    // The window reset is the one case that must overwrite rather than add: a fresh hour starts
+    // this turn's replies at zero, and `loadConversation` is what decides the window has rolled.
+    repliesInWindow:
+      c.repliesInWindow === 0 ? (next.replied ? 1 : 0) : FieldValue.increment(next.replied ? 1 : 0),
     // Overwritten every turn, cleared when not re-offered: an old list surviving into a new
     // context is how a stray digit books the wrong day.
     pendingDays: next.pending?.days ?? null,
@@ -339,7 +366,7 @@ export async function saveConversation(
     pendingDayWord: next.pending?.dayWord ?? null,
     pendingForRelative: next.pending?.forRelative === true,
     pendingReschedule: next.pending?.reschedule ?? null,
-    aiReplies: (c.aiReplies ?? 0) + (next.aiExchange ? 1 : 0),
+    aiReplies: (c.aiReplies ?? 0) === 0 ? (next.aiExchange ? 1 : 0) : FieldValue.increment(next.aiExchange ? 1 : 0),
     // Trimmed hard: this is continuity for a three-answer conversation, not an archive.
     aiHistory: next.aiExchange
       ? [...(c.aiHistory ?? []), { q: next.aiExchange.q.slice(0, 300), a: next.aiExchange.a.slice(0, 300) }].slice(-3)
@@ -347,6 +374,7 @@ export async function saveConversation(
     updatedAt: FieldValue.serverTimestamp(),
   };
   // Firestore rejects an explicit undefined, and these are optional by nature.
+  if (next.latin !== undefined) payload.lastLatin = next.latin;
   if (next.patientId ?? c.patientId) payload.patientId = next.patientId ?? c.patientId;
   if (next.patientName ?? c.patientName) payload.patientName = next.patientName ?? c.patientName;
 
@@ -377,17 +405,39 @@ export async function markHandoff(
     needsHuman: true,
     handoffReason: reason,
     handoffAt: FieldValue.serverTimestamp(),
-    // A plain number beside the server timestamp: the bot compares against it on every read, and
-    // a Firestore Timestamp is not a number. Also what re-opens a handoff staff already cleared —
-    // a new one is simply later than the last handledAtMs.
-    handoffAtMs: Date.now(),
   };
   // Firestore rejects an explicit undefined; optional by nature.
   if (details.text?.trim()) payload.lastInbound = details.text.trim().slice(0, 300);
   if (details.phone) payload.phone = details.phone;
   if (details.patientId) payload.patientId = details.patientId;
   if (details.patientName) payload.patientName = details.patientName;
-  payload.severity = details.severity ?? "normal";
+
+  /*
+   * The clock starts when the patient first needed a person, not when they last wrote.
+   *
+   * Re-stamping `handoffAtMs` on every turn is how a patient who keeps writing — "hello?",
+   * "anyone there?" — kept resetting their own fifteen-minute alarm, so the escalation that
+   * exists precisely for them never fired. A handoff that is still open keeps its original
+   * moment; a genuinely new one (staff had already handled the last) starts fresh.
+   *
+   * Severity only ever climbs while a handoff is open: an ordinary question arriving after a
+   * swollen face must not quietly downgrade the row staff are looking at.
+   */
+  const RANK: Record<string, number> = { normal: 0, complaint: 1, urgent: 2 };
+  const snap = await ref(clinicId, phoneKey).get();
+  const prev = snap.exists ? snap.data() || {} : {};
+  const openAt = Number(prev.handoffAtMs) || 0;
+  const handled = Number(prev.handledAtMs) || 0;
+  const stillOpen = prev.needsHuman === true && openAt > 0 && handled < openAt;
+  const now = Date.now();
+  payload.handoffAtMs = stillOpen ? openAt : now;
+  const wanted = details.severity ?? "normal";
+  const prevSeverity = typeof prev.severity === "string" ? prev.severity : "normal";
+  payload.severity = stillOpen && (RANK[prevSeverity] ?? 0) > (RANK[wanted] ?? 0) ? prevSeverity : wanted;
+  // The reason staff read follows the severity that won, so the row explains the worst thing on it.
+  if (stillOpen && payload.severity === prevSeverity && prevSeverity !== wanted && typeof prev.handoffReason === "string") {
+    payload.handoffReason = prev.handoffReason;
+  }
   await ref(clinicId, phoneKey).set(payload, { merge: true });
 }
 

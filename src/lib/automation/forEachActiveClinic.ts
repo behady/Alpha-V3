@@ -25,10 +25,28 @@ export async function forEachActiveClinic<T>(
 ): Promise<ClinicRunResult<T>[]> {
   const snap = await adminDb().collection("clinics").get();
 
+  const now = Date.now();
   const active = snap.docs.filter((doc) => {
-    const status = (doc.data() || {}).status;
+    const d = (doc.data() || {}) as Record<string, unknown>;
+    const status = d.status;
     // Absent status means Active, per the rules helper.
-    return status === undefined || status === null || status === "Active";
+    if (!(status === undefined || status === null || status === "Active")) return false;
+    /*
+     * An expiry date that has passed is not active either, whatever the status field says.
+     * Without this, a clinic whose subscription lapsed months ago kept sending patients
+     * reminders and recalls and kept spending its owner's AI credits every night.
+     */
+    const raw = d.expiresAt ?? d.subscriptionExpiresAt ?? d.expiryDate;
+    const ms =
+      typeof raw === "string"
+        ? Date.parse(raw)
+        : typeof raw === "number"
+          ? raw
+          : raw && typeof (raw as { toMillis?: () => number }).toMillis === "function"
+            ? (raw as { toMillis: () => number }).toMillis()
+            : NaN;
+    if (Number.isFinite(ms) && ms < now) return false;
+    return true;
   });
 
   const results: ClinicRunResult<T>[] = [];

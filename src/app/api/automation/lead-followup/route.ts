@@ -6,6 +6,8 @@ import { forEachActiveClinic } from "@/lib/automation/forEachActiveClinic";
 import { clinicNow } from "@/lib/publicBooking";
 import { clinicDisplayName } from "@/lib/sms/events";
 import { isWhatsAppBlocked } from "@/lib/patientMessaging";
+import { phoneMatchKey } from "@/lib/patientPhone";
+import { conversationKey } from "@/lib/bot/conversation";
 import { deliverWhatsAppMessage } from "@/lib/whatsappDelivery";
 import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
 
@@ -77,9 +79,21 @@ async function runForClinic(clinicId: string): Promise<{ results: FollowupResult
     if (!phone) { results.push({ leadId: d.id, status: "skipped", reason: "no_phone" }); continue; }
 
     // Opted out on their patient record, if they have one; and never chase someone already booked.
-    const patients = await adminClinicCollection(clinicId, "patients").where("phone", "==", phone).limit(1).get();
-    const patient = patients.docs[0]?.data() as Record<string, unknown> | undefined;
+    /*
+     * An exact-string phone match is not an opt-out check in this database: numbers are stored
+     * as "+2010…", "0010…", "0100…" and with Arabic digits, so the one patient who said STOP was
+     * looked up under a spelling nobody had and messaged anyway. Matched on the last nine digits,
+     * the same rule patientPhone uses everywhere else.
+     */
+    const wantKey = phoneMatchKey(phone);
+    const patients = await adminClinicCollection(clinicId, "patients").limit(3000).get();
+    const patient = patients.docs
+      .map((p) => p.data() as Record<string, unknown>)
+      .find((p) => phoneMatchKey(String(p.phone || "")) === wantKey && wantKey.length >= 7);
     if (patient && isWhatsAppBlocked(patient)) { results.push({ leadId: d.id, status: "skipped", reason: "opted_out" }); continue; }
+    // A number that opted out from a thread the clinic has no patient record for still counts.
+    const convOptOut = await adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(phone)).get().catch(() => null);
+    if (convOptOut?.data()?.optedOut === true) { results.push({ leadId: d.id, status: "skipped", reason: "opted_out" }); continue; }
     if (await hasUpcomingAppointment(clinicId, phone)) {
       await d.ref.set({ stage: "booked", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       results.push({ leadId: d.id, status: "skipped", reason: "already_booked" });
