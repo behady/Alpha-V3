@@ -8,6 +8,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -24,6 +27,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -53,23 +60,41 @@ fun InventorySheet(
     canEdit: Boolean,
     arabic: Boolean,
     onAdjust: (InventoryItem, Double) -> Unit,
+    /** Add or edit an item. Null for roles that may only adjust what is already listed. */
+    onSaveItem: ((InventoryItem) -> Unit)? = null,
     onDismiss: () -> Unit,
     /** The last read failed. A bottom sheet has no pull to refresh, so the banner carries Retry. */
     error: String? = null,
     onRetry: () -> Unit = {},
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var editing by remember { mutableStateOf<InventoryItem?>(null) }
     val low = lowStockCount(items)
     val unset = unconfiguredCount(items)
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = Alpha.Card) {
         Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 28.dp)) {
-            Text(
-                if (arabic) "المخزون" else "Stock",
-                fontSize = 22.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = Alpha.Slate900,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (arabic) "المخزون" else "Stock",
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Alpha.Slate900,
+                    modifier = Modifier.weight(1f),
+                )
+                onSaveItem?.let {
+                    androidx.compose.material3.TextButton(onClick = {
+                        editing = InventoryItem(id = "", name = "")
+                    }) {
+                        Text(
+                            if (arabic) "＋ صنف جديد" else "＋ New item",
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Alpha.Green,
+                            fontSize = 13.sp,
+                        )
+                    }
+                }
+            }
 
             if (!loading) {
                 Spacer(Modifier.height(10.dp))
@@ -106,7 +131,9 @@ fun InventorySheet(
                 }
 
                 items.isEmpty() -> Text(
-                    if (error != null) "" else if (arabic) "لا توجد أصناف في المخزون." else "No stock items yet.",
+                    if (error != null) "" else if (onSaveItem != null) {
+                        if (arabic) "لا توجد أصناف. اضغط \"صنف جديد\"." else "No stock items yet. Tap New item."
+                    } else if (arabic) "لا توجد أصناف في المخزون." else "No stock items yet.",
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     color = Alpha.Slate400,
@@ -186,8 +213,113 @@ fun InventorySheet(
             )
         }
     }
+    editing?.let { item ->
+        InventoryItemEditor(
+            item = item,
+            arabic = arabic,
+            onSave = { onSaveItem?.invoke(it); editing = null },
+            onDismiss = { editing = null },
+        )
+    }
 }
 
 /** Percentage-tracked materials read as "60% left"; counted ones as a plain number. */
 private fun formatStock(item: InventoryItem): String =
     if (item.isPercentage) "${item.stock.toInt()}%" else item.stock.toInt().toString()
+
+/**
+ * Adding a stock item, or correcting one.
+ *
+ * The reorder level is the field that matters and the one people skip, so it says what it is for
+ * rather than sitting there as a number: an item with no level set can never raise a low-stock
+ * alert, which is how a clinic runs out of something nobody was watching.
+ *
+ * The running quantity is asked for only when the item is new. On an edit it is deliberately
+ * absent — stock moves through adjustments, and a form that carried the number would undo every
+ * adjustment made between opening the form and saving it.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun InventoryItemEditor(
+    item: InventoryItem,
+    arabic: Boolean,
+    onSave: (InventoryItem) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var draft by remember(item.id) { mutableStateOf(item) }
+    val isNew = item.id.isBlank()
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = Alpha.Card,
+    ) {
+        Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                .imePadding()
+                .padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
+        ) {
+            Text(
+                if (isNew) (if (arabic) "صنف جديد" else "New item") else draft.name,
+                fontSize = 19.sp,
+                fontWeight = FontWeight.ExtraBold,
+                fontFamily = AlphaType.Display,
+                color = Alpha.Slate900,
+            )
+
+            SettingsField(if (arabic) "الاسم" else "Name", draft.name, { draft = draft.copy(name = it) })
+            SettingsField(
+                if (arabic) "التصنيف" else "Category",
+                draft.category,
+                { draft = draft.copy(category = it) },
+                hint = "General",
+            )
+            SettingsField(
+                if (arabic) "الوحدة" else "Unit",
+                draft.unit,
+                { draft = draft.copy(unit = it) },
+                hint = if (arabic) "قطعة، علبة، مل" else "pcs, box, ml",
+            )
+            if (isNew) {
+                SettingsField(
+                    if (arabic) "الكمية الحالية" else "Quantity now",
+                    if (draft.stock > 0) formatNumber(draft.stock) else "",
+                    { draft = draft.copy(stock = it.toDoubleOrNull() ?: 0.0) },
+                    numeric = true,
+                )
+            }
+            SettingsField(
+                if (arabic) "حد إعادة الطلب" else "Reorder level",
+                if (draft.minStock > 0) formatNumber(draft.minStock) else "",
+                { draft = draft.copy(minStock = it.toDoubleOrNull() ?: 0.0) },
+                hint = if (arabic) "ينبّهك عندما تقل الكمية عن هذا" else "warns you when the count drops below this",
+                numeric = true,
+            )
+            SettingsField(
+                if (arabic) "تكلفة الوحدة" else "Cost per unit",
+                if (draft.costPerUnit > 0) formatNumber(draft.costPerUnit) else "",
+                { draft = draft.copy(costPerUnit = it.toDoubleOrNull() ?: 0.0) },
+                numeric = true,
+            )
+
+            Spacer(Modifier.height(20.dp))
+            androidx.compose.material3.Button(
+                onClick = { onSave(draft) },
+                enabled = draft.name.isNotBlank(),
+                shape = Alpha.PillShape,
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                    containerColor = Alpha.Ink,
+                    contentColor = androidx.compose.ui.graphics.Color.White,
+                ),
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+            ) {
+                Text(if (arabic) "حفظ" else "Save", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+            }
+        }
+    }
+}
+
+/** Whole numbers without a trailing ".0", which is how a count of boxes should read. */
+private fun formatNumber(value: Double): String =
+    if (value == value.toLong().toDouble()) value.toLong().toString() else value.toString()

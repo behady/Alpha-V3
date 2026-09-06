@@ -596,6 +596,9 @@ object Repository {
                 minStock = (doc.get("minStock") as? Number)?.toDouble() ?: 0.0,
                 isPercentage = doc.getBoolean("isPercentage") == true,
                 costPerUnit = (doc.get("costPerUnit") as? Number)?.toDouble() ?: 0.0,
+                category = doc.getString("category").orEmpty(),
+                subCategory = doc.getString("subCategory").orEmpty(),
+                unit = doc.getString("unit").orEmpty(),
             )
         }.sortedWith(compareByDescending<InventoryItem> { isLowStock(it) }.thenBy { it.name })
     }
@@ -724,6 +727,35 @@ object Repository {
                 "checkOutAccuracyM" to accuracy,
             )
         ).await()
+    }
+
+    /**
+     * Add a stock item, or change one that is already there.
+     *
+     * The same fields and the same defaults as the website's form — "General" for a missing
+     * category and "pcs" for a missing unit — so an item created on the phone reads identically
+     * on the stock page. The running quantity is written only when the item is NEW: an edit that
+     * carried the stock figure would quietly undo every adjustment made since the form was opened.
+     */
+    suspend fun saveInventoryItem(clinicId: String, item: InventoryItem): Result<Unit> = runCatching {
+        val body = mutableMapOf<String, Any>(
+            "name" to item.name.trim(),
+            "category" to item.category.trim().ifBlank { "General" },
+            "subCategory" to item.subCategory.trim(),
+            "minStock" to item.minStock,
+            "costPerUnit" to item.costPerUnit,
+            "unit" to item.unit.trim().ifBlank { "pcs" },
+            "isPercentage" to item.isPercentage,
+            "updatedAt" to FieldValue.serverTimestamp(),
+        )
+        val items = inventory(clinicId)
+        if (item.id.isBlank()) {
+            body["stock"] = item.stock
+            body["createdAt"] = FieldValue.serverTimestamp()
+            items.document().set(body).await()
+        } else {
+            items.document(item.id).set(body, SetOptions.merge()).await()
+        }
     }
 
     // ------------------------------------------------------------- clinical notes

@@ -41,6 +41,7 @@ import com.alphadental.clinic.data.Chats
 import com.alphadental.clinic.data.LabCases
 import com.alphadental.clinic.data.Attendance
 import com.alphadental.clinic.data.ClinicSettings
+import com.alphadental.clinic.data.TreatmentPlans
 import com.alphadental.clinic.ai.JoinRequestClient
 import com.alphadental.clinic.ui.SettingsSection
 import com.alphadental.clinic.ui.SettingsState
@@ -222,6 +223,14 @@ data class AppState(
     val attendancePayroll: PayrollClient.Payroll? = null,
     val attendancePayrollLoading: Boolean = false,
     val attendancePayrollError: String? = null,
+    // --- treatment plans, for the patient whose file is open ---
+    val plansOpen: Boolean = false,
+    val plans: List<TreatmentPlans.Plan> = emptyList(),
+    val plansLoading: Boolean = false,
+    val plansSaving: Boolean = false,
+    val plansError: String? = null,
+    /** The price list, which is where a plan's prices come from. Read with the plans. */
+    val planServices: List<ClinicSettings.ServiceRow> = emptyList(),
     // --- settings ---
     val settingsOpen: Boolean = false,
     val settings: SettingsState = SettingsState(),
@@ -1007,6 +1016,24 @@ class AppViewModel : ViewModel() {
         refreshInventory()
     }
 
+    /** Add a stock item or correct one; the list is re-read so the new row appears at once. */
+    fun saveInventoryItem(item: com.alphadental.clinic.data.InventoryItem) {
+        val session = _state.value.session ?: return
+        viewModelScope.launch {
+            Repository.saveInventoryItem(session.clinicId, item)
+                .onSuccess {
+                    _state.value = _state.value.copy(message = if (_state.value.arabic) "تم الحفظ." else "Saved.")
+                    refreshInventory()
+                }
+                .onFailure { error ->
+                    Crash.record(error, "inventory item save")
+                    _state.value = _state.value.copy(
+                        message = if (_state.value.arabic) "تعذّر حفظ الصنف." else "Could not save the item.",
+                    )
+                }
+        }
+    }
+
     fun refreshInventory() {
         val session = _state.value.session ?: return
         _state.value = _state.value.copy(loadingInventory = true, inventoryError = null)
@@ -1161,6 +1188,95 @@ class AppViewModel : ViewModel() {
                             attendancePayrollError = error.message ?: loadFailure(error),
                         )
                     }
+                }
+        }
+    }
+
+    // --- treatment plans --------------------------------------------------------------------
+
+    /**
+     * Open the plans for the patient whose file is on screen.
+     *
+     * The price list is read alongside them because a plan is built out of it: opening the
+     * picker to find it still loading is the kind of pause that makes someone give up and write
+     * a number by hand.
+     */
+    fun openTreatmentPlans() {
+        val session = _state.value.session ?: return
+        val patientId = _state.value.openPatientId ?: return
+        _state.value = _state.value.copy(plansOpen = true, plansLoading = true, plansError = null)
+        viewModelScope.launch {
+            val loaded = runCatching { TreatmentPlans.load(session.clinicId, patientId) }
+            val services = runCatching { ClinicSettings.loadServices(session.clinicId) }.getOrDefault(emptyList())
+            loaded
+                .onSuccess { rows ->
+                    _state.value = _state.value.copy(plans = rows, planServices = services, plansLoading = false)
+                }
+                .onFailure { error ->
+                    Crash.record(error, "treatment plans load")
+                    _state.value = _state.value.copy(plansLoading = false, plansError = loadFailure(error))
+                }
+        }
+    }
+
+    fun closeTreatmentPlans() {
+        _state.value = _state.value.copy(plansOpen = false, plansError = null)
+    }
+
+    /** Write a plan and re-read the list, so what is on screen is what is stored. */
+    fun saveTreatmentPlan(
+        planId: String,
+        title: String,
+        description: String,
+        visits: List<TreatmentPlans.Visit>,
+    ) {
+        val session = _state.value.session ?: return
+        val file = _state.value.patientFile ?: return
+        if (_state.value.plansSaving) return
+        _state.value = _state.value.copy(plansSaving = true, plansError = null)
+        viewModelScope.launch {
+            TreatmentPlans.save(
+                clinicId = session.clinicId,
+                planId = planId,
+                patientId = file.patient.id,
+                patientName = file.patient.name,
+                title = title.ifBlank { if (_state.value.arabic) "خطة علاج" else "Treatment plan" },
+                description = description,
+                visits = visits,
+                currency = "EGP",
+                doctorName = session.name,
+                uid = session.uid,
+            ).onSuccess {
+                _state.value = _state.value.copy(
+                    plansSaving = false,
+                    message = if (_state.value.arabic) "تم حفظ الخطة." else "Plan saved.",
+                )
+                openTreatmentPlans()
+            }.onFailure { error ->
+                Crash.record(error, "treatment plan save")
+                _state.value = _state.value.copy(
+                    plansSaving = false,
+                    plansError = if (_state.value.arabic) "تعذّر حفظ الخطة." else "Could not save the plan.",
+                )
+            }
+        }
+    }
+
+    /** Where the plan has got to with the patient: drafted, shown, accepted or turned down. */
+    fun setTreatmentPlanStatus(plan: TreatmentPlans.Plan, status: String) {
+        val session = _state.value.session ?: return
+        viewModelScope.launch {
+            TreatmentPlans.setStatus(session.clinicId, plan.id, status)
+                .onSuccess {
+                    _state.value = _state.value.copy(
+                        plans = _state.value.plans.map { if (it.id == plan.id) it.copy(status = status) else it }
+                    )
+                }
+                .onFailure { error ->
+                    Crash.record(error, "treatment plan status")
+                    _state.value = _state.value.copy(
+                        plansError = if (_state.value.arabic) "تعذّر التحديث." else "Could not update.",
+                    )
                 }
         }
     }

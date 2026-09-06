@@ -13,6 +13,11 @@ data class InventoryItem(
     val minStock: Double = 0.0,
     val isPercentage: Boolean = false,
     val costPerUnit: Double = 0.0,
+    /** "General" when nobody chose one, as the website defaults it. */
+    val category: String = "",
+    val subCategory: String = "",
+    /** What one of these is: pcs, box, ml. "pcs" when unset, again matching the website. */
+    val unit: String = "",
 )
 
 /**

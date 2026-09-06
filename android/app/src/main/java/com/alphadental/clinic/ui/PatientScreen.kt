@@ -147,6 +147,8 @@ fun PatientScreen(
      * that may not read the clinic's chats, who get the old jump into the WhatsApp app instead.
      */
     onMessage: (() -> Unit)? = null,
+    /** Opens the treatment plans for this patient. */
+    onOpenPlans: () -> Unit = {},
     onClose: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -290,6 +292,7 @@ fun PatientScreen(
                         TabSpec("overview", if (arabic) "نظرة عامة" else "Overview", Icons.Filled.Dashboard),
                         TabSpec("clinical", if (arabic) "السجل" else "Clinical", Icons.Filled.MedicalServices),
                         TabSpec("diagnosis", if (arabic) "التشخيص" else "Diagnosis", Icons.Filled.Assignment),
+                        TabSpec("plan", if (arabic) "الخطة" else "Plan", Icons.Filled.Assignment),
                         TabSpec("finance", if (arabic) "المالية" else "Finance", Icons.Filled.Payments),
                         TabSpec("photos", if (arabic) "الصور" else "Photos", Icons.Filled.PhotoLibrary),
                         TabSpec("ortho", if (arabic) "التقويم" else "Ortho", Icons.Filled.Timeline),
@@ -342,6 +345,9 @@ fun PatientScreen(
                                 onAddPhoto = if (onUploadPhoto != null) ({ tab = "photos" }) else null,
                             )
                             "diagnosis" -> DiagnosisTab(file, arabic, savingDiagnosis, onSaveDiagnosis)
+                            // The plan lives on its own screen: it is long, it is edited, and it
+                            // is what gets shown to the patient rather than read past.
+                            "plan" -> PlanTabDoor(arabic, onOpenPlans)
                             "finance" -> FinanceTab(file, arabic, onTakePayment, onOpenLedgerEntry)
                             "photos" -> PhotosTab(
                                 media = media,
@@ -372,6 +378,27 @@ fun PatientScreen(
 }
 
 private data class TabSpec(val id: String, val label: String, val icon: ImageVector)
+
+/**
+ * The Plan tab is a door rather than a panel.
+ *
+ * A treatment plan is the one thing in a patient's file that is presented — turned round and
+ * shown to the person in the chair — so it gets the whole screen instead of the bottom two
+ * thirds of a tabbed one.
+ */
+@Composable
+private fun PlanTabDoor(arabic: Boolean, onOpen: () -> Unit) {
+    androidx.compose.runtime.LaunchedEffect(Unit) { onOpen() }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        androidx.compose.material3.TextButton(onClick = onOpen) {
+            Text(
+                if (arabic) "افتح خطط العلاج" else "Open treatment plans",
+                fontWeight = FontWeight.ExtraBold,
+                color = Alpha.Green,
+            )
+        }
+    }
+}
 
 @Composable
 private fun HeaderBar(onClose: () -> Unit) {

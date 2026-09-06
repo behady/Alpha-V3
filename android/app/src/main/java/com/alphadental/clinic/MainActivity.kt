@@ -94,6 +94,7 @@ import com.alphadental.clinic.ui.AttendanceScreen
 import com.alphadental.clinic.ui.LabOrderSheet
 import com.alphadental.clinic.ui.SettingsActions
 import com.alphadental.clinic.ui.SettingsScreen
+import com.alphadental.clinic.ui.TreatmentPlanScreen
 import com.alphadental.clinic.ui.LabScreen
 import com.alphadental.clinic.ui.LeadsScreen
 import com.alphadental.clinic.ui.ClockCard
@@ -594,6 +595,23 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                 )
             }
 
+            // The plan, over the file it belongs to.
+            if (state.plansOpen) {
+                TreatmentPlanScreen(
+                    patientName = state.patientFile?.patient?.name.orEmpty(),
+                    plans = state.plans,
+                    services = state.planServices,
+                    loading = state.plansLoading,
+                    saving = state.plansSaving,
+                    error = state.plansError,
+                    arabic = state.arabic,
+                    // The same key recording treatment uses: a plan is clinical work.
+                    onSave = if (session.can("clinical.edit")) viewModel::saveTreatmentPlan else null,
+                    onSetStatus = viewModel::setTreatmentPlanStatus,
+                    onClose = viewModel::closeTreatmentPlans,
+                )
+            }
+
             // Settings: the clinic itself, its prices, its team and its bot.
             if (state.settingsOpen) {
                 SettingsScreen(
@@ -799,6 +817,7 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                         viewModel::uploadPatientPhoto
                     } else null,
                     onMessage = if (viewModel.canSeeChats(session)) ({ viewModel.startChatWithOpenPatient() }) else null,
+                    onOpenPlans = viewModel::openTreatmentPlans,
                     onClose = viewModel::closePatient,
                 )
             }
@@ -964,6 +983,10 @@ private fun AlphaRoot(viewModel: AppViewModel = viewModel()) {
                     canEdit = session.can("appointments.edit"),
                     arabic = state.arabic,
                     onAdjust = viewModel::adjustStock,
+                    // Adding an item is a stock-write, so the stock permission gates it.
+                    onSaveItem = if (session.can("inventory.add") || session.can("inventory.edit")) {
+                        viewModel::saveInventoryItem
+                    } else null,
                     onDismiss = viewModel::closeInventory,
                 )
             }
