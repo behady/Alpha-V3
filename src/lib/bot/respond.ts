@@ -910,8 +910,38 @@ export async function respondToPatientMessage(args: {
         playbook: salesContext?.playbook,
         canBook: Boolean(ctx.canOfferBooking || ctx.canRegister),
         clinical: act.clinical === true,
+        slots: slotOffer,
+        media: salesContext?.media,
+        memory: conversation.memory,
       });
-      if (ai.kind === "answer" && ai.openBooking && (ctx.canOfferBooking || ctx.canRegister)) {
+      if (ai.kind === "answer" && ai.sendMedia) aiMedia = salesContext?.media?.find((m) => m.id === ai.sendMedia) ?? null;
+      if (ai.kind === "answer" && ai.bookSlot && (ctx.canOfferBooking || ctx.canRegister)) {
+        /*
+         * The spoken close: "بكره 5" became a slot key the model was given, validated there.
+         * A known patient is booked on the spot; a stranger gives a name first and the slot
+         * waits on the conversation — the register step books it without showing a list.
+         */
+        const [slotDate, slotTime, slotDoctor = ""] = ai.bookSlot.split("|");
+        const intro = ai.text.trim();
+        aiExchange = { q: act.question, a: intro };
+        if (ai.interest && !ctx.serviceMatch) ctx.serviceMatch = (await matchService(clinicId, ai.interest)) || undefined;
+        if (ai.interest) aiInterest = (await matchService(clinicId, ai.interest)) || ai.interest;
+        if (ctx.canOfferBooking) {
+          await bookAt(slotDate, slotTime, slotDoctor);
+          if (intro && reason === "booked") replyText = `${intro}
+
+${replyText}`;
+          if (reason !== "booked" && reason !== "slot_taken") reason = "ai_slot_failed";
+        } else {
+          const askName = `${v.welcome} 🙏 عشان أسجل الحجز باسمك، ${v.send === "ابعتي" ? "ابعتيلي" : "ابعتلي"} اسمك الكامل.`;
+          replyText = intro ? `${intro}
+
+${askName}` : askName;
+          nextState = "booking_name";
+          pending = { date: slotDate, times: [slotTime], doctor: slotDoctor, treatment: ctx.serviceMatch || aiInterest || conversation.lastInterest };
+          reason = "ai_ask_name_slot";
+        }
+      } else if (ai.kind === "answer" && ai.openBooking && (ctx.canOfferBooking || ctx.canRegister)) {
         // The model judged the moment right. The calendar part stays deterministic: its line
         // introduces the same lists a tapped "book" button would have produced.
         const intro = ai.text.trim();
@@ -1410,9 +1440,6 @@ export async function nextSlots(
       }
       if (out.length >= 6) break;
     }
-    void adminClinicCollection(clinicId, "ai_debug")
-      .add({ kind: "slots_debug", days, offered: out.length, configured: profile.schedule.isConfigured, offDays: profile.schedule.offDays, doctorName, branchId, createdAt: FieldValue.serverTimestamp() })
-      .catch(() => {});
   } catch (e) {
     // No calendar, no offer — but say why in the flight recorder; silence here hid a bug once.
     void adminClinicCollection(clinicId, "ai_debug")
