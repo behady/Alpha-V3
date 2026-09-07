@@ -16,6 +16,24 @@ import {
 import { logActivity } from "@/lib/logger";
 import { sendPatientAppointmentWhatsApp } from "@/lib/sendPatientAppointmentWhatsAppClient";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+
+/**
+ * Mark an appointment as owing its patient a "your visit moved" message.
+ *
+ * Only a timestamp: the message itself is composed later, from whatever the appointment says by
+ * then, so a run of edits collapses into one accurate notice instead of a stream of stale ones.
+ * Re-marking simply moves the clock forward, which is exactly right — each new edit restarts the
+ * few minutes of quiet the sender waits for.
+ */
+async function markAppointmentChangePending(appointmentId: string): Promise<void> {
+  try {
+    await updateDoc(getClinicDoc("appointments", appointmentId), {
+      changeNoticePendingAt: Date.now(),
+    });
+  } catch {
+    // Never let a notification bookkeeping write fail the edit the user actually made.
+  }
+}
 import { createProcedure } from "@/lib/moneyApi";
 import {
   normalizeDateKey,
@@ -288,14 +306,22 @@ export async function saveBooking(
         patientName: data.patientName,
       });
     } else if (scheduleChanged && data.patientId) {
-      void sendPatientAppointmentWhatsApp({
-        template: "edit",
-        patientId: String(data.patientId),
-        date: String(normalizedDate || data.date || ""),
-        time: String(normalizedTime || data.time || ""),
-        doctor: nextDoctor,
-        patientName: data.patientName,
-      });
+      /*
+       * The patient is told once the dust settles, not on every drop.
+       *
+       * Moving an appointment used to message them the instant the document was written, so a
+       * receptionist dragging a booking around the calendar to find a free slot sent one WhatsApp
+       * template per drop — one patient received ten in nine minutes, each announcing a time that
+       * was already wrong by the time it arrived. Every one of those was a real change, so no
+       * "did anything actually change" guard could have caught it: the fault is answering a
+       * question the clinic has not finished asking.
+       *
+       * So the appointment is marked instead, and `/api/automation/appointment-notices` sends a
+       * single message a few minutes later carrying wherever it finally landed. Cancellations are
+       * not deferred — those are final by definition, and a patient who is no longer expected
+       * should hear so immediately.
+       */
+      void markAppointmentChangePending(aid);
     }
 
     await writeSessionProcedures(data, aid, normalizedDate || data.date, userCtx);

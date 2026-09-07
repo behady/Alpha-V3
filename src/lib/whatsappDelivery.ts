@@ -1,4 +1,5 @@
 import { adminClinicDoc } from "@/lib/adminClinicDb";
+import { allowAutomatedMessage } from "@/lib/whatsappFloodGuard";
 import { clinicHasFeature } from "@/lib/clinicFeatures";
 import {
   WHATSAPP_OPT_OUT_FOOTER_AR,
@@ -42,6 +43,12 @@ export type WhatsappDeliveryMode = "auto" | "manual";
 export type WhatsappDeliveryResult =
   | { mode: "auto"; sent: true }
   | { mode: "queued"; sent: false }
+  /**
+   * Refused by the flood guard: this patient has already had more unasked-for messages this hour
+   * than any legitimate automation produces. Not an error — callers treat it the way they treat a
+   * queued message, and the count is on the conversation for the desk to see.
+   */
+  | { mode: "blocked"; sent: false }
   | { mode: "manual"; sent: false; phone: string; text: string };
 
 /**
@@ -180,6 +187,18 @@ export async function deliverWhatsAppMessage(args: {
   // whichever sender gets written next — and the number is banned by the aggregate, not by the
   // one message someone remembered to mark.
   const text = args.audience === "patient" ? await applyPatientOptOutFooter(args.clinicId, args.text) : args.text;
+
+  /*
+   * The ceiling, in the same place as the footer and for the same reason.
+   *
+   * Only messages the patient did not ask for are counted: a reply written back into a live
+   * conversation is answering them. `thread.author === "staff"` is a person typing, and the
+   * assistant's own replies do not come through here at all.
+   */
+  if (args.audience === "patient" && args.thread?.author !== "staff") {
+    const verdict = await allowAutomatedMessage(args.clinicId, args.to, args.queue?.type || args.metaTemplate?.kind || "message");
+    if (!verdict.allowed) return { mode: "blocked", sent: false };
+  }
 
   if (mode === "auto") {
     const meta = await loadMetaWhatsappConfig(args.clinicId);

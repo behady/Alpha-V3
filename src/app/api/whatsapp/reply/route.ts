@@ -148,7 +148,9 @@ export async function POST(request: Request) {
   }
 
   try {
-    let delivery: { mode: "auto" | "queued" | "manual" };
+    // "blocked" cannot reach here — the flood guard exempts what a person typed — but the type
+    // says it can, and a staff reply that silently vanished would be the worst way to find out.
+    let delivery: { mode: "auto" | "queued" | "manual" | "blocked" };
     if (isMedia && mediaKind) {
       /*
        * Files do not pass through deliverWhatsAppMessage: that path composes text and queues

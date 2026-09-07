@@ -424,6 +424,7 @@ exports.eveningDigest = pushPhase1.eveningDigest;
 exports.stuckMessagesAlert = pushPhase1.stuckMessagesAlert;
 exports.handoffSla = require("./handoffSla").handoffSla;
 exports.quietNudge = require("./quietNudge").quietNudge;
+exports.appointmentNotices = require("./appointmentNotices").appointmentNotices;
 
 const { handleMetaWebhook, retryPendingLeadEvents } = require("./metaLeads");
 
