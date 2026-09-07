@@ -18,9 +18,10 @@ import { MetaTab } from "@/components/superadmin/MetaTab";
 import { MigrateTab } from "@/components/superadmin/MigrateTab";
 import MisplacedRecordsTab from "@/components/superadmin/MisplacedRecordsTab";
 import { PlatformTab } from "@/components/superadmin/PlatformTab";
+import { CostsTab } from "@/components/superadmin/CostsTab";
 
 // Tabs
-type Tab = 'clinics' | 'analytics' | 'users' | 'meta' | 'migrate' | 'misplaced' | 'platform';
+type Tab = 'clinics' | 'analytics' | 'costs' | 'users' | 'meta' | 'migrate' | 'misplaced' | 'platform';
 
 interface RichClinic extends Clinic {
   ownerEmail?: string;
@@ -205,6 +206,8 @@ export default function SuperAdminDashboard() {
             <button onClick={() => setActiveTab('analytics')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'analytics' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
               <BarChart3 size={16} /> Analytics
             </button>
+            <button onClick={() => setActiveTab('costs')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'costs' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
+              <BarChart3 size={16} /> Costs</button>
             <button onClick={() => setActiveTab('users')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'users' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
               <Users size={16} /> Users
             </button>
@@ -374,6 +377,12 @@ export default function SuperAdminDashboard() {
           </>
         )}
 
+        {activeTab === 'costs' && (
+          <div className="mt-4">
+            {/* Supplier invoices per clinic. Superadmin only — a clinic sees credits, never money. */}
+            <CostsTab />
+          </div>
+        )}
         {activeTab === 'analytics' && (
           <AnalyticsTab clinics={clinics} />
         )}

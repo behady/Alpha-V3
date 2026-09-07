@@ -8,7 +8,6 @@ import { getClinicCollection } from "@/lib/db-utils";
 import { useLanguage } from "@/context/LanguageContext";
 import { useClinic } from "@/context/ClinicContext";
 import { getAiCreditLimit } from "@/lib/subscriptions";
-import WhatsappCostCard from "@/components/settings/WhatsappCostCard";
 
 type UsageMonth = {
   id: string; // "2026-08"
@@ -179,8 +178,6 @@ export default function AiCreditsSettings() {
 
   return (
     <div className="w-full space-y-8 pb-4" dir={isRTL ? "rtl" : "ltr"}>
-      {/* The other bill. Google charges for the thinking; Meta charges for the sending. */}
-      <WhatsappCostCard />
       {/* The three headline cards this replaces stated used, limit and remaining as three separate
           numbers and left the reader to do the subtraction that matters. One sentence, one bar. */}
       <div className="rounded-[1.75rem] bg-ink-slab px-6 py-6 text-white shadow-lg shadow-ink-slab/15 sm:px-8">

@@ -50,6 +50,7 @@
   "test:prompt": "npx tsx tests/botPrompt.test.mts",
   "test:slots": "npx tsx tests/slotPreference.test.mts",
   "test:wacost": "npx tsx tests/whatsappCost.test.mts",
+  "test:margin": "npx tsx tests/platformCost.test.mts",
     "test:attendance": "npx tsx tests/attendanceGeofence.test.mjs",
     "_comment_test_conflicts": "Double-booking detection: a renamed dentist's existing appointments must still block their own slots, and cancellations must release theirs.",
     "test:conflicts": "npx tsx tests/appointmentConflicts.test.mjs",
