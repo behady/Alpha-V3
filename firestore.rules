@@ -770,6 +770,19 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    /*
+     * The shared word the scheduled functions use to prove a call to the app's automation routes
+     * is theirs.
+     *
+     * Written once by an administrator through the Admin SDK and read only by the server on both
+     * sides. It sits at the root rather than under a clinic because the jobs that use it sweep
+     * every clinic, and it is denied outright here for the same reason clinic_secrets is: a value
+     * a browser can read is not a credential.
+     */
+    match /system_secrets/{docId} {
+      allow read, write: if false;
+    }
+
     match /sms_pairing_codes/{code} {
       allow read, write: if false;
     }

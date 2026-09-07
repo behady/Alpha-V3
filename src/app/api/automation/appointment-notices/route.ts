@@ -3,6 +3,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { adminClinicCollection, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { forEachActiveClinic } from "@/lib/automation/forEachActiveClinic";
+import { isAutomationCallAuthorized } from "@/lib/automation/automationToken";
 import { clinicNow } from "@/lib/publicBooking";
 import { sendAppointmentPatientMessage } from "@/lib/patientNotifications";
 import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
@@ -38,14 +39,10 @@ const SETTLE_MS = 6 * 60 * 1000;
 const GIVE_UP_MS = 24 * 60 * 60 * 1000;
 const MAX_PER_RUN = 50;
 
-function isCronAuthorized(request: Request): boolean {
-  const secret = process.env.CRON_SECRET?.trim();
-  if (!secret) return false;
-  return (request.headers.get("authorization") || "") === `Bearer ${secret}`;
-}
-
 async function authorize(request: Request) {
-  if (isCronAuthorized(request)) return { ok: true as const, cron: true as const };
+  // Vercel's own crons carry CRON_SECRET; this one is ticked from Firebase, which reads the same
+  // shared token out of Firestore. See lib/automation/automationToken.
+  if (await isAutomationCallAuthorized(request)) return { ok: true as const, cron: true as const };
   const staff = await requireStaffUser(request);
   if (!staff.ok) return staff;
   return { ok: true as const, cron: false as const, uid: staff.uid };
