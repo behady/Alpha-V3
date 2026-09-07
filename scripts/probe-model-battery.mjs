@@ -66,11 +66,11 @@ function loadPromptBlocks() {
     .join("\n");
   const grab = new Function(
     "SchemaType",
-    `${body}\n return { HARD_RULES, DENTIST_RULES, ASSISTED_PERSONA, SALES_PERSONA };`
+    `${body}\n return { HARD_RULES, DENTIST_RULES, ASSISTED_PERSONA, SALES_PERSONA, LANGUAGE_RULE };`
   );
   const blocks = grab({});
   for (const [k, v] of Object.entries(blocks)) {
-    if (!Array.isArray(v) || !v.length) throw new Error(`Prompt block ${k} did not load from aiReply.ts`);
+    if (!v || (Array.isArray(v) ? !v.length : typeof v !== "string")) throw new Error(`Prompt block ${k} did not load from aiReply.ts`);
   }
   return blocks;
 }
@@ -92,6 +92,9 @@ function buildSystem(opts) {
       ].filter(Boolean)
     : [];
   return [
+    // Mirrors the hoisted first line in answerWithAi.
+    `قاعدة أهم من أي حاجة تانية: ${B.LANGUAGE_RULE}`,
+    "",
     ...persona,
     "",
     ...rules,

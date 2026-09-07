@@ -142,6 +142,7 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
+
 export async function answerWithAi(args: {
   clinicId: string;
   clinicName: string;
