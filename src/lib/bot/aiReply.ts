@@ -112,6 +112,18 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
+/**
+ * Reply in the language the patient just wrote in.
+ *
+ * Named and hoisted because position in the prompt decides whether a model obeys it. Measured
+ * 2026-09-07 across a 36-exchange battery: buried two-thirds down HARD_RULES, Gemini 3.1
+ * Flash-Lite answered English messages in Arabic on 3 of 6 turns; repeated as the first line of
+ * the system prompt it obeyed 6 of 6. `gemini-flash-latest` obeys either way, so the hoist costs
+ * the current model nothing and is what makes a cheaper one usable.
+ */
+const LANGUAGE_RULE =
+  "اللغة بتتحدد من آخر رسالة المريض بعتها (مش من المحادثة كلها): إنجليزي → إنجليزي، عربي → عامية مصرية، فرانكو → فرانكو. ده بينطبق على كل reply، بما فيها ردود book_slot و open_booking و cancel و late.";
+
 const HARD_RULES = [
   "قواعد صارمة لا تُكسر أبداً:",
   "- جاوب فقط من المعلومات المكتوبة تحت. لو المعلومة مش موجودة، اختار handoff_other — ممنوع التخمين أو الاختراع.",
@@ -122,7 +134,7 @@ const HARD_RULES = [
   "- وممنوع تقول إنك دكتور أو إنك بتكشف. لو حد افترض إنك الدكتور، صحّحله بلطف: \"أنا من الاستقبال، والدكتور هو اللي هيشوف حضرتك\".",
   "- لو المريض عنده ميعاد جاي (مكتوب في بيانات المريض تحت) وعايز يغيره أو يأجله أو يقدمه: اختار action reschedule — مش open_booking — والنظام هيعرض له أيام بديلة لنفس الميعاد.",
   "- لو عايز يلغي ميعاده: اختار action cancel واكتب في reply إنك بلّغت الاستقبال وهيأكدوله الإلغاء، واسأله بلطف لو يحب يحجز وقت تاني بدل ما يلغي. لو بيقول إنه هيتأخر على ميعاده: اختار action late وطمّنه إنك بلّغت العيادة. الإلغاء والتأخير بيتبلّغوا للاستقبال، مش بيتنفذوا لوحدهم.",
-  "- اللغة بتتحدد من آخر رسالة المريض بعتها (مش من المحادثة كلها): إنجليزي → إنجليزي، عربي → عامية مصرية، فرانكو → فرانكو. ده بينطبق على كل reply، بما فيها ردود book_slot و open_booking و cancel و late.",
+  `- ${LANGUAGE_RULE}`,
   "- أي سؤال عن طبيب معيّن بالاسم: جاوب من خانة \"الأطباء\" لو مكتوبة تحت (تخصصه، خبرته، أسلوبه) ورشّح المناسب للحالة. لو مش مكتوبة، أو السؤال عن حاجة مش فيها (رأيك الشخصي، مواعيده الخاصة، مقارنة بين الدكاترة مين أشطر): اختار handoff_staff.",
   "- الأسعار: جاوب من القايمة تحت بصيغة \"يبدأ من\"، ودايماً اختم بأن الاستقبال بيأكد السعر النهائي. لو المريض سأل عن حاجة ليها خدمة مشابهة أو قريبة في القايمة (مثلاً سأل عن التقويم والقايمة فيها \"تقويم معدن\") اعتبرها موجودة وجاوب بسعرها. بس لو مفيش أي خدمة قريبة منها خالص: handoff_other.",
   "- أسئلة \"بتعملوا كذا؟\": لو الخدمة أو حاجة قريبة منها في القايمة، الإجابة أيوه مع السعر. متحوّلش سؤال تقدر تجاوبه.",
@@ -328,6 +340,9 @@ export async function answerWithAi(args: {
   const rules = args.clinical ? HARD_RULES.filter((r) => !r.startsWith("- أي سؤال طبي")) : HARD_RULES;
 
   const system = [
+    // First line of the prompt, before the persona: see LANGUAGE_RULE for why position matters.
+    `قاعدة أهم من أي حاجة تانية: ${LANGUAGE_RULE}`,
+    "",
     ...persona,
     "",
     ...rules,
