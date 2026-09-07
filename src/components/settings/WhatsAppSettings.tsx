@@ -6,6 +6,7 @@ import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import BotPlayground from "./BotPlayground";
 import BotMediaLibrary from "./BotMediaLibrary";
+import BotMedicineList from "./BotMedicineList";
 import { WHATSAPP_DIAL_COUNTRIES, buildE164FromDialAndNational } from "@/lib/whatsappDialCountries";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
@@ -2052,6 +2053,7 @@ export default function WhatsAppSettings() {
               </div>
 
               <div hidden={tab !== "answers"}><BotMediaLibrary /></div>
+              <div hidden={tab !== "answers"}><BotMedicineList /></div>
               <div hidden={tab !== "playground"}><BotPlayground /></div>
             </>
           )}

@@ -26,6 +26,9 @@ const SENTENCES: Array<[string, string]> = [
   ["لو الموضوع مستعجل، كلمنا على طول على", "If it's urgent, please call us straight away on"],
   ["لو الموضوع مستعجل، كلمنا على تليفون العيادة على طول.", "If it's urgent, please call the clinic straight away."],
   // --- appointment changes -------------------------------------------------------------------
+  ["تمام، ألغيت الميعاد ✅", "Done — your appointment is cancelled ✅"],
+  ["تحب نحجزلك ميعاد تاني في وقت يناسبك؟", "Would you like to book another time that suits you?"],
+  ["تحبي نحجزلك ميعاد تاني في وقت يناسبك؟", "Would you like to book another time that suits you?"],
   ["وصلتنا رسالتك بخصوص إلغاء الميعاد 👍", "We've received your cancellation request 👍"],
   ["وصلتنا رسالتك بخصوص تعديل الميعاد 👍", "We've received your request to move the appointment 👍"],
   ["وصلتنا رسالتك بخصوص تأخير الميعاد 👍", "Noted that you're running late 👍"],

@@ -19,7 +19,7 @@ import { findPatientByLid } from "@/lib/whatsappLid";
 import { resolveWhatsappDeliveryMode, sendPatientWhatsAppRich } from "@/lib/whatsappDelivery";
 import { loadMetaWhatsappConfig, sendMetaWhatsappMedia } from "@/lib/metaWhatsapp";
 import type { MetaInteractive } from "@/lib/metaWhatsapp";
-import type { BotFacts } from "@/types/whatsapp";
+import type { BotFacts, BotMedicine } from "@/types/whatsapp";
 import { arabicClock, arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
 import { appendOptOutFooter, normalizeReplyText, WHATSAPP_OPT_OUT_FOOTER_AR } from "@/lib/patientMessaging";
 import {
@@ -36,6 +36,7 @@ import { answerWithAi, type AiPatientContext, type AiThreadLine, AI_DEFAULT_ACK 
 import { isLatinMessage, localizeOutbound } from "./localize";
 import { loadPatientDossier, type PatientDossier } from "./patientDossier";
 import { resolveSpokenPick } from "./spokenPick";
+import { DEFAULT_SCREENING, readScreeningAnswer } from "./medicineScreen";
 import { stripRepeatIntro } from "./repeatIntro";
 import { feminizeAddress } from "./voiceFix";
 import { SALES_CLOSE_REASONS, LEAD_INTEREST_REASONS, activeOffers, closingLine, offerForService } from "./sales";
@@ -84,6 +85,12 @@ interface BotSettings {
   clinicalDentist: boolean;
   /** How long a staff reply keeps the bot out of a thread. */
   humanClaimMs: number;
+  /** May the assistant cancel an appointment itself, or only pass the request to the desk? */
+  canCancel: boolean;
+  /** The medicines this clinic authorised, with the exact words it wants sent for each. */
+  medicines: BotMedicine[];
+  /** The safety questions asked before any of them, in the clinic's wording or the built-in one. */
+  medicineScreening: string;
   /** AI replies per conversation; 0 means no cap. */
   aiMaxReplies: number;
   /** The owner's coaching notes for the model. */
@@ -106,6 +113,17 @@ async function loadBotSettings(clinicId: string): Promise<BotSettings> {
     aiFirst: d.botMode === "ai_first",
     clinicalDentist: d.botClinicalMode === "dentist",
     humanClaimMs: humanClaimMsFromSetting(d.botHumanClaimMinutes),
+    // On by default: a patient cancelling their own appointment is the one calendar change
+    // nobody needs to approve, and forwarding it left the slot booked and the desk chasing.
+    canCancel: d.botCanCancel !== false,
+    // Empty by default, and empty means the assistant names nothing: every medicine question goes
+    // to the dentist until a clinic writes down what it is willing to have said in its name.
+    medicines: Array.isArray(d.botMedicines)
+      ? (d.botMedicines as BotMedicine[])
+          .filter((m) => m && typeof m.id === "string" && String(m.text || "").trim())
+          .slice(0, 20)
+      : [],
+    medicineScreening: String(d.botMedicineScreening || "").trim() || DEFAULT_SCREENING,
     aiMaxReplies:
       typeof d.botAiMaxReplies === "number" && d.botAiMaxReplies >= 0 ? Math.floor(d.botAiMaxReplies) : d.botMode === "ai_first" ? 0 : 3,
     coaching: typeof d.botCoaching === "string" ? d.botCoaching : "",
@@ -205,6 +223,8 @@ type PendingOptions = {
   forRelative?: boolean;
   dayWord?: string;
   reschedule?: string;
+  /** A medicine chosen but not yet allowed out, waiting on the safety questions. */
+  medicine?: string;
 };
 
 /** The options already on the patient's screen, for a turn that is not replacing them. */
@@ -213,6 +233,7 @@ function pendingFrom(c: BotConversation) {
     days: c.pendingDays,
     times: c.pendingTimes,
     slots: c.pendingSlots,
+    medicine: c.pendingMedicine,
     date: c.pendingDate,
     doctors: c.pendingDoctors,
     doctor: c.pendingDoctor,
@@ -684,6 +705,10 @@ export async function respondToPatientMessage(args: {
   let heardIntroBefore = false;
   /** Did the model answer in Arabic? Undefined when no model reply was composed this turn. */
   let modelWroteInArabic: boolean | undefined;
+  /** Set when this turn actually cancelled an appointment, rather than promising somebody would. */
+  let appointmentCancelled = false;
+  /** Set when the patient answered the medicine safety questions and nothing in them was a flag. */
+  let medicineScreened = false;
   /** The slot keys this reply names in its own sentence, so the next turn can answer "the first". */
   let spokenSlotKeys: string[] = [];
   /** Attach them to whatever this turn was already storing, without disturbing the rest. */
@@ -918,8 +943,52 @@ export async function respondToPatientMessage(args: {
      * the appointment, tells a person with the details in hand, and confirms to the patient that
      * a human now has it. Reached from the typed intent and from the model's own decision.
      */
+    /*
+     * Cancelling, moving, or warning that they are running late.
+     *
+     * A cancellation used to be forwarded rather than performed: the patient was told reception
+     * would confirm it, the appointment stayed on the calendar, and a patient who said "cancel it"
+     * twice was told the same thing twice. The desk has to chase a message it could have read as a
+     * change in the day view. So the bot cancels it — the one appointment action a patient is
+     * unambiguously entitled to make about their own booking — and the desk is told it HAPPENED
+     * rather than asked to do it.
+     *
+     * Reschedules still go through the booking flow (a new time has to be chosen), and a
+     * running-late note changes no status: the slot is still theirs.
+     */
     const flagAppointmentChange = async (kind: "cancel" | "reschedule" | "late") => {
       const appt = patient ? await findNextAppointment(clinicId, patient.id) : null;
+
+      if (kind === "cancel" && appt && settings.canCancel) {
+        await adminClinicDoc(clinicId, "appointments", appt.id).set(
+          {
+            status: "Cancelled",
+            cancelledAt: FieldValue.serverTimestamp(),
+            cancelledVia: "whatsapp_bot",
+            cancelledBy: "patient",
+          },
+          { merge: true }
+        );
+        appointmentCancelled = true;
+        replyText = [
+          "تمام، ألغيت الميعاد ✅",
+          "",
+          appointmentLine(appt),
+          "",
+          `${v.youWant} نحجزلك ميعاد تاني في وقت يناسبك؟`,
+        ].join("\n");
+        reason = "appointment_cancelled";
+        void push(
+          clinicId,
+          {
+            title: "ميعاد اتلغى من واتساب ❌",
+            body: `${ctx.patientName || phone} — ${appt.date} ${appt.time}${appt.doctor ? ` مع ${appt.doctor}` : ""}`,
+          },
+          { roles: ["Owner", "Admin", "Receptionist"], channel: "alpha_bookings", data: { screen: "day" } }
+        );
+        return;
+      }
+
       const label = kind === "cancel" ? "إلغاء" : kind === "reschedule" ? "تعديل" : "تأخير";
       replyText = appt
         ? [`وصلتنا رسالتك بخصوص ${label} الميعاد 👍`, "", appointmentLine(appt), "", "الاستقبال هيتواصل معاك حالاً يأكدلك."].join("\n")
@@ -937,7 +1006,49 @@ export async function respondToPatientMessage(args: {
       );
     };
 
-    if (act.type === "ack") {
+    /*
+     * The patient is answering the medicine safety questions.
+     *
+     * Decided here rather than by the model, and before anything else this turn: the model is the
+     * part of the system that can be argued with, and "are you sure it's safe, just tell me" is
+     * exactly the sentence somebody types when they are about to be hurt by the answer. Opt-outs
+     * and clinical triage have already had their say — neither produces an action — so anything
+     * reaching this line is an ordinary reply to a question we asked.
+     */
+    const screening = conversation.pendingMedicine && text.trim() ? readScreeningAnswer(text) : null;
+    /*
+     * Somebody who ignored the question and asked something else has not failed the screening.
+     *
+     * The reading is strict on purpose, so an answer nobody can parse reaches the dentist — but
+     * "طب التقويم بكام؟" is not an unreadable answer, it is a different conversation. Sending that
+     * patient to a person because they changed the subject would make the whole feature feel like
+     * a trap. The held medicine is simply dropped and the turn carries on normally; if they come
+     * back to it, they are asked again.
+     */
+    const changedSubject = screening === "unclear" && /[?؟]|^(طب|بس|ايه|إيه|كام|امتى|إمتى|فين|ليه|ممكن|عايز|عاوز)/.test(text.trim());
+    if (changedSubject) pending = { ...pendingFrom(conversation), medicine: undefined };
+    if (screening && !changedSubject) {
+      const chosen = settings.medicines.find((m) => m.id === conversation.pendingMedicine);
+      pending = { ...pendingFrom(conversation), medicine: undefined };
+      if (screening === "clear" && chosen) {
+        replyText = chosen.text;
+        nextState = "awaiting_choice";
+        reason = "medicine_given";
+        medicineScreened = true;
+      } else {
+        replyText =
+          screening === "risk"
+            ? `شكراً إنك قلتلي 🙏 الحالة دي بالذات لازم الدكتور هو اللي يقول فيها، وأنا بوصّلك بيه حالاً.
+
+${urgentCallLine(ctx.clinicPhone)}`
+            : `معلش، عايز أتأكد صح قبل ما أقول أي حاجة 🙏 هخلي الدكتور يرد على حضرتك بنفسه.
+
+${urgentCallLine(ctx.clinicPhone)}`;
+        nextState = "handed_off";
+        handoff = true;
+        reason = screening === "risk" ? "medicine_screen_risk" : "medicine_screen_unclear";
+      }
+    } else if (act.type === "ack") {
       /*
        * "تمام" is, overwhelmingly, a patient answering the clinic's own reminder. It used to get the
        * full booking menu. Now, if there is an appointment in the next two days that the desk has
@@ -1048,6 +1159,8 @@ export async function respondToPatientMessage(args: {
         media: salesContext?.media,
         memory: conversation.memory,
         dossier: salesContext?.dossier,
+        medicines: settings.medicines.map((m) => ({ id: m.id, label: m.label, whenToUse: m.whenToUse })),
+        medicineScreened: Boolean(conversation.medicineScreenedAtMs),
         flaggedForStaff: conversation.humanOwned && !conversation.staffActive,
         bookingStep: bookingStepLabel(conversation),
         sessionGapMinutes: salesContext?.gapMinutes,
@@ -1112,16 +1225,47 @@ export async function respondToPatientMessage(args: {
         if (wrote.trim() && wrote !== AI_DEFAULT_ACK) modelWroteInArabic = arabic > latin;
       }
       if (ai.kind === "answer" && ai.sendMedia) aiMedia = salesContext?.media?.find((m) => m.id === ai.sendMedia) ?? null;
-      if (ai.kind === "answer" && ai.appointmentChange) {
+      if (ai.kind === "answer" && ai.medicineId) {
+        /*
+         * The clinic authorised this sentence; the assistant only chose it.
+         *
+         * Nothing is sent until somebody has said who the medicine is for and what else they take.
+         * The questions go out once per conversation and the answer is read in code — the model is
+         * not asked to judge whether it heard "no allergies", because the model is the part that
+         * can be talked round, and this is the one feature in here that can physically hurt.
+         */
+        const chosen = settings.medicines.find((m) => m.id === ai.medicineId);
+        const intro = ai.text.trim();
+        aiExchange = { q: act.question, a: intro };
+        if (!chosen) {
+          // Should be unreachable — aiReply validates the id — but a medicine that vanished from
+          // settings mid-conversation must not become an improvised one.
+          replyText = clinicalReplyText(ctx.clinicPhone);
+          nextState = "handed_off";
+          handoff = true;
+          reason = "medicine_unknown";
+        } else if (conversation.medicineScreenedAtMs) {
+          replyText = intro ? `${intro}\n\n${chosen.text}` : chosen.text;
+          nextState = "awaiting_choice";
+          reason = "medicine_given";
+        } else {
+          replyText = settings.medicineScreening;
+          nextState = conversation.state.startsWith("booking_") ? conversation.state : "awaiting_choice";
+          pending = { ...pendingFrom(conversation), medicine: chosen.id };
+          reason = "medicine_screen";
+        }
+      } else if (ai.kind === "answer" && ai.appointmentChange) {
         // The desk is told exactly as the typed intent tells it; the patient hears it in the
         // model's words and language, and the conversation stays open for a rebooking.
         const intro = ai.text.trim();
         aiExchange = { q: act.question, a: intro };
         await flagAppointmentChange(ai.appointmentChange);
-        if (intro) replyText = intro;
-        handoff = true;
+        // The model's own wording, unless the code just did something its sentence did not know
+        // about — a performed cancellation says "done", and "I've told reception" would be wrong.
+        if (intro && !appointmentCancelled) replyText = intro;
+        handoff = !appointmentCancelled;
         nextState = "awaiting_choice";
-        reason = `ai_${ai.appointmentChange}`;
+        reason = appointmentCancelled ? "ai_cancelled" : `ai_${ai.appointmentChange}`;
       } else if (ai.kind === "answer" && ai.reschedule && ctx.canOfferBooking) {
         // "عايز أعدل الميعاد" heard by the model: the same move flow the typed intent opens.
         const intro = ai.text.trim();
@@ -1796,7 +1940,7 @@ ${askWho}` : askWho;
     await saveConversation(
       clinicId,
       conversation,
-      { state: nextState, replied: true, reason, patientId: patient?.id, patientName: ctx.patientName, pending, aiExchange },
+      { state: nextState, replied: true, reason, patientId: patient?.id, patientName: ctx.patientName, pending: withSpokenSlots(pending), aiExchange, medicineScreened },
       now
     );
     return { status: "replied", text: body, handoff, reason, structure };
@@ -1832,6 +1976,7 @@ ${askWho}` : askWho;
       patientName: ctx.patientName,
       pending: withSpokenSlots(pending),
       aiExchange,
+      medicineScreened,
       latin: latinNow ? true : /[؀-ۿ]/.test(text) ? false : undefined,
     },
     now

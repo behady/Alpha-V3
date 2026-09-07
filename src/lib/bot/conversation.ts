@@ -107,6 +107,16 @@ export interface BotConversation {
    * aloud was sent back to the dentist menu to start again.
    */
   pendingSlots?: string[];
+  /**
+   * A medicine the assistant is about to name, held while the safety questions are answered.
+   *
+   * The clinic authorises the sentence; this is the gap between choosing it and being allowed to
+   * send it, which is the whole point of the feature — nothing is named until somebody has said
+   * who it is for and what else they take.
+   */
+  pendingMedicine?: string;
+  /** When the patient answered those questions, and cleared. Screening is once per conversation. */
+  medicineScreenedAtMs?: number;
   /** The day the pending times belong to. */
   pendingDate?: string;
   /** The dentist list last offered; the final entry "" means "any chair". */
@@ -299,6 +309,9 @@ export async function loadConversation(
     pendingDays: !expired && Array.isArray(d.pendingDays) ? d.pendingDays.map(String) : undefined,
     pendingTimes: !expired && Array.isArray(d.pendingTimes) ? d.pendingTimes.map(String) : undefined,
     pendingSlots: !expired && Array.isArray(d.pendingSlots) ? d.pendingSlots.map(String) : undefined,
+    pendingMedicine: !expired && typeof d.pendingMedicine === "string" ? d.pendingMedicine : undefined,
+    // Survives expiry: what somebody said about their own allergies does not lapse in an hour.
+    medicineScreenedAtMs: Number(d.medicineScreenedAtMs) || undefined,
     pendingDate: !expired && typeof d.pendingDate === "string" ? d.pendingDate : undefined,
     pendingDoctors: !expired && Array.isArray(d.pendingDoctors) ? d.pendingDoctors.map(String) : undefined,
     pendingDoctor: !expired && typeof d.pendingDoctor === "string" ? d.pendingDoctor : undefined,
@@ -347,7 +360,9 @@ export async function saveConversation(
     patientId?: string;
     patientName?: string;
     /** Booking options offered this turn. Absent = clear them — stale lists must not linger. */
-    pending?: { days?: string[]; times?: string[]; slots?: string[]; date?: string; doctors?: string[]; doctor?: string; treatment?: string; forRelative?: boolean; dayWord?: string; reschedule?: string };
+    pending?: { days?: string[]; times?: string[]; slots?: string[]; date?: string; doctors?: string[]; doctor?: string; treatment?: string; forRelative?: boolean; dayWord?: string; reschedule?: string; medicine?: string };
+    /** The patient has answered the medicine safety questions and nothing in them was a flag. */
+    medicineScreened?: boolean;
     /**
      * A spent AI exchange. Unlike pending options, absence PRESERVES what is stored: the AI
      * budget survives menu turns — a patient cannot refill it by pressing a button.
@@ -377,6 +392,8 @@ export async function saveConversation(
     pendingDays: next.pending?.days ?? null,
     pendingTimes: next.pending?.times ?? null,
     pendingSlots: next.pending?.slots ?? null,
+    pendingMedicine: next.pending?.medicine ?? null,
+    ...(next.medicineScreened ? { medicineScreenedAtMs: now } : {}),
     pendingDate: next.pending?.date ?? null,
     pendingDoctors: next.pending?.doctors ?? null,
     pendingDoctor: next.pending?.doctor ?? null,

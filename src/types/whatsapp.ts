@@ -153,6 +153,30 @@ export interface WhatsAppSettingsDocument {
   botHumanTouch?: boolean;
   /** One free in-window "still there?" 20 minutes after a patient goes quiet mid-chat. Default on. */
   botQuietNudge?: boolean;
+  /**
+   * May the assistant cancel an appointment itself? Default on.
+   *
+   * Forwarding a cancellation left the slot on the calendar and the desk chasing a message; a
+   * patient cancelling their own booking is the one calendar change nobody needs to approve.
+   */
+  botCanCancel?: boolean;
+  /**
+   * Over-the-counter medicines the clinic authorises the assistant to name, and the exact words
+   * it must use for each.
+   *
+   * The assistant never writes these sentences: it chooses one, and the clinic's own text is sent
+   * verbatim, which is the same rule that makes `botFacts` safe to quote. Empty (the default)
+   * means it names nothing at all and every medicine question goes to the dentist.
+   */
+  botMedicines?: BotMedicine[];
+  /**
+   * The questions asked before any of them is named — allergies, pregnancy, chronic illness,
+   * other medicines, and who the medicine is for.
+   *
+   * Sent as one message, once per conversation, before the first suggestion. A clinic can reword
+   * it; leaving it empty uses the built-in wording rather than skipping the step.
+   */
+  botMedicineScreening?: string;
   /** Answers to the questions the clinic's data cannot supply. See BotFacts. */
   botFacts?: BotFacts;
   /**
@@ -241,4 +265,22 @@ export interface WhatsAppLogEntry {
   timestamp: string;
   /** Optional metadata for debugging */
   meta?: Record<string, unknown>;
+}
+
+/**
+ * One medicine the clinic has authorised, in the clinic's own words.
+ *
+ * `text` is what the patient receives, character for character. Nothing here is a prescription
+ * the assistant composes — it is a sentence a dentist wrote once, for a situation they expect,
+ * and the assistant's only judgement is which of them fits what was asked. `whenToUse` never
+ * reaches the patient; it is what the model reads to choose.
+ */
+export interface BotMedicine {
+  id: string;
+  /** A short label for the settings list: "مسكن عادي", "مضمضة بعد الخلع". */
+  label: string;
+  /** When this one applies, for the model's eyes only: "وجع بسيط بعد الحشو". */
+  whenToUse?: string;
+  /** The exact sentence sent to the patient, including the dose and the caution. */
+  text: string;
 }

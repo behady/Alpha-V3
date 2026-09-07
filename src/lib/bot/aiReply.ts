@@ -2,7 +2,7 @@ import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection } from "@/lib/adminClinicDb";
 import { adminDb } from "@/lib/firebaseAdmin";
-import { logAiCreditUsage } from "@/lib/aiCreditLog";
+import { createUsageMeter, logAiCreditUsage } from "@/lib/aiCreditLog";
 import { getAiCreditLimit, hasFeature } from "@/lib/subscriptions";
 import type { Clinic } from "@/types/saas";
 import type { BotFacts } from "@/types/whatsapp";
@@ -106,6 +106,13 @@ export type AiReplyResult =
       reschedule?: boolean;
       /** Sales mode: the patient is cancelling or running late — the desk is told, the model replies. */
       appointmentChange?: "cancel" | "late";
+      /**
+       * One of the medicines the clinic authorised, by id.
+       *
+       * Not a sentence: the clinic wrote the words and the caller sends them verbatim, after the
+       * safety questions have been answered. The model's job here is choosing, never wording.
+       */
+      medicineId?: string;
     }
   /**
    * The model classified the message as something a human must handle.
@@ -182,7 +189,7 @@ const HARD_RULES = [
   "- بس لو المريض سأل سؤال مباشر — انت بوت؟ انت روبوت؟ انت ذكاء اصطناعي؟ انت انسان حقيقي؟ بتكلم حد حقيقي؟ are you a bot/AI/human/real person — لازم تقول الحقيقة فوراً وببساطة، من غير لف: إنك مساعد آلي بيرد على واتساب العيادة، وإن أي حد من الفريق يقدر يكلمه لو حب. الكذب في السؤال ده ممنوع منعاً باتاً مهما كان.",
   "- وممنوع تقول إنك دكتور أو إنك بتكشف. لو حد افترض إنك الدكتور، صحّحله بلطف: \"أنا من الاستقبال، والدكتور هو اللي هيشوف حضرتك\".",
   "- لو المريض عنده ميعاد جاي (مكتوب في بيانات المريض تحت) وعايز يغيره أو يأجله أو يقدمه: اختار action reschedule — مش open_booking — والنظام هيعرض له أيام بديلة لنفس الميعاد.",
-  "- لو عايز يلغي ميعاده: اختار action cancel واكتب في reply إنك بلّغت الاستقبال وهيأكدوله الإلغاء، واسأله بلطف لو يحب يحجز وقت تاني بدل ما يلغي. لو بيقول إنه هيتأخر على ميعاده: اختار action late وطمّنه إنك بلّغت العيادة. الإلغاء والتأخير بيتبلّغوا للاستقبال، مش بيتنفذوا لوحدهم.",
+  "- لو عايز يلغي ميعاده: اختار action cancel. النظام بيلغي الميعاد فعلاً على طول ويشيله من اليوميّة — مش بيتبلّغ للاستقبال بس — فاكتب في reply إن الإلغاء اتعمل خلاص، واسأله بلطف لو يحب يحجز وقت تاني. لو بيقول إنه هيتأخر على ميعاده: اختار action late وطمّنه إنك بلّغت العيادة والميعاد لسه محجوز باسمه (التأخير بيتبلّغ بس، مش بيغيّر حاجة).",
   "- اللغة بتتحدد من آخر رسالة المريض بعتها (مش من المحادثة كلها): إنجليزي → إنجليزي، عربي → عامية مصرية، فرانكو → فرانكو. ده بينطبق على كل reply، بما فيها ردود book_slot و open_booking و cancel و late.",
   "- أي سؤال عن طبيب معيّن بالاسم: جاوب من خانة \"الأطباء\" لو مكتوبة تحت (تخصصه، خبرته، أسلوبه) ورشّح المناسب للحالة. لو مش مكتوبة، أو السؤال عن حاجة مش فيها (رأيك الشخصي، مواعيده الخاصة، مقارنة بين الدكاترة مين أشطر): اختار handoff_staff.",
   "- الأسعار: جاوب من القايمة تحت بصيغة \"يبدأ من\"، ودايماً اختم بأن الاستقبال بيأكد السعر النهائي. لو المريض سأل عن حاجة ليها خدمة مشابهة أو قريبة في القايمة (مثلاً سأل عن التقويم والقايمة فيها \"تقويم معدن\") اعتبرها موجودة وجاوب بسعرها. بس لو مفيش أي خدمة قريبة منها خالص: handoff_other.",
@@ -196,6 +203,8 @@ const HARD_RULES = [
   "",
   "معلومات طب الأسنان (معرفة عامة مسموحة، تشخيص ممنوع):",
   "- تقدر تشرح ببساطة إيه هو أي علاج أسنان وبيتعمل إزاي بشكل عام (حشو، عصب، تنضيف، تقويم، زرع، تلبيس، تبييض)، وإيه الفرق بين اتنين، وإيه اللي بيحصل في الزيارة، وتعليمات ما بعد العلاج العامة. اتكلم بلغة بسيطة زي ما بتشرح لجارك، مش زي كتاب.",
+  "- \"إيه الفرق بين ...؟\" سؤال معرفة عامة، مش سؤال محتاج موظف: الفرق بين أنواع الزراعة أو التقويم أو التلبيسات أو أنواع الحشو — اشرحه ببساطة (الفرق في الخامة، والوقت، والمنظر، والسعر بشكل عام) من غير ما تسمّي ماركات ولا تقول أسعار مش مكتوبة. handoff_other بس لو سأل عن ماركة أو نوع بالاسم إحنا مش عارفين إحنا بنستخدمه ولا لأ.",
+  "- ممنوع تقول عن أي علاج إنه \"آمن تماماً\" أو \"مفيش منه ضرر خالص\" أو \"مضمون\". قول إنه بيتعمل تحت إشراف الدكتور وبأجهزة حديثة، وإن الدكتور بيتأكد إنه مناسب لحالتك في الكشف — ده بيطمّن من غير ما يوعد بحاجة محدش يقدر يوعد بيها من على واتساب.",
   "- ممنوع تربط الكلام ده بحالة المريض نفسه: متقولش \"إنت غالباً عندك كذا\" ولا \"ده شكله عصب\" ولا \"السنة دي محتاجة خلع\". دي حاجة الدكتور بس اللي يقولها بعد ما يشوف ويصوّر.",
   "- أي رقم عن حالته هو (كام جلسة ليه، هياخد قد إيه، هيعيش كام سنة) بيتحدد في الكشف. اشرح ليه: كل حالة بتختلف حسب العضم واللثة وعدد الأسنان.",
   "",
@@ -308,6 +317,10 @@ export async function answerWithAi(args: {
   memory?: string;
   /** The patient's own record: money, treatments, prescriptions, their usual dentist. */
   dossier?: PatientDossier;
+  /** Over-the-counter medicines this clinic authorised, for the model to choose between. */
+  medicines?: Array<{ id: string; label: string; whenToUse?: string }>;
+  /** True once the patient has answered the safety questions in this conversation. */
+  medicineScreened?: boolean;
   /** The conversation is flagged for staff but nobody has picked it up: keep helping, say so once. */
   flaggedForStaff?: boolean;
   /** The patient is mid-booking-list; the options they were shown. */
@@ -443,6 +456,17 @@ export async function answerWithAi(args: {
     sales && offeredSlots.length
       ? `\nأقرب مواعيد متاحة (slotKey → إزاي تقولها للمريض):\n${offeredSlots.map((s) => `- ${s.id} → ${s.label}`).join("\n")}`
       : "",
+    sales && args.medicines?.length
+      ? [
+          "\nأدوية العيادة سامحة لك تقترحها (اختار action suggest_medicine واكتب الـ id في medicineId):",
+          ...args.medicines.map((m) => `- [${m.id}] ${m.label}${m.whenToUse ? ` — بتتقال لما: ${m.whenToUse}` : ""}`),
+          "ممنوع تكتب اسم الدوا أو الجرعة في reply — النظام بيبعت نص العيادة نفسه بعد كلامك.",
+          args.medicineScreened
+            ? "المريض رد على أسئلة الأمان في المحادثة دي، فتقدر تقترح على طول."
+            : "المريض لسه مردش على أسئلة الأمان — اختار suggest_medicine عادي، والنظام هو اللي هيسأله الأول قبل ما يبعت أي حاجة.",
+          "لو اللي بيسأل حامل أو مرضعة أو طفل أو عنده مرض مزمن أو حساسية: متختارش suggest_medicine خالص — اختار handoff_medical.",
+        ].join("\n")
+      : "",
     sales && args.media?.length
       ? `\nملفات تقدر تبعتها بعد ردك (اكتب id في sendMedia):\n${args.media.slice(0, 20).map((m) => `- [${m.id}] ${m.label}${m.when ? ` — ${m.when}` : ""}`).join("\n")}`
       : "",
@@ -452,6 +476,15 @@ export async function answerWithAi(args: {
 
   // Kept outside the try so a parse failure can record what the model actually sent.
   let lastRaw = "";
+  /*
+   * What this turn actually costs, in tokens.
+   *
+   * The credit was always counted; the tokens behind it were not, so the one feature a clinic
+   * runs thousands of times a month was the one with no cost data at all — 800 credits of
+   * WhatsApp against seven logged API calls, all of them from elsewhere in the app. A credit is
+   * a price the clinic pays; this is what it costs us, and the two need to be comparable.
+   */
+  const meter = createUsageMeter(MODEL);
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({
@@ -464,12 +497,13 @@ export async function answerWithAi(args: {
           properties: {
             action: {
               type: SchemaType.STRING,
-              enum: ["answer", "open_booking", "book_slot", "reschedule", "cancel", "late", "handoff_medical", "handoff_complaint", "handoff_staff", "handoff_other"],
+              enum: ["answer", "open_booking", "book_slot", "reschedule", "cancel", "late", "suggest_medicine", "handoff_medical", "handoff_complaint", "handoff_staff", "handoff_other"],
               format: "enum",
             },
             reply: { type: SchemaType.STRING },
             interest: { type: SchemaType.STRING },
             slotKey: { type: SchemaType.STRING },
+            medicineId: { type: SchemaType.STRING },
             sendMedia: { type: SchemaType.STRING },
           },
           required: ["action"],
@@ -562,7 +596,7 @@ export async function answerWithAi(args: {
 
     let raw = "";
     let modelMs = 0;
-    let parsed: { action?: string; reply?: string; interest?: string; slotKey?: string; sendMedia?: string } = {};
+    let parsed: { action?: string; reply?: string; interest?: string; slotKey?: string; sendMedia?: string; medicineId?: string } = {};
     let strays: string[] = [];
     /*
      * A medicine may be named only if the dentist wrote it in this patient's file or the patient
@@ -575,6 +609,7 @@ export async function answerWithAi(args: {
       const t0 = Date.now();
       const result = await withTimeout(model.generateContent({ contents }), TIMEOUT_MS);
       modelMs += Date.now() - t0;
+      meter.add(result.response);
       raw = result.response.text();
       lastRaw = raw;
       const decoded = parseModelJson(raw);
@@ -592,7 +627,7 @@ export async function answerWithAi(args: {
         throw new Error("ai_bad_json");
       }
       parsed = decoded as typeof parsed;
-      const spoken = ["answer", "open_booking", "book_slot", "reschedule", "cancel", "late"].includes(String(parsed.action));
+      const spoken = ["answer", "open_booking", "book_slot", "reschedule", "cancel", "late", "suggest_medicine"].includes(String(parsed.action));
       strays = spoken ? strayNumbers(String(parsed.reply || "")) : [];
       namedDrugs = spoken ? strayDrugNames(String(parsed.reply || ""), drugsAllowed) : [];
       if (!strays.length && !namedDrugs.length) break;
@@ -641,7 +676,7 @@ export async function answerWithAi(args: {
     if (parsed.action === "handoff_medical") return { kind: "handoff", topic: "medical", text: handoffText };
     if (parsed.action === "handoff_complaint") return { kind: "handoff", topic: "complaint", text: handoffText };
     if (parsed.action === "handoff_staff") return { kind: "handoff", topic: "staff", text: handoffText };
-    if (!["answer", "open_booking", "book_slot", "reschedule", "cancel", "late"].includes(String(parsed.action)))
+    if (!["answer", "open_booking", "book_slot", "reschedule", "cancel", "late", "suggest_medicine"].includes(String(parsed.action)))
       return { kind: "handoff", topic: "other", text: handoffText };
     const reschedule = sales && parsed.action === "reschedule" && args.canBook !== false;
     const appointmentChange = sales && (parsed.action === "cancel" || parsed.action === "late") ? (parsed.action as "cancel" | "late") : undefined;
@@ -654,9 +689,16 @@ export async function answerWithAi(args: {
     const chosenSlot = offeredSlots.find((s) => s.id === slotKey || s.key === slotKey || slotKey.startsWith(s.key));
     const bookSlot = sales && parsed.action === "book_slot" && args.canBook !== false && chosenSlot ? chosenSlot.key : undefined;
     const openBooking = sales && args.canBook !== false && (parsed.action === "open_booking" || (parsed.action === "book_slot" && !bookSlot));
+    // A medicine the clinic did not authorise is not a medicine. An unknown id falls through to
+    // an ordinary answer, where the drug guard is still watching every word.
+    const wantedMedicine = String(parsed.medicineId || "").trim();
+    const medicineId =
+      parsed.action === "suggest_medicine" && (args.medicines || []).some((m) => m.id === wantedMedicine)
+        ? wantedMedicine
+        : undefined;
     const mediaId = String(parsed.sendMedia || "").trim();
     const sendMedia = (args.media || []).some((m) => m.id === mediaId) ? mediaId : undefined;
-    if (!text && !openBooking && !bookSlot && !reschedule && !appointmentChange) return { kind: "handoff", topic: "other" };
+    if (!text && !openBooking && !bookSlot && !reschedule && !appointmentChange && !medicineId) return { kind: "handoff", topic: "other" };
 
     // Charged only for a delivered answer, after the model produced one. Handoffs cost nothing.
     await usageRef.set(
@@ -670,10 +712,11 @@ export async function answerWithAi(args: {
       userId: "whatsapp_bot",
       userName: "WhatsApp Bot",
       detail: question.slice(0, 120),
+      usage: meter.snapshot(),
     }).catch(() => {});
 
     const interest = String(parsed.interest || "").trim().slice(0, 60) || undefined;
-    return { kind: "answer", text: text || AI_DEFAULT_ACK, openBooking, interest, bookSlot, sendMedia, reschedule, appointmentChange };
+    return { kind: "answer", text: text || AI_DEFAULT_ACK, openBooking, interest, bookSlot, sendMedia, reschedule, appointmentChange, medicineId };
   } catch (e) {
     const reason = e instanceof Error ? e.message : "model_error";
     await adminClinicCollection(clinicId, "ai_debug")
