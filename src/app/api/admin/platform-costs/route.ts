@@ -66,6 +66,7 @@ export async function GET(request: Request) {
          * blended figure and is exactly the clinic worth finding.
          */
         let aiCostUsd = 0;
+        const aiMeasuredCalls = Number((usage.tokens as Record<string, unknown> | undefined)?.apiCalls) || 0;
         for (const [modelKey, bundle] of Object.entries((usage.byModel || {}) as Record<string, Record<string, unknown>>)) {
           aiCostUsd += costOfTokens(
             modelKey.replace(/_/g, "."),
@@ -93,6 +94,7 @@ export async function GET(request: Request) {
           creditsUsed: Number(usage.creditsUsed) || 0,
           creditLimit: getAiCreditLimit(clinic),
           aiCostUsd: Math.round(aiCostUsd * 1_000_000) / 1_000_000,
+          aiMeasuredCalls,
           whatsappBilledUsd: metaBilled?.billedUsd ?? null,
           sentByCategory,
           whatsappEstimateUsd: estimateMonthUsd(sentByCategory),

@@ -190,7 +190,17 @@ export function CostsTab() {
                         {r.creditsUsed.toLocaleString("en-US")}
                         {r.creditLimit > 0 && <span className="text-slate-600"> / {r.creditLimit.toLocaleString("en-US")}</span>}
                       </td>
-                      <td className="px-3 py-2.5 font-figure font-semibold text-slate-300">${r.aiCostUsd.toFixed(3)}</td>
+                      <td className="px-3 py-2.5 font-figure font-semibold text-slate-300">
+                        ${r.aiCostUsd.toFixed(3)}
+                        {r.creditsUsed > 0 && r.aiMeasuredCalls < r.creditsUsed / 2 && (
+                          <span
+                            className="ms-1 text-[10px] font-bold uppercase text-amber-400"
+                            title={`Only ${r.aiMeasuredCalls} of ${r.creditsUsed} charges recorded tokens — this is a floor, not the full bill.`}
+                          >
+                            part
+                          </span>
+                        )}
+                      </td>
                       <td className="px-3 py-2.5 font-figure font-semibold text-slate-300">
                         ${waUsd.toFixed(3)}
                         {r.whatsappBilledUsd === null && waUsd > 0 && (
@@ -212,7 +222,9 @@ export function CostsTab() {
           <p className="text-xs font-semibold text-slate-500">
             Meta figures are its own billed numbers where reported, marked <span className="uppercase">est</span> where we
             are still estimating. Google is priced per model from the token log — super mode runs on Pro and costs several
-            times Flash. Intro pricing ends 31 Dec 2026; from January the Google column roughly doubles.
+            times Flash. Intro pricing ends 31 Dec 2026; from January the Google column roughly doubles. A Google figure marked
+            <span className="uppercase"> part</span> covers only the charges that recorded tokens — token logging began
+            in late Aug 2026 and the WhatsApp assistant only joined it on 6 Sep, so earlier months read low.
           </p>
         </>
       )}

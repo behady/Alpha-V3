@@ -82,6 +82,7 @@ const row = (over: Partial<ClinicCostRow> = {}): ClinicCostRow => ({
   creditsUsed: 800,
   creditLimit: 1800,
   aiCostUsd: 4,
+  aiMeasuredCalls: 800,
   whatsappBilledUsd: 0.17,
   sentByCategory: { utility: 40, marketing: 0, authentication: 0, service: 900 },
   whatsappEstimateUsd: 0.144,

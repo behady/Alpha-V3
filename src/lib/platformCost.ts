@@ -86,6 +86,15 @@ export type ClinicCostRow = {
   creditLimit: number;
   /** Google's fees for those credits, in USD. */
   aiCostUsd: number;
+  /**
+   * API calls the token log actually measured this month.
+   *
+   * Token logging shipped 2026-08-26, and the WhatsApp assistant only began feeding it on
+   * 2026-09-06 — before that a clinic could burn 800 credits and record seven calls. So a month
+   * where this is far below `creditsUsed` has a Google figure that is real but INCOMPLETE, and
+   * saying so is the difference between an honest number and a wrong one.
+   */
+  aiMeasuredCalls: number;
   /** Meta's own billed figure for the month, USD. Null when the clinic has no official channel. */
   whatsappBilledUsd: number | null;
   /** What we sent, by category — the shape of the WhatsApp bill. */
