@@ -109,6 +109,16 @@ interface UIContextType {
    */
   receptionPanelActive: boolean;
   setReceptionPanelActive: (active: boolean) => void;
+  /**
+   * True while the floating assistant's chat panel is open.
+   *
+   * Same corner, same problem, one layer out: the welcome coach's bubble sits directly above the
+   * assistant's orb, which is where the chat panel unfolds. Without this the coach would be
+   * underneath the panel that opened over it — visible around the edges, unreadable, and
+   * un-dismissable. The widget publishes its own open state here and the coach steps aside.
+   */
+  assistantPanelOpen: boolean;
+  setAssistantPanelOpen: (open: boolean) => void;
   appointmentsVisibility: 'all' | 'desktop' | 'hidden';
   setAppointmentsVisibility: (visibility: 'all' | 'desktop' | 'hidden') => void;
   latePatientTrackerEnabled: boolean;
@@ -145,6 +155,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const [appointmentEditorMode, setAppointmentEditorModeState] = useState<'modal' | 'drawer'>('modal');
   const [appointmentPanelMode, setAppointmentPanelModeState] = useState<'editor' | 'avatar'>('editor');
   const [receptionPanelActive, setReceptionPanelActive] = useState(false);
+  const [assistantPanelOpen, setAssistantPanelOpen] = useState(false);
   const [appointmentsVisibility, setAppointmentsVisibilityState] = useState<'all' | 'desktop' | 'hidden'>('desktop');
   const [latePatientTrackerEnabledState, setLatePatientTrackerEnabledState] = useState<boolean>(true);
   const [clinicalNoteSort, setClinicalNoteSortState] = useState<ClinicalNoteSort>('newest');
@@ -378,7 +389,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const promptCanSubmit = !promptState.required || promptValue.trim().length > 0;
 
   return (
-    <UIContext.Provider value={{ showToast, confirm, prompt, clinicalEditorMode, setClinicalEditorMode, clinicalEditorModeChosen, appointmentEditorMode, setAppointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode, receptionPanelActive, setReceptionPanelActive, appointmentsVisibility, setAppointmentsVisibility, latePatientTrackerEnabled: latePatientTrackerEnabledState, setLatePatientTrackerEnabled, clinicalNoteSort, setClinicalNoteSort, clinicalNoteGrouping, setClinicalNoteGrouping, clinicalNoteDensity, setClinicalNoteDensity, homeView, setHomeView }}>
+    <UIContext.Provider value={{ showToast, confirm, prompt, clinicalEditorMode, setClinicalEditorMode, clinicalEditorModeChosen, appointmentEditorMode, setAppointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode, receptionPanelActive, setReceptionPanelActive, assistantPanelOpen, setAssistantPanelOpen, appointmentsVisibility, setAppointmentsVisibility, latePatientTrackerEnabled: latePatientTrackerEnabledState, setLatePatientTrackerEnabled, clinicalNoteSort, setClinicalNoteSort, clinicalNoteGrouping, setClinicalNoteGrouping, clinicalNoteDensity, setClinicalNoteDensity, homeView, setHomeView }}>
       {children}
 
       {/* --- TOAST CONTAINER (Smartphone Style) --- */}

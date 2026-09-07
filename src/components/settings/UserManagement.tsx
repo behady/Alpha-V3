@@ -509,6 +509,7 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
             </span>
             <button
               type="button"
+              data-tour="users-add"
               onClick={openAddUser}
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-bold text-ink-on-accent shadow-md transition-all hover:bg-accent-strong active:scale-95"
             >

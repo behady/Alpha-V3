@@ -1,0 +1,128 @@
+# Deploying the security rules, without a terminal.
+#
+# Vercel ships the Next.js app on every push to main and knows nothing about Firestore or Storage
+# rules — those are a separate deploy to Firebase. Until now that meant somebody running
+# `firebase deploy --only firestore:rules` by hand from a laptop, which is the same gap that let
+# functions/ drift for months (see deploy-functions.yml) and, worse, let storage.rules sit
+# UNDEPLOYED FOR THREE DAYS with a Firestore lookup in it that can never resolve in this project
+# — the incident tests/storage.rules.test.mjs was written after.
+#
+# Rules are the one thing in this system where the deployed copy and the copy in git being
+# different is invisible: everything keeps working, because the OLD rules are still enforcing.
+# A rule you added to close a hole is not closing it until this runs.
+#
+# Two ways to fire it:
+#   - the "Run workflow" button on the Actions tab (use this to deploy a rules change that is not
+#     on main yet — pick the branch from the dropdown)
+#   - automatically, on a push to main that actually changes a rules file
+#
+# Nothing here can deploy application code, functions, or Firestore indexes. Two declarative
+# rulesets are the whole blast radius, both exercised against the real rules engine before either
+# is released.
+#
+# They deploy in TWO separate steps, Firestore first, and that ordering is load-bearing. The first
+# version of this workflow asked for `--only firestore:rules,storage` in one invocation, and
+# `firebase deploy` prepares every target before releasing any: the storage half called
+# `firebasestorage.defaultBucket.get`, the service account did not hold that permission, and the
+# whole command died at 403 having released NOTHING. A missing IAM grant on the bucket silently
+# took the Firestore rules down with it — the exact "it ran, so it must be deployed" failure this
+# workflow exists to end. Split, a storage problem is still a red job, but the Firestore rules
+# land first and stay landed.
+
+name: Deploy Security Rules
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "firestore.rules"
+      - "storage.rules"
+      - ".github/workflows/deploy-rules.yml"
+
+# Never two rules deploys at once, and never cancel one half-way: an interrupted deploy would
+# leave whichever ruleset went first live beside the old copy of the other.
+concurrency:
+  group: deploy-rules
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Firestore + Storage rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The emulator suites are Java. Pinned to 21 to match the CI rules job.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - run: npm ci
+
+      # Both suites run BEFORE the deploy, not after, and a failure stops it. A ruleset that
+      # denies something it should allow takes the whole product down for every clinic at once,
+      # and rolling back means noticing first — which, per the note at the top, is exactly the
+      # thing nobody does with rules.
+      - name: Firestore rules, against the real rules engine
+        run: npm run --silent test:rules
+
+      - name: Storage rules, against the real rules engine
+        run: npm run --silent test:storage-rules
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      # Firestore first, on its own. This is the one that gates whether a clinic's data is
+      # reachable, and it must not be able to fail because of a permission on a storage bucket.
+      #
+      # firebase-tools is pinned to 13 for the same reason the test scripts pin it: 14+ requires
+      # JDK 21 tooling this repo has not moved to wholesale.
+      #
+      # Indexes are deliberately NOT deployed. `--only firestore:indexes` can DELETE an index
+      # absent from firestore.indexes.json, and an index disappearing under a live query is a
+      # page that starts failing minutes later for reasons nobody connects to a rules deploy.
+      - name: Deploy Firestore rules
+        env:
+          # The auth step above writes a credentials file and exports this for the CLI to find.
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ env.GOOGLE_APPLICATION_CREDENTIALS }}
+          FIREBASE_PROJECT: ${{ secrets.FIREBASE_PROJECT_ID }}
+        run: |
+          npx firebase-tools@13 deploy \
+            --only firestore:rules \
+            --project "$FIREBASE_PROJECT" \
+            --non-interactive
+
+      # Storage second, and still required: a failure here is a real problem to fix, not something
+      # to code around. It needs `firebasestorage.defaultBucket.get` on the service account —
+      # granted by roles/firebase.developAdmin (or roles/firebasestorage.admin) in Google Cloud
+      # IAM. Until that grant exists this step 403s, the job goes red, and the Firestore rules
+      # above are live regardless.
+      #
+      # `always()` so a red Firestore step does not skip this one silently; the job's conclusion
+      # still reflects both.
+      - name: Deploy Storage rules
+        if: ${{ always() }}
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ env.GOOGLE_APPLICATION_CREDENTIALS }}
+          FIREBASE_PROJECT: ${{ secrets.FIREBASE_PROJECT_ID }}
+        run: |
+          npx firebase-tools@13 deploy \
+            --only storage \
+            --project "$FIREBASE_PROJECT" \
+            --non-interactive
+
+      - name: What is live now
+        if: ${{ always() }}
+        run: |
+          echo "Deployed from ${{ github.ref_name }} @ ${{ github.sha }}"
+          echo "firestore.rules  $(sha256sum firestore.rules | cut -c1-16)"
+          echo "storage.rules    $(sha256sum storage.rules  | cut -c1-16)"

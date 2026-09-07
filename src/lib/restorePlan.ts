@@ -27,6 +27,10 @@ export const ROOT_COLLECTIONS = [
   "meta_pages",
   "meta_lead_events",
   "sms_pairing_codes",
+  // Platform-wide, not this clinic's: how long a free trial lasts and whether trials expire.
+  // Restoring it while recovering ONE clinic would reach across every tenant on the platform
+  // and rewind a commercial setting to whatever it was on the day of the snapshot.
+  "platform_settings",
 ] as const;
 
 /**

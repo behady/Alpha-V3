@@ -160,6 +160,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     writes: [{ kind: "settingsDoc", docId: "clinic_info" }],
     view: ADMIN,
     edit: ADMIN,
+    tourAnchor: "settings-tab-clinic",
   },
   {
     id: "clinical",
@@ -293,6 +294,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     ],
     view: ADMIN,
     edit: ADMIN,
+    tourAnchor: "settings-tab-users",
   },
   {
     id: "join_requests",

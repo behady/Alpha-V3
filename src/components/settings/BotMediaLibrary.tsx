@@ -6,6 +6,7 @@ import { addDoc, deleteDoc, doc, onSnapshot, serverTimestamp } from "firebase/fi
 import { getDownloadURL, ref, uploadBytesResumable } from "firebase/storage";
 import { storage } from "@/lib/firebase";
 import { currentClinicId, getClinicCollection } from "@/lib/db-utils";
+import { botMediaPath } from "@/lib/storagePaths";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 
@@ -50,11 +51,17 @@ export default function BotMediaLibrary() {
     setBusy(true);
     setError(null);
     try {
-      const clinicId = currentClinicId();
       const isImage = file.type.startsWith("image/");
       if (!isImage && file.type !== "application/pdf") throw new Error(isAr ? "صورة أو PDF بس" : "Images or PDF only");
-      const safe = file.name.replace(/[^A-Za-z0-9._-]/g, "_").slice(-60);
-      const task = uploadBytesResumable(ref(storage, `clinics/${clinicId}/bot_media/${Date.now()}_${safe}`), file, { contentType: file.type });
+      // Built by the module rather than here. The inline version interpolated the result of
+      // `currentClinicId()` — which is `string | null` by design — straight into a template
+      // literal, so a null became the string "null" and the file landed in `clinics/null/`,
+      // a folder shared by every clinic, with the upload reporting success.
+      const task = uploadBytesResumable(
+        ref(storage, botMediaPath(currentClinicId(), file.name)),
+        file,
+        { contentType: file.type },
+      );
       await new Promise<void>((resolve, reject) => task.on("state_changed", undefined, reject, () => resolve()));
       const url = await getDownloadURL(task.snapshot.ref);
       await addDoc(getClinicCollection("bot_media"), {

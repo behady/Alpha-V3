@@ -10,6 +10,7 @@ import {
   LifeBuoy,
   LogOut,
   MoreHorizontal,
+  Rocket,
   Settings,
   ShieldCheck,
   UserCircle2,
@@ -346,12 +347,23 @@ export default function DesktopSidebar({
             null,
             UserCircle2,
             language === "ar" ? "الحساب" : "Account",
-            openMenu === "account" || isRouteActive("/help"),
+            openMenu === "account" || isRouteActive("/help") || isRouteActive("/welcome"),
             () => setOpenMenu(openMenu === "account" ? null : "account")
           )}
           {openMenu === "account" &&
             menuPanel(
               <div className="py-1.5">
+                {/* Above Help on purpose: someone in their first week wants the guided route, not
+                    an index of articles. Ungated for the same reason Help is — and the guide
+                    already shows each role only the steps that role can finish. */}
+                {menuRow(
+                  "welcome",
+                  "/welcome",
+                  Rocket,
+                  language === "ar" ? "البداية" : "Getting started",
+                  isRouteActive("/welcome"),
+                  () => setOpenMenu(null)
+                )}
                 {/* Help is deliberately ungated: the people most likely to need it are the ones
                     with the fewest permissions. */}
                 {menuRow(
