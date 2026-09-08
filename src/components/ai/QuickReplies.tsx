@@ -140,32 +140,31 @@ export default function QuickReplies({
   };
 
   return (
-    <div className="absolute bottom-full start-3 end-3 mb-1 rounded-xl bg-white shadow-lg border border-black/5 flex flex-col max-h-[60vh] z-20">
-      <div className="px-3 py-2 border-b border-black/5 flex items-center gap-2">
-        <Zap size={16} style={{ color: "#00a884" }} />
-        <span className="text-[13px] font-black" style={{ color: "#111b21" }}>
+    <div className="absolute bottom-full start-3 end-3 mb-1 rounded-2xl bg-surface-subtle dark:bg-slate-900/90 backdrop-blur-xl shadow-xl border border-line dark:border-slate-800 flex flex-col max-h-[60vh] z-20 overflow-hidden transition-colors">
+      <div className="px-3 py-2 border-b border-line dark:border-slate-800 flex items-center gap-2 bg-surface dark:bg-slate-900">
+        <Zap size={16} className="text-accent dark:text-accent-soft" />
+        <span className="text-[13px] font-black text-ink dark:text-slate-100">
           {isAr ? "ردود جاهزة" : "Quick replies"}
         </span>
         <button
           onClick={() => setManaging((v) => !v)}
-          className="ms-auto flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-lg hover:bg-black/5"
-          style={{ color: managing ? "#00a884" : "#54656f" }}
+          className={`ms-auto flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded-lg transition-colors hover:bg-surface-subtle dark:hover:bg-slate-800 ${managing ? "text-accent dark:text-accent-soft" : "text-ink-muted dark:text-slate-400"}`}
         >
           <Settings2 size={14} />
           {managing ? (isAr ? "تم" : "Done") : isAr ? "تعديل" : "Manage"}
         </button>
-        <button onClick={onClose} className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-black/5" style={{ color: "#54656f" }}>
+        <button onClick={onClose} className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-surface-subtle dark:hover:bg-slate-800 text-ink-muted dark:text-slate-400 transition-colors">
           <X size={15} />
         </button>
       </div>
 
       {managing ? (
-        <div className="p-3 space-y-2 border-b border-black/5" style={{ background: "#f7f8f9" }}>
+        <div className="p-3 space-y-2 border-b border-line dark:border-slate-800 bg-surface dark:bg-slate-900/50">
           <input
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
             placeholder={isAr ? "الاسم المختصر (مثلاً: مواعيد الجمعة)" : "Short name (e.g. Friday hours)"}
-            className="w-full rounded-lg border border-black/10 bg-white px-3 py-1.5 text-[13px] focus:outline-none focus:border-[#00a884]"
+            className="w-full rounded-lg border border-line dark:border-slate-700 bg-surface dark:bg-slate-800 px-3 py-1.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-accent/50 text-ink dark:text-slate-100 placeholder-ink-faint dark:placeholder-slate-500 transition-all shadow-sm"
             dir="auto"
           />
           <textarea
@@ -173,30 +172,28 @@ export default function QuickReplies({
             onChange={(e) => setNewText(e.target.value)}
             rows={2}
             placeholder={isAr ? "نص الرد… اكتب {name} مكان اسم المريض" : "Reply text… write {name} where the patient's name goes"}
-            className="w-full rounded-lg border border-black/10 bg-white px-3 py-1.5 text-[13px] focus:outline-none focus:border-[#00a884] resize-none"
+            className="w-full rounded-lg border border-line dark:border-slate-700 bg-surface dark:bg-slate-800 px-3 py-1.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-accent/50 resize-none text-ink dark:text-slate-100 placeholder-ink-faint dark:placeholder-slate-500 transition-all shadow-sm"
             dir="auto"
           />
           <button
             onClick={() => void add()}
             disabled={saving || !newTitle.trim() || !newText.trim()}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-[12px] font-black disabled:opacity-50"
-            style={{ background: "#00a884" }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-[12px] font-black disabled:opacity-50 bg-accent dark:bg-accent hover:brightness-110 shadow-sm transition-all"
           >
             {saving ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
             {isAr ? "أضف رد" : "Add reply"}
           </button>
         </div>
       ) : (
-        <div className="px-3 py-2 border-b border-black/5">
+        <div className="px-3 py-2 border-b border-line dark:border-slate-800 bg-surface dark:bg-slate-900/80 backdrop-blur-md">
           <div className="relative">
-            <Search size={14} className="absolute top-1/2 -translate-y-1/2 start-3" style={{ color: "#667781" }} />
+            <Search size={14} className="absolute top-1/2 -translate-y-1/2 start-3 text-ink-muted dark:text-slate-400" />
             <input
               autoFocus
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder={isAr ? "ابحث في الردود" : "Search replies"}
-              className="w-full rounded-lg border-0 ps-9 pe-3 py-1.5 text-[13px] focus:outline-none"
-              style={{ background: "#f0f2f5", color: "#111b21" }}
+              className="w-full rounded-full border-0 ps-9 pe-3 py-1.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-accent/50 bg-surface-subtle dark:bg-slate-800 text-ink dark:text-slate-100 placeholder-ink-faint dark:placeholder-slate-500 transition-all"
             />
           </div>
         </div>
@@ -204,11 +201,11 @@ export default function QuickReplies({
 
       <div className="overflow-y-auto">
         {custom === null ? (
-          <div className="p-4 flex justify-center" style={{ color: "#667781" }}>
+          <div className="p-4 flex justify-center text-ink-muted dark:text-slate-400">
             <Loader2 size={16} className="animate-spin" />
           </div>
         ) : rows.length === 0 ? (
-          <p className="p-4 text-center text-[12px] font-bold" style={{ color: "#667781" }}>
+          <p className="p-4 text-center text-[12px] font-bold text-ink-muted dark:text-slate-400">
             {custom.length === 0 && !Object.values(facts).some(Boolean)
               ? isAr
                 ? "مفيش ردود جاهزة لسه. اضغط تعديل وأضف أول رد، أو املأ الإجابات الجاهزة في الإعدادات → واتساب."
@@ -219,25 +216,24 @@ export default function QuickReplies({
           </p>
         ) : (
           rows.map((r) => (
-            <div key={r.id} className="flex items-start gap-2 px-3 py-2 border-b border-black/5 last:border-0 hover:bg-[#f5f6f6]">
+            <div key={r.id} className="flex items-start gap-2 px-3 py-2 border-b border-line dark:border-slate-800 last:border-0 hover:bg-surface-subtle dark:hover:bg-slate-800/50 transition-colors">
               <button onClick={() => onInsert(fillQuickReply(r.text, patientName))} className="min-w-0 flex-1 text-start">
-                <p className="text-[13px] font-bold truncate" style={{ color: "#111b21" }} dir="auto">
+                <p className="text-[13px] font-bold truncate text-ink dark:text-slate-100" dir="auto">
                   {r.title}
                   {r.source === "facts" && (
-                    <span className="ms-2 text-[10px] font-black px-1.5 py-0.5 rounded-full" style={{ background: "#e7fce3", color: "#008f72" }}>
+                     <span className="ms-2 text-[10px] font-black px-1.5 py-0.5 rounded-full bg-accent-tint text-accent-strong dark:bg-accent-strong/40 dark:text-accent-soft">
                       {isAr ? "من الإعدادات" : "Settings"}
                     </span>
                   )}
                 </p>
-                <p className="text-[12px] truncate" style={{ color: "#667781" }} dir="auto">
+                <p className="text-[12px] truncate text-ink-muted dark:text-slate-400 mt-0.5" dir="auto">
                   {fillQuickReply(r.text, patientName)}
                 </p>
               </button>
               {managing && r.source === "custom" && (
                 <button
                   onClick={() => void remove(r.id)}
-                  className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-rose-50 shrink-0"
-                  style={{ color: "#c0392b" }}
+                  className="w-7 h-7 rounded-full flex items-center justify-center hover:bg-rose-50 dark:hover:bg-rose-900/20 shrink-0 text-[#c0392b] dark:text-[#fc8181] transition-colors"
                   aria-label={isAr ? "حذف" : "Delete"}
                 >
                   <Trash2 size={14} />

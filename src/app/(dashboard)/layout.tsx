@@ -22,7 +22,7 @@ import NotificationBell from "@/components/NotificationBell";
 import ReceptionSummonOverlay from "@/components/summon/ReceptionSummonOverlay";
 import { useUI } from "@/context/UIContext";
 import ClinicSwitcher from "@/components/dashboard/ClinicSwitcher";
-import DesktopSidebar from "@/components/dashboard/DesktopSidebar";
+import DesktopSidebar, { SECTION_GROUPS } from "@/components/dashboard/DesktopSidebar";
 import AiChatWidget from "@/components/AiChatWidget";
 import { TutorialProvider, useTutorial } from "@/context/TutorialContext";
 import TutorialOverlay from "@/components/TutorialOverlay";
@@ -71,7 +71,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const [isOpen, setIsOpen] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-  const [searchVal, setSearchVal] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
 
   // Same mark as the desktop rail, fetched here for the mobile menu header.
@@ -86,24 +85,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     };
   }, [clinicId]);
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      setSearchVal(params.get("search") || "");
-    }
-  }, [pathname]);
 
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setSearchVal(val);
-    const params = new URLSearchParams(window.location.search);
-    if (val) {
-      params.set("search", val);
-    } else {
-      params.delete("search");
-    }
-    router.replace(`${pathname}?${params.toString()}`);
-  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
@@ -114,6 +96,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [router]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsOpen(false);
   }, [pathname]);
 
@@ -214,8 +197,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (isCheckingAuth || authLoading) {
     return (
       <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950">
-        {/* Desktop Sidebar Skeleton */}
-        <aside className="hidden lg:flex w-64 flex-col bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 p-6 animate-pulse">
+        {/* Desktop Sidebar Skeleton - Collapsed Default */}
+        <aside className="hidden lg:flex w-[88px] shrink-0 flex-col bg-surface dark:bg-slate-900 border-e border-line dark:border-slate-800 p-4 shadow-sm items-center">
           <div className="h-8 bg-slate-200 dark:bg-slate-800 rounded-md w-3/4 mb-10"></div>
           <div className="space-y-4">
             {[...Array(6)].map((_, i) => (
@@ -315,59 +298,74 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                  <ClinicSwitcher />
               </div>
 
-              <div className="flex-1 overflow-y-auto p-5 space-y-2">
-                 {allNavItems.filter(item => hasAccess(item.key, true)).map((item) => {
-                    const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
-                    const label = t(item.key as any) || item.key.charAt(0).toUpperCase() + item.key.slice(1);
+              <div className="flex-1 overflow-y-auto no-scrollbar p-5 space-y-6">
+                 {SECTION_GROUPS.map((section) => {
+                    const sectionItems = allNavItems.filter((item) => hasAccess(item.key, true) && section.keys.includes(item.key));
+                    if (sectionItems.length === 0) return null;
 
                     return (
-                       <Link 
-                         key={item.href} data-tour={`nav-${String(item.href).replace(/^\//, "")}`} 
-                         href={item.href}
-                         onClick={() => setIsOpen(false)}
-                         className={`flex items-center gap-4 px-5 py-3.5 rounded-2xl font-bold transition-all ${isActive ? 'bg-ink-slab text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
-                       >
-                         <item.icon size={22} />
-                         <span className="text-base">{label}</span>
-                         {"badge" in item && (item.badge ?? 0) > 0 && (
-                           <span className="ms-auto min-w-[22px] h-[22px] px-1.5 rounded-full bg-[#25d366] text-white text-[11px] font-black flex items-center justify-center">
-                             {item.badge}
-                           </span>
-                         )}
-                       </Link>
-                    )
+                      <div key={section.titleEn} className="space-y-1">
+                        <h3 className="px-3 mb-2 text-[11px] font-black uppercase tracking-wider text-ink-muted dark:text-slate-500">
+                          {language === "ar" ? section.titleAr : section.titleEn}
+                        </h3>
+                        {sectionItems.map((item) => {
+                          const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
+                          const label = t(item.key as any) || item.key.charAt(0).toUpperCase() + item.key.slice(1);
+
+                          return (
+                               <Link 
+                               key={item.href} data-tour={`nav-${String(item.href).replace(/^\//, "")}`} 
+                               href={item.href}
+                               onClick={() => setIsOpen(false)}
+                               className={`flex items-center gap-4 px-4 py-3 rounded-2xl font-bold transition-all ${isActive ? 'bg-[#FACC15] text-ink shadow-md shadow-[#FACC15]/20' : 'text-ink-body hover:bg-surface-subtle hover:text-ink'}`}
+                             >
+                               <item.icon size={22} strokeWidth={isActive ? 2.5 : 2} />
+                               <span className="text-base truncate">{label}</span>
+                               {"badge" in item && (item.badge ?? 0) > 0 && (
+                                 <span className="ms-auto min-w-[22px] h-[22px] px-1.5 rounded-full bg-accent-strong text-white text-[11px] font-black flex items-center justify-center">
+                                   {item.badge}
+                                 </span>
+                               )}
+                             </Link>
+                          )
+                        })}
+                      </div>
+                    );
                  })}
-                 <button onClick={() => { toggleLanguage(); setIsOpen(false); }} className="flex items-center w-full gap-4 px-5 py-3.5 rounded-xl font-bold text-ink-body hover:bg-surface-subtle transition-all">
+                 
+                 <div className="pt-2 border-t border-line dark:border-slate-800 space-y-1">
+                 <button onClick={() => { toggleLanguage(); setIsOpen(false); }} className="flex items-center w-full gap-4 px-4 py-3 rounded-2xl font-bold text-ink-body hover:bg-surface-subtle transition-all">
                     <Languages size={22} />
-                    <span className="text-base">{language === 'en' ? 'Switch to Arabic' : 'English'}</span>
+                    <span className="text-base truncate">{language === 'en' ? 'Switch to Arabic' : 'English'}</span>
                  </button>
                  {showSettings && (
-                   <Link href="/settings" onClick={() => setIsOpen(false)} className={`flex items-center gap-4 px-5 py-3.5 rounded-2xl font-bold transition-all ${pathname.startsWith('/settings') ? 'bg-ink-slab text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}>
+                   <Link href="/settings" onClick={() => setIsOpen(false)} className={`flex items-center gap-4 px-4 py-3 rounded-2xl font-bold transition-all ${pathname.startsWith('/settings') ? 'bg-[#FACC15] text-ink shadow-md shadow-[#FACC15]/20' : 'text-ink-body hover:bg-surface-subtle hover:text-ink'}`}>
                       <Settings size={22} />
-                      <span className="text-base">{t('settings' as any) || (language === 'ar' ? 'الإعدادات' : 'Settings')}</span>
+                      <span className="text-base truncate">{t('settings' as any) || (language === 'ar' ? 'الإعدادات' : 'Settings')}</span>
                    </Link>
                  )}
                  {/* Ungated for the same reason Help is: the people who most need the guide are
                      the ones with the fewest permissions, and it already shows each role only the
                      steps that role can finish. */}
-                 <Link href="/welcome" onClick={() => setIsOpen(false)} className={`flex items-center gap-4 px-5 py-3.5 rounded-2xl font-bold transition-all ${pathname.startsWith('/welcome') ? 'bg-ink-slab text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}>
+                 <Link href="/welcome" onClick={() => setIsOpen(false)} className={`flex items-center gap-4 px-4 py-3 rounded-2xl font-bold transition-all ${pathname.startsWith('/welcome') ? 'bg-[#FACC15] text-ink shadow-md shadow-[#FACC15]/20' : 'text-ink-body hover:bg-surface-subtle hover:text-ink'}`}>
                     <Rocket size={22} />
-                    <span className="text-base">{language === 'ar' ? 'البداية' : 'Getting started'}</span>
+                    <span className="text-base truncate">{language === 'ar' ? 'البداية' : 'Getting started'}</span>
                  </Link>
-                 <Link href="/help" onClick={() => setIsOpen(false)} className={`flex items-center gap-4 px-5 py-3.5 rounded-2xl font-bold transition-all ${pathname.startsWith('/help') ? 'bg-ink-slab text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}>
+                 <Link href="/help" onClick={() => setIsOpen(false)} className={`flex items-center gap-4 px-4 py-3 rounded-2xl font-bold transition-all ${pathname.startsWith('/help') ? 'bg-[#FACC15] text-ink shadow-md shadow-[#FACC15]/20' : 'text-ink-body hover:bg-surface-subtle hover:text-ink'}`}>
                     <LifeBuoy size={22} />
-                    <span className="text-base">{language === 'ar' ? 'مركز المساعدة' : 'Help Center'}</span>
+                    <span className="text-base truncate">{language === 'ar' ? 'مركز المساعدة' : 'Help Center'}</span>
                  </Link>
                  {user?.isSuperAdmin && (
-                   <button onClick={() => { setIsOpen(false); handleReturnToSuperAdmin(); }} className="flex items-center w-full gap-4 px-5 py-3.5 rounded-xl font-bold text-emerald-600 hover:bg-emerald-50 transition-all mt-4 text-left rtl:text-right">
+                   <button onClick={() => { setIsOpen(false); handleReturnToSuperAdmin(); }} className="flex items-center w-full gap-4 px-4 py-3 rounded-2xl font-bold text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-all mt-2 text-left rtl:text-right">
                       <ShieldCheck size={22} />
-                      <span className="text-base">Return to Hub</span>
+                      <span className="text-base truncate">Return to Hub</span>
                    </button>
                  )}
-                 <button onClick={() => { setIsOpen(false); handleLogout(); }} className="flex items-center w-full gap-4 px-5 py-3.5 rounded-xl font-bold text-danger hover:bg-danger/10 transition-all mt-4 text-left rtl:text-right">
+                 <button onClick={() => { setIsOpen(false); handleLogout(); }} className="flex items-center w-full gap-4 px-4 py-3 rounded-2xl font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-all mt-2 text-left rtl:text-right">
                     <LogOut size={22} />
-                    <span className="text-base">{language === 'en' ? 'Logout' : 'تسجيل الخروج'}</span>
+                    <span className="text-base truncate">{language === 'en' ? 'Logout' : 'تسجيل الخروج'}</span>
                  </button>
+                 </div>
               </div>
            </div>
         )}

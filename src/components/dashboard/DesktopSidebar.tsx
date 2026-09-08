@@ -1,19 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  ChevronLeft,
-  ChevronRight,
   Languages,
   LifeBuoy,
   LogOut,
-  MoreHorizontal,
   Rocket,
   Settings,
   ShieldCheck,
-  UserCircle2,
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useClinic } from "@/context/ClinicContext";
@@ -23,31 +19,28 @@ import ClinicSwitcher from "@/components/dashboard/ClinicSwitcher";
 export interface SidebarNavItem {
   key: string;
   href: string;
-  icon: any;
-  /** A count to pin on the icon — unread WhatsApp messages. Hidden when zero or absent. */
+  icon: React.ElementType;
   badge?: number;
 }
 
-/**
- * Pages that move behind "More" when the rail is icon-only.
- *
- * Chosen because they are periodic rather than daily — a receptionist opens Appointments twenty
- * times a shift and Reports once a month. Everything else stays one click away.
- */
-const OVERFLOW_KEYS = new Set(["inventory", "reports", "attendance"]);
+export const SECTION_GROUPS = [
+  {
+    titleEn: "Front Desk",
+    titleAr: "مكتب الاستقبال",
+    keys: ["dashboard", "chats", "patients", "appointments", "leads"],
+  },
+  {
+    titleEn: "Operations",
+    titleAr: "العمليات",
+    keys: ["finance", "inventory", "lab", "attendance"],
+  },
+  {
+    titleEn: "Insights & Growth",
+    titleAr: "الرؤى والنمو",
+    keys: ["intelligence", "marketing", "reports"],
+  },
+];
 
-const STORAGE_KEY = "alphaSidebarExpanded";
-
-/**
- * The desktop rail.
- *
- * It used to be a single fixed column of 46px circles with no scrolling, inside a container locked
- * to `100dvh`. For an admin that is ~918px of content, so on anything shorter than a 1080p screen
- * flexbox shrank the circles until they collided — the icons deformed instead of the list
- * overflowing. Three things keep that from happening now: items never shrink, the main list can
- * scroll, and the whole rail tightens on short viewports. Two more reclaim the space that caused
- * it: the periodic pages live behind "More", and the account actions behind one button.
- */
 export default function DesktopSidebar({
   items,
   showSettings,
@@ -62,16 +55,10 @@ export default function DesktopSidebar({
   onReturnToSuperAdmin: () => void;
 }) {
   const pathname = usePathname();
-  const { t, language, isRTL, toggleLanguage } = useLanguage();
-
-  // Read after mount, never during render: the server has no localStorage, and seeding state from
-  // it directly makes the first client render disagree with the HTML it is hydrating.
-  const [expanded, setExpanded] = useState(false);
+  const { t, language, toggleLanguage } = useLanguage();
   const { clinicId } = useClinic();
   const [logoUrl, setLogoUrl] = useState("");
 
-  // The clinic's uploaded logo replaces the generic sparkle mark. Keyed on the clinic so a
-  // super-admin switching tenants never keeps the previous clinic's branding on screen.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -82,77 +69,22 @@ export default function DesktopSidebar({
       cancelled = true;
     };
   }, [clinicId]);
-  useEffect(() => {
-    try {
-      setExpanded(localStorage.getItem(STORAGE_KEY) === "true");
-    } catch {
-      /* private mode — stay collapsed */
-    }
-  }, []);
-
-  const toggleExpanded = () => {
-    setExpanded((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(STORAGE_KEY, String(next));
-      } catch {
-        /* nothing to persist to; the session still works */
-      }
-      return next;
-    });
-  };
-
-  const [openMenu, setOpenMenu] = useState<"more" | "account" | null>(null);
-  const footerRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!openMenu) return;
-    const onPointerDown = (e: MouseEvent) => {
-      if (footerRef.current && !footerRef.current.contains(e.target as Node)) setOpenMenu(null);
-    };
-    const onEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpenMenu(null);
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onEscape);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onEscape);
-    };
-  }, [openMenu]);
 
   const isRouteActive = (href: string) =>
     pathname === href || (href !== "/" && pathname.startsWith(href));
 
   const labelFor = (key: string) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     t(key as any) || key.charAt(0).toUpperCase() + key.slice(1);
 
-  // Expanded shows everything inline — there is room for it, and hiding pages behind a menu in a
-  // rail that already has space to spell their names out would be the wrong trade.
-  const primaryItems = expanded ? items : items.filter((i) => !OVERFLOW_KEYS.has(i.key));
-  const overflowItems = expanded ? [] : items.filter((i) => OVERFLOW_KEYS.has(i.key));
-  const overflowIsActive = overflowItems.some((i) => isRouteActive(i.href));
+  // YELLOW ACTIVE STATE AS REQUESTED
+  const activeClass = "bg-[#FACC15] text-ink font-black shadow-md shadow-[#FACC15]/20";
+  const idleClass = "text-ink-body hover:bg-surface-subtle hover:text-ink transition-colors font-bold";
 
-  /**
-   * Every measurement that tightens on a short screen. 840px is just above a 1366×768 laptop's
-   * usable viewport, so those machines get the compact rail and larger monitors never do.
-   */
-  const SHORT = "[@media(max-height:840px)]";
-  const buttonSize = `w-[46px] h-[46px] ${SHORT}:w-[38px] ${SHORT}:h-[38px]`;
-  const iconSize = `size-5 ${SHORT}:size-[18px]`;
-  const rowGap = `gap-2 ${SHORT}:gap-1`;
-
-  const activeClass = "bg-ink-strong text-white shadow-[0_4px_12px_rgba(45,55,72,0.2)]";
-  const idleClass =
-    "bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 shadow-sm border border-slate-100";
-
-  const tooltipSide = isRTL ? "right-full mr-4" : "left-full ml-4";
-  const popoverSide = isRTL ? "right-full mr-3" : "left-full ml-3";
-
-  /** One rail entry. Collapsed it is a circle with a hover tooltip; expanded it is a labelled row. */
   const railRow = (
     key: string,
     href: string | null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     Icon: any,
     label: string,
     active: boolean,
@@ -162,247 +94,133 @@ export default function DesktopSidebar({
   ) => {
     const toneIdle =
       tone === "danger"
-        ? "bg-surface text-rose-500 hover:bg-rose-50 hover:text-rose-600 shadow-sm border border-rose-100"
+        ? "text-[#c0392b] hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors font-bold"
         : tone === "success"
-          ? "bg-emerald-50 text-emerald-600 hover:bg-emerald-100 shadow-sm border border-emerald-100"
+          ? "text-[#008f72] hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors font-bold"
           : idleClass;
 
-    // WhatsApp's own green, so the count reads as "messages waiting" before the label is read.
     const badgeDot =
       badge && badge > 0 ? (
-        <span className="absolute -top-1 -end-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#25d366] text-white text-[10px] font-black flex items-center justify-center ring-2 ring-white">
+        <span className="ms-auto shrink-0 min-w-[20px] h-[20px] px-1 rounded-full bg-[#c0392b] text-white text-[11px] font-black flex items-center justify-center shadow-sm">
           {badge > 99 ? "99+" : badge}
         </span>
       ) : null;
 
-    const inner = expanded ? (
+    const body = (
       <>
-        <span
-          className={`relative ${buttonSize} shrink-0 rounded-full flex items-center justify-center transition-all duration-300 ${
-            active ? activeClass : toneIdle
-          }`}
-        >
-          <Icon className={iconSize} strokeWidth={active ? 2.5 : 2} />
+        <Icon size={20} strokeWidth={active ? 2.5 : 2} className="shrink-0" />
+        <div className="flex items-center justify-between flex-1 min-w-0 opacity-0 group-hover:opacity-100 group-hover:ms-3 ms-0 transition-all duration-200">
+          <span className="text-[14px] truncate">{label}</span>
           {badgeDot}
-        </span>
-        <span
-          className={`text-sm font-bold truncate ${
-            active ? "text-ink" : tone === "danger" ? "text-rose-600" : "text-ink-body"
-          }`}
-        >
-          {label}
-        </span>
+        </div>
       </>
-    ) : (
-      <span
-        className={`relative ${buttonSize} rounded-full flex items-center justify-center transition-all duration-300 ${
-          active ? activeClass : toneIdle
-        }`}
-      >
-        <Icon className={iconSize} strokeWidth={active ? 2.5 : 2} />
-        {badgeDot}
-      </span>
     );
 
-    const shared = `flex w-full items-center ${
-      expanded ? "gap-3 px-3 py-0.5 rounded-2xl hover:bg-white/60" : "justify-center px-3"
+    const shared = `flex w-full items-center px-[18px] py-2.5 rounded-xl transition-all duration-200 whitespace-nowrap overflow-hidden ${
+      active ? activeClass : toneIdle
     }`;
 
-    const body = href ? (
-      <Link href={href} className={shared} onClick={onClick}>
-        {inner}
-      </Link>
-    ) : (
-      <button type="button" onClick={onClick} className={shared}>
-        {inner}
-      </button>
-    );
-
-    // `group` and `relative` belong on this wrapper, not on the link: the tooltip is a sibling of
-    // the link, so anchoring them to the link would leave it positioned against a far-off ancestor
-    // and never triggered by hover.
+    if (href) {
+      return (
+        <Link key={key} href={href} className={shared} onClick={onClick} data-tour={`nav-${String(key).replace(/^\//, "")}`}>
+          {body}
+        </Link>
+      );
+    }
+    
     return (
-      <div key={key} data-tour={`nav-${String(key).replace(/^\//, "")}`} className="group relative w-full shrink-0">
+      <button key={key} type="button" onClick={onClick} className={shared} data-tour={`nav-${String(key).replace(/^\//, "")}`}>
         {body}
-        {/* The tooltip is the only label when collapsed, and pure noise when expanded. */}
-        {!expanded && (
-          <div
-            className={`pointer-events-none absolute top-1/2 z-[200] hidden -translate-y-1/2 whitespace-nowrap rounded-lg bg-ink-strong px-3 py-1.5 text-xs font-bold text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 lg:block ${tooltipSide}`}
-          >
-            {label}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const menuPanel = (children: React.ReactNode) => (
-    <div
-      className={`absolute bottom-0 z-[250] w-60 overflow-hidden rounded-2xl border border-slate-100 bg-surface shadow-[0_10px_40px_-10px_rgba(0,0,0,0.25)] ${popoverSide}`}
-    >
-      {children}
-    </div>
-  );
-
-  const menuRow = (
-    key: string,
-    href: string | null,
-    Icon: any,
-    label: string,
-    active: boolean,
-    onClick?: () => void,
-    tone?: "danger" | "success"
-  ) => {
-    const cls = `flex w-full items-center gap-3 px-4 py-3 text-sm font-bold transition-colors ${
-      active
-        ? "bg-slate-900 text-white"
-        : tone === "danger"
-          ? "text-rose-600 hover:bg-rose-50"
-          : tone === "success"
-            ? "text-emerald-700 hover:bg-emerald-50"
-            : "text-ink-body hover:bg-surface-subtle"
-    }`;
-    const inner = (
-      <>
-        <Icon size={18} className="shrink-0" />
-        <span className="truncate">{label}</span>
-      </>
-    );
-    return href ? (
-      <Link key={key} href={href} className={cls} onClick={onClick}>
-        {inner}
-      </Link>
-    ) : (
-      <button key={key} type="button" onClick={onClick} className={cls}>
-        {inner}
       </button>
     );
   };
 
   return (
-    <aside
-      className={`z-[100] hidden shrink-0 flex-col items-center bg-transparent py-6 lg:flex ${SHORT}:py-3 ${
-        expanded ? "w-[232px]" : "w-[88px]"
-      } transition-[width] duration-200`}
-    >
-      {/* LOGO */}
-      <div className={`flex shrink-0 items-center justify-center mb-4 ${SHORT}:mb-1 ${expanded ? "w-full gap-2 px-4" : ""}`}>
-        <div className={`flex items-center justify-center overflow-hidden bg-transparent text-slate-800 w-12 h-12 ${SHORT}:w-9 ${SHORT}:h-9`}>
-          {logoUrl ? (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img src={logoUrl} alt="" className="max-h-full max-w-full object-contain" />
-          ) : (
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={iconSize}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
-          )}
-        </div>
-        {expanded && <span className="text-base font-black tracking-tight text-slate-800 truncate">Alpha</span>}
-      </div>
+    <>
+      {/* Spacer to push content exactly 88px */}
+      <div className="hidden lg:block w-[88px] shrink-0" />
 
-      <ClinicSwitcher expanded={expanded} />
-
-      {/* MAIN NAV — the only part allowed to scroll, so a long list never squashes the rest */}
-      <nav className={`flex min-h-0 w-full flex-1 flex-col items-center overflow-y-auto no-scrollbar ${rowGap} mt-1`}>
-        {primaryItems.map((item) =>
-          railRow(item.href, item.href, item.icon, labelFor(item.key), isRouteActive(item.href), undefined, undefined, item.badge)
-        )}
-      </nav>
-
-      {/* FOOTER — outside the scroll area, so its pop-overs are never clipped by it */}
-      <div ref={footerRef} className={`mt-auto flex w-full shrink-0 flex-col items-center ${rowGap} pt-2`}>
-        {overflowItems.length > 0 && (
-          <div className="relative w-full">
-            {railRow(
-              "more",
-              null,
-              MoreHorizontal,
-              language === "ar" ? "المزيد" : "More",
-              overflowIsActive || openMenu === "more",
-              () => setOpenMenu(openMenu === "more" ? null : "more")
-            )}
-            {openMenu === "more" &&
-              menuPanel(
-                <div className="py-1.5">
-                  {overflowItems.map((item) =>
-                    menuRow(item.href, item.href, item.icon, labelFor(item.key), isRouteActive(item.href), () =>
-                      setOpenMenu(null)
-                    )
-                  )}
+      {/* Floating Hover Sidebar */}
+      <aside className="fixed inset-y-0 start-0 z-[150] hidden lg:flex flex-col bg-surface dark:bg-slate-900 border-e border-line dark:border-slate-800 w-[88px] hover:w-[260px] group transition-[width] duration-300 shadow-[4px_0_24px_rgba(0,0,0,0.02)] overflow-hidden">
+        <div className="flex flex-col h-full w-full">
+          {/* LOGO AREA */}
+          <div className="flex shrink-0 items-center px-5 py-5 h-[88px]">
+            <div className="flex items-center justify-center overflow-hidden bg-transparent shrink-0 w-12 h-12">
+              {logoUrl ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={logoUrl} alt="" className="max-h-full max-w-full object-contain rounded-lg" />
+              ) : (
+                <div className="w-10 h-10 bg-[#FACC15] text-ink rounded-xl flex items-center justify-center shadow-sm">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
                 </div>
               )}
+            </div>
+            <span className="text-[17px] font-black tracking-tight text-ink dark:text-slate-100 truncate ms-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200">Alpha</span>
           </div>
-        )}
 
-        {showSettings &&
-          railRow(
-            "settings",
-            "/settings",
-            Settings,
-            t("settings" as any) || (language === "ar" ? "الإعدادات" : "Settings"),
-            isRouteActive("/settings")
-          )}
+          {/* CLINIC SWITCHER */}
+          <div className="px-4 mb-4">
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 delay-75">
+              <ClinicSwitcher expanded={true} />
+            </div>
+          </div>
 
-        <div className="relative w-full">
-          {railRow(
-            "account",
-            null,
-            UserCircle2,
-            language === "ar" ? "الحساب" : "Account",
-            openMenu === "account" || isRouteActive("/help") || isRouteActive("/welcome"),
-            () => setOpenMenu(openMenu === "account" ? null : "account")
-          )}
-          {openMenu === "account" &&
-            menuPanel(
-              <div className="py-1.5">
-                {/* Above Help on purpose: someone in their first week wants the guided route, not
-                    an index of articles. Ungated for the same reason Help is — and the guide
-                    already shows each role only the steps that role can finish. */}
-                {menuRow(
-                  "welcome",
-                  "/welcome",
-                  Rocket,
-                  language === "ar" ? "البداية" : "Getting started",
-                  isRouteActive("/welcome"),
-                  () => setOpenMenu(null)
-                )}
-                {/* Help is deliberately ungated: the people most likely to need it are the ones
-                    with the fewest permissions. */}
-                {menuRow(
-                  "help",
-                  "/help",
-                  LifeBuoy,
-                  language === "ar" ? "مركز المساعدة" : "Help Center",
-                  isRouteActive("/help"),
-                  () => setOpenMenu(null)
-                )}
-                {menuRow("lang", null, Languages, language === "ar" ? "English" : "عربي", false, () => {
-                  toggleLanguage();
-                  setOpenMenu(null);
-                })}
-                {isSuperAdmin &&
-                  menuRow("hub", null, ShieldCheck, "Return to Hub", false, () => {
-                    setOpenMenu(null);
-                    onReturnToSuperAdmin();
-                  }, "success")}
-                <div className="my-1 border-t border-slate-100" />
-                {menuRow("logout", null, LogOut, language === "ar" ? "تسجيل الخروج" : "Logout", false, () => {
-                  setOpenMenu(null);
-                  onLogout();
-                }, "danger")}
-              </div>
+          {/* MAIN NAV */}
+          <nav className="flex-1 overflow-y-auto no-scrollbar px-4 pb-4 space-y-6">
+            {SECTION_GROUPS.map((section) => {
+              const sectionItems = items.filter((item) => section.keys.includes(item.key));
+              if (sectionItems.length === 0) return null;
+
+              return (
+                <div key={section.titleEn} className="space-y-1 relative">
+                  <h3 className="px-3 mb-2 text-[11px] font-black uppercase tracking-wider text-ink-muted dark:text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                    {language === "ar" ? section.titleAr : section.titleEn}
+                  </h3>
+                  {sectionItems.map((item) =>
+                    railRow(item.key, item.href, item.icon, labelFor(item.key), isRouteActive(item.href), undefined, undefined, item.badge)
+                  )}
+                </div>
+              );
+            })}
+          </nav>
+
+          {/* FOOTER */}
+          <div className="shrink-0 px-4 py-4 border-t border-line dark:border-slate-800 bg-surface dark:bg-slate-900 space-y-1">
+            {showSettings &&
+              railRow(
+                "settings",
+                "/settings",
+                Settings,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                t("settings" as any) || (language === "ar" ? "الإعدادات" : "Settings"),
+                isRouteActive("/settings")
+              )}
+
+            {railRow(
+              "welcome",
+              "/welcome",
+              Rocket,
+              language === "ar" ? "البداية" : "Getting started",
+              isRouteActive("/welcome")
             )}
-        </div>
 
-        {railRow(
-          "toggle",
-          null,
-          expanded ? (isRTL ? ChevronRight : ChevronLeft) : isRTL ? ChevronLeft : ChevronRight,
-          expanded
-            ? language === "ar" ? "طيّ القائمة" : "Collapse menu"
-            : language === "ar" ? "توسيع القائمة" : "Expand menu",
-          false,
-          toggleExpanded
-        )}
-      </div>
-    </aside>
+            {railRow(
+              "help",
+              "/help",
+              LifeBuoy,
+              language === "ar" ? "مركز المساعدة" : "Help Center",
+              isRouteActive("/help")
+            )}
+
+            {railRow("lang", null, Languages, language === "ar" ? "English" : "عربي", false, toggleLanguage)}
+
+            {isSuperAdmin &&
+              railRow("hub", null, ShieldCheck, "Return to Hub", false, onReturnToSuperAdmin, "success")}
+
+            {railRow("logout", null, LogOut, language === "ar" ? "تسجيل الخروج" : "Logout", false, onLogout, "danger")}
+          </div>
+        </div>
+      </aside>
+    </>
   );
 }

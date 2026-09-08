@@ -22,6 +22,7 @@ import { allocationMessage, allocationMessageAr, checkAllocation } from "@/lib/p
 import { MoneyApiError, createPayment, createProcedure, deleteProcedure } from "@/lib/moneyApi";
 import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClient";
 import ServiceCombobox from "@/components/shared/ServiceCombobox";
+import AppointmentStagePicker from "@/components/appointments/AppointmentStagePicker";
 
 /**
  * Exactly the fields this panel puts on screen — nothing more.
@@ -420,19 +421,12 @@ export default function AppointmentSidePanel({
                       {/* Status */}
                       <div>
                         <label className="text-xs font-black text-ink-muted uppercase tracking-widest block mb-2">{language === 'ar' ? 'الحالة' : 'Status'}</label>
-                        <div className="relative group">
-                          <Activity size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-500 pointer-events-none" />
-                          <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                          <select value={inlineEdit.status || 'Scheduled'} onChange={e => setInlineEdit(p => ({...p, status: e.target.value}))} className="w-full rounded-xl border border-line bg-slate-50/50 py-3 pl-9 pr-8 text-sm font-bold text-slate-700 outline-none transition-all focus:border-accent focus:bg-surface focus:ring-4 focus:ring-accent/10 appearance-none shadow-sm">
-                              {/* Not a normal workflow stage — it is a marker the reception assistant leaves on a
-                                  moved appointment's original slot, so it is shown only when that is what this
-                                  record already is, never offered as something to switch a live appointment to. */}
-                              {inlineEdit.status === 'Rescheduled' && (
-                                <option value="Rescheduled">{getAppointmentStageLabel('Rescheduled', language)}</option>
-                              )}
-                              {APPOINTMENT_STAGES.map(s => <option key={s.value} value={s.value}>{getAppointmentStageLabel(s.value, language)}</option>)}
-                          </select>
-                        </div>
+                        <AppointmentStagePicker
+                          value={inlineEdit.status || 'Scheduled'}
+                          onChange={val => setInlineEdit(p => ({...p, status: val}))}
+                          language={language as "en" | "ar"}
+                          fullWidth
+                        />
                       </div>
                   </div>
 

@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import {
   Plus, Phone, MessageCircle, Search, ChevronDown, X, Loader2,
   UserPlus, Building2, CalendarClock, Trash2, Inbox, Check, UserCheck, Copy, Hourglass, Timer,
-  Clock, Megaphone, UserCog, ShieldAlert,
+  Clock, Megaphone, UserCog, ShieldAlert, Users,
 } from "lucide-react";
 import { addDoc, deleteDoc, getDoc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
@@ -422,22 +422,37 @@ export default function LeadsPage() {
 
         {/* Month stats */}
         <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">
-          <div className="bg-surface rounded-2xl border border-slate-100 shadow-sm p-3 sm:p-4">
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{isAr ? "هذا الشهر" : "This month"}</p>
-            <p className="text-2xl font-black text-ink mt-1">{stats.total}</p>
-            <p className="text-[11px] font-bold text-ink-muted">{isAr ? "عميل محتمل" : "leads"}</p>
+          <div className="relative overflow-hidden bg-gradient-to-br from-indigo-50/50 to-surface rounded-2xl border border-indigo-100/50 shadow-sm p-4 sm:p-5">
+            <div className="relative z-10">
+              <p className="text-[10px] font-extrabold uppercase tracking-widest text-indigo-400">{isAr ? "هذا الشهر" : "This month"}</p>
+              <div className="flex items-baseline gap-2 mt-1.5">
+                <p className="text-3xl font-black text-indigo-900">{stats.total}</p>
+                <p className="text-xs font-bold text-indigo-500/70">{isAr ? "عميل محتمل" : "leads"}</p>
+              </div>
+            </div>
+            <Users size={80} className="absolute -bottom-4 -end-4 text-indigo-500/[0.03] rotate-12" />
           </div>
-          <div className="bg-surface rounded-2xl border border-slate-100 shadow-sm p-3 sm:p-4">
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{isAr ? "وصلوا للكرسي" : "In the chair"}</p>
-            <p className="text-2xl font-black text-emerald-600 mt-1">{stats.won}</p>
-            <p className="text-[11px] font-bold text-ink-muted">
-              {stats.total > 0 ? `${Math.round((stats.won / stats.total) * 100)}%` : "—"}
-            </p>
+          <div className="relative overflow-hidden bg-gradient-to-br from-emerald-50/50 to-surface rounded-2xl border border-emerald-100/50 shadow-sm p-4 sm:p-5">
+            <div className="relative z-10">
+              <p className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-500">{isAr ? "وصلوا للكرسي" : "In the chair"}</p>
+              <div className="flex items-baseline gap-2 mt-1.5">
+                <p className="text-3xl font-black text-emerald-700">{stats.won}</p>
+                <p className="text-xs font-bold text-emerald-500/70">
+                  {stats.total > 0 ? `${Math.round((stats.won / stats.total) * 100)}%` : "—"}
+                </p>
+              </div>
+            </div>
+            <UserCheck size={80} className="absolute -bottom-4 -end-4 text-emerald-500/[0.03] -rotate-12" />
           </div>
-          <div className="bg-surface rounded-2xl border border-slate-100 shadow-sm p-3 sm:p-4">
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{isAr ? "متابعة اليوم" : "Due today"}</p>
-            <p className={`text-2xl font-black mt-1 ${stats.dueToday > 0 ? "text-amber-600" : "text-ink"}`}>{stats.dueToday}</p>
-            <p className="text-[11px] font-bold text-ink-muted">{isAr ? "محتاجين رد" : "need a reply"}</p>
+          <div className="relative overflow-hidden bg-gradient-to-br from-amber-50/50 to-surface rounded-2xl border border-amber-100/50 shadow-sm p-4 sm:p-5">
+            <div className="relative z-10">
+              <p className="text-[10px] font-extrabold uppercase tracking-widest text-amber-500">{isAr ? "متابعة اليوم" : "Due today"}</p>
+              <div className="flex items-baseline gap-2 mt-1.5">
+                <p className={`text-3xl font-black ${stats.dueToday > 0 ? "text-amber-700" : "text-amber-900"}`}>{stats.dueToday}</p>
+                <p className="text-xs font-bold text-amber-500/70">{isAr ? "محتاجين رد" : "need a reply"}</p>
+              </div>
+            </div>
+            <Clock size={80} className="absolute -bottom-4 -end-4 text-amber-500/[0.03] rotate-12" />
           </div>
         </div>
 
@@ -537,11 +552,12 @@ export default function LeadsPage() {
               const due = isDue(lead);
               const stale = isLeadStale(lead);
               return (
-                <div key={lead.id} className={`bg-surface rounded-2xl border shadow-sm p-3 sm:p-4 ${due ? "border-amber-300 ring-1 ring-amber-200" : "border-slate-100"}`}>
-                  <div className="flex items-start justify-between gap-2 flex-wrap">
+                <div key={lead.id} className={`relative bg-surface rounded-2xl border shadow-sm hover:shadow-md transition-shadow p-4 sm:p-5 overflow-hidden ${due ? "border-slate-200" : "border-slate-100"}`}>
+                  {due && <div className="absolute top-0 bottom-0 start-0 w-1.5 bg-amber-400" />}
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-extrabold text-ink text-sm sm:text-base truncate">{lead.name}</h3>
+                        <h3 className="font-extrabold text-slate-900 text-sm sm:text-base truncate">{lead.name}</h3>
                         <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${styles.pill}`}>
                           {leadStageLabel(lead.stage, isAr ? "ar" : "en")}
                         </span>
@@ -614,48 +630,48 @@ export default function LeadsPage() {
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-ink-muted font-bold mt-1" dir="ltr">{lead.phone}</p>
-                      <p className="text-xs text-ink-body font-medium mt-1 truncate flex items-center gap-1.5">
+                      <p className="text-sm text-slate-600 font-bold mt-2 w-fit" dir="ltr">{lead.phone}</p>
+                      <p className="text-xs text-slate-500 font-medium mt-1.5 truncate flex items-center gap-1.5">
                         {lead.source && <SourceIcon source={lead.source} size={14} />}
                         <span className="truncate">{[lead.interest, lead.source, lead.branchName].filter(Boolean).join(" · ")}</span>
                       </p>
                       {(lead.createdAt?.seconds || lead.meta?.campaignName) && (
-                        <p className="text-[11px] text-slate-400 font-semibold mt-1 flex items-center gap-x-3 gap-y-1 flex-wrap">
+                        <p className="text-[11px] text-slate-400 font-semibold mt-1.5 flex items-center gap-x-3 gap-y-1 flex-wrap">
                           {lead.createdAt?.seconds ? (
                             <span className="flex items-center gap-1">
                               <Clock size={11} /> {arrivedLabel(lead.createdAt.seconds)}
                             </span>
                           ) : null}
                           {lead.meta?.campaignName ? (
-                            <span className="flex items-center gap-1 text-slate-500">
-                              <Megaphone size={11} /> {lead.meta.campaignName}
+                            <span className="flex items-center gap-1 text-slate-500 line-clamp-1 max-w-[200px]" title={lead.meta.campaignName}>
+                              <Megaphone size={11} className="shrink-0" /> {lead.meta.campaignName}
                             </span>
                           ) : null}
                         </p>
                       )}
-                      {lead.notes && <p className="text-[11px] text-slate-400 font-medium mt-1 line-clamp-2">{lead.notes}</p>}
+                      {lead.notes && <p className="text-[11px] text-slate-500 bg-slate-50 rounded-lg p-2 font-medium mt-2 line-clamp-2" title={lead.notes}>{lead.notes}</p>}
                       {lead.stage === "lost" && lead.lostReason && (
-                        <p className="text-[11px] text-rose-500 font-bold mt-1">{isAr ? "السبب:" : "Reason:"} {lead.lostReason}</p>
+                        <p className="text-[11px] text-rose-500 font-bold mt-2">{isAr ? "السبب:" : "Reason:"} {lead.lostReason}</p>
                       )}
                     </div>
 
-                    <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-1.5 shrink-0 bg-slate-50/50 p-1 rounded-xl border border-slate-100">
                       <a
                         href={waLink(lead)} target="_blank" rel="noopener noreferrer"
                         onClick={() => { if (lead.stage === "new") void setStage(lead, "contacted"); }}
-                        className="p-2 rounded-xl bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-colors"
+                        className="p-2 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white transition-colors shadow-sm"
                         title="WhatsApp"
                       >
                         <MessageCircle size={16} />
                       </a>
-                      <a href={`tel:${lead.phone}`} className="p-2 rounded-xl bg-surface-subtle text-ink-muted hover:bg-surface-muted transition-colors" title={isAr ? "اتصال" : "Call"}>
+                      <a href={`tel:${lead.phone}`} className="p-2 rounded-lg bg-white text-slate-500 hover:bg-slate-500 hover:text-white border border-slate-200 transition-colors shadow-sm" title={isAr ? "اتصال" : "Call"}>
                         <Phone size={16} />
                       </a>
                       {lead.stage !== "won" && (
                         <button
                           onClick={() => void handleConvert(lead)}
                           disabled={convertingId === lead.id}
-                          className="p-2 rounded-xl bg-teal-50 text-teal-700 hover:bg-teal-100 transition-colors disabled:opacity-50"
+                          className="p-2 rounded-lg bg-teal-50 text-teal-700 hover:bg-teal-600 hover:text-white transition-colors disabled:opacity-50 shadow-sm"
                           title={isAr ? "تحويل لمريض" : "Convert to patient"}
                         >
                           {convertingId === lead.id ? <Loader2 size={16} className="animate-spin" /> : <UserPlus size={16} />}
@@ -664,7 +680,7 @@ export default function LeadsPage() {
                       {lead.stage === "won" && lead.patientId && (
                         <button
                           onClick={() => router.push(`/patients/${lead.patientId}`)}
-                          className="p-2 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
+                          className="p-2 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white transition-colors shadow-sm"
                           title={isAr ? "ملف المريض" : "Patient file"}
                         >
                           <Check size={16} />
@@ -674,38 +690,51 @@ export default function LeadsPage() {
                   </div>
 
                   {/* Stage + row actions */}
-                  <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-slate-50 flex-wrap">
-                    <select
-                      value={lead.stage} data-tour="leads-stage"
-                      onChange={(e) => void setStage(lead, e.target.value as LeadStage)}
-                      className="bg-surface-subtle border border-line rounded-lg px-2 py-1.5 text-[11px] font-bold text-ink-body outline-none focus:border-teal-500"
-                    >
-                      {LEAD_STAGES.map((s) => (
-                        <option key={s} value={s}>{leadStageLabel(s, isAr ? "ar" : "en")}</option>
-                      ))}
-                    </select>
-                    {staff.length > 0 && (
-                      <select
-                        value={lead.assignedToUid || ""}
-                        onChange={(e) => void setOwner(lead, e.target.value)}
-                        className={`border rounded-lg px-2 py-1.5 text-[11px] font-bold outline-none focus:border-teal-500 ${
-                          lead.assignedToUid
-                            ? "bg-surface-subtle border-line text-ink-body"
-                            : "bg-amber-50 border-amber-200 text-amber-700"
-                        }`}
-                        title={isAr ? "مين مسؤول عن العميل ده" : "Who is chasing this lead"}
-                      >
-                        <option value="">{isAr ? "مسؤول؟" : "Assign to…"}</option>
-                        {staff.map((s) => <option key={s.uid} value={s.uid}>{s.name}</option>)}
-                      </select>
-                    )}
+                  <div className="flex items-center justify-between gap-3 mt-4 pt-3 border-t border-slate-100 flex-wrap">
                     <div className="flex items-center gap-2">
-                      <button onClick={() => openEdit(lead)} className="text-[11px] font-bold text-ink-muted hover:text-slate-800 px-2 py-1 rounded-lg hover:bg-surface-subtle transition-colors">
+                      <div className="relative group">
+                        <select
+                          value={lead.stage} data-tour="leads-stage"
+                          onChange={(e) => void setStage(lead, e.target.value as LeadStage)}
+                          className={`appearance-none pe-7 ps-3 py-1.5 text-xs font-bold rounded-lg border outline-none focus:ring-2 focus:ring-teal-500/20 transition-colors cursor-pointer shadow-sm ${
+                            lead.stage === "won" ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100" :
+                            lead.stage === "lost" ? "bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100" :
+                            "bg-surface border-slate-200 text-slate-700 hover:bg-slate-50"
+                          }`}
+                        >
+                          {LEAD_STAGES.map((s) => (
+                            <option key={s} value={s}>{leadStageLabel(s, isAr ? "ar" : "en")}</option>
+                          ))}
+                        </select>
+                        <ChevronDown size={12} className="absolute end-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                      </div>
+                      
+                      {staff.length > 0 && (
+                        <div className="relative group">
+                          <select
+                            value={lead.assignedToUid || ""}
+                            onChange={(e) => void setOwner(lead, e.target.value)}
+                            className={`appearance-none pe-7 ps-3 py-1.5 text-xs font-bold rounded-lg border outline-none focus:ring-2 focus:ring-amber-500/20 transition-colors cursor-pointer shadow-sm ${
+                              lead.assignedToUid
+                                ? "bg-surface border-slate-200 text-slate-700 hover:bg-slate-50"
+                                : "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100"
+                            }`}
+                            title={isAr ? "مين مسؤول عن العميل ده" : "Who is chasing this lead"}
+                          >
+                            <option value="">{isAr ? "مسؤول؟" : "Assign to…"}</option>
+                            {staff.map((s) => <option key={s.uid} value={s.uid}>{s.name}</option>)}
+                          </select>
+                          <ChevronDown size={12} className="absolute end-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button onClick={() => openEdit(lead)} className="text-xs font-bold text-slate-500 hover:text-slate-800 px-3 py-1.5 rounded-lg hover:bg-slate-100 transition-colors">
                         {isAr ? "تعديل" : "Edit"}
                       </button>
                       {isAdmin && (
                         <button onClick={() => void handleDelete(lead)} className="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors">
-                          <Trash2 size={14} />
+                          <Trash2 size={16} />
                         </button>
                       )}
                     </div>

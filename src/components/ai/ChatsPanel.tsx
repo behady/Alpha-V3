@@ -407,7 +407,7 @@ export default function ChatsPanel({
   // throw from inside its own effect, which is what took the whole page down on a hard load.
   if (!clinicId) {
     return (
-      <div className={`flex items-center justify-center ${heightClass}`} style={{ color: WA.muted }}>
+      <div className={`flex items-center justify-center text-ink-muted dark:text-slate-400 ${heightClass}`}>
         <Loader2 size={22} className="animate-spin" />
       </div>
     );
@@ -415,18 +415,17 @@ export default function ChatsPanel({
 
   return (
     <div
-      className={`rounded-2xl border border-line shadow-sm overflow-hidden grid md:grid-cols-[360px_1fr] ${
+      className={`rounded-2xl border border-line dark:border-slate-800 shadow-xl overflow-hidden grid md:grid-cols-[360px_1fr] transition-colors bg-surface-subtle dark:bg-slate-900 ${
         selected && infoOpen ? "lg:grid-cols-[340px_1fr_300px]" : ""
       } ${heightClass}`}
-      style={{ background: WA.panel }}
       dir={isRTL ? "rtl" : "ltr"}
     >
       {/* The list. On a phone it is the whole panel until a chat is opened. */}
       <aside
-        className={`bg-white flex-col min-h-0 border-line md:border-e ${selected ? "hidden md:flex" : "flex"}`}
+        className={`bg-surface dark:bg-slate-900 flex-col min-h-0 border-line dark:border-slate-800 md:border-e transition-colors ${selected ? "hidden md:flex" : "flex"}`}
       >
-        <div className="px-4 pt-4 pb-2 flex items-center" style={{ background: WA.panel }}>
-          <h2 className="text-[22px] font-black" style={{ color: WA.text }}>
+        <div className="px-4 pt-4 pb-2 flex items-center bg-surface-subtle dark:bg-slate-900">
+          <h2 className="text-[22px] font-black text-ink dark:text-slate-100">
             {isAr ? "المحادثات" : "Chats"}
           </h2>
           <AlertControls isAr={isAr} showToast={showToast} />
@@ -446,15 +445,14 @@ export default function ChatsPanel({
             onClose={() => setPickerOpen(false)}
           />
         )}
-        <div className={`px-3 py-2 space-y-2 bg-white border-b border-line ${pickerOpen ? "hidden" : ""}`}>
+        <div className={`px-3 py-2 space-y-2 bg-surface dark:bg-slate-900 border-b border-line dark:border-slate-800 ${pickerOpen ? "hidden" : ""}`}>
           <div className="relative">
-            <Search size={15} className="absolute top-1/2 -translate-y-1/2 start-3" style={{ color: WA.muted }} />
+            <Search size={15} className="absolute top-1/2 -translate-y-1/2 start-3 text-ink-muted dark:text-slate-400" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={isAr ? "ابحث أو ابدأ محادثة" : "Search or start a new chat"}
-              className="w-full rounded-lg border-0 ps-10 pe-3 py-2 text-sm focus:outline-none focus:ring-0"
-              style={{ background: WA.panel, color: WA.text }}
+              className="w-full rounded-lg border-0 ps-10 pe-3 py-2 text-sm focus:outline-none focus:ring-0 bg-surface-subtle dark:bg-slate-800 text-ink dark:text-slate-100"
             />
           </div>
           <div className="flex items-center gap-1.5">
@@ -494,15 +492,15 @@ export default function ChatsPanel({
           </div>
         </div>
 
-        <div className={`flex-1 overflow-y-auto bg-white ${pickerOpen ? "hidden" : ""}`}>
+        <div className={`flex-1 overflow-y-auto bg-surface dark:bg-slate-900/60 ${pickerOpen ? "hidden" : ""}`}>
           {loading ? (
-            <div className="p-6 flex justify-center" style={{ color: WA.muted }}>
+            <div className="p-6 flex justify-center text-ink-muted dark:text-slate-400">
               <Loader2 size={18} className="animate-spin" />
             </div>
           ) : visible.length === 0 ? (
             <div className="p-8 text-center">
-              <MessageSquareText size={28} className="mx-auto" style={{ color: "#c5cdd3" }} />
-              <p className="text-sm font-bold mt-2" style={{ color: WA.muted }}>
+              <MessageSquareText size={28} className="mx-auto text-line-strong dark:text-slate-600" />
+              <p className="text-sm font-bold mt-2 text-ink-muted dark:text-slate-400">
                 {chats.length === 0
                   ? isAr
                     ? "لسه مفيش محادثات. أول ما مريض يبعت على واتساب العيادة هتظهر هنا."
@@ -522,8 +520,7 @@ export default function ChatsPanel({
                 <button
                   key={c.id}
                   onClick={() => open(c.id)}
-                  className="w-full text-start px-3 py-2.5 flex items-center gap-3 transition-colors hover:bg-[#f5f6f6]"
-                  style={active ? { background: WA.panel } : undefined}
+                  className={`w-full text-start px-3 py-3 flex items-center gap-3 transition-all group ${active ? "bg-surface-subtle dark:bg-slate-800/80 shadow-sm" : "hover:bg-surface-subtle dark:hover:bg-slate-800/50"}`}
                 >
                   <span
                     className="w-12 h-12 rounded-full flex items-center justify-center shrink-0 text-sm font-black text-white"
@@ -546,7 +543,7 @@ export default function ChatsPanel({
                     </div>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       {c.lastDirection === "out" && (
-                        <CheckCheck size={14} className="shrink-0" style={{ color: WA.muted }} />
+                        <CheckCheck size={14} className="shrink-0 text-ink-muted dark:text-slate-400" />
                       )}
                       <span
                         className="text-[13px] truncate"
@@ -591,8 +588,7 @@ export default function ChatsPanel({
                       )}
                       {unread && (
                         <span
-                          className={`${c.assignedTo || (c.tags && c.tags.length > 0) ? "" : "ms-auto"} shrink-0 min-w-[20px] h-5 px-1.5 rounded-full text-white text-[11px] font-black flex items-center justify-center`}
-                          style={{ background: WA.green }}
+                          className={`bg-accent dark:bg-accent ${c.assignedTo || (c.tags && c.tags.length > 0) ? "" : "ms-auto"} shrink-0 min-w-[20px] h-5 px-1.5 rounded-full text-white text-[11px] font-black flex items-center justify-center`}
                         >
                           {c.unreadCount}
                         </span>
@@ -621,15 +617,14 @@ export default function ChatsPanel({
           />
         ) : (
           <div
-            className="flex-1 flex items-center justify-center p-8 text-center border-b-[6px]"
-            style={{ background: WA.panel, borderColor: WA.green }}
+            className="flex-1 flex items-center justify-center p-8 text-center border-b-[6px] bg-surface-subtle dark:bg-slate-900 border-accent"
           >
             <div>
               <MessageSquareText size={56} strokeWidth={1.2} className="mx-auto" style={{ color: "#8696a0" }} />
-              <h3 className="text-[28px] font-light mt-4" style={{ color: "#41525d" }}>
+              <h3 className="text-[28px] font-light mt-4 text-ink dark:text-slate-200">
                 {isAr ? "واتساب العيادة" : "Clinic WhatsApp"}
               </h3>
-              <p className="text-sm mt-2 max-w-sm" style={{ color: WA.muted }}>
+              <p className="text-sm mt-2 max-w-sm text-ink-muted dark:text-slate-400">
                 {isAr
                   ? "اختار محادثة من القائمة عشان تقراها وترد عليها من هنا."
                   : "Pick a conversation from the list to read it and reply from here."}
@@ -1007,8 +1002,8 @@ function Thread({
 
   return (
     <>
-      <header className="px-3 py-2 flex items-center gap-3 border-b border-line" style={{ background: WA.panel }}>
-        <button onClick={onBack} className="md:hidden p-1.5 rounded-lg hover:bg-black/5" style={{ color: "#54656f" }}>
+      <header className="px-3 py-2 flex items-center gap-3 border-b border-line bg-surface-subtle dark:bg-slate-900">
+        <button onClick={onBack} className="md:hidden p-1.5 rounded-lg hover:bg-black/5 text-ink-muted dark:text-slate-400">
           <ArrowLeft size={18} className="rtl:rotate-180" />
         </button>
         <span
@@ -1018,10 +1013,10 @@ function Thread({
           {chat.isPlayground ? <FlaskConical size={18} /> : initials(chat.patientName || "") || <UserRound size={18} />}
         </span>
         <div className="min-w-0 flex-1">
-          <h3 className="font-bold text-[15px] truncate leading-tight" style={{ color: WA.text }}>
+          <h3 className="font-bold text-[15px] truncate leading-tight text-ink dark:text-slate-100">
             {chat.isPlayground ? (isAr ? "جرّب البوت" : "Test the bot") : title}
           </h3>
-          <p className="text-[12px] truncate leading-tight mt-0.5" style={{ color: WA.muted }} dir={chat.isPlayground ? "auto" : "ltr"}>
+          <p className="text-[12px] truncate leading-tight mt-0.5 text-ink-muted dark:text-slate-400" dir={chat.isPlayground ? "auto" : "ltr"}>
             {chat.isPlayground
               ? isAr
                 ? "بروفة خاصة بيك — مفيش حاجة بتتبعت على واتساب"
@@ -1091,8 +1086,7 @@ function Thread({
         {chat.patientId && (
           <Link
             href={`/patients/${chat.patientId}`}
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-bold hover:bg-black/5"
-            style={{ color: "#54656f" }}
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-bold hover:bg-black/5 text-ink-muted dark:text-slate-400"
           >
             <UserRound size={15} />
             {isAr ? "الملف" : "Patient"}
@@ -1105,8 +1099,7 @@ function Thread({
               void post({ reset: true }).then(() => showToast(isAr ? "البروفة اتمسحت" : "Rehearsal cleared", "success")).catch(() => showToast(isAr ? "حصل خطأ" : "Could not reset", "error"));
             }}
             title={isAr ? "امسح البروفة وابدأ من الأول" : "Clear the rehearsal and start over"}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-black transition-colors"
-            style={{ background: "#efeaff", color: "#5b3fd6" }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-black transition-colors bg-[#efeaff] text-[#5b3fd6] dark:bg-[#5b3fd6]/20 dark:text-[#a78bfa]"
           >
             <RotateCcw size={14} />
             {isAr ? "ابدأ من الأول" : "Start over"}
@@ -1124,8 +1117,7 @@ function Thread({
                 ? "اضغط عشان توقف البوت وترد بنفسك"
                 : "Click to pause the bot and answer yourself"
           }
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-black transition-colors disabled:opacity-50"
-          style={botQuiet ? { background: "#fff4dc", color: "#9a5b00" } : { background: WA.green, color: "#fff" }}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-black transition-all disabled:opacity-50 ${botQuiet ? "bg-[#fff4dc] text-[#9a5b00] dark:bg-[#9a5b00]/20 dark:text-[#fcd34d]" : "bg-accent text-white shadow-sm"}`}
         >
           {toggling ? <Loader2 size={14} className="animate-spin" /> : botQuiet ? <Bot size={14} /> : <Hand size={14} />}
           {botQuiet ? (isAr ? "رجّع البوت" : "Hand back to bot") : isAr ? "أنا هرد" : "Take over"}
@@ -1142,24 +1134,22 @@ function Thread({
               <MoreVertical size={18} />
             </button>
             {menuOpen && (
-              <div className="absolute top-full end-0 mt-1 w-56 rounded-xl bg-white shadow-lg border border-black/5 py-1 z-30">
+              <div className="absolute top-full end-0 mt-1 w-56 rounded-xl bg-surface dark:bg-slate-900 shadow-lg border border-black/5 py-1 z-30">
                 <button
                   onClick={() => void setFlag({ muted: !chat.muted })}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] font-semibold text-start hover:bg-[#f5f6f6]"
-                  style={{ color: WA.text }}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] font-semibold text-start hover:bg-surface-subtle dark:hover:bg-slate-800/50 text-ink dark:text-slate-100"
                 >
                   {chat.muted ? <Bell size={16} /> : <BellOff size={16} />}
                   {chat.muted ? (isAr ? "شغّل التنبيهات" : "Unmute") : isAr ? "كتم التنبيهات" : "Mute"}
                 </button>
                 <button
                   onClick={() => void setFlag({ archived: !chat.archived })}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] font-semibold text-start hover:bg-[#f5f6f6]"
-                  style={{ color: WA.text }}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-[13px] font-semibold text-start hover:bg-surface-subtle dark:hover:bg-slate-800/50 text-ink dark:text-slate-100"
                 >
                   {chat.archived ? <ArchiveRestore size={16} /> : <Archive size={16} />}
                   {chat.archived ? (isAr ? "رجّع من الأرشيف" : "Unarchive") : isAr ? "أرشفة" : "Archive"}
                 </button>
-                <p className="px-4 pb-2 pt-1 text-[11px]" style={{ color: WA.muted }}>
+                <p className="px-4 pb-2 pt-1 text-[11px] text-ink-muted dark:text-slate-400">
                   {isAr
                     ? "الأرشفة بتخفي المحادثة لحد ما المريض يبعت تاني. الكتم بيوقف الصوت والإشعار بس."
                     : "Archive hides the chat until the patient writes again. Mute only stops the chime and notification."}
@@ -1172,8 +1162,8 @@ function Thread({
 
       {/* Search inside the conversation: type, see the count, step through the hits. */}
       {searchOpen && (
-        <div className="px-3 py-2 flex items-center gap-2 border-b border-line bg-white">
-          <Search size={15} className="shrink-0" style={{ color: WA.muted }} />
+        <div className="px-3 py-2 flex items-center gap-2 border-b border-line dark:border-slate-800 bg-surface dark:bg-slate-900/90 backdrop-blur-md">
+          <Search size={15} className="shrink-0 text-ink-muted dark:text-slate-400" />
           <input
             autoFocus
             value={searchQ}
@@ -1189,25 +1179,23 @@ function Thread({
               }
             }}
             placeholder={isAr ? "ابحث في الرسايل" : "Search messages"}
-            className="flex-1 min-w-0 border-0 bg-transparent text-[14px] focus:outline-none"
-            style={{ color: WA.text }}
+            className="flex-1 min-w-0 border-0 bg-transparent text-[14px] focus:outline-none text-ink dark:text-slate-100"
             dir="auto"
           />
-          <span className="text-[12px] font-bold shrink-0 tabular-nums" style={{ color: WA.muted }}>
+          <span className="text-[12px] font-bold shrink-0 tabular-nums text-ink-muted dark:text-slate-400">
             {searchQ.trim() ? (matches.length ? `${Math.min(matchIdx, matches.length - 1) + 1} / ${matches.length}` : isAr ? "مفيش" : "0") : ""}
           </span>
-          <button onClick={() => stepMatch(-1)} disabled={!matches.length} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-black/5 disabled:opacity-30" style={{ color: "#54656f" }}>
+          <button onClick={() => stepMatch(-1)} disabled={!matches.length} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-black/5 disabled:opacity-30 text-ink-muted dark:text-slate-400">
             <ChevronUp size={16} />
           </button>
-          <button onClick={() => stepMatch(1)} disabled={!matches.length} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-black/5 disabled:opacity-30" style={{ color: "#54656f" }}>
+          <button onClick={() => stepMatch(1)} disabled={!matches.length} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-black/5 disabled:opacity-30 text-ink-muted dark:text-slate-400">
             <ChevronDown size={16} />
           </button>
           {!olderDone && lines.length >= 200 && (
             <button
               onClick={() => void loadOlder()}
               disabled={olderLoading}
-              className="text-[11px] font-bold px-2 py-1 rounded-lg hover:bg-black/5 shrink-0"
-              style={{ color: WA.greenDark }}
+              className="text-[11px] font-bold px-2 py-1 rounded-lg hover:bg-black/5 shrink-0 text-accent-strong dark:text-accent"
             >
               {olderLoading ? <Loader2 size={13} className="animate-spin" /> : isAr ? "دوّر في الأقدم" : "Search older"}
             </button>
@@ -1226,8 +1214,7 @@ function Thread({
             <button
               onClick={() => void loadOlder()}
               disabled={olderLoading}
-              className="text-[12px] font-bold px-3 py-1.5 rounded-lg shadow-sm bg-white hover:bg-[#f5f6f6] disabled:opacity-60 flex items-center gap-1.5"
-              style={{ color: WA.greenDark }}
+              className="text-[12px] font-bold px-3 py-1.5 rounded-lg shadow-sm bg-surface dark:bg-slate-900 hover:bg-surface-subtle dark:hover:bg-slate-800/50 disabled:opacity-60 flex items-center gap-1.5 text-accent-strong dark:text-accent"
             >
               {olderLoading ? <Loader2 size={13} className="animate-spin" /> : <ChevronUp size={13} />}
               {isAr ? "الرسايل الأقدم" : "Earlier messages"}
@@ -1261,12 +1248,12 @@ function Thread({
         )}
 
         {loading ? (
-          <div className="flex justify-center" style={{ color: WA.muted }}>
+          <div className="flex justify-center text-ink-muted dark:text-slate-400">
             <Loader2 size={18} className="animate-spin" />
           </div>
         ) : lines.length === 0 ? (
           <div className="flex justify-center py-8">
-            <span className="text-[12px] font-semibold px-3 py-1.5 rounded-lg shadow-sm bg-white" style={{ color: WA.muted }}>
+            <span className="text-[12px] font-semibold px-3 py-1.5 rounded-lg shadow-sm bg-surface dark:bg-slate-900 text-ink-muted dark:text-slate-400">
               {chat.isPlayground
                 ? isAr
                   ? "🧪 اكتب زي ما المريض بيكتب — سلام، سؤال عن سعر، طلب حجز — وشوف البوت هيرد إزاي. مفيش حاجة هنا بتتبعت لحد."
@@ -1280,7 +1267,7 @@ function Thread({
           grouped.map((g) => (
             <div key={g.key}>
               <div className="flex justify-center my-3">
-                <span className="text-[12px] font-semibold px-3 py-1 rounded-lg shadow-sm bg-white" style={{ color: WA.muted }}>
+                <span className="text-[12px] font-semibold px-3 py-1 rounded-lg shadow-sm bg-surface dark:bg-slate-900 text-ink-muted dark:text-slate-400">
                   {g.day}
                 </span>
               </div>
@@ -1301,9 +1288,9 @@ function Thread({
         <div ref={bottomRef} />
       </div>
 
-      <footer className="relative px-3 py-2.5" style={{ background: WA.panel }}>
+      <footer className="relative px-3 py-2.5 bg-surface-subtle dark:bg-slate-900">
         {blocked ? (
-          <p className="text-[12px] font-semibold px-1 py-1.5 flex items-center gap-1.5" style={{ color: WA.muted }}>
+          <p className="text-[12px] font-semibold px-1 py-1.5 flex items-center gap-1.5 text-ink-muted dark:text-slate-400">
             <AlertTriangle size={13} className="shrink-0" style={{ color: "#f0a02a" }} />
             {isLid
               ? isAr
@@ -1325,28 +1312,27 @@ function Thread({
           <div className="flex items-end gap-2">
             {/* What is about to go with the message, with a way to drop it. */}
             {pending && (
-              <div className="absolute bottom-full start-3 end-3 mb-1 rounded-xl bg-white shadow-md p-2 flex items-center gap-3">
+              <div className="absolute bottom-full start-3 end-3 mb-1 rounded-xl bg-surface dark:bg-slate-900 shadow-md p-2 flex items-center gap-3">
                 {pending.kind === "image" ? (
                   /* eslint-disable-next-line @next/next/no-img-element */
                   <img src={pending.previewUrl} alt="" className="h-16 w-16 rounded-lg object-cover" />
                 ) : (
-                  <span className="h-12 w-12 rounded-lg flex items-center justify-center" style={{ background: WA.panel, color: "#54656f" }}>
+                  <span className="h-12 w-12 rounded-lg flex items-center justify-center bg-surface-subtle dark:bg-slate-800 text-ink-muted dark:text-slate-400">
                     <FileText size={22} />
                   </span>
                 )}
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-bold truncate" style={{ color: WA.text }} dir="auto">
+                  <p className="text-[13px] font-bold truncate text-ink dark:text-slate-100" dir="auto">
                     {pending.file.name}
                   </p>
-                  <p className="text-[11px]" style={{ color: WA.muted }}>
+                  <p className="text-[11px] text-ink-muted dark:text-slate-400">
                     {(pending.file.size / 1024 / 1024).toFixed(1)} MB ·{" "}
                     {isAr ? "اكتب تعليق تحت لو حابب" : "Add a caption below if you like"}
                   </p>
                 </div>
                 <button
                   onClick={() => setPending(null)}
-                  className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-black/5"
-                  style={{ color: "#54656f" }}
+                  className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-black/5 text-ink-muted dark:text-slate-400"
                   aria-label={isAr ? "إلغاء الملف" : "Remove file"}
                 >
                   <X size={16} />
@@ -1416,14 +1402,13 @@ function Thread({
                 if (e.key === "Escape" && quickOpen) setQuickOpen(false);
               }}
               placeholder={pending ? (isAr ? "تعليق (اختياري)" : "Caption (optional)") : isAr ? "اكتب رسالة" : "Type a message"}
-              className="flex-1 rounded-xl border-0 bg-white px-4 py-2.5 text-[15px] focus:outline-none focus:ring-0 resize-none leading-snug"
+              className="flex-1 rounded-2xl border-0 bg-surface dark:bg-slate-800 px-4 py-2.5 text-[15px] focus:outline-none focus:ring-2 focus:ring-accent/50 resize-none leading-snug shadow-sm text-ink dark:text-slate-100 placeholder-ink-faint dark:placeholder-slate-500 transition-all"
               style={{ color: WA.text, minHeight: 42 }}
             />
             <button
               onClick={() => void send()}
               disabled={sending || (!text.trim() && !pending)}
-              className="h-[42px] w-[42px] rounded-full flex items-center justify-center text-white transition-colors disabled:opacity-40 shrink-0"
-              style={{ background: WA.green }}
+              className="h-[42px] w-[42px] rounded-full flex items-center justify-center text-white transition-colors disabled:opacity-40 shrink-0 bg-accent dark:bg-accent"
               aria-label={isAr ? "ابعت" : "Send"}
             >
               {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} className="rtl:-scale-x-100" />}
@@ -1433,8 +1418,8 @@ function Thread({
 
         {/* The window is shut but the number is reachable: offer the template that re-opens it. */}
         {windowClosed && officialChannel && !isLid && !chat.optedOut && (
-          <div className="mt-2 rounded-xl bg-white p-3 shadow-sm">
-            <p className="text-[12px] font-bold" style={{ color: WA.text }}>
+          <div className="mt-2 rounded-xl bg-surface dark:bg-slate-900 p-3 shadow-sm">
+            <p className="text-[12px] font-bold text-ink dark:text-slate-100">
               {isAr
                 ? "ابعت رسالة متابعة معتمدة من واتساب. لما المريض يرد، هتقدر تكتب له عادي لمدة ٢٤ ساعة."
                 : "Send a WhatsApp-approved follow-up. When the patient replies, you can write freely for 24 hours."}
@@ -1445,8 +1430,7 @@ function Thread({
             <button
               onClick={() => void sendTemplate()}
               disabled={sending || templateSentAt > 0}
-              className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-[12px] font-black transition-colors disabled:opacity-50"
-              style={{ background: WA.green }}
+              className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-[12px] font-black transition-colors disabled:opacity-50 bg-accent dark:bg-accent"
             >
               {sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} className="rtl:-scale-x-100" />}
               {templateSentAt ? (isAr ? "اتبعت" : "Sent") : isAr ? "ابعت المتابعة" : "Send follow-up"}
@@ -1577,34 +1561,33 @@ function NewChatPicker({
   }, [all, q]);
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col bg-white">
+    <div className="flex-1 min-h-0 flex flex-col bg-surface dark:bg-slate-900">
       <div className="px-3 py-2 border-b border-line flex items-center gap-2">
-        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-black/5" style={{ color: "#54656f" }}>
+        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-black/5 text-ink-muted dark:text-slate-400">
           <ArrowLeft size={18} className="rtl:rotate-180" />
         </button>
         <div className="relative flex-1">
-          <Search size={15} className="absolute top-1/2 -translate-y-1/2 start-3" style={{ color: WA.muted }} />
+          <Search size={15} className="absolute top-1/2 -translate-y-1/2 start-3 text-ink-muted dark:text-slate-400" />
           <input
             autoFocus
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder={isAr ? "اسم المريض أو رقمه" : "Patient name or number"}
-            className="w-full rounded-lg border-0 ps-10 pe-3 py-2 text-sm focus:outline-none focus:ring-0"
-            style={{ background: WA.panel, color: WA.text }}
+            className="w-full rounded-lg border-0 ps-10 pe-3 py-2 text-sm focus:outline-none focus:ring-0 bg-surface-subtle dark:bg-slate-800 text-ink dark:text-slate-100"
           />
         </div>
       </div>
       <div className="flex-1 overflow-y-auto">
         {failed ? (
-          <p className="p-6 text-center text-sm font-bold" style={{ color: WA.muted }}>
+          <p className="p-6 text-center text-sm font-bold text-ink-muted dark:text-slate-400">
             {isAr ? "مقدرناش نجيب قائمة المرضى" : "Could not load the patient list"}
           </p>
         ) : !all ? (
-          <div className="p-6 flex justify-center" style={{ color: WA.muted }}>
+          <div className="p-6 flex justify-center text-ink-muted dark:text-slate-400">
             <Loader2 size={18} className="animate-spin" />
           </div>
         ) : results.length === 0 ? (
-          <p className="p-6 text-center text-sm font-bold" style={{ color: WA.muted }}>
+          <p className="p-6 text-center text-sm font-bold text-ink-muted dark:text-slate-400">
             {isAr ? "مفيش مريض بالاسم ده" : "No patient matches"}
           </p>
         ) : (
@@ -1615,7 +1598,7 @@ function NewChatPicker({
                 key={p.id}
                 onClick={() => sendable && onPick(p)}
                 disabled={!sendable}
-                className="w-full text-start px-3 py-2.5 flex items-center gap-3 transition-colors hover:bg-[#f5f6f6] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full text-start px-3 py-2.5 flex items-center gap-3 transition-colors hover:bg-surface-subtle dark:hover:bg-slate-800/50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <span
                   className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 text-sm font-black text-white"
@@ -1624,10 +1607,10 @@ function NewChatPicker({
                   {initials(p.name)}
                 </span>
                 <div className="min-w-0 flex-1 border-b border-line/70 pb-2.5 -mb-2.5">
-                  <p className="text-[15px] font-semibold truncate" style={{ color: WA.text }}>
+                  <p className="text-[15px] font-semibold truncate text-ink dark:text-slate-100">
                     {p.name}
                   </p>
-                  <p className="text-[13px] truncate" style={{ color: WA.muted }} dir="ltr">
+                  <p className="text-[13px] truncate text-ink-muted dark:text-slate-400" dir="ltr">
                     {sendable ? p.phone : isAr ? "مفيش رقم تليفون" : "No phone number"}
                   </p>
                 </div>
@@ -1644,7 +1627,7 @@ function NewChatPicker({
 function Ticks({ status }: { status?: DeliveryStatus }) {
   if (!status) return null;
   if (status === "failed") return <AlertCircle size={14} style={{ color: "#e35d5d" }} />;
-  if (status === "sent") return <Check size={15} style={{ color: WA.muted }} />;
+  if (status === "sent") return <Check size={15} className="text-ink-muted dark:text-slate-400" />;
   return <CheckCheck size={15} style={{ color: status === "read" ? WA.readTick : WA.muted }} />;
 }
 
@@ -1687,8 +1670,7 @@ function MediaView({ line, isAr }: { line: ThreadLine; isAr: boolean }) {
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className="inline-flex items-center gap-1.5 text-[13px] font-bold underline underline-offset-2 mb-1"
-      style={{ color: WA.greenDark }}
+      className="inline-flex items-center gap-1.5 text-[13px] font-bold underline underline-offset-2 mb-1 text-accent-strong dark:text-accent"
     >
       {mediaLabel(line.media || "document", isAr)}
       {mime === "application/pdf" ? " · PDF" : ""}
@@ -1725,10 +1707,10 @@ function Bubble({
   return (
     <div id={`msg-${line.id}`} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
       <div
-        className={`relative max-w-[75%] sm:max-w-[65%] rounded-lg px-2.5 pt-1.5 pb-1 shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] ${
-          mine ? "rounded-te-none" : "rounded-ts-none"
+        className={`relative max-w-[85%] sm:max-w-[70%] rounded-2xl px-3.5 pt-2 pb-1.5 shadow-sm transition-all ${
+          mine ? "rounded-be-sm bg-accent-tint dark:bg-[#005c4b] text-ink dark:text-[#e9edef]" : "rounded-bs-sm bg-surface dark:bg-[#202c33] text-ink dark:text-[#e9edef]"
         } ${current ? "ring-2 ring-[#00a884]" : hit ? "ring-2 ring-[#00a884]/35" : ""}`}
-        style={{ background: mine ? WA.outgoing : WA.incoming, color: WA.text }}
+        /* styled via classes */
       >
         {who && (
           <p className="text-[11px] font-bold mb-0.5" style={{ color: line.author === "staff" ? WA.greenDark : "#8a6d00" }}>
@@ -1736,7 +1718,7 @@ function Bubble({
           </p>
         )}
         {line.media && !line.mediaUrl && (
-          <p className="text-[13px] font-semibold mb-0.5" style={{ color: WA.muted }}>
+          <p className="text-[13px] font-semibold mb-0.5 text-ink-muted dark:text-slate-400">
             {mediaLabel(line.media, isAr)}
           </p>
         )}
@@ -1750,13 +1732,13 @@ function Bubble({
         {!placeholderOnly ? (
           <p className="text-[14.5px] whitespace-pre-wrap break-words leading-[1.35] flow-root" dir="auto">
             {line.text}
-            <span className="float-end ms-2 mt-1.5 inline-flex items-center gap-1 text-[11px] leading-none" style={{ color: WA.muted }}>
+            <span className="float-end ms-2 mt-1.5 inline-flex items-center gap-1 text-[11px] leading-none text-ink-muted dark:text-slate-400">
               {bubbleTime(line.at, isAr)}
               {mine && <Ticks status={line.status} />}
             </span>
           </p>
         ) : (
-          <div className="flex justify-end items-center gap-1 text-[11px] mt-0.5" style={{ color: WA.muted }}>
+          <div className="flex justify-end items-center gap-1 text-[11px] mt-0.5 text-ink-muted dark:text-slate-400">
             {bubbleTime(line.at, isAr)}
             {mine && <Ticks status={line.status} />}
           </div>

@@ -2,7 +2,23 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { 
+  ChevronDown, 
+  ChevronUp,
+  CalendarClock,
+  CheckCircle2,
+  ClockAlert,
+  XCircle,
+  UserCheck,
+  Stethoscope,
+  Banknote,
+  CheckSquare,
+  Timer,
+  UserX,
+  Siren,
+  RefreshCcw,
+  CircleDashed
+} from "lucide-react";
 import {
   APPOINTMENT_STAGES,
   getAppointmentStageLabel,
@@ -24,6 +40,24 @@ type Props = {
 
 const MENU_MIN_W = 172;
 
+export function getStageIcon(status: string) {
+  switch (status) {
+    case "Scheduled": return CalendarClock;
+    case "Confirmed": return CheckCircle2;
+    case "Checked In": return UserCheck;
+    case "In Chair": return Stethoscope;
+    case "Checking Out": return Banknote;
+    case "Completed": return CheckSquare;
+    case "Late": return Timer;
+    case "Delayed": return ClockAlert;
+    case "Cancelled": return XCircle;
+    case "No Show": return UserX;
+    case "Rescheduled": return RefreshCcw;
+    case "Emergency": return Siren;
+    default: return CircleDashed;
+  }
+}
+
 export default function AppointmentStagePicker({
   value,
   onChange,
@@ -42,10 +76,10 @@ export default function AppointmentStagePicker({
   useEffect(() => setMounted(true), []);
 
   const updateMenuPosition = useCallback(() => {
-    const el = triggerRef.current ?? rootRef.current;
+    const el = rootRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const width = fullWidth ? Math.max(MENU_MIN_W, rect.width) : MENU_MIN_W;
+    const width = fullWidth ? rect.width : Math.max(MENU_MIN_W, rect.width);
     let left = rect.left;
     if (left + width > window.innerWidth - 8) {
       left = Math.max(8, window.innerWidth - width - 8);
@@ -86,6 +120,7 @@ export default function AppointmentStagePicker({
   const current = value || "Scheduled";
   const st = getAppointmentStatusStyles(current);
   const label = getAppointmentStageLabel(current, language);
+  const CurrentIcon = getStageIcon(current);
 
   const stop = (e: React.SyntheticEvent) => {
     if (!isolateClicks) return;
@@ -116,6 +151,7 @@ export default function AppointmentStagePicker({
           const stageSt = getAppointmentStatusStyles(stage.value);
           const stageLabel = getAppointmentStageLabel(stage.value, language);
           const active = current === stage.value;
+          const StageIcon = getStageIcon(stage.value);
           return (
             <button
               key={stage.value}
@@ -127,11 +163,11 @@ export default function AppointmentStagePicker({
                 onChange(stage.value);
                 setOpen(false);
               }}
-              className={`flex w-full items-center gap-2 px-3 py-3 text-left text-sm font-bold transition-colors hover:bg-surface-subtle ${
+              className={`flex w-full items-center gap-3 px-4 py-3.5 text-[15px] font-bold transition-colors hover:bg-surface-subtle justify-start text-left ${
                 active ? "bg-primary-50 text-primary-800" : "text-slate-700"
               }`}
             >
-              <span className={`h-2 w-2 shrink-0 rounded-full ${stageSt.dot}`} />
+              <StageIcon size={18} className={`shrink-0 ${stageSt.dot.replace("bg-", "text-")}`} />
               {stageLabel}
             </button>
           );
@@ -147,16 +183,20 @@ export default function AppointmentStagePicker({
       onMouseDown={stop}
     >
       <div 
-        className={`flex items-center ${fullWidth ? 'w-full justify-between gap-2 border-2 border-slate-100 rounded-xl px-3 py-3 bg-surface cursor-pointer focus-within:border-primary-500' : 'gap-0.5'}`}
+        className={`flex items-center ${fullWidth ? 'w-full relative border-2 border-slate-100 rounded-xl px-3 py-3 bg-surface cursor-pointer focus-within:border-primary-500 shadow-sm' : 'gap-0.5'}`}
         onClick={toggleOpen}
       >
         <span
-          className={`flex items-center gap-2 font-bold leading-tight ${
-            fullWidth ? 'text-sm text-slate-800 flex-1' :
+          className={`flex items-center gap-3 font-bold leading-tight ${
+            fullWidth ? 'text-[15px] text-slate-800 flex-1 justify-start py-0.5 px-1' :
             (compact ? `inline-flex rounded-md px-1.5 py-0.5 text-[9px] ${st.pill}` : `inline-flex rounded-md px-2 py-1 text-[10px] sm:text-xs ${st.pill}`)
           }`}
         >
-          <span className={`rounded-full shrink-0 ${st.dot} ${fullWidth ? "w-2.5 h-2.5" : (compact ? "w-1.5 h-1.5" : "w-2 h-2")}`} />
+          {fullWidth ? (
+            <CurrentIcon size={18} className={`shrink-0 ${st.dot.replace("bg-", "text-")}`} />
+          ) : (
+            <span className={`rounded-full shrink-0 ${st.dot} ${compact ? "w-1.5 h-1.5" : "w-2 h-2"}`} />
+          )}
           <span className="whitespace-nowrap truncate">{label}</span>
         </span>
         <button
@@ -166,7 +206,7 @@ export default function AppointmentStagePicker({
           aria-haspopup="listbox"
           aria-label={language === "ar" ? "مراحل الموعد" : "Appointment stages"}
           className={`rounded-md text-ink-muted transition-colors ${
-            fullWidth ? "p-0.5 pointer-events-none" : (compact ? "p-0.5 hover:bg-surface-muted hover:text-slate-800" : "p-1 hover:bg-surface-muted hover:text-slate-800")
+            fullWidth ? "absolute end-3 p-0.5 pointer-events-none" : (compact ? "p-0.5 hover:bg-surface-muted hover:text-slate-800" : "p-1 hover:bg-surface-muted hover:text-slate-800")
           }`}
         >
           {open ? <ChevronUp size={fullWidth ? 16 : (compact ? 12 : 14)} /> : <ChevronDown size={fullWidth ? 16 : (compact ? 12 : 14)} />}

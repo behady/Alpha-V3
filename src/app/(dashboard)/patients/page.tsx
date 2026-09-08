@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Plus, Search, Phone, MapPin, UserX, Loader2, Facebook, Instagram, Users, ChevronRight, Bell } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, query, orderBy, limit, startAfter, where } from "firebase/firestore";
@@ -16,18 +17,19 @@ const PAGE_SIZE = 15;
 
 const getAvatarStyle = (name: string) => {
   const styles = [
-    'from-blue-400 to-indigo-500 text-white shadow-blue-200',
-    'from-emerald-400 to-teal-500 text-white shadow-emerald-200',
-    'from-rose-400 to-pink-500 text-white shadow-rose-200',
-    'from-amber-400 to-orange-500 text-white shadow-amber-200',
-    'from-violet-400 to-purple-500 text-white shadow-violet-200',
+    'bg-blue-100 text-blue-700',
+    'bg-teal-100 text-teal-700',
+    'bg-indigo-100 text-indigo-700',
+    'bg-violet-100 text-violet-700',
+    'bg-sky-100 text-sky-700',
   ];
   const charCode = name.charCodeAt(0) || 0;
-  return styles[charCode % styles.length];
+  return `${styles[charCode % styles.length]} shadow-sm border border-white/60`;
 };
 
 export default function PatientsPage() {
   const { language, isRTL, toggleLanguage } = useLanguage();
+  const router = useRouter();
   
   const [patients, setPatients] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -129,10 +131,10 @@ export default function PatientsPage() {
 
   return (
     <PermissionGuard permission="access.patients">
-      <div className="min-h-screen bg-slate-50/50 pb-24 lg:pb-10 font-sans text-slate-800 selection:bg-accent-soft selection:text-primary-900"> 
+      <div className="min-h-screen bg-white pb-24 lg:pb-10 font-sans text-slate-800 selection:bg-accent-soft selection:text-primary-900"> 
         
-        {/* UNIFIED GLASSMORPHISM HEADER */}
-        <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 shadow-sm transition-all">
+        {/* UNIFIED HEADER */}
+        <div className="sticky top-0 z-40 bg-white/90 backdrop-blur-xl border-b border-slate-100 shadow-sm transition-all">
            {/* Expanded max width to 1600px for PC */}
            <div className="max-w-[1600px] mx-auto w-full flex flex-col gap-3 px-4 py-3 md:py-4">
               
@@ -159,18 +161,18 @@ export default function PatientsPage() {
                      <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
                         <Search size={16} className="text-slate-400 group-focus-within:text-accent-soft transition-colors" />
                      </div>
-                     <input 
+                      <input 
                         type="text" 
                         placeholder={t.searchPlaceholder} data-tour="patients-search" 
                         value={searchTerm} 
                         onChange={(e) => setSearchTerm(e.target.value)} 
-                        className="block w-full pl-10 pr-4 py-2.5 bg-surface border border-slate-200/60 focus:border-primary-400 focus:ring-2 focus:ring-accent-soft/10 rounded-xl text-sm font-semibold text-ink placeholder-slate-400 transition-all outline-none" 
+                        className="block w-full pl-10 pr-4 py-3 bg-white/40 hover:bg-white/60 backdrop-blur-md border border-white/80 focus:border-white focus:bg-white/90 focus:ring-4 focus:ring-white/20 rounded-2xl text-sm font-bold text-slate-800 placeholder-slate-400 transition-all outline-none shadow-[0_4px_15px_rgb(0,0,0,0.02)]" 
                      />
                   </div>
 
                   <Protect permission="patients.add">
-                    <button onClick={() => setIsModalOpen(true)} data-tour="patients-add" className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-xl font-bold text-xs uppercase shadow-md shadow-slate-200 flex items-center justify-center gap-1.5 active:scale-95 transition-all shrink-0 h-[42px]">
-                       <Plus size={16}/> <span className="hidden sm:inline tracking-wider">{t.addBtn}</span>
+                    <button onClick={() => setIsModalOpen(true)} data-tour="patients-add" className="bg-[#FACC15] hover:bg-[#eab308] text-slate-900 px-6 py-2.5 rounded-full font-black text-xs uppercase shadow-sm flex items-center justify-center gap-2 active:scale-95 transition-all shrink-0 h-[42px] border border-yellow-400/50">
+                       <Plus size={16} strokeWidth={3}/> <span className="hidden sm:inline tracking-wider">{t.addBtn}</span>
                     </button>
                   </Protect>
               </div>
@@ -205,50 +207,104 @@ export default function PatientsPage() {
             </div>
           ) : patients.length > 0 ? (
             <>
-              {/* RESPONSIVE GRID LIST: 1 col on mobile, 2 on tablet, 3 on large desktop */}
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 md:gap-4">
-                {patients.map((p, index) => (
-                  <Link 
-                     key={p.id} 
-                     href={`/patients/${p.id}`} data-tour="patient-row" 
-                     className="group relative flex items-center bg-surface p-3 sm:p-4 rounded-[1.25rem] border border-slate-200/60 shadow-sm hover:shadow-md hover:border-accent-soft hover:-translate-y-0.5 transition-all duration-300 outline-none w-full"
-                     style={{ animationDelay: `${(index % PAGE_SIZE) * 30}ms`, animationFillMode: 'both' }}
-                  >
-                    
-                    <div className="absolute left-0 top-3 bottom-3 w-1 bg-accent-soft rounded-r-full opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+              {/* PREMIUM DATA TABLE (Desktop) */}
+              <div className="hidden md:block bg-white border border-slate-200 shadow-sm rounded-[1.5rem] overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse whitespace-nowrap">
+                    <thead>
+                      <tr className="border-b-2 border-slate-200 bg-slate-100/80">
+                        <th className="py-4 px-6 text-[11px] font-bold text-slate-600 uppercase tracking-widest">{language === 'ar' ? 'المريض' : 'Patient'}</th>
+                        <th className="py-4 px-6 text-[11px] font-bold text-slate-600 uppercase tracking-widest">{language === 'ar' ? 'رقم الهاتف' : 'Phone'}</th>
+                        <th className="py-4 px-6 text-[11px] font-bold text-slate-600 uppercase tracking-widest">{language === 'ar' ? 'العنوان' : 'Address'}</th>
+                        <th className="py-4 px-6 text-[11px] font-bold text-slate-600 uppercase tracking-widest text-right">{language === 'ar' ? 'إجراء' : 'Action'}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {patients.map((p, index) => (
+                        <tr
+                          key={p.id}
+                          data-tour="patient-row"
+                          onClick={() => router.push(`/patients/${p.id}`)}
+                          className="group hover:bg-slate-50 transition-all duration-300 cursor-pointer hover:shadow-sm"
+                          style={{ animationDelay: `${(index % PAGE_SIZE) * 30}ms`, animationFillMode: 'both' }}
+                        >
+                          <td className="py-4 px-6">
+                            <div className="flex items-center gap-4">
+                              <div className="relative shrink-0 transition-transform duration-300 group-hover:scale-105">
+                                <div className={`w-11 h-11 rounded-full ${getAvatarStyle(p.name)} flex items-center justify-center font-black text-base`}>
+                                  {p.name.charAt(0).toUpperCase()}
+                                </div>
+                                {renderSourceBadge(p.source)}
+                              </div>
+                              <h3 className="text-base font-bold text-slate-800 tracking-tight capitalize group-hover:text-slate-900 transition-colors">
+                                {p.name}
+                              </h3>
+                            </div>
+                          </td>
+                          <td className="py-4 px-6">
+                            <span className="text-sm font-semibold text-slate-600" dir="ltr">
+                              {p.phone || "---"}
+                            </span>
+                          </td>
+                          <td className="py-4 px-6">
+                            <div className="flex items-center gap-1.5 text-sm font-medium text-slate-500">
+                              {p.address ? (
+                                <>
+                                  <MapPin size={16} className="text-slate-400" />
+                                  <span className="truncate max-w-[200px] xl:max-w-[300px]">{p.address}</span>
+                                </>
+                              ) : (
+                                <span className="text-slate-300 italic">--</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-4 px-6 text-right">
+                            <div className="inline-flex w-9 h-9 rounded-full bg-slate-50 items-center justify-center border border-slate-200 group-hover:bg-slate-900 group-hover:border-slate-800 group-hover:shadow-md transition-all duration-300">
+                              <ChevronRight size={18} strokeWidth={2.5} className="text-slate-400 group-hover:text-white" />
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
 
-                    <div className="flex items-center justify-between w-full pl-2 sm:pl-3 gap-4">
-                        
-                        <div className="flex items-center gap-3 min-w-0 flex-1">
+              {/* MOBILE LIST */}
+              {/* Same data-tour as the desktop rows above. The tutorial overlay walks every match
+                  and takes the first with a real rect, so the display:none half is skipped. */}
+              <div className="md:hidden grid grid-cols-1 gap-3">
+                {patients.map((p, index) => (
+                  <Link
+                     key={p.id}
+                     href={`/patients/${p.id}`} data-tour="patient-row"
+                     className="group relative flex items-center bg-white p-4 rounded-[1.25rem] border border-slate-200 shadow-sm hover:shadow-md hover:border-slate-300 hover:-translate-y-1 transition-all duration-300 outline-none w-full overflow-hidden"
+                  >
+                    <div className="flex items-center justify-between w-full gap-4 relative z-10">
+                        <div className="flex items-center gap-4 min-w-0 flex-1">
                             <div className="relative shrink-0">
-                                <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br ${getAvatarStyle(p.name)} flex items-center justify-center font-black text-xs sm:text-base shadow-md`}>
+                                <div className={`w-12 h-12 rounded-full ${getAvatarStyle(p.name)} flex items-center justify-center font-black text-lg`}>
                                     {p.name.charAt(0).toUpperCase()}
                                 </div>
                                 {renderSourceBadge(p.source)}
                             </div>
-
-                            <div className="flex flex-col min-w-0">
-                                <h3 className="text-sm sm:text-base font-bold text-ink tracking-tight truncate capitalize group-hover:text-accent transition-colors">
+                            <div className="flex flex-col min-w-0 justify-center">
+                                <h3 className="text-base font-black text-slate-800 tracking-tight truncate capitalize">
                                     {p.name}
                                 </h3>
-                                <div className="flex items-center gap-1.5 text-[10px] sm:text-xs font-semibold text-slate-400 mt-0.5">
-                                    <MapPin size={10} className="shrink-0"/>
-                                    <span className="truncate">{p.address || "No Address Provided"}</span>
-                                </div>
+                                {p.address && (
+                                  <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 mt-1">
+                                      <MapPin size={12} className="shrink-0 text-slate-400"/>
+                                      <span className="truncate">{p.address}</span>
+                                  </div>
+                                )}
                             </div>
                         </div>
-
-                        <div className="flex items-center gap-4 shrink-0">
-                            <div className="hidden sm:flex flex-col items-end">
-                                <span className="text-xs font-bold text-ink-muted tracking-wide" dir="ltr">{p.phone || "---"}</span>
-                            </div>
-                            
-                            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-surface-subtle flex items-center justify-center border border-slate-100 group-hover:bg-accent-tint group-hover:border-primary-100 transition-colors">
-                                <span className="sm:hidden text-slate-400 group-hover:text-accent"><Phone size={14} className="fill-current opacity-20 group-hover:opacity-100 transition-all"/></span>
-                                <span className="hidden sm:block text-slate-300 group-hover:text-accent transition-transform group-hover:translate-x-0.5"><ChevronRight size={18}/></span>
+                        <div className="shrink-0 flex items-center">
+                            <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center border border-slate-200">
+                                <Phone size={14} className="text-slate-500"/>
                             </div>
                         </div>
-
                     </div>
                   </Link>
                 ))}
