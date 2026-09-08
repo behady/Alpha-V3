@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { 
-  X, Save, Trash2, Wallet, User, Edit, Clock, FileText, Loader2, DollarSign, Check, Plus, CheckCircle2,
-  Stethoscope, Activity, Calendar, Hourglass, ClipboardList, ChevronDown, Sparkles
+import {
+  X, Trash2, Wallet, User, Edit, Clock, FileText, Loader2, DollarSign, Check, Plus, CheckCircle2,
+  Stethoscope, Activity, Calendar, Hourglass, ClipboardList, ChevronDown, Sparkles, CloudOff
 } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { 
@@ -17,10 +17,20 @@ import { useUI } from "@/context/UIContext";
 import { getAppointmentStatusStyles, APPOINTMENT_STAGES, getAppointmentStageLabel } from "@/lib/appointmentStages";
 import { saveBooking } from "@/lib/bookingService";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { autosaveVerdict } from "@/lib/appointmentAutosave";
 import { allocationMessage, allocationMessageAr, checkAllocation } from "@/lib/paymentAllocation";
 import { MoneyApiError, createPayment, createProcedure, deleteProcedure } from "@/lib/moneyApi";
 import { sendPatientPaymentWhatsApp } from "@/lib/sendPatientPaymentWhatsAppClient";
 import ServiceCombobox from "@/components/shared/ServiceCombobox";
+
+/**
+ * Exactly the fields this panel puts on screen — nothing more.
+ *
+ * Comparing anything else against the saved record is how autosave gets stuck in a loop: the form
+ * only holds these keys, so a field it never shows (a room, a discount) reads as "" against a
+ * stored value, counts as a change every render, and saves forever.
+ */
+const EDITED_FIELDS = ["date", "time", "doctor", "treatment", "duration", "notes", "status"] as const;
 
 interface AppointmentSidePanelProps {
   selectedAppointment: any | null;
@@ -56,7 +66,6 @@ export default function AppointmentSidePanel({
   const router = useRouter();
 
   const [inlineEdit, setInlineEdit] = useState<Record<string, any>>({});
-  const [inlineSaving, setInlineSaving] = useState(false);
   const [patientLedger, setPatientLedger] = useState<any[]>([]);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [visitReasonsOptions, setVisitReasonsOptions] = useState<string[]>(["كشف"]);
@@ -136,27 +145,60 @@ export default function AppointmentSidePanel({
     return () => unsub();
   }, [selectedAppointment?.patientId]);
 
-  const hasUnsavedChanges = useMemo(() => {
-    if (!selectedAppointment) return false;
-    const fields = ['patientName', 'treatment', 'doctor', 'date', 'time', 'duration', 'status', 'notes', 'discountAmount'];
-    for (const key of fields) {
-      if (String((selectedAppointment as any)[key] || '') !== String(inlineEdit[key] || '')) return true;
+  /**
+   * Autosave.
+   *
+   * There is no Save button any more: an edit writes itself once the person stops making it. How
+   * long it waits depends on who hears about it — a note or a status settles in well under a
+   * second, while moving the visit or changing its dentist waits longer, because bookingService
+   * messages the patient about those and a person still choosing a time should cost one message,
+   * not one per keystroke. `lib/appointmentAutosave` holds those rules and the tests that pin them.
+   *
+   * The timer is keyed on the appointment: switching to another one flushes nothing and starts
+   * clean, so an edit can never land on the wrong patient's record.
+   */
+  const [autosaveState, setAutosaveState] = useState<"idle" | "pending" | "saving" | "saved" | "error">("idle");
+  const savingRef = useRef(false);
+  const latestRef = useRef<{ appointment: Record<string, unknown>; fields: Record<string, unknown> } | null>(null);
+  latestRef.current = { appointment: selectedAppointment, fields: inlineEdit };
+
+  const runAutosave = useCallback(async () => {
+    const latest = latestRef.current;
+    if (!latest?.appointment || savingRef.current) return;
+    const verdict = autosaveVerdict(latest.appointment, latest.fields, { fields: EDITED_FIELDS });
+    if (!verdict.save) return;
+    savingRef.current = true;
+    setAutosaveState("saving");
+    const ok = await saveInlineEditRef.current();
+    savingRef.current = false;
+    setAutosaveState(ok ? "saved" : "error");
+  }, []);
+
+  useEffect(() => {
+    if (!selectedAppointment) return;
+    const verdict = autosaveVerdict(selectedAppointment, inlineEdit, { fields: EDITED_FIELDS });
+    if (!verdict.save) {
+      // Nothing to write, or a field still being typed. Clear "pending" so the chip stops
+      // promising a save that is not coming; leave "saved" alone so it can fade on its own.
+      setAutosaveState((s) => (s === "pending" ? "idle" : s));
+      return;
     }
-    // Deep compare services
-    const oldSvc = selectedAppointment.services || [];
-    const newSvc = inlineEdit.services || [];
-    if (oldSvc.length !== newSvc.length) return true;
-    for(let i=0; i<oldSvc.length; i++) {
-       if (oldSvc[i].serviceId !== newSvc[i].serviceId || oldSvc[i].status !== newSvc[i].status) return true;
-    }
-    return false;
-  }, [selectedAppointment, inlineEdit]);
+    setAutosaveState("pending");
+    const id = setTimeout(() => void runAutosave(), verdict.delayMs);
+    return () => clearTimeout(id);
+  }, [selectedAppointment, inlineEdit, runAutosave]);
+
+  // "Saved" is a receipt, not a state. It fades rather than sitting there claiming credit.
+  useEffect(() => {
+    if (autosaveState !== "saved") return;
+    const id = setTimeout(() => setAutosaveState("idle"), 2200);
+    return () => clearTimeout(id);
+  }, [autosaveState]);
 
   const saveInlineEdit = async (): Promise<boolean> => {
     if (!selectedAppointment) return false;
     // Note: Delay prompt logic is simplified here; it assumes the parent page handles deep delays via BookingModal
     // For simplicity, we just save the status directly.
-    setInlineSaving(true);
     try {
       const dataToSave = {
         existingAppointmentId: selectedAppointment.id,
@@ -185,16 +227,20 @@ export default function AppointmentSidePanel({
         );
       }
 
-      showToast(language === 'ar' ? 'تم الحفظ' : 'Saved!', 'success');
+      // No toast. A toast per edit is a toast every few seconds once saving is automatic; the
+      // chip beside the heading is the whole receipt. Failures still shout — see the catch.
       return true;
     } catch (e) {
       console.error(e);
-      showToast(language === 'ar' ? 'خطأ' : 'Error saving', 'error');
+      showToast(language === 'ar' ? 'مقدرناش نحفظ التعديل' : 'Could not save your change', 'error');
       return false;
-    } finally {
-      setInlineSaving(false);
     }
   };
+
+  // Read through a ref so the debounce above always calls the current closure without having to
+  // list every piece of state it touches as a dependency.
+  const saveInlineEditRef = useRef(saveInlineEdit);
+  saveInlineEditRef.current = saveInlineEdit;
 
   const handleInlinePayment = async () => {
     if (!selectedProcedure || !inlinePayAmount || isNaN(Number(inlinePayAmount)) || Number(inlinePayAmount) <= 0) {
@@ -274,18 +320,29 @@ export default function AppointmentSidePanel({
     }
   };
 
+  /**
+   * Closing flushes whatever is still waiting, rather than asking.
+   *
+   * The old prompt ("you have unsaved changes — save them?") was the right question while a Save
+   * button existed. With autosave the answer is always yes, and asking would only ever catch the
+   * second or two between the last keystroke and the timer — so it stops being a safeguard and
+   * becomes a dialog between the person and their own typing.
+   *
+   * A change that cannot be written — a half-typed time — is the one case worth speaking up about,
+   * because that one really would be lost.
+   */
   const handleClose = async () => {
-    if (hasUnsavedChanges) {
-      const wantToSave = await confirm(
-        language === "ar" 
-          ? "لديك تغييرات غير محفوظة. هل تريد حفظها قبل الإغلاق؟" 
-          : "You have unsaved changes. Do you want to save them before closing?",
-        { confirmLabel: language === "ar" ? "حفظ" : "Save", cancelLabel: language === "ar" ? "تجاهل" : "Discard" }
+    const verdict = autosaveVerdict(selectedAppointment, inlineEdit, { fields: EDITED_FIELDS });
+    if (verdict.save) {
+      await runAutosave();
+    } else if (verdict.reason === "unusable_time" || verdict.reason === "unusable_date") {
+      const leave = await confirm(
+        language === "ar"
+          ? "الوقت أو التاريخ اللي مكتوب مش مفهوم، فمش هيتحفظ. تقفل برضه؟"
+          : "The time or date as typed cannot be saved. Close anyway?",
+        { confirmLabel: language === "ar" ? "اقفل" : "Close", cancelLabel: language === "ar" ? "ارجع" : "Go back" }
       );
-      if (wantToSave) {
-        const success = await saveInlineEdit();
-        if (!success) return; 
-      }
+      if (!leave) return;
     }
     onClose();
   };
@@ -344,39 +401,7 @@ export default function AppointmentSidePanel({
                 <div className="px-5 py-5 space-y-5 border-b border-slate-200/60">
                   <div className="flex items-center justify-between">
                       <h3 className="font-light text-slate-800 text-base uppercase tracking-widest">{language === 'ar' ? 'تعديل التفاصيل' : 'Edit Details'}</h3>
-                      {hasUnsavedChanges && (
-                        <div className="flex gap-1.5">
-                            <button
-                              disabled={inlineSaving}
-                              onClick={saveInlineEdit}
-                              className="text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-3.5 py-2 rounded-xl transition-colors flex items-center gap-1 disabled:opacity-50"
-                            >
-                              <Save size={12}/> {inlineSaving ? '...' : language === 'ar' ? 'حفظ' : 'Save'}
-                            </button>
-                            <button onClick={() => {
-                              setInlineEdit({
-                                patientName: selectedAppointment.patientName || '',
-                                treatment: selectedAppointment.treatment || '',
-                                doctor: selectedAppointment.doctor || '',
-                                date: selectedAppointment.date || '',
-                                time: selectedAppointment.time || '',
-                                duration: selectedAppointment.duration || 30,
-                                status: selectedAppointment.status || 'Scheduled',
-                                notes: selectedAppointment.notes || '',
-                                cost: selectedAppointment.cost || 0,
-                                listPrice: selectedAppointment.listPrice || selectedAppointment.cost || 0,
-                                discountMode: selectedAppointment.discountMode || 'none',
-                                discountPercent: selectedAppointment.discountPercent || 0,
-                                discountFixed: selectedAppointment.discountFixed || 0,
-                                discountAmount: selectedAppointment.discountAmount || 0,
-                                serviceId: selectedAppointment.serviceId || '',
-                                serviceName: selectedAppointment.serviceName || '',
-                              });
-                            }} className="text-sm font-bold text-ink-muted bg-surface-muted px-3.5 py-2 rounded-xl hover:bg-slate-200 transition-colors">
-                              {language === 'ar' ? 'إلغاء' : 'Cancel'}
-                            </button>
-                        </div>
-                      )}
+                      <AutosaveChip state={autosaveState} language={language} />
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
@@ -824,5 +849,42 @@ export default function AppointmentSidePanel({
             </div>
         </div>
     </div>
+  );
+}
+
+/**
+ * The whole receipt for autosave: a quiet line where the Save button used to be.
+ *
+ * It says the least it can get away with. "Saving" and "Saved" are reassurance a person glances
+ * at once and then stops seeing; only a failure is worth colour, because that is the only state
+ * where they have to do something.
+ */
+function AutosaveChip({ state, language }: { state: "idle" | "pending" | "saving" | "saved" | "error"; language: string }) {
+  const isAr = language === "ar";
+  if (state === "idle") return null;
+
+  if (state === "error") {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-danger">
+        <CloudOff size={13} />
+        {isAr ? "مش متحفظ" : "Not saved"}
+      </span>
+    );
+  }
+
+  if (state === "saved") {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-ok animate-in fade-in duration-200">
+        <Check size={13} />
+        {isAr ? "اتحفظ" : "Saved"}
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-ink-faint">
+      <Loader2 size={13} className={state === "saving" ? "animate-spin" : "opacity-60"} />
+      {isAr ? "بيتحفظ…" : "Saving…"}
+    </span>
   );
 }
