@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { NextRequest, NextResponse, after } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
@@ -59,6 +60,50 @@ async function expectedVerifyToken(): Promise<string> {
   } catch {
     return "";
   }
+}
+
+/**
+ * The app secret Meta signs every delivery with (X-Hub-Signature-256 over the raw body).
+ *
+ * Same doc as the verify token, same env-var escape hatch.
+ *
+ * Only `waAppSecret` counts — deliberately, and not because the leads webhook's `appSecret` is
+ * probably the wrong one. It is probably the right one: both webhooks are meant to be the same
+ * Meta app, and an app has one secret. But "probably" is the whole problem. That field is already
+ * populated from the leads setup, so reading it here would switch verification on for a live
+ * channel the moment this deploys, with nothing having tested that the two are in fact one app —
+ * and the failure is silent and total: every inbound patient message answered 200 and dropped,
+ * looking exactly like a quiet day. The same doc keeps `verifyToken` and `waVerifyToken` apart
+ * for the same reason.
+ *
+ * So this stays open until someone runs scripts/set-wa-app-secret.mjs, which writes the field
+ * this reads. Turning the check on is then one command and no deploy.
+ */
+async function configuredAppSecret(): Promise<string> {
+  const fromEnv = process.env.META_WA_APP_SECRET?.trim();
+  if (fromEnv) return fromEnv;
+  try {
+    const snap = await adminDb().doc("meta_integrations/config").get();
+    const v = snap.exists ? snap.data()?.waAppSecret : "";
+    return typeof v === "string" ? v.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Constant-time check of Meta's signature header — the twin of `verifyMetaSignature` in
+ * functions/metaLeads.js. Without this check, anyone who learns the endpoint plus a
+ * phone_number_id can forge inbound messages: trigger bot replies to arbitrary numbers, or
+ * opt real patients out with a fake "إيقاف".
+ */
+function signatureMatches(rawBody: string, signatureHeader: string | null, appSecret: string): boolean {
+  const header = String(signatureHeader || "");
+  if (!header.startsWith("sha256=")) return false;
+  const expected = crypto.createHmac("sha256", appSecret).update(rawBody, "utf8").digest("hex");
+  const given = header.slice("sha256=".length);
+  if (given.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(given, "utf8"), Buffer.from(expected, "utf8"));
 }
 
 /** Meta verifies a webhook once with a GET carrying a challenge to echo back. */
@@ -263,7 +308,28 @@ async function recordUnparsed(clinicId: string, body: unknown, reason: string): 
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json().catch(() => null);
+    // The signature covers the raw bytes, so the body must be read as text BEFORE any JSON
+    // parsing — parse-then-restringify would never reproduce Meta's exact serialization.
+    const rawBody = await request.text();
+
+    const appSecret = await configuredAppSecret();
+    if (appSecret) {
+      if (!signatureMatches(rawBody, request.headers.get("x-hub-signature-256"), appSecret)) {
+        // Still 200: Meta retries non-200 responses, and a forged payload retried is still forged.
+        return NextResponse.json({ ok: true, ignored: "bad_signature" });
+      }
+    } else {
+      // Processing unsigned is deliberate while the secret is not yet stored — but the gap must
+      // stay visible in the logs until scripts/set-wa-app-secret.mjs has been run.
+      console.warn("[meta-whatsapp] No app secret configured — accepting webhook WITHOUT signature verification");
+    }
+
+    let body: unknown = null;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      body = null;
+    }
     const messages = extractMessages(body);
     let queued = 0;
     let lastBot: Awaited<ReturnType<typeof respondToPatientMessage>> | null = null;
