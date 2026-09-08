@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
+import { GoogleGenerativeAI, SchemaType, type ModelParams } from "@google/generative-ai";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection } from "@/lib/adminClinicDb";
 import { adminDb } from "@/lib/firebaseAdmin";
@@ -8,6 +8,7 @@ import type { Clinic } from "@/types/saas";
 import type { BotFacts } from "@/types/whatsapp";
 import { dossierLines, type PatientDossier } from "./patientDossier";
 import { strayDrugNames } from "./drugGuard";
+import { getRulebookCache } from "./rulebookCache";
 
 /**
  * The model's voice on the clinic's WhatsApp — receptionist by default, salesperson when the
@@ -424,10 +425,17 @@ export async function answerWithAi(args: {
   // script; everything else — prices, facts, no invention — stays exactly as strict.
   const rules = args.clinical ? HARD_RULES.filter((r) => !r.startsWith("- أي سؤال طبي")) : HARD_RULES;
 
-  const system = [
-    ...persona,
-    "",
-    ...rules,
+  /*
+   * Two halves, for the cache.
+   *
+   * `sharedSystem` is word-for-word the same for every clinic and every patient — the persona
+   * and the rules — and is what rulebookCache uploads to Google once. `turnText` is this clinic
+   * and this patient: hours, prices, the file, the thread's circumstances. It travels with the
+   * turn. Without a cache the two are joined back into one system instruction, and the model
+   * sees exactly the prompt it saw before this split existed.
+   */
+  const sharedSystem = [...persona, "", ...rules].join("\n");
+  const turnText = [
     ...(args.clinical ? ["", ...DENTIST_RULES] : []),
     ...(sales && args.canBook === false ? ["- الحجز مش متاح للرقم ده دلوقتي: متختارش open_booking، ولو المريض عايز يحجز اختار handoff_other."] : []),
     "",
@@ -487,9 +495,11 @@ export async function answerWithAi(args: {
   const meter = createUsageMeter(MODEL);
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
+    // Null when caching is off or Google is unreachable; the inline path below is identical in
+    // what the model reads, it just bills the rulebook at full price this once.
+    const cache = await getRulebookCache({ apiKey, model: MODEL, systemText: sharedSystem });
+    const modelParams: ModelParams = {
       model: MODEL,
-      systemInstruction: system,
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -517,7 +527,10 @@ export async function answerWithAi(args: {
         temperature: sales ? 0.35 : 0.3,
         ...({ thinkingConfig: { thinkingBudget: 0 } } as Record<string, unknown>),
       },
-    });
+    };
+    const model = cache
+      ? genAI.getGenerativeModelFromCachedContent({ name: cache.name, model: MODEL, contents: [] }, modelParams)
+      : genAI.getGenerativeModel({ ...modelParams, systemInstruction: `${sharedSystem}\n${turnText}` });
 
     /*
      * Memory. Sales mode replays the real thread — every voice, including the bot's own menus
@@ -547,6 +560,20 @@ export async function answerWithAi(args: {
     // (a reminder, a template) is trimmed to the first patient message.
     while (contents.length && contents[0].role !== "user") contents.shift();
     if (!contents.length) contents.push({ role: "user" as const, parts: [{ text: question }] });
+    if (cache) {
+      /*
+       * The clinic and the patient, as the opening exchange.
+       *
+       * A cached system instruction cannot be added to per call, so everything that used to
+       * follow the rulebook inside it now precedes the conversation here, marked as coming from
+       * the system rather than the patient. A neutral model turn after it keeps the user/model
+       * alternation the API expects, in the same JSON shape every other model turn has.
+       */
+      contents.unshift(
+        { role: "user" as const, parts: [{ text: `(معلومات من النظام عن العيادة والمريض — مش رسالة من المريض)\n${turnText}` }] },
+        { role: "model" as const, parts: [{ text: JSON.stringify({ action: "answer", reply: "تمام." }) }] }
+      );
+    }
 
     /*
      * Every number the model may say. The price list, the clinic's facts, the coaching notes
@@ -657,6 +684,7 @@ export async function answerWithAi(args: {
         threadLines: thread.length,
         priceLineCount: priceLines ? priceLines.split("\n").length : 0,
         hoursGiven: Boolean(hoursText?.trim()),
+        rulebookCached: Boolean(cache),
         createdAt: FieldValue.serverTimestamp(),
       })
       .catch(() => {});
