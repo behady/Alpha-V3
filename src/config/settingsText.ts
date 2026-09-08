@@ -730,6 +730,11 @@ export const SETTINGS_TEXT = {
     roleReceptionist: { en: "Receptionist", ar: "استقبال" },
     roleAdmin: { en: "Admin", ar: "مدير" },
     submit: { en: "Create System Login", ar: "إنشاء حساب الدخول" },
+    // What the screen says once the invite has been sent. /api/staff/create answers in English
+    // only, so its sentence is kept for the one outcome this side has no wording for — an
+    // existing account being reused, where the message names the person it found.
+    created: { en: "Account created!", ar: "تم إنشاء الحساب!" },
+    failed: { en: "Operation failed", ar: "لم تتم العملية" },
   },
 } as const;
 
