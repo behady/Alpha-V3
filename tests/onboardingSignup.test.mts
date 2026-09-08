@@ -108,3 +108,9 @@ const switcher = readFileSync(join(REPO, "src/components/dashboard/ClinicSwitche
 assert.ok(switcher.includes("/onboarding?new=1"), "Add clinic must opt in to the form with ?new=1");
 
 console.log("onboardingSignup: all assertions passed");
+
+// --- a join request walks in by itself once approved --------------------------------------------
+assert.ok(page.includes("awaitingClinicId"), "the onboarding screen watches for the approved role");
+assert.ok(page.includes("getDocFromServer("), "and polls the server in case the listener is quiet");
+assert.ok(!page.includes("sign in again then"), "nobody is told to sign in again after approval");
+console.log("onboardingSignup: join-approval wiring ok");

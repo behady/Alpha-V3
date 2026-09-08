@@ -4,7 +4,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useRouter } from "next/navigation";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { doc, getDocFromServer } from "firebase/firestore";
 import { Building2, Loader2, LogOut, Check, AlertCircle, ArrowLeft } from "lucide-react";
 import { RELOADED_FOR_STORAGE, currentSignupKey, finishSignupAttempt } from "@/lib/onboardingSignup";
 import { SETUP_ROUTE } from "@/lib/setupWizard";
@@ -55,6 +56,9 @@ export default function OnboardingPage() {
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState("");
   const [joinSent, setJoinSent] = useState(false);
+  // The clinic a join request was just filed for. While set, this page watches for the role to
+  // arrive and walks in by itself the moment the admin approves.
+  const [awaitingClinicId, setAwaitingClinicId] = useState<string | null>(null);
   const [pendingClinicId, setPendingClinicId] = useState<string | null>(null);
   const [slowGrant, setSlowGrant] = useState(false);
   const [healing, setHealing] = useState(true);
@@ -105,8 +109,9 @@ export default function OnboardingPage() {
     joinBtn: isAr ? "إرسال طلب الانضمام" : "Send join request",
     joinSentTitle: isAr ? "تم إرسال طلبك" : "Request sent",
     joinSentBody: isAr
-      ? "مدير العيادة هيلاقي طلبك في الإعدادات ← طلبات الانضمام. هتقدر تدخل أول ما يوافق — سجّل دخول تاني وقتها."
-      : "Your admin will see it under Settings → Join Requests. You'll get access as soon as they approve — sign in again then.",
+      ? "مدير العيادة هيلاقي طلبك في الإعدادات ← طلبات الانضمام. سيب الصفحة دي مفتوحة — أول ما يوافق هندخّلك لوحدنا."
+      : "Your admin will see it under Settings → Join Requests. Leave this page open — the moment they approve, you'll be taken in automatically.",
+    joinWaiting: isAr ? "مستنيين موافقة المدير…" : "Waiting for your admin to approve…",
     sendAnother: isAr ? "إرسال طلب تاني" : "Send another request",
     orDivider: isAr ? "أو" : "or",
     backToDashboard: isAr ? "الرجوع للوحة التحكم" : "Back to dashboard",
@@ -251,6 +256,42 @@ export default function OnboardingPage() {
     }
   }, [clinicName, t.nameRequired, t.sessionExpired, t.createFailed]);
 
+  /**
+   * Approval arrives as a role on this user's document. The snapshot listener normally delivers
+   * it within a second; a poll straight from the server every fifteen seconds covers the
+   * listener going quiet, which is the failure that once made a fresh signup look broken.
+   * Either way the person walks in without signing in again.
+   */
+  useEffect(() => {
+    if (!awaitingClinicId || !user) return;
+    const rememberClinic = () => {
+      try {
+        sessionStorage.setItem("preferredClinicId", awaitingClinicId);
+      } catch {
+        /* optional */
+      }
+    };
+    if (user.clinicRoles?.[awaitingClinicId]) {
+      rememberClinic();
+      router.replace("/");
+      return;
+    }
+    const uid = user.uid;
+    const timer = setInterval(async () => {
+      try {
+        const snap = await getDocFromServer(doc(db, "users", uid));
+        const roles = (snap.data()?.clinicRoles || {}) as Record<string, unknown>;
+        if (roles[awaitingClinicId]) {
+          rememberClinic();
+          window.location.assign("/");
+        }
+      } catch {
+        // Offline for a moment; the next tick tries again.
+      }
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [awaitingClinicId, user, router]);
+
   const handleJoinClinic = useCallback(async () => {
     const id = joinClinicId.trim();
     if (!id) return setError(t.idRequired);
@@ -276,6 +317,7 @@ export default function OnboardingPage() {
         return setError(payload?.error || t.joinFailed);
       }
       setJoinSent(true);
+      setAwaitingClinicId(id);
       setJoinClinicId("");
     } catch (err) {
       setError(err instanceof Error ? err.message : t.joinFailed);
@@ -399,8 +441,14 @@ export default function OnboardingPage() {
                 </div>
                 <p className="font-black text-ink text-sm">{t.joinSentTitle}</p>
                 <p className="text-xs font-medium text-ink-body mt-1.5 leading-relaxed">{t.joinSentBody}</p>
+                <p className="mt-3 text-xs font-bold text-accent flex items-center justify-center gap-2">
+                  <Loader2 size={13} className="animate-spin" /> {t.joinWaiting}
+                </p>
                 <button
-                  onClick={() => setJoinSent(false)}
+                  onClick={() => {
+                    setJoinSent(false);
+                    setAwaitingClinicId(null);
+                  }}
                   className="mt-4 text-xs font-bold text-accent hover:underline"
                 >
                   {t.sendAnother}
