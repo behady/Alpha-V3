@@ -6,7 +6,8 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { Building2, Loader2, LogOut, Check, AlertCircle, ArrowLeft } from "lucide-react";
-import { RELOADED_FOR_STORAGE, SIGNUP_KEY_STORAGE } from "@/lib/onboardingSignup";
+import { RELOADED_FOR_STORAGE, currentSignupKey, finishSignupAttempt } from "@/lib/onboardingSignup";
+import { SETUP_ROUTE } from "@/lib/setupWizard";
 
 /**
  * First screen a new account sees: start a clinic, or ask to join one.
@@ -33,36 +34,12 @@ import { RELOADED_FOR_STORAGE, SIGNUP_KEY_STORAGE } from "@/lib/onboardingSignup
 /** How long to give the snapshot listener before reloading into the dashboard ourselves. */
 const ROLE_ARRIVAL_GRACE_MS = 5000;
 
-/** Reads the signup key for this tab, minting one on first use. Survives a refresh, not a new tab. */
-function currentSignupKey(): string | null {
-  try {
-    const existing = sessionStorage.getItem(SIGNUP_KEY_STORAGE);
-    if (existing) return existing;
-    const fresh =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
-    sessionStorage.setItem(SIGNUP_KEY_STORAGE, fresh);
-    return fresh;
-  } catch {
-    // Private mode or storage disabled: the server still has the orphan and same-name rules.
-    return null;
-  }
-}
-
-/** The attempt is over — the next visit to this page is a new signup, not a retry of this one. */
-function finishSignupAttempt() {
-  try {
-    sessionStorage.removeItem(SIGNUP_KEY_STORAGE);
-    sessionStorage.removeItem(RELOADED_FOR_STORAGE);
-  } catch {
-    /* nothing to clear */
-  }
-}
-
-/** A full page load into the dashboard. Unlike router.replace, this refetches the user document. */
-function reloadIntoDashboard() {
-  window.location.assign("/");
+/**
+ * A full page load into the app. Unlike router.replace, this refetches the user document.
+ * A clinic made just now goes to the setup wizard; anything else goes to the dashboard.
+ */
+function reloadIntoApp(freshClinic: boolean) {
+  window.location.assign(freshClinic ? SETUP_ROUTE : "/");
 }
 
 export default function OnboardingPage() {
@@ -80,6 +57,9 @@ export default function OnboardingPage() {
   const [pendingClinicId, setPendingClinicId] = useState<string | null>(null);
   const [slowGrant, setSlowGrant] = useState(false);
   const [healing, setHealing] = useState(true);
+  // True when the pending clinic was made by this screen just now — it goes to the setup wizard.
+  // A repaired grant (self-heal) is an old clinic and goes to the dashboard.
+  const [freshClinic, setFreshClinic] = useState(false);
   // Came here on purpose to add a clinic (clinic switcher → "Add clinic"). Read once, on the
   // client: the query string is not available during server rendering.
   const [wantsAnother, setWantsAnother] = useState<boolean | null>(null);
@@ -198,9 +178,9 @@ export default function OnboardingPage() {
     if (!pendingClinicId) return;
     if (user?.clinicRoles?.[pendingClinicId]) {
       finishSignupAttempt();
-      router.replace("/");
+      router.replace(freshClinic ? SETUP_ROUTE : "/");
     }
-  }, [pendingClinicId, user, router]);
+  }, [pendingClinicId, user, router, freshClinic]);
 
   /**
    * The listener is taking too long. The server has already confirmed the clinic and the role
@@ -221,10 +201,10 @@ export default function OnboardingPage() {
         reloadedBefore = true;
       }
       if (reloadedBefore) setSlowGrant(true);
-      else reloadIntoDashboard();
+      else reloadIntoApp(freshClinic);
     }, ROLE_ARRIVAL_GRACE_MS);
     return () => clearTimeout(timer);
-  }, [pendingClinicId]);
+  }, [pendingClinicId, freshClinic]);
 
   const handleCreateClinic = useCallback(async () => {
     const name = clinicName.trim();
@@ -250,6 +230,7 @@ export default function OnboardingPage() {
 
       // Hold here until the role reaches this client, rather than navigating into a dashboard
       // that would immediately reject us.
+      setFreshClinic(true);
       setPendingClinicId(data.clinicId as string);
     } catch (err) {
       setError(err instanceof Error ? err.message : t.createFailed);
@@ -315,7 +296,7 @@ export default function OnboardingPage() {
           {slowGrant && (
             <>
               <button
-                onClick={reloadIntoDashboard}
+                onClick={() => reloadIntoApp(freshClinic)}
                 className="mt-6 w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-colors"
               >
                 {t.openClinic}

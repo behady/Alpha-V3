@@ -89,3 +89,35 @@ export function pickExistingClinic(
 export const SIGNUP_KEY_STORAGE = "onboarding.signupKey";
 /** sessionStorage slot recording which clinic this tab already hard-reloaded for. */
 export const RELOADED_FOR_STORAGE = "onboarding.reloadedFor";
+
+/**
+ * The signup key for this tab, minted on first use. Browser-only; returns null anywhere
+ * sessionStorage is missing or refuses (private mode), and the server's orphan and same-name
+ * rules still apply then.
+ */
+export function currentSignupKey(): string | null {
+  try {
+    if (typeof sessionStorage === "undefined") return null;
+    const existing = sessionStorage.getItem(SIGNUP_KEY_STORAGE);
+    if (existing) return existing;
+    const fresh =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+    sessionStorage.setItem(SIGNUP_KEY_STORAGE, fresh);
+    return fresh;
+  } catch {
+    return null;
+  }
+}
+
+/** The attempt is over — the next visit to a signup form is a new signup, not a retry of this one. */
+export function finishSignupAttempt(): void {
+  try {
+    if (typeof sessionStorage === "undefined") return;
+    sessionStorage.removeItem(SIGNUP_KEY_STORAGE);
+    sessionStorage.removeItem(RELOADED_FOR_STORAGE);
+  } catch {
+    /* nothing to clear */
+  }
+}
