@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Mail, Lock, ArrowRight, Loader2, ShieldCheck, KeyRound, AlertCircle, CheckCircle2, Building2, User } from "lucide-react";
 import {
@@ -17,6 +17,7 @@ import { auth, db } from "@/lib/firebase";
 import { useLanguage } from "@/context/LanguageContext";
 import { currentSignupKey, finishSignupAttempt } from "@/lib/onboardingSignup";
 import { SETUP_ROUTE } from "@/lib/setupWizard";
+import { inviteLinkPath, isValidInviteCode, normalizeInviteCode } from "@/lib/inviteLinks";
 
 // Where the login page hands the chosen workspace to ClinicContext. Mirrors the existing
 // superAdminClinicId pattern; ClinicContext clears both on logout.
@@ -53,6 +54,31 @@ export default function LoginPage() {
   const [clinicName, setClinicName] = useState("");
   // The wait between "account created" and "clinic created", so the button can say so.
   const [creatingClinic, setCreatingClinic] = useState(false);
+
+  /**
+   * Arrived from an invite link (`/join/<code>` sends people here with `?invite=<code>`). The
+   * form opens on "create account, joining a team", the banner names the clinic, and every
+   * successful sign-in or sign-up goes back to the join page instead of the dashboard, where
+   * the invite is accepted.
+   */
+  const [invite, setInvite] = useState<{ code: string; clinicName: string; role: string } | null>(null);
+  useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get("invite");
+    const code = normalizeInviteCode(raw);
+    if (!raw || !isValidInviteCode(code)) return;
+    setMode("signup");
+    setSignupKind("staff");
+    setInvite({ code, clinicName: "", role: "" });
+    fetch(`/api/invites/accept?code=${encodeURIComponent(code)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.ok && data.found) setInvite({ code, clinicName: data.clinicName || "", role: data.role || "" });
+      })
+      .catch(() => {});
+  }, []);
+
+  /** Where a signed-in person goes: the invite they came with, or the dashboard. */
+  const afterAuth = () => router.push(invite ? inviteLinkPath(invite.code) : "/");
 
   // Status states
   const [errorMsg, setErrorMsg] = useState("");
@@ -216,7 +242,7 @@ export default function LoginPage() {
       const provider = new GoogleAuthProvider();
       const cred = await signInWithPopup(auth, provider);
       if (!(await applyClinicSelection(cred.user.uid))) return;
-      router.push("/"); // Redirect to dashboard on success
+      afterAuth(); // the invite they came with, or the dashboard
     } catch (error: any) {
       console.error("Google sign-in failed:", error?.code, error);
       setErrorMsg(getGoogleError(error?.code || ""));
@@ -233,7 +259,7 @@ export default function LoginPage() {
     try {
       const cred = await signInWithEmailAndPassword(auth, email, password);
       if (!(await applyClinicSelection(cred.user.uid))) return;
-      router.push("/");
+      afterAuth();
     } catch (error: any) {
       console.error(error);
       setErrorMsg(getFriendlyError(error.code));
@@ -296,8 +322,8 @@ export default function LoginPage() {
       }
 
       // Staff joining a clinic: no clinic to make. ClinicContext routes to /onboarding, whose
-      // join form takes it from here.
-      router.push("/");
+      // join form takes it from here — or the invite link they came with.
+      afterAuth();
     } catch (error: any) {
       console.error(error);
       setErrorMsg(getFriendlyError(error.code));
@@ -339,6 +365,22 @@ export default function LoginPage() {
             {isResetMode ? txt.resetSub : isSignUpMode ? txt.signUpSub : txt.subWelcome}
           </p>
         </div>
+
+        {/* Came from an invite link: say where sign-in leads. */}
+        {invite && (
+          <div className="mb-6 p-4 bg-accent-tint text-ink rounded-2xl text-sm font-bold flex items-start gap-3 border border-emerald-200">
+            <Building2 size={18} className="shrink-0 mt-0.5 text-accent" />
+            <p>
+              {invite.clinicName
+                ? language === 'ar'
+                  ? `معزوم تنضم لفريق ${invite.clinicName}. سجّل دخول أو اعمل حساب وهتدخل على طول.`
+                  : `You're invited to join ${invite.clinicName}. Sign in or create an account and you're in.`
+                : language === 'ar'
+                  ? "معزوم تنضم لعيادة. سجّل دخول أو اعمل حساب وهتدخل على طول."
+                  : "You've been invited to a clinic. Sign in or create an account and you're in."}
+            </p>
+          </div>
+        )}
 
         {/* ALERTS */}
         {errorMsg && (
@@ -398,7 +440,7 @@ export default function LoginPage() {
                 </button>
               ))}
             </div>
-            {signupKind === "staff" && (
+            {signupKind === "staff" && !invite && (
               <p className={`text-xs font-medium text-slate-400 ${isRTL ? 'pr-2' : 'pl-2'}`}>{txt.kindStaffHint}</p>
             )}
 

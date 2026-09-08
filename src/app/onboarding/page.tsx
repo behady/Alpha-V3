@@ -8,6 +8,7 @@ import { auth } from "@/lib/firebase";
 import { Building2, Loader2, LogOut, Check, AlertCircle, ArrowLeft } from "lucide-react";
 import { RELOADED_FOR_STORAGE, currentSignupKey, finishSignupAttempt } from "@/lib/onboardingSignup";
 import { SETUP_ROUTE } from "@/lib/setupWizard";
+import { PENDING_INVITE_STORAGE, inviteLinkPath, isValidInviteCode } from "@/lib/inviteLinks";
 
 /**
  * First screen a new account sees: start a clinic, or ask to join one.
@@ -122,6 +123,18 @@ export default function OnboardingPage() {
   useEffect(() => {
     if (!authLoading && !user) router.replace("/login");
   }, [authLoading, user, router]);
+
+  // Came in through an invite link, then signed in some other way (Google, a second tab): the
+  // code was remembered by the join page, and the invite is what they want, not this form.
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const pending = localStorage.getItem(PENDING_INVITE_STORAGE);
+      if (pending && isValidInviteCode(pending)) router.replace(inviteLinkPath(pending));
+    } catch {
+      /* no storage, no memory of an invite */
+    }
+  }, [user, router]);
 
   /**
    * Repair first, ask second.

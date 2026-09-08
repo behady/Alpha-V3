@@ -14,6 +14,7 @@ import { logActivity } from "@/lib/logger";
 import { getAllPermissionIds } from "@/config/permissionsCatalog";
 import { countedNoun } from "@/lib/arabicCount";
 import UserAccessModal from "./UserAccessModal";
+import InviteLinks from "./InviteLinks";
 type UserRow = {
   id: string;
   uid?: string;
@@ -518,6 +519,9 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
           </div>
         </div>
       </div>
+
+      {/* The fast way in: a link on WhatsApp instead of a Clinic ID and an approval round trip. */}
+      <InviteLinks clinicId={clinicId} />
 
       {/* One row each. Comparing two colleagues' access used to mean looking across two cards in
           different columns; the switch counts line up now. */}

@@ -688,7 +688,7 @@ export const SETTINGS_TEXT = {
     sub: { en: "Manage logins, roles, and granular permissions.", ar: "إدارة عمليات تسجيل الدخول والأدوار والصلاحيات." },
     addBtn: { en: "Add Team Member", ar: "إضافة عضو للفريق" },
     clinicIdTitle: { en: "Clinic ID", ar: "معرّف العيادة" },
-    clinicIdHelp: { en: "Send this to a colleague who needs to join. They enter it on the \"Join an existing clinic\" screen after creating an account, and their request lands in the Join Requests tab.", ar: "ابعت المعرّف ده لأي زميل عايز ينضم للعيادة. هيحطه في شاشة «انضم لعيادة موجودة» بعد ما يعمل حساب، وهيوصلك طلبه في تبويب «طلبات الانضمام»." },
+    clinicIdHelp: { en: "The slow way in. Prefer an invite link below — no request to approve. If a colleague already typed this ID on the \"Join an existing clinic\" screen, their request is in the Join Requests tab.", ar: "الطريقة البطيئة. الأسهل رابط دعوة من تحت — من غير طلب تستنى توافق عليه. لو زميل كتب المعرّف ده بالفعل في شاشة «انضم لعيادة موجودة»، طلبه في تبويب «طلبات الانضمام»." },
     clinicIdCopy: { en: "Copy", ar: "نسخ" },
     clinicIdCopied: { en: "Clinic ID copied", ar: "تم نسخ معرّف العيادة" },
     clinicIdCopyFailed: { en: "Couldn't copy — select the text and copy it manually", ar: "تعذّر النسخ — حدّد النص وانسخه يدوياً" },
