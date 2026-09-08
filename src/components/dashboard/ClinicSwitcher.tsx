@@ -62,7 +62,9 @@ export default function ClinicSwitcher({ expanded = false }: { expanded?: boolea
 
   const handleAddClinic = () => {
     setIsOpen(false);
-    router.push("/onboarding");
+    // `new=1` is the only way the onboarding screen shows its form to somebody who already has a
+    // clinic; without it, it sends them straight back to the dashboard.
+    router.push("/onboarding?new=1");
   };
 
   if (!user || clinics.length === 0) return null;

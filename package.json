@@ -24,6 +24,7 @@
     "test:welcome": "npx tsx tests/welcomeJourney.test.mts",
     "_comment_test_trial": "When a free trial actually stops, and who decides. The enforcement (firestore.rules isClinicActive, lib/clinicStatus) predated anything writing expiresAt, so trials ran forever; this guards the piece that closes the loop. Asymmetric failure modes: too lenient leaks revenue slowly, too strict stops a paying clinic's writes with a patient in the chair — so most cases here are about the second, including the backfill's grace floor.",
     "test:trial": "npx tsx tests/trialPolicy.test.mts",
+    "test:signup": "npx tsx tests/onboardingSignup.test.mts",
     "test:dentist": "npx tsx tests/dentistHome.test.mts",
     "test:dentist-report": "npx tsx tests/dentistReport.test.mts",
     "test:owner": "npx tsx tests/ownerHome.test.mts",
