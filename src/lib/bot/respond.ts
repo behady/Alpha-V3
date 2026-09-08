@@ -9,6 +9,9 @@ import {
 } from "@/lib/publicBooking";
 import type { ClinicScheduleConfig } from "@/lib/clinicSchedule";
 import { normalizeDateKey } from "@/lib/appointmentTime";
+import { minutesToTimeKey, parseApptTimeToMinutes } from "@/lib/appointmentTime";
+import { clinicDayBoundsMinutes } from "@/lib/clinicSchedule";
+import { pickOfferedTimes, readTimePreference, type TimePreference } from "./slotPreference";
 import { clinicNow } from "@/lib/publicBooking";
 import { sendClinicPush } from "@/lib/push";
 import { clinicDisplayName } from "@/lib/sms/events";
@@ -1132,7 +1135,7 @@ ${urgentCallLine(ctx.clinicPhone)}`;
        */
       const sales = settings.aiFirst;
       const salesContext = sales ? await loadSalesContext(clinicId, chatId, patient, ctx) : null;
-      const slotOffer = sales && profile?.schedule.isConfigured && (ctx.canOfferBooking || ctx.canRegister) ? await nextSlots(clinicId, profile, branchId, conversation.pendingDoctor ?? "", rescheduleId || null) : [];
+      const slotOffer = sales && profile?.schedule.isConfigured && (ctx.canOfferBooking || ctx.canRegister) ? await nextSlots(clinicId, profile, branchId, conversation.pendingDoctor ?? "", rescheduleId || null, readTimePreference(act.question, clinicDayBoundsMinutes(profile.schedule))) : [];
       heardIntroBefore = (salesContext?.thread || []).some(
         (line) => line.author === "bot" && Boolean(settings.personaName) && line.text.includes(settings.personaName)
       );
@@ -2023,26 +2026,52 @@ function bookingStepLabel(c: BotConversation): string {
 /**
  * The next free appointment slots, as the salesperson may offer them.
  *
- * Two per day across the next few open days, up to six, for the dentist the conversation has
- * already settled on or any chair. Each carries a key the model must echo back exactly — the
- * calendar is consulted again at booking time, so a slot taken in the meantime is caught there.
+ * Times that SPAN each open day, up to six, for the dentist the conversation has already
+ * settled on or any chair. Each carries a key the model must echo back exactly — the calendar
+ * is consulted again at booking time, so a slot taken in the meantime is caught there.
+ *
+ * `askedFor` is what the patient said about timing. It matters because the model may only offer
+ * what is on this list: until 2026-09-07 the list was the two EARLIEST free times of each day,
+ * so a clinic open 12pm-10pm offered noon and half past noon forever, and a patient asking for
+ * 9pm on Tuesday was told Tuesday had nothing while Tuesday 9pm sat free in the diary.
  */
 export async function nextSlots(
   clinicId: string,
   profile: NonNullable<Awaited<ReturnType<typeof loadPublicClinicProfile>>>,
   branchId: string | null,
   doctorName: string,
-  ignoreAppointmentId?: string | null
+  ignoreAppointmentId?: string | null,
+  askedFor?: TimePreference
 ): Promise<Array<{ key: string; label: string }>> {
   const out: Array<{ key: string; label: string }> = [];
   try {
     const days = upcomingOpenDays(profile.schedule).slice(0, 4);
+    const perDay = askedFor?.kind === "at" ? 2 : 3;
+
+    /*
+     * Two passes. The first honours what the patient asked for; if no open day can satisfy it
+     * — an evening request at a clinic that shuts at 4 — the second offers the day spread out,
+     * because a wrong-window time the patient can refuse beats "nothing is available", which
+     * is a lie about the diary.
+     */
+    const freeByDay = new Map<string, number[]>();
     for (const dateKey of days) {
       const free = await computeAvailableSlots({ clinicId, dateKey, doctorName: doctorName || null, branchId, profile, ignoreAppointmentId: ignoreAppointmentId || null });
-      for (const time of free.slice(0, 2)) {
-        out.push({ key: `${dateKey}|${time}|${doctorName}`, label: `${arabicDayLabel(dateKey)} الساعة ${arabicTimeLabel(time)}${doctorName ? ` مع ${doctorName}` : ""}` });
+      freeByDay.set(dateKey, free.map((t) => parseApptTimeToMinutes(t)));
+    }
+
+    for (const preference of [askedFor ?? null, null]) {
+      for (const dateKey of days) {
+        const free = freeByDay.get(dateKey) ?? [];
+        for (const minutes of pickOfferedTimes(free, perDay, preference)) {
+          const time = minutesToTimeKey(minutes);
+          const key = `${dateKey}|${time}|${doctorName}`;
+          if (out.some((s) => s.key === key)) continue;
+          out.push({ key, label: `${arabicDayLabel(dateKey)} الساعة ${arabicTimeLabel(time)}${doctorName ? ` مع ${doctorName}` : ""}` });
+        }
+        if (out.length >= 6) break;
       }
-      if (out.length >= 6) break;
+      if (out.length) break;
     }
   } catch (e) {
     // No calendar, no offer — but say why in the flight recorder; silence here hid a bug once.

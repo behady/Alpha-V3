@@ -6,6 +6,7 @@ import ServiceCombobox from "./shared/ServiceCombobox";
 import { usePricingPolicy } from "@/lib/usePricingPolicy";
 import { listsForBranch, resolveActiveListId } from "@/lib/priceLists";
 import { resolveListPrice } from "@/lib/discountMath";
+import { autosaveVerdict } from "@/lib/appointmentAutosave";
 import {
   X,
   Calendar,
@@ -23,6 +24,7 @@ import {
   MapPin,
   ChevronDown,
   Trash2,
+  CloudOff,
 } from "lucide-react";
 import {
   DEFAULT_COUNTRY_CODE,
@@ -125,6 +127,16 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   onSave: (data: AppointmentData) => void | Promise<void>;
+  /**
+   * Save without closing or toasting — the panel is still open and being edited.
+   *
+   * Supplying it turns on autosave, and ONLY for an appointment that already exists. A booking
+   * being created stays behind its button on purpose: that press is the moment the clinic commits,
+   * and committing writes any staged procedures to the ledger, alerts the owner, and sends the
+   * patient "you're booked". None of that should happen because somebody filled in a time and
+   * then walked away mid-thought.
+   */
+  onAutosave?: (data: AppointmentData) => Promise<void>;
   patients: { id: string | number; name: string; phone?: string }[];
   doctors: { id: string; name: string }[];
   preSelectedDate?: string;
@@ -145,6 +157,14 @@ interface Props {
   preSelectedBranchId?: string;
 }
 
+/**
+ * Exactly the fields this form puts on screen, compared against the appointment on file.
+ *
+ * Anything else — a discount, a cost, a clinical note id — is carried through untouched, and
+ * comparing it would report a change on every render and autosave in a loop.
+ */
+const AUTOSAVE_FIELDS = ["date", "time", "doctor", "treatment", "duration", "notes", "status", "roomId"] as const;
+
 function dateIsClinicClosed(dateStr: string, offDays: string[]): boolean {
   if (!dateStr || !offDays.length) return false;
   const [y, mo, d] = dateStr.split("-").map(Number);
@@ -157,6 +177,7 @@ export default function BookingModal({
   isOpen,
   onClose,
   onSave,
+  onAutosave,
   patients,
   doctors,
   onDelete,
@@ -359,6 +380,9 @@ export default function BookingModal({
       clock: language === "ar" ? "الميعاد" : "Time",
       duration: language === "ar" ? "المدة" : "Duration",
       cancel: language === "ar" ? "إلغاء" : "Cancel",
+      // With autosave on, "Cancel" would be a lie — the edits are already in. The button only
+      // closes the panel, so it says so.
+      done: language === "ar" ? "تم" : "Done",
       confirm: language === "ar" ? "أكّد الحجز" : "Confirm booking",
       saveEdit: language === "ar" ? "حفظ التعديلات" : "Save changes",
       confirmClosedDayTitle: language === "ar" ? "العيادة قفلة اليوم ده" : "Clinic closed this day",
@@ -664,7 +688,18 @@ export default function BookingModal({
         }
       }
 
-      await onSave({
+      await onSave(buildPayload());
+    } catch (error) {
+      console.error(error);
+      showToast(txt.error, "error");
+    } finally {
+      setIsChecking(false);
+    }
+  };
+
+  /** The form as one payload. Shared so a deliberate save and an autosave can never disagree. */
+  function buildPayload() {
+    return {
         patientId: isNewPatient ? "NEW_PATIENT" : String(selectedPatient?.id),
         patientName: isNewPatient ? newPatientName.trim() : (selectedPatient?.name || ""),
         isNewPatient,
@@ -691,7 +726,9 @@ export default function BookingModal({
         clinicalNoteId: editAppointment ? editAppointment.clinicalNoteId : null,
         newProcedureName: null,
         listPrice: editAppointment ? (editAppointment.listPrice || 0) : 0,
-        discountMode: "none",
+        // `as const` because this is now a returned object rather than an inline argument — without
+        // it the literal widens to `string` and no longer fits AppointmentData's union.
+        discountMode: "none" as const,
         discountPercent: null,
         discountFixed: null,
         discountAmount: editAppointment ? (editAppointment.discountAmount || 0) : 0,
@@ -700,14 +737,73 @@ export default function BookingModal({
 
         existingAppointmentId: editAppointment?.id ?? null,
         status: appointmentStatus,
-      });
-    } catch (error) {
-      console.error(error);
-      showToast(txt.error, "error");
+    };
+  }
+
+  /**
+   * Autosave, for an appointment that already exists.
+   *
+   * Editing here writes itself once the person stops; a note settles in well under a second while
+   * moving the visit waits longer, because that one messages the patient (see
+   * lib/appointmentAutosave). Creating a booking is deliberately NOT autosaved — see `onAutosave`.
+   */
+  const autosaveOn = !!onAutosave && !!editAppointment;
+  const [autosaveState, setAutosaveState] = useState<"idle" | "pending" | "saving" | "saved" | "error">("idle");
+  const autosaveBusy = useRef(false);
+  const autosaveFields = useMemo(
+    () => ({ date, time, doctor, treatment: treatment.trim(), duration, notes: visitNotes.trim(), status: appointmentStatus, roomId }),
+    [date, time, doctor, treatment, duration, visitNotes, appointmentStatus, roomId]
+  );
+  const savedFields = useMemo(
+    () =>
+      editAppointment
+        ? {
+            date: editAppointment.date || "",
+            time: editAppointment.time || "",
+            doctor: editAppointment.doctor || "",
+            treatment: editAppointment.treatment || "",
+            duration: editAppointment.duration ?? 0,
+            notes: editAppointment.notes || "",
+            status: editAppointment.status || "",
+            roomId: editAppointment.roomId || "",
+          }
+        : null,
+    [editAppointment]
+  );
+
+  const autosaveRef = useRef<() => Promise<void>>(async () => {});
+  autosaveRef.current = async () => {
+    if (!onAutosave || !editAppointment || autosaveBusy.current) return;
+    autosaveBusy.current = true;
+    setAutosaveState("saving");
+    try {
+      await onAutosave(buildPayload());
+      setAutosaveState("saved");
+    } catch (e) {
+      console.error("Autosave failed:", e);
+      setAutosaveState("error");
     } finally {
-      setIsChecking(false);
+      autosaveBusy.current = false;
     }
   };
+
+  useEffect(() => {
+    if (!autosaveOn || !savedFields) return;
+    const verdict = autosaveVerdict(savedFields, autosaveFields, { fields: AUTOSAVE_FIELDS });
+    if (!verdict.save) {
+      setAutosaveState((s) => (s === "pending" ? "idle" : s));
+      return;
+    }
+    setAutosaveState("pending");
+    const id = setTimeout(() => void autosaveRef.current(), verdict.delayMs);
+    return () => clearTimeout(id);
+  }, [autosaveOn, savedFields, autosaveFields]);
+
+  useEffect(() => {
+    if (autosaveState !== "saved") return;
+    const id = setTimeout(() => setAutosaveState("idle"), 2200);
+    return () => clearTimeout(id);
+  }, [autosaveState]);
 
   if (!isOpen) return null;
 
@@ -1150,18 +1246,29 @@ export default function BookingModal({
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 rounded-xl border border-line bg-surface py-3.5 text-xs font-black uppercase tracking-wide text-ink-body transition hover:bg-surface-muted"
+            className={`${autosaveOn ? "flex-1" : "flex-1"} rounded-xl border border-line bg-surface py-3.5 text-xs font-black uppercase tracking-wide text-ink-body transition hover:bg-surface-muted`}
           >
-            {txt.cancel}
+            {autosaveOn ? txt.done : txt.cancel}
           </button>
-          <button
-            type="button"
-            onClick={handleSubmit} data-tour="booking-confirm"
-            disabled={isChecking || blockingReasons.length > 0}
-            className="flex-[2] flex items-center justify-center gap-2 rounded-xl bg-primary-600 py-3.5 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-primary-200 transition hover:bg-primary-700 disabled:opacity-50"
-          >
-            {isChecking ? <Loader2 size={16} className="animate-spin" /> : editAppointment ? txt.saveEdit : txt.confirm}
-          </button>
+          {/*
+            With autosave on there is nothing left for a Save button to do, so the space carries the
+            receipt instead. A booking being CREATED keeps its button: that press is the moment the
+            clinic commits, and it is the press that tells the patient.
+          */}
+          {autosaveOn ? (
+            <div className="flex-[2] flex items-center justify-center">
+              <BookingAutosaveChip state={autosaveState} isAr={language === "ar"} />
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handleSubmit} data-tour="booking-confirm"
+              disabled={isChecking || blockingReasons.length > 0}
+              className="flex-[2] flex items-center justify-center gap-2 rounded-xl bg-primary-600 py-3.5 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-primary-200 transition hover:bg-primary-700 disabled:opacity-50"
+            >
+              {isChecking ? <Loader2 size={16} className="animate-spin" /> : editAppointment ? txt.saveEdit : txt.confirm}
+            </button>
+          )}
         </div>
 
         {/*
@@ -1191,5 +1298,36 @@ export default function BookingModal({
       {content}
     </div>,
     portalTarget
+  );
+}
+
+/**
+ * The receipt where the Save button used to be, for an appointment that is autosaving.
+ *
+ * Same vocabulary as the appointment side panel's chip, so the two panels that swap places in the
+ * same column do not describe the same event in two different ways.
+ */
+function BookingAutosaveChip({ state, isAr }: { state: "idle" | "pending" | "saving" | "saved" | "error"; isAr: boolean }) {
+  if (state === "idle") {
+    return <span className="text-xs font-bold text-ink-faint">{isAr ? "بيتحفظ لوحده" : "Saves by itself"}</span>;
+  }
+  if (state === "error") {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-danger">
+        <CloudOff size={14} /> {isAr ? "مش متحفظ" : "Not saved"}
+      </span>
+    );
+  }
+  if (state === "saved") {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-ok animate-in fade-in duration-200">
+        <Check size={14} /> {isAr ? "اتحفظ" : "Saved"}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-ink-faint">
+      <Loader2 size={14} className={state === "saving" ? "animate-spin" : "opacity-60"} /> {isAr ? "بيتحفظ…" : "Saving…"}
+    </span>
   );
 }

@@ -503,6 +503,28 @@ export default function DesktopDashboard() {
     await executeSaveBooking(data);
   };
 
+  /**
+   * The same write as a deliberate save, minus the two things that end the interaction: it does
+   * not close the panel and it does not toast. The booking panel autosaves an appointment that
+   * already exists while it stays open, so a person is still looking at the form they just
+   * changed; closing it under them, or stacking a toast every few seconds, is not a save — it is
+   * an interruption. Failure still speaks up, because that one they have to know about.
+   */
+  const handleAutosaveBooking = async (data: Parameters<typeof saveBooking>[0]) => {
+    await saveBooking(
+      data,
+      {
+        uid: user?.uid || "",
+        name: user?.name || "System",
+        role: user?.role || "",
+        language: language as "en" | "ar",
+      },
+      async (key: string, msg: string) => {
+        void fireOwnerWhatsAppAlert(key as OwnerAlertKey, msg);
+      }
+    );
+  };
+
   const executeSaveBooking = async (data: any) => {
     try {
       await saveBooking(
@@ -1575,10 +1597,11 @@ export default function DesktopDashboard() {
                             isOpen={activeModal === 'booking'} 
                             inlineDesktop={true}
                             onClose={() => { setActiveModal(null); setAppointmentToEdit(null); setPreSelectedTime(''); setPreSelectedPatient(null); setPreSelectedDoctor(''); }} 
-                            onSave={handleSaveBooking} 
-                            patients={patientsList} 
-                            doctors={doctorsList} 
-                            servicesList={servicesList} 
+                            onSave={handleSaveBooking}
+                            onAutosave={handleAutosaveBooking}
+                            patients={patientsList}
+                            doctors={doctorsList}
+                            servicesList={servicesList}
 
                             settingsConfig={config}
                             editAppointment={appointmentToEdit}

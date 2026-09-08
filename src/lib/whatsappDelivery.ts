@@ -18,6 +18,7 @@ import {
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { enqueueWhatsapp } from "@/lib/whatsapp/outbox";
 import { recordThreadMessage } from "@/lib/bot/thread";
+import { recordWhatsappSend } from "@/lib/whatsappCostLog";
 
 /**
  * How a clinic's WhatsApp messages leave the building.
@@ -212,10 +213,18 @@ export async function deliverWhatsAppMessage(args: {
       });
       if (!result.ok) throw new Error(`Meta template failed: ${result.error || "unknown"}`);
       await remember(result.messageId, "meta");
+      // Counted here rather than at the call sites: this is the one place a template actually
+      // leaves, and a counter that depends on every caller remembering it is a counter that is
+      // wrong the first time somebody writes a new sender.
+      void recordWhatsappSend(args.clinicId, args.metaTemplate!.kind);
       return { mode: "auto", sent: true };
     }
     const waMessageId = await sendPatientWhatsAppAuto(args.clinicId, args.to, text);
     await remember(waMessageId, meta ? "meta" : "wapilot");
+    // Free-form: a service message, which Meta has not charged for since November 2024. Counted
+    // anyway, at zero, so the Settings card can show how much of the traffic costs nothing —
+    // the answer for this clinic is most of it, and that is the point worth making.
+    void recordWhatsappSend(args.clinicId, null);
     return { mode: "auto", sent: true };
   }
 
