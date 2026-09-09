@@ -29,8 +29,13 @@ type BackupFile = {
   format: string;
   projectId: string;
   storageBucket: string;
+  clinicName?: string;
+  exportedAt?: string;
   docs: { path: string; data: unknown }[];
 };
+
+/** Root collections only v3 has. A backup containing them was taken from the wrong system. */
+const V3_ONLY_ROOTS = new Set(["clinics", "join_requests", "clinic_secrets"]);
 
 type PlanEntry = {
   name: string;
@@ -55,6 +60,11 @@ const collectionOf = (path: string) => path.split("/").slice(0, -1).join("/");
 
 export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
   const [clinicId, setClinicId] = useState("");
+  /** "new": v3 makes the clinic from the file. "existing": land in a clinic that already exists. */
+  const [clinicMode, setClinicMode] = useState<"new" | "existing">("new");
+  const [newClinicName, setNewClinicName] = useState("");
+  const [createdClinic, setCreatedClinic] = useState<{ clinicId: string; name: string; reused: boolean } | null>(null);
+  const [staffOwner, setStaffOwner] = useState<{ email: string; name: string; promoted: boolean } | null>(null);
   const [mode, setMode] = useState<"backup" | "keyfile" | null>(null);
   const [backup, setBackup] = useState<BackupFile | null>(null);
   const [credentials, setCredentials] = useState<Record<string, unknown> | null>(null);
@@ -115,9 +125,18 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
       try {
         const parsed = JSON.parse(String(reader.result));
         if (parsed?.format === "alpha-dental-v2-backup") {
+          const docs = (parsed.docs || []) as { path: string }[];
+          const v3Roots = [...new Set(docs.map((doc) => doc.path.split("/")[0]).filter((root) => V3_ONLY_ROOTS.has(root)))];
+          if (v3Roots.length) {
+            throw new Error(
+              `This file was taken from the NEW system, not a clinic's old one — it contains "${v3Roots.join('", "')}", ` +
+                `which only v3 has. Open the clinic's old site, go to /backup, and download from there.`
+            );
+          }
           setBackup(parsed);
           setCredentials(null);
           setMode("backup");
+          setNewClinicName(String(parsed.clinicName || ""));
         } else if (parsed?.private_key || parsed?.privateKey) {
           setCredentials(parsed);
           setBackup(null);
@@ -127,12 +146,38 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
         }
         setFileName(file.name);
         setPlan(null);
+        setClinicId("");
+        setCreatedClinic(null);
+        setClinicMode("new");
         setError("");
-      } catch {
-        setError("That file is neither a clinic backup nor a service account key.");
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "";
+        setError(
+          message.startsWith("This file was taken")
+            ? message
+            : "That file is neither a clinic backup nor a service account key."
+        );
       }
     };
     reader.readAsText(file);
+  }
+
+  async function handleCreateClinic() {
+    setBusy("create");
+    setError("");
+    try {
+      const roots = backup ? [...new Set(backup.docs.map((doc) => doc.path.split("/")[0]))] : [];
+      const sourceProject =
+        backup?.projectId || String((credentials as Record<string, unknown> | null)?.project_id || "");
+      const json = await call("create-clinic", { name: newClinicName, sourceProject, collections: roots });
+      setCreatedClinic({ clinicId: json.clinicId, name: json.name, reused: Boolean(json.reused) });
+      setClinicId(json.clinicId);
+      setPlan(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy("");
+    }
   }
 
   async function handleCheck() {
@@ -290,6 +335,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
           ? await call("staff-link-backup", { ...backupStaffArgs(), adminEmail, resetLinks: true })
           : await call("staff-link", { credentials, adminEmail, resetLinks: true });
       setStaffResults(json.results);
+      setStaffOwner(json.owner || null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -431,10 +477,11 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
       <Callout>
         <p className="font-bold text-white mb-1">This copies a clinic in. It never changes their old system.</p>
         <p>
-          Easiest way: ask the clinic&apos;s Admin to open <span className="font-mono">/backup</span> in
-          their old system, press <em>Download backup</em>, and send you the file — no Firebase keys
-          needed at all. The clinic keeps working in the old system the whole time, nothing is written
-          here until you press a button that says so, and you can repeat any step safely.
+          Ask the clinic&apos;s Admin to open <span className="font-mono">/backup</span> in their old
+          system, press <em>Download backup</em>, and send you the file. Upload it here and v3 makes
+          the clinic from it — no Firebase keys, nothing to set up first. The clinic keeps working in
+          the old system the whole time, nothing is written here until you press a button that says
+          so, and you can repeat any step safely.
         </p>
       </Callout>
 
@@ -445,24 +492,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
         </div>
       )}
 
-      <Step number={1} title="Choose the clinic and upload the file" icon={<Database size={18} />}>
-        <label className="block text-xs font-bold text-slate-400 mb-2">Clinic in this system</label>
-        <select
-          value={clinicId}
-          onChange={(event) => {
-            setClinicId(event.target.value);
-            setPlan(null);
-          }}
-          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white mb-4"
-        >
-          <option value="">— pick a clinic —</option>
-          {clinics.map((clinic) => (
-            <option key={clinic.id} value={clinic.id}>
-              {clinic.name} ({clinic.id})
-            </option>
-          ))}
-        </select>
-
+      <Step number={1} title="Upload the backup and name the clinic" icon={<Database size={18} />}>
         <label className="block text-xs font-bold text-slate-400 mb-2">
           The clinic&apos;s backup file — or, if there is none, the old project&apos;s key file
         </label>
@@ -473,12 +503,13 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
         </label>
         {mode === "backup" && backup && (
           <p className="text-xs text-emerald-400 mt-2">
-            Backup from <span className="font-mono">{backup.projectId}</span> —{" "}
-            {backup.docs.length.toLocaleString()} records. No keys needed.
+            Backup of <span className="font-bold">{backup.clinicName || "(unnamed clinic)"}</span> from{" "}
+            <span className="font-mono">{backup.projectId}</span> — {backup.docs.length.toLocaleString()} records
+            {backup.exportedAt ? `, taken ${new Date(backup.exportedAt).toLocaleString()}` : ""}. No keys needed.
           </p>
         )}
         {mode === "keyfile" && (
-          <p className="text-xs text-ink-muted mt-2 flex items-start gap-2">
+          <p className="text-xs text-slate-500 mt-2 flex items-start gap-2">
             <Lock size={13} className="mt-0.5 shrink-0" />
             <span>
               Key file detected. The old project is opened read-only; give this account only the
@@ -486,6 +517,96 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
               accident. Used for this session only, never saved.
             </span>
           </p>
+        )}
+
+        {(backup || credentials) && (
+          <div className="mt-5 space-y-3">
+            <label className="block text-xs font-bold text-slate-400">Where should it go?</label>
+
+            <label className="flex items-start gap-3 p-3 rounded-lg border border-slate-700 cursor-pointer">
+              <input
+                type="radio"
+                name="clinicMode"
+                checked={clinicMode === "new"}
+                onChange={() => {
+                  setClinicMode("new");
+                  setClinicId(createdClinic?.clinicId || "");
+                  setPlan(null);
+                }}
+                className="mt-1"
+              />
+              <div className="flex-1">
+                <p className="text-sm text-white font-bold">Make a new clinic from this backup</p>
+                <p className="text-xs text-slate-400 mb-2">
+                  v3 creates the clinic, then everything goes into it. Uploading the same backup again
+                  later finds this same clinic rather than making another.
+                </p>
+                {clinicMode === "new" && (
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      value={newClinicName}
+                      onChange={(event) => setNewClinicName(event.target.value)}
+                      placeholder="Clinic name"
+                      disabled={Boolean(createdClinic)}
+                      className="flex-1 min-w-[220px] bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white disabled:opacity-60"
+                    />
+                    {!createdClinic && (
+                      <button
+                        onClick={handleCreateClinic}
+                        disabled={!newClinicName.trim() || busy === "create"}
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-sm font-bold"
+                      >
+                        {busy === "create" ? <Loader2 size={16} className="animate-spin" /> : null}
+                        Create clinic
+                      </button>
+                    )}
+                  </div>
+                )}
+                {clinicMode === "new" && createdClinic && (
+                  <p className="text-xs text-emerald-400 mt-2">
+                    {createdClinic.reused
+                      ? `Found the clinic made from this backup before: "${createdClinic.name}"`
+                      : `Created "${createdClinic.name}"`}{" "}
+                    <span className="font-mono text-slate-500">({createdClinic.clinicId})</span>
+                  </p>
+                )}
+              </div>
+            </label>
+
+            <label className="flex items-start gap-3 p-3 rounded-lg border border-slate-700 cursor-pointer">
+              <input
+                type="radio"
+                name="clinicMode"
+                checked={clinicMode === "existing"}
+                onChange={() => {
+                  setClinicMode("existing");
+                  setClinicId("");
+                  setPlan(null);
+                }}
+                className="mt-1"
+              />
+              <div className="flex-1">
+                <p className="text-sm text-white font-bold">Put it into a clinic that already exists</p>
+                {clinicMode === "existing" && (
+                  <select
+                    value={clinicId}
+                    onChange={(event) => {
+                      setClinicId(event.target.value);
+                      setPlan(null);
+                    }}
+                    className="mt-2 w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                  >
+                    <option value="">— pick a clinic —</option>
+                    {clinics.map((clinic) => (
+                      <option key={clinic.id} value={clinic.id}>
+                        {clinic.name} ({clinic.id})
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            </label>
+          </div>
         )}
 
         <button
@@ -717,6 +838,13 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
               <p className="text-sm text-emerald-400 font-bold mb-2">
                 Done. Send each person their own link — privately, not in a group chat.
               </p>
+              {staffOwner && (
+                <p className="text-xs text-slate-400 mb-3">
+                  {staffOwner.promoted
+                    ? `${staffOwner.name} (${staffOwner.email}) is now the clinic's owner.`
+                    : `${staffOwner.name} is the Admin; the clinic already has an owner, so ownership was left as it is.`}
+                </p>
+              )}
               <div className="space-y-2">
                 {staffResults.map((person) => (
                   <div key={person.uid} className="p-3 rounded-lg bg-slate-900 border border-slate-700">
