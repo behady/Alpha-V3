@@ -356,11 +356,13 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     group: "system",
     labelEn: "SMS",
     labelAr: "رسائل نصية",
-    // Deliberately not behind `whatsappIntegration`: sending from the clinic's own SIM needs no
-    // gateway and no paid integration. It is the fallback for clinics that cannot have one.
+    // Not behind `whatsappIntegration` — sending from the clinic's own SIM needs no gateway and is
+    // the fallback for clinics that cannot have one — but it does need the Android app, which is
+    // what `smsAutoSend` says the plan includes.
     writes: [{ kind: "settingsDoc", docId: "sms" }],
     view: ADMIN,
     edit: ADMIN,
+    feature: "smsAutoSend",
   },
   {
     id: "logs",

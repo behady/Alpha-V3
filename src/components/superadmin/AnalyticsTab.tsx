@@ -2,6 +2,7 @@
 
 import React, { useMemo } from "react";
 import { Clinic } from "@/types/saas";
+import { monthlyRevenueEgp, tierDisplayName } from "@/lib/subscriptions";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
 import { TrendingUp, Users } from "lucide-react";
 
@@ -33,44 +34,21 @@ export function AnalyticsTab({ clinics }: AnalyticsTabProps) {
 
     const signupsData = months.map(m => ({ name: m, Signups: signupsMap.get(m) }));
 
-    // 2. Revenue Breakdown
-    let basicRev = 0, proRev = 0, premiumRev = 0;
+    // 2. Revenue Breakdown, by whatever plans the clinics are actually on (legacy ones included).
+    const revByTier = new Map<string, number>();
     clinics.forEach(c => {
-      if (c.status === 'Active') {
-        let rev = 0;
-        if (c.customPrice !== undefined && c.customPrice !== null) {
-          const cycle = c.billingCycle || 'Monthly';
-          const price = Number(c.customPrice) || 0;
-          rev = cycle === '2-Yearly' ? price / 24 : cycle === 'Yearly' ? price / 12 : price;
-        } else {
-          if (c.subscriptionTier === 'Basic') rev = 50;
-          else if (c.subscriptionTier === 'Pro') rev = 150;
-          else if (c.subscriptionTier === 'Premium') rev = 300;
-        }
-
-        if (c.subscriptionTier === 'Basic') basicRev += rev;
-        else if (c.subscriptionTier === 'Pro') proRev += rev;
-        else if (c.subscriptionTier === 'Premium') premiumRev += rev;
-      }
+      const rev = monthlyRevenueEgp(c);
+      if (rev <= 0) return;
+      const name = tierDisplayName(c.subscriptionTier);
+      revByTier.set(name, (revByTier.get(name) || 0) + rev);
     });
 
-    const revenueData = [
-      { name: 'Basic', value: Math.round(basicRev) },
-      { name: 'Pro', value: Math.round(proRev) },
-      { name: 'Premium', value: Math.round(premiumRev) },
-    ].filter(d => d.value > 0);
+    const revenueData = Array.from(revByTier, ([name, value]) => ({ name, value: Math.round(value) }))
+      .filter(d => d.value > 0)
+      .sort((a, b) => b.value - a.value);
 
     // 3. Top Clinics (Ranking by MRR contribution & total paid)
-    const getClinicMonthlyMrr = (c: Clinic) => {
-      if (c.status !== 'Active') return 0;
-      if (c.customPrice !== undefined && c.customPrice !== null) {
-        const cycle = c.billingCycle || 'Monthly';
-        const price = Number(c.customPrice) || 0;
-        return cycle === '2-Yearly' ? price / 24 : cycle === 'Yearly' ? price / 12 : price;
-      }
-      const weight = { 'Premium': 300, 'Pro': 150, 'Basic': 50, 'Free Trial': 0 };
-      return weight[c.subscriptionTier] || 0;
-    };
+    const getClinicMonthlyMrr = (c: Clinic) => monthlyRevenueEgp(c);
 
     const sorted = [...clinics].sort((a, b) => {
       const ma = getClinicMonthlyMrr(a);

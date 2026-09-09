@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSuperAdmin } from "@/lib/apiStaffAuth";
 import { adminDb } from "@/lib/firebaseAdmin";
-import { getAiCreditLimit } from "@/lib/subscriptions";
+import { getAiCreditLimit, monthlyRevenueEgp } from "@/lib/subscriptions";
 import type { Clinic } from "@/types/saas";
 import { costOfTokens, marginFor, platformTotals, rankByCost, type ClinicCostRow } from "@/lib/platformCost";
 import { EMPTY_CATEGORY_COUNTS, estimateMonthUsd, type MessageCategory } from "@/lib/whatsappCost";
@@ -24,17 +24,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /** What a clinic pays us per month, in EGP, normalised across billing cycles. */
-function monthlyRevenueEgp(clinic: Clinic): number {
-  if (clinic.status !== "Active") return 0;
-  const cycle = clinic.billingCycle || "Monthly";
-  if (clinic.customPrice !== undefined && clinic.customPrice !== null) {
-    const price = Number(clinic.customPrice) || 0;
-    return cycle === "2-Yearly" ? price / 24 : cycle === "Yearly" ? price / 12 : price;
-  }
-  const listed: Record<string, number> = { Basic: 50, Pro: 150, Premium: 300 };
-  return listed[String(clinic.subscriptionTier || "")] ?? 0;
-}
-
 export async function GET(request: Request) {
   const authz = await requireSuperAdmin(request);
   if (!authz.ok) return authz.response;

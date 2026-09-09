@@ -15,6 +15,8 @@ import {
   Tag,
 } from "lucide-react";
 import { useUI } from "@/context/UIContext";
+import { useClinic } from "@/context/ClinicContext";
+import { hasFeature } from "@/lib/subscriptions";
 import { useLanguage } from "@/context/LanguageContext";
 import { useSettingsText } from "@/lib/useSettingsText";
 import { countedNoun } from "@/lib/arabicCount";
@@ -45,6 +47,7 @@ const INPUT =
 
 export default function LocationsSettings() {
   const { showToast, confirm } = useUI();
+  const { clinic } = useClinic();
   const { language, isRTL } = useLanguage();
   const isAr = language === "ar";
   const txt = useSettingsText("locations");
@@ -95,6 +98,14 @@ export default function LocationsSettings() {
     if (!name) return;
     if (branches.some((b) => b.name.toLowerCase() === name.toLowerCase())) {
       showToast(txt.branchExists, "error");
+      return;
+    }
+    // One branch is every plan; a second is what the Group plan is for.
+    if (branches.length >= 1 && !hasFeature(clinic, "multiBranch")) {
+      showToast(
+        isAr ? "إضافة فرع تاني متاحة في باقة Group. كلّمنا للترقية." : "A second branch is part of the Group plan. Contact us to upgrade.",
+        "error"
+      );
       return;
     }
     setBranches([...branches, { id: makeLocationId(), name, address: "", phone: "", rooms: [] }]);

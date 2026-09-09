@@ -2,6 +2,7 @@
 
 import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
 import { useClinic } from "@/context/ClinicContext";
+import { FeatureGate } from "@/components/FeatureGate";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
@@ -34,6 +35,14 @@ import { SourceIcon } from "@/components/SourceIcon";
  * phone, between patients. Due follow-ups float to the top; everything else is newest first.
  */
 export default function LeadsPage() {
+  return (
+    <FeatureGate feature="leads" featureName="Leads & Ad Intake" minTier="Clinic">
+      <LeadsPageInner />
+    </FeatureGate>
+  );
+}
+
+function LeadsPageInner() {
   const { language } = useLanguage();
   const isAr = language === "ar";
   const { user } = useAuth();

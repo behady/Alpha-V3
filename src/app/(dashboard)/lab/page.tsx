@@ -38,6 +38,7 @@ import LabRemakeModal from "@/components/lab/LabRemakeModal";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
+import { FeatureGate } from "@/components/FeatureGate";
 import { useRouter } from "next/navigation";
 import { useUI } from "@/context/UIContext";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
@@ -100,6 +101,14 @@ const DUE_STYLE: Record<DueState, { pill: string; en: (n: number) => string; ar:
 };
 
 export default function LabTrackingPage() {
+  return (
+    <FeatureGate feature="lab" featureName="Lab Tracking" minTier="Plus">
+      <LabTrackingPageInner />
+    </FeatureGate>
+  );
+}
+
+function LabTrackingPageInner() {
   const { language, isRTL } = useLanguage();
   const { user } = useAuth();
   const { clinic } = useClinic();

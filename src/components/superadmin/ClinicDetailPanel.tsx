@@ -4,7 +4,7 @@
 import React, { useState } from "react";
 import { Clinic, SubscriptionTier } from "@/types/saas";
 import { X, Building2, Save, Users, ShieldAlert, KeyRound, CalendarDays, DollarSign, CreditCard } from "lucide-react";
-import { TIER_LIMITS, getAiCreditLimit } from "@/lib/subscriptions";
+import { TIER_LIMITS, SELLABLE_TIERS, getAiCreditLimit, isLegacyTier, tierDisplayName } from "@/lib/subscriptions";
 
 interface ClinicDetailPanelProps {
   clinic: Clinic | null;
@@ -90,9 +90,12 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
                 className="w-full bg-surface border border-line text-slate-700 text-sm font-bold rounded-xl px-3 py-2 outline-none focus:border-indigo-500"
               >
                 <option value="Free Trial">Free Trial</option>
-                <option value="Basic">Basic</option>
-                <option value="Pro">Pro</option>
-                <option value="Premium">Premium</option>
+                {SELLABLE_TIERS.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+                {isLegacyTier(clinic.subscriptionTier) && (
+                  <option value={clinic.subscriptionTier}>{tierDisplayName(clinic.subscriptionTier)}</option>
+                )}
               </select>
             </div>
             <div className="grid grid-cols-2 gap-4">

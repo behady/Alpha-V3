@@ -1,13 +1,11 @@
 import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
-import { FieldValue } from "firebase-admin/firestore";
-import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
-import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
+import { quotaExhaustedMessage, reserveAiCredits, type ChargeDetails } from "@/lib/aiQuota";
 import { fetchPatientAiContext, patientContextBlock } from "@/lib/aiPatientContext";
-import { logAiCreditUsage, createUsageMeter } from "@/lib/aiCreditLog";
+import { createUsageMeter } from "@/lib/aiCreditLog";
 import { suggestSlots, type SlotSuggestion } from "@/lib/automation/slotSuggestions";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 
@@ -81,47 +79,23 @@ export async function POST(req: Request) {
     const authz = await requireStaffUser(req, clinicId);
     if (!authz.ok) return authz.response;
 
-    const db = adminDb();
-
     // Same plan gate and credit meter as the chat assistant — fail closed, charge only on success.
-    let chargeCredits: (() => Promise<void>) | null = null;
+    let chargeCredits: ((details: Omit<ChargeDetails, "feature">) => Promise<void>) | null = null;
     try {
-      const clinicSnap = await db.collection("clinics").doc(clinicId).get();
-      if (!clinicSnap.exists) {
-        return NextResponse.json({ ok: false, error: "Clinic not found." }, { status: 404 });
+      const reservation = await reserveAiCredits(clinicId, requiredCredits);
+      if (!reservation.ok) {
+        if (reservation.reason === "no_clinic") {
+          return NextResponse.json({ ok: false, error: "Clinic not found." }, { status: 404 });
+        }
+        if (reservation.reason === "plan") {
+          return NextResponse.json(
+            { ok: false, error: "AI treatment planning is included in the Clinic and Group plans. Please upgrade your subscription." },
+            { status: 403 }
+          );
+        }
+        return NextResponse.json({ ok: false, error: quotaExhaustedMessage(reservation.verdict) }, { status: 429 });
       }
-      const clinicData = { id: clinicSnap.id, ...clinicSnap.data() } as any;
-
-      if (!hasFeature(clinicData, "aiChat")) {
-        return NextResponse.json(
-          { ok: false, error: "AI treatment planning is available exclusively on Pro & Premium plans. Please upgrade your subscription tier." },
-          { status: 403 }
-        );
-      }
-
-      const monthKey = new Date().toISOString().slice(0, 7);
-      const usageRef = db.collection("clinics").doc(clinicId).collection("ai_usage").doc(monthKey);
-      const usageSnap = await usageRef.get();
-      const currentUsed = usageSnap.exists ? (Number(usageSnap.data()?.creditsUsed) || 0) : 0;
-      const limit = getAiCreditLimit(clinicData);
-
-      if (limit > 0 && currentUsed + requiredCredits > limit) {
-        return NextResponse.json(
-          { ok: false, error: `Monthly AI credits limit reached (${currentUsed} / ${limit} credits used). Resets on the 1st of next month.` },
-          { status: 429 }
-        );
-      }
-
-      chargeCredits = async () => {
-        await usageRef.set(
-          {
-            monthKey,
-            creditsUsed: FieldValue.increment(requiredCredits),
-            updatedAt: FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
-      };
+      chargeCredits = (details) => reservation.charge({ feature: "treatment_plan", ...details });
     } catch (err) {
       reportServerError("Treatment plan AI quota check failed:", err);
       return NextResponse.json(
@@ -407,11 +381,7 @@ ${priceListText}`;
       /* keep default */
     }
 
-    await chargeCredits?.();
-    await logAiCreditUsage({
-      clinicId,
-      feature: "treatment_plan",
-      credits: requiredCredits,
+    await chargeCredits?.({
       userId: authz.uid,
       patientId,
       patientName: String((ctx.patient as any).name || ""),

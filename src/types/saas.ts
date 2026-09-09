@@ -1,4 +1,24 @@
-export type SubscriptionTier = 'Free Trial' | 'Basic' | 'Pro' | 'Premium';
+/**
+ * The plans a clinic can be on.
+ *
+ * Sold today: `Starter`, `Plus`, `Clinic`, `Group` — see `PLAN_PRICES_EGP` in `lib/subscriptions.ts`.
+ * `Basic`, `Pro` and `Premium` are the plans that were sold before 2026-09-09. They stay in the
+ * union because clinics still carry them; nothing new is put on one, and each is mapped to the
+ * closest new plan's allowances so a grandfathered clinic gets the new AI allowance immediately
+ * while keeping the price it agreed to until renewal.
+ */
+export type SubscriptionTier =
+  | 'Free Trial'
+  | 'Starter'
+  | 'Plus'
+  | 'Clinic'
+  | 'Group'
+  /** @deprecated grandfathered — move to Starter at renewal */
+  | 'Basic'
+  /** @deprecated grandfathered — move to Clinic at renewal */
+  | 'Pro'
+  /** @deprecated grandfathered — move to Clinic (unlimited staff kept) at renewal */
+  | 'Premium';
 
 export interface Clinic {
   id: string;
@@ -22,8 +42,14 @@ export interface Clinic {
   };
   features?: {
     whatsappIntegration?: boolean;
+    smsAutoSend?: boolean;
+    androidApp?: boolean;
     inventory?: boolean;
     attendance?: boolean;
+    lab?: boolean;
+    ortho?: boolean;
+    leads?: boolean;
+    multiBranch?: boolean;
     aiChat?: boolean;
     /** Tier 3: scheduled/background AI analysis the system runs without being asked. */
     aiProactive?: boolean;
@@ -33,6 +59,12 @@ export interface Clinic {
     aiVoice?: boolean;
     aiMonthlyCredits?: number;
     extraAiCredits?: number;
+    /**
+     * How far past the included allowance the assistant keeps answering, billed per credit at
+     * `AI_OVERAGE_EGP_PER_CREDIT`. Overrides the tier's figure. 0 means a hard stop at the
+     * allowance.
+     */
+    aiOverageCredits?: number;
     maxStaff?: number;
     /** Marketing add-on, level 1: AI content studio, calendar, playbooks. Sold separately from tiers. */
     marketingText?: boolean;
@@ -42,6 +74,7 @@ export interface Clinic {
     marketingMonthlyCredits?: number;
   };
   billingCycle?: 'Monthly' | 'Yearly' | '2-Yearly';
+  /** What this clinic actually pays per cycle, in EGP, when it differs from the list price. */
   customPrice?: number;
   amountPaid?: number;
   adminNotes?: string;

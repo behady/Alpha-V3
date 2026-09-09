@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
+import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { adminDb } from "@/lib/firebaseAdmin";
 
 /**
@@ -50,6 +51,13 @@ export async function POST(request: Request) {
   const clinicId = String(data.clinicId || "");
   const authz = await requireStaffUser(request, clinicId);
   if (!authz.ok) return authz.response;
+
+  if (!(await clinicHasFeature(clinicId, "smsAutoSend"))) {
+    return NextResponse.json(
+      { ok: false, error: "SMS from the clinic phone is included in the Plus, Clinic and Group plans." },
+      { status: 403 }
+    );
+  }
 
   // Burn the code before writing the device: a code that pairs two phones is worse than one that
   // occasionally has to be regenerated.

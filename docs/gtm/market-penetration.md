@@ -1,12 +1,16 @@
 # Market penetration — how Alpha gets from here to a market it owns
 
-Written against what the product actually is on 2026-09-08: a dental clinic system sold in
-Egypt at 5,000 EGP/year (Pro) and 10,000 EGP/year (Premium), whose distinguishing part is an
-Arabic WhatsApp assistant that talks to patients and books them, plus scans that run on the
-clinic's own data (`revenueRecovery`, `daily-briefing`, `recalls`, `reactivation`, `noshow`).
+Written against what the product actually is on 2026-09-08, and updated 2026-09-09 for the
+rebuilt pricing (see `pricing.md` beside this file): a dental clinic system sold in Egypt from
+350 to 3,500 EGP a month, whose distinguishing part is an Arabic WhatsApp assistant that talks to
+patients and books them, plus scans that run on the clinic's own data (`revenueRecovery`,
+`daily-briefing`, `recalls`, `reactivation`, `noshow`).
 
 Every number below comes from the codebase, not from a market report: tier prices and AI
 allowances from `src/lib/subscriptions.ts`, the margin rule from `src/lib/platformCost.ts`.
+Where this file quotes the old 5,000 / 10,000 EGP prices it is describing the constraint the
+strategy was written under; the conclusions hold at the new prices, which were set to remove the
+starved-allowance problem section 3 describes.
 
 ---
 

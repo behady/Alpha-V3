@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { Clinic } from "@/types/saas";
+import { monthlyRevenueEgp } from "@/lib/subscriptions";
 import { Building2, CheckCircle2, PauseCircle, Clock, DollarSign, Wallet } from "lucide-react";
 
 interface KpiStripProps {
@@ -22,21 +23,7 @@ export function KpiStrip({ clinics }: KpiStripProps) {
     (c) => c.status === "Expired" || c.subscriptionTier === "Free Trial"
   ).length;
 
-  const mrr = clinics
-    .filter((c) => c.status === "Active")
-    .reduce((total, clinic) => {
-      if (clinic.customPrice !== undefined && clinic.customPrice !== null) {
-        const cycle = clinic.billingCycle || 'Monthly';
-        const price = Number(clinic.customPrice) || 0;
-        if (cycle === '2-Yearly') return total + (price / 24);
-        if (cycle === 'Yearly') return total + (price / 12);
-        return total + price;
-      }
-      if (clinic.subscriptionTier === "Basic") return total + 50;
-      if (clinic.subscriptionTier === "Pro") return total + 150;
-      if (clinic.subscriptionTier === "Premium") return total + 300;
-      return total;
-    }, 0);
+  const mrr = clinics.reduce((total, clinic) => total + monthlyRevenueEgp(clinic), 0);
 
   const totalCollected = clinics.reduce((sum, c) => sum + (Number(c.amountPaid) || 0), 0);
 

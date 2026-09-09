@@ -152,6 +152,7 @@ export default function AiCreditsSettings() {
   const unitemized = Math.max(0, selected.creditsUsed - itemized);
   const pct = creditLimit > 0 ? Math.min(100, Math.round((selected.creditsUsed / creditLimit) * 100)) : 0;
   const remaining = Math.max(0, creditLimit - selected.creditsUsed);
+  const overage = creditLimit > 0 ? Math.max(0, selected.creditsUsed - creditLimit) : 0;
   const runningLow = creditLimit > 0 && pct >= 90;
 
   const breakdown = useMemo(() => {
@@ -198,7 +199,11 @@ export default function AiCreditsSettings() {
                   />
                 </div>
                 <p className="font-figure text-[13px] tracking-tight text-white/70">
-                  {n(remaining)} {txt.leftThisMonth} · {txt.resetNote}
+                  {overage > 0
+                    ? ar
+                      ? `الرصيد المشمول خلص. المساعد لسه شغّال: ${n(overage)} رد إضافي الشهر ده بجنيه للرد.`
+                      : `Included credits used. The assistant kept working: ${n(overage)} overage replies this month at 1 EGP each.`
+                    : `${n(remaining)} ${txt.leftThisMonth} · ${txt.resetNote}`}
                 </p>
               </div>
             )}

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
+import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { adminDb } from "@/lib/firebaseAdmin";
 
 /**
@@ -22,6 +23,13 @@ export async function POST(request: Request) {
 
   const authz = await requireStaffUser(request, clinicId);
   if (!authz.ok) return authz.response;
+
+  if (!(await clinicHasFeature(clinicId, "smsAutoSend"))) {
+    return NextResponse.json(
+      { ok: false, error: "SMS from the clinic phone is included in the Plus, Clinic and Group plans." },
+      { status: 403 }
+    );
+  }
 
   const code = String(Math.floor(100000 + Math.random() * 900000));
   const expiresAt = Date.now() + 10 * 60 * 1000;

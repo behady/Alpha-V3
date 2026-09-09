@@ -89,17 +89,19 @@ const row = (over: Partial<ClinicCostRow> = {}): ClinicCostRow => ({
   ...over,
 });
 
-run("margin is revenue minus what both suppliers actually charged", () => {
+run("margin is revenue minus what Google charged — Meta bills the clinic, not us", () => {
   const m = marginFor(row(), 48);
-  assert.equal(m.totalCostUsd, 4.17, "Meta's own figure wins over our estimate");
-  assert.equal(m.totalCostEgp, 200.16);
-  assert.equal(m.marginEgp, 632.84);
-  assert.ok(m.costRatio !== null && Math.abs(m.costRatio - 200.16 / 833) < 1e-9);
+  assert.equal(m.totalCostUsd, 4, "WhatsApp must not enter our cost: the clinic pays Meta directly");
+  assert.equal(m.totalCostEgp, 192);
+  assert.equal(m.marginEgp, 641);
+  assert.ok(m.costRatio !== null && Math.abs(m.costRatio - 192 / 833) < 1e-9);
+  assert.equal(m.clinicWhatsappUsd, 0.17, "the clinic's own Meta figure is still carried, for display");
 });
 
-run("our estimate is used only until Meta reports", () => {
+run("the clinic's WhatsApp figure falls back to our estimate until Meta reports", () => {
   const m = marginFor(row({ whatsappBilledUsd: null }), 48);
-  assert.equal(m.totalCostUsd, 4.144, "falls back to the estimate rather than to zero");
+  assert.equal(m.clinicWhatsappUsd, 0.144, "estimate rather than zero");
+  assert.equal(m.totalCostUsd, 4, "and still never part of our margin");
 });
 
 run("a clinic paying nothing has no ratio, and is not counted as over the ceiling", () => {
@@ -113,7 +115,9 @@ run("the clinics that cost the most come first, and the ceiling is what flags th
   const dear = marginFor(row({ clinicId: "b", clinicName: "Dear", aiCostUsd: 9 }), 48);
   assert.deepEqual(rankByCost([cheap, dear]).map((r) => r.clinicName), ["Dear", "Cheap"]);
 
-  assert.equal(COST_RATIO_CEILING, 0.15, "the stated rule for this product");
+  // 35%, not the old 15%: the allowance is ten times what it was when 15% was written, and an
+  // AI-heavy product is healthy at a third. Full use of any plan's allowance lands near 27%.
+  assert.equal(COST_RATIO_CEILING, 0.35, "the stated rule for this product");
   assert.deepEqual(overCeiling([cheap, dear]).map((r) => r.clinicName), ["Dear"]);
   assert.ok(cheap.costRatio !== null && cheap.costRatio < COST_RATIO_CEILING);
 });
@@ -122,7 +126,9 @@ run("platform totals add up and survive an empty platform", () => {
   const t = platformTotals([marginFor(row(), 48), marginFor(row({ clinicId: "b", monthlyRevenueEgp: 417, aiCostUsd: 1 }), 48)]);
   assert.equal(t.clinics, 2);
   assert.equal(t.revenueEgp, 1250);
+  assert.equal(t.costEgp, 240, "Google only: (4 + 1) USD at 48");
   assert.equal(Math.round(t.marginEgp), Math.round(1250 - t.costEgp));
+  assert.equal(t.clinicsWhatsappUsd, 0.34, "what the clinics paid Meta, shown but not subtracted");
 
   const empty = platformTotals([]);
   assert.equal(empty.clinics, 0);

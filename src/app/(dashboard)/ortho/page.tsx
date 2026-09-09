@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { getClinicCollection } from "@/lib/db-utils";
 import PermissionGuard from "@/components/PermissionGuard";
+import { FeatureGate } from "@/components/FeatureGate";
 import { onSnapshot } from "firebase/firestore";
 
 interface OrthoCase {
@@ -23,6 +24,14 @@ interface OrthoCase {
 type Filter = "Active" | "Completed" | "All";
 
 export default function OrthoDashboard() {
+  return (
+    <FeatureGate feature="ortho" featureName="Orthodontic Cases" minTier="Clinic">
+      <OrthoDashboardInner />
+    </FeatureGate>
+  );
+}
+
+function OrthoDashboardInner() {
   const router = useRouter();
   const [cases, setCases] = useState<OrthoCase[]>([]);
   const [loading, setLoading] = useState(true);

@@ -1,10 +1,8 @@
 import { GoogleGenerativeAI, SchemaType, type ModelParams } from "@google/generative-ai";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection } from "@/lib/adminClinicDb";
-import { adminDb } from "@/lib/firebaseAdmin";
-import { createUsageMeter, logAiCreditUsage } from "@/lib/aiCreditLog";
-import { getAiCreditLimit, hasFeature } from "@/lib/subscriptions";
-import type { Clinic } from "@/types/saas";
+import { createUsageMeter } from "@/lib/aiCreditLog";
+import { reserveAiCredits } from "@/lib/aiQuota";
 import type { BotFacts } from "@/types/whatsapp";
 import { dossierLines, type PatientDossier } from "./patientDossier";
 import { strayDrugNames } from "./drugGuard";
@@ -200,22 +198,10 @@ export async function answerWithAi(args: {
   const apiKey = process.env.GEMINI_API_KEY || "";
   if (!apiKey) return { kind: "unavailable", reason: "no_api_key" };
 
-  const db = adminDb();
-
-  // The same plan gate and meter the in-app assistant answers to. One pool, one explanation.
-  const clinicSnap = await db.collection("clinics").doc(clinicId).get();
-  if (!clinicSnap.exists) return { kind: "unavailable", reason: "no_clinic" };
-  const clinic = { id: clinicSnap.id, ...clinicSnap.data() } as Clinic;
-  if (!hasFeature(clinic, "aiChat")) return { kind: "unavailable", reason: "plan" };
-
-  const monthKey = new Date().toISOString().slice(0, 7);
-  const usageRef = db.collection("clinics").doc(clinicId).collection("ai_usage").doc(monthKey);
-  const usageSnap = await usageRef.get();
-  const used = usageSnap.exists ? Number(usageSnap.data()?.creditsUsed) || 0 : 0;
-  const limit = getAiCreditLimit(clinic);
-  if (limit > 0 && used + CREDITS_PER_ANSWER > limit) {
-    return { kind: "unavailable", reason: "no_credits" };
-  }
+  // The same plan gate and meter the in-app assistant answers to. One pool, one explanation —
+  // and past the included allowance the bot keeps answering on overage rather than going quiet.
+  const reservation = await reserveAiCredits(clinicId, CREDITS_PER_ANSWER);
+  if (!reservation.ok) return { kind: "unavailable", reason: reservation.reason };
 
   /*
    * Price context: names and starting prices from the clinic's own service list. The model is
@@ -546,19 +532,15 @@ export async function answerWithAi(args: {
     if (!text && !openBooking && !bookSlot && !reschedule && !appointmentChange && !medicineId) return { kind: "handoff", topic: "other" };
 
     // Charged only for a delivered answer, after the model produced one. Handoffs cost nothing.
-    await usageRef.set(
-      { monthKey, creditsUsed: FieldValue.increment(CREDITS_PER_ANSWER), updatedAt: FieldValue.serverTimestamp() },
-      { merge: true }
-    );
-    await logAiCreditUsage({
-      clinicId,
-      feature: sales ? "whatsapp_sales" : "whatsapp_bot",
-      credits: CREDITS_PER_ANSWER,
-      userId: "whatsapp_bot",
-      userName: "WhatsApp Bot",
-      detail: question.slice(0, 120),
-      usage: meter.snapshot(),
-    }).catch(() => {});
+    await reservation
+      .charge({
+        feature: sales ? "whatsapp_sales" : "whatsapp_bot",
+        userId: "whatsapp_bot",
+        userName: "WhatsApp Bot",
+        detail: question.slice(0, 120),
+        usage: meter.snapshot(),
+      })
+      .catch(() => {});
 
     const interest = String(parsed.interest || "").trim().slice(0, 60) || undefined;
     return { kind: "answer", text: text || AI_DEFAULT_ACK, openBooking, interest, bookSlot, sendMedia, reschedule, appointmentChange, medicineId };

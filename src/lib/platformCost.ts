@@ -8,9 +8,14 @@ import { EGYPT_RATES_USD, type MessageCategory } from "@/lib/whatsappCost";
  * is imported by the superadmin dashboard and by nothing else, and the API that serves it is
  * behind `requireSuperAdmin`.
  *
- * Two suppliers, billed in USD, and a subscription priced in EGP. Everything below is computed in
- * dollars and converted once at the end, because the exchange rate is the one number here that is
- * a guess.
+ * One supplier we pay — Google, for the assistant — billed in USD against a subscription priced
+ * in EGP. Everything below is computed in dollars and converted once at the end, because the
+ * exchange rate is the one number here that is a guess.
+ *
+ * WhatsApp is NOT our cost. Since 2026-09-09 every clinic connects its own Meta Business account
+ * and Meta bills the clinic directly. The WhatsApp figures stay on the row because the dashboard
+ * still shows them — a clinic's Meta bill is worth knowing when they ask why recalls cost money —
+ * but they are the CLINIC's spend and never enter our margin.
  */
 
 /* -------------------------------------------------------------------------------------------- */
@@ -95,33 +100,39 @@ export type ClinicCostRow = {
    * saying so is the difference between an honest number and a wrong one.
    */
   aiMeasuredCalls: number;
-  /** Meta's own billed figure for the month, USD. Null when the clinic has no official channel. */
+  /**
+   * The clinic's own Meta bill for the month, USD — billed to the clinic, not to us. Null when the
+   * clinic has no official channel.
+   */
   whatsappBilledUsd: number | null;
-  /** What we sent, by category — the shape of the WhatsApp bill. */
+  /** What was sent on the clinic's behalf, by category — the shape of THEIR WhatsApp bill. */
   sentByCategory: Record<MessageCategory, number>;
-  /** Our estimate, used when Meta has not reported. */
+  /** Our estimate of the clinic's bill, used when Meta has not reported. */
   whatsappEstimateUsd: number;
 };
 
 export type ClinicMargin = ClinicCostRow & {
+  /** What WE paid to run this clinic: Google only. */
   totalCostUsd: number;
   totalCostEgp: number;
   marginEgp: number;
-  /** Supplier cost as a share of what the clinic pays. Null when the clinic pays nothing. */
+  /** Our supplier cost as a share of what the clinic pays. Null when the clinic pays nothing. */
   costRatio: number | null;
+  /** The clinic's own WhatsApp spend, USD, for display beside the margin — not part of it. */
+  clinicWhatsappUsd: number;
 };
 
 /**
  * The margin on one clinic.
  *
  * `costRatio` is the number to run the business on: the share of a clinic's subscription that goes
- * straight back out to Google and Meta. The stated rule for this product is that it stays under
- * 15%; a clinic above that is either on the wrong plan or using the assistant far harder than the
- * plan assumed, and this is the only place that becomes visible.
+ * straight back out to Google. The rule for this product is that it stays under 35% — an AI-heavy
+ * product runs healthily there, and the old 15% was set when the allowance was a tenth of what it
+ * is now. A clinic above the ceiling is either on the wrong plan or using the assistant far harder
+ * than the plan assumed, and this is the only place that becomes visible.
  */
 export function marginFor(row: ClinicCostRow, usdToEgp: number): ClinicMargin {
-  const whatsappUsd = row.whatsappBilledUsd ?? row.whatsappEstimateUsd;
-  const totalCostUsd = Math.round((row.aiCostUsd + whatsappUsd) * 1_000_000) / 1_000_000;
+  const totalCostUsd = Math.round(row.aiCostUsd * 1_000_000) / 1_000_000;
   const totalCostEgp = Math.round(totalCostUsd * usdToEgp * 100) / 100;
   return {
     ...row,
@@ -129,11 +140,15 @@ export function marginFor(row: ClinicCostRow, usdToEgp: number): ClinicMargin {
     totalCostEgp,
     marginEgp: Math.round((row.monthlyRevenueEgp - totalCostEgp) * 100) / 100,
     costRatio: row.monthlyRevenueEgp > 0 ? totalCostEgp / row.monthlyRevenueEgp : null,
+    clinicWhatsappUsd: row.whatsappBilledUsd ?? row.whatsappEstimateUsd,
   };
 }
 
-/** The share of revenue this product is willing to spend on suppliers before a plan is mispriced. */
-export const COST_RATIO_CEILING = 0.15;
+/**
+ * The share of revenue this product is willing to spend on Google before a plan is mispriced.
+ * Worst-case use of every plan's full allowance lands near 27%; the median clinic near 10%.
+ */
+export const COST_RATIO_CEILING = 0.35;
 
 /** Rank by what they cost us, worst first — the question the dashboard exists to answer. */
 export function rankByCost(rows: ClinicMargin[]): ClinicMargin[] {
@@ -156,8 +171,8 @@ export function platformTotals(rows: ClinicMargin[]) {
     marginEgp: Math.round((revenueEgp - costEgp) * 100) / 100,
     costRatio: revenueEgp > 0 ? costEgp / revenueEgp : null,
     aiCostUsd: Math.round(rows.reduce((n, r) => n + r.aiCostUsd, 0) * 10000) / 10000,
-    whatsappCostUsd:
-      Math.round(rows.reduce((n, r) => n + (r.whatsappBilledUsd ?? r.whatsappEstimateUsd), 0) * 10000) / 10000,
+    /** What the clinics, between them, paid Meta. Informational; not in `costEgp`. */
+    clinicsWhatsappUsd: Math.round(rows.reduce((n, r) => n + r.clinicWhatsappUsd, 0) * 10000) / 10000,
   };
 }
 

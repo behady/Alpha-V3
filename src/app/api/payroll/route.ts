@@ -1,6 +1,7 @@
 import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
+import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { resolveUserClinicId } from "@/lib/adminClinicDb";
 import { loadBriefingData } from "@/lib/automation/briefing/data";
 import { buildHrSection } from "@/lib/automation/briefing/hr";
@@ -47,6 +48,13 @@ export async function GET(request: Request) {
 
   try {
     const clinicId = await resolveUserClinicId(authz.uid, requestedClinicId);
+    // Payroll is computed from the clock; a plan without attendance has nothing to pay from.
+    if (!(await clinicHasFeature(clinicId, "attendance"))) {
+      return NextResponse.json(
+        { ok: false, error: "Payroll is part of Attendance, included in the Clinic and Group plans." },
+        { status: 403 }
+      );
+    }
     const timeZone = clinicTimeZone();
     const today = ymdInTimeZone(timeZone);
 

@@ -1423,10 +1423,12 @@ ${askWho}` : askWho;
         reason = `ai_handoff_${ai.topic}`;
       } else {
         /*
-         * Out of credits, or off the plan: the patient asked a perfectly good question and the
-         * clinic simply cannot afford to answer it today. Telling them "I didn't understand"
-         * blames them for the clinic's balance, so they get a person instead — and the owner is
-         * told, because a silent bot that has stopped selling is worth knowing about.
+         * Off the plan, or past the allowance AND the overage the plan permits: the patient asked
+         * a perfectly good question and the clinic simply cannot answer it today. Telling them
+         * "I didn't understand" blames them for the clinic's balance, so they get a person
+         * instead — and the owner is told, because a silent bot that has stopped selling is worth
+         * knowing about. (Crossing into overage is not this case: the bot keeps answering and
+         * `lib/aiQuota` sends a different, calmer notice.)
          */
         if (ai.reason === "no_credits" || ai.reason === "plan") {
           replyText = "تمام، حد من الاستقبال هيتواصل مع حضرتك في أقرب وقت 🙏";
@@ -1443,7 +1445,7 @@ ${askWho}` : askWho;
                 clinicId,
                 {
                   title: "رصيد الذكاء الاصطناعي خلص 🤖",
-                  body: "البوت وقف عن الرد على أسئلة المرضى وبيحولهم للاستقبال. جدّد الرصيد عشان يرجع يشتغل.",
+                  body: "استهلكت الرصيد المشمول والرصيد الإضافي كله الشهر ده. البوت وقف عن الرد على المرضى وبيحولهم للاستقبال — كلّمنا عشان نزوّد الحد أو نرقّي الباقة.",
                 },
                 { roles: ["Owner", "Admin"], channel: "alpha_leads", data: { screen: "settings" } }
               );

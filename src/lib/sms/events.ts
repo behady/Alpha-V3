@@ -1,3 +1,4 @@
+import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { adminClinicDoc } from "@/lib/adminClinicDb";
 import { getClinicProfileAdmin } from "@/lib/clinicProfileServer";
 import { isSmsBlocked, withSmsOptOutFooter, type PatientContactPreferences } from "@/lib/patientMessaging";
@@ -70,6 +71,9 @@ export async function queuePatientSms(args: QueuePatientSmsArgs): Promise<SmsQue
   const settings = args.settings ?? (await loadSmsSettings(clinicId));
 
   if (!settings.enabled) return { status: "skipped", reason: "sms_disabled" };
+  // Automatic SMS is a plan feature (it needs the Android app). Checked after the clinic's own
+  // switch so a clinic that never turned SMS on is not told about a plan it does not need.
+  if (!(await clinicHasFeature(clinicId, "smsAutoSend"))) return { status: "skipped", reason: "sms_not_in_plan" };
   if (settings.reminderChannel === "whatsapp") return { status: "skipped", reason: "sms_not_selected" };
   if (!settings.events[type]) return { status: "skipped", reason: `${type}_sms_off` };
 

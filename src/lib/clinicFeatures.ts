@@ -1,5 +1,5 @@
 import { adminDb } from "@/lib/firebaseAdmin";
-import { hasFeature, type TIER_LIMITS } from "@/lib/subscriptions";
+import { hasFeature, type TierFeatures } from "@/lib/subscriptions";
 import type { Clinic } from "@/types/saas";
 
 /**
@@ -10,7 +10,7 @@ import type { Clinic } from "@/types/saas";
  * feature cannot be reached by calling the endpoint directly.
  */
 
-type FeatureKey = keyof (typeof TIER_LIMITS)["Basic"]["features"];
+type FeatureKey = keyof TierFeatures;
 
 type CacheEntry = { clinic: Clinic | null; at: number };
 const cache = new Map<string, CacheEntry>();

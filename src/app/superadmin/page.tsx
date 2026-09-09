@@ -8,6 +8,7 @@ import { query, getDocs, updateDoc, doc, onSnapshot, collection } from "firebase
 import { typedNameMatches } from "@/lib/clinicTrash";
 import { useRouter } from "next/navigation";
 import { Clinic, SubscriptionTier } from "@/types/saas";
+import { SELLABLE_TIERS, isLegacyTier, tierDisplayName } from "@/lib/subscriptions";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { ShieldCheck, Search, Loader2, Check, X, Building2, BarChart3, Users, MoreVertical, RefreshCcw, Trash2, ExternalLink, Megaphone, HardDriveDownload, SlidersHorizontal } from "lucide-react";
 import { useUI } from "@/context/UIContext";
@@ -374,13 +375,16 @@ export default function SuperAdminDashboard() {
                                 className="bg-surface-muted text-ink-body text-xs font-bold rounded-lg px-2.5 py-1 outline-none cursor-pointer border border-transparent hover:border-line-strong"
                               >
                                 <option value="Free Trial">Free Trial</option>
-                                <option value="Basic">Basic</option>
-                                <option value="Pro">Pro</option>
-                                <option value="Premium">Premium</option>
+                                {SELLABLE_TIERS.map((t) => (
+                                  <option key={t} value={t}>{t}</option>
+                                ))}
+                                {isLegacyTier(clinic.subscriptionTier) && (
+                                  <option value={clinic.subscriptionTier}>{tierDisplayName(clinic.subscriptionTier)}</option>
+                                )}
                               </select>
                               {clinic.customPrice !== undefined && clinic.customPrice > 0 && (
                                 <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded">
-                                  ${clinic.customPrice} ({clinic.billingCycle || 'Monthly'})
+                                  {clinic.customPrice.toLocaleString("en-US")} EGP ({clinic.billingCycle || 'Monthly'})
                                 </span>
                               )}
                             </div>

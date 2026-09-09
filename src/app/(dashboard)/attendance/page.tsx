@@ -1164,7 +1164,7 @@ export default function AttendancePage() {
   if (!hasFeature(clinic, 'attendance')) {
     return (
       <div className="p-4 lg:p-8">
-        <UpgradeRequired featureName="Attendance & Staff Tracking" minTier="Pro" />
+        <UpgradeRequired featureName="Attendance & Staff Tracking" minTier="Clinic" />
       </div>
     );
   }

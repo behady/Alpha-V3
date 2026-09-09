@@ -155,9 +155,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       if (appointmentsVisibility === 'desktop' && isMobile) return false;
     }
 
-    // Tier based gating
+    // Tier based gating — the same switches the pages themselves check.
     if (key === 'inventory' && !hasFeature(clinic, 'inventory')) return false;
     if (key === 'attendance' && !hasFeature(clinic, 'attendance')) return false;
+    if (key === 'lab' && !hasFeature(clinic, 'lab')) return false;
+    if (key === 'leads' && !hasFeature(clinic, 'leads')) return false;
 
     // The marketing studio is a paid add-on, and switching it off in the superadmin panel has to
     // make it disappear for EVERYONE — admins included. It used to stay in the rail for admins as

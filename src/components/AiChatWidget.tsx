@@ -181,7 +181,11 @@ export default function AiChatWidget() {
   }, [clinicId, monthKey, canUseAi]);
 
   const remainingCredits = Math.max(0, totalLimit - creditsUsed);
-  const lowCredits = remainingCredits < totalLimit * 0.1;
+  // Past the allowance the assistant keeps answering on overage; the badge says so instead of
+  // sitting at zero, which used to read as "broken".
+  const onOverage = totalLimit > 0 && creditsUsed > totalLimit;
+  const overageUsed = onOverage ? creditsUsed - totalLimit : 0;
+  const lowCredits = !onOverage && remainingCredits < totalLimit * 0.1;
 
   // Auto-scroll chat to bottom
   useEffect(() => {
@@ -603,13 +607,25 @@ export default function AiChatWidget() {
               </p>
             </div>
             <span
-              title={isAr ? "رصيد الذكاء الاصطناعي المتبقي هذا الشهر" : "AI credits left this month"}
+              title={
+                onOverage
+                  ? isAr
+                    ? "الرصيد المشمول خلص — المساعد شغّال على الرصيد الإضافي، كل رد بجنيه"
+                    : "Included credits used — running on overage at 1 EGP per reply"
+                  : isAr
+                    ? "رصيد الذكاء الاصطناعي المتبقي هذا الشهر"
+                    : "AI credits left this month"
+              }
               className={`text-[10px] font-black px-2 py-1 rounded-full flex items-center gap-1 tabular-nums shrink-0 ${
-                lowCredits ? "bg-rose-50 text-rose-600 border border-rose-200" : "bg-teal-50 text-teal-700 border border-teal-100"
+                onOverage
+                  ? "bg-amber-50 text-amber-700 border border-amber-200"
+                  : lowCredits
+                    ? "bg-rose-50 text-rose-600 border border-rose-200"
+                    : "bg-teal-50 text-teal-700 border border-teal-100"
               }`}
             >
               <Zap size={10} />
-              {remainingCredits}
+              {onOverage ? `+${overageUsed}` : remainingCredits}
             </span>
             <button
               onClick={() => {

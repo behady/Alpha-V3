@@ -346,9 +346,9 @@ export default function WhatsAppSettings() {
       deliveryAuto: language === "ar" ? "إرسال تلقائي" : "Send automatically",
       deliveryAutoHint:
         language === "ar"
-          ? "النظام يبعت الرسالة لوحده. محتاج باقة Premium واتصال واتساب مفعّل."
-          : "The system sends on its own. Needs the Premium plan and a connected WhatsApp gateway.",
-      deliveryLocked: language === "ar" ? "يتطلب الترقية" : "Premium",
+          ? "النظام يبعت الرسالة لوحده. متاح من باقة Plus وأعلى مع اتصال واتساب مفعّل."
+          : "The system sends on its own. Included from the Plus plan up, with a connected WhatsApp account.",
+      deliveryLocked: language === "ar" ? "يتطلب الترقية" : "Upgrade",
       deliveryLockedHint:
         language === "ar"
           ? "باقتك الحالية لا تشمل الإرسال التلقائي، لذلك تنتظر الرسائل على هاتف العيادة ليضغط أحد الموظفين إرسال."

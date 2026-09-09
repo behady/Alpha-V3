@@ -2,11 +2,10 @@ import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { FieldValue } from "firebase-admin/firestore";
-import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
-import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
-import { logAiCreditUsage, createUsageMeter } from "@/lib/aiCreditLog";
+import { quotaExhaustedMessage, reserveAiCredits, type ChargeDetails } from "@/lib/aiQuota";
+import { createUsageMeter } from "@/lib/aiCreditLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,39 +52,23 @@ export async function POST(req: Request) {
     const authz = await requireStaffUser(req, clinicId);
     if (!authz.ok) return authz.response;
 
-    const db = adminDb();
-
     // Same plan gate and credit meter as the other AI features — fail closed, charge on success.
-    let chargeCredits: (() => Promise<void>) | null = null;
+    let chargeCredits: ((details: Omit<ChargeDetails, "feature">) => Promise<void>) | null = null;
     try {
-      const clinicSnap = await db.collection("clinics").doc(clinicId).get();
-      if (!clinicSnap.exists) {
-        return NextResponse.json({ ok: false, error: "Clinic not found." }, { status: 404 });
+      const reservation = await reserveAiCredits(clinicId, REQUIRED_CREDITS);
+      if (!reservation.ok) {
+        if (reservation.reason === "no_clinic") {
+          return NextResponse.json({ ok: false, error: "Clinic not found." }, { status: 404 });
+        }
+        if (reservation.reason === "plan") {
+          return NextResponse.json(
+            { ok: false, error: "AI translation is included in the Clinic and Group plans." },
+            { status: 403 }
+          );
+        }
+        return NextResponse.json({ ok: false, error: quotaExhaustedMessage(reservation.verdict) }, { status: 429 });
       }
-      const clinicData = { id: clinicSnap.id, ...clinicSnap.data() } as any;
-      if (!hasFeature(clinicData, "aiChat")) {
-        return NextResponse.json(
-          { ok: false, error: "AI translation is available exclusively on Pro & Premium plans." },
-          { status: 403 }
-        );
-      }
-      const monthKey = new Date().toISOString().slice(0, 7);
-      const usageRef = db.collection("clinics").doc(clinicId).collection("ai_usage").doc(monthKey);
-      const usageSnap = await usageRef.get();
-      const currentUsed = usageSnap.exists ? (Number(usageSnap.data()?.creditsUsed) || 0) : 0;
-      const limit = getAiCreditLimit(clinicData);
-      if (limit > 0 && currentUsed + REQUIRED_CREDITS > limit) {
-        return NextResponse.json(
-          { ok: false, error: `Monthly AI credits limit reached (${currentUsed} / ${limit} credits used).` },
-          { status: 429 }
-        );
-      }
-      chargeCredits = async () => {
-        await usageRef.set(
-          { monthKey, creditsUsed: FieldValue.increment(REQUIRED_CREDITS), updatedAt: FieldValue.serverTimestamp() },
-          { merge: true }
-        );
-      };
+      chargeCredits = (details) => reservation.charge({ feature: "plan_translation", ...details });
     } catch (err) {
       reportServerError("Plan translation quota check failed:", err);
       return NextResponse.json(
@@ -218,11 +201,7 @@ ${JSON.stringify(source)}`;
       { merge: true }
     );
 
-    await chargeCredits?.();
-    await logAiCreditUsage({
-      clinicId,
-      feature: "plan_translation",
-      credits: REQUIRED_CREDITS,
+    await chargeCredits?.({
       userId: authz.uid,
       patientId: String(plan.patientId || ""),
       patientName: String(plan.patientName || ""),

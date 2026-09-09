@@ -10,7 +10,7 @@ import { mergeWhatsAppTemplate } from "@/lib/whatsappTemplateMerge";
 import { resolveWhatsappTemplateForPatient } from "@/lib/whatsappDefaultBodies";
 import { pickPatientPhone } from "@/lib/patientPhone";
 import { DIAGNOSIS_OPTIONS } from "@/lib/diagnosisCatalog";
-import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
+import { quotaExhaustedMessage, reserveAiCredits } from "@/lib/aiQuota";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { logAiAction } from "@/lib/serverLogger";
@@ -386,55 +386,34 @@ export async function POST(req: Request) {
     // Set by the quota check below, invoked only once the turn has produced a real result.
     let chargeCredits: (() => Promise<void>) | null = null;
 
-    // Hybrid Subscription & Monthly Credit Limit Check
+    // Plan gate and monthly credit meter — one rule, shared with every other metered AI feature.
     {
       try {
-        const clinicSnap = await db.collection("clinics").doc(clinicId).get();
-        if (clinicSnap.exists) {
-          const clinicData = { id: clinicSnap.id, ...clinicSnap.data() } as any;
-
-          if (!hasFeature(clinicData, "aiChat")) {
+        const reservation = await reserveAiCredits(clinicId, requiredCredits);
+        if (!reservation.ok) {
+          if (reservation.reason === "plan") {
             return NextResponse.json(
-              { error: "AI Assistant is available exclusively on Pro & Premium plans. Please upgrade your subscription tier." },
+              { error: "The AI Assistant is included in the Clinic and Group plans. Please upgrade your subscription." },
               { status: 403 }
             );
           }
-
-          const monthKey = new Date().toISOString().slice(0, 7);
-          const usageRef = db.collection("clinics").doc(clinicId).collection("ai_usage").doc(monthKey);
-          const usageSnap = await usageRef.get();
-          const currentUsed = usageSnap.exists ? (Number(usageSnap.data()?.creditsUsed) || 0) : 0;
-          const limit = getAiCreditLimit(clinicData);
-
-          if (limit > 0 && (currentUsed + requiredCredits) > limit) {
-            return NextResponse.json(
-              { error: `Monthly AI credits limit reached (${currentUsed} / ${limit} credits used). Resets on the 1st of next month.` },
-              { status: 429 }
-            );
+          if (reservation.reason === "no_credits") {
+            return NextResponse.json({ error: quotaExhaustedMessage(reservation.verdict) }, { status: 429 });
           }
-
+          // An unknown clinic falls through exactly as before: the turn proceeds unmetered only
+          // when there is no clinic document to meter against, which the auth check above rules out.
+        } else {
           // Deliberately NOT charged here. Billing on entry means a clinic pays for requests that
           // error out or time out, which is the kind of charge that generates support tickets.
           // chargeCredits() runs once the turn has actually produced something.
-          chargeCredits = async () => {
-            await usageRef.set(
-              {
-                monthKey,
-                creditsUsed: FieldValue.increment(requiredCredits),
-                updatedAt: FieldValue.serverTimestamp(),
-              },
-              { merge: true }
-            );
-            await logAiCreditUsage({
-              clinicId,
+          chargeCredits = () =>
+            reservation.charge({
               feature: isReception ? "reception" : "chat",
-              credits: requiredCredits,
               userId,
               userName: typeof userName === "string" ? userName : "",
               detail: image ? "with image" : "",
               usage: meter.snapshot(),
             });
-          };
         }
       } catch (err) {
         // Fail closed: this block enforces both the plan gate and the spend cap, so swallowing an

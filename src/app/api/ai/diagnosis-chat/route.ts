@@ -1,12 +1,10 @@
 import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { FieldValue } from "firebase-admin/firestore";
-import { adminDb } from "@/lib/firebaseAdmin";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
-import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
+import { quotaExhaustedMessage, reserveAiCredits, type ChargeDetails } from "@/lib/aiQuota";
 import { fetchPatientAiContext, patientContextBlock } from "@/lib/aiPatientContext";
-import { logAiCreditUsage, createUsageMeter } from "@/lib/aiCreditLog";
+import { createUsageMeter } from "@/lib/aiCreditLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,39 +63,23 @@ export async function POST(req: Request) {
     const hasImages = imagesBase64.length > 0 || imageUrls.length > 0;
     const requiredCredits = (hasImages ? 3 : 1) * (superMode ? 3 : 1);
 
-    const db = adminDb();
-
     // Same plan gate and credit meter as the chat assistant — fail closed, charge on success.
-    let chargeCredits: (() => Promise<void>) | null = null;
+    let chargeCredits: ((details: Omit<ChargeDetails, "feature">) => Promise<void>) | null = null;
     try {
-      const clinicSnap = await db.collection("clinics").doc(clinicId).get();
-      if (!clinicSnap.exists) {
-        return NextResponse.json({ ok: false, error: "Clinic not found." }, { status: 404 });
+      const reservation = await reserveAiCredits(clinicId, requiredCredits);
+      if (!reservation.ok) {
+        if (reservation.reason === "no_clinic") {
+          return NextResponse.json({ ok: false, error: "Clinic not found." }, { status: 404 });
+        }
+        if (reservation.reason === "plan") {
+          return NextResponse.json(
+            { ok: false, error: "The AI diagnosis assistant is included in the Clinic and Group plans." },
+            { status: 403 }
+          );
+        }
+        return NextResponse.json({ ok: false, error: quotaExhaustedMessage(reservation.verdict) }, { status: 429 });
       }
-      const clinicData = { id: clinicSnap.id, ...clinicSnap.data() } as any;
-      if (!hasFeature(clinicData, "aiChat")) {
-        return NextResponse.json(
-          { ok: false, error: "The AI diagnosis assistant is available exclusively on Pro & Premium plans." },
-          { status: 403 }
-        );
-      }
-      const monthKey = new Date().toISOString().slice(0, 7);
-      const usageRef = db.collection("clinics").doc(clinicId).collection("ai_usage").doc(monthKey);
-      const usageSnap = await usageRef.get();
-      const currentUsed = usageSnap.exists ? (Number(usageSnap.data()?.creditsUsed) || 0) : 0;
-      const limit = getAiCreditLimit(clinicData);
-      if (limit > 0 && currentUsed + requiredCredits > limit) {
-        return NextResponse.json(
-          { ok: false, error: `Monthly AI credits limit reached (${currentUsed} / ${limit} credits used).` },
-          { status: 429 }
-        );
-      }
-      chargeCredits = async () => {
-        await usageRef.set(
-          { monthKey, creditsUsed: FieldValue.increment(requiredCredits), updatedAt: FieldValue.serverTimestamp() },
-          { merge: true }
-        );
-      };
+      chargeCredits = (details) => reservation.charge({ feature: "diagnosis_chat", ...details });
     } catch (err) {
       reportServerError("Diagnosis chat quota check failed:", err);
       return NextResponse.json(
@@ -209,11 +191,7 @@ ${patientContextBlock(ctx)}`;
       return NextResponse.json({ ok: false, error: "The AI returned an empty reply. Please try again." }, { status: 502 });
     }
 
-    await chargeCredits?.();
-    await logAiCreditUsage({
-      clinicId,
-      feature: "diagnosis_chat",
-      credits: requiredCredits,
+    await chargeCredits?.({
       userId: authz.uid,
       patientId,
       patientName: String((ctx.patient as any).name || ""),

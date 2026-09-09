@@ -100,7 +100,7 @@ export async function POST(request: Request) {
     // Spoken replies belong to the assistant; a plan without the assistant does not get its voice.
     if (!hasFeature(clinicData, "aiChat")) {
       return NextResponse.json(
-        { error: "Voice replies are part of the AI assistant, available on Pro and Premium plans." },
+        { error: "Voice replies are part of the AI assistant, included in the Clinic and Group plans." },
         { status: 403 }
       );
     }
