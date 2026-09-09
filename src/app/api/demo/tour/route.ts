@@ -39,6 +39,13 @@ export async function POST(request: Request) {
     const userRef = db.collection("users").doc(auth.uid);
 
     if (body?.action === "start") {
+      // Someone who already belongs to the demo clinic — its seeded team, or a superadmin who
+      // was granted Admin there for screenshots — keeps what they have. A tour must never
+      // downgrade a real role to the tourist's.
+      const existing = ((await userRef.get()).data()?.clinicRoles || {}) as Record<string, unknown>;
+      if (typeof existing[demoId] === "string" && existing[demoId]) {
+        return NextResponse.json({ ok: true, clinicId: demoId, name: demo.data()?.name || "Demo Clinic", alreadyMember: true });
+      }
       // Merge is a deep merge for maps: roles and permission lists at other clinics survive.
       await userRef.set(
         {

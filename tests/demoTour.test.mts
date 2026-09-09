@@ -38,6 +38,7 @@ assert.equal(homeClinicFor(null, "A", "DEMO"), null, "a default with no role beh
 const route = readFileSync(join(REPO, "src/app/api/demo/tour/route.ts"), "utf8");
 assert.ok(route.includes("DEMO_TOUR_PERMISSIONS"), "the route grants exactly this list");
 assert.ok(!route.includes("/staff"), "no staff card for a tourist");
+assert.ok(route.includes("alreadyMember"), "an existing member of the demo clinic keeps their real role");
 const layout = readFileSync(join(REPO, "src/app/(dashboard)/layout.tsx"), "utf8");
 assert.ok(layout.includes("<DemoTourBanner"), "the banner is above every page");
 const welcome = readFileSync(join(REPO, "src/app/(dashboard)/welcome/page.tsx"), "utf8");
