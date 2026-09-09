@@ -165,7 +165,7 @@
   {
     "name": "alpha_review_ar",
     "language": "ar",
-    "category": "UTILITY",
+    "category": "MARKETING",
     "components": [
       {
         "type": "BODY",
@@ -267,7 +267,7 @@
   {
     "name": "alpha_noshow_ar",
     "language": "ar",
-    "category": "UTILITY",
+    "category": "MARKETING",
     "components": [
       {
         "type": "BODY",
