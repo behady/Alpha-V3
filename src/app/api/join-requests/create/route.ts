@@ -33,7 +33,7 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const clinicId = typeof body?.clinicId === "string" ? body.clinicId.trim() : "";
     if (!clinicId) {
-      return NextResponse.json({ ok: false, error: "A Clinic ID is required" }, { status: 400 });
+      return NextResponse.json({ ok: false, code: "clinic-id-required", error: "A Clinic ID is required" }, { status: 400 });
     }
 
     const db = adminDb();
@@ -41,7 +41,7 @@ export async function POST(request: Request) {
     const clinicSnap = await db.collection("clinics").doc(clinicId).get();
     if (!clinicSnap.exists) {
       return NextResponse.json(
-        { ok: false, error: "No clinic has that ID. Check it with the clinic and try again." },
+        { ok: false, code: "clinic-not-found", error: "No clinic has that ID. Check it with the clinic and try again." },
         { status: 404 }
       );
     }
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
     const existingRoles = (userSnap.data()?.clinicRoles || {}) as Record<string, string>;
     if (existingRoles[clinicId]) {
       return NextResponse.json(
-        { ok: false, error: "You already work at this clinic." },
+        { ok: false, code: "already-member", error: "You already work at this clinic." },
         { status: 409 }
       );
     }
@@ -95,6 +95,6 @@ export async function POST(request: Request) {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to file join request";
     reportServerError("Create join request error:", error);
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    return NextResponse.json({ ok: false, code: "join-failed", error: message }, { status: 500 });
   }
 }

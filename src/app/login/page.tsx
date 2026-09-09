@@ -18,6 +18,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { currentSignupKey, finishSignupAttempt } from "@/lib/onboardingSignup";
 import { SETUP_ROUTE } from "@/lib/setupWizard";
 import { inviteLinkPath, isValidInviteCode, normalizeInviteCode } from "@/lib/inviteLinks";
+import LanguageToggle from "@/components/common/LanguageToggle";
 
 // Where the login page hands the chosen workspace to ClinicContext. Mirrors the existing
 // superAdminClinicId pattern; ClinicContext clears both on logout.
@@ -351,8 +352,10 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-surface-subtle flex items-center justify-center p-4 font-sans selection:bg-primary-100 selection:text-primary-900" dir={isRTL ? 'rtl' : 'ltr'}>
-      <div className="max-w-md w-full bg-white rounded-[2.5rem] p-8 md:p-10 shadow-2xl shadow-slate-200/50 border border-slate-100 animate-in fade-in zoom-in-95 duration-500">
-        
+      <div className="max-w-md w-full bg-white rounded-[2.5rem] p-8 md:p-10 shadow-2xl shadow-slate-200/50 border border-slate-100 animate-in fade-in zoom-in-95 duration-500 relative">
+        {/* The language switch, before anything else on the page has to be read. */}
+        <LanguageToggle className={`absolute top-5 ${isRTL ? "left-5" : "right-5"}`} />
+
         {/* LOGO & HEADER */}
         <div className="flex flex-col items-center text-center mb-10">
           <div className="w-16 h-16 bg-slate-900 text-white rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-slate-900/20">

@@ -49,7 +49,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const clinicName = typeof body?.clinicName === "string" ? body.clinicName.trim() : "";
     if (!clinicName) {
-      return NextResponse.json({ ok: false, error: "Clinic name is required" }, { status: 400 });
+      return NextResponse.json({ ok: false, code: "clinic-name-required", error: "Clinic name is required" }, { status: 400 });
     }
 
     // Minted by the browser once per attempt and kept across a refresh, so a retry of the same
@@ -189,6 +189,6 @@ export async function POST(request: Request) {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to create clinic";
     reportServerError("Create Clinic Error:", error);
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    return NextResponse.json({ ok: false, code: "clinic-create-failed", error: message }, { status: 500 });
   }
 }

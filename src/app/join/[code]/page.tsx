@@ -7,6 +7,8 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { auth } from "@/lib/firebase";
 import { PENDING_INVITE_STORAGE, isValidInviteCode, normalizeInviteCode } from "@/lib/inviteLinks";
+import { friendlyError, isNetworkFailure } from "@/lib/friendlyErrors";
+import LanguageToggle from "@/components/common/LanguageToggle";
 
 /**
  * Where an invite link lands.
@@ -30,6 +32,7 @@ export default function JoinByInvitePage() {
   const { user, loading: authLoading, logout } = useAuth();
   const { language } = useLanguage();
   const isAr = language === "ar";
+  const lang: "en" | "ar" = isAr ? "ar" : "en";
 
   const [peek, setPeek] = useState<Peek | null>(null);
   const [error, setError] = useState("");
@@ -76,7 +79,7 @@ export default function JoinByInvitePage() {
   useEffect(() => {
     if (authLoading || !user || !peek?.found || accepted.current || error) return;
     if (peek.status && peek.status !== "active") {
-      setError(peek.status === "revoked" ? t.revoked : peek.status === "expired" ? t.expired : t.used);
+      setError(friendlyError({ code: `invite-${peek.status}` }, lang, "invite-unusable"));
       return;
     }
     accepted.current = true;
@@ -89,7 +92,9 @@ export default function JoinByInvitePage() {
           body: JSON.stringify({ code }),
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data?.ok) throw new Error(data?.error || t.failed);
+        if (!res.ok || !data?.ok) {
+          throw new Error(friendlyError(res.status === 401 ? { code: "unauthorized" } : data, lang, "invite-failed"));
+        }
         try {
           localStorage.removeItem(PENDING_INVITE_STORAGE);
           // Land in this clinic, not whichever one the account last used.
@@ -100,7 +105,7 @@ export default function JoinByInvitePage() {
         setJoinedName(peek.clinicName || "");
         setJoinedClinicId(data.clinicId as string);
       } catch (err) {
-        setError(err instanceof Error ? err.message : t.failed);
+        setError(isNetworkFailure(err) ? friendlyError({ code: "network" }, lang, "network") : err instanceof Error ? err.message : t.failed);
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -130,7 +135,8 @@ export default function JoinByInvitePage() {
   const shownError = error || notFoundError;
 
   return (
-    <div className="min-h-screen bg-surface-subtle flex items-center justify-center p-4" dir={isAr ? "rtl" : "ltr"}>
+    <div className="min-h-screen bg-surface-subtle flex items-center justify-center p-4 relative" dir={isAr ? "rtl" : "ltr"}>
+      <LanguageToggle className={`absolute top-4 ${isAr ? "left-4" : "right-4"}`} />
       <div className="bg-surface rounded-3xl border border-line shadow-sm p-8 sm:p-10 max-w-md w-full text-center">
         <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6 ${shownError ? "bg-red-50 text-red-600" : "bg-accent-tint text-accent"}`}>
           {shownError ? <AlertCircle size={28} /> : joinedClinicId ? <Check size={28} /> : <Building2 size={28} />}

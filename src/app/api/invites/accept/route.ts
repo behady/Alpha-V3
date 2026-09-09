@@ -63,12 +63,12 @@ export async function POST(request: Request) {
 
     const result = await db.runTransaction(async (tx) => {
       const [inviteSnap, userSnap] = await Promise.all([tx.get(inviteRef), tx.get(userRef)]);
-      if (!inviteSnap.exists) return { error: "This invite link does not exist.", status: 404 as const };
+      if (!inviteSnap.exists) return { error: "This invite link does not exist.", code: "invite-not-found", status: 404 as const };
       const invite = inviteSnap.data() || {};
       const clinicId = typeof invite.clinicId === "string" ? invite.clinicId : "";
       const role = invite.role;
       if (!clinicId || !isInvitableRole(role)) {
-        return { error: "This invite is not usable.", status: 400 as const };
+        return { error: "This invite is not usable.", code: "invite-unusable", status: 400 as const };
       }
 
       const userData = userSnap.data() || {};
@@ -86,7 +86,7 @@ export async function POST(request: Request) {
             : state === "expired"
               ? "This invite link has expired. Ask the clinic for a new one."
               : "This invite link has already been used. Ask the clinic for a new one.";
-        return { error: why, status: 410 as const };
+        return { error: why, code: `invite-${state}` as const, status: 410 as const };
       }
 
       const email = String(authUser.email || userData.email || "").toLowerCase();
@@ -138,12 +138,12 @@ export async function POST(request: Request) {
     });
 
     if ("error" in result) {
-      return NextResponse.json({ ok: false, error: result.error }, { status: result.status });
+      return NextResponse.json({ ok: false, code: result.code, error: result.error }, { status: result.status });
     }
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not accept the invite";
     reportServerError("invite accept error:", error);
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    return NextResponse.json({ ok: false, code: "invite-failed", error: message }, { status: 500 });
   }
 }

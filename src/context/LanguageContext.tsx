@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { pickStartupLanguage } from "@/lib/startupLanguage";
 
 type Language = 'en' | 'ar';
 
@@ -843,9 +844,16 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguage] = useState<Language>('en');
 
   useEffect(() => {
-    const savedLang = localStorage.getItem('alpha-lang') as Language;
+    // A saved choice wins; otherwise the browser's language decides (Arabic for any Arabic
+    // locale). Only a choice made with the switch is ever saved — see lib/startupLanguage.
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem('alpha-lang');
+    } catch {
+      /* private mode */
+    }
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (savedLang) setLanguage(savedLang);
+    setLanguage(pickStartupLanguage(saved, navigator.languages?.length ? navigator.languages : [navigator.language]));
   }, []);
 
   const toggleLanguage = () => {

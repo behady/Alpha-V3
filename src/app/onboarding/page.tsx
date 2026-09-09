@@ -10,6 +10,8 @@ import { Building2, Loader2, LogOut, Check, AlertCircle, ArrowLeft } from "lucid
 import { RELOADED_FOR_STORAGE, currentSignupKey, finishSignupAttempt } from "@/lib/onboardingSignup";
 import { SETUP_ROUTE } from "@/lib/setupWizard";
 import { PENDING_INVITE_STORAGE, inviteLinkPath, isValidInviteCode } from "@/lib/inviteLinks";
+import { friendlyError, isNetworkFailure } from "@/lib/friendlyErrors";
+import LanguageToggle from "@/components/common/LanguageToggle";
 
 /**
  * First screen a new account sees: start a clinic, or ask to join one.
@@ -49,6 +51,7 @@ export default function OnboardingPage() {
   const { language } = useLanguage();
   const router = useRouter();
   const isAr = language === "ar";
+  const lang: "en" | "ar" = isAr ? "ar" : "en";
 
   const [clinicName, setClinicName] = useState("");
   const [joinClinicId, setJoinClinicId] = useState("");
@@ -244,17 +247,21 @@ export default function OnboardingPage() {
         body: JSON.stringify({ clinicName: name, signupKey: currentSignupKey() }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.ok) throw new Error(data.error || t.createFailed);
+      // The server answers with a code; the sentence comes from the reader's language, never
+      // from the server's English.
+      if (!res.ok || !data.ok) {
+        throw new Error(friendlyError(res.status === 401 ? { code: "unauthorized" } : data, lang, "clinic-create-failed"));
+      }
 
       // Hold here until the role reaches this client, rather than navigating into a dashboard
       // that would immediately reject us.
       setFreshClinic(true);
       setPendingClinicId(data.clinicId as string);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t.createFailed);
+      setError(isNetworkFailure(err) ? friendlyError({ code: "network" }, lang, "network") : err instanceof Error ? err.message : t.createFailed);
       setCreating(false);
     }
-  }, [clinicName, t.nameRequired, t.sessionExpired, t.createFailed]);
+  }, [clinicName, lang, t.nameRequired, t.sessionExpired, t.createFailed]);
 
   /**
    * Approval arrives as a role on this user's document. The snapshot listener normally delivers
@@ -314,17 +321,17 @@ export default function OnboardingPage() {
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok || payload?.ok === false) {
-        return setError(payload?.error || t.joinFailed);
+        return setError(friendlyError(res.status === 401 ? { code: "unauthorized" } : payload, lang, "join-failed"));
       }
       setJoinSent(true);
       setAwaitingClinicId(id);
       setJoinClinicId("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : t.joinFailed);
+      setError(isNetworkFailure(err) ? friendlyError({ code: "network" }, lang, "network") : err instanceof Error ? err.message : t.joinFailed);
     } finally {
       setJoining(false);
     }
-  }, [joinClinicId, user, t.idRequired, t.joinFailed, t.sessionExpired]);
+  }, [joinClinicId, user, lang, t.idRequired, t.joinFailed, t.sessionExpired]);
 
   // Hold the spinner until the "already belongs → dashboard" decision has been made, so the
   // create form is never flashed at someone who is about to be sent away from it.
@@ -371,7 +378,8 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-surface-subtle py-12 px-4 sm:px-6" dir={isAr ? "rtl" : "ltr"}>
+    <div className="min-h-screen bg-surface-subtle py-12 px-4 sm:px-6 relative" dir={isAr ? "rtl" : "ltr"}>
+      <LanguageToggle className={`absolute top-4 ${isAr ? "left-4" : "right-4"}`} />
       <div className="max-w-md mx-auto">
         <div className="text-center mb-8">
           <div className="w-14 h-14 rounded-2xl bg-accent-tint text-accent flex items-center justify-center mx-auto mb-4">
