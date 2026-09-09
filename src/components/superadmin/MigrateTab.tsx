@@ -135,11 +135,28 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
     setFileSize(0);
     setError("");
 
-    const reader = new FileReader();
-    reader.onerror = () => {
+    /**
+     * Every way a read can end must clear `reading`. The first version handled only onload and
+     * onerror; on a Huawei tablet the Files app can hand over a file the browser then cannot
+     * open, which surfaces as onabort or as readAsText() throwing outright — neither was
+     * handled, `reading` stayed set, and because the input was disabled while reading, every
+     * later tap on "Choose file" did nothing at all. The input is no longer disabled, and the
+     * remaining paths are covered anyway.
+     */
+    const giveUp = (why: string) => {
       setReading(null);
-      setError(`Could not read "${file.name}". Try choosing it again.`);
+      input.value = "";
+      setError(`${why} Try choosing "${file.name}" again from the Files app.`);
     };
+
+    if (file.size === 0) {
+      giveUp("That file is empty — the tablet may not have finished downloading it.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onerror = () => giveUp("Could not read that file.");
+    reader.onabort = () => giveUp("Reading that file was interrupted.");
     // Parsing blocks the page; a tick lets the "Reading…" line paint first.
     reader.onload = () => setTimeout(() => {
       try {
@@ -184,7 +201,12 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
         input.value = "";
       }
     }, 0);
-    reader.readAsText(file);
+
+    try {
+      reader.readAsText(file);
+    } catch {
+      giveUp("The tablet would not let the page open that file.");
+    }
   }
 
   async function handleCreateClinic() {
@@ -535,7 +557,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
           ) : (
             "Choose file…"
           )}
-          <input type="file" accept="application/json,.json" onChange={onFile} disabled={Boolean(reading)} className="hidden" />
+          <input type="file" onChange={onFile} className="sr-only" />
         </label>
         {mode === "backup" && backup && (
           <p className="text-xs text-emerald-700 mt-2">
