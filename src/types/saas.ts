@@ -8,6 +8,8 @@ export interface Clinic {
   expiresAt: Date | any; // Firestore Timestamp
   status: 'Active' | 'Suspended' | 'Expired';
   createdAt: Date | any;
+  /** Stamped by scripts/seed-demo-clinic.mjs on the sample clinic and everything in it. */
+  __demo?: boolean;
   /**
    * Which events the clinic asked to be told about, from Settings → Alerts.
    *

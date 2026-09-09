@@ -28,6 +28,7 @@
     "test:trash": "npx tsx tests/clinicTrash.test.mts",
     "test:setup": "npx tsx tests/setupWizard.test.mts",
     "test:invites": "npx tsx tests/inviteLinks.test.mts",
+    "test:demotour": "npx tsx tests/demoTour.test.mts",
     "test:dentist": "npx tsx tests/dentistHome.test.mts",
     "test:dentist-report": "npx tsx tests/dentistReport.test.mts",
     "test:owner": "npx tsx tests/ownerHome.test.mts",

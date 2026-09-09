@@ -29,6 +29,7 @@ import TutorialOverlay from "@/components/TutorialOverlay";
 import { WelcomeProvider } from "@/context/WelcomeContext";
 import WelcomeCoach from "@/components/welcome/WelcomeCoach";
 import TrialCountdownBanner from "@/components/welcome/TrialCountdownBanner";
+import { DemoTourBanner } from "@/components/welcome/DemoTour";
 import WhatsAppIcon from "@/components/icons/WhatsAppIcon";
 import { useUnreadChatCount } from "@/lib/useUnreadChatCount";
 import { useChatAlerts } from "@/lib/useChatAlerts";
@@ -376,6 +377,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
            {/* The last few days of a trial. Mutually exclusive with the read-only notice below —
                the countdown stops the moment the date passes and that one takes over. */}
            <TrialCountdownBanner />
+
+           {/* Only while the sample clinic is open: where you are, and the way back. */}
+           <DemoTourBanner />
 
            {isReadOnly && (
              <div className="bg-red-50 border-b border-red-200 px-4 py-3 flex items-center justify-center gap-3 z-50 shadow-sm relative">

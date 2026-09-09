@@ -20,6 +20,7 @@ import { useClinic } from "@/context/ClinicContext";
 import { useAuth } from "@/context/AuthContext";
 import { useTutorial } from "@/context/TutorialContext";
 import { useWelcome } from "@/context/WelcomeContext";
+import { DemoTourCard } from "@/components/welcome/DemoTour";
 import { TUTORIALS, tutorialsFor } from "@/lib/tutorials";
 import { MISSIONS, type Mission } from "@/lib/welcomeJourney";
 
@@ -187,6 +188,9 @@ export default function WelcomePage() {
           </div>
         </div>
       </header>
+
+      {/* --- A populated clinic to look at, while this one is still empty --------------------- */}
+      {!loading && !progress.complete && <DemoTourCard />}
 
       {/* --- Finished ------------------------------------------------------------------------ */}
       {!loading && progress.complete && (
