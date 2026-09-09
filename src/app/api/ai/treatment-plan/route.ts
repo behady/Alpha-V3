@@ -1,11 +1,11 @@
 import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
-import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
+import { SchemaType } from "@google/generative-ai";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { quotaExhaustedMessage, reserveAiCredits, type ChargeDetails } from "@/lib/aiQuota";
+import { geminiModel, hasGeminiKey } from "@/lib/gemini";
 import { fetchPatientAiContext, patientContextBlock } from "@/lib/aiPatientContext";
-import { createUsageMeter } from "@/lib/aiCreditLog";
 import { suggestSlots, type SlotSuggestion } from "@/lib/automation/slotSuggestions";
 import { clinicTimeZone, ymdInTimeZone } from "@/lib/clinicDate";
 
@@ -46,8 +46,7 @@ function addDays(ymd: string, days: number): string {
 
 export async function POST(req: Request) {
   try {
-    const apiKey = process.env.GEMINI_API_KEY || "";
-    if (!apiKey) throw new Error("GEMINI_API_KEY is missing.");
+    if (!hasGeminiKey()) throw new Error("GEMINI_API_KEY is missing.");
 
     const body = await req.json().catch(() => ({}));
     const clinicId = typeof body?.clinicId === "string" ? body.clinicId.trim() : "";
@@ -190,8 +189,7 @@ Apply the answers now: re-divide the procedures into visits accordingly (own vis
 CLINIC SERVICE LIST (id | name):
 ${priceListText}`;
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
+    const model = geminiModel({
       model: modelName,
       generationConfig: {
         responseMimeType: "application/json",
@@ -243,11 +241,10 @@ ${priceListText}`;
           required: ["options", "questions"],
         },
       } as any,
-    });
+    }, { feature: "treatment_plan" });
 
-    const meter = createUsageMeter(modelName);
+    const meter = model.meter;
     const result = await model.generateContent(prompt);
-    meter.add(result.response);
     const rawText = result.response.text();
 
     let parsed: { options?: SuggestedOptionRaw[]; questions?: unknown[] };

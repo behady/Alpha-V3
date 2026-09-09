@@ -92,6 +92,12 @@ export type ClinicCostRow = {
   /** Google's fees for those credits, in USD. */
   aiCostUsd: number;
   /**
+   * The same Google figure split by feature — "whatsapp_bot", "treatment_plan", "bot_playbook"…
+   * Sums to `aiCostUsd` for charges made after per-feature token logging shipped (2026-09-09);
+   * earlier months carry less here than in the total.
+   */
+  aiCostByFeatureUsd: Record<string, number>;
+  /**
    * API calls the token log actually measured this month.
    *
    * Token logging shipped 2026-08-26, and the WhatsApp assistant only began feeding it on
@@ -160,6 +166,17 @@ export function overCeiling(rows: ClinicMargin[], ceiling = COST_RATIO_CEILING):
   return rows.filter((r) => r.costRatio !== null && r.costRatio > ceiling);
 }
 
+/** Google's bill by feature across every clinic — the answer to "what does the treatment planner cost us". */
+export function costByFeature(rows: Pick<ClinicCostRow, "aiCostByFeatureUsd">[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const r of rows) {
+    for (const [feature, usd] of Object.entries(r.aiCostByFeatureUsd || {})) {
+      out[feature] = Math.round(((out[feature] || 0) + usd) * 1_000_000) / 1_000_000;
+    }
+  }
+  return out;
+}
+
 /** Totals across the platform, for the strip at the top. */
 export function platformTotals(rows: ClinicMargin[]) {
   const revenueEgp = rows.reduce((n, r) => n + r.monthlyRevenueEgp, 0);
@@ -171,6 +188,7 @@ export function platformTotals(rows: ClinicMargin[]) {
     marginEgp: Math.round((revenueEgp - costEgp) * 100) / 100,
     costRatio: revenueEgp > 0 ? costEgp / revenueEgp : null,
     aiCostUsd: Math.round(rows.reduce((n, r) => n + r.aiCostUsd, 0) * 10000) / 10000,
+    aiCostByFeatureUsd: costByFeature(rows),
     /** What the clinics, between them, paid Meta. Informational; not in `costEgp`. */
     clinicsWhatsappUsd: Math.round(rows.reduce((n, r) => n + r.clinicWhatsappUsd, 0) * 10000) / 10000,
   };

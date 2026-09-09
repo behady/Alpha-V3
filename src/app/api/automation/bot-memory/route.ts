@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GEMINI_MODELS, backgroundGeminiModel, hasGeminiKey } from "@/lib/gemini";
+import { logAiCreditUsage } from "@/lib/aiCreditLog";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { forEachActiveClinic } from "@/lib/automation/forEachActiveClinic";
@@ -25,7 +26,7 @@ export const maxDuration = 300;
  * message, the way the playbook is.
  */
 
-const MODEL = "gemini-flash-latest";
+const MODEL = GEMINI_MODELS.flash;
 const LOOKBACK_MS = 36 * 60 * 60 * 1000;
 const MAX_PER_RUN = 60;
 
@@ -43,8 +44,7 @@ async function authorize(request: Request) {
 }
 
 async function runForClinic(clinicId: string): Promise<{ updated: number; skipped: number }> {
-  const apiKey = process.env.GEMINI_API_KEY || "";
-  if (!apiKey) return { updated: 0, skipped: 0 };
+  if (!hasGeminiKey()) return { updated: 0, skipped: 0 };
   /*
    * The same gate every other AI feature answers to. Without it this sent every clinic's patient
    * conversations to the model every night — including clinics with no AI on their plan and
@@ -59,7 +59,7 @@ async function runForClinic(clinicId: string): Promise<{ updated: number; skippe
   }
   const since = Date.now() - LOOKBACK_MS;
   const snap = await adminClinicCollection(clinicId, "whatsapp_conversations").where("lastMessageAt", ">=", since).limit(500).get();
-  const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({ model: MODEL, generationConfig: { temperature: 0.2, maxOutputTokens: 1024 } });
+  const model = backgroundGeminiModel({ model: MODEL, generationConfig: { temperature: 0.2, maxOutputTokens: 1024 } }, { feature: "bot_memory" });
 
   let updated = 0;
   let skipped = 0;
@@ -97,6 +97,10 @@ async function runForClinic(clinicId: string): Promise<{ updated: number; skippe
     } catch {
       skipped += 1;
     }
+  }
+  // One row for the whole run: the meter summed every conversation's call.
+  if (model.meter.apiCalls > 0) {
+    void logAiCreditUsage({ clinicId, feature: "bot_memory", credits: 0, userId: "system", userName: "Nightly memory", detail: `${updated} memories`, usage: model.meter.snapshot() });
   }
   return { updated, skipped };
 }

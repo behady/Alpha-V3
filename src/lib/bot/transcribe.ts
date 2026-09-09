@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GEMINI_MODELS, geminiModel, hasGeminiKey } from "@/lib/gemini";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection } from "@/lib/adminClinicDb";
 import { loadMetaWhatsappConfig } from "@/lib/metaWhatsapp";
@@ -19,20 +19,15 @@ import { reserveAiCredit } from "./aiCredits";
  * transcription problem can never make a voice note disappear.
  */
 
-const MODEL = "gemini-flash-latest";
+const MODEL = GEMINI_MODELS.flash;
 const TIMEOUT_MS = 25000;
 /** WhatsApp voice notes are short; anything past this is not a message the bot should act on. */
 const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
 
 export type TranscriptResult = { ok: true; text: string } | { ok: false; reason: string };
 
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([p, new Promise<never>((_, reject) => setTimeout(() => reject(new Error("transcribe_timeout")), ms))]);
-}
-
 export async function transcribeWhatsappAudio(clinicId: string, mediaId: string): Promise<TranscriptResult> {
-  const apiKey = process.env.GEMINI_API_KEY || "";
-  if (!apiKey) return { ok: false, reason: "no_api_key" };
+  if (!hasGeminiKey()) return { ok: false, reason: "no_api_key" };
   if (!mediaId) return { ok: false, reason: "no_media_id" };
 
   const config = await loadMetaWhatsappConfig(clinicId);
@@ -56,25 +51,24 @@ export async function transcribeWhatsappAudio(clinicId: string, mediaId: string)
     if (bytes.length === 0 || bytes.length > MAX_AUDIO_BYTES) return { ok: false, reason: "audio_size" };
 
     const mimeType = (meta.mime_type || "audio/ogg").split(";")[0].trim();
-    const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({
-      model: MODEL,
-      generationConfig: { temperature: 0, maxOutputTokens: 400 },
-    });
-    const result = await withTimeout(
-      model.generateContent([
+    const model = geminiModel(
+      { model: MODEL, generationConfig: { temperature: 0, maxOutputTokens: 400 } },
+      { feature: "whatsapp_voice", timeoutMs: TIMEOUT_MS },
+    );
+    const result = await model.generateContent([
+
         { inlineData: { mimeType, data: bytes.toString("base64") } },
         {
           text:
             "اكتب نص الرسالة الصوتية دي زي ما اتقالت بالظبط، بالعامية المصرية، من غير أي إضافة أو تعليق أو ترجمة. " +
             "لو مفيش كلام مفهوم أو الرسالة فاضية، اكتب الكلمة EMPTY بس.",
         },
-      ]),
-      TIMEOUT_MS
-    );
+      ]);
     const text = result.response.text().trim();
     if (!text || /^EMPTY$/i.test(text)) return { ok: false, reason: "empty" };
 
-    await reservation.charge("whatsapp_voice", text);
+    // Audio in is the expensive kind of call; the tokens go on the bill so it can be seen.
+    await reservation.charge("whatsapp_voice", text, undefined, model.meter.snapshot());
     // Same flight recorder the AI answers use, so a wrong transcript can be read back later.
     await adminClinicCollection(clinicId, "ai_debug")
       .doc(new Date().toISOString().replace(/[:.]/g, "-"))

@@ -1,6 +1,6 @@
 import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
-import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
+import { SchemaType } from "@google/generative-ai";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
@@ -8,6 +8,7 @@ import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { hasFeature, getMarketingCreditLimit } from "@/lib/subscriptions";
 import { getClinicProfileAdmin } from "@/lib/clinicProfileServer";
 import { createUsageMeter, tokenIncrements } from "@/lib/aiCreditLog";
+import { geminiModel, hasGeminiKey } from "@/lib/gemini";
 import {
   MARKETING_GOALS, MARKETING_OCCASIONS, MARKETING_TONES, MARKETING_PLAYBOOKS,
   MARKETING_CREDIT_COST, VOICE_FORMALITY, VOICE_EMOJI, VOICE_PRICE, REEL_FORMATS,
@@ -286,8 +287,7 @@ const variantSchema = {
 
 export async function POST(request: Request) {
   try {
-    const apiKey = process.env.GEMINI_API_KEY || "";
-    if (!apiKey) throw new Error("GEMINI_API_KEY is missing.");
+    if (!hasGeminiKey()) throw new Error("GEMINI_API_KEY is missing.");
 
     const body = (await request.json().catch(() => ({}))) as RequestBody;
     const clinicId = clean(body.clinicId, 100);
@@ -412,8 +412,6 @@ export async function POST(request: Request) {
         notes,
       }) + voiceBlock(voice) + examplesBlock(examples);
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-
     /**
      * Marketing keeps its own token total, under `marketingTokens`, for the same reason it keeps
      * its own credit meter: the add-on is sold separately, and a month of campaign writing must
@@ -422,7 +420,7 @@ export async function POST(request: Request) {
     const meter = createUsageMeter(MARKETING_MODEL);
 
     if (mode === "single") {
-      const model = genAI.getGenerativeModel({
+      const model = geminiModel({
         model: MARKETING_MODEL,
         generationConfig: {
           responseMimeType: "application/json",
@@ -432,11 +430,10 @@ export async function POST(request: Request) {
             required: ["variants"],
           } as any,
         },
-      });
+      }, { feature: "marketing_single", meter });
 
       const prompt = singlePrompt({ kind, language, goal, occasion, tone, facts, reelFormat });
       const result = await model.generateContent(prompt);
-      meter.add(result.response);
 
       let parsed: { variants?: Record<string, unknown>[] };
       try {
@@ -482,7 +479,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const model = genAI.getGenerativeModel({
+    const model = geminiModel({
       model: MARKETING_MODEL,
       generationConfig: {
         responseMimeType: "application/json",
@@ -505,11 +502,10 @@ export async function POST(request: Request) {
           required: ["items"],
         } as any,
       },
-    });
+    }, { feature: "marketing_month", meter });
 
     const prompt = monthPrompt({ playbook, postsPerWeek, language, tone, facts });
     const result = await model.generateContent(prompt);
-    meter.add(result.response);
 
     let parsed: { items?: Record<string, unknown>[] };
     try {

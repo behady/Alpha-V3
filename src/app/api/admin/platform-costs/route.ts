@@ -69,6 +69,25 @@ export async function GET(request: Request) {
           );
         }
 
+        // Same pricing, per feature. Written by logAiCreditUsage since 2026-09-09.
+        const aiCostByFeatureUsd: Record<string, number> = {};
+        for (const [feature, byModel] of Object.entries((usage.tokensByFeature || {}) as Record<string, Record<string, Record<string, unknown>>>)) {
+          let usd = 0;
+          for (const [modelKey, bundle] of Object.entries(byModel || {})) {
+            usd += costOfTokens(
+              modelKey.replace(/_/g, "."),
+              {
+                input: Number(bundle.input) || 0,
+                output: Number(bundle.output) || 0,
+                thoughts: Number(bundle.thoughts) || 0,
+                cached: Number(bundle.cached) || 0,
+              },
+              asOf
+            );
+          }
+          if (usd > 0) aiCostByFeatureUsd[feature] = Math.round(usd * 1_000_000) / 1_000_000;
+        }
+
         const sentByCategory: Record<MessageCategory, number> = { ...EMPTY_CATEGORY_COUNTS };
         for (const [k, v] of Object.entries((waSnap?.data()?.sentByCategory || {}) as Record<string, unknown>)) {
           if (k in sentByCategory) sentByCategory[k as MessageCategory] = Number(v) || 0;
@@ -83,6 +102,7 @@ export async function GET(request: Request) {
           creditsUsed: Number(usage.creditsUsed) || 0,
           creditLimit: getAiCreditLimit(clinic),
           aiCostUsd: Math.round(aiCostUsd * 1_000_000) / 1_000_000,
+          aiCostByFeatureUsd,
           aiMeasuredCalls,
           whatsappBilledUsd: metaBilled?.billedUsd ?? null,
           sentByCategory,

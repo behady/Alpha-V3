@@ -56,6 +56,8 @@
   "test:margin": "npx tsx tests/platformCost.test.mts",
   "_comment_test_pricing": "The plan table and the one AI quota rule. The assertion that matters: a clinic past its allowance keeps working on overage instead of the bot going quiet mid-month; only the plan's overage ceiling stops it. Also pins what each tier includes and what a grandfathered clinic keeps. No network, no emulator.",
   "test:pricing": "npx tsx tests/subscriptions.test.mts",
+  "_comment_test_gemini": "What the platform does when Google says no. One key serves every clinic, so the rule that retries a 429, moves to the second key, and never retries a bad request is the one that keeps one clinic's busy morning from silencing another clinic's bot. Pure; no network.",
+  "test:gemini": "npx tsx tests/geminiClient.test.mts",
     "test:attendance": "npx tsx tests/attendanceGeofence.test.mjs",
     "_comment_test_conflicts": "Double-booking detection: a renamed dentist's existing appointments must still block their own slots, and cancellations must release theirs.",
     "test:conflicts": "npx tsx tests/appointmentConflicts.test.mjs",

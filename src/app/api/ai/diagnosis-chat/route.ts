@@ -1,10 +1,9 @@
 import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { quotaExhaustedMessage, reserveAiCredits, type ChargeDetails } from "@/lib/aiQuota";
+import { geminiModel, hasGeminiKey } from "@/lib/gemini";
 import { fetchPatientAiContext, patientContextBlock } from "@/lib/aiPatientContext";
-import { createUsageMeter } from "@/lib/aiCreditLog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,8 +23,7 @@ const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
  */
 export async function POST(req: Request) {
   try {
-    const apiKey = process.env.GEMINI_API_KEY || "";
-    if (!apiKey) throw new Error("GEMINI_API_KEY is missing.");
+    if (!hasGeminiKey()) throw new Error("GEMINI_API_KEY is missing.");
 
     const body = await req.json().catch(() => ({}));
     const clinicId = typeof body?.clinicId === "string" ? body.clinicId.trim() : "";
@@ -176,15 +174,9 @@ ${patientContextBlock(ctx)}`;
 
     contents.push({ role: "user", parts });
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({
-      model: modelName,
-      systemInstruction,
-    });
-
-    const meter = createUsageMeter(modelName);
+    const model = geminiModel({ model: modelName, systemInstruction }, { feature: "diagnosis_chat" });
+    const meter = model.meter;
     const result = await model.generateContent({ contents });
-    meter.add(result.response);
     const reply = result.response.text().trim();
 
     if (!reply) {

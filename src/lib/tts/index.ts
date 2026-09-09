@@ -1,4 +1,5 @@
 import { createGeminiTtsProvider } from "./gemini";
+import { primaryGeminiKey } from "@/lib/gemini";
 import { createPiperTtsProvider } from "./piper";
 import { TtsError, type SpeechLanguage, type TtsProvider } from "./types";
 
@@ -11,7 +12,7 @@ export * from "./types";
  * pick.
  */
 export function getGeminiTtsProvider(): TtsProvider {
-  const apiKey = process.env.GEMINI_API_KEY || "";
+  const apiKey = primaryGeminiKey();
   if (!apiKey) throw new TtsError("GEMINI_API_KEY is not set, so speech cannot be generated.");
   return createGeminiTtsProvider(apiKey);
 }

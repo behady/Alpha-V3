@@ -1,11 +1,11 @@
 import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
-import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
+import { SchemaType } from "@google/generative-ai";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { quotaExhaustedMessage, reserveAiCredits, type ChargeDetails } from "@/lib/aiQuota";
-import { createUsageMeter } from "@/lib/aiCreditLog";
+import { geminiModel, hasGeminiKey } from "@/lib/gemini";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,8 +37,7 @@ export type PlanTranslation = {
  */
 export async function POST(req: Request) {
   try {
-    const apiKey = process.env.GEMINI_API_KEY || "";
-    if (!apiKey) throw new Error("GEMINI_API_KEY is missing.");
+    if (!hasGeminiKey()) throw new Error("GEMINI_API_KEY is missing.");
 
     const body = await req.json().catch(() => ({}));
     const clinicId = typeof body?.clinicId === "string" ? body.clinicId.trim() : "";
@@ -127,9 +126,7 @@ RULES:
 PLAN (JSON):
 ${JSON.stringify(source)}`;
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const meter = createUsageMeter(TRANSLATION_MODEL);
-    const model = genAI.getGenerativeModel({
+    const model = geminiModel({
       model: TRANSLATION_MODEL,
       generationConfig: {
         responseMimeType: "application/json",
@@ -164,10 +161,10 @@ ${JSON.stringify(source)}`;
           required: ["title", "description", "visits"],
         },
       } as any,
-    });
+    }, { feature: "plan_translation" });
+    const meter = model.meter;
 
     const result = await model.generateContent(prompt);
-    meter.add(result.response);
     let translated: PlanTranslation;
     try {
       translated = JSON.parse(result.response.text());

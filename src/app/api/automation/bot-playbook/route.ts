@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GEMINI_MODELS, backgroundGeminiModel, hasGeminiKey } from "@/lib/gemini";
+import { logAiCreditUsage } from "@/lib/aiCreditLog";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { forEachActiveClinic } from "@/lib/automation/forEachActiveClinic";
@@ -28,7 +29,7 @@ const LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
 const QUIET_AFTER_MS = 24 * 60 * 60 * 1000;
 const SAMPLE_PER_OUTCOME = 12;
 const LINES_PER_THREAD = 12;
-const MODEL = "gemini-flash-latest";
+const MODEL = GEMINI_MODELS.flash;
 
 function isCronAuthorized(request: Request): boolean {
   const secret = process.env.CRON_SECRET?.trim();
@@ -84,8 +85,7 @@ async function runForClinic(clinicId: string): Promise<{ conversations: number; 
     await ref.set({ stats, threshold: MIN_CONVERSATIONS, statsAt: FieldValue.serverTimestamp() }, { merge: true });
     return { ...stats, generated: false, skipped: "below_threshold" };
   }
-  const apiKey = process.env.GEMINI_API_KEY || "";
-  if (!apiKey) return { ...stats, generated: false, skipped: "no_api_key" };
+  if (!hasGeminiKey()) return { ...stats, generated: false, skipped: "no_api_key" };
 
   const pick = (o: Outcome) => settled.filter((x) => x.o === o).sort((a, b) => (Number(b.c.lastMessageAt) || 0) - (Number(a.c.lastMessageAt) || 0)).slice(0, SAMPLE_PER_OUTCOME);
   const booked = await Promise.all(pick("booked").map((x) => threadText(clinicId, x.c.id)));
@@ -108,8 +108,9 @@ async function runForClinic(clinicId: string): Promise<{ conversations: number; 
     quiet.map((t, i) => `--- محادثة ${i + 1} ---\n${t}`).join("\n\n"),
   ].join("\n");
 
-  const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({ model: MODEL, generationConfig: { temperature: 0.3, maxOutputTokens: 2000 } });
+  const model = backgroundGeminiModel({ model: MODEL, generationConfig: { temperature: 0.3, maxOutputTokens: 2000 } }, { feature: "bot_playbook" });
   const result = await model.generateContent(prompt);
+  void logAiCreditUsage({ clinicId, feature: "bot_playbook", credits: 0, userId: "system", userName: "Weekly playbook", usage: model.meter.snapshot() });
   const text = result.response.text().trim().slice(0, 4000);
   if (!text) return { ...stats, generated: false, skipped: "empty" };
 

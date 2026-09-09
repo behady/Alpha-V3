@@ -1,7 +1,8 @@
-import { GoogleGenerativeAI, SchemaType, type ModelParams } from "@google/generative-ai";
+import { SchemaType, type ModelParams } from "@google/generative-ai";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminClinicCollection } from "@/lib/adminClinicDb";
 import { createUsageMeter } from "@/lib/aiCreditLog";
+import { geminiModel, primaryGeminiKey } from "@/lib/gemini";
 import { reserveAiCredits } from "@/lib/aiQuota";
 import type { BotFacts } from "@/types/whatsapp";
 import { dossierLines, type PatientDossier } from "./patientDossier";
@@ -133,13 +134,6 @@ export interface AiThreadLine {
 
 export type { AiPatientContext } from "./botPrompt";
 
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("ai_timeout")), ms)),
-  ]);
-}
-
 
 export async function answerWithAi(args: {
   clinicId: string;
@@ -195,7 +189,8 @@ export async function answerWithAi(args: {
   const { clinicId, clinicName, question, patientName, hoursText, addressText, clinicPhone, facts, history } = args;
   const sales = args.mode === "sales";
 
-  const apiKey = process.env.GEMINI_API_KEY || "";
+  // The primary key: the rulebook cache lives in that project. The fallback is handled inside geminiModel.
+  const apiKey = primaryGeminiKey();
   if (!apiKey) return { kind: "unavailable", reason: "no_api_key" };
 
   // The same plan gate and meter the in-app assistant answers to. One pool, one explanation —
@@ -297,7 +292,6 @@ export async function answerWithAi(args: {
    */
   const meter = createUsageMeter(MODEL);
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
     // Null when caching is off or Google is unreachable; the inline path below is identical in
     // what the model reads, it just bills the rulebook at full price this once.
     const cache = await getRulebookCache({ apiKey, model: MODEL, systemText: sharedSystem });
@@ -331,9 +325,15 @@ export async function answerWithAi(args: {
         ...({ thinkingConfig: { thinkingBudget: 0 } } as Record<string, unknown>),
       },
     };
-    const model = cache
-      ? genAI.getGenerativeModelFromCachedContent({ name: cache.name, model: MODEL, contents: [] }, modelParams)
-      : genAI.getGenerativeModel({ ...modelParams, systemInstruction: `${sharedSystem}\n${turnText}` });
+    const model = geminiModel(
+      { ...modelParams, systemInstruction: `${sharedSystem}\n${turnText}` },
+      {
+        feature: sales ? "whatsapp_sales" : "whatsapp_bot",
+        meter,
+        timeoutMs: TIMEOUT_MS,
+        cached: cache ? { name: cache.name, params: modelParams } : undefined,
+      },
+    );
 
     /*
      * Memory. Sales mode replays the real thread — every voice, including the bot's own menus
@@ -437,9 +437,8 @@ export async function answerWithAi(args: {
     const ATTEMPTS = 3;
     for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
       const t0 = Date.now();
-      const result = await withTimeout(model.generateContent({ contents }), TIMEOUT_MS);
+      const result = await model.generateContent({ contents });
       modelMs += Date.now() - t0;
-      meter.add(result.response);
       raw = result.response.text();
       lastRaw = raw;
       const decoded = parseModelJson(raw);

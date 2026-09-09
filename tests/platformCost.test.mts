@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   COST_RATIO_CEILING,
   INTRO_PRICING_ENDS,
+  costByFeature,
   costOfTokens,
   marginFor,
   overCeiling,
@@ -82,6 +83,7 @@ const row = (over: Partial<ClinicCostRow> = {}): ClinicCostRow => ({
   creditsUsed: 800,
   creditLimit: 1800,
   aiCostUsd: 4,
+  aiCostByFeatureUsd: { whatsapp_bot: 3, treatment_plan: 1 },
   aiMeasuredCalls: 800,
   whatsappBilledUsd: 0.17,
   sentByCategory: { utility: 40, marketing: 0, authentication: 0, service: 900 },
@@ -129,6 +131,19 @@ run("platform totals add up and survive an empty platform", () => {
   assert.equal(t.costEgp, 240, "Google only: (4 + 1) USD at 48");
   assert.equal(Math.round(t.marginEgp), Math.round(1250 - t.costEgp));
   assert.equal(t.clinicsWhatsappUsd, 0.34, "what the clinics paid Meta, shown but not subtracted");
+  assert.deepEqual(t.aiCostByFeatureUsd, { whatsapp_bot: 6, treatment_plan: 2 }, "Google's bill, by feature, across clinics");
+});
+
+run("cost by feature sums across clinics and tolerates rows with nothing recorded", () => {
+  assert.deepEqual(
+    costByFeature([
+      { aiCostByFeatureUsd: { whatsapp_bot: 1.5, bot_playbook: 0.25 } },
+      { aiCostByFeatureUsd: { whatsapp_bot: 0.5 } },
+      { aiCostByFeatureUsd: {} },
+      { aiCostByFeatureUsd: undefined as unknown as Record<string, number> },
+    ]),
+    { whatsapp_bot: 2, bot_playbook: 0.25 },
+  );
 
   const empty = platformTotals([]);
   assert.equal(empty.clinics, 0);

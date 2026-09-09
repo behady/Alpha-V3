@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
-import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
+import { SchemaType } from "@google/generative-ai";
+import { GEMINI_MODELS, backgroundGeminiModel, hasGeminiKey } from "@/lib/gemini";
+import { logAiCreditUsage } from "@/lib/aiCreditLog";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { forEachActiveClinic } from "@/lib/automation/forEachActiveClinic";
@@ -20,7 +22,7 @@ export const maxDuration = 300;
  * changes the bot until a person says so.
  */
 
-const MODEL = "gemini-flash-latest";
+const MODEL = GEMINI_MODELS.flash;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_THREADS = 15;
 
@@ -38,8 +40,7 @@ async function authorize(request: Request) {
 }
 
 async function runForClinic(clinicId: string): Promise<{ threads: number; suggestions: number; skipped?: string }> {
-  const apiKey = process.env.GEMINI_API_KEY || "";
-  if (!apiKey) return { threads: 0, suggestions: 0, skipped: "no_api_key" };
+  if (!hasGeminiKey()) return { threads: 0, suggestions: 0, skipped: "no_api_key" };
   const settings = ((await adminClinicDoc(clinicId, "settings", "whatsapp").get()).data() || {}) as Record<string, unknown>;
   if (settings.botMode !== "ai_first" && settings.botAiEnabled !== true) return { threads: 0, suggestions: 0, skipped: "ai_off" };
 
@@ -62,7 +63,7 @@ async function runForClinic(clinicId: string): Promise<{ threads: number; sugges
   if (threads.length < 2) return { threads: threads.length, suggestions: 0, skipped: "too_few" };
 
   const existing = String(settings.botCoaching || "").trim();
-  const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({
+  const model = backgroundGeminiModel({
     model: MODEL,
     generationConfig: {
       responseMimeType: "application/json",
@@ -83,7 +84,7 @@ async function runForClinic(clinicId: string): Promise<{ threads: number; sugges
       temperature: 0.3,
       maxOutputTokens: 1500,
     },
-  });
+  }, { feature: "bot_coach" });
   const prompt = [
     "انت مدير مبيعات بيراجع محادثات امبارح بين بوت واتساب عيادة أسنان والمرضى. البوت بيشتغل بتعليمات مكتوبة من صاحب العيادة.",
     "اقرأ المحادثات واقترح من 2 لـ 3 تعليمات جديدة قصيرة (سطر واحد لكل تعليمة، بالعامية المصرية، بصيغة الأمر للبوت) تحسّن خدمة العملاء أو نسبة الحجز.",
@@ -94,6 +95,8 @@ async function runForClinic(clinicId: string): Promise<{ threads: number; sugges
   ].join("\n");
 
   const result = await model.generateContent(prompt);
+  // No credit — the clinic never asked for this — but the Google bill is real and goes on the record.
+  void logAiCreditUsage({ clinicId, feature: "bot_coach", credits: 0, userId: "system", userName: "Nightly coach", usage: model.meter.snapshot() });
   const parsed = JSON.parse(result.response.text()) as { suggestions?: Array<{ line?: string; why?: string }> };
   const list = (parsed.suggestions || []).map((s) => ({ line: String(s.line || "").trim().slice(0, 240), why: String(s.why || "").trim().slice(0, 300) })).filter((s) => s.line).slice(0, 3);
 

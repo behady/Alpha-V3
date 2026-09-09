@@ -1,7 +1,7 @@
 import { reportServerError } from "@/lib/server/reportError";
 // src/app/api/gemini/route.ts
 import { NextResponse } from "next/server";
-import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
+import { SchemaType } from "@google/generative-ai";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 import { sendWhatsApp } from "@/lib/whatsapp";
@@ -11,10 +11,11 @@ import { resolveWhatsappTemplateForPatient } from "@/lib/whatsappDefaultBodies";
 import { pickPatientPhone } from "@/lib/patientPhone";
 import { DIAGNOSIS_OPTIONS } from "@/lib/diagnosisCatalog";
 import { quotaExhaustedMessage, reserveAiCredits } from "@/lib/aiQuota";
+import { geminiModel, hasGeminiKey } from "@/lib/gemini";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { logAiAction } from "@/lib/serverLogger";
-import { logAiCreditUsage, createUsageMeter } from "@/lib/aiCreditLog";
+import { createUsageMeter } from "@/lib/aiCreditLog";
 import { resolveNavigablePath, NAVIGABLE_PATHS_HINT } from "@/lib/aiNavigation";
 import { TUTORIALS, tutorialsFor } from "@/lib/tutorials";
 
@@ -285,10 +286,8 @@ HOW TO ANSWER:
 
 export async function POST(req: Request) {
   try {
-    const apiKey = process.env.GEMINI_API_KEY || "";
-    if (!apiKey) throw new Error("GEMINI_API_KEY is missing.");
+    if (!hasGeminiKey()) throw new Error("GEMINI_API_KEY is missing.");
 
-    const genAI = new GoogleGenerativeAI(apiKey);
     const db = adminDb();
     const body = await req.json();
 
@@ -954,11 +953,15 @@ export async function POST(req: Request) {
       .filter((f) => f.name !== "start_tutorial" || clientCanRunTutorials)
       .filter((f) => (f.name !== "file_bug_report" && f.name !== "file_feature_request") || clientCanFileTickets);
 
-    const model = genAI.getGenerativeModel({
-      model: CHAT_MODEL,
-      systemInstruction: isReception ? receptionInstruction : generalInstruction,
-      tools: [{ functionDeclarations: activeTools }] as any
-    });
+    const model = geminiModel(
+      {
+        model: CHAT_MODEL,
+        systemInstruction: isReception ? receptionInstruction : generalInstruction,
+        tools: [{ functionDeclarations: activeTools }] as any,
+      },
+      // The meter was created above, before the turn began, because the charge closure holds it.
+      { feature: isReception ? "reception" : "chat", meter, timeoutMs: 90_000 },
+    );
 
     /**
      * The conversation is driven through generateContent rather than the SDK's startChat helper.
@@ -982,7 +985,6 @@ export async function POST(req: Request) {
     }
 
     let result = await model.generateContent({ contents });
-    meter.add(result.response);
 
     let callCount = 0;
 
@@ -1756,7 +1758,6 @@ export async function POST(req: Request) {
       // "user", never "function" — see the comment on `contents` above.
       contents.push({ role: "user", parts: functionResponses });
       result = await model.generateContent({ contents });
-      meter.add(result.response);
       callCount++;
     }
       let replyText = "";

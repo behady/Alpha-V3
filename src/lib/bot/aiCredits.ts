@@ -1,4 +1,5 @@
 import { reserveAiCredits } from "@/lib/aiQuota";
+import type { AiTokenUsage } from "@/lib/aiCreditLog";
 
 /**
  * The bot's view of the clinic's AI credit pool.
@@ -10,7 +11,7 @@ import { reserveAiCredits } from "@/lib/aiQuota";
  */
 
 export type CreditReservation =
-  | { ok: true; charge: (feature: string, detail: string, credits?: number) => Promise<void> }
+  | { ok: true; charge: (feature: string, detail: string, credits?: number, usage?: AiTokenUsage) => Promise<void> }
   | { ok: false; reason: "plan" | "no_credits" | "no_clinic" };
 
 export async function reserveAiCredit(clinicId: string, credits = 1): Promise<CreditReservation> {
@@ -18,7 +19,7 @@ export async function reserveAiCredit(clinicId: string, credits = 1): Promise<Cr
   if (!r.ok) return { ok: false, reason: r.reason };
   return {
     ok: true,
-    charge: (feature, detail, n = credits) =>
-      r.charge({ feature, detail, credits: n, userId: "whatsapp_bot", userName: "WhatsApp Bot" }),
+    charge: (feature, detail, n = credits, usage) =>
+      r.charge({ feature, detail, credits: n, usage, userId: "whatsapp_bot", userName: "WhatsApp Bot" }),
   };
 }

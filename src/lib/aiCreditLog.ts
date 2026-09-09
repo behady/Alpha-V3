@@ -160,6 +160,9 @@ export async function logAiCreditUsage(opts: {
                 // Split by model because the bill cannot be reconstructed without it: the Pro
                 // model behind "super mode" costs several times what Flash does per token.
                 byModel: { [modelKey(u.model)]: tokenIncrements(u) },
+                // And by feature within model, so "what did treatment plans cost this month" is a
+                // read, not a scan of the log. Feature names are [a-z_], safe as map keys.
+                tokensByFeature: { [opts.feature]: { [modelKey(u.model)]: tokenIncrements(u) } },
               }
             : {}),
         },
