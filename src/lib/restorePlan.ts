@@ -41,6 +41,10 @@ export const ROOT_COLLECTIONS = [
   // What each supply order earned the platform. Spans every clinic, and it is an accounting
   // record: rewinding it to a snapshot would change what a partner is invoiced.
   "supply_commissions",
+  // Clinic-to-clinic reviews and their running averages. Platform-wide: restoring one clinic
+  // must not resurrect another clinic's deleted review, or a rating a superadmin took down.
+  "supply_reviews",
+  "supply_review_stats",
 ] as const;
 
 /**

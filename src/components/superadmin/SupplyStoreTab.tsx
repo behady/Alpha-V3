@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Check, Loader2, Plug, ShoppingBag } from "lucide-react";
+import { AlertTriangle, Check, Eye, EyeOff, Loader2, Plug, ShoppingBag, Star } from "lucide-react";
 import { auth } from "@/lib/firebase";
 
 /**
@@ -29,6 +29,19 @@ interface ConfigState {
   secretSet: boolean;
   usable: boolean;
   updatedAt?: string;
+}
+
+interface ModeratedReview {
+  id: string;
+  productId: number;
+  productName: string;
+  rating: number;
+  text: string;
+  clinicName: string;
+  authorName: string;
+  createdAt: string;
+  hidden?: boolean;
+  hiddenReason?: string;
 }
 
 interface CommissionRow {
@@ -65,6 +78,10 @@ export default function SupplyStoreTab() {
   const [months, setMonths] = useState<{ month: string; orders: number; sales: number; commission: number }[]>([]);
   const [totals, setTotals] = useState({ orders: 0, sales: 0, commission: 0 });
   const [earningsError, setEarningsError] = useState("");
+
+  const [reviews, setReviews] = useState<ModeratedReview[]>([]);
+  const [reviewsError, setReviewsError] = useState("");
+  const [busyReview, setBusyReview] = useState("");
 
   const call = useCallback(async (path: string, init?: RequestInit) => {
     const token = await auth.currentUser?.getIdToken();
@@ -119,6 +136,41 @@ export default function SupplyStoreTab() {
     }
   }, [call]);
 
+  const loadReviews = useCallback(async () => {
+    try {
+      const json = await call("/api/admin/supply-reviews");
+      setReviews((json.reviews as ModeratedReview[]) || []);
+      setReviewsError("");
+    } catch (e) {
+      setReviewsError(e instanceof Error ? e.message : "Could not load reviews");
+    }
+  }, [call]);
+
+  /**
+   * Hide or restore one review.
+   *
+   * Hiding, not deleting: the document stays with the reason attached, the clinic that wrote it
+   * still sees its own, and the decision can be reversed. Hiding also pulls the rating out of the
+   * product average — a review nobody may read must not go on scoring the supplier.
+   */
+  const moderate = async (review: ModeratedReview) => {
+    setBusyReview(review.id);
+    try {
+      const reason = review.hidden
+        ? ""
+        : window.prompt("Why is this being hidden? (kept on the record, not shown to the clinic)") ?? "";
+      await call("/api/admin/supply-reviews", {
+        method: "POST",
+        body: JSON.stringify({ reviewId: review.id, hidden: !review.hidden, reason }),
+      });
+      await loadReviews();
+    } catch (e) {
+      setReviewsError(e instanceof Error ? e.message : "Could not update that review");
+    } finally {
+      setBusyReview("");
+    }
+  };
+
   useEffect(() => {
     void (async () => {
       try {
@@ -129,8 +181,9 @@ export default function SupplyStoreTab() {
         setLoading(false);
       }
       await loadEarnings();
+      await loadReviews();
     })();
-  }, [call, applyConfig, loadEarnings]);
+  }, [call, applyConfig, loadEarnings, loadReviews]);
 
   const save = async (options: { test?: boolean; enabled?: boolean } = {}) => {
     setSaving(true);
@@ -438,6 +491,79 @@ export default function SupplyStoreTab() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+
+      {/*
+        Clinic-to-clinic reviews, and the only lever over them.
+
+        These are published to every clinic on the platform under the author clinic's name, so
+        there has to be a way to take one down — a mistaken claim about a medical supply is not
+        something to leave up while emails are exchanged. Nothing here reaches the partner's shop.
+      */}
+      <div className="rounded-xl border border-slate-700 bg-slate-900 p-6">
+        <h2 className="mb-1 text-lg font-black text-white">Clinic reviews</h2>
+        <p className="mb-5 text-xs font-bold text-slate-400">
+          Written by clinics, for clinics. Never sent to the supplier. Hiding one removes it from the product&apos;s
+          average and from every other clinic&apos;s view; the clinic that wrote it still sees its own, marked hidden.
+        </p>
+
+        {reviewsError && (
+          <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm font-bold text-amber-300">
+            {reviewsError}
+          </div>
+        )}
+
+        {reviews.length === 0 ? (
+          <p className="py-6 text-center text-sm font-bold text-slate-500">No clinic has reviewed anything yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {reviews.map((review) => (
+              <div
+                key={review.id}
+                className={`rounded-lg border p-4 ${
+                  review.hidden ? "border-rose-500/40 bg-rose-500/5" : "border-slate-700 bg-slate-800"
+                }`}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-black text-white">{review.clinicName}</span>
+                  <span className="flex items-center gap-0.5">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <Star
+                        key={n}
+                        size={12}
+                        className={n <= review.rating ? "fill-amber-400 text-amber-400" : "text-slate-600"}
+                      />
+                    ))}
+                  </span>
+                  <span className="text-[11px] font-bold text-slate-400">
+                    {review.productName || `#${review.productId}`} &middot; {review.createdAt.slice(0, 10)} &middot;{" "}
+                    {review.authorName}
+                  </span>
+
+                  <button
+                    type="button"
+                    disabled={busyReview === review.id}
+                    onClick={() => void moderate(review)}
+                    className={`ms-auto flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-black disabled:opacity-50 ${
+                      review.hidden
+                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                        : "bg-rose-500/20 text-rose-300 border border-rose-500/40"
+                    }`}
+                  >
+                    {review.hidden ? <Eye size={14} /> : <EyeOff size={14} />}
+                    {review.hidden ? "Restore" : "Hide"}
+                  </button>
+                </div>
+
+                {review.text && <p className="mt-2 whitespace-pre-line text-sm font-bold text-slate-200">{review.text}</p>}
+
+                {review.hidden && review.hiddenReason && (
+                  <p className="mt-2 text-[11px] font-black text-rose-300">Hidden: {review.hiddenReason}</p>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </div>

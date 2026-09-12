@@ -518,6 +518,9 @@ const ALLOWED_INACTIVE = [
   "store/products/route.ts",       // GET: the partner's catalogue, read
   "store/orders/route.ts",         // GET: the clinic's own orders. The POST that spends money is
                                    // gated, and the assertion below holds it that way.
+  "store/reviews/route.ts",        // GET: what other clinics said. Reading another clinic's opinion
+                                   // of a burr is not a write; the POST and DELETE that publish in
+                                   // this clinic's name are gated, as the assertion below holds.
 ];
 
 const apiDir = join(REPO, "src/app/api");
@@ -565,6 +568,15 @@ assert.equal(
   (supplyOrders.match(/allowInactive/g) || []).length,
   1,
   "store/orders may exempt only its GET, never the POST that places a real order"
+);
+// Reviews: reading is exempt, writing and deleting are not. A review is published under the
+// clinic's name to every other clinic on the platform — a lapsed clinic may read the shelf,
+// not speak from it.
+const supplyReviews = readFileSync(join(apiDir, "store/reviews/route.ts"), "utf8");
+assert.equal(
+  (supplyReviews.match(/allowInactive/g) || []).length,
+  1,
+  "store/reviews may exempt only its GET, never the POST or DELETE that publish"
 );
 // And again for invite links: a lapsed clinic may look at the links it already has, but minting a
 // new one is how a clinic grows its team, which is a write and stays behind the gate.

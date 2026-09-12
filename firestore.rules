@@ -829,5 +829,33 @@ service cloud.firestore {
     match /supply_commissions/{wooOrderId} {
       allow read, write: if false;
     }
+
+    /*
+     * What Alpha clinics think of the partner's supplies, written for each other.
+     *
+     * Denied to every client, and the reason is the opposite of the usual one: this is meant to
+     * be read ACROSS clinics, which no rule here can express safely. "Any clinic may read this,
+     * no clinic may write another clinic's, and nobody sees a hidden one" is three conditions on
+     * the same document, and rules OR together — the version of that rule which looks right is
+     * not the version that is. /api/store/reviews serves it instead, and moderation lives in
+     * /api/admin/supply-reviews.
+     *
+     * A client-writable review would also be a way to publish words in ANOTHER clinic's name to
+     * the whole platform, since the clinic name is stored on the document.
+     */
+    match /supply_reviews/{reviewId} {
+      allow read, write: if false;
+    }
+
+    /*
+     * The running average behind those reviews, one document per product.
+     *
+     * Server-written inside the same transaction as the review, so the score and the reviews can
+     * never disagree. A client able to write here could give a product any rating it liked without
+     * writing a single word anyone could argue with.
+     */
+    match /supply_review_stats/{productId} {
+      allow read, write: if false;
+    }
   }
 }

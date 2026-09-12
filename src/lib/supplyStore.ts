@@ -59,6 +59,12 @@ export interface StoreProduct {
   /** His shop's own star rating, 0 when nobody has reviewed it. Read-only; we never write it. */
   averageRating: number;
   ratingCount: number;
+  /**
+   * What ALPHA clinics scored it — a different number from his, kept deliberately separate.
+   * Attached by the products route from the running-average documents; see lib/supplyReviews.
+   */
+  alphaRating?: number;
+  alphaReviewCount?: number;
 }
 
 export interface StoreCategory {

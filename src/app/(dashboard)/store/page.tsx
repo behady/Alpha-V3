@@ -13,6 +13,7 @@ import {
   Search,
   ShoppingBag,
   ShoppingCart,
+  MessageSquare,
   Star,
   Tag,
   Trash2,
@@ -26,6 +27,7 @@ import PermissionGuard from "@/components/PermissionGuard";
 import Protect from "@/components/Protect";
 import { useSupplyStoreStatus } from "@/lib/useSupplyStore";
 import { cartTotals, type CartLine, type StoreCategory, type StoreProduct } from "@/lib/supplyStore";
+import { displayRating, type SupplyReview } from "@/lib/supplyReviews";
 
 /**
  * The partner supplier's shop, inside Alpha.
@@ -77,11 +79,22 @@ const CART_KEY_PREFIX = "alpha:supplyCart:";
  * hidden entirely when nobody has reviewed the product — an empty five-star row reads as a bad
  * score rather than as no score.
  */
-function Stars({ rating, count, ar }: { rating: number; count: number; ar: boolean }) {
+function Stars({
+  rating,
+  count,
+  ar,
+  label = "",
+}: {
+  rating: number;
+  count: number;
+  ar: boolean;
+  /** Says WHOSE score this is when it is not the shop's. An unlabelled number invites the wrong one. */
+  label?: string;
+}) {
   if (!count || rating <= 0) return null;
   const full = Math.round(rating);
   return (
-    <div className="mt-1.5 flex items-center gap-1" title={`${rating} / 5`}>
+    <div className="mt-1.5 flex flex-wrap items-center gap-1" title={`${rating} / 5`}>
       {[1, 2, 3, 4, 5].map((n) => (
         <Star
           key={n}
@@ -92,6 +105,9 @@ function Stars({ rating, count, ar }: { rating: number; count: number; ar: boole
       <span className="ms-1 text-[11px] font-bold text-ink-muted">
         {count} {ar ? "تقييم" : count === 1 ? "review" : "reviews"}
       </span>
+      {label && (
+        <span className="rounded-full bg-[#FACC15]/20 px-2 py-0.5 text-[10px] font-black text-ink">{label}</span>
+      )}
     </div>
   );
 }
@@ -124,6 +140,15 @@ export default function SupplyStorePage() {
 
   /** A discount code the clinic typed. The members' code is added by the server, not here. */
   const [coupon, setCoupon] = useState("");
+
+  /** What other Alpha clinics said about the product that is open, and this clinic's own say. */
+  const [reviews, setReviews] = useState<SupplyReview[]>([]);
+  const [reviewStats, setReviewStats] = useState({ count: 0, average: 0 });
+  const [canReview, setCanReview] = useState(false);
+  const [loadingReviews, setLoadingReviews] = useState(false);
+  const [reviewDraft, setReviewDraft] = useState({ rating: 0, text: "" });
+  const [savingReview, setSavingReview] = useState(false);
+  const [reviewError, setReviewError] = useState("");
 
   const [orders, setOrders] = useState<StoreOrderRow[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
@@ -323,6 +348,86 @@ export default function SupplyStorePage() {
       setPlaceError(error instanceof Error ? error.message : "The order could not be placed");
     } finally {
       setPlacing(false);
+    }
+  };
+
+  // --- what other clinics said -----------------------------------------------------------------
+
+  /**
+   * Loaded when a product is opened, not with the catalogue.
+   *
+   * Reviews are per-product and most products are never opened, so fetching them for a grid of
+   * 24 would be 24 wasted queries per page turn. The card shows only the score, which rides along
+   * with the product itself.
+   */
+  const loadReviews = useCallback(
+    async (productId: number) => {
+      if (!clinicId) return;
+      setLoadingReviews(true);
+      setReviewError("");
+      try {
+        const json = await authedFetch(
+          `/api/store/reviews?clinicId=${encodeURIComponent(clinicId)}&productId=${productId}`
+        );
+        const list = (json.reviews as SupplyReview[]) || [];
+        setReviews(list);
+        setReviewStats((json.stats as { count: number; average: number }) || { count: 0, average: 0 });
+        setCanReview(json.canReview === true);
+        // Editing rather than starting again: someone who opens a product they have already
+        // reviewed should see their own words in the box, not an empty form that will overwrite
+        // them the moment they press save.
+        const own = list.find((r) => r.clinicId === clinicId);
+        setReviewDraft(own ? { rating: own.rating, text: own.text } : { rating: 0, text: "" });
+      } catch (error) {
+        setReviewError(error instanceof Error ? error.message : "Could not load reviews");
+      } finally {
+        setLoadingReviews(false);
+      }
+    },
+    [clinicId, authedFetch]
+  );
+
+  useEffect(() => {
+    if (detail) void loadReviews(detail.id);
+  }, [detail, loadReviews]);
+
+  const saveReview = async () => {
+    if (!detail) return;
+    setSavingReview(true);
+    setReviewError("");
+    try {
+      await authedFetch("/api/store/reviews", {
+        method: "POST",
+        body: JSON.stringify({
+          clinicId,
+          productId: detail.id,
+          productName: detail.name,
+          rating: reviewDraft.rating,
+          text: reviewDraft.text,
+        }),
+      });
+      await loadReviews(detail.id);
+    } catch (error) {
+      setReviewError(error instanceof Error ? error.message : "Could not save your review");
+    } finally {
+      setSavingReview(false);
+    }
+  };
+
+  const removeReview = async () => {
+    if (!detail || !clinicId) return;
+    setSavingReview(true);
+    setReviewError("");
+    try {
+      await authedFetch(
+        `/api/store/reviews?clinicId=${encodeURIComponent(clinicId)}&productId=${detail.id}`,
+        { method: "DELETE" }
+      );
+      await loadReviews(detail.id);
+    } catch (error) {
+      setReviewError(error instanceof Error ? error.message : "Could not remove your review");
+    } finally {
+      setSavingReview(false);
     }
   };
 
@@ -561,7 +666,22 @@ export default function SupplyStorePage() {
                             <p className="mt-1 text-[11px] font-bold text-ink-muted">{product.sku}</p>
                           )}
 
-                          <Stars rating={product.averageRating} count={product.ratingCount} ar={ar} />
+                          {(() => {
+                            // Alpha clinics first, his shop's score as the fallback. Two star rows
+                            // on one card is a puzzle, not information.
+                            const shown = displayRating(
+                              { average: product.alphaRating ?? 0, count: product.alphaReviewCount ?? 0 },
+                              { average: product.averageRating, count: product.ratingCount }
+                            );
+                            return (
+                              <Stars
+                                rating={shown.average}
+                                count={shown.count}
+                                ar={ar}
+                                label={shown.source === "alpha" ? (ar ? "عيادات ألفا" : "Alpha clinics") : ""}
+                              />
+                            );
+                          })()}
 
                           <div className="mt-3 flex items-baseline gap-2">
                             <span className="text-lg font-black text-ink">{money(product.price)}</span>
@@ -865,6 +985,177 @@ export default function SupplyStorePage() {
                     })()}
                   </div>
                 </div>
+              </div>
+
+              {/*
+                What Alpha clinics said. Kept apart from his shop's stars above, and labelled, so
+                nobody reads one score as the other: his are his customers, these are the practices
+                doing the same job as the person reading.
+              */}
+              <div className="border-t border-line px-6 pb-6 pt-5">
+                <div className="mb-4 flex flex-wrap items-center gap-3">
+                  <h3 className="flex items-center gap-2 text-base font-black text-ink">
+                    <MessageSquare size={18} className="text-[#FACC15]" />
+                    {ar ? "رأي عيادات ألفا" : "What Alpha clinics say"}
+                  </h3>
+                  {reviewStats.count > 0 && (
+                    <span className="flex items-center gap-1 text-sm font-black text-ink">
+                      <Star size={14} className="fill-[#FACC15] text-[#FACC15]" />
+                      {reviewStats.average} / 5
+                      <span className="font-bold text-ink-muted">({reviewStats.count})</span>
+                    </span>
+                  )}
+                  {detail.ratingCount > 0 && (
+                    <span className="ms-auto text-[11px] font-bold text-ink-muted">
+                      {ar
+                        ? `تقييم متجر المورّد: ${detail.averageRating} / 5 من ${detail.ratingCount}`
+                        : `Supplier's own site: ${detail.averageRating} / 5 from ${detail.ratingCount}`}
+                    </span>
+                  )}
+                </div>
+
+                {reviewError && (
+                  <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-800">
+                    {reviewError}
+                  </div>
+                )}
+
+                {/* Writing one. Only a clinic that has actually ordered the product gets the form. */}
+                {canReview ? (
+                  <Protect permission="store.order">
+                    <div className="mb-5 rounded-2xl border border-line bg-surface-subtle p-4">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black text-ink-muted">
+                          {ar ? "تقييمك" : "Your rating"}
+                        </span>
+                        {[1, 2, 3, 4, 5].map((n) => (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => setReviewDraft((d) => ({ ...d, rating: n }))}
+                            aria-label={`${n}`}
+                          >
+                            <Star
+                              size={22}
+                              className={
+                                n <= reviewDraft.rating
+                                  ? "fill-[#FACC15] text-[#FACC15]"
+                                  : "text-line hover:text-ink-muted"
+                              }
+                            />
+                          </button>
+                        ))}
+                      </div>
+
+                      <textarea
+                        value={reviewDraft.text}
+                        onChange={(e) => setReviewDraft((d) => ({ ...d, text: e.target.value }))}
+                        rows={3}
+                        maxLength={1500}
+                        placeholder={
+                          ar
+                            ? "اشتغلت كويس؟ عيبها إيه؟ اكتب اللي كنت حابب حد يقوله لك قبل ما تشتريها."
+                            : "Did it hold up? What would you want another clinic to know before buying it?"
+                        }
+                        className="mt-3 w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm font-bold text-ink outline-none focus:border-[#FACC15]"
+                      />
+
+                      <div className="mt-3 flex flex-wrap items-center gap-3">
+                        <button
+                          type="button"
+                          disabled={savingReview || reviewDraft.rating < 1}
+                          onClick={() => void saveReview()}
+                          className="rounded-xl bg-ink px-5 py-2.5 text-xs font-black text-white disabled:opacity-50"
+                        >
+                          {savingReview
+                            ? ar
+                              ? "جارٍ الحفظ…"
+                              : "Saving…"
+                            : reviews.some((r) => r.clinicId === clinicId)
+                              ? ar
+                                ? "حدّث تقييمك"
+                                : "Update your review"
+                              : ar
+                                ? "انشر التقييم"
+                                : "Post review"}
+                        </button>
+
+                        {reviews.some((r) => r.clinicId === clinicId) && (
+                          <button
+                            type="button"
+                            disabled={savingReview}
+                            onClick={() => void removeReview()}
+                            className="text-xs font-black text-ink-muted hover:text-red-600 disabled:opacity-50"
+                          >
+                            {ar ? "احذف تقييمي" : "Remove mine"}
+                          </button>
+                        )}
+
+                        <span className="text-[11px] font-bold text-ink-muted">
+                          {ar
+                            ? "هيظهر باسم عيادتك لباقي عيادات ألفا فقط — المورّد مش بيشوفه."
+                            : "Shown under your clinic's name to other Alpha clinics only — the supplier never sees it."}
+                        </span>
+                      </div>
+                    </div>
+                  </Protect>
+                ) : (
+                  <p className="mb-5 rounded-2xl bg-surface-subtle p-4 text-xs font-bold text-ink-muted">
+                    {ar
+                      ? "تقدر تقيّم الصنف ده بعد ما عيادتك تطلبه. التقييمات كلها من عيادات اشترت فعلاً."
+                      : "You can review this once your clinic has ordered it. Every review here is from a clinic that actually bought it."}
+                  </p>
+                )}
+
+                {/* Reading them. */}
+                {loadingReviews ? (
+                  <div className="flex h-20 items-center justify-center">
+                    <Loader2 className="animate-spin text-ink-muted" size={20} />
+                  </div>
+                ) : reviews.length === 0 ? (
+                  <p className="py-4 text-center text-sm font-bold text-ink-muted">
+                    {ar ? "لسه محدش كتب رأيه في الصنف ده." : "No clinic has written about this one yet."}
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {reviews.map((review) => (
+                      <div
+                        key={review.id}
+                        className={`rounded-2xl border p-4 ${
+                          review.clinicId === clinicId ? "border-[#FACC15] bg-[#FACC15]/5" : "border-line"
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-black text-ink">
+                            {review.clinicId === clinicId ? (ar ? "عيادتك" : "Your clinic") : review.clinicName}
+                          </span>
+                          <span className="flex items-center gap-0.5">
+                            {[1, 2, 3, 4, 5].map((n) => (
+                              <Star
+                                key={n}
+                                size={12}
+                                className={n <= review.rating ? "fill-[#FACC15] text-[#FACC15]" : "text-line"}
+                              />
+                            ))}
+                          </span>
+                          <span className="text-[11px] font-bold text-ink-muted">
+                            {new Date(review.createdAt).toLocaleDateString(ar ? "ar-EG" : "en-GB")}
+                          </span>
+                          {review.hidden && (
+                            <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-black text-rose-700">
+                              {ar ? "مخفي — بس انت اللي شايفه" : "Hidden — only you see this"}
+                            </span>
+                          )}
+                        </div>
+                        {review.text && (
+                          <p className="mt-2 whitespace-pre-line text-sm font-bold leading-relaxed text-ink-body">
+                            {review.text}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>

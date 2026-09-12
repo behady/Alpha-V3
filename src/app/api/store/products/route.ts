@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { requireStaffPermission } from "@/lib/apiStaffAuth";
 import { resolveUserClinicId } from "@/lib/adminClinicDb";
 import { loadSupplyStoreConfig, wooRequest } from "@/lib/server/wooClient";
+import { adminDb } from "@/lib/firebaseAdmin";
 import { friendlyStoreError, mapWooCategory, mapWooProduct } from "@/lib/supplyStore";
+import { SUPPLY_REVIEW_STATS_COLLECTION, type SupplyReviewStats } from "@/lib/supplyReviews";
 
 /**
  * The partner's catalogue, proxied.
@@ -80,9 +82,35 @@ export async function GET(request: Request) {
     }
 
     const list = Array.isArray(products.data) ? products.data : [];
+    const mapped = list.map(mapWooProduct).filter((p): p is NonNullable<typeof p> => Boolean(p));
+
+    /**
+     * What Alpha clinics scored these products, in one read.
+     *
+     * From the running-average documents rather than from the reviews themselves: a page shows
+     * two dozen products, and adding up every review for each of them would make the catalogue
+     * slower with every review anybody writes. `getAll` with no ids returns nothing and costs
+     * nothing, which is the usual case until a clinic has reviewed something.
+     */
+    const statsById = new Map<number, { average: number; count: number }>();
+    if (mapped.length > 0) {
+      const db = adminDb();
+      const refs = mapped.map((p) => db.collection(SUPPLY_REVIEW_STATS_COLLECTION).doc(String(p.id)));
+      const docs = await db.getAll(...refs).catch(() => []);
+      for (const doc of docs) {
+        if (!doc.exists) continue;
+        const d = doc.data() as SupplyReviewStats;
+        if (d.count > 0) statsById.set(Number(d.productId), { average: d.average, count: d.count });
+      }
+    }
+
     return NextResponse.json({
       ok: true,
-      products: list.map(mapWooProduct).filter(Boolean),
+      products: mapped.map((p) => ({
+        ...p,
+        alphaRating: statsById.get(p.id)?.average ?? 0,
+        alphaReviewCount: statsById.get(p.id)?.count ?? 0,
+      })),
       categories:
         categories && categories.ok && Array.isArray(categories.data)
           ? categories.data.map(mapWooCategory).filter(Boolean)

@@ -206,6 +206,9 @@ export async function POST(request: Request) {
       currency: wooOrder.currency || config.currency,
       total: wooOrder.total,
       subtotal: ourSubtotal,
+      // The ids on their own, flat, because Firestore cannot query inside an array of maps.
+      // This is what lets /api/store/reviews prove a clinic actually bought what it is reviewing.
+      productIds: [...new Set(draft.lines.map((line) => Math.floor(Number(line.productId)) || 0))].filter(Boolean),
       lines: draft.lines.map((line) => ({
         productId: Number(line.productId),
         name: text(line.name),

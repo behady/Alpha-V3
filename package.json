@@ -110,7 +110,9 @@
     "test:leadinterest": "node tests/leadInterest.test.mjs",
     "test:lab": "npx tsx tests/labCases.test.mjs",
     "_comment_test_supply": "The partner WooCommerce shop. Freezes the one property the whole arrangement rests on — we send product ids and quantities, never prices, so the shop does the pricing and a tampered basket cannot change what anything costs — plus commission rounding, the exclusion of cancelled orders, and the URL check on a field a human types by hand.",
-    "test:supply": "npx tsx tests/supplyStore.test.mts"
+    "test:supply": "npx tsx tests/supplyStore.test.mts",
+    "_comment_test_supplyreviews": "Clinic-to-clinic reviews of the supply store. The running average is the fragile part — it is kept rather than recomputed, so a rating applied twice or reversed once too often corrupts a number nobody watches; every path into it is here. Plus the purchase check, which is the only thing separating a review worth reading from a way to rubbish a competitor's stock.",
+    "test:supplyreviews": "npx tsx tests/supplyReviews.test.mts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
