@@ -219,7 +219,7 @@ export default function PatientsPage() {
                                 <div className={`w-11 h-11 rounded-full ${getAvatarStyle(p.name)} flex items-center justify-center font-black text-base`}>
                                   {p.name.charAt(0).toUpperCase()}
                                 </div>
-                                {renderSourceBadge(p.source)}
+                                {renderSourceBadge(p.referral || p.source)}
                               </div>
                               <h3 className="text-base font-bold text-slate-800 tracking-tight capitalize group-hover:text-slate-900 transition-colors">
                                 {p.name}
@@ -271,7 +271,7 @@ export default function PatientsPage() {
                                 <div className={`w-12 h-12 rounded-full ${getAvatarStyle(p.name)} flex items-center justify-center font-black text-lg`}>
                                     {p.name.charAt(0).toUpperCase()}
                                 </div>
-                                {renderSourceBadge(p.source)}
+                                {renderSourceBadge(p.referral || p.source)}
                             </div>
                             <div className="flex flex-col min-w-0 justify-center">
                                 <h3 className="text-base font-black text-slate-800 tracking-tight truncate capitalize">

@@ -24,6 +24,20 @@ interface PatientData {
   name?: string;
   phone?: string;
   referral?: string;
+  /** Written by the online booking endpoint from a tagged link's ?src= — see patientChannel. */
+  source?: string;
+}
+
+/**
+ * Which channel a patient came through.
+ *
+ * `referral` is what the clinic types into the new-patient form, so it wins. `source` is what the
+ * public booking endpoint writes from a tagged link (?src=meta); without this fallback every
+ * online booking landed in "Unknown / Walk-in" and the tagged links tracked nothing.
+ */
+function patientChannel(patient: PatientData | null, rowReferral: unknown): string {
+  const raw = String(patient?.referral || patient?.source || rowReferral || "").trim();
+  return raw || "Unknown / Walk-in";
 }
 
 interface Props {
@@ -61,7 +75,7 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
     procedures.forEach((proc) => {
       const pid = String(proc.patientId || "");
       const patient = pid ? patientMap[pid] : null;
-      const source = String(patient?.referral || proc.patientReferral || "Unknown / Walk-in").trim() || "Unknown / Walk-in";
+      const source = patientChannel(patient, proc.patientReferral);
 
       if (!map[source]) {
         map[source] = { patientIds: new Set(), services: {}, commission: 0, income: 0, patientPaid: {} };
@@ -79,7 +93,7 @@ export default function SourceReport({ procedures, payments, allPatients, rangeL
       if (pay.type === "expense") return;
       const pid = String(pay.patientId || "");
       const patient = pid ? patientMap[pid] : null;
-      const source = String(patient?.referral || pay.patientReferral || "Unknown / Walk-in").trim() || "Unknown / Walk-in";
+      const source = patientChannel(patient, pay.patientReferral);
 
       if (!map[source]) {
         map[source] = { patientIds: new Set(), services: {}, commission: 0, income: 0, patientPaid: {} };

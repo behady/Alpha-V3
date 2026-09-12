@@ -38,7 +38,7 @@ function normalizeDate(val: unknown): string {
 interface Snapshot {
   procedures: Record<string, unknown>[];
   payments: Record<string, unknown>[];
-  allPatients: { id: string; name?: string; phone?: string; referral?: string; createdAt?: unknown }[];
+  allPatients: { id: string; name?: string; phone?: string; referral?: string; source?: string; createdAt?: unknown }[];
   leads: Record<string, unknown>[];
 }
 
@@ -103,7 +103,7 @@ export default function ReportsPage() {
       const allPatients = patientsSnap.docs.map((d) => ({
         id: d.id,
         ...d.data(),
-      })) as { id: string; name?: string; phone?: string; referral?: string; createdAt?: unknown }[];
+      })) as { id: string; name?: string; phone?: string; referral?: string; source?: string; createdAt?: unknown }[];
 
       const allLedger = ledgerSnap.docs
         .map((d) => ({ id: d.id, ...d.data() } as Record<string, unknown>))

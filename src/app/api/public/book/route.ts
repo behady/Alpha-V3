@@ -35,6 +35,19 @@ const MAX_DAYS_AHEAD = 90;
 
 const MAX_NAME_LENGTH = 80;
 
+/**
+ * The tags the Settings → Online Booking copy buttons hand out, spelled the way a human wants to
+ * read them in the Patient Sources report. A tag nobody recognises is stored as typed.
+ */
+const CHANNEL_LABELS: Record<string, string> = {
+  meta: "Meta / Facebook",
+  facebook: "Meta / Facebook",
+  instagram: "Instagram",
+  google: "Google",
+  tiktok: "TikTok",
+  whatsapp: "WhatsApp",
+};
+
 function bad(message: string, status = 400) {
   return NextResponse.json({ ok: false, error: message }, { status });
 }
@@ -157,6 +170,10 @@ export async function POST(request: Request) {
     const existing = await patientsRef.where("phone", "==", phone).limit(1).get();
 
     let patientId: string;
+    // "How did you hear about us" lives in `referral` everywhere else in the app — the new-patient
+    // form, the patient file, the leads conversion — and that is the field the Patient Sources
+    // report groups by. `source` is kept alongside it for the avatar badge on the patients list.
+    const channel = CHANNEL_LABELS[sourceTag.toLowerCase()] || sourceTag || "Online Booking";
     if (existing.empty) {
       const created = await patientsRef.add({
         name: patientName,
@@ -165,11 +182,22 @@ export async function POST(request: Request) {
         lastVisit: null,
         notes: "Created via Online Booking",
         nextAppointment: dateKey,
-        source: sourceTag || "Online Booking",
+        source: channel,
+        referral: channel,
       });
       patientId = created.id;
     } else {
       patientId = existing.docs[0].id;
+      // A patient who books again through a tagged link: fill the channel in if nobody ever
+      // recorded one, but never overwrite it. First touch is the honest attribution, and the
+      // appointment below keeps this booking's own tag either way.
+      const prev = existing.docs[0].data() || {};
+      const patch: Record<string, string> = {};
+      if (!String(prev.referral || "").trim()) patch.referral = channel;
+      if (!String(prev.source || "").trim()) patch.source = channel;
+      if (Object.keys(patch).length) {
+        await existing.docs[0].ref.update(patch);
+      }
     }
 
     // --- Appointment ------------------------------------------------------
