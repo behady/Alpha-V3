@@ -8,7 +8,7 @@ import {
   LayoutDashboard, Users, Calendar, Wallet, Settings, Sparkles,
   FileBarChart, Menu, X, LogOut, Loader2, Languages,
   Package, ChevronLeft, ChevronRight, Clock, FlaskConical, ShieldCheck,
-  LifeBuoy, Inbox, Megaphone, Rocket
+  LifeBuoy, Inbox, Megaphone, Rocket, ShoppingBag
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { auth } from "@/lib/firebase";
@@ -29,9 +29,11 @@ import TutorialOverlay from "@/components/TutorialOverlay";
 import { WelcomeProvider } from "@/context/WelcomeContext";
 import WelcomeCoach from "@/components/welcome/WelcomeCoach";
 import TrialCountdownBanner from "@/components/welcome/TrialCountdownBanner";
+import { DemoTourBanner } from "@/components/welcome/DemoTour";
 import WhatsAppIcon from "@/components/icons/WhatsAppIcon";
 import { useUnreadChatCount } from "@/lib/useUnreadChatCount";
 import { useChatAlerts } from "@/lib/useChatAlerts";
+import { useSupplyStoreStatus } from "@/lib/useSupplyStore";
 
 const plusJakartaSans = Plus_Jakarta_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
 const cairo = Cairo({ subsets: ["arabic"] });
@@ -68,6 +70,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const unreadChats = useUnreadChatCount();
   // And the chime + desktop notification when a new one arrives, on whichever page is open.
   useChatAlerts();
+  // Whether a partner supply shop is connected at all. Decides if the Store rail item exists.
+  const supplyStore = useSupplyStoreStatus();
 
   const [isOpen, setIsOpen] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
@@ -132,6 +136,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { key: "patients", href: "/patients", icon: Users },
     { key: "appointments", href: "/appointments", icon: Calendar },
     { key: "inventory", href: "/inventory", icon: Package },
+    /**
+     * The partner supplier's shop. Absent unless a shop is actually connected — see hasAccess —
+     * because a rail item that opens onto "no store configured" reads as broken rather than as
+     * something the platform has not switched on yet.
+     */
+    { key: "store", href: "/store", icon: ShoppingBag },
     // Gated on access.lab, which canAccessNavItem derives from the key. The permission and both
     // translations of this label already existed and pointed at nothing until the page was built.
     { key: "lab", href: "/lab", icon: FlaskConical },
@@ -153,6 +163,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (key === 'appointments') {
       if (appointmentsVisibility === 'hidden') return false;
       if (appointmentsVisibility === 'desktop' && isMobile) return false;
+    }
+
+    // Not a paid tier feature: the supply store costs the clinic nothing and the platform earns
+    // on what it sells, so gating it behind a plan would only shrink what it earns. It appears
+    // when a shop is connected and the person holds access.store, and not otherwise.
+    if (key === 'store') {
+      if (!supplyStore.connected) return false;
+      return canAccessNavItem('store', user, isAdmin);
     }
 
     // Tier based gating
@@ -189,7 +207,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (key === 'chats') return canAccessNavItem('patients', user, isAdmin);
 
     return canAccessNavItem(key, user, isAdmin);
-  }, [user, isAdmin, appointmentsVisibility, clinic]);
+  }, [user, isAdmin, appointmentsVisibility, clinic, supplyStore.connected]);
 
   const visibleItems = allNavItems.filter((item) => hasAccess(item.key, false));
   const showSettings = canShowSettingsNavLink(user, isAdmin);
@@ -376,6 +394,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
            {/* The last few days of a trial. Mutually exclusive with the read-only notice below —
                the countdown stops the moment the date passes and that one takes over. */}
            <TrialCountdownBanner />
+
+           {/* Only while the sample clinic is open: where you are, and the way back. */}
+           <DemoTourBanner />
 
            {isReadOnly && (
              <div className="bg-red-50 border-b border-red-200 px-4 py-3 flex items-center justify-center gap-3 z-50 shadow-sm relative">

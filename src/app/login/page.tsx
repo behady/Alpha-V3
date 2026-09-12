@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Mail, Lock, ArrowRight, Loader2, ShieldCheck, KeyRound, AlertCircle, CheckCircle2, Building2, User } from "lucide-react";
 import {
@@ -15,6 +15,10 @@ import {
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { useLanguage } from "@/context/LanguageContext";
+import { currentSignupKey, finishSignupAttempt } from "@/lib/onboardingSignup";
+import { SETUP_ROUTE } from "@/lib/setupWizard";
+import { inviteLinkPath, isValidInviteCode, normalizeInviteCode } from "@/lib/inviteLinks";
+import LanguageToggle from "@/components/common/LanguageToggle";
 
 // Where the login page hands the chosen workspace to ClinicContext. Mirrors the existing
 // superAdminClinicId pattern; ClinicContext clears both on logout.
@@ -41,6 +45,42 @@ export default function LoginPage() {
   const [clinicId, setClinicId] = useState("");
   const [loading, setLoading] = useState(false);
 
+  /**
+   * Who is signing up. An owner names the clinic here and the account and the clinic are created
+   * together — one form, no second screen, straight into the setup wizard. Staff joining an
+   * existing clinic have no clinic to name; they create the account and are taken to the join
+   * screen as before.
+   */
+  const [signupKind, setSignupKind] = useState<"owner" | "staff">("owner");
+  const [clinicName, setClinicName] = useState("");
+  // The wait between "account created" and "clinic created", so the button can say so.
+  const [creatingClinic, setCreatingClinic] = useState(false);
+
+  /**
+   * Arrived from an invite link (`/join/<code>` sends people here with `?invite=<code>`). The
+   * form opens on "create account, joining a team", the banner names the clinic, and every
+   * successful sign-in or sign-up goes back to the join page instead of the dashboard, where
+   * the invite is accepted.
+   */
+  const [invite, setInvite] = useState<{ code: string; clinicName: string; role: string } | null>(null);
+  useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get("invite");
+    const code = normalizeInviteCode(raw);
+    if (!raw || !isValidInviteCode(code)) return;
+    setMode("signup");
+    setSignupKind("staff");
+    setInvite({ code, clinicName: "", role: "" });
+    fetch(`/api/invites/accept?code=${encodeURIComponent(code)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.ok && data.found) setInvite({ code, clinicName: data.clinicName || "", role: data.role || "" });
+      })
+      .catch(() => {});
+  }, []);
+
+  /** Where a signed-in person goes: the invite they came with, or the dashboard. */
+  const afterAuth = () => router.push(invite ? inviteLinkPath(invite.code) : "/");
+
   // Status states
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
@@ -57,8 +97,19 @@ export default function LoginPage() {
     subWelcome: language === 'ar' ? "قم بتسجيل الدخول للوصول إلى نظام العيادة" : "Sign in to access your clinic system",
     signUpTitle: language === 'ar' ? "إنشاء حساب جديد" : "Create your account",
     signUpSub: language === 'ar'
-      ? "افتح حساب، وبعدها هنطلب منك اسم العيادة على طول."
-      : "Create an account, then we'll ask for your clinic name on the next screen.",
+      ? "دقيقة واحدة وتكون جوه النظام."
+      : "One minute and you're in.",
+    kindOwner: language === 'ar' ? "بفتح عيادة جديدة" : "I'm opening a new clinic",
+    kindStaff: language === 'ar' ? "بنضم لفريق عيادة" : "I'm joining a clinic's team",
+    kindStaffHint: language === 'ar'
+      ? "هتعمل الحساب، وبعدها هتدخل معرّف العيادة اللي هيدهولك مديرك."
+      : "You'll create your account, then enter the Clinic ID your admin gives you.",
+    clinicName: language === 'ar' ? "اسم العيادة" : "Clinic name",
+    clinicNameHint: language === 'ar' ? "زي ما هيظهر على الروشتة والفاتورة. تقدر تغيّره بعدين." : "As it should appear on prescriptions and invoices. You can change it later.",
+    creatingClinic: language === 'ar' ? "بنجهّز عيادتك…" : "Setting up your clinic…",
+    clinicCreateFailed: language === 'ar'
+      ? "الحساب اتعمل، بس تعذّر إنشاء العيادة. هنوديك لشاشة إنشاء العيادة تجرّب تاني."
+      : "Your account was created, but the clinic could not be. Taking you to the clinic screen to try again.",
     resetTitle: language === 'ar' ? "استعادة كلمة المرور" : "Reset Password",
     resetSub: language === 'ar' ? "سنرسل لك رابطاً لإنشاء كلمة مرور جديدة" : "We'll send you a link to create a new password",
     name: language === 'ar' ? "اسمك" : "Your name",
@@ -192,7 +243,7 @@ export default function LoginPage() {
       const provider = new GoogleAuthProvider();
       const cred = await signInWithPopup(auth, provider);
       if (!(await applyClinicSelection(cred.user.uid))) return;
-      router.push("/"); // Redirect to dashboard on success
+      afterAuth(); // the invite they came with, or the dashboard
     } catch (error: any) {
       console.error("Google sign-in failed:", error?.code, error);
       setErrorMsg(getGoogleError(error?.code || ""));
@@ -209,7 +260,7 @@ export default function LoginPage() {
     try {
       const cred = await signInWithEmailAndPassword(auth, email, password);
       if (!(await applyClinicSelection(cred.user.uid))) return;
-      router.push("/");
+      afterAuth();
     } catch (error: any) {
       console.error(error);
       setErrorMsg(getFriendlyError(error.code));
@@ -237,8 +288,43 @@ export default function LoginPage() {
          */
         await setDoc(doc(db, "users", cred.user.uid), { name: chosenName }, { merge: true });
       }
-      // A brand-new account has no clinic, so ClinicContext will route to /onboarding from here.
-      router.push("/");
+
+      if (signupKind === "owner" && clinicName.trim()) {
+        /**
+         * The clinic, in the same breath as the account.
+         *
+         * Same route the onboarding screen uses, same signup key, so a retry after a flaky
+         * network lands on the same clinic instead of a second one. Then a FULL page load into
+         * the setup wizard rather than router.push: the role was just written server-side, and a
+         * fresh load is the one way to be sure AuthContext reads it before ClinicContext decides
+         * where to send us. If the clinic call fails, the account still exists — the onboarding
+         * screen picks up from there with its own repair logic.
+         */
+        setCreatingClinic(true);
+        try {
+          const idToken = await cred.user.getIdToken();
+          const res = await fetch("/api/onboarding/create-clinic", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+            body: JSON.stringify({ clinicName: clinicName.trim(), signupKey: currentSignupKey() }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data?.ok) throw new Error(data?.error || "create-clinic failed");
+          finishSignupAttempt();
+          window.location.assign(SETUP_ROUTE);
+          return;
+        } catch (clinicError) {
+          console.error("Clinic creation after signup failed:", clinicError);
+          setErrorMsg(txt.clinicCreateFailed);
+          setCreatingClinic(false);
+          setTimeout(() => router.push("/onboarding"), 2500);
+          return;
+        }
+      }
+
+      // Staff joining a clinic: no clinic to make. ClinicContext routes to /onboarding, whose
+      // join form takes it from here — or the invite link they came with.
+      afterAuth();
     } catch (error: any) {
       console.error(error);
       setErrorMsg(getFriendlyError(error.code));
@@ -266,8 +352,10 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen bg-surface-subtle flex items-center justify-center p-4 font-sans selection:bg-primary-100 selection:text-primary-900" dir={isRTL ? 'rtl' : 'ltr'}>
-      <div className="max-w-md w-full bg-white rounded-[2.5rem] p-8 md:p-10 shadow-2xl shadow-slate-200/50 border border-slate-100 animate-in fade-in zoom-in-95 duration-500">
-        
+      <div className="max-w-md w-full bg-white rounded-[2.5rem] p-8 md:p-10 shadow-2xl shadow-slate-200/50 border border-slate-100 animate-in fade-in zoom-in-95 duration-500 relative">
+        {/* The language switch, before anything else on the page has to be read. */}
+        <LanguageToggle className={`absolute top-5 ${isRTL ? "left-5" : "right-5"}`} />
+
         {/* LOGO & HEADER */}
         <div className="flex flex-col items-center text-center mb-10">
           <div className="w-16 h-16 bg-slate-900 text-white rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-slate-900/20">
@@ -280,6 +368,22 @@ export default function LoginPage() {
             {isResetMode ? txt.resetSub : isSignUpMode ? txt.signUpSub : txt.subWelcome}
           </p>
         </div>
+
+        {/* Came from an invite link: say where sign-in leads. */}
+        {invite && (
+          <div className="mb-6 p-4 bg-accent-tint text-ink rounded-2xl text-sm font-bold flex items-start gap-3 border border-emerald-200">
+            <Building2 size={18} className="shrink-0 mt-0.5 text-accent" />
+            <p>
+              {invite.clinicName
+                ? language === 'ar'
+                  ? `معزوم تنضم لفريق ${invite.clinicName}. سجّل دخول أو اعمل حساب وهتدخل على طول.`
+                  : `You're invited to join ${invite.clinicName}. Sign in or create an account and you're in.`
+                : language === 'ar'
+                  ? "معزوم تنضم لعيادة. سجّل دخول أو اعمل حساب وهتدخل على طول."
+                  : "You've been invited to a clinic. Sign in or create an account and you're in."}
+            </p>
+          </div>
+        )}
 
         {/* ALERTS */}
         {errorMsg && (
@@ -322,6 +426,45 @@ export default function LoginPage() {
           </form>
         ) : isSignUpMode ? (
           <form onSubmit={handleSignUp} className="space-y-4 animate-in fade-in slide-in-from-right-4">
+            {/* Owner or staff. Decides whether a clinic is created with the account. */}
+            <div className="grid grid-cols-2 gap-2 p-1 bg-surface-subtle rounded-2xl border-2 border-slate-100" role="radiogroup">
+              {(["owner", "staff"] as const).map((kind) => (
+                <button
+                  key={kind}
+                  type="button"
+                  role="radio"
+                  aria-checked={signupKind === kind}
+                  onClick={() => setSignupKind(kind)}
+                  className={`py-3 px-3 rounded-xl text-sm font-black transition-colors ${
+                    signupKind === kind ? "bg-slate-900 text-white shadow" : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  {kind === "owner" ? txt.kindOwner : txt.kindStaff}
+                </button>
+              ))}
+            </div>
+            {signupKind === "staff" && !invite && (
+              <p className={`text-xs font-medium text-slate-400 ${isRTL ? 'pr-2' : 'pl-2'}`}>{txt.kindStaffHint}</p>
+            )}
+
+            {signupKind === "owner" && (
+              <div>
+                <div className="relative">
+                  <Building2 size={20} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`} />
+                  <input
+                    type="text"
+                    value={clinicName}
+                    onChange={(e) => setClinicName(e.target.value)}
+                    placeholder={txt.clinicName}
+                    autoComplete="organization"
+                    className={`w-full py-4 bg-surface-subtle border-2 border-slate-100 rounded-2xl text-slate-800 font-semibold focus:border-line-strong focus:bg-surface outline-none transition-all ${isRTL ? 'pr-12 pl-4' : 'pl-12 pr-4'}`}
+                    required
+                  />
+                </div>
+                <p className={`text-xs font-medium text-slate-400 mt-2 ${isRTL ? 'pr-2' : 'pl-2'}`}>{txt.clinicNameHint}</p>
+              </div>
+            )}
+
             <div className="relative">
               <User size={20} className={`absolute top-1/2 -translate-y-1/2 text-slate-400 ${isRTL ? 'right-4' : 'left-4'}`} />
               <input
@@ -370,7 +513,14 @@ export default function LoginPage() {
               disabled={loading}
               className="w-full bg-accent text-white py-4 rounded-2xl font-black text-sm shadow-xl shadow-emerald-900/20 hover:bg-accent-strong hover:-translate-y-0.5 active:translate-y-0 transition-all flex items-center justify-center gap-2 mt-2 disabled:opacity-60"
             >
-              {loading ? <Loader2 size={20} className="animate-spin" /> : <>{txt.signUpBtn} {isRTL ? <ArrowRight size={18} className="rotate-180" /> : <ArrowRight size={18} />}</>}
+              {loading ? (
+                <>
+                  <Loader2 size={20} className="animate-spin" />
+                  {creatingClinic ? txt.creatingClinic : null}
+                </>
+              ) : (
+                <>{txt.signUpBtn} {isRTL ? <ArrowRight size={18} className="rotate-180" /> : <ArrowRight size={18} />}</>
+              )}
             </button>
 
             <div className="relative flex py-5 items-center">

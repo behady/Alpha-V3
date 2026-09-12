@@ -1,6 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { pickStartupLanguage } from "@/lib/startupLanguage";
 
 type Language = 'en' | 'ar';
 
@@ -15,6 +16,9 @@ const translations = {
     appointments: "Appointments",
     lab: "Lab Tracking",
     inventory: "Inventory",
+    // Sits beside Inventory on purpose: one screen says what you have left, the next says where
+    // to get more. Only appears when a partner shop is actually connected.
+    store: "Supply Store",
     finance: "Finance",
     paymentRecovery: "Collect Dues",
     // The rail item for /ai. `briefing`, `messages` and `attendanceAi` below it are still used —
@@ -432,6 +436,7 @@ const translations = {
     appointments: "المواعيد",
     lab: "متابعة المعمل",
     inventory: "المخزون",
+    store: "متجر المستلزمات",
     finance: "الحسابات",
     paymentRecovery: "تحصيل المستحقات",
     intelligence: "ذكاء ألفا",
@@ -843,9 +848,16 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [language, setLanguage] = useState<Language>('en');
 
   useEffect(() => {
-    const savedLang = localStorage.getItem('alpha-lang') as Language;
+    // A saved choice wins; otherwise the browser's language decides (Arabic for any Arabic
+    // locale). Only a choice made with the switch is ever saved — see lib/startupLanguage.
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem('alpha-lang');
+    } catch {
+      /* private mode */
+    }
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (savedLang) setLanguage(savedLang);
+    setLanguage(pickStartupLanguage(saved, navigator.languages?.length ? navigator.languages : [navigator.language]));
   }, []);
 
   const toggleLanguage = () => {

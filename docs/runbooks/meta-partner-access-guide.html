@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Alpha — Connecting a clinic's Facebook and WhatsApp</title>
+<style>
+  @page { size: A4; margin: 17mm 15mm; }
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #1a1a1a; font-size: 10.5pt; line-height: 1.45; margin: 0; }
+  h1 { font-size: 21pt; margin: 0 0 4px; letter-spacing: -0.3px; }
+  h2 { font-size: 14.5pt; margin: 24px 0 8px; padding-bottom: 4px; border-bottom: 2px solid #1a1a1a; }
+  h3 { font-size: 11.5pt; margin: 15px 0 5px; }
+  .sub { color: #555; margin: 0 0 16px; }
+  .box { border: 1px solid #bbb; border-left: 5px solid #e5b800; padding: 9px 13px; margin: 11px 0; background: #fffbe8; }
+  .box.gray { border-left-color: #666; background: #f4f4f4; }
+  .box.red { border-left-color: #c0392b; background: #fdf0ee; }
+  .id { font-family: Consolas, "Courier New", monospace; font-size: 10pt; background: #eee; padding: 1px 5px; border-radius: 3px; white-space: nowrap; }
+  .path { font-weight: 600; }
+  ol li, ul li { margin: 4px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 13px; font-size: 10pt; }
+  th, td { border: 1px solid #ccc; padding: 5px 8px; vertical-align: top; text-align: left; }
+  th { background: #f0f0f0; }
+  .pb { page-break-before: always; }
+  .ar { direction: rtl; text-align: right; font-family: "Segoe UI", Tahoma, Arial, sans-serif; font-size: 11pt; }
+  .ar h2, .ar h3 { text-align: right; }
+  .ar ol, .ar ul { padding-right: 24px; padding-left: 0; }
+  .ar th, .ar td { text-align: right; }
+  .ar .box { border-left: 1px solid #bbb; border-right: 5px solid #e5b800; }
+  .ar .box.gray { border-right-color: #666; }
+  .small { font-size: 9.5pt; color: #555; }
+  .check li { list-style: none; }
+  .check li::before { content: "☐  "; }
+  .fill td { height: 22px; }
+  .who { display: inline-block; font-size: 8.5pt; font-weight: 700; padding: 0 6px; border-radius: 3px; margin-right: 4px; vertical-align: middle; }
+  .who.c { background: #d9ecff; color: #0b4a8b; }
+  .who.a { background: #ffe9a8; color: #6b4d00; }
+</style>
+</head>
+<body>
+
+<h1>Connecting a clinic to Alpha on Meta</h1>
+<p class="sub">Each clinic owns its own Meta Business Portfolio. Alpha gets partner access to two things only: the Facebook Page (leads) and the WhatsApp account (bot + webhook). Version 3 · 2026-09-09.</p>
+
+<div class="box">
+<b>The rule.</b> The clinic owns its Business Portfolio, its Page, its Instagram, its ad account, its card and its WhatsApp number. Alpha never touches ads or money. Alpha is added as a <b>partner</b> on the Page and on the WhatsApp Business Account so that leads and WhatsApp messages flow into the clinic's Alpha account. The clinic can remove the partner at any time.
+</div>
+
+<h3>Contents</h3>
+<ol>
+<li>What Alpha needs, and what it does not</li>
+<li>One-time setup on Alpha's side</li>
+<li>What the clinic prepares before the meeting</li>
+<li>The setup meeting, step by step (≈ 60 minutes, online or on site)</li>
+<li>Alpha's side after the meeting</li>
+<li>What to tell the clinic's ad person (so leads arrive usable)</li>
+<li>Record sheet</li>
+<li>Offboarding</li>
+<li>Troubleshooting</li>
+<li>Arabic handout for the clinic (ورقة للعيادة)</li>
+</ol>
+
+<h2>1. What Alpha needs, and what it does not</h2>
+<table>
+<tr><th style="width:26%">Asset</th><th style="width:20%">Owner</th><th style="width:22%">Alpha's access</th><th>Purpose</th></tr>
+<tr><td>Business Portfolio</td><td>Clinic</td><td>None (partner only)</td><td>Holds everything below.</td></tr>
+<tr><td>Facebook Page</td><td>Clinic</td><td><b>Partner, Full control</b> (or Content + Insights + Ads, plus Leads access)</td><td>Receive lead-form submissions into the clinic's Leads inbox.</td></tr>
+<tr><td>Instagram account</td><td>Clinic</td><td>None needed</td><td>Their ads. Lead forms on Instagram still deliver through the Page.</td></tr>
+<tr><td>Ad account + card</td><td>Clinic</td><td><b>None</b></td><td>The clinic runs and pays for its own ads.</td></tr>
+<tr><td>WhatsApp Business Account (WABA) + number</td><td>Clinic</td><td><b>Partner, Full control</b></td><td>Alpha's app receives messages (webhook), the bot replies, reminders go out as templates.</td></tr>
+<tr><td>WhatsApp template billing</td><td>Clinic (card on their WABA)</td><td>None</td><td>Bot replies are free. Reminders and follow-ups are templates and are billed by Meta to the clinic's card. No working card = no reminders, bot still works.</td></tr>
+</table>
+
+<div class="box gray">
+<b>Alpha's identifiers</b> (the clinic needs the first one)<br>
+Business portfolio ID: <span class="id">1135213139685152</span> &nbsp;·&nbsp; Portfolio name: ألفا لعلاج و تجميل الأسنان<br>
+Meta app: Alpha Dental <span class="id">1920583481957068</span> &nbsp;·&nbsp; System user: <b>Ahmed Tarek</b> (Admin)<br>
+Privacy policy URL the clinic may use in lead forms: <span class="id">https://alpha-v3-live.vercel.app/privacy</span>
+</div>
+
+<h2 class="pb">2. One-time setup on Alpha's side</h2>
+<ul class="check">
+<li><b>App is Live</b> with the leads and WhatsApp webhooks verified — already done.</li>
+<li><b>System-user token</b> exists and never expires, with: pages_show_list, leads_retrieval, pages_read_engagement, pages_manage_metadata, whatsapp_business_management, whatsapp_business_messaging — already done. No ads permissions are needed in this model.</li>
+<li><b>Business Verification of Alpha's portfolio</b> — recommended, not required for the first clinics. Meta is stricter with unverified partners on WhatsApp assets, and verification is required if you later want the self-serve "Connect" button (Embedded Signup) inside Alpha.</li>
+<li><b>Superadmin login</b> ready: the Meta Leads tab and the clinic's Settings → WhatsApp card are where you connect things.</li>
+<li><b>A checklist copy of this document</b> per clinic, and the Arabic handout sent 2–3 days before the meeting so they arrive prepared.</li>
+</ul>
+
+<h2>3. What the clinic prepares before the meeting</h2>
+<p>Send them the Arabic handout (last pages). In short, they bring:</p>
+<ol>
+<li><b>The owner's personal Facebook login</b>, on their own laptop or phone. Portfolios are created from a personal account; it should be the owner's, not an employee's who may leave.</li>
+<li><b>Admin access to the clinic's Facebook Page</b> (and the Instagram login if it is not yet connected to the Page).</li>
+<li><b>A SIM for the clinic's WhatsApp line</b> with <u>no WhatsApp account on it</u>, in a phone that receives SMS during the meeting. If the number already has WhatsApp: delete that account in the app first (Settings → Account → Delete my account). The number will be used by the bot from now on; staff chat from the Alpha inbox, not from the WhatsApp app.</li>
+<li><b>A 6-digit PIN</b> they choose for the WhatsApp number (two-step verification). They keep it; Alpha does not.</li>
+<li><b>A payment card</b> for Meta (ads and WhatsApp templates). Any card they have; Alpha never sees or types it. If no card works, ads and reminders wait, everything else proceeds.</li>
+<li><b>Business documents</b> for verification (commercial register or tax card + a utility bill/address). Optional on the day; needed later for more than 250 WhatsApp reminders a day or the green tick.</li>
+<li><b>The names of the two or three treatments</b> they advertise (for the lead-form question, section 6) and <b>who answers leads</b> (that person needs an Alpha user with notifications on).</li>
+</ol>
+
+<div class="box red">
+<b>Alpha staff never type or read the clinic's Facebook password, card number or PIN.</b> During an online meeting the clinic shares their screen and types; on site the clinic owner sits at the keyboard for those three moments. Everything else you may drive.
+</div>
+
+<h2 class="pb">4. The setup meeting, step by step</h2>
+<p><span class="who c">CLINIC</span> = clinic types on their own account. &nbsp; <span class="who a">ALPHA</span> = you, on your account. Skip any part they already have.</p>
+
+<h3>Part A — Business Portfolio (10 min)</h3>
+<ol>
+<li><span class="who c">CLINIC</span> Go to <span class="path">business.facebook.com</span> → <b>Create a business portfolio</b> (top-left menu if they already have one for something else). Name = clinic name; their name; a clinic email. Confirm the email from their inbox.</li>
+<li><span class="who c">CLINIC</span> <span class="path">Settings → Business info</span>: fill <b>Legal business name, address, phone, website</b> (Facebook Page URL is accepted as website). WhatsApp account creation is refused until these are filled — this is not optional.</li>
+<li><span class="who c">CLINIC</span> <span class="path">Settings → Accounts → Pages → Add → Add a Page</span> → choose the clinic's Page. It becomes owned by the portfolio.</li>
+<li><span class="who c">CLINIC</span> <span class="path">Settings → Accounts → Instagram accounts → Add</span> → log in to the clinic's Instagram (must be a professional account; switch inside the Instagram app if not). Optional for Alpha, needed for their ads.</li>
+<li><span class="who c">CLINIC</span> <span class="path">Settings → Accounts → Ad accounts → Add → Create a new ad account</span> → time zone Cairo, currency EGP (cannot be changed later) → add their card under <span class="path">Billing &amp; payments</span>. Alpha steps away from the screen for the card. This whole step is theirs; if they already run ads, skip.</li>
+<li><span class="who c">CLINIC</span> (Recommended, can be later) <span class="path">Settings → Security Centre → Business verification</span>: upload commercial register / tax card. Takes days; it raises WhatsApp limits and allows more numbers.</li>
+</ol>
+
+<h3>Part B — Share the Page with Alpha (5 min)</h3>
+<ol>
+<li><span class="who c">CLINIC</span> <span class="path">Settings → Users → Partners → Add → Give a partner access to your assets</span>.</li>
+<li><span class="who c">CLINIC</span> Partner business ID <span class="id">1135213139685152</span> → Next.</li>
+<li><span class="who c">CLINIC</span> Under <b>Pages</b>, tick the clinic's Page → <b>Full control</b>. If they prefer minimal: Content, Insights, Ads. Do not tick ad accounts or Instagram — Alpha does not need them.</li>
+<li><span class="who c">CLINIC</span> Save. The Page now shows under <span class="path">Partners → ألفا</span> with its permissions; that screen is also where they remove it one day.</li>
+<li><span class="who c">CLINIC</span> <b>Leads access:</b> <span class="path">Meta Business Suite (business.facebook.com/latest) → choose the Page → Integrations → Leads access</span>. If it shows "Customise access", press it → Confirm. Then the <b>Partners</b> tab → Assign → ألفا لعلاج و تجميل الأسنان. If Leads access was never customised, the default already allows all admins and connected apps — pressing Customise is still the safe move because it lists what has access.</li>
+</ol>
+<p class="small"><b>Alternative:</b> <span class="who a">ALPHA</span> sends a request instead — <span class="path">Alpha's Business settings → Partners → Add → Ask a partner to assign you their assets</span> → creates a link → the clinic opens it and approves. Same result; useful when the meeting is over the phone.</p>
+
+<h3>Part C — WhatsApp Business Account (20 min)</h3>
+<ol>
+<li><span class="who c">CLINIC</span> <span class="path">Settings → Accounts → WhatsApp accounts → Add → Create a new WhatsApp Business account</span> → name = clinic name → time zone Cairo → currency. If Meta says "policy requirements not met", Business info (Part A step 2) is incomplete.</li>
+<li><span class="who c">CLINIC</span> Open <span class="path">WhatsApp Manager</span> (the "Open in WhatsApp Manager" link, or business.facebook.com/wa/manage) → <b>Phone numbers → Add phone number</b> → display name = clinic name as on the Page (Arabic is fine; no emojis, no "official") → category Medical &amp; Health → country Egypt → the SIM's number → verify by <b>SMS</b> → type the code that arrives on the SIM.</li>
+<li><span class="who c">CLINIC</span> On the number: <span class="path">Settings → Two-step verification → set PIN</span>. Their PIN; write nothing down for Alpha.</li>
+<li><span class="who c">CLINIC</span> <span class="path">WhatsApp Manager → Payment settings → Add payment method</span> → their card. Skip if no card yet; only templates need it.</li>
+<li><span class="who c">CLINIC</span> Share it with Alpha: <span class="path">Settings → Users → Partners → ألفا → Assign assets → WhatsApp accounts</span> → tick the new WABA → <b>Full control (Manage WhatsApp business account)</b> → Save. Full control is what lets Alpha's app subscribe to the account and register templates.</li>
+<li><span class="who c">CLINIC</span> Read out loud, or screenshot for you, two numbers from WhatsApp Manager: the <b>WhatsApp Business Account ID</b> (on the account overview) and the <b>Phone number ID</b> (on the number's row). These are not secrets.</li>
+</ol>
+
+<h3>Part D — Alpha connects (10 min)</h3>
+<ol>
+<li><span class="who a">ALPHA</span> <span class="path">Alpha's Business settings → Users → System users → Ahmed Tarek → Assign assets</span> → <b>Pages</b> → tick the clinic's Page (it appears with the clinic's business name) → Full control. Then <b>WhatsApp accounts</b> → tick the clinic's WABA → Full control. Without this the token cannot see either asset.</li>
+<li><span class="who a">ALPHA</span> Superadmin → <b>Meta Leads</b> tab → the clinic's Page is now in the dropdown → select the clinic → <b>Connect</b>. This subscribes the Page's lead forms to Alpha's webhook. Every future form on the Page delivers automatically.</li>
+<li><span class="who a">ALPHA</span> Open the clinic in Alpha → <span class="path">Settings → WhatsApp → "Official WhatsApp (Meta)" card</span> → paste Phone Number ID and WABA ID → Save. The save writes the routing entry and subscribes the Alpha app to the clinic's WABA.</li>
+<li><span class="who c">CLINIC</span> In the same card, the <b>Register</b> box: the clinic types their 6-digit PIN → Register. The box shows Meta's exact answer; "133005" means wrong PIN, "already registered" means a WhatsApp app account still exists on the SIM.</li>
+<li><span class="who a">ALPHA</span> Templates: <span class="id">npx tsx scripts/register-meta-templates.mts --waba=&lt;clinic WABA id&gt;</span>. They arrive PENDING and are approved by Meta within minutes to 24 h. Reminders wait for approval; the bot does not.</li>
+<li><span class="who a">ALPHA</span> Check the clinic's Alpha settings the bot depends on: doctors and working hours filled in (no schedule = the bot will not offer booking), auto-confirm toggle as the clinic wants, opt-out footer on, notification language.</li>
+</ol>
+
+<h3>Part E — Test everything before you leave (10 min)</h3>
+<ol>
+<li><span class="who a">ALPHA</span> Test lead: <span class="path">developers.facebook.com/tools/lead-ads-testing</span> → the clinic's Page → any form (if none exists yet, the clinic creates a quick one in Ads Manager → Instant forms, or you test after their first form) → Create lead → it appears in the clinic's Alpha Leads inbox within seconds, source "Meta ads". Delete the test lead afterwards.</li>
+<li><span class="who c">CLINIC</span> Test chat: from a personal phone send "hi" to the clinic number → the bot answers in Arabic with the clinic's name → walk through doctor, day, time → the booking appears in the clinic's Alpha calendar, and the receptionist's phone gets the push.</li>
+<li><span class="who a">ALPHA</span> After a template is APPROVED (later the same day): send one reminder from Alpha and confirm delivery. If it fails, the clinic's WABA has no payment method.</li>
+<li>Fill the record sheet (section 7). Done.</li>
+</ol>
+
+<h2 class="pb">5. Alpha's side after the meeting — recap checklist</h2>
+<ul class="check">
+<li>Page assigned to system user Ahmed Tarek (Full control).</li>
+<li>WABA assigned to system user Ahmed Tarek (Full control).</li>
+<li>Page connected to the clinic in the Meta Leads tab; test lead arrived.</li>
+<li>Phone Number ID + WABA ID saved in the clinic's Settings → WhatsApp; number registered (status shows connected).</li>
+<li>Templates registered on the clinic's WABA; at least one APPROVED before the first reminder.</li>
+<li>Receptionist has an Alpha user, phone push enabled, set as default owner of new leads.</li>
+<li>Record sheet filed.</li>
+</ul>
+
+<h2>6. What to tell the clinic's ad person</h2>
+<p>Alpha does not run or judge their ads. Two things about the <b>lead form</b> decide whether leads arrive usable; say them once and put them in the handout:</p>
+<ol>
+<li><b>First multiple-choice question = the treatment.</b> e.g. "إيه الخدمة اللي مهتم بيها؟" with short answers (تقويم معدني / تقويم شفاف / زراعة / تبييض / مش عارف ومحتاج استشارة). Alpha reads that answer as the lead's interest and shows it on the card and in the funnel. A "preferred contact time" question is fine, but <i>after</i> it.</li>
+<li><b>Ask for phone number, not email.</b> Prefill fields Full name + Phone number. Egyptian patients skip email and the receptionist calls anyway.</li>
+</ol>
+<p>Also useful: the form needs a privacy-policy link (Meta requires it; a PDF is refused). They may use their website's or Alpha's <span class="id">https://alpha-v3-live.vercel.app/privacy</span>. And every new form on a connected Page delivers to Alpha automatically — no need to tell you when they create one.</p>
+
+<h2>7. Record sheet (one per clinic)</h2>
+<table class="fill">
+<tr><th style="width:40%">Field</th><th>Value</th></tr>
+<tr><td>Clinic name / Alpha clinic ID</td><td></td></tr>
+<tr><td>Owner's name + phone (portfolio admin)</td><td></td></tr>
+<tr><td>Clinic Business Portfolio ID</td><td></td></tr>
+<tr><td>Facebook Page ID</td><td></td></tr>
+<tr><td>Page shared to Alpha (date, permission level)</td><td></td></tr>
+<tr><td>Leads access granted to Alpha (yes/no)</td><td></td></tr>
+<tr><td>Assigned to system user (date)</td><td></td></tr>
+<tr><td>Connected in Meta Leads tab (date) / test lead OK</td><td></td></tr>
+<tr><td>WhatsApp number</td><td></td></tr>
+<tr><td>WABA ID</td><td></td></tr>
+<tr><td>Phone number ID</td><td></td></tr>
+<tr><td>WABA shared to Alpha (date) / registered (date)</td><td></td></tr>
+<tr><td>Payment method on WABA (yes/no)</td><td></td></tr>
+<tr><td>Templates approved (date)</td><td></td></tr>
+<tr><td>Receptionist owning leads (Alpha user)</td><td></td></tr>
+<tr><td>Business verification status</td><td></td></tr>
+</table>
+
+<h2 class="pb">8. Offboarding — when a clinic leaves</h2>
+<ol>
+<li><span class="who a">ALPHA</span> Export their patients, leads and chats from Alpha and hand the file over; then use the clinic-deletion flow.</li>
+<li><span class="who a">ALPHA</span> Meta Leads tab → disconnect the Page. Settings → WhatsApp → clear the Meta credentials.</li>
+<li><span class="who c">CLINIC</span> <span class="path">Settings → Users → Partners → ألفا → Remove partner</span>. That revokes both assets at once. (Alpha can also remove itself from its own Business settings.)</li>
+<li><span class="who c">CLINIC</span> WhatsApp number: it is theirs and stays in their WABA. To use it in the normal WhatsApp app again: <span class="path">WhatsApp Manager → the number → Delete</span>, wait a little, then register in the app. To keep using the Cloud API with another provider, they just share the WABA with that provider instead.</li>
+</ol>
+
+<h2>9. Troubleshooting</h2>
+<table>
+<tr><th style="width:36%">Symptom</th><th>Cause → fix</th></tr>
+<tr><td>Page not in the Meta Leads tab dropdown</td><td>Not assigned to system user Ahmed Tarek → Alpha's Business settings → System users → Assign assets → Pages. Or the clinic shared Instagram/ad account but not the Page.</td></tr>
+<tr><td>Test lead never arrives</td><td>(1) press Connect again; (2) clinic's Business Suite → Integrations → Leads access → Partners tab must list ألفا; (3) the Page's health row in the Meta Leads tab shows Meta's last error.</td></tr>
+<tr><td>Lead arrives with empty interest</td><td>The form's first multiple-choice question is not the treatment. Ask the ad person to duplicate the form with the treatment question first (published forms cannot be edited).</td></tr>
+<tr><td>Cannot create WhatsApp account: "policy requirements"</td><td>Business info incomplete (legal name, address, website). Fill and retry immediately.</td></tr>
+<tr><td>"Phone number limit reached"</td><td>Unverified portfolio cap is 2 numbers; complete their Business verification.</td></tr>
+<tr><td>Register fails</td><td>Wrong PIN (133005) — the clinic resets it in WhatsApp Manager → number → Two-step verification. Or a WhatsApp app account still exists on the SIM → delete it in the app, wait, retry.</td></tr>
+<tr><td>WABA not visible to Alpha / save says no access</td><td>WABA shared with a lower permission than Full control, or not assigned to the system user. Fix both, then Save again in Settings → WhatsApp.</td></tr>
+<tr><td>Bot replies fine, reminders never arrive</td><td>No APPROVED template on that WABA yet, or no payment method on it, or Meta's 24-hour window rule (reminders must be templates — Alpha does this automatically).</td></tr>
+<tr><td>Staff say "WhatsApp stopped working on the phone"</td><td>Expected: a Cloud API number cannot also run the WhatsApp app. Staff chat from Alpha's WhatsApp inbox (web and Android).</td></tr>
+<tr><td>Leads arrive but nobody contacts them</td><td>Assign a default owner in Alpha; make sure their phone has push enabled. Alpha escalates unanswered leads to the owner after 2 hours.</td></tr>
+</table>
+
+<!-- ============================ ARABIC HANDOUT ============================ -->
+<div class="ar pb">
+<h1>ورقة للعيادة: ربط الفيسبوك والواتساب بنظام «ألفا»</h1>
+<p class="sub">حسابك ملكك بالكامل: الصفحة، الإعلانات، الكارت، ورقم الواتساب. ألفا بتاخد صلاحية «شريك» على حاجتين بس: الصفحة والواتساب — عشان العملاء والرسايل يوصلوا للنظام. وتقدر تشيل الصلاحية في أي وقت.</p>
+
+<div class="box">
+<b>إحنا مش بنعمل إعلاناتك ولا بندفع عنك.</b> الإعلانات من حسابك وبكارتك وبالطريقة اللي تحبها. دورنا إن العميل اللي يسيب رقمه في إعلانك يوصل فوراً لموظف الاستقبال في نظام ألفا، وإن رقم واتساب العيادة يرد أوتوماتيك ويحجز.
+</div>
+
+<h2>جهّز قبل الاجتماع (أونلاين أو في العيادة، حوالي ساعة)</h2>
+<ol>
+<li><b>حساب الفيسبوك الشخصي لصاحب العيادة</b> على اللابتوب أو الموبايل بتاعه. (مش حساب موظف ممكن يمشي.)</li>
+<li><b>أدمن على صفحة العيادة</b>، وباسورد الإنستجرام لو مش مربوط بالصفحة.</li>
+<li><b>خط جديد للواتساب</b> مايكونش عليه واتساب. لو عليه واتساب: الإعدادات ← الحساب ← حذف حسابي. الخط ده هيبقى للبوت، والموظفين هيردوا من نظام ألفا مش من تطبيق الواتساب.</li>
+<li><b>رقم سري ٦ أرقام</b> تختاره للخط. احتفظ بيه إنت، ألفا مش هتعرفه.</li>
+<li><b>كارت بنكي</b> للإعلانات ورسايل التذكير (أي كارت شغال مع فيسبوك). ألفا مش هتشوفه ولا تكتبه.</li>
+<li><b>السجل التجاري أو البطاقة الضريبية</b> (اختياري في نفس اليوم؛ لازم بعدين لو عايز أكتر من ٢٥٠ رسالة تذكير في اليوم أو العلامة الخضراء).</li>
+<li><b>أسماء ٢–٣ خدمات</b> بتعمل عليهم إعلانات، و<b>اسم الموظف</b> اللي هيرد على العملاء.</li>
+</ol>
+
+<h2>اللي هيحصل في الاجتماع</h2>
+<h3>١) حساب الأعمال (Business Portfolio)</h3>
+<ol>
+<li>افتح <b>business.facebook.com</b> ← إنشاء حساب أعمال ← اسم العيادة وإيميل.</li>
+<li>الإعدادات ← معلومات الشركة: الاسم القانوني والعنوان والتليفون والموقع (لينك الصفحة ينفع). من غيرها فيسبوك بيرفض إنشاء حساب الواتساب.</li>
+<li>الإعدادات ← الحسابات ← الصفحات ← إضافة ← إضافة صفحة ← صفحة العيادة.</li>
+<li>الإعدادات ← الحسابات ← حسابات Instagram ← إضافة.</li>
+<li>الإعدادات ← الحسابات ← الحسابات الإعلانية ← إنشاء حساب إعلاني ← الكارت بتاعك (ألفا بتبعد عن الشاشة هنا).</li>
+</ol>
+<h3>٢) مشاركة الصفحة مع ألفا</h3>
+<ol>
+<li>الإعدادات ← المستخدمون ← <b>الشركاء (Partners)</b> ← إضافة ← منح شريك حق الوصول إلى الأصول.</li>
+<li>رقم الشريك: <span class="id">1135213139685152</span></li>
+<li>من «الصفحات» علّم على صفحة العيادة ← <b>تحكم كامل</b> ← حفظ. (متعلّمش على الحساب الإعلاني ولا الإنستجرام — ألفا مش محتاجاهم.)</li>
+<li>Meta Business Suite ← اختار الصفحة ← <b>Integrations ← Leads access</b> ← تخصيص الوصول ← الشركاء ← أضف «ألفا لعلاج و تجميل الأسنان».</li>
+</ol>
+<h3>٣) حساب الواتساب</h3>
+<ol>
+<li>الإعدادات ← الحسابات ← <b>حسابات WhatsApp</b> ← إضافة ← إنشاء حساب WhatsApp Business جديد ← اسم العيادة.</li>
+<li>افتح WhatsApp Manager ← أرقام الهاتف ← إضافة رقم ← اسم العرض = اسم العيادة زي الصفحة ← الفئة: طبي وصحي ← الرقم ← كود SMS.</li>
+<li>على الرقم: الإعدادات ← التحقق بخطوتين ← الرقم السري ٦ أرقام.</li>
+<li>إعدادات الدفع ← إضافة طريقة دفع ← الكارت بتاعك (ينفع بعدين؛ بيلزم بس لرسايل التذكير).</li>
+<li>الإعدادات ← المستخدمون ← الشركاء ← ألفا ← تعيين الأصول ← <b>حسابات WhatsApp</b> ← الحساب الجديد ← <b>تحكم كامل</b> ← حفظ.</li>
+<li>اقرالنا رقمين من WhatsApp Manager: <b>WhatsApp Business Account ID</b> و<b>Phone number ID</b>. دول مش سر.</li>
+</ol>
+<h3>٤) ألفا بتربط وبنجرّب</h3>
+<ol>
+<li>ألفا بتربط الصفحة والواتساب من جهتها (دقايق).</li>
+<li>إنت هتكتب الرقم السري بتاعك في خانة «تسجيل» في نظام ألفا (على شاشتك).</li>
+<li>بنبعت عميل تجريبي من أداة فيسبوك ← يظهر عندك في «العملاء المحتملين».</li>
+<li>بتبعت «hi» من موبايلك لرقم العيادة ← البوت يرد ويحجز ← الحجز يظهر في التقويم.</li>
+</ol>
+
+<h2>لموظف الإعلانات عندك: نقطتين في نموذج العملاء (Instant Form)</h2>
+<ol>
+<li><b>أول سؤال اختيار من متعدد = الخدمة.</b> مثال: «إيه الخدمة اللي مهتم بيها؟» والإجابات: تقويم معدني / تقويم شفاف / زراعة / تبييض / مش عارف ومحتاج استشارة. ألفا بتقرا الإجابة دي وبتكتبها على كارت العميل. سؤال «إمتى نتواصل معاك؟» ينفع بس <u>بعده</u>.</li>
+<li><b>اطلب رقم الموبايل مش الإيميل.</b> الحقول: الاسم بالكامل + رقم الهاتف.</li>
+</ol>
+<p class="small">النموذج محتاج لينك سياسة خصوصية (فيسبوك بيرفض PDF). ممكن تستخدم موقعك أو لينك ألفا: https://alpha-v3-live.vercel.app/privacy — وأي نموذج جديد على الصفحة بيوصل لألفا أوتوماتيك.</p>
+
+<h2>أسئلة بتتكرر</h2>
+<table>
+<tr><th style="width:38%">السؤال</th><th>الإجابة</th></tr>
+<tr><td>هتشوفوا الباسورد أو الكارت؟</td><td>لأ. إنت اللي بتكتب الباسورد والكارت والرقم السري على شاشتك. إحنا مش بنطلبهم أبداً.</td></tr>
+<tr><td>هتتحكموا في إعلاناتي؟</td><td>لأ. الحساب الإعلاني ملكك، وألفا معندهاش صلاحية عليه أصلاً.</td></tr>
+<tr><td>الواتساب هيشتغل على الموبايل عادي؟</td><td>لأ — الرقم بيبقى للبوت. الموظفين بيشوفوا ويردوا على الشاتات من نظام ألفا (ويب وأندرويد). الرد على العملاء مجاني؛ رسايل التذكير بتتحسب من فيسبوك على كارتك (سنتات).</td></tr>
+<tr><td>لو مشيت من ألفا؟</td><td>الإعدادات ← الشركاء ← إزالة ألفا. الصفحة والرقم فاضلين عندك، وبناخدلك نسخة من بياناتك.</td></tr>
+</table>
+
+<div class="box gray">
+<b>حقوقك:</b> كل حاجة في حساب أعمالك إنت. صلاحية ألفا بتظهر في «الشركاء» وتتشال بضغطة. بيانات مرضاك في نظام ألفا خاصة بعيادتك فقط.
+</div>
+</div>
+
+</body>
+</html>

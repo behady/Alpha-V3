@@ -1,14 +1,15 @@
 "use client";
 
 // Super Admin Platform Control Center (Updated with Manual Pricing)
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { db } from "@/lib/firebase";
-import { query, getDocs, updateDoc, doc, deleteDoc, onSnapshot, collection } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
+import { query, getDocs, updateDoc, doc, onSnapshot, collection } from "firebase/firestore";
+import { typedNameMatches } from "@/lib/clinicTrash";
 import { useRouter } from "next/navigation";
 import { Clinic, SubscriptionTier } from "@/types/saas";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-import { ShieldCheck, Search, Loader2, Check, X, Building2, BarChart3, Users, MoreVertical, RefreshCcw, Trash2, ExternalLink, Megaphone, HardDriveDownload, SlidersHorizontal } from "lucide-react";
+import { ShieldCheck, Search, Loader2, Check, X, Building2, BarChart3, Users, MoreVertical, RefreshCcw, Trash2, ExternalLink, Megaphone, HardDriveDownload, SlidersHorizontal, ShoppingBag } from "lucide-react";
 import { useUI } from "@/context/UIContext";
 import { KpiStrip } from "@/components/superadmin/KpiStrip";
 import { ClinicDetailPanel } from "@/components/superadmin/ClinicDetailPanel";
@@ -19,21 +20,57 @@ import { MigrateTab } from "@/components/superadmin/MigrateTab";
 import MisplacedRecordsTab from "@/components/superadmin/MisplacedRecordsTab";
 import { PlatformTab } from "@/components/superadmin/PlatformTab";
 import { CostsTab } from "@/components/superadmin/CostsTab";
+import SupplyStoreTab from "@/components/superadmin/SupplyStoreTab";
 
 // Tabs
-type Tab = 'clinics' | 'analytics' | 'costs' | 'users' | 'meta' | 'migrate' | 'misplaced' | 'platform';
+type Tab = 'clinics' | 'analytics' | 'costs' | 'users' | 'meta' | 'migrate' | 'misplaced' | 'platform' | 'supply';
 
 interface RichClinic extends Clinic {
   ownerEmail?: string;
   daysRemaining?: number;
 }
 
+/** One row of the trash, as /api/admin/clinic-trash lists it. */
+interface TrashedClinic {
+  id: string;
+  name: string;
+  subscriptionTier: string | null;
+  deletedAt: string | null;
+  deletedByEmail: string | null;
+}
+
 export default function SuperAdminDashboard() {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const { showToast, confirm } = useUI();
-  
+  const { showToast, confirm, prompt } = useUI();
+
   const [clinics, setClinics] = useState<RichClinic[]>([]);
+  const [trash, setTrash] = useState<TrashedClinic[]>([]);
+
+  /** Everything the trash does goes through the server; the browser never touches deleted_clinics. */
+  const callClinicTrash = async (body: Record<string, string>): Promise<{ ok: boolean; error?: string }> => {
+    const token = await auth.currentUser?.getIdToken();
+    if (!token) return { ok: false, error: "Session expired. Sign in again." };
+    const res = await fetch("/api/admin/clinic-trash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok && data?.ok === true, error: data?.error };
+  };
+
+  const loadTrash = useCallback(async () => {
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) return;
+      const res = await fetch("/api/admin/clinic-trash", { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json().catch(() => ({}));
+      if (data?.ok && Array.isArray(data.items)) setTrash(data.items as TrashedClinic[]);
+    } catch {
+      // The list is a convenience; a failed load leaves the last one on screen.
+    }
+  }, []);
   const [loadingClinics, setLoadingClinics] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<Tab>('clinics');
@@ -48,8 +85,9 @@ export default function SuperAdminDashboard() {
         return;
       }
       document.title = "Super Admin Hub — Alpha Dental SaaS";
+      void loadTrash();
     }
-  }, [user, loading, router]);
+  }, [user, loading, router, loadTrash]);
 
   useEffect(() => {
     if (loading || !user?.isSuperAdmin) return;
@@ -135,31 +173,51 @@ export default function SuperAdminDashboard() {
   };
 
   /**
-   * Deliberately NOT routed through the recycle bin, and the copy is honest about what it does.
+   * Delete goes through /api/admin/clinic-trash, never deleteDoc from here.
    *
-   * This removes the clinic's own document. Everything under it — every patient, ledger row, note
-   * and image — survives untouched in the subtree, so "completely delete" and "cannot be undone"
-   * were both wrong: nothing is completely deleted, and re-creating the document reattaches the
-   * lot. The bin cannot help either, because `clinics` is a root collection: a snapshot filed
-   * under the clinic being deleted would be unreachable, and one filed at the root would restore a
-   * document that instantly re-grants access to everyone still holding a role for it.
+   * One click on this button once took a live clinic off the air: the header document went, every
+   * staff login bounced, and the only way back was Firestore's point-in-time recovery inside its
+   * seven-day window. The route now keeps a copy of the header in `deleted_clinics` in the same
+   * transaction that removes it, and refuses unless the clinic's exact name was typed — the
+   * server checks the name too, so the dialog is not the only guard.
    *
-   * The real fix is a soft delete (set status away from Active — isClinicActive and the read-only
-   * banner already key off it) followed by an explicit purge that walks the subtree. Until that
-   * exists, this stays as it is and says what it actually does.
+   * Everything under the clinic (patients, ledger, notes, images) is never touched by this. That
+   * is why Restore below is instant: put the header back and it is all reachable again.
    */
   const handleDeleteClinic = async (clinicId: string, name: string) => {
-    if (
-      await confirm(
-        `Delete the clinic record for "${name}"? Its patients, ledger and notes are NOT deleted — they remain in the database and reappear if the record is recreated.`
-      )
-    ) {
-      try {
-        await deleteDoc(getClinicDoc("clinics", clinicId));
-        showToast("Clinic record deleted (clinic data retained)", "success");
-      } catch (err) {
-        showToast("Error deleting clinic", "error");
+    const typed = await prompt(
+      `You are about to delete "${name}". Its staff will lose access immediately. Type the clinic's name exactly to continue.`,
+      {
+        title: "Delete clinic",
+        placeholder: name,
+        confirmLabel: "Delete",
+        required: true,
       }
+    );
+    if (typed === null) return;
+    if (!typedNameMatches(typed, name)) {
+      showToast("The name you typed does not match. Nothing was deleted.", "error");
+      return;
+    }
+    try {
+      const res = await callClinicTrash({ action: "delete", clinicId, confirmName: typed });
+      if (!res.ok) throw new Error(res.error);
+      showToast(`"${name}" moved to Recently deleted. Restore it from the bottom of this page.`, "success");
+      void loadTrash();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Error deleting clinic", "error");
+    }
+  };
+
+  const handleRestoreClinic = async (clinicId: string, name: string) => {
+    if (!(await confirm(`Restore "${name}"? Its staff get access back immediately.`, { title: "Restore clinic", confirmLabel: "Restore" }))) return;
+    try {
+      const res = await callClinicTrash({ action: "restore", clinicId });
+      if (!res.ok) throw new Error(res.error);
+      showToast(`"${name}" is back.`, "success");
+      void loadTrash();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Error restoring clinic", "error");
     }
   };
 
@@ -225,6 +283,9 @@ export default function SuperAdminDashboard() {
             </button>
             <button onClick={() => setActiveTab('costs')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'costs' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
               <SlidersHorizontal size={16} /> AI costs
+            </button>
+            <button onClick={() => setActiveTab('supply')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'supply' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
+              <ShoppingBag size={16} /> Supply store
             </button>
           </div>
         </div>
@@ -377,6 +438,40 @@ export default function SuperAdminDashboard() {
                 </div>
               )}
             </div>
+
+            {/* Recently deleted — the header copies the delete route keeps. Restore puts one back. */}
+            {trash.length > 0 && (
+              <div className="bg-surface rounded-[2rem] border border-rose-200/60 shadow-sm overflow-hidden">
+                <div className="px-6 py-4 border-b border-rose-100 flex items-center gap-2">
+                  <Trash2 size={16} className="text-rose-500" />
+                  <h2 className="text-sm font-black text-slate-700 uppercase tracking-widest">Recently deleted</h2>
+                  <span className="text-xs text-ink-muted font-medium ms-2">
+                    Their patients and records are untouched. Restore brings the clinic back exactly as it was.
+                  </span>
+                </div>
+                <ul className="divide-y divide-slate-100">
+                  {trash.map((item) => (
+                    <li key={item.id} className="px-6 py-3 flex flex-col md:flex-row md:items-center gap-2 md:gap-6">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-slate-800 truncate">{item.name}</p>
+                        <p className="text-xs text-ink-muted font-mono truncate">{item.id}</p>
+                      </div>
+                      <div className="text-xs text-ink-muted">
+                        {item.subscriptionTier ? <span className="me-3">{item.subscriptionTier}</span> : null}
+                        {item.deletedAt ? <span>Deleted {new Date(item.deletedAt).toLocaleString()}</span> : null}
+                        {item.deletedByEmail ? <span> by {item.deletedByEmail}</span> : null}
+                      </div>
+                      <button
+                        onClick={() => handleRestoreClinic(item.id, item.name)}
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-xl font-bold text-sm transition-colors"
+                      >
+                        <RefreshCcw size={14} /> Restore
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </>
         )}
 
@@ -395,6 +490,8 @@ export default function SuperAdminDashboard() {
         )}
 
         {activeTab === 'meta' && <MetaTab />}
+
+        {activeTab === 'supply' && <SupplyStoreTab />}
 
         {activeTab === 'migrate' && <MigrateTab clinics={clinics} />}
         {activeTab === 'misplaced' && <MisplacedRecordsTab />}

@@ -32,7 +32,10 @@ export const SECTION_GROUPS = [
   {
     titleEn: "Operations",
     titleAr: "العمليات",
-    keys: ["finance", "inventory", "lab", "attendance"],
+    // An item missing from every group here is silently dropped from the rail, however well it is
+    // permissioned — `store` sits next to `inventory` because that is where someone stands when
+    // they notice they have run out of something.
+    keys: ["finance", "inventory", "store", "lab", "attendance"],
   },
   {
     titleEn: "Insights & Growth",
@@ -109,14 +112,14 @@ export default function DesktopSidebar({
     const body = (
       <>
         <Icon size={20} strokeWidth={active ? 2.5 : 2} className="shrink-0" />
-        <div className="flex items-center justify-between flex-1 min-w-0 opacity-0 group-hover:opacity-100 group-hover:ms-3 ms-0 transition-all duration-200">
+        <div className="flex items-center justify-between flex-1 min-w-0 opacity-0 group-hover:opacity-100 group-hover:ms-3 ms-0 transition-all duration-200 max-w-0 group-hover:max-w-[200px] overflow-hidden">
           <span className="text-[14px] truncate">{label}</span>
           {badgeDot}
         </div>
       </>
     );
 
-    const shared = `flex w-full items-center px-[18px] py-2.5 rounded-xl transition-all duration-200 whitespace-nowrap overflow-hidden ${
+    const shared = `flex items-center transition-all duration-200 whitespace-nowrap overflow-hidden w-11 h-11 mx-auto justify-center rounded-full group-hover:w-full group-hover:justify-start group-hover:mx-0 group-hover:px-[18px] group-hover:rounded-xl ${
       active ? activeClass : toneIdle
     }`;
 
@@ -159,7 +162,7 @@ export default function DesktopSidebar({
           </div>
 
           {/* CLINIC SWITCHER */}
-          <div className="px-4 mb-4">
+          <div className="px-4 transition-all duration-300 max-h-0 mb-0 overflow-hidden group-hover:max-h-[100px] group-hover:mb-4 group-hover:overflow-visible">
             <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 delay-75">
               <ClinicSwitcher expanded={true} />
             </div>
@@ -173,7 +176,7 @@ export default function DesktopSidebar({
 
               return (
                 <div key={section.titleEn} className="space-y-1 relative">
-                  <h3 className="px-3 mb-2 text-[11px] font-black uppercase tracking-wider text-ink-muted dark:text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                  <h3 className="px-3 text-[11px] font-black uppercase tracking-wider text-ink-muted dark:text-slate-500 transition-all duration-200 opacity-0 max-h-0 mb-0 overflow-hidden group-hover:max-h-[20px] group-hover:mb-2 group-hover:opacity-100">
                     {language === "ar" ? section.titleAr : section.titleEn}
                   </h3>
                   {sectionItems.map((item) =>

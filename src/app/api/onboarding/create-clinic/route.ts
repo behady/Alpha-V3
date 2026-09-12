@@ -4,6 +4,7 @@ import { adminDb } from "@/lib/firebaseAdmin";
 import { requireAuthedUser } from "@/lib/apiStaffAuth";
 import { FieldValue } from "firebase-admin/firestore";
 import { OWNER_ROLE } from "@/lib/permissions";
+import { isValidSignupKey, pickExistingClinic } from "@/lib/onboardingSignup";
 import {
   PLATFORM_SETTINGS_COLLECTION,
   TRIAL_POLICY_DOC,
@@ -48,33 +49,56 @@ export async function POST(request: Request) {
     const body = await request.json();
     const clinicName = typeof body?.clinicName === "string" ? body.clinicName.trim() : "";
     if (!clinicName) {
-      return NextResponse.json({ ok: false, error: "Clinic name is required" }, { status: 400 });
+      return NextResponse.json({ ok: false, code: "clinic-name-required", error: "Clinic name is required" }, { status: 400 });
     }
+
+    // Minted by the browser once per attempt and kept across a refresh, so a retry of the same
+    // signup resolves to the same clinic. Optional: an old client that sends none still gets the
+    // orphan and same-name protection. Anything malformed is ignored rather than rejected — a
+    // bad key must never be the reason a signup fails.
+    const signupKey = isValidSignupKey(body?.signupKey) ? body.signupKey : null;
 
     const db = adminDb();
     const userRef = db.collection("users").doc(uid);
 
     /**
-     * If this caller already owns a clinic they hold no role in, repair that one instead of
-     * making another. Someone whose grant failed sees "you're not part of a clinic yet" and
-     * presses Create again — without this, each press leaves behind one more orphan clinic that
-     * only a superadmin can clean up. Clinics they *can* already reach are left alone, so
-     * deliberately starting a second clinic still works.
+     * Before making anything: is this press really asking for a NEW clinic?
+     *
+     * A tester once ended up with two clinics from one signup — the confirmation was slow to
+     * reach their browser, the screen told them to refresh, the form came back, they typed the
+     * name again. Every press that arrives here is checked against the clinics the caller
+     * already owns (see lib/onboardingSignup for the three rules) and, when one matches, that
+     * clinic is handed back instead of a second one being created. Clinics that match none of
+     * the rules are left alone, so deliberately starting a second clinic still works.
      */
     const owned = await db.collection("clinics").where("ownerId", "==", uid).get();
     if (!owned.empty) {
       const existingRoles = ((await userRef.get()).data()?.clinicRoles || {}) as Record<string, unknown>;
-      const orphan = owned.docs.find((d) => typeof existingRoles[d.id] !== "string" || !existingRoles[d.id]);
-      if (orphan) {
+      const match = pickExistingClinic(
+        owned.docs.map((d) => ({ id: d.id, name: d.data()?.name, signupKey: d.data()?.signupKey })),
+        existingRoles,
+        { name: clinicName, signupKey }
+      );
+      if (match) {
         // Deliberately does NOT stamp or refresh `expiresAt`. This branch hands back a clinic that
         // already exists; re-dating it here would restart the trial of a clinic that may have been
         // running for weeks, every time its owner pressed Create. Orphans from before signup wrote
         // the field are the backfill tool's job, not this one's.
+        //
+        // The role write is what repairs an orphan; for the other two reasons it already holds
+        // and the merge is a no-op. Either way the owner lands in this clinic next.
         await userRef.set(
-          { clinicRoles: { [orphan.id]: OWNER_ROLE }, defaultClinicId: orphan.id },
+          { clinicRoles: { [match.id]: OWNER_ROLE }, defaultClinicId: match.id },
           { merge: true }
         );
-        return NextResponse.json({ ok: true, clinicId: orphan.id, repaired: true });
+        return NextResponse.json({
+          ok: true,
+          clinicId: match.id,
+          existing: true,
+          reason: match.reason,
+          // Kept for anything that still reads the old flag.
+          repaired: match.reason === "orphan",
+        });
       }
     }
 
@@ -110,6 +134,8 @@ export async function POST(request: Request) {
         status: "Active",
         createdAt: FieldValue.serverTimestamp(),
         ...(expiresAt ? { expiresAt } : {}),
+        // Which signup attempt made this clinic, so a retry of that attempt finds it.
+        ...(signupKey ? { signupKey } : {}),
       });
       /**
        * The role has to be written as a NESTED OBJECT, not a dotted key.
@@ -163,6 +189,6 @@ export async function POST(request: Request) {
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to create clinic";
     reportServerError("Create Clinic Error:", error);
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    return NextResponse.json({ ok: false, code: "clinic-create-failed", error: message }, { status: 500 });
   }
 }
