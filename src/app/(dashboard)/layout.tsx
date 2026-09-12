@@ -334,7 +334,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* =================== THE BLACK BAND ===================
           Navigation on top, the page's own title and buttons underneath it. One dark block, then
           white: everything below this is the page. */}
-      <header className="relative z-[120] shrink-0 bg-ink-slab text-white">
+      {/*
+        z-[45] is chosen, not arbitrary. The band has to sit ABOVE the sticky toolbars pages mount
+        inside the scroll area (the patients search, the prescription tools, the odontogram tools —
+        all `sticky top-0 z-40`), or a dropdown hanging down from the bar is painted over by them.
+        It has to sit BELOW every modal, and the lowest modal overlay in the product is `z-50`.
+        Hence 45, in the gap.
+
+        It used to be z-[120], inherited from the left rail's z-[150]. That was safe for a rail:
+        88px down the side of the screen, where a centred dialog never reached it. A bar across the
+        whole top clipped the top of every modal instead.
+      */}
+      <header className="relative z-[45] shrink-0 bg-ink-slab text-white">
         <TopNav
           items={visibleItems}
           showSettings={showSettings}
