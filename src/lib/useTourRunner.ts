@@ -77,8 +77,10 @@ export function useTourRunner(opts: {
   navigate: (path: string) => void;
   /** The demo patient's id, looked up by name; null when there is none. */
   resolveDemoPatient: () => Promise<string | null>;
+  /** Flags the demo patient so no automated message can ever reach its number. */
+  markDemoPatient: () => Promise<boolean>;
 }) {
-  const { isAr, speak, navigate, resolveDemoPatient } = opts;
+  const { isAr, speak, navigate, resolveDemoPatient, markDemoPatient } = opts;
 
   const [cursor, setCursor] = useState<CursorState>({ x: -100, y: -100, visible: false, clicking: false, typing: false });
   const [state, setState] = useState<RunnerState>({ running: false, say: null, anchor: null, failedAnchor: null });
@@ -208,6 +210,20 @@ export function useTourRunner(opts: {
             continue;
           }
 
+          if (action.kind === "markDemoPatient") {
+            if (action.say) void sayLine(action.say, signal);
+            // Give the write a moment to land, then flag it. Not optional: a test patient that
+            // could be messaged is worse than no demo.
+            let ok = false;
+            for (let attempt = 0; attempt < 6 && !ok; attempt++) {
+              if (signal.aborted) return "aborted";
+              ok = await markDemoPatient();
+              if (!ok) await sleep(700, signal);
+            }
+            if (!ok) return fail("demo-patient");
+            continue;
+          }
+
           if (action.kind === "route") {
             if (action.say) void sayLine(action.say, signal);
             navigate(action.path);
@@ -281,7 +297,7 @@ export function useTourRunner(opts: {
         if (controller.current === ctl) controller.current = null;
       }
     },
-    [sayLine, waitFor, reach, moveTo, navigate, resolveDemoPatient],
+    [sayLine, waitFor, reach, moveTo, navigate, resolveDemoPatient, markDemoPatient],
   );
 
   return { cursor, state, run, abort };

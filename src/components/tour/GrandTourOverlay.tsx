@@ -7,8 +7,10 @@ import {
   ArrowRight,
   Check,
   Hand,
+  Languages,
   ListTree,
   Loader2,
+  Minus,
   Send,
   Volume2,
   VolumeX,
@@ -129,7 +131,7 @@ function useTypewriter(text: string, key: string) {
 export default function GrandTourOverlay() {
   const tour = useTour();
   const { startTutorial } = useTutorial();
-  const { language, isRTL } = useLanguage();
+  const { language, isRTL, toggleLanguage } = useLanguage();
   const { user } = useAuth();
   const { clinicId } = useClinic();
   const { showToast } = useUI();
@@ -253,6 +255,7 @@ export default function GrandTourOverlay() {
     speak: speakAsync,
     navigate,
     resolveDemoPatient: tour.resolveDemoPatient,
+    markDemoPatient: tour.markDemoPatient,
   });
   const runRef = useRef(runner.run);
   runRef.current = runner.run;
@@ -323,6 +326,20 @@ export default function GrandTourOverlay() {
     async (s: TourStop) => {
       if (!s.demo) return;
       setPhase("demo");
+      // A demo that acts on a patient's file acts ONLY on Sara's test patient. The page must say
+      // that name; a real person's file is never touched, whatever the tour thinks the route is.
+      if (s.dynamic === "demoPatient") {
+        const heading = (document.querySelector("h1")?.textContent || "").trim();
+        if (!heading.includes(tour.demoValues.patientName)) {
+          setFailureLine(
+            isAr
+              ? "دي مش ملف المريض التجريبي بتاعي، فمش هلمس حاجة هنا. نكمّل."
+              : "This isn't my test patient's file, so I won't touch anything here. Let's carry on.",
+          );
+          setPhase("done");
+          return;
+        }
+      }
       // Already done on an earlier run of the tour: say so rather than make a second one.
       if (s.demoSkipIf) {
         const exists =
@@ -505,6 +522,24 @@ export default function GrandTourOverlay() {
     setChaptersOpen(false);
   }, [stop?.id]);
 
+  /* --- "let me look" ----------------------------------------------------------------------- */
+  /**
+   * Minimised, Sara is a small pill in the corner and the page is fully live: no dim, no
+   * click-catcher, no hand. The person pokes around whatever she just showed them, then presses
+   * Continue (or Next) when they are ready. A running demo is stopped — they asked to take over.
+   * The next stop opens her up again.
+   */
+  const [minimized, setMinimized] = useState(false);
+  useEffect(() => {
+    setMinimized(false);
+  }, [stop?.id]);
+  const minimize = () => {
+    abortRef.current();
+    stopSpeaking();
+    setChaptersOpen(false);
+    setMinimized(true);
+  };
+
   /* --- keys ------------------------------------------------------------------------------- */
   useEffect(() => {
     if (!active || paused) return;
@@ -552,6 +587,66 @@ export default function GrandTourOverlay() {
   const ArrowNext = isRTL ? ArrowLeft : ArrowRight;
   const ArrowBack = isRTL ? ArrowRight : ArrowLeft;
   const pct = total > 0 ? Math.round(((shownIndex + 1) / total) * 100) : 0;
+
+  if (minimized) {
+    return (
+      <div
+        className="fixed bottom-24 end-4 z-[10001] sm:bottom-5 sm:end-6"
+        dir={isRTL ? "rtl" : "ltr"}
+        role="dialog"
+        aria-label={guideName}
+      >
+        <div className="flex items-center gap-2 rounded-full bg-ink-slab py-1.5 pe-2 ps-1.5 text-white shadow-[0_16px_50px_rgba(0,0,0,0.4)] ring-1 ring-white/10 animate-in fade-in zoom-in-95 duration-200">
+          <button
+            type="button"
+            onClick={() => setMinimized(false)}
+            title={isAr ? `ارجع لـ${guideName}` : `Back to ${guideName}`}
+            className="flex items-center gap-2 rounded-full py-0.5 pe-2 transition-colors hover:bg-white/10"
+          >
+            <AvatarFace state="idle" size={32} />
+            <span className="max-w-[10rem] truncate text-[12px] font-bold">
+              {isAr ? stop.title.ar : stop.title.en}
+            </span>
+            <span className="text-[10.5px] font-black tabular-nums text-white/45">
+              {shownIndex + 1}/{total}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={tour.back}
+            disabled={stopIndex === 0}
+            className="grid size-8 place-items-center rounded-full text-white/60 transition-colors hover:bg-white/10 hover:text-white disabled:opacity-30"
+            aria-label={isAr ? "رجوع" : "Back"}
+          >
+            <ArrowBack size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setMinimized(false)}
+            className="inline-flex items-center gap-1.5 rounded-full bg-[#FACC15] px-3.5 py-1.5 text-[12px] font-black text-ink transition-all hover:brightness-105 active:scale-[0.98]"
+          >
+            {isAr ? "كمّلي" : "Continue"}
+          </button>
+          <button
+            type="button"
+            onClick={tour.next}
+            className="grid size-8 place-items-center rounded-full text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+            aria-label={isLast ? (isAr ? "إنهاء" : "Finish") : isAr ? "التالي" : "Next"}
+          >
+            {isLast ? <Check size={14} strokeWidth={3} /> : <ArrowNext size={14} />}
+          </button>
+          <button
+            type="button"
+            onClick={tour.leave}
+            className="grid size-8 place-items-center rounded-full text-white/40 transition-colors hover:bg-white/10 hover:text-white"
+            aria-label={isAr ? "إنهاء الجولة" : "Leave the tour"}
+          >
+            <X size={14} />
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const spotStyle = rect
     ? {
@@ -615,6 +710,24 @@ export default function GrandTourOverlay() {
                 <span className="tabular-nums">{shownIndex + 1} / {total}</span>
               </p>
             </div>
+
+            <button
+              type="button"
+              onClick={toggleLanguage}
+              title={isAr ? "English" : "العربية"}
+              className="grid size-9 shrink-0 place-items-center rounded-full border border-white/15 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              <Languages size={16} />
+            </button>
+
+            <button
+              type="button"
+              onClick={minimize}
+              title={isAr ? "خليني أتفرج (الصفحة بتفتح)" : "Let me look (unlocks the page)"}
+              className="grid size-9 shrink-0 place-items-center rounded-full border border-white/15 text-white/60 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              <Minus size={16} />
+            </button>
 
             <button
               type="button"
@@ -815,6 +928,14 @@ export default function GrandTourOverlay() {
             >
               <ArrowBack size={14} />
               {isAr ? "رجوع" : "Back"}
+            </button>
+            <button
+              type="button"
+              onClick={minimize}
+              className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3.5 py-2 text-[12px] font-bold text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              <Minus size={13} />
+              {isAr ? "خليني أتفرج" : "Let me look"}
             </button>
             <span className="ms-auto hidden text-[10.5px] font-semibold text-white/35 sm:block">
               {phase === "demo"

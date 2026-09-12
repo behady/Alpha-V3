@@ -340,7 +340,7 @@ const FRONTDESK_STOPS: TourStop[] = [
         kind: "type",
         anchor: "new-patient-phone",
         text: "{{phone}}",
-        say: { en: "Then the phone. WhatsApp confirmations and reminders go to this number.", ar: "وبعدين التليفون. تأكيدات الواتساب والتذكيرات بتروح على الرقم ده." },
+        say: { en: "Then the phone. For a real patient, WhatsApp confirmations and reminders go here — this one is a made-up number that reaches nobody.", ar: "وبعدين التليفون. للمريض الحقيقي، تأكيدات الواتساب والتذكيرات بتروح هنا — ده رقم وهمي مش بيوصل لحد." },
       },
       {
         kind: "click",
@@ -348,6 +348,10 @@ const FRONTDESK_STOPS: TourStop[] = [
         say: { en: "Save. The file is created and appears in the list.", ar: "حفظ. الملف اتعمل وظهر في القايمة." },
       },
       { kind: "wait", anchor: "patient-row", optional: true, timeoutMs: 4000 },
+      {
+        kind: "markDemoPatient",
+        say: { en: "And I've marked my test patient as never-to-be-messaged, so nothing we do next sends anything anywhere.", ar: "وعلّمت على المريض التجريبي إنه ميتبعتلوش رسايل، فمفيش حاجة هنعملها بعد كده هتبعت أي حاجة لحد." },
+      },
       {
         kind: "say",
         text: {
@@ -397,7 +401,7 @@ const FRONTDESK_STOPS: TourStop[] = [
       { en: "How do I print a receipt?", ar: "أطبع إيصال إزاي؟" },
     ],
     knowledge:
-      "On a patient's Finance tab, 'Add payment' (Quick Pay) opens a small form: optionally pick a specific procedure to settle, a note, the amount, and Confirm. A payment can be tied to a procedure (its 'remaining' drops) or put on account (lowers the overall balance only). Payments appear as rows with a receipt/print button, edit and delete (permission-gated). Deleting a payment moves it to Recently Deleted and rebalances the account server-side. Sara's demo payment is 50 with the note 'Sara's test payment'.",
+      "On a patient's Finance tab, 'Add payment' (Quick Pay) opens a small form: optionally pick a specific procedure to settle, a note, the amount, and Confirm. A payment can be tied to a procedure (its 'remaining' drops) or put on account (lowers the overall balance only). Payments appear as rows with a receipt/print button, edit and delete (permission-gated). After a payment the system sends the patient a WhatsApp receipt automatically when patient automation is on (Settings → WhatsApp) — Sara's test patient is marked opted-out so no receipt is sent for the demo. Deleting a payment moves it to Recently Deleted and rebalances the account server-side. Sara's demo payment is 50 with the note 'Sara's test payment'.",
     helpSlugs: ["take-a-payment", "patient-account"],
     demo: [
       {
@@ -426,7 +430,7 @@ const FRONTDESK_STOPS: TourStop[] = [
       {
         kind: "click",
         anchor: "finance-pay-confirm",
-        say: { en: "Confirm. The balance updates, and a receipt can be printed from the row.", ar: "تأكيد. الرصيد اتحدّث، والإيصال بيتطبع من الصف." },
+        say: { en: "Confirm. The balance updates, and a receipt can be printed from the row. A real patient would get the receipt on WhatsApp too; my test patient is marked not to be messaged.", ar: "تأكيد. الرصيد اتحدّث، والإيصال بيتطبع من الصف. المريض الحقيقي كان هيوصله الإيصال على واتساب كمان؛ المريض التجريبي معلّم عليه إنه ميتبعتلوش." },
       },
       {
         kind: "say",

@@ -9,8 +9,8 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { getDocs, limit, orderBy, query, where } from "firebase/firestore";
-import { getClinicCollection } from "@/lib/db-utils";
+import { getDocs, limit, orderBy, query, updateDoc, where } from "firebase/firestore";
+import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -95,6 +95,12 @@ interface TourContextType {
   demoValues: DemoValues;
   /** The test patient's id, found by name; null when she has not made one (or it was deleted). */
   resolveDemoPatient: () => Promise<string | null>;
+  /**
+   * Flags the test patient `whatsappOptOut` (which SMS follows) and `isTourDemo`. The payment
+   * demo posts a real payment, and a real payment sends a real receipt; on this patient the
+   * send layer must stop at the opt-out. Returns false when there is no test patient yet.
+   */
+  markDemoPatient: () => Promise<boolean>;
 }
 
 const TourContext = createContext<TourContextType | undefined>(undefined);
@@ -170,6 +176,17 @@ export function TourProvider({
       return null;
     }
   }, [clinicId, demoValues.patientName]);
+
+  const markDemoPatient = useCallback(async (): Promise<boolean> => {
+    const id = await resolveDemoPatient();
+    if (!id) return false;
+    try {
+      await updateDoc(getClinicDoc("patients", id), { whatsappOptOut: true, isTourDemo: true });
+      return true;
+    } catch {
+      return false;
+    }
+  }, [resolveDemoPatient]);
 
   /* --- dynamic stops ---------------------------------------------------------------------- */
 
@@ -376,11 +393,12 @@ export function TourProvider({
       setDemoMode,
       demoValues,
       resolveDemoPatient,
+      markDemoPatient,
     }),
     [
       active, paused, stops, chapters, stop, stopIndex, stopRoute, progress,
       start, next, back, goTo, leave, declineIntro,
-      demoMode, setDemoMode, demoValues, resolveDemoPatient,
+      demoMode, setDemoMode, demoValues, resolveDemoPatient, markDemoPatient,
     ],
   );
 

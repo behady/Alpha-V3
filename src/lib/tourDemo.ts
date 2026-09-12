@@ -43,6 +43,11 @@ export type DemoAction =
   | { kind: "waitGone"; anchor: string; inRowContaining?: string; timeoutMs?: number; optional?: boolean }
   /** Open the demo patient's file (resolved by name at run time). */
   | { kind: "openDemoPatient"; tab?: string; say?: Localized }
+  /**
+   * Mark the test patient as never-to-be-messaged. A real payment sends a real WhatsApp receipt;
+   * on Sara's patient the send layer must find `whatsappOptOut` and stop.
+   */
+  | { kind: "markDemoPatient"; say?: Localized }
   /** Go straight to a route — for a cleanup that spans screens. */
   | { kind: "route"; path: string; say?: Localized }
   /** A beat. */
