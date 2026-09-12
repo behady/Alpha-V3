@@ -25,6 +25,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   COACH_SNOOZE_MS,
+  coachSnoozeMs,
   JOURNEY_STAGES,
   MISSIONS,
   MISSION_IDS,
@@ -465,6 +466,21 @@ eq(trialStatus(null).isTrial, true, "an unread clinic is treated as a trial — 
 }
 
 ok(COACH_SNOOZE_MS >= 60 * 60 * 1000, "'Later' means at least an hour — a token snooze is a button pressed eight times");
+
+/* Closing the bubble is an answer, and the same answer given three times means something stronger
+   than it did the first time. These assertions are what stop a future "simplify" flattening the
+   escalation back to one constant — which is the version the user actually complained about. */
+{
+  eq(coachSnoozeMs(0), COACH_SNOOZE_MS, "the first close quiets it for the rest of the day");
+  ok(coachSnoozeMs(1) > coachSnoozeMs(0), "closing it twice buys longer than closing it once");
+  ok(coachSnoozeMs(2) > coachSnoozeMs(1), "and a third time longer still");
+  ok(coachSnoozeMs(2) >= 7 * 24 * 60 * 60 * 1000, "by the third close it stops asking weekly");
+  eq(coachSnoozeMs(9), coachSnoozeMs(2), "it plateaus rather than running away to a year");
+  /* Never infinite: switching the guide off for good has its own button, its own wording and its
+     own way back on. A close button must not be able to do it by accident. */
+  ok(Number.isFinite(coachSnoozeMs(100)), "no number of closes silences the coach for ever");
+  eq(coachSnoozeMs(-3), coachSnoozeMs(0), "a nonsense count from hand-edited storage is treated as the first close");
+}
 
 // --- 10. What the coach actually says ---------------------------------------------------------------
 

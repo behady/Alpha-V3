@@ -38,11 +38,13 @@ interface StoredState {
   lessons: string[];
   /** Epoch millis the coach stays quiet until. */
   snoozedUntil: number;
+  /** How many times the coach has been closed. Each close buys a longer silence than the last. */
+  snoozeCount: number;
   /** The coach was switched off for good. Reversible from the guide page. */
   dismissed: boolean;
 }
 
-const EMPTY: StoredState = { lessons: [], snoozedUntil: 0, dismissed: false };
+const EMPTY: StoredState = { lessons: [], snoozedUntil: 0, snoozeCount: 0, dismissed: false };
 
 /**
  * One key per (clinic, person). Two owners sharing a laptop, or one owner with two clinics, each
@@ -65,6 +67,7 @@ export function readWelcomeState(scope: WelcomeScope): StoredState {
       // back as a string would break every `.includes` downstream.
       lessons: Array.isArray(parsed.lessons) ? parsed.lessons.filter((l) => typeof l === "string") : [],
       snoozedUntil: typeof parsed.snoozedUntil === "number" ? parsed.snoozedUntil : 0,
+      snoozeCount: typeof parsed.snoozeCount === "number" ? parsed.snoozeCount : 0,
       dismissed: parsed.dismissed === true,
     };
   } catch {
@@ -95,9 +98,10 @@ export function markLessonDone(scope: WelcomeScope, tutorialId: string): void {
   writeWelcomeState(scope, { ...state, lessons: [...state.lessons, tutorialId] });
 }
 
-/** Quiets the coach until `until` (epoch millis). */
+/** Quiets the coach until `until` (epoch millis), and remembers that it was closed again. */
 export function snoozeCoach(scope: WelcomeScope, until: number): void {
-  writeWelcomeState(scope, { ...readWelcomeState(scope), snoozedUntil: until });
+  const state = readWelcomeState(scope);
+  writeWelcomeState(scope, { ...state, snoozedUntil: until, snoozeCount: state.snoozeCount + 1 });
 }
 
 /** Switches the coach off for good at this clinic. The guide page can turn it back on. */
@@ -107,5 +111,5 @@ export function dismissCoach(scope: WelcomeScope): void {
 
 /** Brings the coach back — both the "for good" flag and any live snooze. */
 export function restoreCoach(scope: WelcomeScope): void {
-  writeWelcomeState(scope, { ...readWelcomeState(scope), dismissed: false, snoozedUntil: 0 });
+  writeWelcomeState(scope, { ...readWelcomeState(scope), dismissed: false, snoozedUntil: 0, snoozeCount: 0 });
 }

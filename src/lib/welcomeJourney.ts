@@ -641,6 +641,30 @@ export function coachDecision(args: {
 export const COACH_SNOOZE_MS = 6 * 60 * 60 * 1000;
 
 /**
+ * How long the coach stays quiet after being closed the 1st, 2nd, 3rd time, and so on.
+ *
+ * Closing it is a sentence, and saying it twice means something. A fixed snooze ignores that: the
+ * person who closes the bubble every morning for a week is plainly not going to want it tomorrow
+ * either, and making them say so again each day is the behaviour that earns an app the reputation
+ * this one was about to get.
+ *
+ * It stops escalating at a week rather than at "forever" on purpose. Nothing here should be able
+ * to switch the guide off permanently by accident — that stays an explicit choice, with its own
+ * button and its own wording, reversible from the guide page.
+ */
+const COACH_SNOOZE_STEPS_MS = [
+  COACH_SNOOZE_MS,           // the rest of today
+  24 * 60 * 60 * 1000,       // tomorrow too
+  7 * 24 * 60 * 60 * 1000,   // and then it stops asking weekly
+];
+
+/** `closedBefore` is how many times it has already been closed, so the first call passes 0. */
+export function coachSnoozeMs(closedBefore: number): number {
+  const i = Math.min(Math.max(closedBefore, 0), COACH_SNOOZE_STEPS_MS.length - 1);
+  return COACH_SNOOZE_STEPS_MS[i];
+}
+
+/**
  * The line the coach opens with — greeting, then the one thing to do next.
  *
  * Kept here rather than in the component so the wording is testable and so the trial clock and

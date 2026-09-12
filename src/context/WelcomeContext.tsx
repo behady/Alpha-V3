@@ -26,7 +26,7 @@ import {
   type WelcomeScope,
 } from "@/lib/welcomeStore";
 import {
-  COACH_SNOOZE_MS,
+  coachSnoozeMs,
   coachDecision,
   journeyProgress,
   lockedMissionsFor,
@@ -246,7 +246,15 @@ export function WelcomeProvider({
   );
 
   const refresh = useCallback(() => setSignalTick((n) => n + 1), []);
-  const snooze = useCallback(() => snoozeCoach(scope, Date.now() + COACH_SNOOZE_MS), [scope]);
+  /**
+   * Each close buys a longer silence than the last — see `coachSnoozeMs`. Closing the bubble is
+   * an answer, and asking the same question again tomorrow of somebody who has answered it three
+   * times is the behaviour people mean when they say an app nags.
+   */
+  const snooze = useCallback(
+    () => snoozeCoach(scope, Date.now() + coachSnoozeMs(local.snoozeCount)),
+    [scope, local.snoozeCount],
+  );
   const dismiss = useCallback(() => dismissCoach(scope), [scope]);
   const restore = useCallback(() => restoreCoach(scope), [scope]);
 
