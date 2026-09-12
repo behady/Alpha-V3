@@ -427,7 +427,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <TutorialProvider>
-    <TourProvider visibleNavKeys={visibleItems.map((i) => i.key)} showSettings={showSettings}>
+    {/* The tour may show the calendar even when this person hid its link (a preference, not a
+        permission): the page exists and the day cannot be taught without it. */}
+    <TourProvider
+      visibleNavKeys={[
+        ...visibleItems.map((i) => i.key),
+        ...(!visibleItems.some((i) => i.key === "appointments") && canAccessNavItem("appointments", user, isAdmin) ? ["appointments"] : []),
+      ]}
+      showSettings={showSettings}
+    >
     <WelcomeLayer>
     <PageHeaderProvider>
     <div className={`min-h-[100dvh] lg:h-[100dvh] lg:overflow-hidden bg-surface-page text-slate-700 flex flex-col ${isRTL ? cairo.className : plusJakartaSans.className} relative z-0`} dir={isRTL ? 'rtl' : 'ltr'}>

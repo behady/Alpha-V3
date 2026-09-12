@@ -212,7 +212,7 @@ export default function ServiceCombobox({
                 {items.map((service) => {
                   const isSelected = String(service[valueKey]) === String(value);
                   return (
-                    <div
+                    <div data-tour="service-option"
                       key={service.id}
                       onClick={() => handleSelect(service)}
                       className={`flex cursor-pointer items-center justify-between px-4 py-2.5 text-sm transition-colors hover:bg-primary-50 ${

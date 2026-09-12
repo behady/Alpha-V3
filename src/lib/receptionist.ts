@@ -6,8 +6,8 @@
  */
 
 export const RECEPTIONIST_NAME = {
-  en: "Alpha",
-  ar: "ألفا",
+  en: "Sara",
+  ar: "سارة",
 } as const;
 
 /**
@@ -22,10 +22,10 @@ export const RECEPTIONIST_NAME = {
  * saying "in the Alpha system" or "the alpha version of the form" will summon her — that is a real
  * cost of this name, not a bug in the matching, and worth knowing before relying on hands-free.
  */
-const WAKE_WORDS_EN = ["alpha", "alfa", "alfah", "alpher"];
+const WAKE_WORDS_EN = ["sara", "sarah", "sarra", "sahra", "zara"];
 
 /** Arabic renderings, after the normalisation below strips diacritics and unifies alef forms. */
-const WAKE_WORDS_AR = ["الفا", "الفه", "الفاء"];
+const WAKE_WORDS_AR = ["ساره", "سارا", "سره"];
 
 /** Arabic diacritics (tashkeel) and tatweel — recognisers emit these inconsistently. */
 const ARABIC_MARKS = /[ؐ-ًؚ-ٰٟـ]/g;

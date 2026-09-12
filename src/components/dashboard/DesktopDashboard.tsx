@@ -1394,7 +1394,7 @@ export default function DesktopDashboard() {
                                                             className="absolute group pointer-events-auto p-0.5 hover:!z-[60]"
                                                             style={{ top: `${topOffset}px`, height: `${height}px`, left: `${leftPercent}%`, width: `${widthPercent}%`, zIndex: 10 + apt.colIndex }}
                                                         >
-                                                            <div 
+                                                            <div data-tour="dashboard-appointment"
                                                                 draggable={true}
                                                                 onDragStart={(e) => {
                                                                     e.dataTransfer.setData("text/plain", JSON.stringify({ id: apt.id }));
@@ -1478,7 +1478,7 @@ export default function DesktopDashboard() {
                                                                            const action = getAction();
                                                                            if (!action) return null;
                                                                            return (
-                                                                               <button 
+                                                                               <button data-tour="appointment-stage"
                                                                                    onClick={(e) => { e.stopPropagation(); handleStatusChange(apt.id, action.next); }} 
                                                                                    className={`px-4 py-1.5 text-[11px] font-extrabold rounded-full mr-2 transition-all shadow-md hover:-translate-y-0.5 bg-ink-strong text-white hover:shadow-lg hover:bg-slate-800 border border-white/20`}
                                                                                >

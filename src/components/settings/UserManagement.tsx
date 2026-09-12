@@ -664,7 +664,7 @@ export default function UserManagement({ usersList, currentUser, openAddUser, cl
                 <span className="flex w-9 justify-center">
                   {u.uid !== currentUser?.uid && !isOwnerRole(u.role) && (
                     <button
-                      type="button"
+                      type="button" data-tour="user-delete"
                       onClick={() => handleDeleteUser(u.id, u.uid, u.staffId)}
                       title={isAr ? "إزالة المستخدم" : "Remove user"}
                       aria-label={isAr ? "إزالة المستخدم" : "Remove user"}

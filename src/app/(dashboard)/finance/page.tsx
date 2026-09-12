@@ -1052,7 +1052,7 @@ export default function FinancePage() {
                                 <Protect permission="finance.delete">
                                   <button
                                     type="button"
-                                    onClick={() => handleDelete(tx.id, tx.description)}
+                                    data-tour="finance-ledger-delete" onClick={() => handleDelete(tx.id, tx.description)}
                                     className="p-2 rounded-lg bg-surface border border-line text-ink-muted hover:text-red-600 hover:bg-red-50 shadow-sm"
                                   >
                                     <Trash2 size={16} />
@@ -1154,7 +1154,7 @@ export default function FinancePage() {
                           <Protect permission="finance.delete">
                             <button
                               type="button"
-                              onClick={() => handleDelete(tx.id, tx.description)}
+                              data-tour="finance-ledger-delete" onClick={() => handleDelete(tx.id, tx.description)}
                               className="p-2 rounded-lg border border-line text-red-600"
                             >
                               <Trash2 size={16} />
@@ -1326,7 +1326,7 @@ export default function FinancePage() {
                     <div className="grid grid-cols-2 gap-2">
                        <div className="space-y-1">
                           <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider pl-1">{language === 'ar' ? 'المبلغ' : 'Amount'}</label>
-                          <input required type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs font-semibold text-ink outline-none focus:border-accent-soft"/>
+                          <input required type="number" data-tour="finance-expense-amount" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" className="w-full px-3 py-2 bg-surface-subtle border border-slate-200/60 rounded-lg text-xs font-semibold text-ink outline-none focus:border-accent-soft"/>
                        </div>
                        <div className="space-y-1">
                           <label className="text-[9px] font-bold text-ink-muted uppercase tracking-wider pl-1">{t('category')}</label>

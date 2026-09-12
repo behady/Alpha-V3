@@ -27,6 +27,18 @@
 import { SETTINGS_SECTIONS, type SettingsSection } from "@/config/settingsRegistry";
 import type { DemoAction } from "@/lib/tourDemo";
 import { TOUR_WALKS } from "@/lib/grandTourWalks";
+import {
+  APPOINTMENT_DEMO_STOP,
+  CLEANUP_STOPS,
+  DAY_FLOW_STOP,
+  LEAD_DEMO_STOP,
+  PATIENT_CLINICAL_STOP,
+  PATIENT_RX_STOP,
+  PATIENT_TABS_STOP,
+  SETTINGS_DEMOS,
+  SETUP_SECTION_IDS,
+  STOP_DEMOS,
+} from "@/lib/grandTourDemos";
 
 export interface Localized {
   en: string;
@@ -39,6 +51,7 @@ export const TOUR_GUIDE: Localized = { en: "Sara", ar: "سارة" };
 export type TourChapterId =
   | "welcome"
   | "dashboard"
+  | "setup"
   | "frontdesk"
   | "operations"
   | "insights"
@@ -104,7 +117,7 @@ export interface TourStop {
    * Skip the demo (with a word) when its result already exists — a tour taken twice must not
    * make two test patients or two test treatments.
    */
-  demoSkipIf?: "demoPatientExists" | "serviceRowExists";
+  demoSkipIf?: "demoPatientExists" | "demoAppointmentExists" | "serviceRowExists";
 }
 
 export const TOUR_CHAPTERS: TourChapter[] = [
@@ -119,13 +132,18 @@ export const TOUR_CHAPTERS: TourChapter[] = [
     blurb: { en: "The screen you land on, and its three faces.", ar: "الشاشة اللي بتبدأ منها، وأشكالها التلاتة." },
   },
   {
+    id: "setup",
+    title: { en: "Setting up the clinic", ar: "تجهيز العيادة" },
+    blurb: { en: "Hours, prices, and the team — done for real, together.", ar: "المواعيد والأسعار والفريق — بجد، مع بعض." },
+  },
+  {
     id: "frontdesk",
-    title: { en: "Front desk", ar: "الاستقبال" },
+    title: { en: "A normal day", ar: "يوم عادي" },
     blurb: { en: "WhatsApp, patients, the calendar and leads.", ar: "واتساب والمرضى والمواعيد والعملاء المحتملين." },
   },
   {
     id: "operations",
-    title: { en: "Running the clinic", ar: "تشغيل العيادة" },
+    title: { en: "Money and running the clinic", ar: "الفلوس وتشغيل العيادة" },
     blurb: { en: "Money, stock, the lab and the time clock.", ar: "الفلوس والمخزون والمعمل والحضور." },
   },
   {
@@ -935,8 +953,8 @@ const SETTINGS_NARRATION: Record<string, SettingsNarration> = {
   },
   ai_credits: {
     say: {
-      en: "Your AI credits: how many the plan gives each month, how many are used, and by what — chat, WhatsApp replies, treatment plans, marketing. Every action is logged here with who used it and for which patient.",
-      ar: "رصيد الذكاء الاصطناعي: الباقة بتدّي كام كل شهر، اتستخدم كام، وفي إيه — الشات، ردود الواتساب، خطط العلاج، التسويق. كل إجراء متسجّل هنا بمين استخدمه ولأنهي مريض.",
+      en: "One last thing: credits. Everything I do with the AI costs the clinic a credit — a chat answer, a WhatsApp reply to a patient, a treatment plan draft. Your plan gives a monthly allowance; this page shows what's used, by whom, and what it did. Questions on this first tour were free. After it, each one is a credit — same as the orb.",
+      ar: "آخر حاجة: الرصيد. كل حاجة بعملها بالذكاء الاصطناعي بتكلّف العيادة رصيد — رد في الشات، رد واتساب على مريض، مسودة خطة علاج. باقتك بتدّي رصيد شهري؛ الصفحة دي بتوريك اتستخدم كام، بمين، وعمل إيه. أسئلة الجولة الأولى كانت ببلاش. بعدها، كل سؤال رصيد — زي الدايرة."
     },
     ask: [
       { en: "What costs a credit?", ar: "إيه اللي بيكلّف رصيد؟" },
@@ -975,10 +993,16 @@ function settingsStops(): TourStop[] {
   const perSection = SETTINGS_SECTIONS.flatMap((section: SettingsSection): TourStop[] => {
     const text = SETTINGS_NARRATION[section.id];
     if (!text) return [];
+    const extra = SETTINGS_DEMOS[section.id];
+    const chapter: TourChapterId = (SETUP_SECTION_IDS as readonly string[]).includes(section.id)
+      ? "setup"
+      : section.id === "ai_credits"
+        ? "wrapup"
+        : "settings";
     return [
       {
         id: `settings-${section.id}`,
-        chapter: "settings",
+        chapter,
         route: section.route,
         settingsId: section.id,
         spot: ["settings-panel", "page-main"],
@@ -988,8 +1012,8 @@ function settingsStops(): TourStop[] {
         knowledge: text.knowledge,
         helpSlugs: text.helpSlugs,
         walk: text.walk,
-        demo: text.demo,
-        demoSkipIf: text.demoSkipIf,
+        demo: extra?.demo ?? text.demo,
+        demoSkipIf: extra?.demoSkipIf ?? text.demoSkipIf,
       },
     ];
   });
@@ -1146,8 +1170,8 @@ const WRAPUP_STOPS: TourStop[] = [
     route: "/",
     title: { en: "That's the whole system", ar: "ده النظام كله" },
     say: {
-      en: "That's every screen and every switch. From now on I'm the orb in the corner: ask me anything, in Arabic or English — 'how many patients do I have', 'open Ahmed's file', 'teach me to take a payment' — and I'll answer, open it, or walk you through it on the real screen. Welcome aboard.",
-      ar: "دي كل شاشة وكل مفتاح. من دلوقتي أنا الدايرة اللي في الركن: اسألني أي حاجة، بالعربي أو الإنجليزي — «عندي كام مريض»، «افتح ملف أحمد»، «علّمني أستلم دفعة» — وهجاوبك، أو أفتحهالك، أو أمشي معاك عليها على الشاشة الحقيقية. نوّرت.",
+      en: "That's every screen and every switch. From now on I'm the orb in the corner: ask me anything, in Arabic or English — 'how many patients do I have', 'open Ahmed's file', 'show me how to take a payment' — and I'll answer, open it, or do it in front of you. Before you go: any questions? Ask below — on this first tour they're free.",
+      ar: "دي كل شاشة وكل مفتاح. من دلوقتي أنا الدايرة اللي في الركن: اسألني أي حاجة، بالعربي أو الإنجليزي — «عندي كام مريض»، «افتح ملف أحمد»، «وريني إزاي أستلم دفعة» — وهجاوبك، أو أفتحهالك، أو أعملها قدامك. قبل ما تمشي: عندك أي سؤال؟ اسأل تحت — في أول جولة الأسئلة ببلاش.",
     },
     ask: [
       { en: "What can you do for me every day?", ar: "بتقدري تعمليلي إيه كل يوم؟" },
@@ -1158,17 +1182,51 @@ const WRAPUP_STOPS: TourStop[] = [
   },
 ];
 
+/** Insert `extra` right after the stop with `afterId`. */
+function after(list: TourStop[], afterId: string, ...extra: TourStop[]): TourStop[] {
+  const i = list.findIndex((s) => s.id === afterId);
+  if (i < 0) return [...list, ...extra];
+  return [...list.slice(0, i + 1), ...extra, ...list.slice(i + 1)];
+}
+
+const ALL_SETTINGS = settingsStops();
+const SETUP_STOPS = (SETUP_SECTION_IDS as readonly string[])
+  .map((id) => ALL_SETTINGS.find((s) => s.settingsId === id))
+  .filter((s): s is TourStop => !!s);
+const OTHER_SETTINGS = ALL_SETTINGS.filter((s) => s.chapter === "settings");
+const CREDITS_STOP = ALL_SETTINGS.find((s) => s.settingsId === "ai_credits");
+
+let frontdesk = FRONTDESK_STOPS.filter((s) => s.id !== "appointments-add");
+frontdesk = after(frontdesk, "patient-file", PATIENT_TABS_STOP, PATIENT_CLINICAL_STOP, PATIENT_RX_STOP);
+frontdesk = after(frontdesk, "appointments", APPOINTMENT_DEMO_STOP, DAY_FLOW_STOP);
+frontdesk = after(frontdesk, "leads", LEAD_DEMO_STOP);
+
+const wrapupBase = WRAPUP_STOPS.filter((s) => !s.id.startsWith("demo-cleanup"));
+const finale = wrapupBase.find((s) => s.id === "finale");
+const wrapup = [
+  ...wrapupBase.filter((s) => s.id !== "finale"),
+  ...CLEANUP_STOPS,
+  ...(CREDITS_STOP ? [CREDITS_STOP] : []),
+  ...(finale ? [finale] : []),
+];
+
 export const TOUR_STOPS: TourStop[] = [
   ...WELCOME_STOPS,
   ...DASHBOARD_STOPS,
-  ...FRONTDESK_STOPS,
+  ...SETUP_STOPS.filter((s) => s.chapter === "setup"),
+  ...frontdesk,
   ...OPERATIONS_STOPS,
   ...INSIGHTS_STOPS,
-  ...settingsStops(),
-  ...WRAPUP_STOPS,
+  ...OTHER_SETTINGS,
+  ...wrapup,
+]
   // The walkthroughs live in their own file (they are long); a stop keeps its own `walk` if it
-  // has one, otherwise takes the one written for its id.
-].map((stop) => (stop.walk || !TOUR_WALKS[stop.id] ? stop : { ...stop, walk: TOUR_WALKS[stop.id] }));
+  // has one, otherwise takes the one written for its id. Same for the demos on existing stops.
+  .map((stop) => ({
+    ...stop,
+    walk: stop.walk ?? TOUR_WALKS[stop.id],
+    demo: stop.demo ?? STOP_DEMOS[stop.id],
+  }));
 
 export const TOUR_STOP_IDS = TOUR_STOPS.map((s) => s.id);
 

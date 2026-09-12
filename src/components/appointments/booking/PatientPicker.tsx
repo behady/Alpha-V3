@@ -80,7 +80,7 @@ export default function PatientPicker({
             filteredPatients.map((p) => (
               <button
                 key={p.id}
-                type="button"
+                type="button" data-tour="booking-patient-option"
                 onClick={() => {
                   setSelectedPatient({ id: String(p.id), name: p.name });
                   setSearchTerm("");

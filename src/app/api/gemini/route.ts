@@ -123,6 +123,9 @@ const TOUR_TOOL_NAMES = new Set([
 /** Help articles are handed to the model whole, but never past this many characters each. */
 const TOUR_ARTICLE_CHARS = 3500;
 
+/** Questions a person may ask on their first tour without spending the clinic's credits. */
+const FREE_TOUR_QUESTIONS = 30;
+
 /**
  * Sara's persona and briefing for one stop of the tour.
  *
@@ -168,7 +171,7 @@ function buildTourInstruction(
       - Two to four short sentences. Plain words, no lists, no headings, no markdown. ${languageLine}
       - Answer from the notes above and the help articles. If the notes do not cover it, say you are not sure and offer the Help Center or a lesson — never invent a button, a menu or a setting.
       - If the question is about a DIFFERENT part of the app that has a tour stop, call 'open_tour_stop' with that stop and say in one line that you are taking them there. The stop's own narration will explain it.
-      - If they ask HOW to do something or to be SHOWN it ("show me how to add a service"), PREFER 'open_tour_stop' with a stop marked "(demonstrates)" — Sara does it herself on screen with her cursor. Only when no demonstrating stop fits, call 'start_tutorial' (a ring the person clicks through themselves) and say that in one line. Never just describe steps when either exists.
+      - If they ask HOW to do something or to be SHOWN it ("show me how to add a service"): FIRST ask, in one short line, whether they want you to show them for real ("Want me to do it in front of you?"). Only when they say yes, call 'open_tour_stop' with a stop marked "(demonstrates)" — Sara does it herself on screen with her cursor. If no demonstrating stop fits, offer 'start_tutorial' (a ring they click through) the same way. Never just describe steps when either exists.
       - You may read the clinic's data to answer a factual question ("how many patients do I have") with db_read, find_patient or run_clinic_report. Never write, delete, send a message or navigate during the tour — say those can be done after the tour from the orb, or offer the lesson.
       - Every answer costs the clinic one credit; do not pad.
       - Stops you can move to: ${offered.map((s) => `${s.id} (${s.title.en}${s.demo ? ", demonstrates" : ""})`).join(", ")}.`;
@@ -314,7 +317,7 @@ WHERE THINGS LIVE ON SCREEN (the app's real layout — when telling a user where
  * a model that believes it can act will narrate having acted. So this replaces the persona outright
  * rather than appending caveats to it.
  */
-const RECEPTION_PERSONA = `You are Alpha (in Arabic: ألفا), the front-desk receptionist assistant inside the Alpha Dental System. Staff call you by name. Answer to it naturally and never introduce yourself as an AI, a model, or an assistant-in-general — you are the clinic's receptionist. Your name is the same word as the clinic's own name; if that ever seems to confuse what someone is asking about (the clinic vs. you), ask them to clarify rather than guessing. You sit beside the schedule. An appointment may or may not be open on screen — check APPOINTMENT ON SCREEN below before assuming.
+const RECEPTION_PERSONA = `You are Sara (in Arabic: سارة), the front-desk receptionist assistant inside the Alpha Dental System. Staff call you by name. Answer to it naturally and never introduce yourself as an AI, a model, or an assistant-in-general — you are the clinic's receptionist. You sit beside the schedule. An appointment may or may not be open on screen — check APPOINTMENT ON SCREEN below before assuming.
 
 WHEN AN APPOINTMENT IS OPEN — that one is your scope:
 - Its patientId and patientName are already known: use them directly, never search for the patient again.
@@ -420,6 +423,12 @@ export async function POST(req: Request) {
     const replyLanguage: "ar" | "en" | null =
       body?.language === "ar" ? "ar" : body?.language === "en" ? "en" : null;
     const tourInstruction = clientIsTour ? buildTourInstruction(tourStop, offeredTourStops, replyLanguage) : "";
+    /**
+     * A person's first tour is free to ask on. The client says it is the first tour; the server
+     * believes it only while the user's own counter is under the allowance, so a widget that
+     * lies about it gets at most the same handful of free turns as an honest one.
+     */
+    const claimsFirstTour = clientIsTour && body?.tour?.firstTour === true;
 
     /**
      * The widget's three hats: normal, trainer, support.
@@ -514,7 +523,25 @@ export async function POST(req: Request) {
           // Deliberately NOT charged here. Billing on entry means a clinic pays for requests that
           // error out or time out, which is the kind of charge that generates support tickets.
           // chargeCredits() runs once the turn has actually produced something.
+          let freeTourTurn = false;
+          if (claimsFirstTour) {
+            try {
+              const userRef = db.collection("users").doc(userId);
+              const userSnap = await userRef.get();
+              const used = Number(userSnap.data()?.tourFreeQuestionsUsed) || 0;
+              if (used < FREE_TOUR_QUESTIONS) {
+                freeTourTurn = true;
+                await userRef.set({ tourFreeQuestionsUsed: FieldValue.increment(1) }, { merge: true });
+              }
+            } catch {
+              /* Counting failed: charge as normal. */
+            }
+          }
           chargeCredits = async () => {
+            if (freeTourTurn) {
+              // Logged for the record (feature "tour-free"), never metered against the clinic.
+              return;
+            }
             await usageRef.set(
               {
                 monthKey,
@@ -1055,7 +1082,7 @@ export async function POST(req: Request) {
 
       ${ALPHA_DATABASE_SCHEMAS}`;
 
-    const generalInstruction = `You are Alpha AI, the autonomous manager of the Alpha Dental System. You have native read/write/delete access to the entire platform.
+    const generalInstruction = `You are Sara (in Arabic: سارة), the assistant built into the Alpha Dental System. You have native read/write/delete access to the entire platform.
       Current local time: ${currentDate}.
       
       USER RULES & KNOWLEDGE:

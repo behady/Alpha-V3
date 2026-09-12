@@ -67,7 +67,7 @@ export default function SlotPicker({
           <label className="mb-1.5 flex items-center gap-1 text-xs font-black uppercase tracking-wider text-slate-400">
             <Calendar size={13} /> {txt.date}
           </label>
-          <input
+          <input data-tour="booking-date"
             type="date"
             required
             min={getLocalDate()}
@@ -80,7 +80,7 @@ export default function SlotPicker({
           <label className="mb-1.5 flex items-center gap-1 text-xs font-black uppercase tracking-wider text-slate-400">
             <Clock size={13} /> {txt.clock}
           </label>
-          <select
+          <select data-tour="booking-time"
             value={time}
             onChange={(e) => setTime(e.target.value)}
             className="w-full rounded-xl border-2 border-slate-100 bg-surface px-3 py-3 text-sm font-bold text-ink outline-none focus:border-primary-500"
@@ -116,7 +116,7 @@ export default function SlotPicker({
           <label className="mb-1.5 flex items-center gap-1 text-xs font-black uppercase tracking-wider text-slate-400">
             <Hourglass size={13} /> {txt.duration}
           </label>
-          <select
+          <select data-tour="booking-duration"
             value={duration}
             onChange={(e) => setDuration(Number(e.target.value))}
             className="w-full rounded-xl border-2 border-slate-100 bg-surface px-3 py-3 text-sm font-bold text-ink outline-none focus:border-primary-500"

@@ -769,7 +769,7 @@ export default function InventoryPage() {
                                 </button>
                              </Protect>
                              <Protect permission="inventory.delete">
-                                <button onClick={() => void handleDelete(item)} className="p-2 rounded-lg bg-surface border border-line text-ink-muted hover:text-red-600 hover:bg-red-50 shadow-sm transition-colors">
+                                <button data-tour="inventory-row-delete" onClick={() => void handleDelete(item)} className="p-2 rounded-lg bg-surface border border-line text-ink-muted hover:text-red-600 hover:bg-red-50 shadow-sm transition-colors">
                                   <Trash2 size={16} />
                                 </button>
                              </Protect>
@@ -837,11 +837,11 @@ export default function InventoryPage() {
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-ink-muted uppercase tracking-wider pl-1">{language === "ar" ? "المخزون" : "Stock"}</label>
-                  <input type="number" value={formStock} onChange={(e) => setFormStock(e.target.value)} className="w-full bg-surface-subtle border border-line rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
+                  <input type="number" data-tour="inventory-item-stock" value={formStock} onChange={(e) => setFormStock(e.target.value)} className="w-full bg-surface-subtle border border-line rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-ink-muted uppercase tracking-wider pl-1">{language === "ar" ? "الحد الأدنى" : "Min stock"}</label>
-                  <input type="number" value={formMinStock} onChange={(e) => setFormMinStock(e.target.value)} className="w-full bg-surface-subtle border border-line rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
+                  <input type="number" data-tour="inventory-item-min" value={formMinStock} onChange={(e) => setFormMinStock(e.target.value)} className="w-full bg-surface-subtle border border-line rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 outline-none focus:border-accent-soft" />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-ink-muted uppercase tracking-wider pl-1">{language === "ar" ? "تكلفة الوحدة" : "Cost per unit"}</label>

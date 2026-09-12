@@ -226,7 +226,7 @@ export default function RecentlyDeleted() {
 
                 <div className="flex items-center gap-2 shrink-0">
                   <button
-                    type="button"
+                    type="button" data-tour="bin-restore"
                     disabled={busyId === entry.id}
                     onClick={() => void handleRestore(entry)}
                     className="inline-flex items-center gap-1.5 rounded-xl bg-accent px-4 py-2.5 text-xs font-bold text-ink-on-accent transition-all hover:bg-accent-strong disabled:opacity-50"
@@ -236,7 +236,7 @@ export default function RecentlyDeleted() {
                   </button>
                   {isAdmin && (
                     <button
-                      type="button"
+                      type="button" data-tour="bin-purge"
                       disabled={busyId === entry.id}
                       onClick={() => void handlePurge(entry)}
                       title={t.purge}

@@ -463,7 +463,7 @@ function PrescriptionStudio() {
                       <p className="px-4 py-6 text-center text-xs font-bold text-ink-muted">{t("rxNoDrugMatches")}</p>
                     )}
                     {pickerRows.map((row) => (
-                      <div key={row.key} className="flex items-stretch gap-2 hover:bg-surface-subtle transition-colors">
+                      <div key={row.key} data-tour="rx-drug-option" className="flex items-stretch gap-2 hover:bg-surface-subtle transition-colors">
                         <button
                           type="button"
                           onClick={() => fillFromRow(row)}

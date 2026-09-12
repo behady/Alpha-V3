@@ -720,7 +720,7 @@ export default function LeadsPage() {
                         {isAr ? "تعديل" : "Edit"}
                       </button>
                       {isAdmin && (
-                        <button onClick={() => void handleDelete(lead)} className="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors">
+                        <button data-tour="leads-delete" onClick={() => void handleDelete(lead)} className="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors">
                           <Trash2 size={16} />
                         </button>
                       )}
@@ -764,7 +764,7 @@ export default function LeadsPage() {
                       ))}
                     </select>
                   )}
-                  <input
+                  <input data-tour="leads-phone"
                     value={form.phone}
                     onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
                     placeholder={isAr ? "رقم الموبايل *" : "Phone *"}

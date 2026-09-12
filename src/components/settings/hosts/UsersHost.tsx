@@ -177,7 +177,7 @@ export default function UsersHost() {
                   <Mail size={18} className={iconClass} />
                   <input
                     required
-                    type="email"
+                    type="email" data-tour="user-email"
                     value={form.email}
                     onChange={(e) => setForm({ ...form, email: e.target.value })}
                     className={fieldClass}
@@ -191,7 +191,7 @@ export default function UsersHost() {
                   <Lock size={18} className={iconClass} />
                   <input
                     required
-                    type="password"
+                    type="password" data-tour="user-password"
                     value={form.password}
                     onChange={(e) => setForm({ ...form, password: e.target.value })}
                     placeholder={txt.passwordHint}

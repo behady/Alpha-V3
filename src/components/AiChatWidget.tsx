@@ -79,7 +79,7 @@ export default function AiChatWidget() {
   const tour = useTour();
   const isAr = language === "ar";
   const router = useRouter();
-  const alphaName = isAr ? RECEPTIONIST_NAME.ar : RECEPTIONIST_NAME.en;
+  const alphaName = isAr ? RECEPTIONIST_NAME.ar : RECEPTIONIST_NAME.en; // "Sara"
 
   /**
    * Which corner this widget lives in.

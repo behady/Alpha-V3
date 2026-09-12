@@ -9,22 +9,28 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { getDocs, limit, orderBy, query, updateDoc, where } from "firebase/firestore";
+import { doc, getDoc, getDocs, limit, orderBy, query, setDoc, updateDoc, where, writeBatch } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useTutorial } from "@/context/TutorialContext";
+import { useUI } from "@/context/UIContext";
 import { SETTINGS_SECTIONS } from "@/config/settingsRegistry";
 import { visibleSections } from "@/lib/settingsAccess";
 import { hasFeature } from "@/lib/subscriptions";
+import { parseClinicSchedule } from "@/lib/clinicSchedule";
+import { isDentistStaff } from "@/lib/staffRoles";
+import { categoryOf, suggestCategory, suggestIcon } from "@/lib/dentalIcons";
+import { DEFAULT_SCHEDULE, initialServiceChoices, scheduleDocFrom, serviceDocsFrom } from "@/lib/setupWizard";
 import {
   tourChaptersFor,
   tourStopsFor,
   type TourChapter,
   type TourStop,
 } from "@/lib/grandTour";
-import { demoValues as makeDemoValues, type DemoValues } from "@/lib/tourDemo";
+import { demoValues as makeDemoValues, type DemoValues, type TourCheck, type TourOffer } from "@/lib/tourDemo";
 import {
   WELCOME_CHANGED_EVENT,
   markTourComplete,
@@ -51,58 +57,57 @@ import {
  * resume point is per clinic and per person, in the same local store as the rest of the welcome
  * guide, and "start over" is always one click away.
  *
- * The tour pauses while a lesson runs. Sara offers lessons as she goes ("teach me to add a
- * patient" mid-tour starts the ring), and a spotlight over a pulsing ring would be two guides
- * pointing at once. When the lesson ends, the tour picks up on the stop it left.
+ * The tour pauses while a lesson runs; when the lesson ends, the tour picks up on the stop it
+ * left. Getting from stop to stop is NOT done here — the overlay walks there with a visible
+ * cursor (see tourDemo.ts); this provider only says which stop is current and where it lives.
  *
- * Getting from stop to stop is NOT done here. The overlay walks there with a visible cursor the
- * way a person would (see tourDemo.ts); this provider only says which stop is current and
- * where it lives.
- *
- * Demos — Sara adding a real test patient and deleting it again — are on only after the person
- * has said yes once (`demoMode`). The names she uses are fixed for the whole tour so the cleanup
- * stops can find what she made.
+ * This provider is also the only thing that WRITES for the tour, and only in two shapes: the
+ * test-record helpers (mark the test patient unmessageable) and the two setup offers, which
+ * write exactly what the setup wizard writes. Everything else Sara does goes through the real
+ * buttons.
  */
 
 export type DemoMode = "unasked" | "on" | "off";
+export type HomeView = "desk" | "owner" | "chair";
 
 interface TourContextType {
-  /** Whether the tour is on screen (paused for a lesson still counts as active). */
   active: boolean;
-  /** A lesson is running on top; the overlay renders nothing until it ends. */
   paused: boolean;
-  /** The stops this person can be shown, in order. */
   stops: TourStop[];
   chapters: TourChapter[];
   stop: TourStop | null;
   stopIndex: number;
-  /** The route the current stop resolved to — the dynamic ones differ from `stop.route`. */
   stopRoute: string | null;
   progress: TourProgress;
-  /** Begins at the resume point, or at `stopId`, or at the top. */
+  /** True until this person has finished the tour once — questions are free until then. */
+  firstTour: boolean;
   start: (opts?: { stopId?: string; fromStart?: boolean }) => void;
   next: () => void;
   back: () => void;
   goTo: (stopId: string) => boolean;
-  /** Leaves the tour, remembering where it was. */
   leave: () => void;
-  /** Closes the intro without starting. */
   declineIntro: () => void;
-  /** Whether Sara may add and delete test records as she goes. */
   demoMode: DemoMode;
   setDemoMode: (mode: DemoMode) => void;
-  /** The names and numbers her test records carry. */
   demoValues: DemoValues;
-  /** The name of the patient the "a patient's file" stop opens, once known — for the search. */
-  firstPatientName: string | null;
-  /** The test patient's id, found by name; null when she has not made one (or it was deleted). */
-  resolveDemoPatient: () => Promise<string | null>;
   /**
-   * Flags the test patient `whatsappOptOut` (which SMS follows) and `isTourDemo`. The payment
-   * demo posts a real payment, and a real payment sends a real receipt; on this patient the
-   * send layer must stop at the opt-out. Returns false when there is no test patient yet.
+   * The values a hand script should run with right now. Same as `demoValues`, except that
+   * `procedureName` is checked against the clinic's price list first: when Sara's own test
+   * treatment is not on it (the setup stop was skipped, or the person deleted it), the clinic's
+   * first real service stands in, so the procedure demo always picks something that exists.
+   * `serviceName` itself never changes — it is what the cleanup deletes.
    */
+  liveDemoValues: () => Promise<DemoValues>;
+  firstPatientName: string | null;
+  resolveDemoPatient: () => Promise<string | null>;
   markDemoPatient: () => Promise<boolean>;
+  /** Facts an `if` action asks about. */
+  check: (name: TourCheck) => Promise<boolean>;
+  /** Performs an accepted offer: the wizard's own documents, nothing else. */
+  applyOffer: (offer: TourOffer) => Promise<boolean>;
+  /** Switch the home screen for a demo; `restoreHomeView` puts the person's own choice back. */
+  setHomeView: (view: HomeView) => void;
+  restoreHomeView: () => void;
 }
 
 const TourContext = createContext<TourContextType | undefined>(undefined);
@@ -113,7 +118,6 @@ export function TourProvider({
   showSettings,
 }: {
   children: React.ReactNode;
-  /** Nav keys the layout actually renders for this person. */
   visibleNavKeys: readonly string[];
   showSettings: boolean;
 }) {
@@ -121,6 +125,7 @@ export function TourProvider({
   const { user } = useAuth();
   const { language } = useLanguage();
   const { activeTutorial } = useTutorial();
+  const ui = useUI();
 
   const scope: WelcomeScope = useMemo(() => ({ clinicId, uid: user?.uid }), [clinicId, user?.uid]);
 
@@ -129,12 +134,7 @@ export function TourProvider({
     const settingsIds = visibleSections(SETTINGS_SECTIONS, viewer, (f) =>
       hasFeature(clinic, f as Parameters<typeof hasFeature>[1]),
     ).map((s) => s.id);
-    return tourStopsFor({
-      isAdmin,
-      visibleNavKeys,
-      showSettings,
-      visibleSettingsIds: settingsIds,
-    });
+    return tourStopsFor({ isAdmin, visibleNavKeys, showSettings, visibleSettingsIds: settingsIds });
   }, [isAdmin, isReadOnly, user?.role, user?.permissions, clinic, visibleNavKeys, showSettings]);
 
   const chapters = useMemo(() => tourChaptersFor(stops), [stops]);
@@ -142,37 +142,27 @@ export function TourProvider({
   const [active, setActive] = useState(false);
   const [paused, setPaused] = useState(false);
   const [stopIndex, setStopIndex] = useState(0);
-  /** Which way the last move went, so a stop that cannot be shown is skipped onward, not back. */
   const direction = useRef<1 | -1>(1);
 
   /* --- demos ------------------------------------------------------------------------------ */
   const [demoMode, setDemoModeState] = useState<DemoMode>(() => readTourProgress(scope).demoMode);
-  // A different person or clinic: their own answer, not the previous one's.
   useEffect(() => {
     setDemoModeState(readTourProgress(scope).demoMode);
   }, [scope]);
-  // Fixed for the session, and in the language the tour was started in, so the cleanup finds
-  // exactly the names that were typed.
-  const [demoValues, setDemoValues] = useState<DemoValues>(() => makeDemoValues(language === "ar"));
+  const [demoValues, setDemoValues] = useState<DemoValues>(() => makeDemoValues(language === "ar", clinicId));
   const setDemoMode = useCallback(
     (mode: DemoMode) => {
-      if (mode === "on") setDemoValues(makeDemoValues(language === "ar"));
+      if (mode === "on") setDemoValues(makeDemoValues(language === "ar", clinicId));
       setDemoModeState(mode);
       saveTourDemoMode(scope, mode);
     },
-    [language, scope],
+    [language, scope, clinicId],
   );
 
-  /**
-   * The test patient, by name. A read each time rather than a cache: the same tour creates it
-   * on one stop and deletes it on another, and a stale id would open an empty file.
-   */
   const resolveDemoPatient = useCallback(async (): Promise<string | null> => {
     if (!clinicId) return null;
     try {
-      const snap = await getDocs(
-        query(getClinicCollection("patients"), where("name", "==", demoValues.patientName), limit(1)),
-      );
+      const snap = await getDocs(query(getClinicCollection("patients"), where("name", "==", demoValues.patientName), limit(1)));
       return snap.empty ? null : snap.docs[0].id;
     } catch {
       return null;
@@ -190,30 +180,125 @@ export function TourProvider({
     }
   }, [resolveDemoPatient]);
 
-  /* --- dynamic stops ---------------------------------------------------------------------- */
+  const liveDemoValues = useCallback(async (): Promise<DemoValues> => {
+    if (!clinicId) return demoValues;
+    try {
+      const own = await getDocs(query(getClinicCollection("services"), where("name", "==", demoValues.serviceName), limit(1)));
+      if (!own.empty) return demoValues;
+      const first = await getDocs(query(getClinicCollection("services"), orderBy("name"), limit(1)));
+      const data = first.docs[0]?.data() as { name?: unknown; price?: unknown } | undefined;
+      if (typeof data?.name === "string" && data.name.trim()) {
+        return { ...demoValues, procedureName: data.name.trim() };
+      }
+    } catch {
+      /* Fall through to the fixed values. */
+    }
+    return demoValues;
+  }, [clinicId, demoValues]);
 
-  /**
-   * The patient the "a patient's file" stop opens. Three states: unknown (not yet asked), null
-   * (asked, none), or an id. With demos on, the test patient is preferred — it is the one the
-   * person just watched being made.
-   */
+  /* --- facts about the clinic, for `if` actions ------------------------------------------ */
+  const check = useCallback(
+    async (name: TourCheck): Promise<boolean> => {
+      if (!clinicId) return false;
+      try {
+        switch (name) {
+          case "isAdmin":
+            return isAdmin;
+          case "anyService": {
+            const snap = await getDocs(query(getClinicCollection("services"), limit(1)));
+            return !snap.empty;
+          }
+          case "scheduleSet": {
+            const snap = await getDoc(getClinicDoc("settings", "clinic_info"));
+            return parseClinicSchedule(snap.data()).isConfigured;
+          }
+          case "anyDentist": {
+            const snap = await getDocs(query(getClinicCollection("staff"), limit(60)));
+            return snap.docs.some((d) => isDentistStaff(d.data() as Parameters<typeof isDentistStaff>[0]));
+          }
+          case "demoDentistExists": {
+            const snap = await getDocs(query(getClinicCollection("staff"), where("name", "==", demoValues.dentistName), limit(1)));
+            return !snap.empty;
+          }
+          case "demoPatientExists":
+            return !!(await resolveDemoPatient());
+          case "demoAppointmentExists": {
+            const id = await resolveDemoPatient();
+            if (!id) return false;
+            const snap = await getDocs(query(getClinicCollection("appointments"), where("patientId", "==", id), limit(1)));
+            return !snap.empty;
+          }
+        }
+      } catch {
+        return false;
+      }
+      return false;
+    },
+    [clinicId, isAdmin, demoValues.dentistName, resolveDemoPatient],
+  );
+
+  /* --- the two real writes: exactly what the setup wizard writes ------------------------- */
+  const applyOffer = useCallback(
+    async (offer: TourOffer): Promise<boolean> => {
+      if (!clinicId || !isAdmin) return false;
+      try {
+        if (offer === "defaultHours") {
+          await setDoc(
+            getClinicDoc("settings", "clinic_info"),
+            { schedule: scheduleDocFrom({ ...DEFAULT_SCHEDULE, offDays: [...DEFAULT_SCHEDULE.offDays] }), updatedAt: new Date().toISOString() },
+            { merge: true },
+          );
+          return true;
+        }
+        // Starter price list, in the tour's language, categorised the way the wizard does it.
+        const docs = serviceDocsFrom(initialServiceChoices(), language === "ar" ? "ar" : "en");
+        if (docs.length === 0) return false;
+        const batch = writeBatch(db);
+        const col = getClinicCollection("services");
+        for (const { englishName, doc: fields } of docs) {
+          const category = suggestCategory(englishName);
+          const icon = suggestIcon(englishName) || categoryOf(category).icon;
+          batch.set(doc(col), { ...fields, category, icon, seededBy: "sara-tour" });
+        }
+        await batch.commit();
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [clinicId, isAdmin, language],
+  );
+
+  /* --- home screen switching -------------------------------------------------------------- */
+  const originalHomeView = useRef<HomeView | null>(null);
+  const setHomeView = useCallback(
+    (view: HomeView) => {
+      if (originalHomeView.current === null) originalHomeView.current = ui.homeView;
+      ui.setHomeView(view);
+    },
+    [ui],
+  );
+  const restoreHomeView = useCallback(() => {
+    if (originalHomeView.current !== null) {
+      ui.setHomeView(originalHomeView.current);
+      originalHomeView.current = null;
+    }
+  }, [ui]);
+
+  /* --- dynamic stops ---------------------------------------------------------------------- */
   const [firstPatientId, setFirstPatientId] = useState<string | null | undefined>(undefined);
   const [firstPatientName, setFirstPatientName] = useState<string | null>(null);
   useEffect(() => {
     setFirstPatientId(undefined);
     setFirstPatientName(null);
   }, [clinicId, demoMode]);
-
-  /** The test patient's id for a demoPatient stop, re-resolved on every entry. */
   const [demoPatientId, setDemoPatientId] = useState<string | null | undefined>(undefined);
 
   const stop = active ? (stops[stopIndex] ?? null) : null;
 
   const stopRoute = useMemo(() => {
     if (!stop) return null;
-    if (stop.dynamic === "firstPatient") {
-      return firstPatientId ? `/patients/${firstPatientId}` : null;
-    }
+    if (stop.dynamic === "firstPatient") return firstPatientId ? `/patients/${firstPatientId}` : null;
     if (stop.dynamic === "demoPatient") {
       return demoPatientId ? `/patients/${demoPatientId}${stop.demoPatientTab ? `?tab=${stop.demoPatientTab}` : ""}` : null;
     }
@@ -235,10 +320,10 @@ export function TourProvider({
         }
         const snap = await getDocs(query(getClinicCollection("patients"), orderBy("name"), limit(1)));
         if (!cancelled) {
-          const doc = snap.empty ? null : snap.docs[0];
-          const name = doc ? String((doc.data() as { name?: unknown }).name ?? "") : "";
+          const d = snap.empty ? null : snap.docs[0];
+          const name = d ? String((d.data() as { name?: unknown }).name ?? "") : "";
           setFirstPatientName(name || null);
-          setFirstPatientId(doc ? doc.id : null);
+          setFirstPatientId(d ? d.id : null);
         }
       } catch {
         if (!cancelled) setFirstPatientId(null);
@@ -260,21 +345,16 @@ export function TourProvider({
     return () => {
       cancelled = true;
     };
-    // Re-resolve on every entry to such a stop, never on resolver identity alone.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stop?.id, active]);
 
-  /**
-   * Stops that cannot be shown are passed over in the travel direction: a demo-only stop while
-   * demos are off, a patient's file when there is no patient, the test patient's file when she
-   * never made one.
-   */
+  /** Stops that cannot be shown are passed over in the travel direction. */
   useEffect(() => {
     if (!active || !stop) return;
     let skip = false;
     if (stop.demoOnly && demoMode !== "on") skip = true;
     else if (stop.dynamic === "firstPatient") {
-      if (firstPatientId === undefined) return; // still asking
+      if (firstPatientId === undefined) return;
       skip = !firstPatientId;
     } else if (stop.dynamic === "demoPatient") {
       if (demoPatientId === undefined) return;
@@ -293,13 +373,11 @@ export function TourProvider({
     });
   }, [active, stop, demoMode, firstPatientId, demoPatientId, stops.length, scope]);
 
-  /** Remember being here. */
   useEffect(() => {
     if (!active || paused || !stop) return;
     saveTourPosition(scope, stop.id);
   }, [active, paused, stop, scope]);
 
-  /** A lesson on top pauses the tour; its end resumes it on the same stop. */
   useEffect(() => {
     if (!active) return;
     if (activeTutorial) setPaused(true);
@@ -307,7 +385,11 @@ export function TourProvider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTutorial, active]);
 
-  // Re-read the local marks whenever anything writes them.
+  // Leaving the tour (any way) puts the home screen back.
+  useEffect(() => {
+    if (!active) restoreHomeView();
+  }, [active, restoreHomeView]);
+
   const [localTick, setLocalTick] = useState(0);
   useEffect(() => {
     const onChanged = () => setLocalTick((n) => n + 1);
@@ -320,10 +402,10 @@ export function TourProvider({
   }, []);
   const progress = useMemo(
     () => readTourProgress(scope),
-    // localTick is the whole point: the store is not React state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [scope, localTick],
   );
+  const firstTour = progress.completedAt === 0;
 
   const start = useCallback(
     (opts?: { stopId?: string; fromStart?: boolean }) => {
@@ -387,31 +469,16 @@ export function TourProvider({
 
   const value = useMemo<TourContextType>(
     () => ({
-      active,
-      paused,
-      stops,
-      chapters,
-      stop,
-      stopIndex,
-      stopRoute,
-      progress,
-      start,
-      next,
-      back,
-      goTo,
-      leave,
-      declineIntro,
-      demoMode,
-      setDemoMode,
-      demoValues,
-      firstPatientName,
-      resolveDemoPatient,
-      markDemoPatient,
+      active, paused, stops, chapters, stop, stopIndex, stopRoute, progress, firstTour,
+      start, next, back, goTo, leave, declineIntro,
+      demoMode, setDemoMode, demoValues, liveDemoValues, firstPatientName,
+      resolveDemoPatient, markDemoPatient, check, applyOffer, setHomeView, restoreHomeView,
     }),
     [
-      active, paused, stops, chapters, stop, stopIndex, stopRoute, progress,
+      active, paused, stops, chapters, stop, stopIndex, stopRoute, progress, firstTour,
       start, next, back, goTo, leave, declineIntro,
-      demoMode, setDemoMode, demoValues, firstPatientName, resolveDemoPatient, markDemoPatient,
+      demoMode, setDemoMode, demoValues, liveDemoValues, firstPatientName,
+      resolveDemoPatient, markDemoPatient, check, applyOffer, setHomeView, restoreHomeView,
     ],
   );
 
@@ -424,7 +491,6 @@ export function useTour() {
   return ctx;
 }
 
-/** For components that render both inside and outside the dashboard shell. */
 export function useTourOptional() {
   return useContext(TourContext);
 }

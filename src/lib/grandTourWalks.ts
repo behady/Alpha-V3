@@ -105,6 +105,19 @@ export const TOUR_WALKS: Record<string, DemoAction[]> = {
     pt(l("Back from the lab", "رجع من المعمل"), "Cases back from the lab that need a fitting booked.", "الحالات اللي رجعت من المعمل ومحتاجة حجز تركيب."),
   ],
 
+  "dashboard-faces": [
+    { kind: "homeView", view: "desk", say: l("The desk — reception's view. Today's cards, and one button to move each patient through the day.", "المكتب — شاشة الاستقبال. كروت النهارده، وزرار واحد ينقّل كل مريض في اليوم.") },
+    pt(l("Schedule", "جدول المواعيد"), "The schedule, hour by hour.", "الجدول، ساعة ساعة."),
+    pt(l("Income", "دخل اليوم"), "Today's income and appointment count.", "دخل النهارده وعدد المواعيد."),
+    { kind: "homeView", view: "owner", say: l("The owner's view — the same clinic as numbers: cash today, who's in, the waiting room, and what slips if nobody acts.", "شاشة المالك — نفس العيادة كأرقام: كاش النهارده، مين موجود، صالة الانتظار، واللي هيضيع لو محدش اتحرك.") },
+    pt(l("Cash today", "كاش النهارده"), "Cash today, live.", "كاش النهارده، مباشر."),
+    pt(l("What slips if nobody acts", "اللي هيضيع لو محدش اتحرك"), "And the list to act on.", "والقايمة اللي تتحرك عليها."),
+    { kind: "homeView", view: "chair", say: l("And the chair — a dentist's own screen: who's in the chair, their day, their patients' money. It only appears for someone who is a dentist.", "والكرسي — شاشة الدكتور نفسه: مين على الكرسي، يومه، فلوس مرضاه. بتظهر بس لحد دكتور.") },
+    pt(l("In the chair now", "على الكرسي دلوقتي"), "Who's in the chair now, and who's next.", "مين على الكرسي دلوقتي، ومين التالي."),
+    pt(l("My day", "يومي"), "Their day.", "يومه."),
+    sy("Each person chooses their own under Settings → Interface → Your home screen. I'll put yours back now.", "كل واحد بيختار بتاعته من الإعدادات ← واجهة الاستخدام ← شاشتك الرئيسية. هرجّع بتاعتك دلوقتي."),
+  ],
+
   /* ---------------------------------------------------------------- front desk */
   chats: [
     pt(l("New chat", "محادثة جديدة"), "Start a conversation with any patient from here.", "ابدأ محادثة مع أي مريض من هنا.", "self"),

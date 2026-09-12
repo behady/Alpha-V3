@@ -681,7 +681,7 @@ export default function AppointmentSidePanel({
                           <Wallet size={16}/> {language === 'ar' ? 'دفع سريع' : 'Quick Pay'}
                         </button>
                       )}
-                      <button onClick={() => onDelete(selectedAppointment.id)} className="w-full text-sm font-bold text-rose-600 bg-white border border-rose-200 hover:bg-rose-50 rounded-xl py-3 flex items-center justify-center gap-1.5 transition-colors shadow-sm">
+                      <button data-tour="appointment-delete" onClick={() => onDelete(selectedAppointment.id)} className="w-full text-sm font-bold text-rose-600 bg-white border border-rose-200 hover:bg-rose-50 rounded-xl py-3 flex items-center justify-center gap-1.5 transition-colors shadow-sm">
                         <Trash2 size={16}/> {language === 'ar' ? 'حذف' : 'Delete'}
                       </button>
                   </div>
