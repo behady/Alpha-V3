@@ -2,11 +2,12 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Search, LifeBuoy, ArrowRight, ArrowLeft } from "lucide-react";
+import { Search, ArrowRight, ArrowLeft } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 // From helpSections, not help: `help.ts` reads the articles with node:fs and cannot be bundled
 // for the browser.
 import { HELP_SECTIONS, type HelpArticle } from "@/lib/helpSections";
+import PageHeader from "@/components/dashboard/PageHeader";
 
 export default function HelpIndex({ articles }: { articles: { en: HelpArticle[]; ar: HelpArticle[] } }) {
   const { language, isRTL } = useLanguage();
@@ -44,15 +45,7 @@ export default function HelpIndex({ articles }: { articles: { en: HelpArticle[];
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-10 md:px-8" dir={isRTL ? "rtl" : "ltr"}>
-      <header className="mb-8 flex items-center gap-4">
-        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-accent-tint text-accent">
-          <LifeBuoy size={28} />
-        </span>
-        <div>
-          <h1 className="text-2xl font-black tracking-tight text-ink">{txt.title}</h1>
-          <p className="mt-1 text-sm font-semibold text-ink-muted">{txt.sub}</p>
-        </div>
-      </header>
+      <PageHeader title={txt.title} subtitle={txt.sub} />
 
       <div className="relative mb-10">
         <Search

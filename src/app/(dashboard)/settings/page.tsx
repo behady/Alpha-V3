@@ -95,7 +95,7 @@ function SettingsIndex() {
         return (
           <section key={group} className="space-y-4 animate-in slide-in-from-bottom-4 duration-500" style={{ animationDelay: `${groupIndex * 75}ms`, animationFillMode: 'both' }}>
             <div className="flex items-center gap-3 px-1">
-              <span className={`flex h-8 w-8 items-center justify-center rounded-xl ${SETTINGS_GROUP_TONE[group]?.tile ?? "bg-accent text-white"} bg-gradient-to-br from-white/20 to-transparent shadow-sm`}>
+              <span className={`flex h-8 w-8 items-center justify-center rounded-xl ${SETTINGS_GROUP_TONE[group]?.tile ?? "bg-accent text-ink"} bg-gradient-to-br from-white/20 to-transparent shadow-sm`}>
                 {(() => {
                   const GroupIcon = SETTINGS_GROUP_ICONS[group] ?? Settings2;
                   return <GroupIcon size={14} className="drop-shadow-sm" />;
@@ -118,7 +118,7 @@ function SettingsIndex() {
                   >
                     <span
                       className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-[14px] transition-transform duration-300 group-hover:scale-110 group-hover:shadow-md ${
-                        SETTINGS_GROUP_TONE[group]?.tile ?? "bg-accent text-white"
+                        SETTINGS_GROUP_TONE[group]?.tile ?? "bg-accent text-ink"
                       }`}
                     >
                       <Icon size={20} />

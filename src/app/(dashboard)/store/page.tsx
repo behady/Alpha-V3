@@ -24,6 +24,7 @@ import { auth } from "@/lib/firebase";
 import { useClinic } from "@/context/ClinicContext";
 import { useLanguage } from "@/context/LanguageContext";
 import PermissionGuard from "@/components/PermissionGuard";
+import PageHeader, { headerButtonPrimary } from "@/components/dashboard/PageHeader";
 import Protect from "@/components/Protect";
 import { useSupplyStoreStatus } from "@/lib/useSupplyStore";
 import { cartTotals, type CartLine, type StoreCategory, type StoreProduct } from "@/lib/supplyStore";
@@ -476,42 +477,32 @@ export default function SupplyStorePage() {
   return (
     <PermissionGuard permission="access.store">
       <div
-        className={`flex min-h-screen flex-col bg-gradient-to-br from-slate-100/80 via-white to-slate-50 pb-24 font-sans text-slate-800 lg:pb-8 ${isRTL ? "text-right" : "text-left"}`}
+        className={`flex min-h-full flex-col pb-24 font-sans text-slate-800 lg:pb-8 ${isRTL ? "text-right" : "text-left"}`}
         dir={isRTL ? "rtl" : "ltr"}
       >
-        <div className="mx-auto flex w-full max-w-[1920px] flex-1 flex-col gap-6 px-4 pb-8 pt-6 md:px-6 xl:gap-8 xl:px-10 xl:pt-10 2xl:px-12">
-          {/* Page header */}
-          <div className="flex shrink-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <h1 className="flex items-center gap-3 text-3xl font-black tracking-tight text-ink xl:text-4xl">
-                <ShoppingBag size={30} className="text-[#FACC15]" />
-                {ar ? "متجر المستلزمات" : "Supply Store"}
-              </h1>
-              <p className="mt-1 font-bold text-ink-muted">
-                {store.storeName
-                  ? ar
-                    ? `مستلزمات العيادة من ${store.storeName} — الدفع عند الاستلام.`
-                    : `Clinic supplies from ${store.storeName} — paid cash on delivery.`
-                  : ar
-                    ? "مستلزمات العيادة، الدفع عند الاستلام."
-                    : "Clinic supplies, paid cash on delivery."}
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setCartOpen(true)}
-              className="relative inline-flex items-center gap-2 self-start rounded-2xl bg-ink px-5 py-3 text-sm font-black text-white shadow-lg transition-transform hover:scale-[1.02]"
-            >
+        <div className="mx-auto flex w-full max-w-[1920px] flex-1 flex-col gap-6 px-4 pb-8 pt-5 md:px-6 xl:gap-8 xl:px-10 xl:pt-7 2xl:px-12">
+          <PageHeader
+            title={ar ? "متجر المستلزمات" : "Supply Store"}
+            subtitle={
+              store.storeName
+                ? ar
+                  ? `مستلزمات العيادة من ${store.storeName} — الدفع عند الاستلام.`
+                  : `Clinic supplies from ${store.storeName} — paid cash on delivery.`
+                : ar
+                  ? "مستلزمات العيادة، الدفع عند الاستلام."
+                  : "Clinic supplies, paid cash on delivery."
+            }
+          >
+            <button type="button" onClick={() => setCartOpen(true)} className={headerButtonPrimary}>
               <ShoppingCart size={18} />
               {ar ? "السلة" : "Basket"}
               {totals.itemCount > 0 && (
-                <span className="ms-1 rounded-full bg-[#FACC15] px-2 py-0.5 text-xs font-black text-ink">
+                <span className="ms-1 rounded-full bg-ink px-2 py-0.5 text-xs font-black text-white">
                   {totals.itemCount}
                 </span>
               )}
             </button>
-          </div>
+          </PageHeader>
 
           {placedNumber && (
             <div className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-800">

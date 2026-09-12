@@ -3,8 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
-  ArrowLeft,
-  ArrowRight,
   Activity,
   Baby,
   Cloud,
@@ -36,6 +34,7 @@ import {
 } from "@/lib/diagnosisCatalog";
 import { generateDiagnosisReport } from "@/lib/diagnosisReportPdf";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import PageHeader from "@/components/dashboard/PageHeader";
 
 export default function DiagnosisPage() {
   const params = useParams();
@@ -208,28 +207,18 @@ export default function DiagnosisPage() {
 
   return (
     <PermissionGuard permission="access.clinical">
-      <div className="min-h-screen bg-surface-subtle pb-28 md:pb-12 animate-in fade-in">
-        {/* Header */}
+      <div className="min-h-full pb-28 md:pb-12 animate-in fade-in">
+        {/* The chart's own tools stay sticky here; the title and the way back are in the black
+            band above. */}
+        <PageHeader
+          eyebrow={language === "ar" ? "التشخيصات السنية" : "Dental Diagnoses"}
+          title={patient.name}
+          subtitle={patient.phone || ""}
+          backHref={`/patients/${encodeURIComponent(id)}`}
+        />
         <header className="bg-white/95 backdrop-blur-md border-b border-slate-200/70 sticky top-0 z-40">
           <div className="max-w-[1600px] mx-auto px-3 md:px-6 py-3 flex items-center gap-3">
-            <button
-              onClick={() => router.push(`/patients/${encodeURIComponent(id)}`)}
-              className="p-2 rounded-xl hover:bg-slate-100 text-slate-500 hover:text-slate-900 transition-colors shrink-0"
-            >
-              {isRTL ? <ArrowRight size={18} /> : <ArrowLeft size={18} />}
-            </button>
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white flex items-center justify-center shadow-sm shrink-0">
-              <Stethoscope size={16} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <h1 className="text-base md:text-lg font-bold text-slate-900 leading-tight">
-                {language === "ar" ? "التشخيصات السنية" : "Dental Diagnoses"}
-              </h1>
-              <p className="text-[11px] md:text-xs text-ink-muted truncate">
-                {patient.name} · {language === "ar" ? "السن" : "Patient"} {patient.phone || ""}
-              </p>
-            </div>
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex flex-1 items-center justify-end gap-1.5 shrink-0">
               <div className="hidden sm:flex bg-surface-muted p-1 rounded-full">
                 <button
                   onClick={() => setChartMode("adult")}
@@ -266,7 +255,7 @@ export default function DiagnosisPage() {
               <button
                 onClick={handleExportPdf}
                 disabled={exporting}
-                className="inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-full bg-accent-soft text-white shadow-sm shadow-blue-600/20 hover:bg-accent transition-colors disabled:opacity-60"
+                className="inline-flex items-center gap-1.5 text-[11px] font-bold px-3 py-1.5 rounded-full bg-accent-soft text-ink shadow-sm shadow-black/10 hover:bg-accent transition-colors disabled:opacity-60"
                 title={language === "ar" ? "تنزيل تقرير PDF" : "Download PDF report"}
               >
                 {exporting ? <Loader2 size={13} className="animate-spin" /> : <FileDown size={13} />}

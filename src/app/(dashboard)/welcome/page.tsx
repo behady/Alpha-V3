@@ -23,6 +23,7 @@ import { useWelcome } from "@/context/WelcomeContext";
 import { DemoTourCard } from "@/components/welcome/DemoTour";
 import { TUTORIALS, tutorialsFor } from "@/lib/tutorials";
 import { MISSIONS, type Mission } from "@/lib/welcomeJourney";
+import PageHeader from "@/components/dashboard/PageHeader";
 
 /**
  * Getting started — the whole route, on one page.
@@ -114,30 +115,25 @@ export default function WelcomePage() {
 
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-6 sm:px-6 lg:py-10 space-y-6" dir={isRTL ? "rtl" : "ltr"}>
-      {/* --- The header: who you are, how far in, how long is left --------------------------- */}
-      <header className="relative overflow-hidden rounded-[2rem] bg-ink-slab px-6 py-7 text-white shadow-xl shadow-ink-slab/20 sm:px-8">
-        <div className="absolute -top-24 -end-20 h-64 w-64 rounded-full bg-accent-soft/20 blur-3xl" aria-hidden />
-        <div className="relative flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0 space-y-2">
-            <p className="font-display text-[10px] font-black uppercase tracking-[0.22em] text-white/45">
-              {isAr ? "البداية" : "Getting started"}
-            </p>
-            <h1 className="font-display text-2xl font-bold leading-tight text-white sm:text-3xl">
-              {firstName
+      {/* Who you are and what this is: in the layout's black band. This card kept the part that
+          cannot live in a header — how far in you are, and how long is left. */}
+      <PageHeader
+        eyebrow={isAr ? "البداية" : "Getting started"}
+        title={firstName
                 ? isAr
                   ? `أهلاً يا ${firstName} — يلا نظبط ${clinic?.name || "العيادة"}`
                   : `Welcome, ${firstName} — let's set ${clinic?.name || "your clinic"} up`
                 : isAr
                   ? `يلا نظبط ${clinic?.name || "العيادة"}`
                   : `Let's set ${clinic?.name || "your clinic"} up`}
-            </h1>
-            <p className="max-w-lg text-[13px] font-medium leading-relaxed text-white/60">
-              {isAr
+        subtitle={isAr
                 ? "كل خطوة تحت بتتشرح على الشاشة الحقيقية — بتضغط «وريني إزاي» وبتظهر دايرة بتشاور على المكان بالظبط. والخطوة بتتشطب لما تعملها بجد، مش لما تتفرج عليها."
                 : "Every step below is taught on the real screen — press \"Show me how\" and a ring points at the exact spot. A step ticks itself when you actually do it, not when you watch it."}
-            </p>
-          </div>
+      />
 
+      <header className="relative overflow-hidden rounded-[2rem] bg-ink-slab px-6 py-7 text-white shadow-xl shadow-ink-slab/20 sm:px-8">
+        <div className="absolute -top-24 -end-20 h-64 w-64 rounded-full bg-accent-soft/20 blur-3xl" aria-hidden />
+        <div className="relative flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-end">
           <div className="flex shrink-0 items-center gap-4">
             <div className="relative flex items-center justify-center">
               <ProgressRing percent={loading ? 0 : progress.percent} />

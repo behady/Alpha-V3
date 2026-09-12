@@ -3,13 +3,14 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Search, Phone, MapPin, UserX, Loader2, Facebook, Instagram, Users, ChevronRight, Bell } from "lucide-react";
+import { Plus, Search, Phone, MapPin, UserX, Loader2, Facebook, Instagram, Users, ChevronRight } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, query, orderBy, limit, startAfter, where } from "firebase/firestore";
 import NewPatientModal from "@/components/NewPatientModal";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
 import { useLanguage } from "@/context/LanguageContext";
 import PermissionGuard from "@/components/PermissionGuard";
+import PageHeader, { headerButtonPrimary } from "@/components/dashboard/PageHeader";
 import Protect from "@/components/Protect";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 
@@ -28,7 +29,7 @@ const getAvatarStyle = (name: string) => {
 };
 
 export default function PatientsPage() {
-  const { language, isRTL, toggleLanguage } = useLanguage();
+  const { language, isRTL } = useLanguage();
   const router = useRouter();
   
   const [patients, setPatients] = useState<any[]>([]);
@@ -131,52 +132,36 @@ export default function PatientsPage() {
 
   return (
     <PermissionGuard permission="access.patients">
-      <div className="min-h-screen bg-white pb-24 lg:pb-10 font-sans text-slate-800 selection:bg-accent-soft selection:text-primary-900"> 
+      <div className="min-h-full bg-white pb-24 lg:pb-10 font-sans text-slate-800 selection:bg-accent-soft selection:text-ink">
         
-        {/* UNIFIED HEADER */}
+        {/* The title and "add patient" moved up into the layout's black band. The search box
+            stayed here and stayed sticky: it filters the list directly underneath it, so it
+            belongs with the list rather than with the chrome. The language switch and the bell
+            that used to sit alongside the title are gone — both live in the top bar now, and
+            that bell was decorative: a permanent red dot on a button that did nothing. */}
+        <PageHeader title={t.title}>
+          <Protect permission="patients.add">
+            <button onClick={() => setIsModalOpen(true)} data-tour="patients-add" className={headerButtonPrimary}>
+              <Plus size={16} strokeWidth={3} />
+              <span className="hidden sm:inline">{t.addBtn}</span>
+            </button>
+          </Protect>
+        </PageHeader>
+
         <div className="sticky top-0 z-40 bg-white/90 backdrop-blur-xl border-b border-slate-100 shadow-sm transition-all">
-           {/* Expanded max width to 1600px for PC */}
-           <div className="max-w-[1600px] mx-auto w-full flex flex-col gap-3 px-4 py-3 md:py-4">
-              
-              {/* Row 1: Context Title & Utilities */}
-              <div className="flex justify-between items-center">
-                 <div className="flex items-center gap-3">
-                    <h1 className="text-lg font-black text-ink tracking-tight uppercase">{t.title}</h1>
+           <div className="max-w-[1600px] mx-auto w-full px-4 py-3">
+              <div className="relative w-full group shadow-sm">
+                 <div className="absolute inset-y-0 start-0 ps-3.5 flex items-center pointer-events-none">
+                    <Search size={16} className="text-slate-400 group-focus-within:text-ink transition-colors" />
                  </div>
-                 
-                 <div className="flex items-center gap-2">
-                    <button onClick={toggleLanguage} className="w-8 h-8 rounded-full bg-surface-subtle hover:bg-accent-tint text-ink-muted hover:text-accent flex items-center justify-center font-bold text-[10px] uppercase tracking-widest transition-colors border border-slate-100">
-                       {language === 'ar' ? 'EN' : 'ع'}
-                    </button>
-                    <button className="w-8 h-8 rounded-full bg-surface-subtle hover:bg-accent-tint text-ink-muted hover:text-accent flex items-center justify-center transition-colors relative border border-slate-100">
-                        <Bell size={14}/>
-                        <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-red-500 rounded-full border border-white"></span>
-                    </button>
-                 </div>
+                  <input
+                    type="text"
+                    placeholder={t.searchPlaceholder} data-tour="patients-search"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="block w-full ps-10 pe-4 py-3 bg-surface-subtle hover:bg-surface-muted border border-line focus:border-ink focus:bg-white rounded-2xl text-sm font-bold text-slate-800 placeholder-slate-400 transition-all outline-none"
+                 />
               </div>
-
-              {/* Row 2: Search & Add */}
-              <div className="flex items-center gap-3">
-                  <div className="relative w-full flex-1 group shadow-sm">
-                     <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none">
-                        <Search size={16} className="text-slate-400 group-focus-within:text-accent-soft transition-colors" />
-                     </div>
-                      <input 
-                        type="text" 
-                        placeholder={t.searchPlaceholder} data-tour="patients-search" 
-                        value={searchTerm} 
-                        onChange={(e) => setSearchTerm(e.target.value)} 
-                        className="block w-full pl-10 pr-4 py-3 bg-white/40 hover:bg-white/60 backdrop-blur-md border border-white/80 focus:border-white focus:bg-white/90 focus:ring-4 focus:ring-white/20 rounded-2xl text-sm font-bold text-slate-800 placeholder-slate-400 transition-all outline-none shadow-[0_4px_15px_rgb(0,0,0,0.02)]" 
-                     />
-                  </div>
-
-                  <Protect permission="patients.add">
-                    <button onClick={() => setIsModalOpen(true)} data-tour="patients-add" className="bg-[#FACC15] hover:bg-[#eab308] text-slate-900 px-6 py-2.5 rounded-full font-black text-xs uppercase shadow-sm flex items-center justify-center gap-2 active:scale-95 transition-all shrink-0 h-[42px] border border-yellow-400/50">
-                       <Plus size={16} strokeWidth={3}/> <span className="hidden sm:inline tracking-wider">{t.addBtn}</span>
-                    </button>
-                  </Protect>
-              </div>
-
            </div>
         </div>
 

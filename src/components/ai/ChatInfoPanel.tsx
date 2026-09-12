@@ -229,7 +229,7 @@ export default function ChatInfoPanel({ chat, isAr, onClose }: { chat: InfoChat;
             <div className="mt-4 flex flex-col gap-2">
               <Link
                 href={`/appointments?book=${encodeURIComponent(chat.patientId)}`}
-                className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-white text-[12px] font-black bg-accent dark:bg-accent hover:brightness-110 shadow-sm transition-all"
+                className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-ink text-[12px] font-black bg-accent dark:bg-accent hover:brightness-110 shadow-sm transition-all"
               >
                 <CalendarPlus size={15} />
                 {isAr ? "احجز ميعاد" : "Book appointment"}

@@ -18,6 +18,7 @@
  */
 
 import { useCallback, useMemo, useState } from "react";
+import PageHeader from "@/components/dashboard/PageHeader";
 import { useSettingsText } from "@/lib/useSettingsText";
 import { usePathname, useRouter } from "next/navigation";
 import { Search, Settings2, X } from "lucide-react";
@@ -35,7 +36,7 @@ import {
   type SettingsGroup,
   type SettingsSection,
 } from "@/config/settingsRegistry";
-import { SETTINGS_GROUP_ICONS, SETTINGS_GROUP_TONE, SETTINGS_ICONS } from "@/components/settings/panels";
+import { SETTINGS_GROUP_ICONS, SETTINGS_ICONS } from "@/components/settings/panels";
 import { visibleSections } from "@/lib/settingsAccess";
 import { hasFeature } from "@/lib/subscriptions";
 
@@ -117,7 +118,6 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
 
   const txt = useSettingsText("shell");
 
-  const ActiveIcon = active ? (SETTINGS_ICONS[active.id] ?? Settings2) : Settings2;
   const activeLabel = active
     ? language === "ar"
       ? active.labelAr
@@ -135,26 +135,17 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
       dir={isRTL ? "rtl" : "ltr"}
     >
       <div className="mb-8 overflow-hidden rounded-[2.5rem] border border-line bg-surface shadow-[0_4px_20px_rgba(0,0,0,0.03)] transition-shadow hover:shadow-[0_8px_30px_rgba(0,0,0,0.06)]">
-        <div className="flex flex-col gap-4 px-6 pt-6 pb-5 sm:flex-row sm:items-center sm:justify-between md:px-8">
-          <div className="flex min-w-0 items-center gap-4">
-            {active ? (
-              <span
-                className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl shadow-sm ${
-                  SETTINGS_GROUP_TONE[active.group]?.tile ?? "bg-accent text-white"
-                } bg-gradient-to-br from-white/20 to-transparent`}
-              >
-                <ActiveIcon size={24} className="drop-shadow-sm" />
-              </span>
-            ) : (
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl shadow-sm bg-gradient-to-br from-ink-strong to-ink text-white">
-                <Settings2 size={24} className="drop-shadow-sm" />
-              </span>
-            )}
-            <h1 className="truncate font-display text-2xl font-bold tracking-tight text-ink md:text-3xl">
-              {activeLabel}
-            </h1>
-          </div>
+        {/* The name of the section you are in is in the layout's black band, with Settings as the
+            breadcrumb above it. The tile that used to carry it stayed behind on purpose: the
+            group colours belong to the section tiles, and a coloured square floating on black
+            reads as decoration rather than as where you are. */}
+        <PageHeader
+          eyebrow={active ? txt.title : undefined}
+          title={activeLabel}
+          backHref={active ? "/settings" : undefined}
+        />
 
+        <div className="flex flex-col gap-4 px-6 pt-6 pb-5 sm:flex-row sm:items-center sm:justify-end md:px-8">
           {/* Search spans every group: "where do I change X" is not a question you can answer by
               picking a group first. */}
           <div className="relative w-full shrink-0 sm:w-72">

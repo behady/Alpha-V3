@@ -38,6 +38,7 @@ import {
   buildE164FromCountryCode,
   splitE164ToCountryAndLocal,
 } from "@/lib/phoneNumber";
+import PageHeader from "@/components/dashboard/PageHeader";
 
 // Helper for the CRM Timeline Icons, Colors & Human Titles
 function formatWhatsAppLogType(type: string) {
@@ -896,19 +897,26 @@ export default function PatientProfile() {
 
   return (
     <PermissionGuard permission="access.patients">
-      <div className="min-h-screen bg-surface-subtle p-4 md:p-8 animate-in fade-in lg:pb-0">
+      {/* The patient's name and the way back are in the layout's black band. The name still
+          appears over the photo below, where it reads as the caption of that portrait rather
+          than as a second page title. */}
+      <PageHeader
+        eyebrow={language === "ar" ? "المرضى" : "Patients"}
+        title={patient.name}
+        subtitle={`${displayAge} ${t('yearSymbol') || 'Y'} · ${patient.gender || ""}`}
+        backHref="/patients"
+      />
+
+      <div className="min-h-full p-4 md:p-8 animate-in fade-in lg:pb-0">
         
         {/* TOP GRID WIDGETS */}
         <div className="max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-3 lg:gap-6 mb-6">
            
            {/* COL 1: Hero Identity */}
            <div className="lg:col-span-3 flex flex-col gap-3 lg:gap-4">
-               <button onClick={() => router.push('/patients')} className="self-start p-2 rounded-xl bg-white/40 hover:bg-white/60 text-slate-700 transition-colors backdrop-blur-md lg:mb-2 -mb-1">
-                 {isRTL ? <ArrowRight size={18} /> : <ArrowLeft size={18} />}
-               </button>
                <div className="flex flex-col lg:relative lg:w-full lg:aspect-auto lg:h-[220px] xl:h-[250px] lg:rounded-[2rem] lg:overflow-hidden lg:shadow-lg lg:group shrink-0">
                   {/* Mobile Row Layout */}
-                  <div className="flex flex-col gap-3 bg-gradient-to-br from-accent-soft to-accent text-white p-4 rounded-[2rem] border border-accent-soft/50 shadow-lg lg:hidden shrink-0">
+                  <div className="flex flex-col gap-3 bg-ink-slab text-white p-4 rounded-[2rem] border border-white/10 shadow-lg lg:hidden shrink-0">
                      <div className="flex items-center gap-4">
                          <div className="relative w-[72px] h-[72px] shrink-0 rounded-[1.5rem] overflow-hidden shadow-sm group border-2 border-white/30 bg-white/10">
                              <img 

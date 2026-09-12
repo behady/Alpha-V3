@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   AlertCircle,
   ArrowUpRight,
-  BadgeDollarSign,
   CheckCircle2,
   ChevronDown,
   FileWarning,
@@ -27,6 +26,7 @@ import PermissionGuard from "@/components/PermissionGuard";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { openWhatsAppWithText } from "@/lib/whatsappManual";
 import type { RecoveryList, RecoveryRow } from "@/lib/paymentRecovery";
+import PageHeader from "@/components/dashboard/PageHeader";
 
 /**
  * Where a patient stands after someone has actually spoken to them.
@@ -241,19 +241,16 @@ export default function RecoverPaymentsPage() {
 
   return (
     <PermissionGuard permission="access.finance">
-      <div className="min-h-screen bg-slate-50/50 pb-24 lg:pb-10 text-slate-800" dir={isRTL ? "rtl" : "ltr"}>
+      <div className="min-h-full pb-24 lg:pb-10 text-slate-800" dir={isRTL ? "rtl" : "ltr"}>
         <div className="max-w-[1400px] mx-auto p-4 md:p-6 space-y-6">
           {/* Header */}
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <div className="flex items-center gap-2 text-teal-600">
-                <BadgeDollarSign size={16} />
-                <span className="text-[11px] font-black uppercase tracking-widest">
-                  {isAr ? "المالية" : "Finance"}
-                </span>
-              </div>
-              <h1 className="text-2xl md:text-3xl font-black text-ink tracking-tight mt-1">{txt.title}</h1>
-              <p className="text-sm font-medium text-ink-muted mt-1 max-w-2xl">{txt.subtitle}</p>
+          <PageHeader
+            eyebrow={isAr ? "المالية" : "Finance"}
+            title={txt.title}
+            subtitle={txt.subtitle}
+          />
             </div>
 
             <button

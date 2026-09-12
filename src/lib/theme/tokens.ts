@@ -43,7 +43,10 @@ export const ROLE_TOKENS = [
   "surface-page", "surface", "surface-subtle", "surface-muted", "surface-accent",
   "line", "line-strong",
   "ink", "ink-slab", "ink-strong", "ink-body", "ink-muted", "ink-faint", "ink-on-accent",
-  "accent", "accent-soft", "accent-strong", "accent-tint",
+  // `accent` is what you PAINT with; `accent-ink` is the same brand colour darkened until it
+  // works as type or an icon on a light surface. They are separate roles because a theme is free
+  // to pick an accent that cannot be read as text — the default yellow is exactly that.
+  "accent", "accent-soft", "accent-strong", "accent-tint", "accent-ink",
   "ok", "ok-tint", "warn", "warn-tint", "danger", "danger-tint", "info", "info-tint",
   // The four settings groups. Colour that says which family a screen belongs to, and
   // nothing else: never a status, never an action.

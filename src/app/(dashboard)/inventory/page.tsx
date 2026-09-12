@@ -13,6 +13,7 @@ import { Timestamp, addDoc, deleteDoc, getDocs, orderBy, query, serverTimestamp,
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import PermissionGuard from "@/components/PermissionGuard";
+import PageHeader, { headerButtonGhost } from "@/components/dashboard/PageHeader";
 import Protect from "@/components/Protect";
 import { useUI } from "@/context/UIContext";
 import { logActivity } from "@/lib/logger";
@@ -474,22 +475,17 @@ export default function InventoryPage() {
 
   return (
     <PermissionGuard permission="access.inventory">
-      <div className={`min-h-screen bg-gradient-to-br from-slate-100/80 via-white to-slate-50 pb-24 lg:pb-8 flex flex-col font-sans text-slate-800 ${isRTL ? "text-right" : "text-left"}`} dir={isRTL ? "rtl" : "ltr"}>
-        <div className="w-full max-w-[1920px] mx-auto px-4 md:px-6 xl:px-10 2xl:px-12 pt-6 xl:pt-10 pb-8 space-y-6 xl:space-y-8 flex-1 flex flex-col min-h-0 animate-in fade-in">
+      <div className={`min-h-full pb-24 lg:pb-8 flex flex-col font-sans text-slate-800 ${isRTL ? "text-right" : "text-left"}`} dir={isRTL ? "rtl" : "ltr"}>
+        <div className="w-full max-w-[1920px] mx-auto px-4 md:px-6 xl:px-10 2xl:px-12 pt-5 xl:pt-7 pb-8 space-y-6 xl:space-y-8 flex-1 flex flex-col min-h-0 animate-in fade-in">
           
-          {/* Page header */}
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between shrink-0">
-            <div>
-              <p className="text-[11px] font-black uppercase tracking-[0.2em] text-accent">Alpha</p>
-              <h1 className="text-2xl xl:text-3xl font-black text-ink tracking-tight mt-1">{language === "ar" ? "إدارة المخزون" : "Inventory"}</h1>
-              <p className="text-ink-muted font-semibold text-sm mt-1">{language === "ar" ? "نظرة عامة على الأرصدة والقيمة الإجمالية" : "Overview of stock levels and total value"}</p>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-               <button onClick={exportToCSV} className="flex-1 sm:flex-none inline-flex justify-center items-center gap-2 bg-surface-muted text-slate-700 hover:bg-slate-200 px-4 py-2.5 rounded-xl font-bold text-xs border border-line transition-colors">
-                  <Download size={16} /> CSV
-               </button>
-            </div>
-          </div>
+          <PageHeader
+            title={language === "ar" ? "إدارة المخزون" : "Inventory"}
+            subtitle={language === "ar" ? "نظرة عامة على الأرصدة والقيمة الإجمالية" : "Overview of stock levels and total value"}
+          >
+            <button onClick={exportToCSV} className={headerButtonGhost}>
+              <Download size={16} /> CSV
+            </button>
+          </PageHeader>
 
           {/* Hero + metric tiles */}
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 xl:gap-6 shrink-0">

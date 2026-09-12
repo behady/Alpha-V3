@@ -178,7 +178,7 @@ export default function QuickReplies({
           <button
             onClick={() => void add()}
             disabled={saving || !newTitle.trim() || !newText.trim()}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-[12px] font-black disabled:opacity-50 bg-accent dark:bg-accent hover:brightness-110 shadow-sm transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ink text-[12px] font-black disabled:opacity-50 bg-accent dark:bg-accent hover:brightness-110 shadow-sm transition-all"
           >
             {saving ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
             {isAr ? "أضف رد" : "Add reply"}

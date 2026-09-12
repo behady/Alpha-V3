@@ -20,8 +20,12 @@ interface AppNotification {
   createdAt?: any;
 }
 
-export default function NotificationBell() {
-  const { language } = useLanguage();
+/**
+ * `variant="dark"` is the form that sits on the black top bar. The default white-card button is
+ * for anywhere else — on black it reads as a hole punched in the bar.
+ */
+export default function NotificationBell({ variant = "default" }: { variant?: "default" | "dark" } = {}) {
+  const { language, isRTL } = useLanguage();
   const router = useRouter();
   
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -116,18 +120,24 @@ export default function NotificationBell() {
     <div className="relative" ref={dropdownRef}>
       <button 
         onClick={toggleDropdown} 
-        className="relative p-2.5 bg-white hover:bg-gray-50 rounded-xl text-gray-600 transition-colors border border-gray-200 shadow-sm"
+        className={
+          variant === "dark"
+            ? "relative grid size-9 place-items-center rounded-full border border-white/15 bg-white/5 text-white/70 transition-colors hover:bg-white/15 hover:text-white"
+            : "relative p-2.5 bg-white hover:bg-gray-50 rounded-xl text-gray-600 transition-colors border border-gray-200 shadow-sm"
+        }
       >
-        <Bell size={18} />
+        <Bell size={variant === "dark" ? 17 : 18} />
         {unreadCount > 0 && (
-          <span className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-black text-white shadow-sm animate-in zoom-in">
+          /* `-end-1.5`, not `-right-1.5`: in Arabic the whole bar mirrors and a hard-coded right
+             put the count on the wrong side of the bell. */
+          <span className="absolute -top-1.5 -end-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-black text-white shadow-sm animate-in zoom-in">
             {unreadCount}
           </span>
         )}
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-3 w-80 md:w-96 bg-surface rounded-3xl shadow-2xl border border-gray-100 overflow-hidden z-50 animate-in slide-in-from-top-4">
+        <div className="absolute end-0 mt-3 w-80 md:w-96 bg-surface rounded-3xl shadow-2xl border border-gray-100 overflow-hidden z-[200] animate-in slide-in-from-top-4" dir={isRTL ? "rtl" : "ltr"}>
           <div className="bg-gray-50 px-5 py-4 border-b border-gray-100 flex justify-between items-center">
             <h3 className="font-black text-gray-900">{language === 'ar' ? 'الإشعارات' : 'Notifications'}</h3>
             {notifications.length > 0 && (

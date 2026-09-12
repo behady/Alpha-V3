@@ -17,6 +17,7 @@ import { LAB_CASES_COLLECTION } from "@/lib/labCases";
 import type { Briefing, HrStaffRow } from "@/lib/automation/briefing/types";
 import type { Row } from "@/lib/dentistHome";
 import { attendanceByDoctor, cashToday, labChase, leadsFunnel, periodStart, sourcesOf, waitingRoom } from "@/lib/ownerHome";
+import PageHeader from "@/components/dashboard/PageHeader";
 
 /**
  * The owner's home: is the place running, and is the money moving?
@@ -220,20 +221,17 @@ export default function OwnerHome() {
   const stale = loadingPeriod === period && !brief;
 
   return (
-    <div className="min-h-screen pb-24 lg:pb-6 text-ink-strong" dir={isRTL ? "rtl" : "ltr"}>
+    <div className="min-h-full pb-24 lg:pb-6 text-ink-strong" dir={isRTL ? "rtl" : "ltr"}>
       <div className="w-full max-w-[1400px] mx-auto p-4 md:p-6 lg:p-5 flex flex-col gap-4">
 
-        {/* Header + the one filter row */}
-        <div className="flex flex-wrap items-end justify-between gap-4 px-1">
-          <div>
-            <h1 className="font-display text-[26px] md:text-[28px] font-medium text-ink-strong leading-tight">
-              {greeting} <span className="font-bold text-ink">{firstName}</span>
-            </h1>
-            <p className="text-xs font-semibold text-ink-muted mt-1">
-              {dateLine} · {timeLine}
-              {branches.length > 0 && activeBranch ? ` · ${activeBranch.name}` : ""}
-            </p>
-          </div>
+        {/* Greeting in the black band; the period switch stays on the page, because it re-scopes
+            every figure underneath it. */}
+        <PageHeader
+          title={<><span className="font-light">{greeting}</span> {firstName}</>}
+          subtitle={`${dateLine} · ${timeLine}${branches.length > 0 && activeBranch ? ` · ${activeBranch.name}` : ""}`}
+        />
+
+        <div className="flex flex-wrap items-end justify-end gap-4 px-1">
           <div className="flex items-center gap-2">
             <div className="inline-flex items-center gap-1 rounded-full bg-surface border border-slate-200/60 p-1 shadow-sm">
               {periods.map((p) => (

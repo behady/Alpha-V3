@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Plus_Jakarta_Sans, Cairo } from "next/font/google";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Users, Calendar, Wallet, Settings, Sparkles,
-  FileBarChart, Menu, X, LogOut, Loader2, Languages,
-  Package, ChevronLeft, ChevronRight, Clock, FlaskConical, ShieldCheck,
+  FileBarChart, Menu, X, LogOut, Languages,
+  Package, Clock, FlaskConical, ShieldCheck,
   LifeBuoy, Inbox, Megaphone, Rocket, ShoppingBag
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
@@ -18,11 +18,12 @@ import { useClinic } from "@/context/ClinicContext";
 import { getClinicLogo } from "@/lib/clinicLogo";
 import { canAccessNavItem, canShowSettingsNavLink } from "@/lib/navAccess";
 import { hasFeature } from "@/lib/subscriptions";
-import NotificationBell from "@/components/NotificationBell";
 import ReceptionSummonOverlay from "@/components/summon/ReceptionSummonOverlay";
 import { useUI } from "@/context/UIContext";
 import ClinicSwitcher from "@/components/dashboard/ClinicSwitcher";
-import DesktopSidebar, { SECTION_GROUPS } from "@/components/dashboard/DesktopSidebar";
+import TopNav from "@/components/dashboard/TopNav";
+import { SECTION_GROUPS } from "@/components/dashboard/navGroups";
+import { PageHeaderProvider, usePageHeaderSlot } from "@/context/PageHeaderContext";
 import AiChatWidget from "@/components/AiChatWidget";
 import { TutorialProvider, useTutorial } from "@/context/TutorialContext";
 import TutorialOverlay from "@/components/TutorialOverlay";
@@ -51,6 +52,46 @@ function WelcomeLayer({ children }: { children: React.ReactNode }) {
   return <WelcomeProvider tutorialRunning={!!activeTutorial}>{children}</WelcomeProvider>;
 }
 
+/**
+ * The lower half of the black band: whatever the page portalled into it.
+ *
+ * Must be a separate component because it consumes the context that `DashboardLayout` itself
+ * renders. `fallbackTitle` shows when a page has not adopted <PageHeader> yet, so the band never
+ * appears as a bare black stripe with nothing in it.
+ */
+function PageHeaderStrip({ fallbackTitle }: { fallbackTitle: string }) {
+  const ctx = usePageHeaderSlot();
+  const compact = !!ctx?.compact;
+  const empty = (ctx?.count ?? 0) === 0;
+  const slotRef = useRef<HTMLDivElement>(null);
+  const setSlot = ctx?.setSlot;
+
+  /**
+   * An effect, not an inline `ref={(el) => setSlot(el)}`. React runs a fresh ref callback on every
+   * render — cleaning up with null first — so an inline one would call setState twice per render
+   * and spin forever.
+   */
+  useEffect(() => {
+    setSlot?.(slotRef.current);
+    return () => setSlot?.(null);
+  }, [setSlot]);
+
+  return (
+    <div
+      className={`px-4 lg:px-7 ${compact ? "pb-3 pt-0.5" : "pb-6 pt-1 lg:pb-7"}`}
+    >
+      {/* The portal target. Kept mounted always, so a page's header has somewhere to land on the
+          very first render after a route change. */}
+      <div ref={slotRef} />
+      {empty && (
+        <h1 className="truncate text-xl font-semibold tracking-tight text-white lg:text-[1.7rem] lg:leading-tight">
+          {fallbackTitle}
+        </h1>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -59,25 +100,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { clinicId, clinic, role, isAdmin, isReadOnly, readOnlyReason } = useClinic();
   const { appointmentsVisibility, homeView } = useUI();
   /**
-   * Two pages are locked to the viewport height and manage their own scrolling: the calendar and
-   * the reception dashboard, both height-constrained flex layouts. The dentist's home lives at the
+   * Three pages are locked to the viewport height and manage their own scrolling: the calendar,
+   * the WhatsApp inbox and the reception dashboard, all height-constrained flex layouts. The dentist's home lives at the
    * same URL as the desk but is an ordinary page that grows with its content — lock it and a
    * tablet in landscape (wide enough for the desktop rule) simply cannot scroll to the report.
    */
   const ownHome = role === "Dentist" || homeView === "chair" || (homeView === "owner" && isAdmin);
-  const isFullHeightPage = pathname === "/appointments" || (pathname === "/" && !ownHome);
+  const isFullHeightPage =
+    pathname === "/appointments" || pathname === "/chats" || (pathname === "/" && !ownHome);
   // Unopened patient WhatsApp messages, for the count on the WhatsApp icon in both navs.
   const unreadChats = useUnreadChatCount();
   // And the chime + desktop notification when a new one arrives, on whichever page is open.
   useChatAlerts();
-  // Whether a partner supply shop is connected at all. Decides if the Store rail item exists.
+  // Whether a partner supply shop is connected at all. Decides if the Store nav item exists.
   const supplyStore = useSupplyStoreStatus();
 
   const [isOpen, setIsOpen] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [logoUrl, setLogoUrl] = useState("");
 
-  // Same mark as the desktop rail, fetched here for the mobile menu header.
+  // Same mark as the top bar, fetched here for the mobile menu header.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -120,16 +162,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   /**
    * Collect Dues (/finance/recovery), Recovery (/ai/revenue), Reactivation (/ai/reactivation)
-   * and Recalls (/ai/operations) were deliberately dropped from this list — the rail had grown
-   * past what anyone could scan. Their pages still exist at those URLs, but nothing links to
+   * and Recalls (/ai/operations) were deliberately dropped from this list — the navigation had
+   * grown past what anyone could scan. Their pages still exist at those URLs, but nothing links to
    * them anymore; delete the routes outright once they are confirmed unmissed.
    */
   const allNavItems = [
     { key: "dashboard", href: "/", icon: LayoutDashboard },
     { key: "leads", href: "/leads", icon: Inbox },
     /**
-     * The clinic's WhatsApp, with the unread count on the icon. Near the top because it is the
-     * one page a receptionist opens all day — a patient writing is a patient at the desk.
+     * The clinic's WhatsApp, with the unread count on the icon. First in Front Desk because it is
+     * the one page a receptionist opens all day — a patient writing is a patient at the desk.
      */
     { key: "chats", href: "/chats", icon: WhatsAppIcon, badge: unreadChats },
     { key: "marketing", href: "/marketing", icon: Megaphone },
@@ -138,7 +180,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { key: "inventory", href: "/inventory", icon: Package },
     /**
      * The partner supplier's shop. Absent unless a shop is actually connected — see hasAccess —
-     * because a rail item that opens onto "no store configured" reads as broken rather than as
+     * because a menu item that opens onto "no store configured" reads as broken rather than as
      * something the platform has not switched on yet.
      */
     { key: "store", href: "/store", icon: ShoppingBag },
@@ -149,12 +191,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { key: "reports", href: "/reports", icon: FileBarChart },
     { key: "attendance", href: "/attendance", icon: Clock },
     /**
-     * Last on purpose, so it sits at the foot of the rail just above Settings.
-     *
-     * It replaces three separate icons — the brief, the WhatsApp send queue and patient no-shows —
-     * which are now three tabs of one page. They were near the top and among the most-scanned
-     * things in the rail while being the least urgent: nothing here is a patient standing at the
-     * desk. Their old URLs redirect into it.
+     * It replaces three separate items — the brief, the WhatsApp send queue and patient no-shows —
+     * which are now three tabs of one page. Their old URLs redirect into it.
      */
     { key: "intelligence", href: "/ai", icon: Sparkles },
   ];
@@ -178,7 +216,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (key === 'attendance' && !hasFeature(clinic, 'attendance')) return false;
 
     // The marketing studio is a paid add-on, and switching it off in the superadmin panel has to
-    // make it disappear for EVERYONE — admins included. It used to stay in the rail for admins as
+    // make it disappear for EVERYONE — admins included. It used to stay in the nav for admins as
     // an upsell, which read as the switch not working. Staff additionally need access.marketing.
     if (key === 'marketing') {
       if (!hasFeature(clinic, 'marketingText')) return false;
@@ -187,7 +225,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
 
     /**
-     * The Intelligence page holds three tabs that used to be three rail items, each with its own
+     * The Intelligence page holds three tabs that used to be three nav items, each with its own
      * permission. It shows if ANY of them would — the page itself drops the tabs a person may not
      * open, so a receptionist with patient access lands on the message queue and never sees the
      * brief. `patients` is what the queue used to be gated on: reception already holds it, so no
@@ -212,39 +250,55 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const visibleItems = allNavItems.filter((item) => hasAccess(item.key, false));
   const showSettings = canShowSettingsNavLink(user, isAdmin);
 
+  /**
+   * What the black strip says on a page that has not adopted <PageHeader> yet — the section's own
+   * name, matched longest-prefix first so /patients/abc still reads "Patients" rather than falling
+   * through to the dashboard.
+   */
+  const fallbackTitle = (() => {
+    const extras: Record<string, string> = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      "/settings": (t("settings" as any) as string) || (language === "ar" ? "الإعدادات" : "Settings"),
+      "/welcome": language === "ar" ? "البداية" : "Getting started",
+      "/help": language === "ar" ? "مركز المساعدة" : "Help Center",
+      "/ortho": language === "ar" ? "التقويم" : "Orthodontics",
+      "/setup": language === "ar" ? "الإعداد" : "Setup",
+      "/migrate": language === "ar" ? "استيراد البيانات" : "Import data",
+    };
+    const fromNav = Object.fromEntries(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      allNavItems.filter((i) => i.href !== "/").map((i) => [i.href, (t(i.key as any) as string) || i.key])
+    );
+    const table = { ...fromNav, ...extras };
+    const match = Object.keys(table)
+      .filter((href) => pathname === href || pathname.startsWith(`${href}/`))
+      .sort((a, b) => b.length - a.length)[0];
+    if (match) return table[match];
+    return clinic?.name || "Alpha";
+  })();
+
   if (isCheckingAuth || authLoading) {
     return (
-      <div className="flex min-h-screen bg-slate-50 dark:bg-slate-950">
-        {/* Desktop Sidebar Skeleton - Collapsed Default */}
-        <aside className="hidden lg:flex w-[88px] shrink-0 flex-col bg-surface dark:bg-slate-900 border-e border-line dark:border-slate-800 p-4 shadow-sm items-center">
-          <div className="h-8 bg-slate-200 dark:bg-slate-800 rounded-md w-3/4 mb-10"></div>
-          <div className="space-y-4">
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="h-10 bg-slate-200 dark:bg-slate-800 rounded-lg w-full"></div>
-            ))}
-          </div>
-        </aside>
-
-        <main className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden relative">
-          {/* Header Skeleton */}
-          <header className="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 lg:px-8 flex items-center justify-between shrink-0 animate-pulse">
-            <div className="h-6 bg-slate-200 dark:bg-slate-800 rounded-md w-32 lg:w-48"></div>
-            <div className="flex items-center gap-4">
-              <div className="w-8 h-8 bg-slate-200 dark:bg-slate-800 rounded-full"></div>
-              <div className="w-8 h-8 bg-slate-200 dark:bg-slate-800 rounded-full hidden sm:block"></div>
+      <div className="min-h-screen bg-surface-page">
+        {/* Black band skeleton, so the first paint is the shape the app actually has */}
+        <div className="bg-ink-slab">
+          <div className="flex h-16 items-center gap-3 px-4 lg:px-7">
+            <div className="size-9 shrink-0 animate-pulse rounded-xl bg-white/10" />
+            <div className="hidden h-8 w-40 animate-pulse rounded-full bg-white/10 lg:block" />
+            <div className="ms-auto flex items-center gap-2">
+              <div className="size-9 animate-pulse rounded-full bg-white/10" />
+              <div className="size-9 animate-pulse rounded-full bg-white/10" />
             </div>
-          </header>
-
-          {/* Main Content Skeleton */}
-          <div className="flex-1 p-4 lg:p-8 animate-pulse">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="h-32 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800"></div>
-              ))}
-            </div>
-            <div className="h-64 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800"></div>
           </div>
-        </main>
+          <div className="px-4 pb-6 pt-1 lg:px-7 lg:pb-7">
+            <div className="h-8 w-56 animate-pulse rounded-lg bg-white/10" />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 gap-6 p-4 md:grid-cols-3 lg:p-7">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="h-32 animate-pulse rounded-2xl border border-line bg-surface" />
+          ))}
+        </div>
       </div>
     );
   }
@@ -265,168 +319,175 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { key: "menu", href: "#menu", icon: Menu },
   ];
 
+  const sheetRow = (active: boolean) =>
+    `flex items-center gap-4 px-4 py-3 rounded-2xl font-bold transition-all ${
+      active ? "bg-[#FACC15] text-ink shadow-md shadow-[#FACC15]/20" : "text-ink-body hover:bg-surface-subtle hover:text-ink"
+    }`;
+
   return (
     <TutorialProvider>
     <WelcomeLayer>
-    <div className={`min-h-[100dvh] lg:h-[100dvh] lg:overflow-hidden bg-surface-page text-slate-700 flex ${isRTL ? cairo.className : plusJakartaSans.className} relative z-0`} dir={isRTL ? 'rtl' : 'ltr'}>
-      {/* Decorative Minimal Background - Stronger Green/White Gradient */}
-      <div className="hidden lg:block absolute inset-0 w-full h-full overflow-hidden pointer-events-none -z-10 bg-gradient-to-br from-surface-subtle via-surface-page to-accent-tint">
-         <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-surface rounded-full blur-[120px] opacity-[0.8]"></div>
-         <div className="absolute bottom-[-10%] right-[-5%] w-[50%] h-[70%] bg-accent-soft rounded-full blur-[140px] opacity-[0.3]"></div>
-      </div>
+    <PageHeaderProvider>
+    <div className={`min-h-[100dvh] lg:h-[100dvh] lg:overflow-hidden bg-surface-page text-slate-700 flex flex-col ${isRTL ? cairo.className : plusJakartaSans.className} relative z-0`} dir={isRTL ? 'rtl' : 'ltr'}>
       <ReceptionSummonOverlay />
-      
-      {/* MOBILE HEADER */}
-      
-      {/* MAIN APP CONTAINER */}
-      <div className="flex flex-1 overflow-hidden relative h-full bg-transparent">
-        {/* Premium Abstract Background - Minimalist */}
-        <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-0 right-0 w-[60%] h-[70%] bg-gradient-to-bl from-white/[0.4] to-transparent blur-[120px] rounded-bl-full transform translate-x-1/4 -translate-y-1/4" />
-        </div>
-      
-        {/* --- DESKTOP RAIL --- */}
-        <DesktopSidebar
+
+      {/* =================== THE BLACK BAND ===================
+          Navigation on top, the page's own title and buttons underneath it. One dark block, then
+          white: everything below this is the page. */}
+      <header className="relative z-[120] shrink-0 bg-ink-slab text-white">
+        <TopNav
           items={visibleItems}
           showSettings={showSettings}
           isSuperAdmin={!!user?.isSuperAdmin}
           onLogout={handleLogout}
           onReturnToSuperAdmin={handleReturnToSuperAdmin}
         />
+        <PageHeaderStrip fallbackTitle={fallbackTitle} />
+      </header>
 
-        {/* MOBILE MENU OVERLAY */}
-        {isOpen && (
-           <div className="lg:hidden fixed inset-0 z-[100] bg-surface flex flex-col animate-in fade-in slide-in-from-bottom-8 duration-300">
-              <div className="flex items-center justify-between p-5 border-b border-slate-100">
-                 {logoUrl ? (
-                    /* White tile, not the black one: a dark logo on a black square is invisible. */
-                    <div className="w-10 h-10 bg-surface border border-line rounded-xl flex items-center justify-center overflow-hidden shadow-sm p-1">
-                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                       <img src={logoUrl} alt={clinic?.name || ""} className="max-h-full max-w-full object-contain" />
-                    </div>
-                 ) : (
-                    <div className="w-10 h-10 bg-ink-slab text-white rounded-xl flex items-center justify-center rounded-tr-3xl shadow-sm">
-                       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
-                    </div>
-                 )}
-                 <button onClick={() => setIsOpen(false)} className="p-2 bg-slate-100 text-slate-800 rounded-full hover:bg-slate-200"><X size={20}/></button>
-              </div>
-              
-              <div className="px-5 pt-4 pb-2 border-b border-slate-100 flex items-center justify-center">
-                 <ClinicSwitcher />
-              </div>
+      {/* MOBILE MENU OVERLAY */}
+      {isOpen && (
+         <div className="lg:hidden fixed inset-0 z-[200] bg-surface flex flex-col animate-in fade-in slide-in-from-bottom-8 duration-300">
+            <div className="flex items-center justify-between p-5 border-b border-line">
+               {logoUrl ? (
+                  /* White tile, not the black one: a dark logo on a black square is invisible. */
+                  <div className="w-10 h-10 bg-surface border border-line rounded-xl flex items-center justify-center overflow-hidden shadow-sm p-1">
+                     {/* eslint-disable-next-line @next/next/no-img-element */}
+                     <img src={logoUrl} alt={clinic?.name || ""} className="max-h-full max-w-full object-contain" />
+                  </div>
+               ) : (
+                  <div className="w-10 h-10 bg-ink-slab text-white rounded-xl flex items-center justify-center rounded-tr-3xl shadow-sm">
+                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+                  </div>
+               )}
+               <button onClick={() => setIsOpen(false)} className="p-2 bg-surface-muted text-ink rounded-full hover:bg-line"><X size={20}/></button>
+            </div>
 
-              <div className="flex-1 overflow-y-auto no-scrollbar p-5 space-y-6">
-                 {SECTION_GROUPS.map((section) => {
-                    const sectionItems = allNavItems.filter((item) => hasAccess(item.key, true) && section.keys.includes(item.key));
-                    if (sectionItems.length === 0) return null;
+            <div className="px-5 pt-4 pb-2 border-b border-line flex items-center justify-center">
+               <ClinicSwitcher />
+            </div>
 
-                    return (
-                      <div key={section.titleEn} className="space-y-1">
-                        <h3 className="px-3 mb-2 text-[11px] font-black uppercase tracking-wider text-ink-muted dark:text-slate-500">
-                          {language === "ar" ? section.titleAr : section.titleEn}
-                        </h3>
-                        {sectionItems.map((item) => {
-                          const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
-                          const label = t(item.key as any) || item.key.charAt(0).toUpperCase() + item.key.slice(1);
-
-                          return (
-                               <Link 
-                               key={item.href} data-tour={`nav-${String(item.href).replace(/^\//, "")}`} 
-                               href={item.href}
-                               onClick={() => setIsOpen(false)}
-                               className={`flex items-center gap-4 px-4 py-3 rounded-2xl font-bold transition-all ${isActive ? 'bg-[#FACC15] text-ink shadow-md shadow-[#FACC15]/20' : 'text-ink-body hover:bg-surface-subtle hover:text-ink'}`}
-                             >
-                               <item.icon size={22} strokeWidth={isActive ? 2.5 : 2} />
-                               <span className="text-base truncate">{label}</span>
-                               {"badge" in item && (item.badge ?? 0) > 0 && (
-                                 <span className="ms-auto min-w-[22px] h-[22px] px-1.5 rounded-full bg-accent-strong text-white text-[11px] font-black flex items-center justify-center">
-                                   {item.badge}
-                                 </span>
-                               )}
-                             </Link>
-                          )
-                        })}
-                      </div>
-                    );
-                 })}
-                 
-                 <div className="pt-2 border-t border-line dark:border-slate-800 space-y-1">
-                 <button onClick={() => { toggleLanguage(); setIsOpen(false); }} className="flex items-center w-full gap-4 px-4 py-3 rounded-2xl font-bold text-ink-body hover:bg-surface-subtle transition-all">
-                    <Languages size={22} />
-                    <span className="text-base truncate">{language === 'en' ? 'Switch to Arabic' : 'English'}</span>
-                 </button>
-                 {showSettings && (
-                   <Link href="/settings" onClick={() => setIsOpen(false)} className={`flex items-center gap-4 px-4 py-3 rounded-2xl font-bold transition-all ${pathname.startsWith('/settings') ? 'bg-[#FACC15] text-ink shadow-md shadow-[#FACC15]/20' : 'text-ink-body hover:bg-surface-subtle hover:text-ink'}`}>
-                      <Settings size={22} />
-                      <span className="text-base truncate">{t('settings' as any) || (language === 'ar' ? 'الإعدادات' : 'Settings')}</span>
-                   </Link>
-                 )}
-                 {/* Ungated for the same reason Help is: the people who most need the guide are
-                     the ones with the fewest permissions, and it already shows each role only the
-                     steps that role can finish. */}
-                 <Link href="/welcome" onClick={() => setIsOpen(false)} className={`flex items-center gap-4 px-4 py-3 rounded-2xl font-bold transition-all ${pathname.startsWith('/welcome') ? 'bg-[#FACC15] text-ink shadow-md shadow-[#FACC15]/20' : 'text-ink-body hover:bg-surface-subtle hover:text-ink'}`}>
-                    <Rocket size={22} />
-                    <span className="text-base truncate">{language === 'ar' ? 'البداية' : 'Getting started'}</span>
+            <div className="flex-1 overflow-y-auto no-scrollbar p-5 space-y-6">
+               {/* Dashboard is not in any group — it is a destination of its own in the top bar,
+                   and dropping it from the sheet would make the phone menu lie about the app. */}
+               {hasAccess("dashboard", true) && (
+                 <Link href="/" data-tour="nav-" onClick={() => setIsOpen(false)} className={sheetRow(pathname === "/")}>
+                   <LayoutDashboard size={22} strokeWidth={pathname === "/" ? 2.5 : 2} />
+                   {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                   <span className="text-base truncate">{t("dashboard" as any) || "Dashboard"}</span>
                  </Link>
-                 <Link href="/help" onClick={() => setIsOpen(false)} className={`flex items-center gap-4 px-4 py-3 rounded-2xl font-bold transition-all ${pathname.startsWith('/help') ? 'bg-[#FACC15] text-ink shadow-md shadow-[#FACC15]/20' : 'text-ink-body hover:bg-surface-subtle hover:text-ink'}`}>
-                    <LifeBuoy size={22} />
-                    <span className="text-base truncate">{language === 'ar' ? 'مركز المساعدة' : 'Help Center'}</span>
+               )}
+
+               {SECTION_GROUPS.map((section) => {
+                  const sectionItems = allNavItems.filter((item) => hasAccess(item.key, true) && section.keys.includes(item.key));
+                  if (sectionItems.length === 0) return null;
+
+                  return (
+                    <div key={section.titleEn} className="space-y-1">
+                      <h3 className="px-3 mb-2 text-[11px] font-black uppercase tracking-wider text-ink-muted">
+                        {language === "ar" ? section.titleAr : section.titleEn}
+                      </h3>
+                      {sectionItems.map((item) => {
+                        const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        const label = t(item.key as any) || item.key.charAt(0).toUpperCase() + item.key.slice(1);
+
+                        return (
+                             <Link
+                             key={item.href} data-tour={`nav-${String(item.href).replace(/^\//, "")}`}
+                             href={item.href}
+                             onClick={() => setIsOpen(false)}
+                             className={sheetRow(isActive)}
+                           >
+                             <item.icon size={22} strokeWidth={isActive ? 2.5 : 2} />
+                             <span className="text-base truncate">{label}</span>
+                             {"badge" in item && (item.badge ?? 0) > 0 && (
+                               <span className="ms-auto min-w-[22px] h-[22px] px-1.5 rounded-full bg-[#c0392b] text-white text-[11px] font-black flex items-center justify-center">
+                                 {item.badge}
+                               </span>
+                             )}
+                           </Link>
+                        )
+                      })}
+                    </div>
+                  );
+               })}
+
+               <div className="pt-2 border-t border-line space-y-1">
+               <button onClick={() => { toggleLanguage(); setIsOpen(false); }} className="flex items-center w-full gap-4 px-4 py-3 rounded-2xl font-bold text-ink-body hover:bg-surface-subtle transition-all">
+                  <Languages size={22} />
+                  <span className="text-base truncate">{language === 'en' ? 'Switch to Arabic' : 'English'}</span>
+               </button>
+               {showSettings && (
+                 <Link href="/settings" onClick={() => setIsOpen(false)} className={sheetRow(pathname.startsWith('/settings'))}>
+                    <Settings size={22} />
+                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                    <span className="text-base truncate">{t('settings' as any) || (language === 'ar' ? 'الإعدادات' : 'Settings')}</span>
                  </Link>
-                 {user?.isSuperAdmin && (
-                   <button onClick={() => { setIsOpen(false); handleReturnToSuperAdmin(); }} className="flex items-center w-full gap-4 px-4 py-3 rounded-2xl font-bold text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-all mt-2 text-left rtl:text-right">
-                      <ShieldCheck size={22} />
-                      <span className="text-base truncate">Return to Hub</span>
-                   </button>
-                 )}
-                 <button onClick={() => { setIsOpen(false); handleLogout(); }} className="flex items-center w-full gap-4 px-4 py-3 rounded-2xl font-bold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-all mt-2 text-left rtl:text-right">
-                    <LogOut size={22} />
-                    <span className="text-base truncate">{language === 'en' ? 'Logout' : 'تسجيل الخروج'}</span>
+               )}
+               {/* Ungated for the same reason Help is: the people who most need the guide are
+                   the ones with the fewest permissions, and it already shows each role only the
+                   steps that role can finish. */}
+               <Link href="/welcome" onClick={() => setIsOpen(false)} className={sheetRow(pathname.startsWith('/welcome'))}>
+                  <Rocket size={22} />
+                  <span className="text-base truncate">{language === 'ar' ? 'البداية' : 'Getting started'}</span>
+               </Link>
+               <Link href="/help" onClick={() => setIsOpen(false)} className={sheetRow(pathname.startsWith('/help'))}>
+                  <LifeBuoy size={22} />
+                  <span className="text-base truncate">{language === 'ar' ? 'مركز المساعدة' : 'Help Center'}</span>
+               </Link>
+               {user?.isSuperAdmin && (
+                 <button onClick={() => { setIsOpen(false); handleReturnToSuperAdmin(); }} className="flex items-center w-full gap-4 px-4 py-3 rounded-2xl font-bold text-[#008f72] hover:bg-emerald-50 transition-all mt-2 text-left rtl:text-right">
+                    <ShieldCheck size={22} />
+                    <span className="text-base truncate">Return to Hub</span>
                  </button>
-                 </div>
-              </div>
+               )}
+               <button onClick={() => { setIsOpen(false); handleLogout(); }} className="flex items-center w-full gap-4 px-4 py-3 rounded-2xl font-bold text-[#c0392b] hover:bg-rose-50 transition-all mt-2 text-left rtl:text-right">
+                  <LogOut size={22} />
+                  <span className="text-base truncate">{language === 'en' ? 'Logout' : 'تسجيل الخروج'}</span>
+               </button>
+               </div>
+            </div>
+         </div>
+      )}
+
+      {/* =================== THE WHITE HALF =================== */}
+      <div className="flex min-h-0 flex-1 flex-col">
+         {/* The last few days of a trial. Mutually exclusive with the read-only notice below —
+             the countdown stops the moment the date passes and that one takes over. */}
+         <TrialCountdownBanner />
+
+         {/* Only while the sample clinic is open: where you are, and the way back. */}
+         <DemoTourBanner />
+
+         {isReadOnly && (
+           <div className="bg-red-50 border-b border-red-200 px-4 py-3 flex items-center justify-center gap-3 z-50 shadow-sm relative shrink-0">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-red-600"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <p className="text-red-800 font-bold text-sm md:text-base">
+                 {/* Which of the two it is, rather than both at once. "Suspended or expired"
+                     made the reader work out their own situation, and the two have different
+                     next steps — renewing versus asking why you were suspended. */}
+                 {readOnlyReason === 'suspended'
+                    ? (language === 'ar'
+                        ? 'تم تعليق هذه العيادة. السجلات ما زالت متاحة للقراءة، لكن الإضافات الجديدة متوقفة. يرجى الاتصال بنا.'
+                        : 'This clinic is suspended. Records are still readable, but new entries are paused. Please contact us.')
+                    : (language === 'ar'
+                        ? 'انتهى اشتراك هذه العيادة. السجلات ما زالت متاحة للقراءة، لكن الإضافات الجديدة متوقفة حتى التجديد.'
+                        : "This clinic's subscription has ended. Records are still readable, but new entries are paused until it is renewed.")}
+              </p>
            </div>
-        )}
+         )}
 
-        {/* MAIN CONTENT AREA */}
-        <div className="flex-1 flex flex-col min-w-0 bg-transparent">
-           
-           {/* The last few days of a trial. Mutually exclusive with the read-only notice below —
-               the countdown stops the moment the date passes and that one takes over. */}
-           <TrialCountdownBanner />
-
-           {/* Only while the sample clinic is open: where you are, and the way back. */}
-           <DemoTourBanner />
-
-           {isReadOnly && (
-             <div className="bg-red-50 border-b border-red-200 px-4 py-3 flex items-center justify-center gap-3 z-50 shadow-sm relative">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-red-600"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                <p className="text-red-800 font-bold text-sm md:text-base">
-                   {/* Which of the two it is, rather than both at once. "Suspended or expired"
-                       made the reader work out their own situation, and the two have different
-                       next steps — renewing versus asking why you were suspended. */}
-                   {readOnlyReason === 'suspended'
-                      ? (language === 'ar'
-                          ? 'تم تعليق هذه العيادة. السجلات ما زالت متاحة للقراءة، لكن الإضافات الجديدة متوقفة. يرجى الاتصال بنا.'
-                          : 'This clinic is suspended. Records are still readable, but new entries are paused. Please contact us.')
-                      : (language === 'ar'
-                          ? 'انتهى اشتراك هذه العيادة. السجلات ما زالت متاحة للقراءة، لكن الإضافات الجديدة متوقفة حتى التجديد.'
-                          : "This clinic's subscription has ended. Records are still readable, but new entries are paused until it is renewed.")}
-                </p>
-             </div>
-           )}
-
-           {/* --- MAIN PAGE CONTENT --- */}
-           <main
-             className={`flex-1 min-h-0 relative z-0 animate-in fade-in slide-in-from-bottom-3 duration-500 bg-transparent ${
-               isFullHeightPage
-                 ? "flex flex-col overflow-hidden"
-                 : "overflow-x-hidden overflow-y-auto pb-24 lg:pb-0"
-             }`}
-           >
-               {children}
-           </main>
-        </div>
+         {/* --- MAIN PAGE CONTENT --- */}
+         <main
+           className={`flex-1 min-h-0 relative z-0 animate-in fade-in duration-300 ${
+             isFullHeightPage
+               ? "flex flex-col overflow-hidden"
+               : "overflow-x-hidden overflow-y-auto pb-24 lg:pb-0"
+           }`}
+         >
+             {children}
+         </main>
       </div>
 
       {/* MOBILE BOTTOM NAVIGATION BAR */}
@@ -444,10 +505,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
              const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
              return (
                 <Link key={item.key} href={item.href} data-tour={`nav-${item.key}`} className="flex items-center justify-center transition-all active:scale-95 group outline-none">
-                   <div className={`relative p-2.5 rounded-full transition-all duration-300 flex items-center justify-center ${isActive ? 'bg-white text-black scale-110 shadow-sm' : 'text-white/50 group-hover:bg-white/10 group-hover:text-white'}`}>
+                   <div className={`relative p-2.5 rounded-full transition-all duration-300 flex items-center justify-center ${isActive ? 'bg-[#FACC15] text-ink scale-110 shadow-sm' : 'text-white/50 group-hover:bg-white/10 group-hover:text-white'}`}>
                       <item.icon size={24} strokeWidth={isActive ? 2.5 : 2} />
                       {"badge" in item && (item.badge ?? 0) > 0 && (
-                        <span className="absolute -top-0.5 -end-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[#25d366] text-white text-[10px] font-black flex items-center justify-center ring-2 ring-ink-slab">
+                        <span className="absolute -top-0.5 -end-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-[#c0392b] text-white text-[10px] font-black flex items-center justify-center ring-2 ring-ink-slab">
                           {item.badge}
                         </span>
                       )}
@@ -467,6 +528,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Guided-tutorial ring + instruction card; renders nothing unless a lesson is running. */}
       <TutorialOverlay />
     </div>
+    </PageHeaderProvider>
     </WelcomeLayer>
     </TutorialProvider>
   );

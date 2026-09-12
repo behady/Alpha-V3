@@ -56,12 +56,31 @@ const RING_PAD = 8;
  * for repeated anchors.
  */
 function findVisibleAnchor(anchor: string): { el: HTMLElement; rect: DOMRect } | null {
-  const els = document.querySelectorAll<HTMLElement>(`[data-tour="${anchor}"]`);
-  for (const el of els) {
-    const rect = el.getBoundingClientRect();
-    if (rect.width >= 2 || rect.height >= 2) return { el, rect };
-  }
-  return null;
+  const pick = (selector: string) => {
+    const els = document.querySelectorAll<HTMLElement>(selector);
+    for (const el of els) {
+      const rect = el.getBoundingClientRect();
+      if (rect.width >= 2 || rect.height >= 2) return { el, rect };
+    }
+    return null;
+  };
+
+  const direct = pick(`[data-tour="${anchor}"]`);
+  if (direct) return direct;
+
+  /**
+   * Nothing on screen carries the anchor — it may be inside something closed.
+   *
+   * The top navigation groups its destinations into dropdown menus that are not in the DOM until
+   * they are opened, so a lesson pointing at "nav-patients" would find nothing and quietly skip.
+   * An element that CONTAINS the anchor once opened advertises that with `data-tour-opens`, and
+   * the ring lands on it instead: the user opens the menu, the real anchor appears, and the ring
+   * walks to it on the next poll.
+   *
+   * Only the ring falls back. Advancing still requires a click on the real anchor, so opening the
+   * menu cannot be mistaken for completing the step.
+   */
+  return pick(`[data-tour-opens~="${anchor}"]`);
 }
 
 export default function TutorialOverlay() {

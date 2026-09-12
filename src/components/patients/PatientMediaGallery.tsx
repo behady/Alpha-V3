@@ -461,7 +461,7 @@ export default function PatientMediaGallery({
                 <span
                   className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${
                     isSelected
-                      ? "bg-accent text-white"
+                      ? "bg-accent text-ink"
                       : "bg-slate-200 text-slate-600"
                   }`}
                 >
@@ -610,7 +610,7 @@ export default function PatientMediaGallery({
           </div>
           <button
             type="button"
-            className="inline-flex items-center gap-2 bg-accent hover:bg-accent-strong text-white font-bold text-xs px-5 py-2.5 rounded-xl shadow-md shadow-emerald-600/20 transition-all pointer-events-auto active:scale-95"
+            className="inline-flex items-center gap-2 bg-accent hover:bg-accent-strong text-ink font-bold text-xs px-5 py-2.5 rounded-xl shadow-md shadow-black/10 transition-all pointer-events-auto active:scale-95"
           >
             <PlusCircle size={16} />
             <span>
@@ -868,7 +868,7 @@ export default function PatientMediaGallery({
               <button
                 onClick={executeUploadStagedFiles}
                 disabled={isUploading}
-                className="bg-accent hover:bg-accent-strong text-white text-xs font-extrabold px-6 py-2.5 rounded-xl shadow-md shadow-emerald-600/20 transition-all flex items-center gap-2"
+                className="bg-accent hover:bg-accent-strong text-ink text-xs font-extrabold px-6 py-2.5 rounded-xl shadow-md shadow-black/10 transition-all flex items-center gap-2"
               >
                 {isUploading ? (
                   <>
@@ -973,7 +973,7 @@ export default function PatientMediaGallery({
                   {currentLightboxMedia.filename || "Patient Radiograph"}
                 </h3>
                 <div className="flex items-center gap-2 text-[11px] text-slate-400 font-medium mt-0.5">
-                  <span className="bg-accent text-white font-black px-2 py-0.5 rounded-md text-[10px]">
+                  <span className="bg-accent text-ink font-black px-2 py-0.5 rounded-md text-[10px]">
                     {currentLightboxMedia.category || "X-Ray"}
                   </span>
                   <span>•</span>
@@ -1017,7 +1017,7 @@ export default function PatientMediaGallery({
                 target="_blank"
                 rel="noreferrer"
                 download
-                className="bg-accent hover:bg-accent-strong text-white text-xs font-bold px-3.5 py-1.5 rounded-xl shadow-md transition-all flex items-center gap-1.5"
+                className="bg-accent hover:bg-accent-strong text-ink text-xs font-bold px-3.5 py-1.5 rounded-xl shadow-md transition-all flex items-center gap-1.5"
               >
                 <Download size={15} />
                 <span className="hidden sm:inline">{language === "ar" ? "تحميل" : "Download"}</span>

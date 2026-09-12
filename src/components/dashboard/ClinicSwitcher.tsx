@@ -10,10 +10,17 @@ import { useRouter } from "next/navigation";
 import { useLanguage } from "@/context/LanguageContext";
 
 /**
- * `expanded` is passed by the desktop rail when it is showing labels. Collapsed (and on mobile)
- * this stays the single icon button it has always been.
+ * `expanded` is passed by the mobile menu sheet when it is showing labels. Collapsed this stays
+ * the single icon button it has always been.
+ *
+ * `variant="topbar"` is the black-bar form: a dark pill carrying the clinic name, with its menu
+ * dropping straight down. The other variants anchor their menu to the SIDE, which was right for a
+ * rail and is wrong under a bar — it would open off the edge of the screen.
  */
-export default function ClinicSwitcher({ expanded = false }: { expanded?: boolean } = {}) {
+export default function ClinicSwitcher({
+  expanded = false,
+  variant = "default",
+}: { expanded?: boolean; variant?: "default" | "topbar" } = {}) {
   const { user } = useAuth();
   const { clinicId, setClinicId } = useClinic();
   const router = useRouter();
@@ -70,6 +77,59 @@ export default function ClinicSwitcher({ expanded = false }: { expanded?: boolea
   if (!user || clinics.length === 0) return null;
 
   const currentClinicName = clinics.find(c => c.id === clinicId)?.name || "Switch Clinic";
+
+  if (variant === "topbar") {
+    return (
+      <div className="relative" ref={dropdownRef}>
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          className={`flex max-w-[190px] items-center gap-2 rounded-full border border-white/15 px-3 py-2 text-[13px] font-bold transition-colors ${
+            isOpen ? "bg-white/15 text-white" : "bg-white/5 text-white/75 hover:bg-white/15 hover:text-white"
+          }`}
+        >
+          <Building2 className="size-4 shrink-0" />
+          <span className="truncate">{currentClinicName}</span>
+        </button>
+
+        {isOpen && (
+          <div className="absolute start-0 top-full z-[250] mt-2 w-64 overflow-hidden rounded-2xl border border-line bg-surface shadow-[0_20px_50px_-12px_rgba(0,0,0,0.35)]">
+            <div className="flex items-center justify-between border-b border-line bg-surface-subtle px-4 py-3">
+              <span className="text-xs font-bold uppercase tracking-wider text-ink-muted">
+                {language === "ar" ? "مساحات العمل" : "Workspaces"}
+              </span>
+            </div>
+            <div className="max-h-60 overflow-y-auto py-2">
+              {clinics.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => handleSwitch(c.id)}
+                  className={`flex w-full items-center justify-between px-4 py-3 text-start transition-colors hover:bg-surface-subtle ${
+                    clinicId === c.id ? "bg-surface-muted" : ""
+                  }`}
+                  dir={isRTL ? "rtl" : "ltr"}
+                >
+                  <span className={`text-sm font-semibold ${clinicId === c.id ? "text-ink" : "text-ink-body"}`}>
+                    {c.name}
+                  </span>
+                  {clinicId === c.id && <Check size={16} className="shrink-0 text-ink" />}
+                </button>
+              ))}
+            </div>
+            <div className="border-t border-line p-2">
+              <button
+                onClick={handleAddClinic}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-ink-slab px-4 py-3 text-sm font-bold text-white transition-colors hover:brightness-125"
+                dir={isRTL ? "rtl" : "ltr"}
+              >
+                <Plus size={16} />
+                {language === "ar" ? "إضافة عيادة جديدة" : "Add New Clinic"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="relative group w-full shrink-0 px-3 mb-4 [@media(max-height:840px)]:mb-2" ref={dropdownRef}>

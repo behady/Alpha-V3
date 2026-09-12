@@ -26,7 +26,8 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext"; 
 import { useClinic } from "@/context/ClinicContext";
-import PermissionGuard from "@/components/PermissionGuard"; 
+import PermissionGuard from "@/components/PermissionGuard";
+import PageHeader, { headerButtonPrimary, headerButtonGhost } from "@/components/dashboard/PageHeader"; 
 import { isDentistStaff } from "@/lib/staffRoles";
 import { getAppointmentStatusStyles, getAppointmentStageLabel } from "@/lib/appointmentStages";
 import { LOCATIONS_DOC, parseClinicBranches, flattenRooms, type ClinicBranch } from "@/lib/clinicLocations";
@@ -987,7 +988,24 @@ export default function AppointmentsPage() {
 
   return (
     <PermissionGuard permission="access.appointments">
-      <div className="flex flex-col lg:flex-row h-full w-full gap-4 md:gap-5 lg:gap-5 p-4 lg:p-4 xl:p-5 bg-surface-muted min-h-0 overflow-hidden">
+      {/* Compact, because this page is locked to the viewport height and every pixel the header
+          takes is a row of the grid a receptionist cannot see. The week navigator and the view
+          toggles stayed down in the panel: they steer the grid directly beneath them, so they
+          belong to it rather than to the page. */}
+      <PageHeader compact title={language === 'ar' ? 'المواعيد' : 'Appointments'}>
+         <button onClick={() => setIsNewPatientModalOpen(true)} className={headerButtonGhost}>
+            <span className="hidden sm:inline">{language === 'ar' ? 'إضافة مريض' : 'Add Patient'}</span>
+            <UserPlus size={17} className="sm:hidden" />
+         </button>
+         <Protect permission="appointments.add">
+           <button onClick={() => handleOpenBooking()} data-tour="appointment-add" className={headerButtonPrimary}>
+              <Plus size={17} strokeWidth={3} />
+              <span className="hidden sm:inline">{language === 'ar' ? 'إضافة موعد' : 'Add Appointment'}</span>
+           </button>
+         </Protect>
+      </PageHeader>
+
+      <div className="flex flex-col lg:flex-row h-full w-full gap-4 md:gap-5 lg:gap-5 p-4 lg:p-4 xl:p-5 min-h-0 overflow-hidden">
          
          {/* --- LEFT PANEL --- */}
          <div id="left-panel-container" className={`w-full ${(selectedAppt || isBookingModalOpen) ? 'lg:w-[400px] xl:w-[450px]' : 'lg:w-[260px]'} shrink-0 flex flex-col gap-4 md:gap-5 overflow-y-auto no-scrollbar pt-2 ${!selectedAppt ? 'order-2 lg:order-1' : 'order-1'} transition-all duration-300`}>
@@ -1221,22 +1239,6 @@ export default function AppointmentsPage() {
                         ))}
                      </div>
 
-                     <div className="hidden lg:flex gap-2">
-                        <button 
-                           onClick={() => setIsNewPatientModalOpen(true)}
-                           className="bg-surface-muted hover:bg-slate-200 text-slate-700 font-bold px-4 py-2.5 rounded-xl transition-all"
-                        >
-                           {language === 'ar' ? 'إضافة مريض' : 'Add Patient'}
-                        </button>
-                        <Protect permission="appointments.add">
-                          <button 
-                             onClick={() => handleOpenBooking()}
-                             data-tour="appointment-add" className="bg-[#FACC15] hover:bg-[#EAB308] text-ink font-black px-5 py-2.5 rounded-xl shadow-sm shadow-yellow-200 flex items-center gap-2 transition-all active:scale-95"
-                          >
-                             <Plus size={18} strokeWidth={3}/> {language === 'ar' ? 'إضافة موعد' : 'Add Appointment'}
-                          </button>
-                        </Protect>
-                     </div>
                   </div>
              </div>
 
@@ -1469,7 +1471,7 @@ export default function AppointmentsPage() {
                     showToast("Error updating status", "error");
                   }
                 }}
-                className="w-full bg-accent-soft hover:bg-accent text-white font-bold py-3 px-4 rounded-xl transition-colors"
+                className="w-full bg-accent-soft hover:bg-accent text-ink font-bold py-3 px-4 rounded-xl transition-colors"
               >
                 {language === 'ar' ? 'تحديد موعد جديد' : 'Schedule New Appointment'}
               </button>

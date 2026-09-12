@@ -2,8 +2,9 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Bot, MessageCircle, Newspaper, Sparkles, UserCheck } from "lucide-react";
+import { Bot, MessageCircle, Newspaper, UserCheck } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
+import PageHeader from "@/components/dashboard/PageHeader";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import PermissionGuard from "@/components/PermissionGuard";
@@ -140,20 +141,13 @@ function IntelligenceHub() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50/50 pb-24 lg:pb-10 text-slate-800" dir={isRTL ? "rtl" : "ltr"}>
+    <div className="min-h-full pb-24 lg:pb-10 text-slate-800" dir={isRTL ? "rtl" : "ltr"}>
       <div className="max-w-[1100px] mx-auto p-4 md:p-6 space-y-5">
-        <div>
-          <div className="flex items-center gap-2 text-violet-600">
-            <Sparkles size={16} />
-            <span className="text-[11px] font-black uppercase tracking-widest">
-              {isAr ? "ذكاء ألفا" : "Alpha Intelligence"}
-            </span>
-          </div>
-          <h1 className="text-2xl md:text-3xl font-black text-ink tracking-tight mt-1">
-            {current.heading}
-          </h1>
-          <p className="text-sm font-medium text-ink-muted mt-1 max-w-2xl">{current.blurb}</p>
-        </div>
+        <PageHeader
+          eyebrow={isAr ? "ذكاء ألفا" : "Alpha Intelligence"}
+          title={current.heading}
+          subtitle={current.blurb}
+        />
 
         {/* One tab is not a choice — hide the strip rather than show a single dead pill. */}
         {tabs.length > 1 && (

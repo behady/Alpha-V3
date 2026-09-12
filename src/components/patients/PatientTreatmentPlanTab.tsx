@@ -1474,7 +1474,7 @@ export default function PatientTreatmentPlanTab({
           </button>
           <button
             onClick={openNewEditor}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent text-white text-sm font-bold hover:bg-accent-strong transition-colors shadow-sm"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent text-ink text-sm font-bold hover:bg-accent-strong transition-colors shadow-sm"
           >
             <Plus size={16} /> {txt.newPlan}
           </button>
@@ -1612,7 +1612,7 @@ export default function PatientTreatmentPlanTab({
                 {formVisits.map((visit, vIdx) => (
                   <div key={visit.id} className="border border-slate-200 rounded-2xl overflow-hidden">
                     <div className="bg-slate-50 px-4 py-3 flex flex-wrap items-center gap-2 border-b border-slate-100">
-                      <span className="w-7 h-7 shrink-0 rounded-full bg-accent text-white text-xs font-black flex items-center justify-center">{vIdx + 1}</span>
+                      <span className="w-7 h-7 shrink-0 rounded-full bg-accent text-ink text-xs font-black flex items-center justify-center">{vIdx + 1}</span>
                       <input
                         value={visit.label}
                         onChange={(e) => updateVisit(visit.id, { label: e.target.value })}
@@ -1640,7 +1640,7 @@ export default function PatientTreatmentPlanTab({
                         onClick={() => openSlotPicker(visit)}
                         className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${
                           slotPickerVisitId === visit.id
-                            ? "bg-accent text-white border-accent"
+                            ? "bg-accent text-ink border-accent"
                             : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
                         }`}
                       >
@@ -1802,7 +1802,7 @@ export default function PatientTreatmentPlanTab({
                 <button
                   onClick={handleSavePlan}
                   disabled={saving}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent text-white text-sm font-bold hover:bg-accent-strong transition-colors disabled:opacity-60"
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent text-ink text-sm font-bold hover:bg-accent-strong transition-colors disabled:opacity-60"
                 >
                   {saving ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />} {txt.save}
                 </button>

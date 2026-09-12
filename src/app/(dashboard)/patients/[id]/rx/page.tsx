@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
-  ArrowLeft, Printer, Plus, Trash2, Pill, Loader2,
+  Printer, Plus, Trash2, Pill, Loader2,
   MapPin, Phone, MessageCircle, Save, Search, X, AlertTriangle
 } from "lucide-react";
 import { auth } from "@/lib/firebase";
@@ -17,6 +17,7 @@ import { DRUG_CATEGORIES } from "@/lib/drugCatalog";
 import { mergeDrugList, searchDrugEntries, type ClinicDrugDoc } from "@/lib/drugList";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import PermissionGuard from "@/components/PermissionGuard";
+import PageHeader from "@/components/dashboard/PageHeader";
 
 
 /**
@@ -358,27 +359,22 @@ function PrescriptionStudio() {
   return (
     <div className="min-h-screen bg-surface-subtle flex flex-col print:bg-surface print:min-h-0">
       
-      {/* --- NON-PRINTABLE HEADER --- */}
+      {/* Title and the way back are in the layout's black band; this strip keeps only the tools,
+          and stays sticky so Save is reachable from anywhere down the prescription. */}
+      <PageHeader
+        eyebrow="Prescription Studio"
+        title={patient.name}
+        subtitle={t("rxGeneratingFor")}
+        backHref={`/patients/${id}`}
+      />
       <header className="bg-surface border-b border-line px-6 py-4 sticky top-0 z-40 shadow-sm print:hidden">
-        <div className="max-w-[1600px] mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex items-center gap-4 w-full md:w-auto">
-            <button onClick={() => router.push(`/patients/${id}`)} className="p-2.5 hover:bg-surface-muted rounded-2xl transition-colors text-ink-muted shrink-0">
-              <ArrowLeft size={24} />
-            </button>
-            <div>
-               <h1 className="text-2xl font-black text-ink tracking-tight flex items-center gap-2">
-                 <Pill className="text-accent-soft" size={24}/> Prescription Studio
-               </h1>
-               <p className="text-xs font-bold text-ink-muted uppercase tracking-widest mt-1">{t("rxGeneratingFor")} <span className="text-accent">{patient.name}</span></p>
-            </div>
-          </div>
-
+        <div className="max-w-[1600px] mx-auto flex flex-col md:flex-row justify-end items-center gap-4">
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto md:justify-end">
              <button
                 type="button"
                 onClick={() => void handleSave()} data-tour="rx-save"
                 disabled={isSaving || rxItems.length === 0}
-                className="flex-1 md:flex-none bg-accent text-white hover:bg-accent px-5 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:opacity-50"
+                className="flex-1 md:flex-none bg-accent text-ink hover:bg-accent px-5 py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 disabled:opacity-50"
              >
                 {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
                 Save

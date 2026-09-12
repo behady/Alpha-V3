@@ -588,7 +588,7 @@ export default function ChatsPanel({
                       )}
                       {unread && (
                         <span
-                          className={`bg-accent dark:bg-accent ${c.assignedTo || (c.tags && c.tags.length > 0) ? "" : "ms-auto"} shrink-0 min-w-[20px] h-5 px-1.5 rounded-full text-white text-[11px] font-black flex items-center justify-center`}
+                          className={`bg-accent dark:bg-accent ${c.assignedTo || (c.tags && c.tags.length > 0) ? "" : "ms-auto"} shrink-0 min-w-[20px] h-5 px-1.5 rounded-full text-ink text-[11px] font-black flex items-center justify-center`}
                         >
                           {c.unreadCount}
                         </span>
@@ -1117,7 +1117,7 @@ function Thread({
                 ? "اضغط عشان توقف البوت وترد بنفسك"
                 : "Click to pause the bot and answer yourself"
           }
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-black transition-all disabled:opacity-50 ${botQuiet ? "bg-[#fff4dc] text-[#9a5b00] dark:bg-[#9a5b00]/20 dark:text-[#fcd34d]" : "bg-accent text-white shadow-sm"}`}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-black transition-all disabled:opacity-50 ${botQuiet ? "bg-[#fff4dc] text-[#9a5b00] dark:bg-[#9a5b00]/20 dark:text-[#fcd34d]" : "bg-accent text-ink shadow-sm"}`}
         >
           {toggling ? <Loader2 size={14} className="animate-spin" /> : botQuiet ? <Bot size={14} /> : <Hand size={14} />}
           {botQuiet ? (isAr ? "رجّع البوت" : "Hand back to bot") : isAr ? "أنا هرد" : "Take over"}
@@ -1408,7 +1408,7 @@ function Thread({
             <button
               onClick={() => void send()}
               disabled={sending || (!text.trim() && !pending)}
-              className="h-[42px] w-[42px] rounded-full flex items-center justify-center text-white transition-colors disabled:opacity-40 shrink-0 bg-accent dark:bg-accent"
+              className="h-[42px] w-[42px] rounded-full flex items-center justify-center text-ink transition-colors disabled:opacity-40 shrink-0 bg-accent dark:bg-accent"
               aria-label={isAr ? "ابعت" : "Send"}
             >
               {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} className="rtl:-scale-x-100" />}
@@ -1430,7 +1430,7 @@ function Thread({
             <button
               onClick={() => void sendTemplate()}
               disabled={sending || templateSentAt > 0}
-              className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white text-[12px] font-black transition-colors disabled:opacity-50 bg-accent dark:bg-accent"
+              className="mt-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-ink text-[12px] font-black transition-colors disabled:opacity-50 bg-accent dark:bg-accent"
             >
               {sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} className="rtl:-scale-x-100" />}
               {templateSentAt ? (isAr ? "اتبعت" : "Sent") : isAr ? "ابعت المتابعة" : "Send follow-up"}

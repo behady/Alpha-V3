@@ -32,6 +32,7 @@ import {
   daysBetween, isDone, isMine, labReturns, moneyToday, openPlans, owedByMyPatients, owedByPatient,
   pickChair, sortDay, waitingMinutes, type DentistIdentity, type Row,
 } from "@/lib/dentistHome";
+import PageHeader from "@/components/dashboard/PageHeader";
 
 /**
  * What a dentist sees on sign-in, instead of the reception desk.
@@ -360,20 +361,17 @@ export default function DentistHome() {
     "relative inline-flex items-center justify-center w-7 h-7 rounded-lg bg-surface border border-line text-ink-body hover:bg-surface-subtle hover:text-ink transition-colors";
 
   return (
-    <div className="min-h-screen pb-24 lg:pb-6 text-ink-strong" dir={isRTL ? "rtl" : "ltr"}>
+    <div className="min-h-full pb-24 lg:pb-6 text-ink-strong" dir={isRTL ? "rtl" : "ltr"}>
       <div className="w-full max-w-[1400px] mx-auto p-4 md:p-6 lg:p-5 flex flex-col gap-4">
 
-        {/* Header: greeting, and the dentist's own money */}
-        <div className="flex flex-wrap items-end justify-between gap-4 px-1">
-          <div>
-            <h1 className="font-display text-[26px] md:text-[28px] font-medium text-ink-strong leading-tight">
-              {greeting} <span className="font-bold text-ink">{isAr ? `د. ${firstName}` : `Dr. ${firstName}`}</span>
-            </h1>
-            <p className="text-xs font-semibold text-ink-muted mt-1">
-              {dateLine} · {timeLine}
-              {branches.length > 0 && activeBranch ? ` · ${activeBranch.name}` : ""}
-            </p>
-          </div>
+        {/* The greeting is in the layout's black band; the dentist's own money stays on the page
+            next to the chair, which is what they came here to look at. */}
+        <PageHeader
+          title={<><span className="font-light">{greeting}</span> {isAr ? `د. ${firstName}` : `Dr. ${firstName}`}</>}
+          subtitle={`${dateLine} · ${timeLine}${branches.length > 0 && activeBranch ? ` · ${activeBranch.name}` : ""}`}
+        />
+
+        <div className="flex flex-wrap items-end justify-end gap-4 px-1">
           <div className="flex items-stretch bg-surface border border-line rounded-2xl shadow-sm px-1.5 py-2.5">
             <Figure label={isAr ? "دفعوا النهارده" : "My patients paid today"} value={fmt(money.paid)} isAr={isAr} />
             {showShare && (

@@ -7,7 +7,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   Plus, Phone, MessageCircle, Search, ChevronDown, X, Loader2,
-  UserPlus, Building2, CalendarClock, Trash2, Inbox, Check, UserCheck, Copy, Hourglass, Timer,
+  UserPlus, Building2, CalendarClock, Trash2, Check, UserCheck, Copy, Hourglass, Timer,
   Clock, Megaphone, UserCog, ShieldAlert, Users,
 } from "lucide-react";
 import { addDoc, deleteDoc, getDoc, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
@@ -16,6 +16,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext";
 import PermissionGuard from "@/components/PermissionGuard";
+import PageHeader, { headerButtonPrimary } from "@/components/dashboard/PageHeader";
 import { logActivity } from "@/lib/logger";
 import { LOCATIONS_DOC, parseClinicBranches, type ClinicBranch } from "@/lib/clinicLocations";
 import {
@@ -397,28 +398,14 @@ export default function LeadsPage() {
   return (
     <PermissionGuard permission="access.patients">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 xl:px-10 py-5 sm:py-8">
-        {/* Header */}
-        <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
-          <div className="flex items-center gap-3">
-            <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-teal-600 text-white shadow-md shrink-0">
-              <Inbox size={20} />
-            </span>
-            <div>
-              <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-                {isAr ? "العملاء المحتملين" : "Leads"}
-              </h1>
-              <p className="text-xs text-ink-muted font-medium">
-                {isAr ? "كل اللي سألوا ولسه محجزوش" : "Everyone who asked but hasn't booked yet"}
-              </p>
-            </div>
-          </div>
-          <button
-            data-tour="leads-add" onClick={openAdd}
-            className="bg-[#FACC15] hover:bg-[#EAB308] text-ink font-black px-4 sm:px-5 py-2.5 rounded-xl shadow-sm flex items-center gap-2 transition-all active:scale-95"
-          >
+        <PageHeader
+          title={isAr ? "العملاء المحتملين" : "Leads"}
+          subtitle={isAr ? "كل اللي سألوا ولسه محجزوش" : "Everyone who asked but hasn't booked yet"}
+        >
+          <button data-tour="leads-add" onClick={openAdd} className={headerButtonPrimary}>
             <Plus size={18} strokeWidth={3} /> {isAr ? "إضافة" : "Add lead"}
           </button>
-        </div>
+        </PageHeader>
 
         {/* Month stats */}
         <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-4">

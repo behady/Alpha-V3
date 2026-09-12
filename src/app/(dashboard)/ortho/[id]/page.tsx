@@ -17,6 +17,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import PermissionGuard from "@/components/PermissionGuard";
+import PageHeader from "@/components/dashboard/PageHeader";
 
 interface OrthoVisit {
   visitNo: number;
@@ -267,7 +268,15 @@ export default function IsolatedOrthoWorkspace() {
 
   return (
     <PermissionGuard permission="access.ortho" allowedRoles={["Dentist"]}>
-      <div className="min-h-screen bg-surface-subtle pb-20 animate-in fade-in">
+      <div className="min-h-full pb-20 animate-in fade-in">
+      {/* Name and the way back in the layout's black band. The dark card below keeps the case
+          status, the contact row and the timing — the things you scan before you touch it. */}
+      <PageHeader
+        eyebrow="Ortho Portal"
+        title={patientData.name}
+        backHref="/ortho"
+      />
+
         <style dangerouslySetInnerHTML={{__html: `
           @media print {
           body * { visibility: hidden; }
@@ -304,7 +313,6 @@ export default function IsolatedOrthoWorkspace() {
                   </span>
                 )}
               </div>
-              <h1 className="text-xl md:text-2xl font-black truncate tracking-tight mt-1">{patientData.name}</h1>
               <div className="flex flex-wrap gap-x-3 gap-y-1.5 mt-1.5 text-[10px] font-bold text-purple-200/80 uppercase tracking-widest">
                 <button
                   onClick={() => openWhatsApp(patientData.phone)}

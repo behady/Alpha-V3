@@ -29,6 +29,7 @@ import {
 } from "@/lib/bookingService";
 import LateAppointmentPrompt from "@/components/appointments/LateAppointmentPrompt";
 import NewPatientModal from "@/components/NewPatientModal";
+import PageHeader, { headerButtonPrimary, headerButtonGhost } from "@/components/dashboard/PageHeader";
 import QuickPaymentModal from "@/components/QuickPaymentModal";
 import AppointmentSidePanel from "@/components/appointments/AppointmentSidePanel";
 import AppointmentAvatarPanel from "@/components/appointments/AppointmentAvatarPanel";
@@ -897,26 +898,47 @@ export default function DesktopDashboard() {
   }, [scheduleViewDate, language]);
 
   return (
-    <div className={`min-h-screen lg:min-h-0 lg:h-full relative overflow-hidden pb-24 lg:pb-0 font-sans text-ink-slab lg:text-white ${isRTL ? 'text-right' : 'text-left'}`}>
+    <div className={`min-h-full lg:min-h-0 lg:h-full relative overflow-hidden pb-24 lg:pb-0 font-sans text-ink-slab lg:text-white ${isRTL ? 'text-right' : 'text-left'}`}>
       <div className="relative z-10 w-full max-w-[1920px] mx-auto p-4 md:p-6 md:pt-8 lg:p-4 lg:pt-3 space-y-3 md:space-y-4 lg:space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:h-full lg:flex lg:flex-col">
+        {/* The desk is height-locked, so this is the compact strip: one line, and the clock
+        moves up into the eyebrow where a subtitle would normally go. Hidden in full-screen
+        schedule mode, which deliberately has no chrome at all. */}
+        {!isFullScreen && (
+          <PageHeader
+            compact
+            title={
+              <>
+                <span className="font-light">{language === 'ar' ? 'أهلاً بك،' : 'Welcome in,'}</span>{" "}
+                {getWelcomeName(user?.name)}
+              </>
+            }
+            eyebrow={
+              <span className="inline-flex items-center gap-2">
+                <span className="inline-flex items-center gap-1"><Calendar size={12} /> {currentTime.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+                <span className="inline-block w-1 h-1 rounded-full bg-white/30" />
+                <span className="inline-flex items-center gap-1"><Clock size={12} /> {currentTime.toLocaleTimeString(language === 'ar' ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>
+              </span>
+            }
+          >
+            <button onClick={() => setActiveModal('patient')} className={headerButtonPrimary}>
+              <Plus size={17} strokeWidth={3} className="shrink-0" />
+              <span className="hidden xl:inline whitespace-nowrap">{language === 'ar' ? 'مريض جديد' : 'New Patient'}</span>
+            </button>
+            <button onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }} className={headerButtonGhost}>
+              <Wallet size={17} strokeWidth={2.5} className="shrink-0" />
+              <span className="hidden xl:inline whitespace-nowrap">{language === 'ar' ? 'دفع سريع' : 'Quick Pay'}</span>
+            </button>
+          </PageHeader>
+        )}
+
         
         {/* === DESKTOP: Compact Command Bar (greeting + stats + actions in one strip) === */}
         {!isFullScreen && (
           <div className="hidden lg:flex items-center gap-3 shrink-0 py-1">
 
-            {/* Greeting */}
-            <div className="flex flex-col min-w-0 shrink">
-              <h1 className="text-2xl xl:text-[1.75rem] font-light text-slate-800 tracking-tight leading-tight truncate">
-                {language === 'ar' ? 'أهلاً بك،' : 'Welcome in,'} <span className="font-semibold text-ink">{getWelcomeName(user?.name)}</span>
-              </h1>
-              <p className="flex items-center gap-2 text-xs font-medium text-ink-muted mt-0.5 whitespace-nowrap">
-                <span className="flex items-center gap-1"><Calendar size={13} className="text-slate-400" /> {currentTime.toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
-                <span className="w-1 h-1 rounded-full bg-slate-300"></span>
-                <span className="flex items-center gap-1"><Clock size={13} className="text-slate-400" /> {currentTime.toLocaleTimeString(language === 'ar' ? 'ar-EG' : 'en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>
-              </p>
-            </div>
-
-            {/* Stat strip */}
+            {/* Stat strip. The greeting and the two quick actions that used to open this row are
+                in the layout's black band now — see the <PageHeader> below. This page is locked
+                to the viewport height, so the header there is the compact one-line form. */}
             <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">
               <div className="flex items-center gap-2 min-w-0 bg-surface rounded-2xl border border-slate-100 shadow-sm px-4 py-2">
 
@@ -966,25 +988,6 @@ export default function DesktopDashboard() {
               <UserClockWidget compact />
             </div>
 
-            {/* Quick actions */}
-            <div className="flex items-center gap-2 shrink-0 ml-2">
-              <button
-                onClick={() => setActiveModal('patient')}
-                title={language === 'ar' ? 'مريض جديد' : 'New Patient'}
-                className="group flex items-center gap-2 bg-[#FACC15] hover:bg-[#EAB308] text-ink font-black text-sm px-4 sm:px-5 py-2.5 rounded-xl shadow-sm transition-all active:scale-95"
-              >
-                <Plus size={18} strokeWidth={3} className="shrink-0" />
-                <span className="hidden xl:inline whitespace-nowrap">{language === 'ar' ? 'مريض جديد' : 'New Patient'}</span>
-              </button>
-              <button
-                onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }}
-                title={language === 'ar' ? 'دفع سريع' : 'Quick Pay'}
-                className="group flex items-center gap-2 bg-surface text-ink font-bold text-sm px-4 sm:px-5 py-2.5 rounded-xl shadow-sm border border-slate-200 transition-all hover:bg-slate-50 active:scale-95"
-              >
-                <Wallet size={18} strokeWidth={2.5} className="shrink-0 text-slate-500 group-hover:text-ink transition-colors" />
-                <span className="hidden xl:inline whitespace-nowrap drop-shadow-sm">{language === 'ar' ? 'دفع سريع' : 'Quick Pay'}</span>
-              </button>
-            </div>
           </div>
         )}
 
@@ -1012,19 +1015,19 @@ export default function DesktopDashboard() {
             <div className="col-span-1 row-span-2 bg-white text-slate-800 rounded-2xl p-4 shadow-[0_8px_20px_rgb(0,0,0,0.05)] border border-slate-100 flex flex-col justify-center">
                 <div className="grid grid-cols-2 gap-3 h-full">
                     <button onClick={() => setActiveModal('patient')} className="flex flex-col items-center justify-center gap-1.5 lg:gap-2 hover:scale-[1.05] transition-transform group">
-                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-accent-tint text-accent flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors shadow-sm">
+                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-accent-tint text-accent flex items-center justify-center group-hover:bg-accent group-hover:text-ink transition-colors shadow-sm">
                             <User size={28} className="scale-75 lg:scale-100" strokeWidth={2.5} />
                         </div>
                         <span className="text-[10px] md:text-xs lg:text-sm font-extrabold text-slate-600 lg:text-slate-700">{language === 'ar' ? 'مريض' : 'Patient'}</span>
                     </button>
                     <button onClick={() => { setAppointmentToEdit(null); setActiveModal('booking'); }} className="flex flex-col items-center justify-center gap-1.5 lg:gap-2 hover:scale-[1.05] transition-transform group">
-                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-accent-tint text-accent flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors shadow-sm">
+                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-accent-tint text-accent flex items-center justify-center group-hover:bg-accent group-hover:text-ink transition-colors shadow-sm">
                             <Calendar size={28} className="scale-75 lg:scale-100" strokeWidth={2.5} />
                         </div>
                         <span className="text-[10px] md:text-xs lg:text-sm font-extrabold text-slate-600 lg:text-slate-700">{language === 'ar' ? 'زيارة' : 'Visit'}</span>
                     </button>
                     <button onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }} className="flex flex-col items-center justify-center gap-1.5 lg:gap-2 hover:scale-[1.05] transition-transform group">
-                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-accent-tint text-accent flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-colors shadow-sm">
+                        <div className="w-12 h-12 md:w-14 md:h-14 lg:w-16 lg:h-16 rounded-full bg-accent-tint text-accent flex items-center justify-center group-hover:bg-accent group-hover:text-ink transition-colors shadow-sm">
                             <Wallet size={28} className="scale-75 lg:scale-100" strokeWidth={2.5} />
                         </div>
                         <span className="text-[10px] md:text-xs lg:text-sm font-extrabold text-slate-600 lg:text-slate-700">{language === 'ar' ? 'دفع' : 'Pay'}</span>
@@ -1042,7 +1045,7 @@ export default function DesktopDashboard() {
             </div>
 
             {/* 3. DAILY INCOME WIDGET (1x2, Middle Left) */}
-            <div className="col-span-1 row-span-2 bg-gradient-to-br from-accent-soft to-accent text-white rounded-2xl p-5 shadow-lg flex flex-col justify-between relative overflow-hidden">
+            <div className="col-span-1 row-span-2 bg-ink-slab text-white rounded-2xl p-5 shadow-lg flex flex-col justify-between relative overflow-hidden">
                 <div className="absolute -top-10 -right-10 w-32 h-32 bg-white/20 rounded-full blur-[20px]"></div>
                 
                 <div className="flex flex-col h-full z-10 relative">
@@ -1711,7 +1714,7 @@ export default function DesktopDashboard() {
                     setInlineSaving(false);
                   }
                 }}
-                className="w-full bg-accent-soft hover:bg-accent text-white font-black py-3 rounded-xl transition-colors text-sm shadow-sm shadow-accent-soft/30"
+                className="w-full bg-accent-soft hover:bg-accent text-ink font-black py-3 rounded-xl transition-colors text-sm shadow-sm shadow-accent-soft/30"
               >
                 {language === 'ar' ? 'جدولة موعد جديد' : 'Schedule New Appointment'}
               </button>

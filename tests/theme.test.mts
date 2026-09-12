@@ -192,7 +192,9 @@ const PAIRS: [string, string, string, number][] = [
   ["faint text",          "ink-faint",     "surface",       3.0],
   ["faint on muted card", "ink-faint",     "surface-muted", 3.0],
   ["button label",        "ink-on-accent", "accent",        4.5],
-  ["accent as icon",      "accent",        "surface",       3.0],
+  // `accent-ink`, not `accent`: the accent is a FILL colour and a theme may legitimately
+  // pick one no text can sit on (the default yellow). Reading it is `accent-ink`'s job.
+  ["accent as icon",      "accent-ink",    "surface",       3.0],
   ["ok text",             "ok",            "surface",       3.0],
   ["warn text",           "warn",          "surface",       3.0],
   ["danger text",         "danger",        "surface",       3.0],
@@ -200,7 +202,7 @@ const PAIRS: [string, string, string, number][] = [
   ["ok on its tint",      "ok",            "ok-tint",       4.5],
   ["warn on its tint",    "warn",          "warn-tint",     4.5],
   ["danger on its tint",  "danger",        "danger-tint",   4.5],
-  ["accent on its tint",  "accent",        "accent-tint",   4.5],
+  ["accent on its tint",  "accent-ink",    "accent-tint",   4.5],
   ["hairline on card",    "line",          "surface",       1.2],
 ];
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { TrendingUp, TrendingDown, DollarSign, PieChart, Download, Plus, Search, Edit2, Trash2, Loader2, X, Save, CalendarDays, CalendarClock, Users, ChevronLeft, ChevronRight, SlidersHorizontal, ChevronDown, ChevronUp, Bell, Wallet, FileText } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, PieChart, Download, Plus, Search, Edit2, Trash2, Loader2, X, Save, CalendarDays, CalendarClock, Users, ChevronLeft, ChevronRight, SlidersHorizontal, ChevronDown, ChevronUp, Wallet, FileText } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, addDoc, query, orderBy, serverTimestamp, deleteDoc, doc, updateDoc, where, getDoc, getDocs, onSnapshot } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
@@ -9,6 +9,7 @@ import { useUI } from "@/context/UIContext";
 import { useAuth } from "@/context/AuthContext";
 import Protect from "@/components/Protect";
 import PermissionGuard from "@/components/PermissionGuard";
+import PageHeader from "@/components/dashboard/PageHeader";
 import { logActivity } from "@/lib/logger";
 import { patientMatchesSearch } from "@/lib/flexibleSearch";
 import { useRouter } from "next/navigation";
@@ -54,7 +55,7 @@ function getCreatedAtMillis(item: Transaction): number {
 }
 
 export default function FinancePage() {
-  const { language, t, isRTL, toggleLanguage } = useLanguage();
+  const { language, t, isRTL } = useLanguage();
   const { showToast, confirm } = useUI();
   const { user } = useAuth();
   const router = useRouter();
@@ -95,10 +96,6 @@ export default function FinancePage() {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [method, setMethod] = useState("Cash");
   const [isRecurring, setIsRecurring] = useState(false);
-
-  const handleLangToggle = () => {
-    toggleLanguage();
-  };
 
   const handleTimeViewChange = (view: "daily" | "monthly" | "range") => {
     setTimeView(view);
@@ -600,27 +597,15 @@ export default function FinancePage() {
 
   return (
     <PermissionGuard permission="access.finance">
-      <div className={`min-h-screen bg-gradient-to-br from-slate-100/80 via-white to-slate-50 pb-24 lg:pb-8 flex flex-col font-sans text-slate-800 ${isRTL ? "text-right" : "text-left"}`} dir={isRTL ? "rtl" : "ltr"}>
+      <div className={`min-h-full pb-24 lg:pb-8 flex flex-col font-sans text-slate-800 ${isRTL ? "text-right" : "text-left"}`} dir={isRTL ? "rtl" : "ltr"}>
         
-        <div className="w-full max-w-[1920px] mx-auto px-4 md:px-6 xl:px-10 2xl:px-12 pt-6 xl:pt-10 pb-8 space-y-6 xl:space-y-8 flex-1 flex flex-col min-h-0 animate-in fade-in">
+        <div className="w-full max-w-[1920px] mx-auto px-4 md:px-6 xl:px-10 2xl:px-12 pt-5 xl:pt-7 pb-8 space-y-6 xl:space-y-8 flex-1 flex flex-col min-h-0 animate-in fade-in">
           
-          {/* Page header */}
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between shrink-0">
-            <div>
-              <p className="text-[11px] font-black uppercase tracking-[0.2em] text-accent">Alpha</p>
-              <h1 className="text-2xl xl:text-3xl font-black text-ink tracking-tight mt-1">{t("finance")}</h1>
-              <p className="text-ink-muted font-semibold text-sm mt-1 tabular-nums">{periodLabel}</p>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <button type="button" onClick={handleLangToggle} className="w-10 h-10 rounded-xl bg-surface border border-line text-ink-body hover:bg-surface-subtle hover:border-line-strong flex items-center justify-center font-bold text-[10px] uppercase tracking-widest shadow-sm transition-colors">
-                {language === "ar" ? "EN" : "ع"}
-              </button>
-              <button type="button" className="w-10 h-10 rounded-xl bg-surface border border-line text-ink-muted hover:text-accent flex items-center justify-center shadow-sm transition-colors relative">
-                <Bell size={18} />
-                <span className="absolute top-2 end-2 w-1.5 h-1.5 bg-red-500 rounded-full border-2 border-white" />
-              </button>
-            </div>
-          </div>
+          {/* The title and the period now live in the layout's black band. The language switch
+              and the notification bell that used to sit here went with it — both are in the top
+              bar for every page, and the bell here was decorative anyway: a red dot that was
+              always on and a button that did nothing. */}
+          <PageHeader title={t("finance")} subtitle={periodLabel} />
 
           {/* Hero + metric tiles */}
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 xl:gap-6 shrink-0">
@@ -1203,7 +1188,7 @@ export default function FinancePage() {
                           onClick={() => setCurrentPage(pageNum)}
                           className={`min-w-[2.25rem] h-9 px-2 rounded-xl text-xs font-black ${
                             currentPage === pageNum
-                              ? "bg-accent text-white shadow-md"
+                              ? "bg-accent text-ink shadow-md"
                               : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
                           }`}
                         >

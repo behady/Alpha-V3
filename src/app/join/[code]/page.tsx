@@ -169,7 +169,7 @@ export default function JoinByInvitePage() {
         ) : !user ? (
           <>
             <h1 className="text-xl font-black text-ink">{t.youAreInvited(peek.clinicName || "", roleLabel(peek.role))}</h1>
-            <button onClick={goSignIn} className="mt-6 w-full bg-accent hover:bg-accent-strong text-white font-black py-3.5 rounded-xl inline-flex items-center justify-center gap-2">
+            <button onClick={goSignIn} className="mt-6 w-full bg-accent hover:bg-accent-strong text-ink font-black py-3.5 rounded-xl inline-flex items-center justify-center gap-2">
               <LogIn size={18} /> {t.signInToJoin}
             </button>
           </>

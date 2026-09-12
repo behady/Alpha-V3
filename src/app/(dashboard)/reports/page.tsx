@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  FileBarChart, Loader2, RefreshCw, Stethoscope, UserCheck, Network, Building2, CalendarDays, Megaphone,
+  Loader2, RefreshCw, Stethoscope, UserCheck, Network, Building2, CalendarDays, Megaphone,
 } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, query, where, Timestamp } from "firebase/firestore";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import PermissionGuard from "@/components/PermissionGuard";
+import PageHeader, { headerButtonPrimary } from "@/components/dashboard/PageHeader";
 import { getFirstDay, getToday } from "@/lib/reportHelpers";
 import { isDentistStaff } from "@/lib/staffRoles";
 
@@ -146,58 +147,36 @@ export default function ReportsPage() {
   return (
     <PermissionGuard permission="access.reports">
       <div
-        className="min-h-screen bg-transparent pb-24 lg:pb-10"
+        className="min-h-full pb-24 lg:pb-10"
         dir={isAr ? "rtl" : "ltr"}
       >
-        <div className="max-w-[1600px] mx-auto px-4 md:px-6 xl:px-10 pt-6 xl:pt-10 space-y-6">
+        <div className="max-w-[1600px] mx-auto px-4 md:px-6 xl:px-10 pt-5 xl:pt-7 space-y-6">
 
-          {/* Page header */}
-          <div className="bg-surface rounded-3xl border border-line shadow-sm p-6 flex flex-col lg:flex-row gap-5 lg:items-center lg:justify-between">
-            <div>
-              <div className="flex items-center gap-3 mb-1">
-                <div className="w-10 h-10 rounded-2xl bg-accent-tint text-accent flex items-center justify-center">
-                  <FileBarChart size={20} />
-                </div>
-                <div>
-                  <h1 className="text-2xl font-black text-ink tracking-tight">
-                    {isAr ? "مركز التقارير" : "Reports Center"}
-                  </h1>
-                  <p className="text-xs text-slate-400 font-semibold">
-                    {isAr ? "تحليلات احترافية قابلة للطباعة" : "Professional analytics with PDF export"}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Controls */}
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-1.5 text-xs text-ink-muted font-bold">
-                <CalendarDays size={14} />
-              </div>
-              <input
-                type="date"
-                value={startDate} data-tour="reports-date-start"
-                onChange={(e) => setStartDate(e.target.value)}
-                className="px-3 py-2 rounded-xl border border-line text-sm font-bold bg-surface outline-none focus:border-accent-soft cursor-pointer"
-              />
-              <span className="text-slate-400 font-bold text-xs">→</span>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="px-3 py-2 rounded-xl border border-line text-sm font-bold bg-surface outline-none focus:border-accent-soft cursor-pointer"
-              />
-              <button
-                type="button"
-                onClick={buildSnapshot}
-                disabled={loading}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-ink-strong text-white hover:text-white text-xs font-black uppercase tracking-wider hover:bg-slate-800 disabled:opacity-60 transition-all shadow-sm"
-              >
-                {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
-                {isAr ? "تحديث" : "Refresh"}
-              </button>
-            </div>
-          </div>
+          {/* Title in the black band; the date range and Refresh ride along with it, because a
+              report you cannot re-scope is a screenshot. */}
+          <PageHeader
+            title={isAr ? "مركز التقارير" : "Reports Center"}
+            subtitle={isAr ? "تحليلات احترافية قابلة للطباعة" : "Professional analytics with PDF export"}
+          >
+            <CalendarDays size={15} className="hidden text-white/40 sm:block" />
+            <input
+              type="date"
+              value={startDate} data-tour="reports-date-start"
+              onChange={(e) => setStartDate(e.target.value)}
+              className="cursor-pointer rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm font-bold text-white outline-none [color-scheme:dark] focus:border-white/40"
+            />
+            <span className="text-xs font-bold text-white/40">→</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="cursor-pointer rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm font-bold text-white outline-none [color-scheme:dark] focus:border-white/40"
+            />
+            <button type="button" onClick={buildSnapshot} disabled={loading} className={headerButtonPrimary}>
+              {loading ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+              {isAr ? "تحديث" : "Refresh"}
+            </button>
+          </PageHeader>
 
           {/* Tab navigation */}
           <div data-tour="reports-tabs" className="grid grid-cols-2 lg:grid-cols-5 gap-3">

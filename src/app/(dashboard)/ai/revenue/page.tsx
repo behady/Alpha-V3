@@ -11,7 +11,6 @@ import {
   Loader2,
   Lock,
   Search,
-  Sparkles,
   Tag,
   Wallet,
 } from "lucide-react";
@@ -21,7 +20,9 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import PermissionGuard from "@/components/PermissionGuard";
 import { hasFeature } from "@/lib/subscriptions";
-import type { FindingKind, RecoveryFinding, RecoveryReport } from "@/lib/revenueRecovery";const KIND_META: Record<
+import type { FindingKind, RecoveryFinding, RecoveryReport } from "@/lib/revenueRecovery";
+import PageHeader from "@/components/dashboard/PageHeader";
+const KIND_META: Record<
   FindingKind,
   { icon: typeof Wallet; en: string; ar: string; tone: string; explainEn: string; explainAr: string }
 > = {
@@ -112,7 +113,7 @@ export default function RevenueRecoveryPage() {
   if (!unlocked) {
     return (
       <PermissionGuard permission="access.finance">
-        <div className="min-h-screen bg-slate-50/50 flex items-center justify-center p-6" dir={isRTL ? "rtl" : "ltr"}>
+        <div className="min-h-full flex items-center justify-center p-6" dir={isRTL ? "rtl" : "ltr"}>
           <div className="max-w-md w-full bg-white rounded-3xl border border-slate-200 shadow-sm p-8 text-center">
             <div className="w-14 h-14 rounded-2xl bg-slate-900 text-white flex items-center justify-center mx-auto mb-5">
               <Lock size={26} />
@@ -136,25 +137,18 @@ export default function RevenueRecoveryPage() {
 
   return (
     <PermissionGuard permission="access.finance">
-      <div className="min-h-screen bg-slate-50/50 pb-24 lg:pb-10 text-slate-800" dir={isRTL ? "rtl" : "ltr"}>
+      <div className="min-h-full pb-24 lg:pb-10 text-slate-800" dir={isRTL ? "rtl" : "ltr"}>
         <div className="max-w-[1400px] mx-auto p-4 md:p-6 space-y-6">
           {/* Header */}
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <div className="flex items-center gap-2 text-violet-600">
-                <Sparkles size={16} />
-                <span className="text-[11px] font-black uppercase tracking-widest">
-                  {isAr ? "ذكاء ألفا · بريميوم" : "Alpha Intelligence · Premium"}
-                </span>
-              </div>
-              <h1 className="text-2xl md:text-3xl font-black text-ink tracking-tight mt-1">
-                {isAr ? "استعادة الإيرادات" : "Revenue Recovery"}
-              </h1>
-              <p className="text-sm font-medium text-ink-muted mt-1 max-w-2xl">
-                {isAr
+          <PageHeader
+            eyebrow={isAr ? "ذكاء ألفا · بريميوم" : "Alpha Intelligence · Premium"}
+            title={isAr ? "استعادة الإيرادات" : "Revenue Recovery"}
+            subtitle={isAr
                   ? "يفحص كل سجل مالي وسريري بحثًا عن أموال استحققتها ولم تُحصّلها."
                   : "Scans every financial and clinical record for money you earned but never collected."}
-              </p>
+          />
             </div>
 
             <button

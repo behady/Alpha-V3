@@ -32,6 +32,7 @@ import {
   X,
 } from "lucide-react";
 import PermissionGuard from "@/components/PermissionGuard";
+import PageHeader, { headerButtonPrimary } from "@/components/dashboard/PageHeader";
 import LabCaseModal from "@/components/lab/LabCaseModal";
 import LabAccountsPanel from "@/components/lab/LabAccountsPanel";
 import LabRemakeModal from "@/components/lab/LabRemakeModal";
@@ -291,55 +292,44 @@ export default function LabTrackingPage() {
   return (
     <PermissionGuard permission="access.lab">
       <div
-        className={`min-h-screen bg-gradient-to-br from-slate-100/80 via-white to-slate-50 pb-24 lg:pb-8 flex flex-col font-sans text-slate-800 ${
+        className={`min-h-full pb-24 lg:pb-8 flex flex-col font-sans text-slate-800 ${
           isRTL ? "text-right" : "text-left"
         }`}
         dir={isRTL ? "rtl" : "ltr"}
       >
-        <div className="w-full max-w-[1920px] mx-auto px-4 md:px-6 xl:px-10 2xl:px-12 pt-6 xl:pt-10 pb-8 space-y-6 xl:space-y-8 flex-1 flex flex-col min-h-0 animate-in fade-in">
-          {/* Page header */}
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between shrink-0">
-            <div>
-              <p className="text-[11px] font-black uppercase tracking-[0.2em] text-accent">Alpha</p>
-              <h1 className="text-2xl xl:text-3xl font-black text-ink tracking-tight mt-1">
-                {isAr ? "متابعة المعمل" : "Lab Tracking"}
-              </h1>
-              <p className="text-ink-muted font-semibold text-sm mt-1">
-                {isAr
-                  ? "كل حالة خرجت للمعمل: فين دلوقتي، ومتى المفروض ترجع"
-                  : "Every case out at a lab: where it is, and when it is due back"}
-              </p>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {/* Two questions, not one screen: "where is the crown" and "what do we owe them" are
-                  asked by different people on different days. */}
-              <div className="flex rounded-xl bg-slate-100 p-1">
-                {([
-                  ["cases", isAr ? "الحالات" : "Cases"],
-                  ["money", isAr ? "الحسابات" : "Money"],
-                ] as const).map(([id, label]) => (
-                  <button
-                    key={id}
-                    onClick={() => setView(id)}
-                    className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wide transition-colors ${
-                      view === id ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              {view === "cases" && (
+        <div className="w-full max-w-[1920px] mx-auto px-4 md:px-6 xl:px-10 2xl:px-12 pt-5 xl:pt-7 pb-8 space-y-6 xl:space-y-8 flex-1 flex flex-col min-h-0 animate-in fade-in">
+          <PageHeader
+            title={isAr ? "متابعة المعمل" : "Lab Tracking"}
+            subtitle={
+              isAr
+                ? "كل حالة خرجت للمعمل: فين دلوقتي، ومتى المفروض ترجع"
+                : "Every case out at a lab: where it is, and when it is due back"
+            }
+          >
+            {/* Two questions, not one screen: "where is the crown" and "what do we owe them" are
+                asked by different people on different days. */}
+            <div className="flex rounded-full border border-white/15 bg-white/5 p-1">
+              {([
+                ["cases", isAr ? "الحالات" : "Cases"],
+                ["money", isAr ? "الحسابات" : "Money"],
+              ] as const).map(([id, label]) => (
                 <button
-                  onClick={openNew}
-                  data-tour="lab-new-order"
-                  className="inline-flex justify-center items-center gap-2 bg-accent text-ink-on-accent hover:bg-accent-strong px-5 py-3 rounded-xl font-black text-xs uppercase tracking-wide shadow-md transition-colors"
+                  key={id}
+                  onClick={() => setView(id)}
+                  className={`rounded-full px-4 py-1.5 text-xs font-black uppercase tracking-wide transition-colors ${
+                    view === id ? "bg-white text-ink shadow-sm" : "text-white/60 hover:text-white"
+                  }`}
                 >
-                  <Plus size={16} /> {isAr ? "أمر معمل جديد" : "New lab order"}
+                  {label}
                 </button>
-              )}
+              ))}
             </div>
-          </div>
+            {view === "cases" && (
+              <button onClick={openNew} data-tour="lab-new-order" className={headerButtonPrimary}>
+                <Plus size={16} /> {isAr ? "أمر معمل جديد" : "New lab order"}
+              </button>
+            )}
+          </PageHeader>
 
           {view === "money" && (
             <LabAccountsPanel

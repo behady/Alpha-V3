@@ -32,15 +32,47 @@ export interface ThemePreset {
 
 export const THEME_PRESETS: ThemePreset[] = [
   {
+    /**
+     * The id stays "mint" although the colours no longer are. Clinics store the id they picked,
+     * so renaming it would orphan every saved selection and drop those clinics back onto a
+     * default they never chose. The old green lives on below as "mint-classic" for anyone who
+     * wants it back.
+     */
     id: "mint",
-    nameEn: "Mint & Slate",
-    nameAr: "نعناع وأردواز",
-    descEn: "The current look. Nothing changes.",
-    descAr: "المظهر الحالي. لا يتغير شيء.",
+    nameEn: "Slate & Gold",
+    nameAr: "أردواز وذهبي",
+    descEn: "The current look. Black chrome, white page, yellow for what matters.",
+    descAr: "المظهر الحالي. أسود وأبيض، والأصفر للمهم.",
+    swatch: ["#F5F6F8", "#FFFFFF", "#FACC15", "#0F172A"],
+    available: true,
+    // Byte-identical to the :root block in globals.css — tests/theme.test.mts enforces it. This
+    // preset IS the default look, so the two cannot be allowed to drift.
+    tokens: {
+      "surface-page": "#F5F6F8", "surface": "#FFFFFF", "surface-subtle": "#F8FAFC",
+      "surface-muted": "#F1F5F9", "surface-accent": "#FEF9E6",
+      "line": "#E2E8F0", "line-strong": "#CBD5E1",
+      "ink": "#0F172A", "ink-slab": "#111318", "ink-strong": "#2D3748",
+      "ink-body": "#475569", "ink-muted": "#64748B", "ink-faint": "#78899F",
+      "ink-on-accent": "#1A1206",
+      "accent": "#FACC15", "accent-soft": "#FDE68A", "accent-strong": "#E0A800",
+      "accent-tint": "#FEF9E6", "accent-ink": "#7A5C00",
+      "ok": "#05603A", "ok-tint": "#ECFDF5", "warn": "#C44A0A", "warn-tint": "#FFF7ED",
+      "danger": "#C51F1F", "danger-tint": "#FEF2F2", "info": "#1D4FD8", "info-tint": "#EFF6FF",
+      "tone-personal": "#6B4FBB",
+      "tone-clinic": "#0E7490",
+      "tone-people": "#B03A78",
+      "tone-system": "#2C5F8F",
+    },
+  },
+  {
+    /** The product's original green, kept selectable for anyone who preferred it. */
+    id: "mint-classic",
+    nameEn: "Mint & Slate (classic)",
+    nameAr: "نعناع وأردواز (القديم)",
+    descEn: "The green the product wore before the top navigation.",
+    descAr: "الأخضر اللي كان قبل القائمة العلوية.",
     swatch: ["#E8F0ED", "#FFFFFF", "#1D7F46", "#0F172A"],
     available: true,
-    // Byte-identical to the :root block in globals.css. This preset's entire contract is that an
-    // existing clinic does not wake up to a repainted product, so it must not be "improved".
     tokens: {
       "surface-page": "#E8F0ED", "surface": "#FFFFFF", "surface-subtle": "#F8FAFC",
       "surface-muted": "#F1F5F9", "surface-accent": "#E8F7F0",
@@ -49,7 +81,7 @@ export const THEME_PRESETS: ThemePreset[] = [
       "ink-body": "#475569", "ink-muted": "#64748B", "ink-faint": "#78899F",
       "ink-on-accent": "#FFFFFF",
       "accent": "#1D7F46", "accent-soft": "#60D297", "accent-strong": "#046B4C",
-      "accent-tint": "#E8F7F0",
+      "accent-tint": "#E8F7F0", "accent-ink": "#1D7F46",
       "ok": "#05603A", "ok-tint": "#ECFDF5", "warn": "#C44A0A", "warn-tint": "#FFF7ED",
       "danger": "#C51F1F", "danger-tint": "#FEF2F2", "info": "#1D4FD8", "info-tint": "#EFF6FF",
       "tone-personal": "#6B4FBB",
@@ -74,7 +106,7 @@ export const THEME_PRESETS: ThemePreset[] = [
       "ink-body": "#4E4A42", "ink-muted": "#6C6659", "ink-faint": "#8E8579",
       "ink-on-accent": "#FAF8F3",
       "accent": "#23211C", "accent-soft": "#555047", "accent-strong": "#0B0A08",
-      "accent-tint": "#ECE8E0",
+      "accent-tint": "#ECE8E0", "accent-ink": "#23211C",
       "ok": "#2F6B4C", "ok-tint": "#E9F2EC", "warn": "#A05A15", "warn-tint": "#F7EFE2",
       "danger": "#A32A22", "danger-tint": "#F7E9E7", "info": "#2C5A96", "info-tint": "#E8EEF7",
       "tone-personal": "#5E5480",
@@ -99,7 +131,7 @@ export const THEME_PRESETS: ThemePreset[] = [
       "ink-body": "#4E4759", "ink-muted": "#675F79", "ink-faint": "#8B829A",
       "ink-on-accent": "#FFFFFF",
       "accent": "#7B3F6B", "accent-soft": "#A97399", "accent-strong": "#5C2B4F",
-      "accent-tint": "#F4EAF1",
+      "accent-tint": "#F4EAF1", "accent-ink": "#7B3F6B",
       "ok": "#12704F", "ok-tint": "#E7F4EF", "warn": "#A34B08", "warn-tint": "#FBF1E6",
       "danger": "#B92D2D", "danger-tint": "#FAEBEA", "info": "#2E5FA8", "info-tint": "#E9EFF9",
       "tone-personal": "#6E4FB5",
@@ -124,7 +156,7 @@ export const THEME_PRESETS: ThemePreset[] = [
       "ink-body": "#565043", "ink-muted": "#6A6352", "ink-faint": "#8C806C",
       "ink-on-accent": "#FFFFFF",
       "accent": "#0F6E73", "accent-soft": "#4E9CA0", "accent-strong": "#0A5257",
-      "accent-tint": "#E3EFEF",
+      "accent-tint": "#E3EFEF", "accent-ink": "#0F6E73",
       "ok": "#376F2C", "ok-tint": "#EEF4E7", "warn": "#A5560A", "warn-tint": "#FAF0E3",
       "danger": "#B3302A", "danger-tint": "#F9E9E6", "info": "#2D5AA6", "info-tint": "#E9EEF8",
       "tone-personal": "#6A4FB0",
@@ -149,7 +181,7 @@ export const THEME_PRESETS: ThemePreset[] = [
       "ink-body": "#C3C7CB", "ink-muted": "#949BA1", "ink-faint": "#6E767D",
       "ink-on-accent": "#14161A",
       "accent": "#D6CEC2", "accent-soft": "#EDE7DD", "accent-strong": "#BEB5A7",
-      "accent-tint": "#23231F",
+      "accent-tint": "#23231F", "accent-ink": "#D6CEC2",
       // warn deepened from #E0A458: it sat 2.5 degrees of hue from the bone accent, so a warning
       // dot beside a brand dot read as two shades of one colour.
       "ok": "#46C08A", "ok-tint": "#12241C", "warn": "#D99038", "warn-tint": "#2A2116",

@@ -7,6 +7,7 @@ import { useLanguage } from "@/context/LanguageContext";
 // for the browser.
 import { HELP_SECTIONS, type HelpArticle } from "@/lib/helpSections";
 import HelpMarkdown from "./HelpMarkdown";
+import PageHeader from "@/components/dashboard/PageHeader";
 
 type Props = {
   article: { en: HelpArticle | null; ar: HelpArticle | null };
@@ -41,26 +42,17 @@ export default function HelpArticleView({ article, siblings }: Props) {
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 md:px-8" dir={isRTL ? "rtl" : "ltr"}>
-      <Link
-        href="/help"
-        className="mb-8 inline-flex items-center gap-2 text-xs font-bold text-ink-muted transition-colors hover:text-ink"
-      >
-        <Back size={14} />
-        {txt.back}
-      </Link>
+      {/* Title, section and the way back are in the layout's black band; the plan and role tags
+          stay on the page, immediately above the article they qualify. */}
+      <PageHeader
+        eyebrow={section ? (isAr ? section.titleAr : section.titleEn) : undefined}
+        title={a.title}
+        subtitle={a.summary || undefined}
+        backHref="/help"
+      />
 
       <header className="mb-10">
-        {section ? (
-          <p className="mb-2 text-[11px] font-black uppercase tracking-[0.2em] text-accent">
-            {isAr ? section.titleAr : section.titleEn}
-          </p>
-        ) : null}
-        <h1 className="text-3xl font-black leading-tight tracking-tight text-ink">{a.title}</h1>
-        {a.summary ? (
-          <p className="mt-3 text-base font-semibold leading-relaxed text-ink-muted">{a.summary}</p>
-        ) : null}
-
-        <div className="mt-4 flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {a.plan ? (
             <span className="rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-violet-700">
               {a.plan}

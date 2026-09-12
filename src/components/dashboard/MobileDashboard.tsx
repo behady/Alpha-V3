@@ -54,6 +54,7 @@ import { printPatientReceipt } from "@/lib/printPatientReceipt";
 import { getAppointmentStatusStyles, getAppointmentStageLabel } from "@/lib/appointmentStages";
 import UserClockWidget from "@/components/dashboard/UserClockWidget";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import PageHeader, { headerButtonPrimary, headerButtonGhost } from "@/components/dashboard/PageHeader";
 function getLocalDateKey(): string {
   const d = new Date();
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split("T")[0];
@@ -874,30 +875,25 @@ export default function MobileDashboard() {
   }, [scheduleViewDate, language]);
 
   return (
-    <div className={`min-h-screen lg:min-h-0 lg:h-full relative overflow-hidden pb-24 lg:pb-0 font-sans text-ink-slab lg:text-white bg-gradient-to-br from-accent-tint/60 to-accent-tint lg:from-transparent lg:to-transparent ${isRTL ? 'text-right' : 'text-left'}`}>
+    <div className={`min-h-full lg:min-h-0 lg:h-full relative overflow-hidden pb-24 lg:pb-0 font-sans text-ink-slab lg:text-white ${isRTL ? 'text-right' : 'text-left'}`}>
       <div className="relative z-10 w-full max-w-[1920px] mx-auto p-4 md:p-6 md:pt-8 lg:p-4 lg:pt-3 space-y-3 md:space-y-4 lg:space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:h-full lg:flex lg:flex-col">
 
-        {/* === DESKTOP: High Contrast Greeting Bar === */}
-        <div className="hidden lg:flex items-end justify-between shrink-0 pt-4 pb-2">
-          <div className="flex flex-col min-w-0">
-            <h1 className="text-4xl font-light text-slate-800 tracking-tight">
-              {language === 'ar' ? 'أهلاً بك،' : 'Welcome in,'} <span className="font-normal text-ink">{getWelcomeName(user?.name)}</span>
-            </h1>
-            <p className="flex items-center gap-3 text-sm font-medium text-ink-muted mt-2">
-              <DashboardClockWidget language={language} showTime={true} />
-            </p>
-          </div>
-          <div className="flex items-center gap-3 shrink-0">
-            <button onClick={() => setActiveModal('patient')} className="group flex items-center gap-2 bg-[#FACC15] hover:bg-[#EAB308] text-ink font-black text-sm px-6 py-3 rounded-full shadow-sm active:scale-95 transition-all">
-              <div className="group-hover:scale-110 transition-transform"><Plus size={18} strokeWidth={3} /></div>
-              {language === 'ar' ? 'مريض جديد' : 'New Patient'}
-            </button>
-            <button onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }} className="group flex items-center gap-2 bg-surface text-ink font-extrabold text-sm px-6 py-3 rounded-full shadow-sm border border-slate-200 transition-all hover:bg-slate-50 active:scale-95">
-              <div className="text-slate-500 group-hover:scale-110 group-hover:text-ink transition-all"><Wallet size={18} strokeWidth={2.5} /></div>
-              <span className="drop-shadow-sm">{language === 'ar' ? 'دفع سريع' : 'Quick Pay'}</span>
-            </button>
-          </div>
-        </div>
+        {/* The greeting and the two quick actions now sit in the layout's black band, so they
+            are there on a phone too — this bar used to be `hidden lg:flex` inside a component
+            that only ever renders below `lg`, which meant nobody had ever seen it. */}
+        <PageHeader
+          title={<><span className="font-light">{language === 'ar' ? 'أهلاً بك،' : 'Welcome in,'}</span> {getWelcomeName(user?.name)}</>}
+          eyebrow={<span className="inline-flex items-center gap-2"><DashboardClockWidget language={language} /></span>}
+        >
+          <button onClick={() => setActiveModal('patient')} className={headerButtonPrimary}>
+            <Plus size={17} strokeWidth={3} />
+            <span className="hidden sm:inline">{language === 'ar' ? 'مريض جديد' : 'New Patient'}</span>
+          </button>
+          <button onClick={() => { setPaymentPatient(null); setActiveModal('payment'); }} className={headerButtonGhost}>
+            <Wallet size={17} strokeWidth={2.5} />
+            <span className="hidden sm:inline">{language === 'ar' ? 'دفع سريع' : 'Quick Pay'}</span>
+          </button>
+        </PageHeader>
 
         {/* === DESKTOP: Floating High-Contrast Stats === */}
         <div className="hidden lg:flex items-center gap-12 shrink-0 py-4 px-2">
@@ -944,30 +940,9 @@ export default function MobileDashboard() {
         {/* === MOBILE: Compact Header Layout === */}
         <div className="flex flex-col gap-4 lg:hidden shrink-0">
           
-          {/* 1. Floating Header with Profile Pic */}
-          <div className="flex items-center justify-between bg-white/80 backdrop-blur-2xl border border-white/60 shadow-[0_12px_40px_rgb(0,0,0,0.06)] rounded-full p-2 mx-1 mt-1 ring-1 ring-black/[0.02]">
-            <div className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-emerald-400 to-teal-400 p-[1.5px] shadow-sm shrink-0">
-                <div className="w-full h-full rounded-full bg-surface flex items-center justify-center overflow-hidden border-2 border-white">
-                  {/* Fallback to initials if no avatar */}
-                  <span className="text-emerald-600 font-black text-sm">
-                    {getWelcomeName(user?.name).charAt(0).toUpperCase()}
-                  </span>
-                </div>
-              </div>
-              <div className="flex flex-col min-w-0 pr-2 justify-center">
-                <h1 className="text-[15px] font-black text-slate-800 tracking-tight leading-none truncate">
-                  {getWelcomeName(user?.name)}
-                </h1>
-              </div>
-            </div>
-            {/* Minimal Time display */}
-            <div className="text-right shrink-0 px-3 border-l border-slate-100 flex flex-col justify-center">
-                <div className="text-[11px] font-black text-slate-700 leading-none">
-                   <DashboardClockWidget language={language} showTime={false} />
-                </div>
-            </div>
-          </div>
+          {/* The name-and-time pill that used to open this column is gone: the black band at
+              the top of every screen already carries both, and two of them stacked read as a
+              mistake. */}
 
           {/* 2. Daily Overview (Stats + Income) */}
           <div className="flex flex-col gap-2 mx-1">
@@ -1618,7 +1593,7 @@ export default function MobileDashboard() {
                     setInlineSaving(false);
                   }
                 }}
-                className="w-full bg-accent-soft hover:bg-accent text-white font-black py-3 rounded-xl transition-colors text-sm shadow-sm shadow-accent-soft/30"
+                className="w-full bg-accent-soft hover:bg-accent text-ink font-black py-3 rounded-xl transition-colors text-sm shadow-sm shadow-accent-soft/30"
               >
                 {language === 'ar' ? 'جدولة موعد جديد' : 'Schedule New Appointment'}
               </button>

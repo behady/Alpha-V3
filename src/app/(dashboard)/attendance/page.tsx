@@ -2,13 +2,14 @@
 
 import { deleteRecord, RecycleBinError } from "@/lib/recycleBinApi";
 import { useState, useEffect, useMemo } from "react";
-import { Clock, CalendarDays, Loader2, Users } from "lucide-react";
+import { CalendarDays, Loader2, Users } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { collection, query, where, addDoc, updateDoc, doc, serverTimestamp, orderBy, limit, Timestamp, getDoc, getDocs, deleteDoc, onSnapshot } from "firebase/firestore";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
+import PageHeader from "@/components/dashboard/PageHeader";
 import { logActivity } from "@/lib/logger";
 import { hasFeature } from "@/lib/subscriptions";
 import { UpgradeRequired } from "@/components/UpgradeRequired";
@@ -1174,14 +1175,14 @@ export default function AttendancePage() {
   return (
     <div className="max-w-[1600px] mx-auto p-4 md:p-8 space-y-8 animate-in fade-in pb-24 font-sans text-slate-800">
       
-      {/* HEADER & ADMIN TOGGLE */}
-      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
-        <div>
-            <h1 className="text-2xl md:text-3xl font-black text-ink tracking-tight flex items-center gap-3">
-              <Clock className="text-accent-soft" size={28}/> {canAdmin && viewMode === 'team' ? 'Team Control Center' : 'My Worksheet'}
-            </h1>
-            <p className="text-xs md:text-sm text-ink-muted font-semibold mt-1">Track shifts, log attendance, and run payroll invoices.</p>
-        </div>
+      <PageHeader
+        title={canAdmin && viewMode === 'team' ? 'Team Control Center' : 'My Worksheet'}
+        subtitle="Track shifts, log attendance, and run payroll invoices."
+      />
+
+      {/* The date range and the personal/team switch stayed on the page: they re-scope everything
+          below them, so they read as part of the sheet rather than as page chrome. */}
+      <div className="flex flex-col xl:flex-row justify-end items-start xl:items-center gap-4">
         
         <div className="flex flex-col sm:flex-row items-center gap-3 w-full xl:w-auto overflow-x-auto pb-1">
             {/* GLOBAL DATE RANGE SELECTOR */}

@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import PermissionGuard from "@/components/PermissionGuard";
 import ChatsPanel from "@/components/ai/ChatsPanel";
 import { useLanguage } from "@/context/LanguageContext";
+import PageHeader from "@/components/dashboard/PageHeader";
 
 /**
  * The clinic's WhatsApp, as a page of its own.
@@ -16,14 +17,19 @@ import { useLanguage } from "@/context/LanguageContext";
  * without anyone editing permissions.
  */
 export default function ChatsPage() {
-  const { isRTL } = useLanguage();
+  const { isRTL, language } = useLanguage();
   return (
     <PermissionGuard permission="access.patients" allowedRoles={["Admin", "Owner"]}>
-      <div className="h-full min-h-0 p-3 md:p-5 lg:p-6 pb-24 lg:pb-6" dir={isRTL ? "rtl" : "ltr"}>
+      {/* Compact: the thread list and the conversation both scroll inside themselves, so any
+          height the header takes comes straight out of the messages on screen. */}
+      <PageHeader compact title={language === "ar" ? "المحادثات" : "WhatsApp"} />
+      <div className="flex h-full min-h-0 flex-col p-3 md:p-5 lg:p-6 pb-24 lg:pb-6" dir={isRTL ? "rtl" : "ltr"}>
         {/* useSearchParams inside the panel needs a Suspense boundary above it to prerender. */}
         <Suspense fallback={null}>
-          {/* Fills the viewport minus the page padding; on phones, minus the bottom bar too. */}
-          <ChatsPanel basePath="/chats" heightClass="h-[calc(100dvh-140px)] lg:h-[calc(100dvh-48px)]" />
+          {/* `h-full` rather than a 100dvh calculation: the layout is a flex column now, so the
+              panel simply takes what is left under the black band. The old calculation hard-coded
+              a chrome height and broke the day the chrome changed. */}
+          <ChatsPanel basePath="/chats" heightClass="h-full min-h-0" />
         </Suspense>
       </div>
     </PermissionGuard>

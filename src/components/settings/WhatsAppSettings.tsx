@@ -1319,7 +1319,7 @@ export default function WhatsAppSettings() {
                 type="button"
                 onClick={() => void handleRegisterMetaNumber()}
                 disabled={metaRegistering || metaPin.length !== 6 || !/^\d{5,20}$/.test(metaPhoneNumberId.trim())}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent text-white text-xs font-black uppercase tracking-wide hover:opacity-90 transition-opacity disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent text-ink text-xs font-black uppercase tracking-wide hover:opacity-90 transition-opacity disabled:opacity-50"
               >
                 {metaRegistering ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
                 {txt.metaRegister}

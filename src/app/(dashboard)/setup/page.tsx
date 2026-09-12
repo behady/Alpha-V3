@@ -24,6 +24,7 @@ import {
   type ServiceChoice,
   type SetupStepId,
 } from "@/lib/setupWizard";
+import PageHeader from "@/components/dashboard/PageHeader";
 
 /**
  * The two-minute setup a new clinic lands on right after it is created.
@@ -255,15 +256,16 @@ export default function SetupWizardPage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8 sm:py-12" dir={isAr ? "rtl" : "ltr"}>
-      {/* Header */}
-      <div className="rounded-[2rem] bg-slate-900 text-white p-6 sm:p-8 mb-6">
-        <p className="font-display text-[10px] font-black uppercase tracking-[0.22em] text-white/45 mb-2">
-          {isAr ? "الإعداد الأول" : "First-time setup"}
-        </p>
-        <h1 className="font-display text-2xl sm:text-3xl font-bold leading-tight">{t.title}</h1>
-        <p className="mt-2 text-[13px] font-medium text-white/60 max-w-lg">{t.sub}</p>
+      {/* The wizard's title moved into the layout's black band, so this card is now the step
+          tracker alone — which is what a person here is actually watching. */}
+      <PageHeader
+        eyebrow={isAr ? "الإعداد الأول" : "First-time setup"}
+        title={t.title}
+        subtitle={t.sub}
+      />
 
-        <ol className="mt-6 flex items-center gap-2 text-xs font-bold">
+      <div className="rounded-[2rem] bg-ink-slab text-white p-6 sm:p-8 mb-6">
+        <ol className="flex items-center gap-2 text-xs font-bold">
           {SETUP_STEPS.map((id, i) => {
             const done = i < stepIndex;
             const active = id === step;
@@ -477,7 +479,7 @@ function Footer({
         type="button"
         onClick={onPrimary}
         disabled={saving}
-        className="bg-accent hover:bg-accent-strong text-white font-black py-3 px-6 rounded-xl transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-2"
+        className="bg-accent hover:bg-accent-strong text-ink font-black py-3 px-6 rounded-xl transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-2"
       >
         {saving ? <Loader2 size={16} className="animate-spin" /> : null}
         {primary}

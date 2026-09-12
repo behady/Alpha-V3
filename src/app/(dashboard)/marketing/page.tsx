@@ -5,7 +5,7 @@ import { useClinic } from "@/context/ClinicContext";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  Megaphone, Wand2, CalendarDays, FolderOpen, BookOpen, Loader2, Copy, Check,
+  Wand2, CalendarDays, FolderOpen, BookOpen, Loader2, Copy, Check,
   ChevronLeft, ChevronRight, Trash2, Clock, X, FileText, Clapperboard, Target,
   Sparkles, CheckCircle2, AlertTriangle, CalendarPlus, Film, Star, SlidersHorizontal,
   Send, UserX, ClipboardList, Cake, Armchair, PartyPopper, ThumbsDown,
@@ -23,6 +23,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext";
 import PermissionGuard from "@/components/PermissionGuard";
+import PageHeader from "@/components/dashboard/PageHeader";
 import { UpgradeRequired } from "@/components/UpgradeRequired";
 import { hasFeature, getMarketingCreditLimit } from "@/lib/subscriptions";
 import { logActivity } from "@/lib/logger";
@@ -1468,22 +1469,14 @@ export default function MarketingPage() {
   return (
     <PermissionGuard permission="access.marketing">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 xl:px-10 py-5 sm:py-8">
-        {/* Header */}
-        <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 bg-slate-900 text-white rounded-2xl flex items-center justify-center shadow-sm">
-              <Megaphone size={20} />
-            </div>
-            <div>
-              <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-                {isAr ? "استوديو التسويق" : "Marketing Studio"}
-              </h1>
-              <p className="text-xs font-bold text-slate-400">
-                {isAr ? "محتوى جاهز، تقويم نشر، وخطط شهرية" : "Ready content, a posting calendar, and monthly plans"}
-              </p>
-            </div>
-          </div>
+        <PageHeader
+          title={isAr ? "استوديو التسويق" : "Marketing Studio"}
+          subtitle={isAr ? "محتوى جاهز، تقويم نشر، وخطط شهرية" : "Ready content, a posting calendar, and monthly plans"}
+        />
 
+        {/* The studio's status chips stayed on the page rather than moving into the black band:
+            there are four to six of them and they are readings, not controls for the page. */}
+        <div className="flex items-center justify-end gap-3 mb-5 flex-wrap">
           <div className="flex items-center gap-2 flex-wrap">
             {/* Health score */}
             <div

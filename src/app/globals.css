@@ -21,11 +21,11 @@
    =========================================================================== */
 :root {
   /* Surfaces, page backdrop up to a raised card */
-  --surface-page:     #E8F0ED;
+  --surface-page:     #F5F6F8;
   --surface:          #FFFFFF;
   --surface-subtle:   #F8FAFC;
   --surface-muted:    #F1F5F9;
-  --surface-accent:   #E8F7F0;
+  --surface-accent:   #FEF9E6;
 
   /* Hairlines and dividers */
   --line:             #E2E8F0;
@@ -34,21 +34,27 @@
   /* Ink, strongest to faintest. --ink-slab is the near-black used for solid
      dark elements; --ink is for type that has to carry weight. */
   --ink:              #0F172A;
-  --ink-slab:         #1A2130;
+  --ink-slab:         #111318;
   --ink-strong:       #2D3748;
   --ink-body:         #475569;
   --ink-muted:        #64748B;
   --ink-faint:        #78899F;
-  --ink-on-accent:    #FFFFFF;
+  --ink-on-accent:    #1A1206;
 
-  /* Accent. The product has drifted into two greens, #27AE60 across 131 usages
-     and #60D297 across 105, neither of which appears in the palette below.
-     Both are kept so the migration can be literal; a theme can collapse them
-     deliberately later rather than by accident now. */
-  --accent:           #1D7F46;
-  --accent-strong:    #046B4C;
-  --accent-soft:      #60D297;
-  --accent-tint:      #E8F7F0;
+  /* Accent — yellow, as of the top-navigation redesign. It used to be green.
+     
+     Yellow is a FILL colour, not a text colour: #FACC15 on white is roughly
+     1.7:1 and unreadable. So the role is split. --accent and friends are what
+     you paint a surface with, and --ink-on-accent is the near-black that goes
+     ON that surface. --accent-ink is the same brand colour darkened until it
+     works as type on white, and the `.text-accent` rule further down maps the
+     text utilities onto it automatically — the 180-odd components that say
+     `text-accent` stay legible without each one being rewritten. */
+  --accent:           #FACC15;
+  --accent-strong:    #E0A800;
+  --accent-soft:      #FDE68A;
+  --accent-tint:      #FEF9E6;
+  --accent-ink:       #7A5C00;
 
   /* Status. Deliberately separate from the accent: "this succeeded" and "this
      is the brand" must not be one colour, or a theme change silently restyles
@@ -96,6 +102,7 @@
   --color-accent-strong:  var(--accent-strong);
   --color-accent-soft:    var(--accent-soft);
   --color-accent-tint:    var(--accent-tint);
+  --color-accent-ink:     var(--accent-ink);
 
   --color-ok:             var(--ok);
   --color-ok-tint:        var(--ok-tint);
@@ -121,19 +128,23 @@
    they say again.
    -------------------------------------------------------------------------- */
 @theme {
-  /* Pastel Mint Theme Palette */
-  --color-mint-light: #E8F0ED;
-  --color-mint-base: #C8E5DA;
+  /* Pastel Mint Theme Palette.
+     The greys below were mint-tinted, which is what gave every "white" card in
+     the product a faint green cast. They are ordinary slate now; the greens
+     further down are left alone on purpose, because they still carry meaning —
+     paid, confirmed, in stock. */
+  --color-mint-light: #F1F5F9;
+  --color-mint-base: #E2E8F0;
   --color-mint-dark: #8DE3C4;
   --color-charcoal-base: #2D3748;
   --color-charcoal-dark: #1A202C;
   --color-pink-base: #F6A5C0;
 
   /* Map Neutrals (Slate/Gray) to the Pastel vibe */
-  --color-slate-50: #F4F7F6;
-  --color-slate-100: #E8F0ED;
-  --color-slate-200: #DBEFE8;
-  --color-slate-300: #C8E5DA;
+  --color-slate-50: #F8FAFC;
+  --color-slate-100: #F1F5F9;
+  --color-slate-200: #E2E8F0;
+  --color-slate-300: #CBD5E1;
   --color-slate-400: #A0AAB2;
   --color-slate-500: #718096;
   --color-slate-600: #4A5568;
@@ -141,18 +152,18 @@
   --color-slate-800: #1A202C;
   --color-slate-900: #111827;
   
-  --color-gray-50: #F4F7F6;
-  --color-gray-100: #E8F0ED;
+  --color-gray-50: #F8FAFC;
+  --color-gray-100: #F1F5F9;
   --color-gray-800: #1A202C;
   --color-gray-900: #111827;
 
   /* Primary mapped to Charcoal/Black elements */
-  --color-primary-50: #F4F7F6;
-  --color-primary-100: #E8F0ED;
+  --color-primary-50: #FEFCE8;
+  --color-primary-100: #FEF9C3;
   /* 200-400 and 800-900 were used by 14 elements but never defined, so those
      utilities were never generated and the classes did nothing at all. */
-  --color-primary-200: #DBEFE8;
-  --color-primary-300: #C8E5DA;
+  --color-primary-200: #FDE68A;
+  --color-primary-300: #FACC15;
   --color-primary-400: #4A5568;
   --color-primary-500: #2D3748;
   --color-primary-600: #1A202C;
@@ -179,9 +190,9 @@
   --color-amber-500: #F6A5C0;
 
   /* Blues mapped to Mint base */
-  --color-blue-50: #E8F0ED;
+  --color-blue-50: #EFF6FF;
   --color-blue-500: #C8E5DA;
-  --color-cyan-50: #E8F0ED;
+  --color-cyan-50: #ECFEFF;
   --color-cyan-500: #C8E5DA;
 }
 
@@ -189,6 +200,15 @@
   --background: var(--surface-page);
   --foreground: var(--ink-strong);
 }
+
+/* Yellow type on a white card cannot be read, so the text utilities for the
+   accent resolve to the darkened brand gold instead of the fill colour. These
+   rules sit outside @layer on purpose: unlayered CSS outranks Tailwind's
+   utility layer, so this wins without an !important and without touching the
+   components. Painting WITH the accent (bg-accent, border-accent) is untouched
+   and still bright yellow. */
+.text-accent { color: var(--accent-ink); }
+.text-accent-strong { color: var(--accent-ink); }
 
 body {
   background-color: var(--background);

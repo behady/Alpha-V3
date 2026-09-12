@@ -12,7 +12,6 @@ import {
   MessageSquare,
   Search,
   Send,
-  Sparkles,
   UserX,
   X,
 } from "lucide-react";
@@ -24,7 +23,9 @@ import { useUI } from "@/context/UIContext";
 import PermissionGuard from "@/components/PermissionGuard";
 import { hasFeature } from "@/lib/subscriptions";
 import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
-import type { DormancyReport, DormantPatient } from "@/lib/automation/dormantPatients";type Draft = {
+import type { DormancyReport, DormantPatient } from "@/lib/automation/dormantPatients";
+import PageHeader from "@/components/dashboard/PageHeader";
+type Draft = {
   id: string;
   patientId: string;
   patientName: string;
@@ -175,7 +176,7 @@ export default function ReactivationPage() {
   if (!unlocked) {
     return (
       <PermissionGuard permission="access.patients">
-        <div className="min-h-screen bg-slate-50/50 flex items-center justify-center p-6" dir={isRTL ? "rtl" : "ltr"}>
+        <div className="min-h-full flex items-center justify-center p-6" dir={isRTL ? "rtl" : "ltr"}>
           <div className="max-w-md w-full bg-white rounded-3xl border border-slate-200 shadow-sm p-8 text-center">
             <div className="w-14 h-14 rounded-2xl bg-slate-900 text-white flex items-center justify-center mx-auto mb-5">
               <Lock size={26} />
@@ -199,25 +200,18 @@ export default function ReactivationPage() {
 
   return (
     <PermissionGuard permission="access.patients">
-      <div className="min-h-screen bg-slate-50/50 pb-24 lg:pb-10 text-slate-800" dir={isRTL ? "rtl" : "ltr"}>
+      <div className="min-h-full pb-24 lg:pb-10 text-slate-800" dir={isRTL ? "rtl" : "ltr"}>
         <div className="max-w-[1400px] mx-auto p-4 md:p-6 space-y-6">
           {/* Header */}
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <div className="flex items-center gap-2 text-violet-600">
-                <Sparkles size={16} />
-                <span className="text-[11px] font-black uppercase tracking-widest">
-                  {isAr ? "ذكاء ألفا · بريميوم" : "Alpha Intelligence · Premium"}
-                </span>
-              </div>
-              <h1 className="text-2xl md:text-3xl font-black text-ink tracking-tight mt-1">
-                {isAr ? "إعادة تفعيل المرضى" : "Patient Reactivation"}
-              </h1>
-              <p className="text-sm font-medium text-ink-muted mt-1 max-w-2xl">
-                {isAr
+          <PageHeader
+            eyebrow={isAr ? "ذكاء ألفا · بريميوم" : "Alpha Intelligence · Premium"}
+            title={isAr ? "إعادة تفعيل المرضى" : "Patient Reactivation"}
+            subtitle={isAr
                   ? "يجد المرضى الذين لم يحضروا منذ فترة. لا تُرسل أي رسالة قبل موافقتك عليها."
                   : "Finds patients who have not been in for a while. Nothing is sent until you approve it."}
-              </p>
+          />
             </div>
 
             <div className="flex gap-2">

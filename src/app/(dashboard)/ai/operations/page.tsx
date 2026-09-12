@@ -10,7 +10,6 @@ import {
   Loader2,
   Package,
   Settings,
-  Sparkles,
 } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { useClinic } from "@/context/ClinicContext";
@@ -18,7 +17,9 @@ import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import PermissionGuard from "@/components/PermissionGuard";
 import type { RecallReport } from "@/lib/automation/recallDue";
-import type { InventoryAlertReport } from "@/lib/automation/inventoryAlerts";/**
+import type { InventoryAlertReport } from "@/lib/automation/inventoryAlerts";
+import PageHeader from "@/components/dashboard/PageHeader";
+/**
  * Recall list and low-stock alerts on one page.
  *
  * Both are "config-first" features: they read a number the clinic has to state, and when it is
@@ -63,23 +64,16 @@ export default function OperationsPage() {
 
   return (
     <PermissionGuard permission="dashboard.view">
-      <div className="min-h-screen bg-slate-50/50 pb-24 lg:pb-10 text-slate-800" dir={isRTL ? "rtl" : "ltr"}>
+      <div className="min-h-full pb-24 lg:pb-10 text-slate-800" dir={isRTL ? "rtl" : "ltr"}>
         <div className="max-w-[1100px] mx-auto p-4 md:p-6 space-y-6">
           <div>
-            <div className="flex items-center gap-2 text-violet-600">
-              <Sparkles size={16} />
-              <span className="text-[11px] font-black uppercase tracking-widest">
-                {isAr ? "ذكاء ألفا" : "Alpha Intelligence"}
-              </span>
-            </div>
-            <h1 className="text-2xl md:text-3xl font-black text-ink tracking-tight mt-1">
-              {isAr ? "متابعات ومخزون" : "Recalls & Stock"}
-            </h1>
-            <p className="text-sm font-medium text-ink-muted mt-1 max-w-2xl">
-              {isAr
+          <PageHeader
+            eyebrow={isAr ? "ذكاء ألفا" : "Alpha Intelligence"}
+            title={isAr ? "متابعات ومخزون" : "Recalls & Stock"}
+            subtitle={isAr
                 ? "المرضى المستحقون للكشف الدوري، والأصناف التي أوشكت على النفاد."
                 : "Patients due for a check-up, and supplies running low."}
-            </p>
+          />
           </div>
 
           {loading ? (
