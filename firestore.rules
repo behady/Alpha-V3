@@ -652,6 +652,15 @@ service cloud.firestore {
       // The difference from sms_outbox is that nothing claims a message here — a human is holding
       // the phone, so there is no background worker to race. Marking one sent is the only change a
       // client makes.
+      match /whatsapp_outbox/{messageId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow update: if isSuperAdmin()
+          || (hasClinicRole(clinicId) && isClinicActive(clinicId)
+              && request.resource.data.diff(resource.data).affectedKeys()
+                   .hasOnly(['status', 'sentAt', 'sentByDeviceId']));
+        allow create, delete: if false;
+      }
+
       /**
        * Supply orders placed with the partner's WooCommerce shop.
        *
@@ -665,15 +674,6 @@ service cloud.firestore {
       match /supply_orders/{orderId} {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
         allow create, update, delete: if false;
-      }
-
-      match /whatsapp_outbox/{messageId} {
-        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
-        allow update: if isSuperAdmin()
-          || (hasClinicRole(clinicId) && isClinicActive(clinicId)
-              && request.resource.data.diff(resource.data).affectedKeys()
-                   .hasOnly(['status', 'sentAt', 'sentByDeviceId']));
-        allow create, delete: if false;
       }
 
       // Phones offering to send this clinic's reminders. The app writes a heartbeat here every
