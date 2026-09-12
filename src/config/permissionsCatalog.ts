@@ -41,6 +41,13 @@ export const PERMISSIONS_CATALOG: PermissionCatalogGroup[] = [
       { id: "access.lab", labelEn: "Lab tracking", labelAr: "متابعة المعامل" },
       { id: "access.finance", labelEn: "Finance / ledger", labelAr: "المالية / السجل" },
       { id: "access.inventory", labelEn: "Inventory", labelAr: "المخزون" },
+      {
+        id: "access.store",
+        labelEn: "Supply store",
+        labelAr: "متجر المستلزمات",
+        hintEn: "Browse the partner supplier's catalogue. Seeing prices is not the same as spending money — placing an order is the separate permission below.",
+        hintAr: "تصفّح كتالوج المورّد. الاطّلاع على الأسعار غير الشراء — إرسال الطلب صلاحية منفصلة بالأسفل.",
+      },
       { id: "access.reports", labelEn: "Reports", labelAr: "التقارير" },
       {
         id: "access.marketing",
@@ -144,6 +151,23 @@ export const PERMISSIONS_CATALOG: PermissionCatalogGroup[] = [
       { id: "inventory.add", labelEn: "Add inventory items", labelAr: "إضافة أصناف" },
       { id: "inventory.edit", labelEn: "Edit inventory", labelAr: "تعديل المخزون" },
       { id: "inventory.delete", labelEn: "Delete inventory", labelAr: "حذف من المخزون" },
+    ],
+  },
+  {
+    id: "store",
+    titleEn: "Supply store — actions",
+    titleAr: "متجر المستلزمات — إجراءات",
+    items: [
+      {
+        id: "store.order",
+        labelEn: "Place supply orders",
+        labelAr: "إرسال طلبات الشراء",
+        // Split from access.store because this one commits the clinic to paying a delivery driver
+        // in cash. Plenty of clinics will want the whole team to see what a burr costs and exactly
+        // one person able to order a box of them.
+        hintEn: "Sends a real order to the supplier, paid cash on delivery. Give this only to whoever is allowed to spend.",
+        hintAr: "يرسل طلباً حقيقياً للمورّد بالدفع عند الاستلام. امنحها فقط لمن له حق الصرف.",
+      },
     ],
   },
   {

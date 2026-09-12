@@ -213,6 +213,11 @@ service cloud.firestore {
         && sub != 'sms_devices' && sub != 'leads'
         && sub != 'ai_usage' && sub != 'ai_usage_log'
         && sub != 'whatsapp_outbox'
+        // Supply orders are created by /api/store/orders against the partner's WooCommerce shop.
+        // A client able to write here could invent an order the shop never received, or edit the
+        // line items of one it did — and the commission record that pays us is written in the
+        // same batch. The clinic reads these; only the server writes them.
+        && sub != 'supply_orders'
         && sub != 'ledger' && sub != 'ledger_audit'
         && sub != 'clinical_notes' && sub != 'services'
         // Everything the recycle bin covers. A client delete on these would destroy the record
@@ -647,6 +652,21 @@ service cloud.firestore {
       // The difference from sms_outbox is that nothing claims a message here — a human is holding
       // the phone, so there is no background worker to race. Marking one sent is the only change a
       // client makes.
+      /**
+       * Supply orders placed with the partner's WooCommerce shop.
+       *
+       * Read-only to the clinic, and every write goes through /api/store/orders with the Admin
+       * SDK. The order was priced by WooCommerce, not by us, so a client that could edit a row
+       * here would be editing the record of what a driver is about to collect in cash.
+       *
+       * Note this subcollection is excluded from the blanket member-write grant above; rules OR
+       * together, so without that exclusion this deny would do nothing at all.
+       */
+      match /supply_orders/{orderId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow create, update, delete: if false;
+      }
+
       match /whatsapp_outbox/{messageId} {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
         allow update: if isSuperAdmin()
@@ -784,6 +804,29 @@ service cloud.firestore {
     }
 
     match /sms_pairing_codes/{code} {
+      allow read, write: if false;
+    }
+
+    /*
+     * The partner supply shop's WooCommerce key and secret, and the platform's commission rate.
+     *
+     * Denied to everyone for two separate reasons, either of which would be enough. The key pair
+     * is a write credential on somebody else's shop — it would let the holder read his entire
+     * customer list, not just ours. And the rate is the platform's margin, which clinics do not
+     * see, the same rule the WhatsApp supplier costs follow.
+     */
+    match /platform_secrets/{docId} {
+      allow read, write: if false;
+    }
+
+    /*
+     * What each supply order earned the platform.
+     *
+     * Root-level and denied outright, rather than a field on the clinic's own order document,
+     * precisely so that there is no path by which a clinic can read it. A margin stored next to
+     * something the customer can see is a margin the customer will eventually see.
+     */
+    match /supply_commissions/{wooOrderId} {
       allow read, write: if false;
     }
   }

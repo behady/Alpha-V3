@@ -31,6 +31,16 @@ export const ROOT_COLLECTIONS = [
   // Restoring it while recovering ONE clinic would reach across every tenant on the platform
   // and rewind a commercial setting to whatever it was on the day of the snapshot.
   "platform_settings",
+  // The shared word the automation crons prove themselves with. Platform-wide, and writing an old
+  // one back would silently break every clinic's scheduled jobs at once.
+  "system_secrets",
+  // The partner supply shop's WooCommerce key and secret, and the platform's commission rate.
+  // A credential from an old snapshot is exactly the thing that must not come back to life, and
+  // the rate is a commercial setting shared by every tenant.
+  "platform_secrets",
+  // What each supply order earned the platform. Spans every clinic, and it is an accounting
+  // record: rewinding it to a snapshot would change what a partner is invoiced.
+  "supply_commissions",
 ] as const;
 
 /**

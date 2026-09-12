@@ -137,6 +137,10 @@ const MUST_BE_EXCLUDED = [
   "sms_outbox",
   "sms_devices",
   "leads",
+  // Created only by /api/store/orders, against a partner's real shop, and paired with the
+  // commission row that pays us. A member able to write here could invent or edit an order the
+  // supplier is about to deliver in exchange for cash.
+  "supply_orders",
   "ledger",
   "ledger_audit",
   "clinical_notes",
@@ -507,7 +511,13 @@ const ALLOWED_INACTIVE = [
   "message-drafts/route.ts",       // GET: drafts, read
   "records/bin/route.ts",          // GET: what is in the bin. Seeing what you lost must never
                                    // depend on the subscription; restoring it does.
+  "invites/route.ts",              // GET: the clinic's existing invite links, read. The POST that
+                                   // mints a new one is gated.
   "sms/devices/route.ts",          // GET: paired devices, read
+  "store/status/route.ts",         // GET: is a supply shop connected, read
+  "store/products/route.ts",       // GET: the partner's catalogue, read
+  "store/orders/route.ts",         // GET: the clinic's own orders. The POST that spends money is
+                                   // gated, and the assertion below holds it that way.
 ];
 
 const apiDir = join(REPO, "src/app/api");
@@ -547,6 +557,22 @@ assert.equal(
   (deleteRoute.match(/allowInactive/g) || []).length,
   1,
   "appointments/delete may exempt only its GET preview, never the POST that deletes"
+);
+// Same shape, same reason: browsing the supply catalogue is a read a lapsed clinic keeps, but
+// placing an order commits it to paying a delivery driver in cash and must stay behind the gate.
+const supplyOrders = readFileSync(join(apiDir, "store/orders/route.ts"), "utf8");
+assert.equal(
+  (supplyOrders.match(/allowInactive/g) || []).length,
+  1,
+  "store/orders may exempt only its GET, never the POST that places a real order"
+);
+// And again for invite links: a lapsed clinic may look at the links it already has, but minting a
+// new one is how a clinic grows its team, which is a write and stays behind the gate.
+const invites = readFileSync(join(apiDir, "invites/route.ts"), "utf8");
+assert.equal(
+  (invites.match(/allowInactive/g) || []).length,
+  1,
+  "invites may exempt only its GET, never the POST that mints a new link"
 );
 
 // Nobody should be hand-rolling this decision again. The two local copies that existed read

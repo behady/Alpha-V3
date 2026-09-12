@@ -13,8 +13,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const REPO = new URL("..", import.meta.url).pathname;
+// fileURLToPath, not .pathname: on Windows the latter yields "/C:/Users/..." and every
+// join() below then builds "C:\C:\Users\...", so the suite died on its first read.
+const REPO = fileURLToPath(new URL("..", import.meta.url));
 const moneyApi = readFileSync(join(REPO, "src/lib/moneyApi.ts"), "utf8");
 
 // --- the client attaches it, once, for everything -----------------------------------------------
