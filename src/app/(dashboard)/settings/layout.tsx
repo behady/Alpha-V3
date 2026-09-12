@@ -216,7 +216,9 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
               <button
                 key={section.id}
                 onClick={() => void go(section.route)}
-                data-tour={section.tourAnchor}
+                /* The four frozen lesson anchors keep their names; every other chip gets one
+                   derived from its id so Sara's tour can light any section. */
+                data-tour={section.tourAnchor ?? `settings-${section.id}`}
                 aria-current={isActive ? "page" : undefined}
                 className={`inline-flex items-center gap-2.5 rounded-xl px-4 py-2 text-[14px] transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 ${
                   isActive

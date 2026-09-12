@@ -17,6 +17,8 @@ import { logAiAction } from "@/lib/serverLogger";
 import { logAiCreditUsage, createUsageMeter } from "@/lib/aiCreditLog";
 import { resolveNavigablePath, NAVIGABLE_PATHS_HINT } from "@/lib/aiNavigation";
 import { TUTORIALS, tutorialsFor } from "@/lib/tutorials";
+import { TOUR_GUIDE, TOUR_STOPS, tourStopById, type TourStop } from "@/lib/grandTour";
+import { getHelpArticle } from "@/lib/help";
 
 /**
  * One question can take several model round-trips: the assistant calls a tool, reads the result,
@@ -102,6 +104,76 @@ const RECEPTION_READABLE_COLLECTIONS = new Set([
  * Widening this set is what turns Phase 1 into Phase 2, and each addition needs its own
  * confirmation card before it goes in.
  */
+/**
+ * What Sara may do while giving the tour: read, explain, start a lesson, move the tour. Nothing
+ * that writes, sends, or navigates — the tour is a guided look, and the page under the spotlight
+ * is locked for exactly as long as she is talking.
+ */
+const TOUR_TOOL_NAMES = new Set([
+  "db_read",
+  "find_patient",
+  "run_clinic_report",
+  "generate_financial_summary",
+  "audit_patient_records",
+  "get_diagnosis_catalog",
+  "start_tutorial",
+  "open_tour_stop",
+]);
+
+/** Help articles are handed to the model whole, but never past this many characters each. */
+const TOUR_ARTICLE_CHARS = 3500;
+
+/**
+ * Sara's persona and briefing for one stop of the tour.
+ *
+ * The model answers FROM the stop's notes and the help articles listed on it, and is told so:
+ * the tour's whole value is that it never describes a screen that is not there. Stops she can
+ * move to are the ones the client said it can open.
+ */
+function buildTourInstruction(
+  stop: TourStop | undefined,
+  offered: readonly TourStop[],
+  language: "ar" | "en" | null,
+): string {
+  const articles = (stop?.helpSlugs ?? [])
+    .map((slug) => getHelpArticle(slug, "en"))
+    .filter((a): a is NonNullable<typeof a> => !!a)
+    .map((a) => `--- Help article: ${a.title} ---\n${a.body.slice(0, TOUR_ARTICLE_CHARS)}`)
+    .join("\n\n");
+
+  const stopBlock = stop
+    ? `THE USER IS LOOKING AT THIS STOP RIGHT NOW:
+      Stop id: ${stop.id}
+      Title: ${stop.title.en} / ${stop.title.ar}
+      Screen: ${stop.route}
+      What you already said here: "${stop.say.en}"
+      NOTES ABOUT THIS SCREEN (answer from these):
+      ${stop.knowledge}
+      ${articles ? `\nLONGER GUIDES FOR THIS STOP:\n${articles}` : ""}`
+    : "The tour has no current stop; answer generally from WHERE THINGS LIVE ON SCREEN.";
+
+  const languageLine =
+    language === "ar"
+      ? "Reply in Egyptian Arabic (عامية مصرية), warm and simple, even if the question is in English words."
+      : language === "en"
+        ? "Reply in English, warm and simple, even if the question mixes in Arabic."
+        : "Reply in the user's language.";
+
+  return `
+
+      CURRENT MODE: GUIDED TOUR. You are ${TOUR_GUIDE.en} (${TOUR_GUIDE.ar}), the guide walking this person through the whole system, screen by screen. The page they are looking at is spotlit and locked; they are asking you a question from your panel.
+      ${stopBlock}
+
+      HOW TO ANSWER ON THE TOUR:
+      - Two to four short sentences. Plain words, no lists, no headings, no markdown. ${languageLine}
+      - Answer from the notes above and the help articles. If the notes do not cover it, say you are not sure and offer the Help Center or a lesson — never invent a button, a menu or a setting.
+      - If the question is about a DIFFERENT part of the app that has a tour stop, call 'open_tour_stop' with that stop and say in one line that you are taking them there. The stop's own narration will explain it.
+      - If they ask HOW to do a task and a lesson matches, call 'start_tutorial': the tour pauses, a ring points at the real buttons, and the tour resumes when the lesson ends. Say that in one line.
+      - You may read the clinic's data to answer a factual question ("how many patients do I have") with db_read, find_patient or run_clinic_report. Never write, delete, send a message or navigate during the tour — say those can be done after the tour from the orb, or offer the lesson.
+      - Every answer costs the clinic one credit; do not pad.
+      - Stops you can move to: ${offered.map((s) => `${s.id} (${s.title.en})`).join(", ")}.`;
+}
+
 const RECEPTION_TOOL_NAMES = new Set([
   "db_read",
   "find_patient",
@@ -227,8 +299,9 @@ HOW THE MONEY SCREENS CALCULATE (explain with these; never re-derive totals your
 - When any number is questioned, call 'audit_patient_records' (one patient) or 'run_clinic_report' (clinic-wide). Never sum rows yourself.
 
 WHERE THINGS LIVE ON SCREEN (the app's real layout — when telling a user where to click, use ONLY these; NEVER invent a menu path):
-- Sidebar pages: Dashboard (/ — reception's desk view; a user whose role is Dentist sees their own home there instead: the next patient in their chair, their day, lab cases back for them, patients they left mid-treatment with no next visit, and their own money — what their patients paid today, their share if the clinic allows it, and what their patients still owe; an admin chooses between the desk, the owner's view (cash today, who's on the floor, the waiting room, then Money / Team / The floor / Growth tabs with every dentist by name) and — if also a dentist — the chair, under Settings → Interface → "Your home screen"), Patients (/patients — directory, each patient's file has tabs: Clinical, Treatment Plan, Finance, Overview, Timeline, X-rays, Prescriptions, Notes), Appointments (/appointments — the calendar; booking, statuses, the reception assistant panel), Finance (/finance — clinic-wide cash in/out, manual income & expense entries; /finance/recovery for unpaid balances), Inventory (/inventory), Reports (/reports — five reports with PDF/Excel export), Leads (/leads), Marketing (/marketing), Ortho (/ortho), Attendance (/attendance — the STAFF time clock), Help Center (/help), Intelligence (/ai — the LAST icon in the sidebar; ONE page with three tabs: The Brief (today's/this week's numbers), Messages (the WhatsApp send queue — messages the system wrote, waiting for a person to press send), No-Shows (patients who did not turn up, and past appointments still needing an answer). Deep links: /ai?tab=brief, /ai?tab=messages, /ai?tab=noshows. The old separate pages /ai/briefing, /messages and /ai/attendance now redirect into it), other AI pages (/ai/revenue, /ai/operations, /ai/reactivation).
-- Settings (/settings) is ONE page with tabs in its own side menu. The tabs and their English/Arabic labels:
+- Navigation is ONE BLACK BAR across the top (there is no sidebar): a direct Dashboard link, then three dropdown menus — Front Desk (WhatsApp /chats, Patients, Appointments, Leads), Operations (Finance, Inventory, Supply Store /store, Lab Tracking /lab, Time Clock /attendance), Insights & Growth (Intelligence /ai, Marketing, Reports) — plus the Settings gear, the notification bell and the account menu (Getting started /welcome, Help Center, language, Tour with Sara, Logout). On phones: a bottom bar (Dashboard, WhatsApp, Intelligence, Appointments, Finance, Patients) and a Menu button opening every page.
+- Pages: Dashboard (/ — reception's desk view; a user whose role is Dentist sees their own home there instead: the next patient in their chair, their day, lab cases back for them, patients they left mid-treatment with no next visit, and their own money — what their patients paid today, their share if the clinic allows it, and what their patients still owe; an admin chooses between the desk, the owner's view (cash today, who's on the floor, the waiting room, then Money / Team / The floor / Growth tabs with every dentist by name) and — if also a dentist — the chair, under Settings → Interface → "Your home screen"), Patients (/patients — directory, each patient's file has tabs: Clinical, Treatment Plan, Finance, Overview, Timeline, X-rays, Prescriptions, Notes), Appointments (/appointments — the calendar; booking, statuses, the reception assistant panel), Finance (/finance — clinic-wide cash in/out, manual income & expense entries; /finance/recovery for unpaid balances), Inventory (/inventory), Reports (/reports — five reports with PDF/Excel export), Leads (/leads), Marketing (/marketing), Ortho (/ortho), Attendance (/attendance — the STAFF time clock), Help Center (/help), Intelligence (/ai — under Insights & Growth; ONE page with tabs: The Brief (today's/this week's numbers), Messages (the WhatsApp send queue — messages the system wrote, waiting for a person to press send), No-Shows (patients who did not turn up, and past appointments still needing an answer), The Bot (patient questions the WhatsApp assistant handed to a person). Deep links: /ai?tab=brief, /ai?tab=messages, /ai?tab=noshows, /ai?tab=bot. The old separate pages /ai/briefing, /messages and /ai/attendance now redirect into it), other AI pages (/ai/revenue, /ai/operations, /ai/reactivation), WhatsApp (/chats — the clinic's WhatsApp inbox; the assistant answers patients there), Lab Tracking (/lab — lab cases, due dates, remakes, what each lab is owed), Supply Store (/store — a partner supplier's shop, cash on delivery; only when connected), Getting started (/welcome — the setup checklist and Sara's tour of the whole system).
+- Settings (/settings) is grouped into Personal, Clinic, People, and System & Automation, with a search box; each section has its own address (e.g. /settings/prices). The sections and their English/Arabic labels:
   Profile|الملف الشخصي · Attendance|الحضور · Schedule|الجدول (clinic hours, slot length, days off) · Branches & Rooms|الفروع والغرف · Recall|المتابعة · Prescriptions|الوصفات · Prices|الأسعار · Users|المستخدمين · Join Requests · Dentists|الأطباء (whether each dentist sees their share of what their patients paid, on their home screen) · Recently Deleted · Activity Logs · AI Credits · Alerts · WhatsApp · SMS · Theme · Interface · Online Booking · Patient Sources · Visit Reasons.
 - THE PRICE LIST lives at Settings → Prices (الأسعار). That tab holds: the service catalog (every treatment with its price — add/edit/delete), price lists per branch with a blanket discount, discount reasons, and the discount ceiling for non-Admins. There is NO "Settings → Services" menu — the tab is named Prices.
 - If a place is not in this list, say you are not sure where it is — offer navigate_to or a lesson instead of guessing.`;
@@ -319,9 +392,34 @@ export async function POST(req: Request) {
      * entirely different screens. Offering the tool elsewhere would have the model announce a
      * walkthrough no ring will ever join.
      */
-    const clientCanRunTutorials = client === "web-widget";
+    /**
+     * Sara's tour asks from its own panel. It can start a lesson (the tour pauses under the
+     * ring) and jump the tour to another stop, and nothing else that changes the screen: the
+     * page is locked under a spotlight while she talks, so a `navigate_to` would push a route
+     * the tour immediately pushes back from.
+     */
+    const clientIsTour = client === "web-tour";
+    const clientCanRunTutorials = client === "web-widget" || clientIsTour;
+    /** The widget can hand over to the tour ("show me around"); the tour can move itself. */
+    const clientCanOpenTour = client === "web-widget" || clientIsTour;
     /** Ticket drafts render as a card only the widget knows how to show — and send. */
     const clientCanFileTickets = client === "web-widget";
+
+    /**
+     * Which tour stops this client can actually open. Sent by the client because visibility is
+     * decided there (role, plan, connected features); offering the model a stop the person's
+     * menus do not have would print "let me show you the lab…" over nothing.
+     */
+    const offeredTourStops: TourStop[] = Array.isArray(body?.tourStopIds)
+      ? TOUR_STOPS.filter((s) => (body.tourStopIds as unknown[]).includes(s.id))
+      : TOUR_STOPS;
+
+    /** The stop Sara is standing on, when the tour is asking. */
+    const tourStop: TourStop | undefined =
+      clientIsTour && typeof body?.tour?.stopId === "string" ? tourStopById(body.tour.stopId) : undefined;
+    const replyLanguage: "ar" | "en" | null =
+      body?.language === "ar" ? "ar" : body?.language === "en" ? "en" : null;
+    const tourInstruction = clientIsTour ? buildTourInstruction(tourStop, offeredTourStops, replyLanguage) : "";
 
     /**
      * The widget's three hats: normal, trainer, support.
@@ -699,6 +797,29 @@ export async function POST(req: Request) {
         },
       },
       {
+        name: "open_tour_stop",
+        description:
+          `Opens ${TOUR_GUIDE.en}'s guided tour of the app at one stop: the page is spotlit and narrated, and the user can keep asking from there. ` +
+          "Use it when the user asks to be shown around, for a tour, or to be shown where a whole area of the app lives ('show me the settings', 'where is the lab page'). " +
+          "During the tour, use it to move to the stop that answers their question. Stops: " +
+          offeredTourStops.map((s) => `'${s.id}' (${s.title.en} — ${s.route})`).join("; ") + ".",
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            stopId: {
+              type: SchemaType.STRING,
+              enum: offeredTourStops.map((s) => s.id),
+              description: "The stop to open.",
+            },
+            reason: {
+              type: SchemaType.STRING,
+              description: "One short line in the user's language saying where you are taking them.",
+            },
+          },
+          required: ["stopId"],
+        },
+      },
+      {
         name: "navigate_to",
         description:
           "Opens a screen of the app for the user. Use this whenever they ask to open, show or go to something — a patient's file, the schedule, the finance page. " +
@@ -962,17 +1083,20 @@ export async function POST(req: Request) {
       - **TRAINER & SUPPORT**: When the user reports that a number looks wrong ("the balance is wrong", "this doesn't add up", "the count is off"): (1) call 'audit_patient_records' for a patient figure or 'run_clinic_report' for a clinic-wide figure — NEVER recompute by hand; (2) explain what was found in plain, kind language, naming the exact records and dates; (3) say precisely how to fix each finding in the app; (4) if 'start_tutorial' is available and a lesson would stop the mistake recurring, offer it; (5) if the audit is clean, explain how that number is defined (see HOW THE MONEY SCREENS CALCULATE) and what they might have expected instead. Data-entry slips are normal — never blame.
       - **TEACHING**: When the user asks HOW to do something in the app ("how do I add a patient", "where do I record a payment"), call 'start_tutorial' with the matching lesson if that tool is available — a guided ring on the real screen beats any written description. Describe in words only when no lesson matches or the tool is absent.
       - **BE BRIEF**: Keep your chat responses extremely short, direct, and concise. Do not write long paragraphs.
-      - Always reply to the user naturally in their language (Arabic or English).${assistantModeInstruction}`;
+      - Always reply to the user naturally in their language (Arabic or English).${assistantModeInstruction}${tourInstruction}`;
 
     // Reception gets a strict subset. Filtering the declarations rather than hiding them in the
     // prompt matters: a tool the model cannot see is one it cannot call, whatever it is asked.
     const activeTools = (
       isReception
         ? functionDeclarations.filter((f) => RECEPTION_TOOL_NAMES.has(f.name))
-        : functionDeclarations
+        : clientIsTour
+          ? functionDeclarations.filter((f) => TOUR_TOOL_NAMES.has(f.name))
+          : functionDeclarations
     )
       .filter((f) => f.name !== "open_appointment" || clientHasAppointmentPanel)
       .filter((f) => f.name !== "start_tutorial" || clientCanRunTutorials)
+      .filter((f) => f.name !== "open_tour_stop" || clientCanOpenTour)
       .filter((f) => (f.name !== "file_bug_report" && f.name !== "file_feature_request") || clientCanFileTickets);
 
     const model = genAI.getGenerativeModel({
@@ -1666,6 +1790,23 @@ export async function POST(req: Request) {
                 // walkthrough itself is free of the model from here on.
                 await chargeCredits?.();
                 return NextResponse.json({ reply: reason, startTutorial: { id: tutorial.id } });
+             }
+          } else if (call.name === "open_tour_stop") {
+             const wantedId = String((call.args as any).stopId || "").trim();
+             // offeredTourStops, not TOUR_STOPS: a stop this client cannot open must be refused.
+             const target = offeredTourStops.find((s) => s.id === wantedId);
+             if (!target) {
+                toolResult = {
+                   success: false,
+                   error: `No tour stop named '${wantedId}' is available here. Valid ids: ${offeredTourStops.map((s) => s.id).join(", ")}.`,
+                };
+             } else {
+                const reason = String((call.args as any).reason || "").trim()
+                   || `Let me show you — ${target.title.en}.`;
+                // Ends the turn like start_tutorial: the client moves the tour, and the stop's
+                // own narration takes it from here.
+                await chargeCredits?.();
+                return NextResponse.json({ reply: reason, tourGoTo: { stopId: target.id } });
              }
           } else if (call.name === "navigate_to") {
              const requested = (call.args as any).path;

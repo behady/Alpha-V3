@@ -21,6 +21,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useTutorial } from "@/context/TutorialContext";
 import { useWelcome } from "@/context/WelcomeContext";
 import { DemoTourCard } from "@/components/welcome/DemoTour";
+import TourHero from "@/components/tour/TourHero";
 import { TUTORIALS, tutorialsFor } from "@/lib/tutorials";
 import { MISSIONS, type Mission } from "@/lib/welcomeJourney";
 import PageHeader from "@/components/dashboard/PageHeader";
@@ -55,7 +56,7 @@ function ProgressRing({ percent, size = 92 }: { percent: number; size?: number }
         r={radius}
         fill="none"
         stroke="currentColor"
-        className="text-white/15"
+        className="text-line"
         strokeWidth={stroke}
       />
       <circle
@@ -131,21 +132,24 @@ export default function WelcomePage() {
                 : "Every step below is taught on the real screen — press \"Show me how\" and a ring points at the exact spot. A step ticks itself when you actually do it, not when you watch it."}
       />
 
-      <header className="relative overflow-hidden rounded-[2rem] bg-ink-slab px-6 py-7 text-white shadow-xl shadow-ink-slab/20 sm:px-8">
-        <div className="absolute -top-24 -end-20 h-64 w-64 rounded-full bg-accent-soft/20 blur-3xl" aria-hidden />
-        <div className="relative flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-end">
+      {/* Sara first: the tour is the guide now; the checklist below is the work. */}
+      <TourHero />
+
+      {/* A white card now: Sara's slab above is the one dark block on the page. */}
+      <header className="relative overflow-hidden rounded-[2rem] border border-line bg-surface px-6 py-6 text-ink sm:px-8">
+        <div className="relative flex flex-col gap-6 sm:flex-row sm:items-center">
           <div className="flex shrink-0 items-center gap-4">
             <div className="relative flex items-center justify-center">
               <ProgressRing percent={loading ? 0 : progress.percent} />
               <span className="absolute inset-0 flex flex-col items-center justify-center">
                 {loading ? (
-                  <Loader2 size={18} className="animate-spin text-white/60" />
+                  <Loader2 size={18} className="animate-spin text-ink-muted" />
                 ) : (
                   <>
-                    <span className="font-figure text-xl font-bold leading-none text-white tabular-nums">
+                    <span className="font-figure text-xl font-bold leading-none text-ink tabular-nums">
                       {progress.percent}%
                     </span>
-                    <span className="mt-0.5 text-[9px] font-black uppercase tracking-widest text-white/40">
+                    <span className="mt-0.5 text-[9px] font-black uppercase tracking-widest text-ink-muted">
                       {progress.done}/{progress.total}
                     </span>
                   </>
@@ -155,7 +159,7 @@ export default function WelcomePage() {
 
             <div className="space-y-1.5 text-[11px] font-bold">
               {trial.isTrial && trial.endsAt && (
-                <p className={trial.ended ? "text-rose-300" : "text-white/70"}>
+                <p className={trial.ended ? "text-rose-600" : "text-ink-body"}>
                   {trial.ended
                     ? isAr
                       ? "فترة التجربة خلصت"
@@ -166,7 +170,7 @@ export default function WelcomePage() {
                 </p>
               )}
               {!loading && !progress.complete && (
-                <p className="flex items-center gap-1.5 text-white/50">
+                <p className="flex items-center gap-1.5 text-ink-muted">
                   <Clock size={12} />
                   {isAr
                     ? `حوالي ${progress.minutesLeft} دقيقة لباقي الخطوات`
@@ -175,7 +179,7 @@ export default function WelcomePage() {
               )}
               <button
                 onClick={refresh}
-                className="inline-flex items-center gap-1.5 text-white/45 transition-colors hover:text-white"
+                className="inline-flex items-center gap-1.5 text-ink-muted transition-colors hover:text-ink"
               >
                 <RotateCcw size={11} />
                 {isAr ? "تحديث" : "Refresh"}

@@ -8,6 +8,8 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { useUI } from "@/context/UIContext";
 import { useTutorial } from "@/context/TutorialContext";
+import { useTour } from "@/context/TourContext";
+import { TOUR_GUIDE } from "@/lib/grandTour";
 import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { getClinicDoc } from "@/lib/db-utils";
 import { auth } from "@/lib/firebase";
@@ -74,6 +76,7 @@ export default function AiChatWidget() {
   const { language, isRTL } = useLanguage();
   const { receptionPanelActive, setAssistantPanelOpen } = useUI();
   const { activeTutorial, startTutorial, cancelTutorial } = useTutorial();
+  const tour = useTour();
   const isAr = language === "ar";
   const router = useRouter();
   const alphaName = isAr ? RECEPTIONIST_NAME.ar : RECEPTIONIST_NAME.en;
@@ -212,6 +215,8 @@ export default function AiChatWidget() {
    * pointing at. Cancelling is the overlay's job (its button, or Escape) while this is hidden.
    */
   if (activeTutorial) return null;
+  // Sara's tour has its own panel with its own question box; two assistants on screen is one too many.
+  if (tour.active) return null;
 
   const handleResolveAction = async (decision: "approve" | "reject") => {
     if (!pendingAction || resolvingAction) return;
@@ -455,6 +460,9 @@ export default function AiChatWidget() {
           // Which hat the assistant wears this turn — normal chat, patient trainer, or support
           // triage. Same brain and tools; the mode shifts emphasis server-side.
           assistantMode: mode,
+          // The tour stops this person can be shown, so the model is only offered ones the
+          // client can actually open — see the client-capability note above.
+          tourStopIds: tour.stops.map((s) => s.id),
           history: outgoingHistory
         })
       });
@@ -512,6 +520,11 @@ export default function AiChatWidget() {
       // The model chose a lesson. Close the panel so the ring owns the screen.
       if (typeof data.startTutorial?.id === "string") {
         if (startTutorial(data.startTutorial.id)) setIsOpen(false);
+      }
+
+      // The model chose to show them around: Sara's tour opens at that stop.
+      if (typeof data.tourGoTo?.stopId === "string") {
+        if (tour.goTo(data.tourGoTo.stopId)) setIsOpen(false);
       }
 
       // A composed support ticket. Rendered as a card; nothing leaves until the user hits Send.
@@ -721,6 +734,28 @@ export default function AiChatWidget() {
                     ))}
                   </div>
                 </div>
+
+                {/* The whole system, narrated. Free, resumable, and the surest way to learn
+                    where everything is. */}
+                {tour.stops.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setIsOpen(false);
+                      tour.start();
+                    }}
+                    className="w-full text-start text-[11.5px] font-black text-white bg-ink-slab hover:bg-ink px-3.5 py-2.5 rounded-xl transition-colors flex items-center gap-2.5"
+                  >
+                    <Sparkles size={13} className="text-[#FACC15] shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">
+                      {isAr
+                        ? `جولة على النظام كله مع ${TOUR_GUIDE.ar}`
+                        : `Tour the whole system with ${TOUR_GUIDE.en}`}
+                    </span>
+                    <span className="text-[9.5px] font-bold text-white/50 shrink-0">
+                      {isAr ? "ببلاش" : "free"}
+                    </span>
+                  </button>
+                )}
 
                 {/* Lessons: start instantly, cost nothing, and point at the real screen. */}
                 <div>

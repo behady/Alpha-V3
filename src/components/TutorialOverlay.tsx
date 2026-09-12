@@ -9,6 +9,7 @@ import { useUI } from "@/context/UIContext";
 import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { markLessonDone } from "@/lib/welcomeStore";
+import { findVisibleAnchor } from "@/lib/tourDom";
 
 /**
  * The hand that points.
@@ -46,42 +47,12 @@ const POLL_MS = 250;
 /** Breathing room between the element's edge and the ring. */
 const RING_PAD = 8;
 
-/**
- * First VISIBLE element carrying the anchor.
- *
- * Not querySelector: the desktop rail and the mobile nav are both permanently in the DOM with CSS
- * hiding whichever doesn't apply, and list rows repeat one attribute across every card. The first
- * match in document order is therefore often a display:none twin. display:none collapses the rect
- * to 0×0, so "has a real rect" is the visibility test — it also naturally picks "any patient card"
- * for repeated anchors.
+/*
+ * Anchor finding lives in lib/tourDom.ts, shared with Sara's tour spotlight. The rules — first
+ * VISIBLE match by rect, then the `data-tour-opens` fallback for destinations inside a closed
+ * dropdown — are documented there. Only the ring falls back; advancing still requires a click on
+ * the real anchor, so opening the menu cannot be mistaken for completing the step.
  */
-function findVisibleAnchor(anchor: string): { el: HTMLElement; rect: DOMRect } | null {
-  const pick = (selector: string) => {
-    const els = document.querySelectorAll<HTMLElement>(selector);
-    for (const el of els) {
-      const rect = el.getBoundingClientRect();
-      if (rect.width >= 2 || rect.height >= 2) return { el, rect };
-    }
-    return null;
-  };
-
-  const direct = pick(`[data-tour="${anchor}"]`);
-  if (direct) return direct;
-
-  /**
-   * Nothing on screen carries the anchor — it may be inside something closed.
-   *
-   * The top navigation groups its destinations into dropdown menus that are not in the DOM until
-   * they are opened, so a lesson pointing at "nav-patients" would find nothing and quietly skip.
-   * An element that CONTAINS the anchor once opened advertises that with `data-tour-opens`, and
-   * the ring lands on it instead: the user opens the menu, the real anchor appears, and the ring
-   * walks to it on the next poll.
-   *
-   * Only the ring falls back. Advancing still requires a click on the real anchor, so opening the
-   * menu cannot be mistaken for completing the step.
-   */
-  return pick(`[data-tour-opens~="${anchor}"]`);
-}
 
 export default function TutorialOverlay() {
   const { activeTutorial, stepIndex, cancelTutorial, advanceStep } = useTutorial();

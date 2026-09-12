@@ -12,6 +12,7 @@ import {
   Rocket,
   Settings,
   ShieldCheck,
+  Sparkles,
 } from "lucide-react";
 import { useLanguage } from "@/context/LanguageContext";
 import { useAuth } from "@/context/AuthContext";
@@ -20,6 +21,8 @@ import { getClinicLogo } from "@/lib/clinicLogo";
 import ClinicSwitcher from "@/components/dashboard/ClinicSwitcher";
 import NotificationBell from "@/components/NotificationBell";
 import { SECTION_GROUPS, type NavItem } from "@/components/dashboard/navGroups";
+import { useTourOptional } from "@/context/TourContext";
+import { TOUR_GUIDE } from "@/lib/grandTour";
 
 /**
  * The black bar across the top of the app, replacing the left rail.
@@ -45,6 +48,7 @@ export default function TopNav({
   const { t, language, toggleLanguage } = useLanguage();
   const { user } = useAuth();
   const { clinicId, role } = useClinic();
+  const tour = useTourOptional();
 
   const [logoUrl, setLogoUrl] = useState("");
   /** Which dropdown is open: a group title, "account", or null. One at a time. */
@@ -226,11 +230,15 @@ export default function TopNav({
           </Link>
         )}
 
-        <NotificationBell variant="dark" />
+        {/* The wrapper carries the tour anchor: the bell is its own component with its own DOM. */}
+        <div data-tour="notification-bell" className="grid place-items-center">
+          <NotificationBell variant="dark" />
+        </div>
 
         <div className="relative">
           <button
             type="button"
+            data-tour="account-menu"
             onClick={() => setOpen(open === "account" ? null : "account")}
             className="flex items-center gap-2.5 rounded-full py-1 ps-1 pe-2 transition-colors hover:bg-white/10"
           >
@@ -263,6 +271,19 @@ export default function TopNav({
                 <LifeBuoy size={18} className="shrink-0" />
                 {language === "ar" ? "مركز المساعدة" : "Help Center"}
               </Link>
+              {tour && tour.stops.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(null);
+                    tour.start();
+                  }}
+                  className={`${menuRow} text-ink-body hover:bg-surface-subtle hover:text-ink`}
+                >
+                  <Sparkles size={18} className="shrink-0" />
+                  {language === "ar" ? `جولة مع ${TOUR_GUIDE.ar}` : `Tour with ${TOUR_GUIDE.en}`}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {

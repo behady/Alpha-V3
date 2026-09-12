@@ -63,7 +63,8 @@ export default function SettingsSectionPage() {
   const edit = canEditSection(section, viewer);
 
   return (
-    <>
+    /* One wrapper for the whole panel: what Sara's tour puts the spotlight on. */
+    <div data-tour="settings-panel">
       {!edit.allowed && (
         <p className="mb-6 flex items-start gap-3 rounded-2xl border border-line bg-surface-subtle px-5 py-4 text-sm font-semibold text-ink-body">
           <Lock size={16} className="mt-0.5 shrink-0 text-ink-muted" />
@@ -71,7 +72,7 @@ export default function SettingsSectionPage() {
         </p>
       )}
       <Panel canEdit={edit.allowed} />
-    </>
+    </div>
   );
 }
 

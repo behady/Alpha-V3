@@ -151,7 +151,7 @@ function IntelligenceHub() {
 
         {/* One tab is not a choice — hide the strip rather than show a single dead pill. */}
         {tabs.length > 1 && (
-          <div className="inline-flex items-center gap-1 rounded-full bg-surface border border-slate-200/60 p-1 shadow-sm">
+          <div data-tour="ai-tabs" className="inline-flex items-center gap-1 rounded-full bg-surface border border-slate-200/60 p-1 shadow-sm">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = current.key === tab.key;

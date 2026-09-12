@@ -33,6 +33,23 @@ export interface WelcomeScope {
   uid: string | null | undefined;
 }
 
+/**
+ * Where this person is in Sara's tour.
+ *
+ * Local for the same reason lessons are: having been shown around is a fact about a person on a
+ * device, and a receptionist who joins later deserves the tour even though the owner took it.
+ */
+export interface TourProgress {
+  /** The "Meet Sara" screen was shown once. Never shown again by itself after this. */
+  introSeen: boolean;
+  /** Where to resume. Null: not started, or finished. */
+  lastStopId: string | null;
+  /** Stops opened at least once — the chapter list ticks these. */
+  visited: string[];
+  /** Epoch millis the tour was finished, 0 if never. */
+  completedAt: number;
+}
+
 interface StoredState {
   /** `TUTORIALS[].id` values this person has finished, at this clinic. */
   lessons: string[];
@@ -42,9 +59,28 @@ interface StoredState {
   snoozeCount: number;
   /** The coach was switched off for good. Reversible from the guide page. */
   dismissed: boolean;
+  tour: TourProgress;
 }
 
-const EMPTY: StoredState = { lessons: [], snoozedUntil: 0, snoozeCount: 0, dismissed: false };
+const EMPTY_TOUR: TourProgress = { introSeen: false, lastStopId: null, visited: [], completedAt: 0 };
+
+const EMPTY: StoredState = {
+  lessons: [],
+  snoozedUntil: 0,
+  snoozeCount: 0,
+  dismissed: false,
+  tour: EMPTY_TOUR,
+};
+
+function readTour(raw: unknown): TourProgress {
+  const t = (raw && typeof raw === "object" ? raw : {}) as Partial<TourProgress>;
+  return {
+    introSeen: t.introSeen === true,
+    lastStopId: typeof t.lastStopId === "string" && t.lastStopId ? t.lastStopId : null,
+    visited: Array.isArray(t.visited) ? t.visited.filter((v) => typeof v === "string") : [],
+    completedAt: typeof t.completedAt === "number" ? t.completedAt : 0,
+  };
+}
 
 /**
  * One key per (clinic, person). Two owners sharing a laptop, or one owner with two clinics, each
@@ -69,6 +105,7 @@ export function readWelcomeState(scope: WelcomeScope): StoredState {
       snoozedUntil: typeof parsed.snoozedUntil === "number" ? parsed.snoozedUntil : 0,
       snoozeCount: typeof parsed.snoozeCount === "number" ? parsed.snoozeCount : 0,
       dismissed: parsed.dismissed === true,
+      tour: readTour(parsed.tour),
     };
   } catch {
     return EMPTY;
@@ -112,4 +149,38 @@ export function dismissCoach(scope: WelcomeScope): void {
 /** Brings the coach back — both the "for good" flag and any live snooze. */
 export function restoreCoach(scope: WelcomeScope): void {
   writeWelcomeState(scope, { ...readWelcomeState(scope), dismissed: false, snoozedUntil: 0, snoozeCount: 0 });
+}
+
+/* --- Sara's tour ------------------------------------------------------------------------- */
+
+export function readTourProgress(scope: WelcomeScope): TourProgress {
+  return readWelcomeState(scope).tour;
+}
+
+function writeTour(scope: WelcomeScope, patch: Partial<TourProgress>): void {
+  const state = readWelcomeState(scope);
+  writeWelcomeState(scope, { ...state, tour: { ...state.tour, ...patch } });
+}
+
+/** The intro was shown (and either taken or declined). It does not come back on its own. */
+export function markTourIntroSeen(scope: WelcomeScope): void {
+  if (readWelcomeState(scope).tour.introSeen) return;
+  writeTour(scope, { introSeen: true });
+}
+
+/** Where the tour is now. Called on every stop, so leaving mid-way resumes at the right place. */
+export function saveTourPosition(scope: WelcomeScope, stopId: string): void {
+  const tour = readWelcomeState(scope).tour;
+  const visited = tour.visited.includes(stopId) ? tour.visited : [...tour.visited, stopId];
+  writeTour(scope, { lastStopId: stopId, visited, introSeen: true });
+}
+
+/** The last stop was reached. The resume point clears; the visited list stays for the ticks. */
+export function markTourComplete(scope: WelcomeScope): void {
+  writeTour(scope, { lastStopId: null, completedAt: Date.now(), introSeen: true });
+}
+
+/** Start over: forgets the resume point but keeps the intro as seen. */
+export function resetTourPosition(scope: WelcomeScope): void {
+  writeTour(scope, { lastStopId: null });
 }

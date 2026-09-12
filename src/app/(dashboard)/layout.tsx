@@ -27,6 +27,10 @@ import { PageHeaderProvider, usePageHeaderSlot } from "@/context/PageHeaderConte
 import AiChatWidget from "@/components/AiChatWidget";
 import { TutorialProvider, useTutorial } from "@/context/TutorialContext";
 import TutorialOverlay from "@/components/TutorialOverlay";
+import { TourProvider, useTour } from "@/context/TourContext";
+import GrandTourOverlay from "@/components/tour/GrandTourOverlay";
+import TourIntro from "@/components/tour/TourIntro";
+import { TOUR_GUIDE } from "@/lib/grandTour";
 import { WelcomeProvider } from "@/context/WelcomeContext";
 import WelcomeCoach from "@/components/welcome/WelcomeCoach";
 import TrialCountdownBanner from "@/components/welcome/TrialCountdownBanner";
@@ -49,7 +53,33 @@ const cairo = Cairo({ subsets: ["arabic"] });
  */
 function WelcomeLayer({ children }: { children: React.ReactNode }) {
   const { activeTutorial } = useTutorial();
-  return <WelcomeProvider tutorialRunning={!!activeTutorial}>{children}</WelcomeProvider>;
+  // Sara's tour owns the screen the same way a lesson does: the coach stays quiet under it.
+  const { active: tourActive } = useTour();
+  return <WelcomeProvider tutorialRunning={!!activeTutorial || tourActive}>{children}</WelcomeProvider>;
+}
+
+/**
+ * "Tour with Sara" as a menu row. A component of its own because the layout renders the tour
+ * provider and therefore cannot consume it; the mobile sheet needs the row inside that provider.
+ */
+function TourMenuRow({ className, onPick }: { className: string; onPick: () => void }) {
+  const tour = useTour();
+  const { language } = useLanguage();
+  if (tour.stops.length === 0) return null;
+  const guide = language === "ar" ? TOUR_GUIDE.ar : TOUR_GUIDE.en;
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        onPick();
+        tour.start();
+      }}
+      className={className}
+    >
+      <Sparkles size={22} />
+      <span className="text-base truncate">{language === "ar" ? `جولة مع ${guide}` : `Tour with ${guide}`}</span>
+    </button>
+  );
 }
 
 /**
@@ -326,6 +356,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <TutorialProvider>
+    <TourProvider visibleNavKeys={visibleItems.map((i) => i.key)} showSettings={showSettings}>
     <WelcomeLayer>
     <PageHeaderProvider>
     <div className={`min-h-[100dvh] lg:h-[100dvh] lg:overflow-hidden bg-surface-page text-slate-700 flex flex-col ${isRTL ? cairo.className : plusJakartaSans.className} relative z-0`} dir={isRTL ? 'rtl' : 'ltr'}>
@@ -443,6 +474,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <Rocket size={22} />
                   <span className="text-base truncate">{language === 'ar' ? 'البداية' : 'Getting started'}</span>
                </Link>
+               <TourMenuRow className={`w-full text-left rtl:text-right ${sheetRow(false)}`} onPick={() => setIsOpen(false)} />
                <Link href="/help" onClick={() => setIsOpen(false)} className={sheetRow(pathname.startsWith('/help'))}>
                   <LifeBuoy size={22} />
                   <span className="text-base truncate">{language === 'ar' ? 'مركز المساعدة' : 'Help Center'}</span>
@@ -491,6 +523,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
          {/* --- MAIN PAGE CONTENT --- */}
          <main
+           data-tour="page-main"
            className={`flex-1 min-h-0 relative z-0 animate-in fade-in duration-300 ${
              isFullHeightPage
                ? "flex flex-col overflow-hidden"
@@ -538,9 +571,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* Guided-tutorial ring + instruction card; renders nothing unless a lesson is running. */}
       <TutorialOverlay />
+
+      {/* Sara: the one-time "meet me" screen, and the tour itself when it is running. */}
+      <TourIntro />
+      <GrandTourOverlay />
     </div>
     </PageHeaderProvider>
     </WelcomeLayer>
+    </TourProvider>
     </TutorialProvider>
   );
 }
