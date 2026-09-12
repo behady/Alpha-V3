@@ -93,6 +93,8 @@ interface TourContextType {
   setDemoMode: (mode: DemoMode) => void;
   /** The names and numbers her test records carry. */
   demoValues: DemoValues;
+  /** The name of the patient the "a patient's file" stop opens, once known — for the search. */
+  firstPatientName: string | null;
   /** The test patient's id, found by name; null when she has not made one (or it was deleted). */
   resolveDemoPatient: () => Promise<string | null>;
   /**
@@ -196,8 +198,10 @@ export function TourProvider({
    * person just watched being made.
    */
   const [firstPatientId, setFirstPatientId] = useState<string | null | undefined>(undefined);
+  const [firstPatientName, setFirstPatientName] = useState<string | null>(null);
   useEffect(() => {
     setFirstPatientId(undefined);
+    setFirstPatientName(null);
   }, [clinicId, demoMode]);
 
   /** The test patient's id for a demoPatient stop, re-resolved on every entry. */
@@ -223,11 +227,19 @@ export function TourProvider({
       try {
         const demo = demoMode === "on" ? await resolveDemoPatient() : null;
         if (demo) {
-          if (!cancelled) setFirstPatientId(demo);
+          if (!cancelled) {
+            setFirstPatientName(demoValues.patientName);
+            setFirstPatientId(demo);
+          }
           return;
         }
         const snap = await getDocs(query(getClinicCollection("patients"), orderBy("name"), limit(1)));
-        if (!cancelled) setFirstPatientId(snap.empty ? null : snap.docs[0].id);
+        if (!cancelled) {
+          const doc = snap.empty ? null : snap.docs[0];
+          const name = doc ? String((doc.data() as { name?: unknown }).name ?? "") : "";
+          setFirstPatientName(name || null);
+          setFirstPatientId(doc ? doc.id : null);
+        }
       } catch {
         if (!cancelled) setFirstPatientId(null);
       }
@@ -235,7 +247,7 @@ export function TourProvider({
     return () => {
       cancelled = true;
     };
-  }, [stop, firstPatientId, clinicId, demoMode, resolveDemoPatient]);
+  }, [stop, firstPatientId, clinicId, demoMode, resolveDemoPatient, demoValues.patientName]);
 
   useEffect(() => {
     if (!stop || stop.dynamic !== "demoPatient") return;
@@ -392,13 +404,14 @@ export function TourProvider({
       demoMode,
       setDemoMode,
       demoValues,
+      firstPatientName,
       resolveDemoPatient,
       markDemoPatient,
     }),
     [
       active, paused, stops, chapters, stop, stopIndex, stopRoute, progress,
       start, next, back, goTo, leave, declineIntro,
-      demoMode, setDemoMode, demoValues, resolveDemoPatient, markDemoPatient,
+      demoMode, setDemoMode, demoValues, firstPatientName, resolveDemoPatient, markDemoPatient,
     ],
   );
 

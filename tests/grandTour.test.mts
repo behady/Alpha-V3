@@ -119,6 +119,23 @@ assert.ok(TOUR_STOPS.some((s) => s.id === "patients-add" && s.demo), "the add-pa
 assert.ok(TOUR_STOPS.some((s) => s.id === "demo-cleanup-patient"), "what Sara adds, Sara deletes");
 assert.ok(TOUR_STOPS.some((s) => s.id === "demo-cleanup-service"), "what Sara adds, Sara deletes");
 
+// --- 5c. walkthroughs ------------------------------------------------------------------------
+// Every page stop walks its elements; every point has a target and a line in both languages.
+const walked = TOUR_STOPS.filter((s) => s.walk && s.walk.length > 0);
+assert.ok(walked.length >= 30, `expected most stops to have a walkthrough, got ${walked.length}`);
+for (const stop of walked) {
+  for (const action of stop.walk!) {
+    if (action.kind === "point") {
+      assert.ok(action.anchor || action.text, `${stop.id}: a point has neither anchor nor text`);
+      if (action.text) assert.ok(action.text.en && action.text.ar, `${stop.id}: point text needs both languages`);
+      assert.ok(action.say.en && action.say.ar, `${stop.id}: a point line is missing a language`);
+    }
+  }
+}
+for (const id of ["topbar", "account-menu", "dashboard", "patients", "patient-file", "appointments", "finance", "intelligence", "reports", "settings-services", "settings-users"]) {
+  assert.ok(TOUR_STOPS.find((s) => s.id === id)?.walk?.length, `${id} must walk its screen`);
+}
+
 // --- 6. gating -------------------------------------------------------------------------------
 const everything = tourStopsFor({
   isAdmin: true,

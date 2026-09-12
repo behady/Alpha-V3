@@ -51,10 +51,27 @@ export type DemoAction =
   /** Go straight to a route — for a cleanup that spans screens. */
   | { kind: "route"; path: string; say?: Localized }
   /** A beat. */
-  | { kind: "pause"; ms: number };
+  | { kind: "pause"; ms: number }
+  /**
+   * Look, don't touch: the hand rests on the element (by anchor, or by the words it shows on
+   * screen), the spotlight frames it — or the card it sits in — and Sara says her line. Optional
+   * by default: a card that is not on this clinic's screen is passed over, not a failure.
+   */
+  | {
+      kind: "point";
+      anchor?: string;
+      text?: Localized;
+      match?: "exact" | "contains";
+      container?: "self" | "card" | "row";
+      say: Localized;
+      optional?: boolean;
+      timeoutMs?: number;
+    };
 
 /** Every template value a script may use. Filled in by the runner. */
 export interface DemoValues {
+  /** The patient a walkthrough searches for — the test patient, or the clinic's first. */
+  targetPatientName: string;
   patientName: string;
   phone: string;
   serviceName: string;
@@ -68,8 +85,10 @@ export function demoValues(isAr: boolean): DemoValues {
   // A phone that is almost certainly not on file. Egyptian mobiles are 010/011/012/015 + 8
   // digits; the 0199 prefix is unassigned, so it can neither collide nor reach anyone.
   const digits = String(Math.floor(10_000_000 + Math.random() * 89_999_999));
+  const patientName = isAr ? "مريض تجريبي (سارة)" : "Test patient (Sara)";
   return {
-    patientName: isAr ? "مريض تجريبي (سارة)" : "Test patient (Sara)",
+    targetPatientName: patientName,
+    patientName,
     phone: `199${digits.slice(0, 7)}`,
     serviceName: isAr ? "علاج تجريبي (سارة)" : "Test treatment (Sara)",
     servicePrice: "100",
@@ -103,7 +122,7 @@ function navAnchorForRoute(route: string): string | null {
  * resolves its anchor through the `data-tour-opens` fallback, so "click Patients" on a desktop
  * opens the Front Desk menu first, and on a phone opens the bottom Menu sheet first.
  */
-export function navPlanFor(stop: TourStop, resolvedRoute?: string | null): DemoAction[] {
+export function navPlanFor(stop: TourStop, resolvedRoute?: string | null, targetPatientName?: string | null): DemoAction[] {
   if (stop.route === "/welcome") return [{ kind: "click", anchor: "menu-welcome" }];
   if (stop.route === "/help") return [{ kind: "click", anchor: "menu-help" }];
 
@@ -120,8 +139,22 @@ export function navPlanFor(stop: TourStop, resolvedRoute?: string | null): DemoA
   if (stop.route === "/settings") return [{ kind: "click", anchor: "nav-settings" }];
 
   if (stop.dynamic) {
-    // The provider resolved which patient this is: walk to Patients like a person, then open
-    // that exact file — it may be on the second page of the list, where no row can be clicked.
+    // The way a person opens a file: Patients, type the name in the search, click the row.
+    // The route is the fallback if the row never appears (a name the search does not match).
+    if (resolvedRoute && targetPatientName) {
+      return [
+        { kind: "click", anchor: "nav-patients", optional: true, timeoutMs: 2500 },
+        { kind: "wait", anchor: "patients-search", timeoutMs: 6000 },
+        {
+          kind: "type",
+          anchor: "patients-search",
+          text: "{{targetPatientName}}",
+          say: { en: "Type any part of the name — or the phone — and the list narrows.", ar: "اكتب أي جزء من الاسم — أو التليفون — والقايمة بتضيق." },
+        },
+        { kind: "click", anchor: "patient-row", inRowContaining: "{{targetPatientName}}", optional: true, timeoutMs: 5000 },
+        { kind: "route", path: resolvedRoute },
+      ];
+    }
     if (resolvedRoute) {
       return [
         { kind: "click", anchor: "nav-patients", optional: true, timeoutMs: 2500 },

@@ -168,10 +168,10 @@ function buildTourInstruction(
       - Two to four short sentences. Plain words, no lists, no headings, no markdown. ${languageLine}
       - Answer from the notes above and the help articles. If the notes do not cover it, say you are not sure and offer the Help Center or a lesson — never invent a button, a menu or a setting.
       - If the question is about a DIFFERENT part of the app that has a tour stop, call 'open_tour_stop' with that stop and say in one line that you are taking them there. The stop's own narration will explain it.
-      - If they ask HOW to do a task and a lesson matches, call 'start_tutorial': the tour pauses, a ring points at the real buttons, and the tour resumes when the lesson ends. Say that in one line.
+      - If they ask HOW to do something or to be SHOWN it ("show me how to add a service"), PREFER 'open_tour_stop' with a stop marked "(demonstrates)" — Sara does it herself on screen with her cursor. Only when no demonstrating stop fits, call 'start_tutorial' (a ring the person clicks through themselves) and say that in one line. Never just describe steps when either exists.
       - You may read the clinic's data to answer a factual question ("how many patients do I have") with db_read, find_patient or run_clinic_report. Never write, delete, send a message or navigate during the tour — say those can be done after the tour from the orb, or offer the lesson.
       - Every answer costs the clinic one credit; do not pad.
-      - Stops you can move to: ${offered.map((s) => `${s.id} (${s.title.en})`).join(", ")}.`;
+      - Stops you can move to: ${offered.map((s) => `${s.id} (${s.title.en}${s.demo ? ", demonstrates" : ""})`).join(", ")}.`;
 }
 
 const RECEPTION_TOOL_NAMES = new Set([
@@ -802,7 +802,7 @@ export async function POST(req: Request) {
           `Opens ${TOUR_GUIDE.en}'s guided tour of the app at one stop: the page is spotlit and narrated, and the user can keep asking from there. ` +
           "Use it when the user asks to be shown around, for a tour, or to be shown where a whole area of the app lives ('show me the settings', 'where is the lab page'). " +
           "During the tour, use it to move to the stop that answers their question. Stops: " +
-          offeredTourStops.map((s) => `'${s.id}' (${s.title.en} — ${s.route})`).join("; ") + ".",
+          offeredTourStops.map((s) => `'${s.id}' (${s.title.en} — ${s.route}${s.demo ? " — demonstrates it live" : ""})`).join("; ") + ".",
         parameters: {
           type: SchemaType.OBJECT,
           properties: {

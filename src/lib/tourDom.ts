@@ -106,3 +106,66 @@ export function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement | HTML
 export function centreOf(rect: DOMRect): { x: number; y: number } {
   return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
 }
+
+/** Whitespace-collapsed, lower-cased, so "TRUE  NET" and "true net" are the same label. */
+function norm(text: string): string {
+  return (text || "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+const TEXT_TAGS = "h1,h2,h3,h4,p,span,button,a,th,td,label,dt,dd,legend,summary,div";
+
+/**
+ * The first visible element that SAYS this on screen.
+ *
+ * Only elements whose own text is short (a label, a heading, a button) are candidates — a
+ * container that merely contains the words somewhere in a paragraph is not "the label". The
+ * smallest matching element wins, so a `<span>` inside a button beats the button, and the
+ * button beats the card. Matching is case-insensitive; `exact` needs the whole label.
+ */
+export function findByText(text: string, match: "exact" | "contains" = "contains"): FoundAnchor | null {
+  const needle = norm(text);
+  if (!needle) return null;
+  let best: FoundAnchor | null = null;
+  let bestLen = Infinity;
+  const els = document.querySelectorAll<HTMLElement>(TEXT_TAGS);
+  for (const el of els) {
+    const own = norm(el.innerText || el.textContent || "");
+    if (!own || own.length > 120) continue;
+    if (match === "exact" ? own !== needle : !own.includes(needle)) continue;
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 2 && rect.height < 2) continue;
+    // Skip anything inside the tour's own chrome.
+    if (el.closest("[data-tour-chrome]")) continue;
+    if (own.length < bestLen) {
+      best = { el, rect };
+      bestLen = own.length;
+    }
+  }
+  return best;
+}
+
+/**
+ * What to frame when pointing at an element.
+ *
+ * "self" is the element; "card" walks up to the nearest rounded, bordered or tinted box (the
+ * card a label sits in) but never past a third of the viewport, so a stat label lights its
+ * whole stat card and a table header lights just itself; "row" is the nearest table row or
+ * list item.
+ */
+export function spotlightContainerFor(el: HTMLElement, container: "self" | "card" | "row"): HTMLElement {
+  if (container === "self") return el;
+  if (container === "row") return (el.closest("tr, li, [role=row]") as HTMLElement | null) ?? el;
+  const maxArea = window.innerWidth * window.innerHeight * 0.34;
+  let node: HTMLElement | null = el;
+  let best = el;
+  for (let depth = 0; node && depth < 6; depth++) {
+    const cls = node.className && typeof node.className === "string" ? node.className : "";
+    const r = node.getBoundingClientRect();
+    if (r.width * r.height > maxArea) break;
+    if (/rounded-|border|shadow|bg-surface|bg-white|bg-ink|bg-slate|bg-\[/.test(cls) && r.height >= el.getBoundingClientRect().height) {
+      best = node;
+    }
+    node = node.parentElement;
+  }
+  return best;
+}

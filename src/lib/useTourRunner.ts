@@ -6,9 +6,11 @@ import { fillTemplate, type DemoAction, type DemoValues } from "@/lib/tourDemo";
 import {
   centreOf,
   findAnchorInRowContaining,
+  findByText,
   findDirectAnchor,
   findOpenerFor,
   setNativeValue,
+  spotlightContainerFor,
   type FoundAnchor,
 } from "@/lib/tourDom";
 
@@ -24,6 +26,10 @@ import {
  *    when it is marked optional). It never guesses at a different element.
  *  - One script at a time, abortable between steps. Leaving the tour mid-demo stops the hand
  *    where it is; nothing half-typed is submitted.
+ *
+ * `point` is the action that only looks: the hand rests on an element, the spotlight frames it
+ * (or the card it sits in), Sara says her line, and nothing is clicked. A page walkthrough is a
+ * list of these.
  */
 
 export interface CursorState {
@@ -40,8 +46,10 @@ export interface RunnerState {
   running: boolean;
   /** The sub-line Sara is saying for the current step, if any. */
   say: Localized | null;
-  /** The anchor the current step is acting on, for the spotlight. */
+  /** The anchor the current step is acting on, for the spotlight (when it has one). */
   anchor: string | null;
+  /** The element to spotlight — measured live by the overlay, so it follows scrolling. */
+  target: HTMLElement | null;
   /** Set when a script ended early: what could not be found. */
   failedAnchor: string | null;
 }
@@ -83,26 +91,26 @@ export function useTourRunner(opts: {
   const { isAr, speak, navigate, resolveDemoPatient, markDemoPatient } = opts;
 
   const [cursor, setCursor] = useState<CursorState>({ x: -100, y: -100, visible: false, clicking: false, typing: false });
-  const [state, setState] = useState<RunnerState>({ running: false, say: null, anchor: null, failedAnchor: null });
+  const [state, setState] = useState<RunnerState>({ running: false, say: null, anchor: null, target: null, failedAnchor: null });
   const controller = useRef<AbortController | null>(null);
 
   const abort = useCallback(() => {
     controller.current?.abort();
     controller.current = null;
-    setState((s) => ({ ...s, running: false, say: null, anchor: null }));
+    setState((s) => ({ ...s, running: false, say: null, anchor: null, target: null }));
     setCursor((c) => ({ ...c, visible: false, clicking: false, typing: false }));
   }, []);
 
   const moveTo = useCallback(async (found: FoundAnchor, signal: AbortSignal) => {
     // Bring it on screen first, then measure again: the rect we found may be off the viewport.
     const r = found.el.getBoundingClientRect();
-    if (r.top < 0 || r.bottom > window.innerHeight || r.left < 0 || r.right > window.innerWidth) {
+    if (r.top < 80 || r.bottom > window.innerHeight - 40 || r.left < 0 || r.right > window.innerWidth) {
       try {
-        found.el.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" });
+        found.el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
       } catch {
         /* ignore */
       }
-      await sleep(450, signal);
+      await sleep(500, signal);
     }
     const { x, y } = centreOf(found.el.getBoundingClientRect());
     setCursor((c) => ({ ...c, x, y, visible: true }));
@@ -164,10 +172,10 @@ export function useTourRunner(opts: {
       const ctl = new AbortController();
       controller.current = ctl;
       const { signal } = ctl;
-      setState({ running: true, say: null, anchor: null, failedAnchor: null });
+      setState({ running: true, say: null, anchor: null, target: null, failedAnchor: null });
 
       const fail = (anchor: string): RunOutcome => {
-        setState({ running: false, say: null, anchor: null, failedAnchor: anchor });
+        setState({ running: false, say: null, anchor: null, target: null, failedAnchor: anchor });
         setCursor((c) => ({ ...c, visible: false, clicking: false, typing: false }));
         return "failed";
       };
@@ -212,8 +220,6 @@ export function useTourRunner(opts: {
 
           if (action.kind === "markDemoPatient") {
             if (action.say) void sayLine(action.say, signal);
-            // Give the write a moment to land, then flag it. Not optional: a test patient that
-            // could be messaged is worse than no demo.
             let ok = false;
             for (let attempt = 0; attempt < 6 && !ok; attempt++) {
               if (signal.aborted) return "aborted";
@@ -227,7 +233,7 @@ export function useTourRunner(opts: {
           if (action.kind === "route") {
             if (action.say) void sayLine(action.say, signal);
             navigate(action.path);
-            setState((s) => ({ ...s, anchor: "page-main" }));
+            setState((s) => ({ ...s, anchor: "page-main", target: null }));
             await sleep(900, signal);
             continue;
           }
@@ -237,10 +243,32 @@ export function useTourRunner(opts: {
             const id = await resolveDemoPatient();
             if (!id) return fail("demo-patient");
             navigate(`/patients/${id}${action.tab ? `?tab=${action.tab}` : ""}`);
-            setState((s) => ({ ...s, anchor: "page-main" }));
+            setState((s) => ({ ...s, anchor: "page-main", target: null }));
             const landed = await waitFor(() => findDirectAnchor("patient-tab-clinical"), FIND_TIMEOUT_MS, signal);
             if (!landed) return fail("patient-file");
             await sleep(600, signal);
+            continue;
+          }
+
+          if (action.kind === "point") {
+            // By anchor, or by what it says on screen. Text is matched in the tour's language.
+            const label = action.text ? (isAr ? action.text.ar : action.text.en) : "";
+            const find = () =>
+              action.anchor
+                ? findDirectAnchor(action.anchor)
+                : label
+                  ? findByText(label, action.match ?? "contains")
+                  : null;
+            const found = await waitFor(find, action.timeoutMs ?? 3000, signal);
+            if (signal.aborted) return "aborted";
+            if (!found) {
+              if (action.optional !== false) continue; // pointing is optional by default
+              return fail(action.anchor ?? label);
+            }
+            const box = spotlightContainerFor(found.el, action.container ?? "card");
+            setState((s) => ({ ...s, anchor: action.anchor ?? null, target: box }));
+            await moveTo(found, signal);
+            await sayLine(action.say, signal);
             continue;
           }
 
@@ -253,6 +281,7 @@ export function useTourRunner(opts: {
             if (action.optional) continue;
             return fail(action.anchor);
           }
+          setState((s) => ({ ...s, target: found.el }));
 
           // Narrate the step while the cursor travels — the words and the movement are one act.
           const said = action.say ? sayLine(action.say, signal) : Promise.resolve();
@@ -277,8 +306,6 @@ export function useTourRunner(opts: {
             if (el instanceof HTMLSelectElement) {
               setNativeValue(el, text);
             } else {
-              // A number field rejects partial text like "1" then "10"? No — but it does reject
-              // a trailing separator, so type whole characters and let the field validate.
               for (let i = 1; i <= text.length; i++) {
                 if (signal.aborted) return "aborted";
                 setNativeValue(el, text.slice(0, i));
@@ -290,14 +317,14 @@ export function useTourRunner(opts: {
             await sleep(350, signal);
           }
         }
-        setState({ running: false, say: null, anchor: null, failedAnchor: null });
+        setState({ running: false, say: null, anchor: null, target: null, failedAnchor: null });
         setCursor((c) => ({ ...c, visible: false, clicking: false, typing: false }));
         return signal.aborted ? "aborted" : "done";
       } finally {
         if (controller.current === ctl) controller.current = null;
       }
     },
-    [sayLine, waitFor, reach, moveTo, navigate, resolveDemoPatient, markDemoPatient],
+    [sayLine, waitFor, reach, moveTo, navigate, resolveDemoPatient, markDemoPatient, isAr],
   );
 
   return { cursor, state, run, abort };

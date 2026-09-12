@@ -70,7 +70,7 @@ const TYPE_MS_PER_CHAR = 16;
 const VOICE_KEY = "alphaTourVoice";
 const HISTORY_TURNS = 8;
 
-type Phase = "idle" | "navigating" | "narrating" | "asking" | "demo" | "done";
+type Phase = "idle" | "navigating" | "narrating" | "walk" | "asking" | "demo" | "done";
 
 interface QaMessage {
   id: string;
@@ -285,8 +285,10 @@ export default function GrandTourOverlay() {
     let cancelled = false;
     void (async () => {
       if (!stopRouteMatches(stop, pathnameRef.current, resolvedRoute)) {
-        const plan = navPlanFor(stop, resolvedRoute);
-        const outcome = plan.length > 0 ? await runRef.current(plan, tour.demoValues) : "failed";
+        const targetName = stop.dynamic === "demoPatient" ? tour.demoValues.patientName : tour.firstPatientName;
+        const plan = navPlanFor(stop, resolvedRoute, targetName);
+        const values = { ...tour.demoValues, targetPatientName: targetName ?? tour.demoValues.patientName };
+        const outcome = plan.length > 0 ? await runRef.current(plan, values) : "failed";
         if (cancelled || outcome === "aborted") return;
         if (outcome === "failed") {
           // The menu could not be walked (a hidden item, a changed screen): go straight there.
@@ -370,13 +372,46 @@ export default function GrandTourOverlay() {
     [tour, isAr],
   );
 
-  // Narration finished: demo, ask, or done.
+  /** After the walkthrough (or when there is none): demo, ask, or done. */
+  const afterWalk = useCallback(
+    (s: TourStop) => {
+      if (s.demo && demoMode === "on") void runDemo(s);
+      else if (s.demo && demoMode === "unasked") setPhase("asking");
+      else setPhase("done");
+    },
+    [demoMode, runDemo],
+  );
+
+  /**
+   * The walkthrough: Sara shrinks to a caption and her hand goes round the screen. Pointing
+   * writes nothing, so it needs no consent and runs on every stop that has one.
+   */
+  const runWalk = useCallback(
+    async (s: TourStop) => {
+      if (!s.walk || s.walk.length === 0) {
+        afterWalk(s);
+        return;
+      }
+      setPhase("walk");
+      const outcome = await runRef.current(s.walk, tour.demoValues);
+      if (outcome === "aborted") return;
+      afterWalk(s);
+    },
+    [afterWalk, tour.demoValues],
+  );
+
+  // Narration finished: walk the page, then demo, ask, or done.
   useEffect(() => {
     if (phase !== "narrating" || !typed.done || !stop) return;
-    if (stop.demo && demoMode === "on") void runDemo(stop);
-    else if (stop.demo && demoMode === "unasked") setPhase("asking");
-    else setPhase("done");
-  }, [phase, typed.done, stop, demoMode, runDemo]);
+    void runWalk(stop);
+  }, [phase, typed.done, stop, runWalk]);
+
+  /** "Skip" during a walk or demo: stop the hand and open the panel back up. */
+  const skipHand = () => {
+    abortRef.current();
+    stopSpeaking();
+    setPhase("done");
+  };
 
   const answerDemo = (yes: boolean) => {
     tour.setDemoMode(yes ? "on" : "off");
@@ -388,12 +423,21 @@ export default function GrandTourOverlay() {
   const [rect, setRect] = useState<DOMRect | null>(null);
   const scrolledFor = useRef<string | null>(null);
   const runnerAnchor = runner.state.anchor;
+  const runnerTarget = runner.state.target;
 
   useEffect(() => {
     if (!active || paused || !stop) return;
     let raf = 0;
     const anchors = runnerAnchor ? [runnerAnchor, "page-main"] : [...(stop.spot ?? []), "page-main"];
     const measure = () => {
+      // The hand's own target first — an element, measured live so the frame follows scrolling.
+      if (runnerTarget && runnerTarget.isConnected) {
+        const r = runnerTarget.getBoundingClientRect();
+        if (r.width >= 2 || r.height >= 2) {
+          setRect(r);
+          return;
+        }
+      }
       const found = findFirstVisibleAnchor(anchors);
       if (!found) {
         setRect(null);
@@ -427,7 +471,7 @@ export default function GrandTourOverlay() {
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", onScroll);
     };
-  }, [active, paused, stop, runnerAnchor]);
+  }, [active, paused, stop, runnerAnchor, runnerTarget]);
 
   /* --- voice toggle ----------------------------------------------------------------------- */
   const toggleVoice = () => {
@@ -575,6 +619,8 @@ export default function GrandTourOverlay() {
   const visited = useMemo(() => new Set(tour.progress.visited), [tour.progress.visited]);
 
   const busy = runner.state.running || phase === "navigating";
+  /** Sara out of the way: while her hand is working, the panel is a one-line caption. */
+  const captionMode = phase === "walk" || phase === "demo";
   const avatarState: AvatarState =
     asking || fetchingVoice ? "thinking" : busy || speaking || !typed.done ? "speaking" : "idle";
 
@@ -657,10 +703,65 @@ export default function GrandTourOverlay() {
       }
     : undefined;
 
+  if (captionMode) {
+    // The sheet stays (it frames what the hand is on), the panel shrinks to a caption so the
+    // page is what you look at. Docked away from the spotlight, like the full panel.
+    return (
+      <>
+        <div className="fixed inset-0 z-[9960]" aria-hidden data-tour-chrome>
+          {rect ? (
+            <div
+              className="absolute rounded-2xl ring-2 ring-[#FACC15]/80 transition-all duration-300 ease-out"
+              style={{ ...spotStyle, boxShadow: "0 0 0 100vmax rgba(8, 9, 12, 0.55)" }}
+            />
+          ) : (
+            <div className="absolute inset-0 bg-[rgba(8,9,12,0.55)]" />
+          )}
+        </div>
+        <TourCursor cursor={runner.cursor} label={guideName} />
+        <div
+          className={`fixed z-[10001] inset-x-3 ${dockTop ? "top-3" : "bottom-3"} sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-[min(40rem,calc(100vw-2rem))]`}
+          dir={isRTL ? "rtl" : "ltr"}
+          role="dialog"
+          aria-label={guideName}
+          data-tour-chrome
+        >
+          <div className="flex items-center gap-3 rounded-full bg-ink-slab py-2 pe-2 ps-2 text-white shadow-[0_16px_50px_rgba(0,0,0,0.4)] ring-1 ring-white/10 animate-in fade-in zoom-in-95 duration-200">
+            <div className="shrink-0 rounded-full bg-white/5 p-0.5">
+              <AvatarFace state={avatarState} size={36} />
+            </div>
+            <p onClick={typed.finish} className="min-w-0 flex-1 text-[13px] font-medium leading-snug text-white/90">
+              {typed.shown || (isAr ? "…" : "…")}
+              {!typed.done && <span className="ms-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-[#FACC15]" />}
+            </p>
+            <span className="hidden shrink-0 text-[10.5px] font-black tabular-nums text-white/40 sm:block">
+              {shownIndex + 1}/{total}
+            </span>
+            <button
+              type="button"
+              onClick={skipHand}
+              className="shrink-0 rounded-full border border-white/15 px-3 py-1.5 text-[11.5px] font-bold text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              {isAr ? "كفاية" : "Skip"}
+            </button>
+            <button
+              type="button"
+              onClick={tour.next}
+              className="grid size-8 shrink-0 place-items-center rounded-full bg-[#FACC15] text-ink transition-all hover:brightness-105 active:scale-[0.98]"
+              aria-label={isLast ? (isAr ? "إنهاء" : "Finish") : isAr ? "التالي" : "Next"}
+            >
+              {isLast ? <Check size={14} strokeWidth={3} /> : <ArrowNext size={14} />}
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       {/* The dimmed sheet. One element: the bright window is its box-shadow's absence. */}
-      <div className="fixed inset-0 z-[9960]" aria-hidden onClick={() => setChaptersOpen(false)}>
+      <div className="fixed inset-0 z-[9960]" aria-hidden onClick={() => setChaptersOpen(false)} data-tour-chrome>
         {rect ? (
           <div
             className="absolute rounded-2xl ring-2 ring-[#FACC15]/80 transition-all duration-300 ease-out"
@@ -680,6 +781,7 @@ export default function GrandTourOverlay() {
         dir={isRTL ? "rtl" : "ltr"}
         role="dialog"
         aria-label={guideName}
+        data-tour-chrome
       >
         {/* No overflow-hidden here: the chapters drawer hangs outside the slab. */}
         <div className="relative rounded-[1.75rem] bg-ink-slab text-white shadow-[0_24px_80px_rgba(0,0,0,0.45)] ring-1 ring-white/10 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -698,11 +800,6 @@ export default function GrandTourOverlay() {
                 <span className="rounded-full bg-[#FACC15] px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-ink">
                   {isAr ? "الجولة" : "Tour"}
                 </span>
-                {phase === "demo" && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-white/70">
-                    <Hand size={10} /> {isAr ? "بتعمل بنفسها" : "Doing it live"}
-                  </span>
-                )}
               </div>
               <p className="truncate text-[11px] font-semibold text-white/50">
                 {chapter ? (isAr ? chapter.title.ar : chapter.title.en) : ""}
@@ -938,13 +1035,7 @@ export default function GrandTourOverlay() {
               {isAr ? "خليني أتفرج" : "Let me look"}
             </button>
             <span className="ms-auto hidden text-[10.5px] font-semibold text-white/35 sm:block">
-              {phase === "demo"
-                ? isAr
-                  ? "التالي يوقف العرض ويكمّل"
-                  : "Next stops the demo and moves on"
-                : isAr
-                  ? "الأسهم للتنقل · Esc للخروج"
-                  : "Arrow keys to move · Esc to leave"}
+              {isAr ? "الأسهم للتنقل · Esc للخروج" : "Arrow keys to move · Esc to leave"}
             </span>
             <button
               type="button"

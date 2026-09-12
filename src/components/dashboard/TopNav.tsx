@@ -171,6 +171,8 @@ export default function TopNav({
             <button
               type="button"
               onClick={() => setOpen(open === group.id ? null : group.id)}
+              /* The tour opens each menu while describing it. */
+              data-tour={`nav-group-${group.id.toLowerCase().replace(/[^a-z]+/g, "-")}`}
               /* Lets a guided lesson ring this button when the destination it wants is inside the
                  closed menu — see findVisibleAnchor in TutorialOverlay. */
               data-tour-opens={group.items

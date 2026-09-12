@@ -26,6 +26,7 @@
 
 import { SETTINGS_SECTIONS, type SettingsSection } from "@/config/settingsRegistry";
 import type { DemoAction } from "@/lib/tourDemo";
+import { TOUR_WALKS } from "@/lib/grandTourWalks";
 
 export interface Localized {
   en: string;
@@ -85,6 +86,13 @@ export interface TourStop {
   dynamic?: "firstPatient" | "demoPatient";
   /** Which tab of the demo patient's file to land on. */
   demoPatientTab?: string;
+  /**
+   * The walkthrough: after her opening line Sara shrinks to a caption and points at each part
+   * of the screen in turn — cards, buttons, columns — saying what each one is. Mostly `point`
+   * actions; a click here and there opens the menu she is describing. Free, no consent needed:
+   * nothing is written.
+   */
+  walk?: DemoAction[];
   /**
    * What Sara does on this stop once the person has said yes to demos: real clicks and real
    * typing on the real screen, narrated step by step. See tourDemo.ts.
@@ -678,6 +686,7 @@ interface SettingsNarration {
   ask: Localized[];
   knowledge: string;
   helpSlugs?: string[];
+  walk?: DemoAction[];
   demo?: DemoAction[];
   demoSkipIf?: TourStop["demoSkipIf"];
 }
@@ -978,6 +987,7 @@ function settingsStops(): TourStop[] {
         ask: text.ask,
         knowledge: text.knowledge,
         helpSlugs: text.helpSlugs,
+        walk: text.walk,
         demo: text.demo,
         demoSkipIf: text.demoSkipIf,
       },
@@ -1156,7 +1166,9 @@ export const TOUR_STOPS: TourStop[] = [
   ...INSIGHTS_STOPS,
   ...settingsStops(),
   ...WRAPUP_STOPS,
-];
+  // The walkthroughs live in their own file (they are long); a stop keeps its own `walk` if it
+  // has one, otherwise takes the one written for its id.
+].map((stop) => (stop.walk || !TOUR_WALKS[stop.id] ? stop : { ...stop, walk: TOUR_WALKS[stop.id] }));
 
 export const TOUR_STOP_IDS = TOUR_STOPS.map((s) => s.id);
 
