@@ -198,9 +198,10 @@ async function main() {
   await wipe();
   await seed();
 
-  const { encodeValue, importChunk, initialFetchFilesState, runFetchFilesStep } = await import(
-    "../src/lib/migration/backup.js"
-  );
+  const {
+    encodeValue, importChunk, initialFetchFilesState, runFetchFilesStep,
+    assertV2Backup, createClinicFromBackup, promoteMigratedOwner,
+  } = await import("../src/lib/migration/backup.js");
   const { mergeStaff, linkStaff } = await import("../src/lib/migration/staff.js");
   const { verifyFromBackup } = await import("../src/lib/migration/verify.js");
   const { SKIP_COLLECTIONS, DOCUMENT_REROUTES } = await import("../src/lib/migration/routing.js");
@@ -217,6 +218,31 @@ async function main() {
   );
   check("file survives JSON round trip", JSON.parse(JSON.stringify(backup)).docs.length === backup.docs.length);
   const file = JSON.parse(JSON.stringify(backup)) as typeof backup; // what actually travels
+
+  console.log("\nWrong-system guard");
+  let refused = "";
+  try { assertV2Backup(["clinics", "patients", "users"]); } catch (e) { refused = (e as Error).message; }
+  check("a file from the NEW system is refused by name", /NEW system/.test(refused) && refused.includes('"clinics"'), refused);
+  let accepted = true;
+  try { assertV2Backup(file.docs.map((d) => d.path.split("/").slice(0, -1).join("/"))); } catch { accepted = false; }
+  check("a real clinic backup is accepted", accepted);
+
+  console.log("\nThe clinic v3 makes from the file");
+  const made = await createClinicFromBackup({ name: "Made From Backup", sourceProject: "made-from-backup-project", ownerUid: "superadmin-uid" });
+  const madeDoc = await dst.doc(`clinics/${made.clinicId}`).get();
+  check("clinic created", !made.reused && madeDoc.exists);
+  check(
+    "shaped like a normal clinic",
+    madeDoc.get("name") === "Made From Backup" && madeDoc.get("status") === "Active" &&
+      madeDoc.get("subscriptionTier") === "Free Trial" && madeDoc.get("ownerId") === "superadmin-uid" &&
+      madeDoc.get("migratedFrom") === "made-from-backup-project",
+    JSON.stringify(madeDoc.data())
+  );
+  check("settings seeded like onboarding does", (await dst.doc(`clinics/${made.clinicId}/settings/clinic_info`).get()).get("name") === "Made From Backup");
+  const again = await createClinicFromBackup({ name: "Different Name Typed", sourceProject: "made-from-backup-project", ownerUid: "superadmin-uid" });
+  check("uploading the same backup again finds the same clinic", again.reused && again.clinicId === made.clinicId, `${again.clinicId} vs ${made.clinicId}`);
+  const other = await createClinicFromBackup({ name: "Another Clinic", sourceProject: "some-other-project", ownerUid: "superadmin-uid" });
+  check("a different clinic's backup makes a different clinic", !other.reused && other.clinicId !== made.clinicId);
 
   console.log("\nPractice run (must predict, not write)");
   const importable = file.docs.filter((d) => !SKIP_COLLECTIONS[d.path.split("/")[0]]);
@@ -303,6 +329,18 @@ async function main() {
     "staff record repointed at the new account",
     (await dst.doc(`clinics/${CLINIC_ID}/staff/s1`).get()).get("uid") === sara.uid
   );
+
+  console.log("\nOwnership settles on the Admin");
+  const promotion = await promoteMigratedOwner(CLINIC_ID, sara.uid, "superadmin-uid");
+  check("admin promoted to owner", promotion.promoted, promotion.reason);
+  check("clinic.ownerId names the admin", (await dst.doc(`clinics/${CLINIC_ID}`).get()).get("ownerId") === sara.uid);
+  check(
+    "the two ownership facts agree (role is Owner)",
+    (await dst.doc(`users/${sara.uid}`).get()).get("clinicRoles")?.[CLINIC_ID] === "Owner"
+  );
+  check("staff row shows Owner", (await dst.doc(`clinics/${CLINIC_ID}/staff/s1`).get()).get("role") === "Owner");
+  const second = await promoteMigratedOwner(CLINIC_ID, "somebody-else", "superadmin-uid");
+  check("a clinic with a real owner is left alone", !second.promoted, second.reason);
 
   console.log("\nFiles fetched by URL (still no credentials)");
   let fileState = await initialFetchFilesState(CLINIC_ID);

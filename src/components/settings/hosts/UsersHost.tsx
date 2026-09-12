@@ -115,11 +115,11 @@ export default function UsersHost() {
       );
 
       if (result.isNewUser === false) showToast(result.message, "info");
-      else showToast(result.message || "Account created!", "success");
+      else showToast(txt.created, "success");
 
       setIsModalOpen(false);
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Operation failed", "error");
+      showToast(err instanceof Error ? err.message : txt.failed, "error");
     } finally {
       setSaving(false);
     }

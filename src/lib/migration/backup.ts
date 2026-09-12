@@ -1,11 +1,21 @@
 import {
   DocumentReference,
+  FieldValue,
   GeoPoint,
   Timestamp,
   type DocumentData,
   type Firestore,
 } from "firebase-admin/firestore";
 import { adminDb, adminBucket } from "@/lib/firebaseAdmin";
+import { OWNER_ROLE, expandPermissions } from "@/lib/permissions";
+import {
+  DEFAULT_TRIAL_POLICY,
+  PLATFORM_SETTINGS_COLLECTION,
+  TRIAL_POLICY_DOC,
+  normalizeTrialPolicy,
+  trialExpiryFrom,
+  type TrialPolicy,
+} from "@/lib/trialPolicy";
 import {
   DOCUMENT_REROUTES,
   MIGRATION_STAMP_FIELD,
@@ -397,4 +407,155 @@ function rewriteUrls(
   };
 
   return { value: walk(value), changed };
+}
+
+// ------------------------------------------------------------- the clinic the backup becomes
+
+/** Root collections that exist only in v3. A file containing them came from the wrong system. */
+const V3_ONLY_ROOT_COLLECTIONS = ["clinics", "join_requests", "clinic_secrets"];
+
+/**
+ * Refuse a file taken from the NEW system.
+ *
+ * The Backup button lives in the old app, but the operator can reach several sites, and a v3
+ * database exported the same way looks like a plausible backup right up until it is imported
+ * into a v3 clinic — nesting the platform's own tenants inside one of them. Its root
+ * collections give it away, so it is refused by name.
+ */
+export function assertV2Backup(collectionNames: string[]): void {
+  const roots = new Set(collectionNames.map((name) => name.split("/")[0]));
+  const v3 = V3_ONLY_ROOT_COLLECTIONS.filter((name) => roots.has(name));
+  if (v3.length) {
+    throw new Error(
+      `This file was taken from the NEW system, not a clinic's old one — it contains ` +
+        `"${v3.join('", "')}", which only v3 has. Open the clinic's old site, go to /backup, ` +
+        `and download from there.`
+    );
+  }
+}
+
+/** Same fallback as onboarding: a settings document being unreachable must not block a clinic. */
+async function readTrialPolicy(db: Firestore): Promise<TrialPolicy> {
+  try {
+    const snap = await db.collection(PLATFORM_SETTINGS_COLLECTION).doc(TRIAL_POLICY_DOC).get();
+    return snap.exists ? normalizeTrialPolicy(snap.data()) : DEFAULT_TRIAL_POLICY;
+  } catch {
+    return DEFAULT_TRIAL_POLICY;
+  }
+}
+
+/**
+ * Create the v3 clinic a backup will be imported into, shaped exactly like one made through
+ * onboarding — same fields, same trial expiry policy, same seeded settings — so nothing
+ * downstream can tell a migrated clinic from a signed-up one.
+ *
+ * Idempotent per source project: re-uploading the same clinic's backup finds the clinic it made
+ * last time instead of minting a second one beside it. The operator is going to run this more
+ * than once (a practice run, a real run, a re-run after fixing something), and each run must
+ * land in the same place.
+ *
+ * Owned at first by the super admin pressing the button — there is nobody else yet. Ownership
+ * moves to the clinic's own Admin once their login exists; see promoteMigratedOwner.
+ */
+export async function createClinicFromBackup(args: {
+  name: string;
+  sourceProject: string;
+  ownerUid: string;
+}): Promise<{ clinicId: string; name: string; reused: boolean }> {
+  const db = adminDb();
+  const name = args.name.trim();
+  if (!name) throw new Error("The clinic needs a name.");
+  const sourceProject = args.sourceProject.trim();
+
+  if (sourceProject) {
+    const existing = await db
+      .collection("clinics")
+      .where("migratedFrom", "==", sourceProject)
+      .limit(1)
+      .get();
+    if (!existing.empty) {
+      const doc = existing.docs[0];
+      return { clinicId: doc.id, name: (doc.get("name") as string) || name, reused: true };
+    }
+  }
+
+  const policy = await readTrialPolicy(db);
+  const expiresAt = trialExpiryFrom(new Date(), policy);
+  const clinicRef = db.collection("clinics").doc();
+
+  await db.runTransaction(async (tx) => {
+    tx.set(clinicRef, {
+      name,
+      ownerId: args.ownerUid,
+      subscriptionTier: "Free Trial",
+      status: "Active",
+      createdAt: FieldValue.serverTimestamp(),
+      ...(expiresAt ? { expiresAt } : {}),
+      migratedFrom: sourceProject || null,
+      migratedAt: FieldValue.serverTimestamp(),
+    });
+    // `name` AND `clinicName`: the Android app reads `name` with no fallback (see onboarding).
+    tx.set(clinicRef.collection("settings").doc("clinic_info"), {
+      name,
+      clinicName: name,
+      currency: "EGP",
+      createdAt: new Date().toISOString(),
+    });
+  });
+
+  return { clinicId: clinicRef.id, name, reused: false };
+}
+
+/**
+ * Hand a migrated clinic to its Admin once their login exists.
+ *
+ * v3 keeps ownership as two facts that must agree — `clinics/{id}.ownerId` and an Owner role on
+ * the user (see ensure-owner and transfer-ownership) — so both are written in one transaction.
+ * Only a placeholder owner is replaced: the super admin who ran the migration, or nobody. A
+ * clinic that already belongs to a real person is left exactly as it is.
+ */
+export async function promoteMigratedOwner(
+  clinicId: string,
+  ownerUid: string,
+  placeholderOwnerUid: string
+): Promise<{ promoted: boolean; reason?: string }> {
+  const db = adminDb();
+  const clinicRef = db.collection("clinics").doc(clinicId);
+  const currentOwner = (await clinicRef.get()).get("ownerId") as string | undefined;
+
+  if (currentOwner && currentOwner !== placeholderOwnerUid && currentOwner !== ownerUid) {
+    return { promoted: false, reason: "clinic-already-owned" };
+  }
+
+  const existingOwners = await db
+    .collection("users")
+    .where(`clinicRoles.${clinicId}`, "==", OWNER_ROLE)
+    .limit(1)
+    .get();
+  if (!existingOwners.empty && existingOwners.docs[0].id !== ownerUid) {
+    return { promoted: false, reason: "already-has-owner" };
+  }
+
+  const userRef = db.collection("users").doc(ownerUid);
+  await db.runTransaction(async (tx) => {
+    // set+merge is a deep merge for maps, so roles at other clinics survive.
+    tx.set(
+      userRef,
+      {
+        clinicRoles: { [clinicId]: OWNER_ROLE },
+        // Owner short-circuits every check, so this is the same empty list an Admin carries —
+        // written anyway so the field never describes a role they used to hold.
+        clinicPermissions: { [clinicId]: expandPermissions(OWNER_ROLE, []) },
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    tx.update(clinicRef, { ownerId: ownerUid, updatedAt: FieldValue.serverTimestamp() });
+  });
+
+  // The staff row is a display copy — the Users screen reads it, no rule ever does.
+  const staffRows = await db.collection(`clinics/${clinicId}/staff`).where("uid", "==", ownerUid).get();
+  await Promise.all(staffRows.docs.map((row) => row.ref.set({ role: OWNER_ROLE }, { merge: true })));
+
+  return { promoted: true };
 }

@@ -1,4 +1,5 @@
 import { adminDb } from "@/lib/firebaseAdmin";
+import { OWNER_ROLE } from "@/lib/permissions";
 import {
   DOCUMENT_REROUTES,
   MIGRATION_STAMP_FIELD,
@@ -50,6 +51,19 @@ const REFERENCE_CHECKS = [
 const EXPECTED_REWRITTEN_FIELDS: Record<string, Set<string>> = {
   staff: new Set(["uid"]),
 };
+
+/**
+ * Is this difference one the migration made on purpose?
+ *
+ * Beyond the always-rewritten fields above, one value changes conditionally: once logins exist
+ * the clinic's Admin becomes its Owner (promoteMigratedOwner), so that person's staff row reads
+ * Owner where the backup said Admin. Exempting `role` outright would hide a genuinely corrupted
+ * role on every other staff member, so only that exact transformation is allowed through.
+ */
+function isExpectedRewrite(collection: string, key: string, targetValue: unknown): boolean {
+  if (EXPECTED_REWRITTEN_FIELDS[collection]?.has(key)) return true;
+  return collection === "staff" && key === "role" && targetValue === OWNER_ROLE;
+}
 
 export async function verifyMigration(
   creds: SourceCredentials,
@@ -133,7 +147,7 @@ export async function verifyMigration(
       const target = snap.data() || {};
       for (const [key, value] of Object.entries(doc.data())) {
         if (key === MIGRATION_STAMP_FIELD) continue;
-        if (EXPECTED_REWRITTEN_FIELDS[name]?.has(key)) continue;
+        if (isExpectedRewrite(name, key, target[key])) continue;
         if (!sameValue(value, target[key], clinicId)) {
           differing += 1;
           break;
@@ -389,7 +403,7 @@ export async function verifyFromBackup(
       const target = snap.data() || {};
       for (const [key, value] of Object.entries(expected)) {
         if (key === MIGRATION_STAMP_FIELD) continue;
-        if (EXPECTED_REWRITTEN_FIELDS[rootName]?.has(key)) continue;
+        if (isExpectedRewrite(rootName, key, target[key])) continue;
         if (!sameValue(value, target[key], clinicId)) {
           bucket.differing += 1;
           break;

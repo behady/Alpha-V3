@@ -385,6 +385,7 @@ async function runDailyClinicReportJob() {
   return outcomes;
 }
 
+/** Daily PDF clinic report → Firebase Storage signed URL → owner WhatsApp (settings/whatsapp.ownerNumber). */
 exports.dailyClinicReportToOwner = onSchedule(
   {
     schedule: "50 23 * * *",

@@ -9,12 +9,16 @@ import { initialStorageState, runStorageStep } from "@/lib/migration/storage";
 import { verifyMigration, verifyFromBackup } from "@/lib/migration/verify";
 import { parseCredentials } from "@/lib/migration/sourceApp";
 import {
+  assertV2Backup,
+  createClinicFromBackup,
   importChunk,
   initialFetchFilesState,
+  promoteMigratedOwner,
   runFetchFilesStep,
   type BackupDoc,
   type FetchFilesState,
 } from "@/lib/migration/backup";
+import type { StaffResult } from "@/lib/migration/staff";
 import {
   DOCUMENT_REROUTES,
   KNOWN_CLINIC_COLLECTIONS,
@@ -60,6 +64,25 @@ export async function POST(request: Request) {
     const action = String(body?.action || "");
     const clinicId = String(body?.clinicId || "").trim();
 
+    /**
+     * The one action that exists to MAKE a clinic, so it cannot be asked for one first. It also
+     * re-checks the file's shape: the browser already refused a v3-shaped file, but the server
+     * is what actually writes, and it does not trust that.
+     */
+    if (action === "create-clinic") {
+      try {
+        assertV2Backup((body?.collections || []) as string[]);
+      } catch (error) {
+        return invalid(error instanceof Error ? error.message : "Not a clinic backup.");
+      }
+      const created = await createClinicFromBackup({
+        name: String(body?.name || ""),
+        sourceProject: String(body?.sourceProject || ""),
+        ownerUid: authz.uid,
+      });
+      return NextResponse.json({ ok: true, ...created });
+    }
+
     if (!clinicId) {
       return NextResponse.json({ ok: false, error: "Pick a clinic first." }, { status: 400 });
     }
@@ -93,6 +116,11 @@ export async function POST(request: Request) {
 
       case "plan-backup": {
         const collections = (body?.collections || []) as { path: string; count: number }[];
+        try {
+          assertV2Backup(collections.map((entry) => entry.path));
+        } catch (error) {
+          return invalid(error instanceof Error ? error.message : "Not a clinic backup.");
+        }
         const plan = collections
           .sort((a, b) => a.path.localeCompare(b.path))
           .map(({ path, count }) => {
@@ -156,7 +184,8 @@ export async function POST(request: Request) {
           people,
           Boolean(body?.resetLinks)
         );
-        return NextResponse.json({ ok: true, results, noEmail });
+        const owner = await settleOwnership(clinicId, results, body?.adminEmail, authz.uid);
+        return NextResponse.json({ ok: true, results, noEmail, owner });
       }
 
       case "fetch-files": {
@@ -223,7 +252,8 @@ export async function POST(request: Request) {
           );
         }
         const results = await linkStaff(creds.projectId, clinicId, people, Boolean(body?.resetLinks));
-        return NextResponse.json({ ok: true, results, noEmail });
+        const owner = await settleOwnership(clinicId, results, body?.adminEmail, authz.uid);
+        return NextResponse.json({ ok: true, results, noEmail, owner });
       }
 
       case "storage": {
@@ -250,6 +280,30 @@ export async function POST(request: Request) {
     reportServerError("Migration error:", error);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
+}
+
+function invalid(message: string): NextResponse {
+  return NextResponse.json({ ok: false, error: message }, { status: 400 });
+}
+
+/**
+ * Once logins exist, the clinic belongs to its Admin — the person named in the owner box, or
+ * failing that the first Admin linked. Until now it was owned by whoever ran the migration.
+ */
+async function settleOwnership(
+  clinicId: string,
+  results: StaffResult[],
+  adminEmail: unknown,
+  superAdminUid: string
+): Promise<{ email: string; name: string; promoted: boolean; reason?: string } | null> {
+  const wanted = String(adminEmail || "").trim().toLowerCase();
+  const owner =
+    results.find((person) => person.role === "Admin" && (!wanted || person.email === wanted)) ||
+    results.find((person) => person.role === "Admin");
+  if (!owner) return null;
+
+  const outcome = await promoteMigratedOwner(clinicId, owner.uid, superAdminUid);
+  return { email: owner.email, name: owner.name, ...outcome };
 }
 
 function requireSalt(): string | NextResponse {
