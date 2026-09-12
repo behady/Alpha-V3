@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
   Check,
+  Hand,
   ListTree,
   Loader2,
   Send,
@@ -13,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import AvatarFace, { type AvatarState } from "@/components/appointments/AvatarFace";
+import TourCursor from "@/components/tour/TourCursor";
 import { useTour } from "@/context/TourContext";
 import { useTutorial } from "@/context/TutorialContext";
 import { useLanguage } from "@/context/LanguageContext";
@@ -21,42 +24,51 @@ import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
 import { auth } from "@/lib/firebase";
 import { TOUR_GUIDE, type TourStop } from "@/lib/grandTour";
-import { findFirstVisibleAnchor } from "@/lib/tourDom";
+import { navPlanFor, stopRouteMatches } from "@/lib/tourDemo";
+import { findAnchorInRowContaining, findFirstVisibleAnchor } from "@/lib/tourDom";
 import { toSpeechText, trimForSpeech } from "@/lib/speechText";
+import { useTourRunner } from "@/lib/useTourRunner";
 
 /**
  * Sara on screen.
  *
- * Three layers, bottom to top: a dimmed sheet over the whole app with one bright window cut out
- * of it (the spotlight), an invisible click-catcher so nothing under the sheet reacts while she is
- * talking, and her panel — a black slab with her orb, the stop's title, the line she is saying
- * typed out as she says it, the questions worth asking here, a box to ask your own, and the
- * Back / Next controls.
+ * Four layers, bottom to top: a dimmed sheet over the whole app with one bright window cut out
+ * of it (the spotlight), an invisible click-catcher so nothing under the sheet reacts while she
+ * is talking, her hand (a cursor that walks to what she is about to click), and her panel — a
+ * black slab with her orb, the stop's title, the line she is saying typed out as she says it,
+ * the questions worth asking here, a box to ask your own, and the Back / Next controls.
+ *
+ * A stop plays out in phases:
+ *   navigating — her hand walks to the page the way a person would: open the menu, click the
+ *                item. Only when the page is not already open. If a click cannot be found the
+ *                route is pushed instead, so the tour never stalls on a hidden menu.
+ *   narrating  — the stop's line is typed (and spoken, if voice is on).
+ *   asking     — the first stop with a demo asks, once, whether she may add and delete real
+ *                test records. Yes turns demos on for the rest of the tour.
+ *   demo       — her hand does the thing: real clicks, real typing, each step narrated.
+ *   done       — the chips and the question box.
  *
  * Why the page is locked: a tour and a lesson are different promises. A lesson (TutorialOverlay)
  * leaves the page live because the whole point is that you press the real button. The tour
  * describes fifty screens in fifteen minutes; a page that also reacts to stray clicks would open
  * modals under the spotlight and drag the narration off its subject. When someone wants to DO
- * the thing, Sara offers the lesson, the tour pauses, and the ring takes over.
+ * the thing themselves, Sara offers the lesson, the tour pauses, and the ring takes over.
  *
- * Where the panel sits: the bottom, unless the spotlight is in the bottom part of the screen (the
- * phone's bottom bar, a save button), in which case it moves to the top. It must never cover what
- * it is pointing at.
+ * Voice: one line at a time, always. Every request carries a sequence number; a reply that
+ * arrives after the tour has moved on is dropped, and starting a new line stops the old one
+ * mid-word. That is what stops two stops talking over each other when Next is pressed early.
  *
- * Money: the narration is free — it is text in this repo. Every question typed into the box is
- * one assistant credit, the same as the chat orb, and the placeholder says so once. Voice is
- * off by default; switched on it reads each stop aloud through the clinic's server voice (the
- * same one the reception assistant uses) and quietly turns itself off again on a plan that has
- * no voice.
+ * Money: the narration and the demos are free. Every question typed into the box is one
+ * assistant credit, the same as the chat orb, and the placeholder says so once.
  */
 
 const POLL_MS = 250;
 const SPOT_PAD = 10;
-/** Typing pace of the narration. Fast enough not to bore, slow enough to read as speech. */
 const TYPE_MS_PER_CHAR = 16;
 const VOICE_KEY = "alphaTourVoice";
-/** How much of the conversation goes back to the model with each question. */
 const HISTORY_TURNS = 8;
+
+type Phase = "idle" | "navigating" | "narrating" | "asking" | "demo" | "done";
 
 interface QaMessage {
   id: string;
@@ -81,7 +93,7 @@ function writeVoicePref(on: boolean): void {
   }
 }
 
-/** Reveals `text` a character at a time. Clicking the text (or a stop change) shows all of it. */
+/** Reveals `text` a character at a time. Clicking the text (or a key change) shows all of it. */
 function useTypewriter(text: string, key: string) {
   const [shown, setShown] = useState("");
   const [done, setDone] = useState(false);
@@ -95,8 +107,6 @@ function useTypewriter(text: string, key: string) {
     }
     let i = 0;
     const timer = setInterval(() => {
-      // Arabic and English both read fine at a per-character pace; two at a time keeps long
-      // lines from dragging.
       i = Math.min(text.length, i + 2);
       setShown(text.slice(0, i));
       if (i >= text.length) {
@@ -105,7 +115,6 @@ function useTypewriter(text: string, key: string) {
       }
     }, TYPE_MS_PER_CHAR);
     return () => clearInterval(timer);
-    // key, not text: the same line on a new stop id must retype.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
@@ -124,31 +133,258 @@ export default function GrandTourOverlay() {
   const { user } = useAuth();
   const { clinicId } = useClinic();
   const { showToast } = useUI();
+  const router = useRouter();
+  const pathname = usePathname();
   const isAr = language === "ar";
   const guideName = isAr ? TOUR_GUIDE.ar : TOUR_GUIDE.en;
 
-  const { active, paused, stop, stopIndex, stops, chapters } = tour;
-  const total = stops.length;
-  const isLast = stopIndex >= total - 1;
+  const { active, paused, stop, stopIndex, stops, chapters, demoMode } = tour;
+  // What the counter shows: demo-only stops are not on the route until demos are on.
+  const shownStops = useMemo(() => stops.filter((s) => !s.demoOnly || demoMode === "on"), [stops, demoMode]);
+  const total = shownStops.length;
+  const shownIndex = Math.max(0, stop ? shownStops.findIndex((s) => s.id === stop.id) : 0);
+  const isLast = stopIndex >= stops.length - 1;
+
+  /* --- voice ------------------------------------------------------------------------------ */
+  const [voiceOn, setVoiceOn] = useState(false);
+  const [fetchingVoice, setFetchingVoice] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioCache = useRef<Map<string, string>>(new Map());
+  /** Bumped on every new line and every stop. A reply carrying an old number is dropped. */
+  const speakSeq = useRef(0);
+  /** Resolves whoever is waiting for the current line, when it ends or is cut off. */
+  const pendingResolve = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    setVoiceOn(readVoicePref());
+  }, []);
+
+  const stopSpeaking = useCallback(() => {
+    speakSeq.current += 1;
+    const a = audioRef.current;
+    if (a) {
+      try {
+        a.pause();
+      } catch {
+        /* ignore */
+      }
+      audioRef.current = null;
+    }
+    setSpeaking(false);
+    pendingResolve.current?.();
+    pendingResolve.current = null;
+  }, []);
+
+  const voiceOnRef = useRef(voiceOn);
+  voiceOnRef.current = voiceOn;
+
+  /** Says one line; resolves when it has been said, was cut off, or could not be. */
+  const speakAsync = useCallback(
+    async (text: string): Promise<void> => {
+      if (!voiceOnRef.current || !clinicId) return;
+      const spoken = trimForSpeech(toSpeechText(text, isAr), 600);
+      if (!spoken) return;
+      stopSpeaking();
+      const seq = speakSeq.current;
+      const cacheKey = `${isAr ? "ar" : "en"}::${spoken}`;
+
+      let src = audioCache.current.get(cacheKey) ?? null;
+      if (!src) {
+        setFetchingVoice(true);
+        try {
+          const idToken = await auth.currentUser?.getIdToken();
+          if (!idToken) return;
+          const res = await fetch("/api/tts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+            body: JSON.stringify({ clinicId, text: spoken, language: isAr ? "ar" : "en" }),
+          });
+          if (res.status === 403 || res.status === 429) {
+            setVoiceOn(false);
+            writeVoicePref(false);
+            showToast(
+              res.status === 403
+                ? isAr
+                  ? "الصوت جزء من المساعد الذكي — متاح في باقات Pro وPremium."
+                  : "Voice is part of the AI assistant — available on Pro and Premium plans."
+                : isAr
+                  ? "رصيد الصوت للشهر ده خلص. الجولة هتكمل مكتوبة."
+                  : "This month's voice allowance is used up. The tour continues in text.",
+              "info",
+            );
+            return;
+          }
+          if (!res.ok) return;
+          const data = await res.json();
+          src = `data:${data.mimeType || "audio/wav"};base64,${data.audio}`;
+          audioCache.current.set(cacheKey, src);
+        } catch {
+          return;
+        } finally {
+          setFetchingVoice(false);
+        }
+      }
+      // The tour moved on while the audio was being made: say nothing.
+      if (seq !== speakSeq.current) return;
+
+      await new Promise<void>((resolve) => {
+        const audio = new Audio(src as string);
+        audioRef.current = audio;
+        pendingResolve.current = resolve;
+        const finish = () => {
+          if (pendingResolve.current === resolve) pendingResolve.current = null;
+          setSpeaking(false);
+          resolve();
+        };
+        audio.onplay = () => setSpeaking(true);
+        audio.onended = finish;
+        audio.onerror = finish;
+        void audio.play().catch(finish);
+      });
+    },
+    [clinicId, isAr, stopSpeaking, showToast],
+  );
+
+  /* --- the hand --------------------------------------------------------------------------- */
+  const navigate = useCallback((path: string) => router.push(path), [router]);
+  const runner = useTourRunner({
+    isAr,
+    speak: speakAsync,
+    navigate,
+    resolveDemoPatient: tour.resolveDemoPatient,
+  });
+  const runRef = useRef(runner.run);
+  runRef.current = runner.run;
+  const abortRef = useRef(runner.abort);
+  abortRef.current = runner.abort;
+
+  /* --- the stop's life -------------------------------------------------------------------- */
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [failureLine, setFailureLine] = useState<string | null>(null);
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
+
+  // A dynamic stop is not ready until the provider has said which patient it is.
+  const resolvedRoute = tour.stopRoute;
+  const dynamicReady = !stop?.dynamic || !!resolvedRoute;
+
+  useEffect(() => {
+    if (!active || paused || !stop) {
+      abortRef.current();
+      stopSpeaking();
+      setPhase("idle");
+      return;
+    }
+    setFailureLine(null);
+    setPhase("navigating");
+    if (!dynamicReady) return; // the provider is still looking the patient up, or will skip
+    let cancelled = false;
+    void (async () => {
+      if (!stopRouteMatches(stop, pathnameRef.current, resolvedRoute)) {
+        const plan = navPlanFor(stop, resolvedRoute);
+        const outcome = plan.length > 0 ? await runRef.current(plan, tour.demoValues) : "failed";
+        if (cancelled || outcome === "aborted") return;
+        if (outcome === "failed") {
+          // The menu could not be walked (a hidden item, a changed screen): go straight there.
+          const target = resolvedRoute ?? stop.route;
+          if (target && !stopRouteMatches(stop, pathnameRef.current, resolvedRoute)) router.push(target);
+        }
+      }
+      if (!cancelled) setPhase("narrating");
+    })();
+    return () => {
+      cancelled = true;
+      abortRef.current();
+      stopSpeaking();
+    };
+    // A new stop (or resume) restarts the sequence, and a dynamic stop restarts once resolved.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, paused, stop?.id, dynamicReady, resolvedRoute]);
+
+  /* --- what she is saying ----------------------------------------------------------------- */
+  const stopLine = stop ? (isAr ? stop.say.ar : stop.say.en) : "";
+  const subLine = runner.state.say ? (isAr ? runner.state.say.ar : runner.state.say.en) : null;
+  const displayed =
+    phase === "navigating"
+      ? ""
+      : subLine ?? failureLine ?? stopLine;
+  const typed = useTypewriter(displayed, `${stop?.id ?? ""}:${language}:${displayed}`);
+
+  // The stop's own line is spoken once, when narration begins. Sub-lines are spoken by the
+  // runner, which waits for them.
+  useEffect(() => {
+    if (phase !== "narrating" || !stop) return;
+    void speakAsync(stopLine);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, stop?.id]);
+
+  const runDemo = useCallback(
+    async (s: TourStop) => {
+      if (!s.demo) return;
+      setPhase("demo");
+      // Already done on an earlier run of the tour: say so rather than make a second one.
+      if (s.demoSkipIf) {
+        const exists =
+          s.demoSkipIf === "demoPatientExists"
+            ? !!(await tour.resolveDemoPatient())
+            : !!findAnchorInRowContaining("price-row-delete", tour.demoValues.serviceName);
+        if (exists) {
+          setFailureLine(
+            isAr
+              ? "أنا عملت ده قبل كده في جولة سابقة، فمش هعمله تاني — نكمّل."
+              : "I already did this on an earlier run of the tour, so I won't make a second one — let's carry on.",
+          );
+          setPhase("done");
+          return;
+        }
+      }
+      const outcome = await runRef.current(s.demo, tour.demoValues);
+      if (outcome === "aborted") return;
+      if (outcome === "failed") {
+        setFailureLine(
+          isAr
+            ? "الخطوة دي معدّتش — يا إما صلاحيتك مش بتسمح، أو الشاشة اتغيرت. لو فضل حاجة باسمي، هتلاقيها في الإعدادات ← المحذوفات أو تقدر تمسحها بإيدك. نكمّل."
+            : "That step didn't go through — your role may not allow it, or the screen has changed. If anything of mine is left behind, it is named after me and you can delete it yourself. Let's carry on.",
+        );
+      }
+      setPhase("done");
+    },
+    [tour, isAr],
+  );
+
+  // Narration finished: demo, ask, or done.
+  useEffect(() => {
+    if (phase !== "narrating" || !typed.done || !stop) return;
+    if (stop.demo && demoMode === "on") void runDemo(stop);
+    else if (stop.demo && demoMode === "unasked") setPhase("asking");
+    else setPhase("done");
+  }, [phase, typed.done, stop, demoMode, runDemo]);
+
+  const answerDemo = (yes: boolean) => {
+    tour.setDemoMode(yes ? "on" : "off");
+    if (yes && stop) void runDemo(stop);
+    else setPhase("done");
+  };
 
   /* --- the spotlight ---------------------------------------------------------------------- */
   const [rect, setRect] = useState<DOMRect | null>(null);
   const scrolledFor = useRef<string | null>(null);
+  const runnerAnchor = runner.state.anchor;
 
   useEffect(() => {
     if (!active || paused || !stop) return;
     let raf = 0;
-    const anchors = [...(stop.spot ?? []), "page-main"];
+    const anchors = runnerAnchor ? [runnerAnchor, "page-main"] : [...(stop.spot ?? []), "page-main"];
     const measure = () => {
       const found = findFirstVisibleAnchor(anchors);
       if (!found) {
         setRect(null);
         return;
       }
-      // Bring a target that is off screen into view once per stop; the dashboard's stat cards
-      // may be below the fold on a phone.
-      if (scrolledFor.current !== stop.id) {
-        scrolledFor.current = stop.id;
+      const key = `${stop.id}:${runnerAnchor ?? ""}`;
+      if (scrolledFor.current !== key && !runnerAnchor) {
+        scrolledFor.current = key;
         const r = found.rect;
         if (r.top < 0 || r.bottom > window.innerHeight) {
           try {
@@ -174,119 +410,17 @@ export default function GrandTourOverlay() {
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", onScroll);
     };
-  }, [active, paused, stop]);
+  }, [active, paused, stop, runnerAnchor]);
 
-  /* --- the narration ---------------------------------------------------------------------- */
-  const line = stop ? (isAr ? stop.say.ar : stop.say.en) : "";
-  const typed = useTypewriter(line, `${stop?.id ?? ""}:${language}`);
-
-  /* --- voice ------------------------------------------------------------------------------ */
-  const [voiceOn, setVoiceOn] = useState(false);
-  const [fetchingVoice, setFetchingVoice] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioCache = useRef<Map<string, string>>(new Map());
-
-  useEffect(() => {
-    setVoiceOn(readVoicePref());
-  }, []);
-
-  const stopSpeaking = useCallback(() => {
-    const a = audioRef.current;
-    if (a) {
-      try {
-        a.pause();
-      } catch {
-        /* ignore */
-      }
-      audioRef.current = null;
-    }
-    setSpeaking(false);
-  }, []);
-
-  const speak = useCallback(
-    async (text: string) => {
-      if (!voiceOn || !clinicId) return;
-      const spoken = trimForSpeech(toSpeechText(text, isAr), 600);
-      if (!spoken) return;
-      stopSpeaking();
-      const cacheKey = `${isAr ? "ar" : "en"}::${spoken}`;
-      const play = (src: string) => {
-        const audio = new Audio(src);
-        audioRef.current = audio;
-        audio.onplay = () => setSpeaking(true);
-        audio.onended = () => setSpeaking(false);
-        audio.onerror = () => setSpeaking(false);
-        void audio.play().catch(() => setSpeaking(false));
-      };
-      const cached = audioCache.current.get(cacheKey);
-      if (cached) {
-        play(cached);
-        return;
-      }
-      setFetchingVoice(true);
-      try {
-        const idToken = await auth.currentUser?.getIdToken();
-        if (!idToken) return;
-        const res = await fetch("/api/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-          body: JSON.stringify({ clinicId, text: spoken, language: isAr ? "ar" : "en" }),
-        });
-        if (res.status === 403 || res.status === 429) {
-          // No voice on this plan, or the month's voice allowance is spent. Stay quiet rather
-          // than fail on every stop — and say so once.
-          setVoiceOn(false);
-          writeVoicePref(false);
-          showToast(
-            res.status === 403
-              ? isAr
-                ? "الصوت جزء من المساعد الذكي — متاح في باقات Pro وPremium."
-                : "Voice is part of the AI assistant — available on Pro and Premium plans."
-              : isAr
-                ? "رصيد الصوت للشهر ده خلص. الجولة هتكمل مكتوبة."
-                : "This month's voice allowance is used up. The tour continues in text.",
-            "info",
-          );
-          return;
-        }
-        if (!res.ok) return;
-        const data = await res.json();
-        const src = `data:${data.mimeType || "audio/wav"};base64,${data.audio}`;
-        audioCache.current.set(cacheKey, src);
-        play(src);
-      } catch {
-        /* Silence is the correct failure for a narrator. */
-      } finally {
-        setFetchingVoice(false);
-      }
-    },
-    [voiceOn, clinicId, isAr, stopSpeaking, showToast],
-  );
-
-  // Each stop: say the line (if voice is on). Leaving or pausing: stop mid-word.
-  useEffect(() => {
-    if (!active || paused || !stop) {
-      stopSpeaking();
-      return;
-    }
-    void speak(line);
-    return () => stopSpeaking();
-    // speak changes identity with voiceOn; re-speaking on toggle is handled by the toggle itself.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, paused, stop?.id, language]);
-
+  /* --- voice toggle ----------------------------------------------------------------------- */
   const toggleVoice = () => {
     const next = !voiceOn;
     setVoiceOn(next);
+    voiceOnRef.current = next;
     writeVoicePref(next);
     if (!next) stopSpeaking();
+    else if (displayed) void speakAsync(displayed);
   };
-  // Speak the current line the moment voice is switched on.
-  useEffect(() => {
-    if (voiceOn && active && !paused && stop) void speak(line);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [voiceOn]);
 
   /* --- questions -------------------------------------------------------------------------- */
   const [qa, setQa] = useState<QaMessage[]>([]);
@@ -295,7 +429,6 @@ export default function GrandTourOverlay() {
   const [askedOnce, setAskedOnce] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
 
-  // A fresh tour starts with a clean thread.
   useEffect(() => {
     if (!active) setQa([]);
   }, [active]);
@@ -311,10 +444,7 @@ export default function GrandTourOverlay() {
       setQuestion("");
       setAskedOnce(true);
       const userMsg: QaMessage = { id: `${Date.now()}u`, role: "user", content: prompt, stopId: stop.id };
-      // History as the route expects it: role + content pairs, most recent last.
-      const history = [...qa]
-        .slice(-HISTORY_TURNS)
-        .map((m) => ({ role: m.role, content: m.content }));
+      const history = [...qa].slice(-HISTORY_TURNS).map((m) => ({ role: m.role, content: m.content }));
       setQa((q) => [...q, userMsg]);
       setAsking(true);
       stopSpeaking();
@@ -332,6 +462,7 @@ export default function GrandTourOverlay() {
             assistantMode: "trainer",
             language: isAr ? "ar" : "en",
             tour: { stopId: stop.id },
+            tourStopIds: stops.map((s) => s.id),
             history,
           }),
         });
@@ -355,8 +486,7 @@ export default function GrandTourOverlay() {
         const data = await res.json();
         const reply = String(data.reply || "…");
         setQa((q) => [...q, { id: `${Date.now()}a`, role: "assistant", content: reply, stopId: stop.id }]);
-        void speak(reply);
-        // Sara chose to take them somewhere, or to hand over to a lesson.
+        void speakAsync(reply);
         if (typeof data.tourGoTo?.stopId === "string") tour.goTo(data.tourGoTo.stopId);
         if (typeof data.startTutorial?.id === "string") startTutorial(data.startTutorial.id);
       } catch (err: unknown) {
@@ -366,7 +496,7 @@ export default function GrandTourOverlay() {
         setAsking(false);
       }
     },
-    [asking, stop, clinicId, qa, isAr, user?.name, tour, startTutorial, speak, stopSpeaking],
+    [asking, stop, clinicId, qa, isAr, user?.name, tour, stops, startTutorial, speakAsync, stopSpeaking],
   );
 
   /* --- chapters drawer -------------------------------------------------------------------- */
@@ -409,18 +539,19 @@ export default function GrandTourOverlay() {
   }, [stops]);
   const visited = useMemo(() => new Set(tour.progress.visited), [tour.progress.visited]);
 
-  const avatarState: AvatarState = asking || fetchingVoice ? "thinking" : speaking || !typed.done ? "speaking" : "idle";
+  const busy = runner.state.running || phase === "navigating";
+  const avatarState: AvatarState =
+    asking || fetchingVoice ? "thinking" : busy || speaking || !typed.done ? "speaking" : "idle";
 
-  // The panel goes to the top when the spotlight is low — never over what it is pointing at.
   const dockTop = !!rect && rect.top > (typeof window !== "undefined" ? window.innerHeight : 800) * 0.55;
-
   const thisStopQa = qa.filter((m) => m.stopId === stop?.id);
+  const showChips = phase === "done" && stop && stop.ask.length > 0 && thisStopQa.length === 0;
 
   if (!active || paused || !stop) return null;
 
   const ArrowNext = isRTL ? ArrowLeft : ArrowRight;
   const ArrowBack = isRTL ? ArrowRight : ArrowLeft;
-  const pct = total > 0 ? Math.round(((stopIndex + 1) / total) * 100) : 0;
+  const pct = total > 0 ? Math.round(((shownIndex + 1) / total) * 100) : 0;
 
   const spotStyle = rect
     ? {
@@ -433,9 +564,7 @@ export default function GrandTourOverlay() {
 
   return (
     <>
-      {/* The dimmed sheet. One element: the bright window is its box-shadow's absence. When no
-          target is found yet the whole screen dims evenly rather than a spotlight jumping in
-          from the corner. */}
+      {/* The dimmed sheet. One element: the bright window is its box-shadow's absence. */}
       <div className="fixed inset-0 z-[9960]" aria-hidden onClick={() => setChaptersOpen(false)}>
         {rect ? (
           <div
@@ -447,16 +576,18 @@ export default function GrandTourOverlay() {
         )}
       </div>
 
-      {/* Sara's panel. */}
+      <TourCursor cursor={runner.cursor} label={guideName} />
+
+      {/* Sara's panel. Above the confirm dialog (z-9999) so her words stay visible while her hand
+          presses Delete. */}
       <div
-        className={`fixed z-[9962] inset-x-3 ${dockTop ? "top-3" : "bottom-3"} sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-[min(44rem,calc(100vw-2rem))]`}
+        className={`fixed z-[10001] inset-x-3 ${dockTop ? "top-3" : "bottom-3"} sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-[min(44rem,calc(100vw-2rem))]`}
         dir={isRTL ? "rtl" : "ltr"}
         role="dialog"
         aria-label={guideName}
       >
         {/* No overflow-hidden here: the chapters drawer hangs outside the slab. */}
         <div className="relative rounded-[1.75rem] bg-ink-slab text-white shadow-[0_24px_80px_rgba(0,0,0,0.45)] ring-1 ring-white/10 animate-in fade-in slide-in-from-bottom-4 duration-300">
-          {/* Progress: the only colour on the slab besides the Next button. */}
           <div className="h-1 w-full overflow-hidden rounded-t-[1.75rem] bg-white/10">
             <div className="h-full bg-[#FACC15] transition-[width] duration-500" style={{ width: `${pct}%` }} />
           </div>
@@ -472,11 +603,16 @@ export default function GrandTourOverlay() {
                 <span className="rounded-full bg-[#FACC15] px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-ink">
                   {isAr ? "الجولة" : "Tour"}
                 </span>
+                {phase === "demo" && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-white/70">
+                    <Hand size={10} /> {isAr ? "بتعمل بنفسها" : "Doing it live"}
+                  </span>
+                )}
               </div>
               <p className="truncate text-[11px] font-semibold text-white/50">
                 {chapter ? (isAr ? chapter.title.ar : chapter.title.en) : ""}
                 <span className="mx-1.5 text-white/25">·</span>
-                <span className="tabular-nums">{stopIndex + 1} / {total}</span>
+                <span className="tabular-nums">{shownIndex + 1} / {total}</span>
               </p>
             </div>
 
@@ -509,24 +645,26 @@ export default function GrandTourOverlay() {
                       <p className="px-2 pb-1 pt-1.5 text-[10px] font-black uppercase tracking-widest text-white/40">
                         {isAr ? c.title.ar : c.title.en}
                       </p>
-                      {(chapterStops.get(c.id) ?? []).map((s) => {
-                        const current = s.id === stop.id;
-                        return (
-                          <button
-                            key={s.id}
-                            type="button"
-                            onClick={() => tour.goTo(s.id)}
-                            className={`flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-start text-[12px] font-bold transition-colors ${
-                              current ? "bg-[#FACC15] text-ink" : "text-white/80 hover:bg-white/10"
-                            }`}
-                          >
-                            <span className={`grid size-4 shrink-0 place-items-center rounded-full ${current ? "bg-ink/15" : visited.has(s.id) ? "bg-emerald-400/20 text-emerald-300" : "bg-white/10"}`}>
-                              {visited.has(s.id) && !current ? <Check size={10} strokeWidth={3} /> : null}
-                            </span>
-                            <span className="truncate">{isAr ? s.title.ar : s.title.en}</span>
-                          </button>
-                        );
-                      })}
+                      {(chapterStops.get(c.id) ?? [])
+                        .filter((s) => !s.demoOnly || demoMode === "on")
+                        .map((s) => {
+                          const current = s.id === stop.id;
+                          return (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => tour.goTo(s.id)}
+                              className={`flex w-full items-center gap-2 rounded-xl px-2 py-1.5 text-start text-[12px] font-bold transition-colors ${
+                                current ? "bg-[#FACC15] text-ink" : "text-white/80 hover:bg-white/10"
+                              }`}
+                            >
+                              <span className={`grid size-4 shrink-0 place-items-center rounded-full ${current ? "bg-ink/15" : visited.has(s.id) ? "bg-emerald-400/20 text-emerald-300" : "bg-white/10"}`}>
+                                {visited.has(s.id) && !current ? <Check size={10} strokeWidth={3} /> : null}
+                              </span>
+                              <span className="truncate">{isAr ? s.title.ar : s.title.en}</span>
+                            </button>
+                          );
+                        })}
                     </div>
                   ))}
                 </div>
@@ -552,11 +690,47 @@ export default function GrandTourOverlay() {
               onClick={typed.finish}
               className="mt-1.5 min-h-[3.2em] cursor-default text-[13.5px] font-medium leading-relaxed text-white/85 sm:text-[14px]"
             >
-              {typed.shown}
-              {!typed.done && <span className="ms-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-[#FACC15]" />}
+              {phase === "navigating" ? (
+                <span className="inline-flex items-center gap-2 text-white/50">
+                  <Loader2 size={13} className="animate-spin" />
+                  {isAr ? "بمشي معاك للصفحة…" : "Walking you there…"}
+                </span>
+              ) : (
+                <>
+                  {typed.shown}
+                  {!typed.done && <span className="ms-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-[#FACC15]" />}
+                </>
+              )}
             </p>
 
-            {/* Questions and answers at this stop */}
+            {/* May she do it for real? Asked once. */}
+            {phase === "asking" && (
+              <div className="mt-3 rounded-2xl border border-[#FACC15]/30 bg-[#FACC15]/10 p-3.5">
+                <p className="text-[13px] font-semibold leading-relaxed text-white/90">
+                  {isAr
+                    ? `تحب أعملها بجد؟ هضيف مريض تجريبي وعلاج تجريبي ودفعة تجريبية وإحنا ماشيين — كلهم باسم «${guideName}» — وفي الآخر هحذفهم كلهم قدامك. مفيش حاجة تانية بتتغير.`
+                    : `Shall I do it for real? I'll add a test patient, a test treatment and a test payment as we go — all named "${guideName}" — and delete every one of them in front of you at the end. Nothing else changes.`}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => answerDemo(true)}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-[#FACC15] px-4 py-2 text-[12px] font-black text-ink transition-all hover:brightness-105 active:scale-[0.98]"
+                  >
+                    <Hand size={13} />
+                    {isAr ? "أيوه، اعمليها قدامي" : "Yes, do it for real"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => answerDemo(false)}
+                    className="rounded-full border border-white/15 px-4 py-2 text-[12px] font-bold text-white/75 transition-colors hover:bg-white/10 hover:text-white"
+                  >
+                    {isAr ? "اشرحي بس" : "Just explain"}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {(thisStopQa.length > 0 || asking) && (
               <div ref={threadRef} className="mt-3 max-h-40 space-y-1.5 overflow-y-auto pe-1 sm:max-h-48">
                 {thisStopQa.map((m) => (
@@ -581,8 +755,7 @@ export default function GrandTourOverlay() {
               </div>
             )}
 
-            {/* Things worth asking here */}
-            {typed.done && stop.ask.length > 0 && thisStopQa.length === 0 && (
+            {showChips && (
               <div className="mt-3 flex flex-wrap gap-1.5">
                 {stop.ask.map((q) => {
                   const label = isAr ? q.ar : q.en;
@@ -600,7 +773,6 @@ export default function GrandTourOverlay() {
               </div>
             )}
 
-            {/* Ask your own */}
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -633,7 +805,7 @@ export default function GrandTourOverlay() {
             </form>
           </div>
 
-          {/* Footer: back / next */}
+          {/* Footer */}
           <div className="flex items-center gap-2 border-t border-white/10 px-4 py-3 sm:px-5">
             <button
               type="button"
@@ -645,7 +817,13 @@ export default function GrandTourOverlay() {
               {isAr ? "رجوع" : "Back"}
             </button>
             <span className="ms-auto hidden text-[10.5px] font-semibold text-white/35 sm:block">
-              {isAr ? "الأسهم للتنقل · Esc للخروج" : "Arrow keys to move · Esc to leave"}
+              {phase === "demo"
+                ? isAr
+                  ? "التالي يوقف العرض ويكمّل"
+                  : "Next stops the demo and moves on"
+                : isAr
+                  ? "الأسهم للتنقل · Esc للخروج"
+                  : "Arrow keys to move · Esc to leave"}
             </span>
             <button
               type="button"

@@ -720,7 +720,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
                 <div className="md:col-span-2">
                     <label className="text-[10px] font-black text-green-700 uppercase mb-1 block">{txt.descNote}</label>
-                    <input value={payNote} onChange={e => setPayNote(e.target.value)} placeholder={selectedProcedureId ? "Auto-generated..." : txt.payAccount} className="w-full p-3.5 rounded-xl border border-green-200 text-sm font-bold focus:border-green-500 outline-none placeholder-green-700/30" />
+                    <input data-tour="finance-pay-note" value={payNote} onChange={e => setPayNote(e.target.value)} placeholder={selectedProcedureId ? "Auto-generated..." : txt.payAccount} className="w-full p-3.5 rounded-xl border border-green-200 text-sm font-bold focus:border-green-500 outline-none placeholder-green-700/30" />
                 </div>
                 <div>
                     <label className="text-[10px] font-black text-green-700 uppercase mb-1 block">{txt.amount}</label>
@@ -1024,7 +1024,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                                 <button onClick={() => setEditingItem(payment)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"><Edit2 size={16}/></button>
                                                             )}
                                                             {hasDeleteAccess && (
-                                                                <button onClick={() => handleDelete(payment.id)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16}/></button>
+                                                                <button data-tour="finance-row-delete" onClick={() => handleDelete(payment.id)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16}/></button>
                                                             )}
                                                         </div>
                                                     </td>
@@ -1084,7 +1084,7 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                         <button onClick={() => setEditingItem(payment)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"><Edit2 size={16}/></button>
                                                     )}
                                                     {hasDeleteAccess && (
-                                                        <button onClick={() => handleDelete(payment.id)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16}/></button>
+                                                        <button data-tour="finance-row-delete" onClick={() => handleDelete(payment.id)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16}/></button>
                                                     )}
                                                 </div>
                                             </td>

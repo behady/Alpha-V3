@@ -942,7 +942,7 @@ export default function PatientProfile() {
                                      {balance > 0 ? balance.toLocaleString() : '0'} EGP
                                  </div>
                                  <Protect permission="patients.edit">
-                                   <button onClick={() => setIsEditModalOpen(true)} className="p-1 rounded-xl bg-white/20 hover:bg-white/30 backdrop-blur-md border border-white/20 text-white transition-colors">
+                                   <button data-tour="patient-edit" onClick={() => setIsEditModalOpen(true)} className="p-1 rounded-xl bg-white/20 hover:bg-white/30 backdrop-blur-md border border-white/20 text-white transition-colors">
                                       <Edit2 size={12} />
                                    </button>
                                  </Protect>
@@ -994,7 +994,7 @@ export default function PatientProfile() {
                                 {balance > 0 ? balance.toLocaleString() : '0'} EGP
                             </div>
                             <Protect permission="patients.edit">
-                              <button onClick={() => setIsEditModalOpen(true)} className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-md text-white transition-colors">
+                              <button data-tour="patient-edit" onClick={() => setIsEditModalOpen(true)} className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-md text-white transition-colors">
                                  <Edit2 size={12} />
                               </button>
                             </Protect>
@@ -2140,7 +2140,7 @@ export default function PatientProfile() {
                        <Protect permission="patients.delete">
                          <button 
                              type="button" 
-                             onClick={handleDeletePatient} 
+                             onClick={handleDeletePatient} data-tour="patient-delete"
                              disabled={isDeleting}
                              title="Delete Patient"
                              className="px-5 py-4 bg-rose-50 text-rose-600 rounded-2xl font-black shadow-sm border border-rose-100 hover:-translate-y-0.5 active:scale-95 transition-all flex items-center justify-center hover:bg-rose-100 disabled:opacity-50 shrink-0"

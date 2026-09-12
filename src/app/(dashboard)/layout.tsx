@@ -122,6 +122,77 @@ function PageHeaderStrip({ fallbackTitle }: { fallbackTitle: string }) {
   );
 }
 
+/**
+ * The black band, and when it gets out of the way.
+ *
+ * On a laptop or a phone the band — nav row plus the page's title strip — is a fifth of the
+ * screen, and on Settings (which stacks its own search, group tabs and section chips under it)
+ * the actual settings started below the fold. So on small screens the title strip folds away
+ * when you scroll down and comes back the moment you scroll up or point at the band. The nav
+ * row never hides: the menus must stay reachable without a scroll gesture.
+ *
+ * Small means a short or narrow viewport (a laptop is short; a phone is narrow). A big monitor
+ * has room and keeps the band still, because a header that moves is a header you have to watch.
+ *
+ * Off entirely while Sara's tour runs — her spotlight points at things in the band.
+ */
+function BandShell({ nav, strip }: { nav: React.ReactNode; strip: React.ReactNode }) {
+  const { active: tourActive } = useTour();
+  const [collapsed, setCollapsed] = useState(false);
+  const lastTops = useRef(new WeakMap<EventTarget, number>());
+
+  useEffect(() => {
+    const small = () => window.innerHeight < 900 || window.innerWidth < 1024;
+    const onScroll = (e: Event) => {
+      if (!small()) {
+        setCollapsed(false);
+        return;
+      }
+      const target = e.target;
+      if (!target) return;
+      const top =
+        target === document || target === window
+          ? window.scrollY
+          : target instanceof Element
+            ? target.scrollTop
+            : 0;
+      const last = lastTops.current.get(target) ?? 0;
+      lastTops.current.set(target, top);
+      const delta = top - last;
+      if (top <= 8 || delta < -8) setCollapsed(false);
+      else if (top > 64 && delta > 8) setCollapsed(true);
+    };
+    const onResize = () => {
+      if (!small()) setCollapsed(false);
+    };
+    document.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
+    return () => {
+      document.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
+    };
+  }, []);
+
+  const folded = collapsed && !tourActive;
+
+  return (
+    <header
+      className="relative z-[45] shrink-0 bg-ink-slab text-white"
+      onMouseEnter={() => setCollapsed(false)}
+      onFocusCapture={() => setCollapsed(false)}
+    >
+      {nav}
+      {/* Animated with grid rows, which — unlike max-height — needs no guess at the strip's height. */}
+      <div
+        className={`grid transition-[grid-template-rows] duration-300 ease-out ${folded ? "grid-rows-[0fr]" : "grid-rows-[1fr]"}`}
+        aria-hidden={folded}
+      >
+        <div className="min-h-0 overflow-hidden">{strip}</div>
+      </div>
+    </header>
+  );
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -376,16 +447,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         88px down the side of the screen, where a centred dialog never reached it. A bar across the
         whole top clipped the top of every modal instead.
       */}
-      <header className="relative z-[45] shrink-0 bg-ink-slab text-white">
-        <TopNav
-          items={visibleItems}
-          showSettings={showSettings}
-          isSuperAdmin={!!user?.isSuperAdmin}
-          onLogout={handleLogout}
-          onReturnToSuperAdmin={handleReturnToSuperAdmin}
-        />
-        <PageHeaderStrip fallbackTitle={fallbackTitle} />
-      </header>
+      <BandShell
+        nav={
+          <TopNav
+            items={visibleItems}
+            showSettings={showSettings}
+            isSuperAdmin={!!user?.isSuperAdmin}
+            onLogout={handleLogout}
+            onReturnToSuperAdmin={handleReturnToSuperAdmin}
+          />
+        }
+        strip={<PageHeaderStrip fallbackTitle={fallbackTitle} />}
+      />
 
       {/* MOBILE MENU OVERLAY */}
       {isOpen && (
@@ -461,7 +534,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <span className="text-base truncate">{language === 'en' ? 'Switch to Arabic' : 'English'}</span>
                </button>
                {showSettings && (
-                 <Link href="/settings" onClick={() => setIsOpen(false)} className={sheetRow(pathname.startsWith('/settings'))}>
+                 <Link href="/settings" data-tour="nav-settings" onClick={() => setIsOpen(false)} className={sheetRow(pathname.startsWith('/settings'))}>
                     <Settings size={22} />
                     {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                     <span className="text-base truncate">{t('settings' as any) || (language === 'ar' ? 'الإعدادات' : 'Settings')}</span>
@@ -470,12 +543,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                {/* Ungated for the same reason Help is: the people who most need the guide are
                    the ones with the fewest permissions, and it already shows each role only the
                    steps that role can finish. */}
-               <Link href="/welcome" onClick={() => setIsOpen(false)} className={sheetRow(pathname.startsWith('/welcome'))}>
+               <Link href="/welcome" data-tour="menu-welcome" onClick={() => setIsOpen(false)} className={sheetRow(pathname.startsWith('/welcome'))}>
                   <Rocket size={22} />
                   <span className="text-base truncate">{language === 'ar' ? 'البداية' : 'Getting started'}</span>
                </Link>
                <TourMenuRow className={`w-full text-left rtl:text-right ${sheetRow(false)}`} onPick={() => setIsOpen(false)} />
-               <Link href="/help" onClick={() => setIsOpen(false)} className={sheetRow(pathname.startsWith('/help'))}>
+               <Link href="/help" data-tour="menu-help" onClick={() => setIsOpen(false)} className={sheetRow(pathname.startsWith('/help'))}>
                   <LifeBuoy size={22} />
                   <span className="text-base truncate">{language === 'ar' ? 'مركز المساعدة' : 'Help Center'}</span>
                </Link>
@@ -539,7 +612,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {mobileNavItems.map((item) => {
              if (item.key === 'menu') {
                  return (
-                    <button key="menu" data-tour="nav-menu" onClick={() => setIsOpen(true)} className="flex items-center justify-center transition-all active:scale-95 group outline-none">
+                    <button key="menu" data-tour="nav-menu"
+                       /* Everything in the sheet is reachable through this button — for the tour's hand. */
+                       data-tour-opens={[...allNavItems.map((i) => `nav-${String(i.href).replace(/^\//, "")}`), "nav-settings", "menu-welcome", "menu-help"].join(" ")}
+                       onClick={() => setIsOpen(true)} className="flex items-center justify-center transition-all active:scale-95 group outline-none">
                        <div className="p-2.5 rounded-full text-white/50 group-hover:bg-white/10 group-hover:text-white transition-all">
                           <Menu size={24} strokeWidth={2.5} />
                        </div>

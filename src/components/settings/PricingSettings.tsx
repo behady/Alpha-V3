@@ -347,6 +347,7 @@ export default function PricingSettings({
                         <Edit2 size={16} />
                       </button>
                       <button
+                        data-tour="price-row-delete"
                         onClick={() => deleteService(s.id, s.name)}
                         className="p-2 text-ink-muted hover:bg-danger-tint hover:text-danger rounded-lg transition-all"
                       >
@@ -395,7 +396,7 @@ export default function PricingSettings({
                     {txt.price} ({currency})
                   </label>
                   <input
-                    required
+                    required data-tour="price-service-price"
                     type="number"
                     value={form.price}
                     onChange={(e) => setForm({ ...form, price: e.target.value })}

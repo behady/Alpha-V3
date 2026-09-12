@@ -450,14 +450,14 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
             </div>
             <div className="flex gap-2 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom,0px))]">
               <button
-                type="button"
+                type="button" data-tour="confirm-no"
                 onClick={() => handleConfirm(false)}
                 className="flex-1 py-3 rounded-xl border border-line bg-surface text-xs font-black uppercase tracking-wide text-ink-body hover:bg-surface-subtle transition-colors"
               >
                 {confirmState.cancelLabel ?? (isAr ? "إلغاء" : "Cancel")}
               </button>
               <button
-                type="button"
+                type="button" data-tour="confirm-yes"
                 autoFocus
                 onClick={() => handleConfirm(true)}
                 className={`flex-[1.4] py-3 rounded-xl text-xs font-black uppercase tracking-widest text-white shadow-md transition-colors ${

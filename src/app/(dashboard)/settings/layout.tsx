@@ -183,6 +183,7 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
                 return (
                   <button
                     key={group}
+                    data-tour={`settings-group-${group}`}
                     onClick={() => setBrowsingGroup(group)}
                     aria-current={isShown ? "true" : undefined}
                     className={`inline-flex flex-1 sm:flex-none items-center justify-center gap-2.5 whitespace-nowrap rounded-xl px-5 py-2.5 text-[14px] font-semibold transition-all duration-300 ${

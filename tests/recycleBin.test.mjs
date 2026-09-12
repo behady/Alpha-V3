@@ -74,6 +74,10 @@ const admin = { role: "Admin", permissions: [] };
 
 assert.equal(checkDeleteAllowed(BIN_COLLECTIONS.patients, receptionist).ok, false, "no patients.delete");
 assert.equal(checkDeleteAllowed(BIN_COLLECTIONS.patients, admin), true, "Admin passes by role");
+// The Owner is an admin everywhere else in the product (isClinicAdmin in the rules, isFullAccessRole
+// in the app). Checking the literal "Admin" here refused every clinic owner's deletes with a 403.
+assert.equal(checkDeleteAllowed(BIN_COLLECTIONS.patients, { role: "Owner", permissions: [] }), true, "Owner passes by role");
+assert.equal(checkDeleteAllowed(BIN_COLLECTIONS.services, { role: "Owner", permissions: [] }), true, "Owner passes an Admin-only collection");
 assert.equal(checkDeleteAllowed(BIN_COLLECTIONS.patient_media, nurse), true, "patients.edit covers media");
 
 // THE ADMIN SHORT-CIRCUIT. requireStaffPermission returns early for an Admin, so an Admin-only

@@ -264,7 +264,7 @@ export default function NewPatientModal({ isOpen, onClose, onSuccess, preSelecte
                       ))}
                     </select>
                     <input
-                      required
+                      required data-tour="new-patient-phone"
                       value={phone}
                       onChange={e => setPhone(e.target.value)}
                       className={`w-[58%] p-3 border-2 rounded-xl font-bold text-gray-900 outline-none transition-colors ${duplicateWarning ? 'border-amber-300 bg-amber-50 focus:border-amber-500' : 'border-gray-100 focus:border-primary-500'}`}

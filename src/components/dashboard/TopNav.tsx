@@ -239,6 +239,8 @@ export default function TopNav({
           <button
             type="button"
             data-tour="account-menu"
+            /* Sara's hand opens this to reach Getting started and Help — see tourDemo.ts. */
+            data-tour-opens="menu-welcome menu-help"
             onClick={() => setOpen(open === "account" ? null : "account")}
             className="flex items-center gap-2.5 rounded-full py-1 ps-1 pe-2 transition-colors hover:bg-white/10"
           >
@@ -263,11 +265,11 @@ export default function TopNav({
                 <p className="truncate text-[11px] font-medium text-ink-muted">{role || ""}</p>
               </div>
 
-              <Link href="/welcome" className={`${menuRow} text-ink-body hover:bg-surface-subtle hover:text-ink`}>
+              <Link href="/welcome" data-tour="menu-welcome" className={`${menuRow} text-ink-body hover:bg-surface-subtle hover:text-ink`}>
                 <Rocket size={18} className="shrink-0" />
                 {language === "ar" ? "البداية" : "Getting started"}
               </Link>
-              <Link href="/help" className={`${menuRow} text-ink-body hover:bg-surface-subtle hover:text-ink`}>
+              <Link href="/help" data-tour="menu-help" className={`${menuRow} text-ink-body hover:bg-surface-subtle hover:text-ink`}>
                 <LifeBuoy size={18} className="shrink-0" />
                 {language === "ar" ? "مركز المساعدة" : "Help Center"}
               </Link>

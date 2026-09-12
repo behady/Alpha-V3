@@ -25,6 +25,7 @@
  */
 
 import { SETTINGS_SECTIONS, type SettingsSection } from "@/config/settingsRegistry";
+import type { DemoAction } from "@/lib/tourDemo";
 
 export interface Localized {
   en: string;
@@ -78,9 +79,24 @@ export interface TourStop {
   adminOnly?: boolean;
   /**
    * The route is resolved at runtime. "firstPatient" opens the first patient on file and skips the
-   * stop when there is none — a fresh clinic has no file to show yet.
+   * stop when there is none — a fresh clinic has no file to show yet. "demoPatient" opens the test
+   * patient Sara created (skipped when she did not).
    */
-  dynamic?: "firstPatient";
+  dynamic?: "firstPatient" | "demoPatient";
+  /** Which tab of the demo patient's file to land on. */
+  demoPatientTab?: string;
+  /**
+   * What Sara does on this stop once the person has said yes to demos: real clicks and real
+   * typing on the real screen, narrated step by step. See tourDemo.ts.
+   */
+  demo?: DemoAction[];
+  /** Only shown while demos are on — the payment on the test patient, the cleanup at the end. */
+  demoOnly?: boolean;
+  /**
+   * Skip the demo (with a word) when its result already exists — a tour taken twice must not
+   * make two test patients or two test treatments.
+   */
+  demoSkipIf?: "demoPatientExists" | "serviceRowExists";
 }
 
 export const TOUR_CHAPTERS: TourChapter[] = [
@@ -305,8 +321,41 @@ const FRONTDESK_STOPS: TourStop[] = [
       { en: "Teach me to add a patient", ar: "علّمني أضيف مريض" },
     ],
     knowledge:
-      "The 'Add patient' button (permission patients.add) opens the new-patient form: name (required), phone (required for WhatsApp/SMS), date of birth, gender, source, address, notes. Patients can also be created in the booking form while making an appointment, from a lead (convert a lead to a patient), and by the WhatsApp assistant when it books a new caller. There is a guided lesson 'add-patient' — offer it with start_tutorial when the user asks how.",
+      "The 'Add patient' button (permission patients.add) opens the new-patient form: name (required), phone (required for WhatsApp/SMS), date of birth, gender, source, address, notes. Patients can also be created in the booking form while making an appointment, from a lead (convert a lead to a patient), and by the WhatsApp assistant when it books a new caller. There is a guided lesson 'add-patient' — offer it with start_tutorial when the user asks how. During the tour Sara may add a test patient named 'Test patient (Sara)' to demonstrate, and deletes it at the end (it then sits in Settings → Recently Deleted).",
     helpSlugs: ["add-a-patient"],
+    demoSkipIf: "demoPatientExists",
+    demo: [
+      {
+        kind: "click",
+        anchor: "patients-add",
+        say: { en: "Watch. Add patient opens the form.", ar: "بصّ. زرار إضافة مريض بيفتح الفورم." },
+      },
+      {
+        kind: "type",
+        anchor: "new-patient-name",
+        text: "{{patientName}}",
+        say: { en: "The name first — that is the only thing you truly need.", ar: "الاسم الأول — ده الوحيد اللي لازم يتكتب." },
+      },
+      {
+        kind: "type",
+        anchor: "new-patient-phone",
+        text: "{{phone}}",
+        say: { en: "Then the phone. WhatsApp confirmations and reminders go to this number.", ar: "وبعدين التليفون. تأكيدات الواتساب والتذكيرات بتروح على الرقم ده." },
+      },
+      {
+        kind: "click",
+        anchor: "new-patient-save",
+        say: { en: "Save. The file is created and appears in the list.", ar: "حفظ. الملف اتعمل وظهر في القايمة." },
+      },
+      { kind: "wait", anchor: "patient-row", optional: true, timeoutMs: 4000 },
+      {
+        kind: "say",
+        text: {
+          en: "That's a patient. Birthday, address and medical history can all be filled in from the file later — even from the chair.",
+          ar: "كده بقى عندنا مريض. تاريخ الميلاد والعنوان والتاريخ المرضي كلهم ممكن يتملوا من الملف بعدين — حتى من على الكرسي.",
+        },
+      },
+    ],
   },
   {
     id: "patient-file",
@@ -328,6 +377,65 @@ const FRONTDESK_STOPS: TourStop[] = [
     knowledge:
       "A patient's file (/patients/{id}) has tabs: Overview (details, alerts, next appointment), Clinical (every procedure recorded, in order, with tooth numbers, dentist, price and notes; add a procedure from here; the teeth chart / odontogram lives with the clinical record and prints a diagnosis report from /patients/{id}/diagnosis), Treatment Plan (proposed work with prices, can be drafted by the AI and printed/sent), Finance (charges, payments, balance; Quick Pay to take a payment; receipts; balance = total cost of procedure rows minus total paid on payment rows — exactly the patient Finance tab's formula), Timeline (appointments and events), X-rays (uploaded images), Prescriptions (written at /patients/{id}/rx from the clinic's drug list; print or send on WhatsApp), Notes. A payment can be linked to a specific procedure or put on account. Dentist commission and lab fees are split at payment time per the clinic's rules. Deep links: /patients/{id}?tab=finance etc.",
     helpSlugs: ["patient-account", "clinical-record", "prescriptions", "teeth-chart"],
+  },
+  {
+    id: "patient-payment",
+    chapter: "frontdesk",
+    route: "/patients",
+    dynamic: "demoPatient",
+    demoPatientTab: "finance",
+    demoOnly: true,
+    navKey: "patients",
+    spot: ["patient-tab-finance", "page-main"],
+    title: { en: "Taking a payment", ar: "استلام دفعة" },
+    say: {
+      en: "Now money. This is our test patient's Finance tab. I'll take a payment the way the desk does it every day — then, at the end of the tour, I'll delete it again.",
+      ar: "دلوقتي الفلوس. دي تاب الحسابات بتاعة المريض التجريبي. هستلم دفعة زي ما الاستقبال بيعمل كل يوم — وفي آخر الجولة هحذفها تاني.",
+    },
+    ask: [
+      { en: "What's the difference between paying for a treatment and paying on account?", ar: "إيه الفرق بين الدفع لعلاج معين والدفع على الحساب؟" },
+      { en: "How do I print a receipt?", ar: "أطبع إيصال إزاي؟" },
+    ],
+    knowledge:
+      "On a patient's Finance tab, 'Add payment' (Quick Pay) opens a small form: optionally pick a specific procedure to settle, a note, the amount, and Confirm. A payment can be tied to a procedure (its 'remaining' drops) or put on account (lowers the overall balance only). Payments appear as rows with a receipt/print button, edit and delete (permission-gated). Deleting a payment moves it to Recently Deleted and rebalances the account server-side. Sara's demo payment is 50 with the note 'Sara's test payment'.",
+    helpSlugs: ["take-a-payment", "patient-account"],
+    demo: [
+      {
+        kind: "click",
+        anchor: "patient-tab-finance",
+        optional: true,
+        say: { en: "The Finance tab: charges, payments and the balance.", ar: "تاب الحسابات: الرسوم والمدفوعات والرصيد." },
+      },
+      {
+        kind: "click",
+        anchor: "finance-add-payment",
+        say: { en: "Add payment.", ar: "إضافة دفعة." },
+      },
+      {
+        kind: "type",
+        anchor: "finance-pay-note",
+        text: "{{paymentNote}}",
+        say: { en: "A note, so month-end knows what this was.", ar: "ملاحظة، عشان آخر الشهر نعرف دي كانت إيه." },
+      },
+      {
+        kind: "type",
+        anchor: "finance-pay-amount",
+        text: "{{paymentAmount}}",
+        say: { en: "Fifty pounds on account — not tied to a treatment.", ar: "خمسين جنيه على الحساب — مش مربوطة بعلاج." },
+      },
+      {
+        kind: "click",
+        anchor: "finance-pay-confirm",
+        say: { en: "Confirm. The balance updates, and a receipt can be printed from the row.", ar: "تأكيد. الرصيد اتحدّث، والإيصال بيتطبع من الصف." },
+      },
+      {
+        kind: "say",
+        text: {
+          en: "The same money now shows in Finance for the whole clinic, as cash in for today.",
+          ar: "نفس الفلوس دلوقتي ظاهرة في حسابات العيادة كلها، كاش داخل النهارده.",
+        },
+      },
+    ],
   },
   {
     id: "appointments",
@@ -566,6 +674,8 @@ interface SettingsNarration {
   ask: Localized[];
   knowledge: string;
   helpSlugs?: string[];
+  demo?: DemoAction[];
+  demoSkipIf?: TourStop["demoSkipIf"];
 }
 
 const SETTINGS_NARRATION: Record<string, SettingsNarration> = {
@@ -654,8 +764,34 @@ const SETTINGS_NARRATION: Record<string, SettingsNarration> = {
       { en: "Teach me to update prices", ar: "علّمني أعدّل الأسعار" },
     ],
     knowledge:
-      "Prices (/settings/prices, admin): (1) the service catalogue — every treatment with price, category, icon, default duration, and whether it is a lab job; (2) Price lists — alternative pricing for the same services (insurance, an offer, a family rate), each with a blanket discount prefilled on every line, and optionally tied to a branch; (3) Discount reasons — a reason is required with every discount; (4) Discount ceiling for non-admins. Bookings, charges, the WhatsApp assistant's price answers and commissions all read from here. Lesson: 'update-prices'.",
+      "Prices (/settings/prices, admin): (1) the service catalogue — every treatment with price, category, icon, default duration, and whether it is a lab job; (2) Price lists — alternative pricing for the same services (insurance, an offer, a family rate), each with a blanket discount prefilled on every line, and optionally tied to a branch; (3) Discount reasons — a reason is required with every discount; (4) Discount ceiling for non-admins. Bookings, charges, the WhatsApp assistant's price answers and commissions all read from here. Lesson: 'update-prices'. During the tour Sara may add 'Test treatment (Sara)' at 100 to demonstrate, and deletes it at the end.",
     helpSlugs: ["services-and-prices"],
+    demoSkipIf: "serviceRowExists",
+    demo: [
+      {
+        kind: "click",
+        anchor: "price-add-service",
+        say: { en: "Let me add a treatment. Add treatment opens the form.", ar: "خليني أضيف علاج. زرار إضافة علاج بيفتح الفورم." },
+      },
+      {
+        kind: "type",
+        anchor: "price-service-name",
+        text: "{{serviceName}}",
+        say: { en: "A name. The category and icon are suggested from it.", ar: "الاسم. الفئة والأيقونة بيتقترحوا منه." },
+      },
+      {
+        kind: "type",
+        anchor: "price-service-price",
+        text: "{{servicePrice}}",
+        say: { en: "And the price.", ar: "والسعر." },
+      },
+      {
+        kind: "click",
+        anchor: "price-service-save",
+        say: { en: "Save. It's now in every booking form, every charge, and the WhatsApp assistant's price answers.", ar: "حفظ. دلوقتي هو في كل فورم حجز، وكل رسم، وفي ردود أسعار مساعد الواتساب." },
+      },
+      { kind: "wait", anchor: "price-row-delete", optional: true, timeoutMs: 4000 },
+    ],
   },
   prescriptions: {
     say: {
@@ -838,6 +974,8 @@ function settingsStops(): TourStop[] {
         ask: text.ask,
         knowledge: text.knowledge,
         helpSlugs: text.helpSlugs,
+        demo: text.demo,
+        demoSkipIf: text.demoSkipIf,
       },
     ];
   });
@@ -871,6 +1009,122 @@ const WRAPUP_STOPS: TourStop[] = [
     ask: [{ en: "What's the difference between this tour and a lesson?", ar: "إيه الفرق بين الجولة دي والدرس؟" }],
     knowledge:
       "Getting started (/welcome): the setup route in four stages (Open for business, Run a real day, Get the money right, Get more out of it), each mission proved by the clinic's own data or by finishing its lesson; time-left estimate; the trial countdown; a sample clinic with a week of fake data to look around; and this tour, which can be resumed from where it stopped. The tour describes; a lesson makes you click the real buttons with a pulsing ring.",
+  },
+  {
+    id: "demo-cleanup-patient",
+    chapter: "wrapup",
+    route: "/patients",
+    dynamic: "demoPatient",
+    demoPatientTab: "finance",
+    demoOnly: true,
+    navKey: "patients",
+    spot: ["page-main"],
+    title: { en: "Deleting, the right way", ar: "الحذف بالطريقة الصح" },
+    say: {
+      en: "Before we finish, I'll tidy up after myself — and deleting is something you should see too. Nothing in this system disappears on one click: it moves to Recently Deleted, where it can be restored.",
+      ar: "قبل ما نخلّص، هنضّف ورايا — والحذف حاجة لازم تشوفها برضه. مفيش حاجة في النظام ده بتختفي بضغطة واحدة: بتروح للمحذوفات، وتقدر ترجّعها.",
+    },
+    ask: [
+      { en: "Can I get a deleted patient back?", ar: "أقدر أرجّع مريض اتحذف؟" },
+      { en: "Who is allowed to delete?", ar: "مين مسموحله يحذف؟" },
+    ],
+    knowledge:
+      "Deleting: a payment is deleted from the bin icon on its row (permission finance.delete or similar); a patient from the pencil (edit profile) then the red bin button (permission patients.delete); a treatment from its row in Settings → Prices (admin). Every delete asks for confirmation; deleting a patient with records still attached asks a second time and lists what stays behind. All of it lands in Settings → Recently Deleted, where Restore puts it back exactly as it was and 'Delete forever' removes it.",
+    demo: [
+      {
+        kind: "click",
+        anchor: "patient-tab-finance",
+        optional: true,
+        timeoutMs: 4000,
+        say: { en: "First the test payment, from the Finance tab.", ar: "الأول الدفعة التجريبية، من تاب الحسابات." },
+      },
+      // Each of these is optional: a payment deleted on an earlier run of the tour is simply not
+      // there to delete, and the cleanup must still go on to the patient.
+      {
+        kind: "click",
+        anchor: "finance-row-delete",
+        inRowContaining: "{{paymentNote}}",
+        optional: true,
+        timeoutMs: 4000,
+        say: { en: "The bin icon on its row.", ar: "أيقونة السلة على صفها." },
+      },
+      {
+        kind: "click",
+        anchor: "confirm-yes",
+        optional: true,
+        timeoutMs: 2500,
+        say: { en: "Every delete asks first. Confirm.", ar: "كل حذف بيسأل الأول. تأكيد." },
+      },
+      { kind: "waitGone", anchor: "finance-row-delete", inRowContaining: "{{paymentNote}}", timeoutMs: 8000, optional: true },
+      { kind: "pause", ms: 600 },
+      {
+        kind: "click",
+        anchor: "patient-edit",
+        say: { en: "Now the patient. The pencil opens the profile editor.", ar: "دلوقتي المريض. القلم بيفتح تعديل الملف." },
+      },
+      {
+        kind: "click",
+        anchor: "patient-delete",
+        say: { en: "Delete is the red button at the bottom — deliberately out of the way.", ar: "الحذف هو الزرار الأحمر اللي تحت — بعيد عن الإيد عن قصد." },
+      },
+      {
+        kind: "click",
+        anchor: "confirm-yes",
+        say: { en: "Confirm. If anything is still attached to the file, it asks once more and says what stays behind.", ar: "تأكيد. لو فيه حاجة لسه متعلقة بالملف، بيسأل مرة كمان وبيقولك إيه اللي هيفضل." },
+      },
+      { kind: "click", anchor: "confirm-yes", optional: true, timeoutMs: 2500 },
+      // The file closes and the list returns only when the delete went through.
+      { kind: "waitGone", anchor: "patient-delete", timeoutMs: 8000 },
+      { kind: "pause", ms: 1200 },
+      {
+        kind: "say",
+        text: {
+          en: "Gone from the list — not from the system. Settings → Recently Deleted has it, with the payment.",
+          ar: "اتشال من القايمة — مش من النظام. الإعدادات ← المحذوفات فيها هو والدفعة.",
+        },
+      },
+    ],
+  },
+  {
+    id: "demo-cleanup-service",
+    chapter: "wrapup",
+    route: "/settings/prices",
+    settingsId: "services",
+    demoOnly: true,
+    spot: ["settings-panel", "page-main"],
+    title: { en: "And the test treatment", ar: "والعلاج التجريبي" },
+    say: {
+      en: "One more: the test treatment I added to your price list. Same idea — the bin on its row, then confirm.",
+      ar: "واحدة كمان: العلاج التجريبي اللي ضفته في قايمة أسعارك. نفس الفكرة — السلة على صفه، وبعدين تأكيد.",
+    },
+    ask: [{ en: "Where do deleted treatments go?", ar: "العلاجات المحذوفة بتروح فين؟" }],
+    knowledge:
+      "A treatment is removed from Settings → Prices with the bin icon on its row (hover the row on desktop); it asks to confirm, then moves to Recently Deleted. Past charges that used it keep their price and name.",
+    demo: [
+      {
+        kind: "click",
+        anchor: "price-row-delete",
+        inRowContaining: "{{serviceName}}",
+        optional: true,
+        timeoutMs: 5000,
+        say: { en: "The bin on the test treatment's row.", ar: "السلة على صف العلاج التجريبي." },
+      },
+      {
+        kind: "click",
+        anchor: "confirm-yes",
+        optional: true,
+        timeoutMs: 2500,
+        say: { en: "Confirm.", ar: "تأكيد." },
+      },
+      { kind: "waitGone", anchor: "price-row-delete", inRowContaining: "{{serviceName}}", timeoutMs: 8000 },
+      {
+        kind: "say",
+        text: {
+          en: "Everything I added is now in Recently Deleted. Your data is exactly as I found it.",
+          ar: "كل اللي ضفته دلوقتي في المحذوفات. بياناتك زي ما لقيتها بالظبط.",
+        },
+      },
+    ],
   },
   {
     id: "finale",

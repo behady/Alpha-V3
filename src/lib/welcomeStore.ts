@@ -48,6 +48,11 @@ export interface TourProgress {
   visited: string[];
   /** Epoch millis the tour was finished, 0 if never. */
   completedAt: number;
+  /**
+   * Whether Sara may add and delete test records. Remembered with the position, so a tour resumed
+   * after a reload still reaches its cleanup stops rather than leaving her test patient behind.
+   */
+  demoMode: "unasked" | "on" | "off";
 }
 
 interface StoredState {
@@ -62,7 +67,7 @@ interface StoredState {
   tour: TourProgress;
 }
 
-const EMPTY_TOUR: TourProgress = { introSeen: false, lastStopId: null, visited: [], completedAt: 0 };
+const EMPTY_TOUR: TourProgress = { introSeen: false, lastStopId: null, visited: [], completedAt: 0, demoMode: "unasked" };
 
 const EMPTY: StoredState = {
   lessons: [],
@@ -79,6 +84,7 @@ function readTour(raw: unknown): TourProgress {
     lastStopId: typeof t.lastStopId === "string" && t.lastStopId ? t.lastStopId : null,
     visited: Array.isArray(t.visited) ? t.visited.filter((v) => typeof v === "string") : [],
     completedAt: typeof t.completedAt === "number" ? t.completedAt : 0,
+    demoMode: t.demoMode === "on" || t.demoMode === "off" ? t.demoMode : "unasked",
   };
 }
 
@@ -183,4 +189,9 @@ export function markTourComplete(scope: WelcomeScope): void {
 /** Start over: forgets the resume point but keeps the intro as seen. */
 export function resetTourPosition(scope: WelcomeScope): void {
   writeTour(scope, { lastStopId: null });
+}
+
+/** The answer to "shall I do it for real?" — kept so a resumed tour still cleans up after itself. */
+export function saveTourDemoMode(scope: WelcomeScope, demoMode: TourProgress["demoMode"]): void {
+  writeTour(scope, { demoMode });
 }

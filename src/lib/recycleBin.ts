@@ -21,6 +21,8 @@
  */
 
 /** Collections the bin will accept, and what it takes to delete or restore one. */
+import { isFullAccessRole } from "@/lib/permissions";
+
 export type BinCollectionRule = {
   /** Granular permission required, or null when the role gate alone decides. */
   permission: string | null;
@@ -149,7 +151,10 @@ export function checkDeleteAllowed(
   rule: BinCollectionRule,
   actor: { role: string | null | undefined; permissions: string[] }
 ): true | BinRefusal {
-  const isAdmin = actor.role === "Admin";
+  // Owner and Admin both: the same pair `isClinicAdmin()` accepts in firestore.rules. Checking
+  // the literal "Admin" refused every clinic Owner — the person most entitled to delete — with
+  // a 403 the screen showed as "could not delete".
+  const isAdmin = isFullAccessRole(actor.role);
   if (rule.adminOnly && !isAdmin) {
     return { ok: false, status: 403, error: "Only a clinic Admin can delete this.", reason: "ADMIN_ONLY" };
   }
@@ -179,7 +184,7 @@ export function checkRestoreAllowed(
 ): true | BinRefusal {
   const deleteCheck = checkDeleteAllowed(rule, actor);
   if (deleteCheck !== true) return deleteCheck;
-  if (actor.role === "Admin") return true;
+  if (isFullAccessRole(actor.role)) return true;
 
   const createPermission = createPermissionFor(collection);
   if (createPermission && !actor.permissions.includes(createPermission)) {

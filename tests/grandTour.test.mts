@@ -94,6 +94,31 @@ for (const chapter of TOUR_CHAPTERS) {
   assert.ok(chapter.title.en && chapter.title.ar && chapter.blurb.en && chapter.blurb.ar, `chapter ${chapter.id} is missing text`);
 }
 
+// --- 5b. demos ---------------------------------------------------------------------------------
+// A demo-only stop with no demo is a stop that says nothing; a demo action without an anchor is
+// a hand with nowhere to go; a click that narrows by row must carry a template the runner fills.
+for (const stop of TOUR_STOPS) {
+  if (stop.demoOnly) assert.ok(stop.demo && stop.demo.length > 0, `${stop.id}: demoOnly but has no demo`);
+  for (const action of stop.demo ?? []) {
+    if (action.kind === "click" || action.kind === "type" || action.kind === "wait") {
+      assert.ok(action.anchor.trim().length > 0, `${stop.id}: a ${action.kind} action has no anchor`);
+    }
+    if (action.kind === "click" && action.inRowContaining) {
+      assert.match(action.inRowContaining, /\{\{\w+\}\}/, `${stop.id}: inRowContaining should name a demo value`);
+    }
+    if (action.kind === "type") {
+      assert.match(action.text, /\{\{\w+\}\}/, `${stop.id}: typed text should come from demo values, never a literal`);
+    }
+    if ("say" in action && action.say) {
+      assert.ok(action.say.en && action.say.ar, `${stop.id}: a demo line is missing a language`);
+    }
+  }
+  if (stop.dynamic === "demoPatient") assert.ok(stop.demoOnly, `${stop.id}: a demo-patient stop must be demo-only`);
+}
+assert.ok(TOUR_STOPS.some((s) => s.id === "patients-add" && s.demo), "the add-patient stop demonstrates");
+assert.ok(TOUR_STOPS.some((s) => s.id === "demo-cleanup-patient"), "what Sara adds, Sara deletes");
+assert.ok(TOUR_STOPS.some((s) => s.id === "demo-cleanup-service"), "what Sara adds, Sara deletes");
+
 // --- 6. gating -------------------------------------------------------------------------------
 const everything = tourStopsFor({
   isAdmin: true,
