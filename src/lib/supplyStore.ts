@@ -45,11 +45,20 @@ export interface StoreProduct {
   inStock: boolean;
   /** null when the partner does not track stock on that product — which is not the same as zero. */
   stockQuantity: number | null;
+  /** The first photo, for the catalogue card. Always `images[0]` when there is one. */
   imageUrl: string;
+  /** Every photo the shop holds, in his order. The detail view pages through these. */
+  images: string[];
   permalink: string;
   categoryIds: number[];
   categoryNames: string[];
+  /** One line for the card. */
+  shortDescription: string;
+  /** The full text, for the detail view. Still plain text — his HTML is not ours to render. */
   description: string;
+  /** His shop's own star rating, 0 when nobody has reviewed it. Read-only; we never write it. */
+  averageRating: number;
+  ratingCount: number;
 }
 
 export interface StoreCategory {
@@ -203,11 +212,13 @@ export function mapWooProduct(raw: unknown): StoreProduct | null {
   if (toText(p.type) === "variable" || toText(p.type) === "grouped") return null;
   if (p.purchasable === false) return null;
 
-  const images = Array.isArray(p.images) ? p.images : [];
-  const firstImage =
-    images.length > 0 && images[0] && typeof images[0] === "object"
-      ? toText((images[0] as Record<string, unknown>).src)
-      : "";
+  const images = (Array.isArray(p.images) ? p.images : [])
+    .map((img) => (img && typeof img === "object" ? toText((img as Record<string, unknown>).src) : ""))
+    .filter(Boolean)
+    // A shop that has uploaded the same file twice shows the same photo twice in the gallery,
+    // which reads as the viewer being broken rather than as the shop being untidy.
+    .filter((src, i, all) => all.indexOf(src) === i)
+    .slice(0, 12);
 
   const categories = (Array.isArray(p.categories) ? p.categories : []).filter(
     (c): c is Record<string, unknown> => Boolean(c) && typeof c === "object"
@@ -229,11 +240,18 @@ export function mapWooProduct(raw: unknown): StoreProduct | null {
     inStock: toText(p.stock_status) === "instock" || toText(p.stock_status) === "",
     stockQuantity:
       p.stock_quantity === null || p.stock_quantity === undefined ? null : toNumber(p.stock_quantity, 0),
-    imageUrl: firstImage,
+    imageUrl: images[0] || "",
+    images,
     permalink: toText(p.permalink),
     categoryIds: categories.map((c) => toNumber(c.id, 0)).filter((n) => n > 0),
     categoryNames: categories.map((c) => toText(c.name)).filter(Boolean),
-    description: stripHtml(toText(p.short_description) || toText(p.description)).slice(0, 400),
+    shortDescription: stripHtml(toText(p.short_description) || toText(p.description)).slice(0, 160),
+    // The long one. Shop descriptions run to specification tables, so this is generous — but it
+    // is still stripped to text: rendering a supplier's HTML inside our page would let his shop
+    // style, script or reshape a screen our clinics are signed in to.
+    description: stripHtml(toText(p.description) || toText(p.short_description)).slice(0, 4000),
+    averageRating: toNumber(p.average_rating, 0),
+    ratingCount: toNumber(p.rating_count, 0),
   };
 }
 
@@ -269,6 +287,33 @@ export function commissionFor(orderTotal: number, ratePercent: number): number {
 export interface OrderDraft {
   lines: CartLine[];
   contact: OrderContact;
+}
+
+/**
+ * WooCommerce coupon codes are stored lower-case and compared that way, so a clinic typing
+ * "ALPHA10" must become "alpha10" or the shop reports a perfectly valid code as not existing.
+ * Returns "" for anything that is not a usable code.
+ */
+export function normalizeCouponCode(raw: string): string {
+  return (raw || "").trim().toLowerCase().replace(/\s+/g, "").slice(0, 60);
+}
+
+/**
+ * The codes to send with an order: the platform's own members' code, then whatever the clinic
+ * typed. Deduplicated, because WooCommerce refuses an order that lists the same coupon twice.
+ *
+ * The members' code goes FIRST and is added by the server, never by the browser. It is the whole
+ * point of the arrangement — a price a clinic can only get through Alpha — so a basket that
+ * forgot to include it, or a clinic that worked out the code and used it directly on his site,
+ * must not change what we send.
+ */
+export function couponCodesFor(memberCoupon: string, typedCoupon: string): string[] {
+  const codes: string[] = [];
+  const member = normalizeCouponCode(memberCoupon);
+  const typed = normalizeCouponCode(typedCoupon);
+  if (member) codes.push(member);
+  if (typed && typed !== member) codes.push(typed);
+  return codes;
 }
 
 /**
@@ -314,7 +359,7 @@ export function validateOrderDraft(draft: OrderDraft): { ok: true } | { ok: fals
  */
 export function buildWooOrderPayload(
   draft: OrderDraft,
-  meta: { clinicId: string; ref: string }
+  meta: { clinicId: string; ref: string; couponCodes?: string[] }
 ): Record<string, unknown> {
   const contact = draft.contact;
   const nameParts = contact.clinicName.trim().split(/\s+/);
@@ -327,11 +372,21 @@ export function buildWooOrderPayload(
     email: (contact.email || "").trim(),
   };
 
+  // Codes only. WooCommerce looks each one up, checks its own rules — expiry, minimum spend,
+  // which products it covers, how many times it has been used — and works out the discount
+  // itself. Sending an AMOUNT here would put us in the position of calculating a discount
+  // against rules we cannot see, which is the same mistake as sending a price.
+  const couponLines = (meta.couponCodes || [])
+    .map((code) => normalizeCouponCode(code))
+    .filter(Boolean)
+    .map((code) => ({ code }));
+
   return {
     payment_method: "cod",
     payment_method_title: "Cash on delivery",
     set_paid: false,
     status: "pending",
+    ...(couponLines.length > 0 ? { coupon_lines: couponLines } : {}),
     billing,
     shipping: {
       first_name: billing.first_name,
@@ -377,7 +432,14 @@ export function isAlphaOrder(raw: unknown): boolean {
 /** The parts of a WooCommerce order we keep. Status is the one that keeps changing. */
 export function mapWooOrder(
   raw: unknown
-): { wooOrderId: number; number: string; status: string; total: number; currency: string } | null {
+): {
+  wooOrderId: number;
+  number: string;
+  status: string;
+  total: number;
+  discountTotal: number;
+  currency: string;
+} | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
   const wooOrderId = toNumber(o.id, 0);
@@ -387,6 +449,10 @@ export function mapWooOrder(
     number: toText(o.number) || String(wooOrderId),
     status: toText(o.status) || "pending",
     total: toNumber(o.total, 0),
+    // What the coupons actually took off, as WooCommerce worked it out. Derived from his rules,
+    // not from ours — subtracting our basket subtotal from his total would call a price change,
+    // or a delivery charge he added, a discount.
+    discountTotal: toNumber(o.discount_total, 0),
     currency: toText(o.currency) || "EGP",
   };
 }
@@ -452,6 +518,13 @@ export function friendlyStoreError(status: number, wooCode: string, language: "e
     return ar
       ? "أحد الأصناف لم يعد متاحاً في المتجر. احذفه وأعد المحاولة."
       : "One of the items is no longer in the store. Remove it and try again.";
+  }
+  // WooCommerce answers a bad, expired or already-used coupon with this. It is one of the few
+  // failures the clinic itself can actually fix, so unlike the rest it says what is wrong.
+  if (wooCode === "woocommerce_rest_invalid_coupon" || wooCode.includes("coupon")) {
+    return ar
+      ? "كود الخصم غير صالح أو منتهي. احذفه وأعد المحاولة، أو اطلب الطلب بدونه."
+      : "That discount code is not valid or has expired. Remove it and try again, or order without it.";
   }
   if (wooCode === "woocommerce_rest_cannot_create_order") {
     return ar

@@ -7,7 +7,7 @@ import {
   wooRequest,
   type SupplyStoreConfig,
 } from "@/lib/server/wooClient";
-import { normalizeStoreUrl } from "@/lib/supplyStore";
+import { normalizeCouponCode, normalizeStoreUrl } from "@/lib/supplyStore";
 
 /**
  * The partner shop's connection, and the platform's cut of it.
@@ -39,6 +39,7 @@ export async function GET(request: Request) {
       currency: config.currency,
       commissionPercent: config.commissionPercent,
       deliveryNote: config.deliveryNote,
+      memberCoupon: config.memberCoupon,
       consumerKeyPreview: config.consumerKey ? `${config.consumerKey.slice(0, 8)}…` : "",
       secretSet: config.consumerSecret.length > 0,
       usable: isStoreUsable(config),
@@ -62,6 +63,7 @@ export async function POST(request: Request) {
       currency?: string;
       commissionPercent?: number;
       deliveryNote?: string;
+      memberCoupon?: string;
       consumerKey?: string;
       consumerSecret?: string;
       /** Ask the shop for one product after saving, to prove the credentials actually work. */
@@ -85,6 +87,11 @@ export async function POST(request: Request) {
       patch.currency = body.currency.trim().toUpperCase().slice(0, 8);
     }
     if (typeof body.deliveryNote === "string") patch.deliveryNote = body.deliveryNote.trim().slice(0, 500);
+
+    // Normalised here rather than trusted as typed: WooCommerce stores coupon codes lower-case,
+    // so "ALPHA10" pasted from his email would be looked up as a code that does not exist and
+    // every order would fail for a reason nothing on screen could explain.
+    if (typeof body.memberCoupon === "string") patch.memberCoupon = normalizeCouponCode(body.memberCoupon);
 
     if (body.commissionPercent !== undefined) {
       const rate = Number(body.commissionPercent);
@@ -138,6 +145,7 @@ export async function POST(request: Request) {
       currency: config.currency,
       commissionPercent: config.commissionPercent,
       deliveryNote: config.deliveryNote,
+      memberCoupon: config.memberCoupon,
       consumerKeyPreview: config.consumerKey ? `${config.consumerKey.slice(0, 8)}…` : "",
       secretSet: config.consumerSecret.length > 0,
       usable: isStoreUsable(config),

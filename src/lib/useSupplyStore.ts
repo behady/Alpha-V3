@@ -19,6 +19,8 @@ export interface SupplyStoreStatus {
   storeName: string;
   currency: string;
   deliveryNote: string;
+  /** A partner discount applies to every order. The code itself never reaches the browser. */
+  membersDiscount: boolean;
 }
 
 const IDLE: SupplyStoreStatus = {
@@ -27,6 +29,7 @@ const IDLE: SupplyStoreStatus = {
   storeName: "",
   currency: "EGP",
   deliveryNote: "",
+  membersDiscount: false,
 };
 
 export function useSupplyStoreStatus(): SupplyStoreStatus {
@@ -51,6 +54,7 @@ export function useSupplyStoreStatus(): SupplyStoreStatus {
         storeName: typeof json.storeName === "string" ? json.storeName : "",
         currency: typeof json.currency === "string" && json.currency ? json.currency : "EGP",
         deliveryNote: typeof json.deliveryNote === "string" ? json.deliveryNote : "",
+        membersDiscount: json.membersDiscount === true,
       });
     } catch {
       setStatus({ ...IDLE, loading: false });

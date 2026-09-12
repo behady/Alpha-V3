@@ -30,11 +30,22 @@ export async function GET(request: Request) {
       storeName: config.storeName,
       currency: config.currency,
       deliveryNote: config.deliveryNote,
+      // Whether a members' discount applies — never the code itself. A clinic that learned the
+      // code could use it on his site directly, and the discount would stop being the reason to
+      // order through Alpha.
+      membersDiscount: config.memberCoupon.trim().length > 0,
     });
   } catch (error) {
     console.error("supply store status failed", error);
     // A store we cannot ask about is a store the clinic does not see. Failing closed here keeps a
     // Firestore hiccup from putting a dead shop link in the rail.
-    return NextResponse.json({ ok: true, connected: false, storeName: "", currency: "EGP", deliveryNote: "" });
+    return NextResponse.json({
+      ok: true,
+      connected: false,
+      storeName: "",
+      currency: "EGP",
+      deliveryNote: "",
+      membersDiscount: false,
+    });
   }
 }

@@ -13,8 +13,11 @@ import {
   Search,
   ShoppingBag,
   ShoppingCart,
+  Star,
+  Tag,
   Trash2,
   Truck,
+  X,
 } from "lucide-react";
 import { auth } from "@/lib/firebase";
 import { useClinic } from "@/context/ClinicContext";
@@ -45,6 +48,8 @@ interface StoreOrderRow {
   currency: string;
   total: number;
   subtotal?: number;
+  /** What the coupons took off, as his shop worked it out. 0 when none applied. */
+  discount?: number;
   lines: CartLine[];
   contact: { clinicName: string; phone: string; address: string; city?: string; email?: string; notes?: string };
   placedByName: string;
@@ -63,6 +68,33 @@ const STATUS_TEXT: Record<string, { en: string; ar: string; tone: string }> = {
 };
 
 const CART_KEY_PREFIX = "alpha:supplyCart:";
+
+/**
+ * His shop's own star rating, read-only.
+ *
+ * These are the reviews his customers left on his site; nothing in Alpha writes them. Shown
+ * because a clinic deciding between two scalers wants the same signal any other buyer gets, and
+ * hidden entirely when nobody has reviewed the product — an empty five-star row reads as a bad
+ * score rather than as no score.
+ */
+function Stars({ rating, count, ar }: { rating: number; count: number; ar: boolean }) {
+  if (!count || rating <= 0) return null;
+  const full = Math.round(rating);
+  return (
+    <div className="mt-1.5 flex items-center gap-1" title={`${rating} / 5`}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <Star
+          key={n}
+          size={12}
+          className={n <= full ? "fill-[#FACC15] text-[#FACC15]" : "text-line"}
+        />
+      ))}
+      <span className="ms-1 text-[11px] font-bold text-ink-muted">
+        {count} {ar ? "تقييم" : count === 1 ? "review" : "reviews"}
+      </span>
+    </div>
+  );
+}
 
 export default function SupplyStorePage() {
   const { language } = useLanguage();
@@ -85,6 +117,13 @@ export default function SupplyStorePage() {
 
   const [cart, setCart] = useState<CartLine[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
+
+  /** The product whose full description and photos are open, and which photo is showing. */
+  const [detail, setDetail] = useState<StoreProduct | null>(null);
+  const [detailImage, setDetailImage] = useState(0);
+
+  /** A discount code the clinic typed. The members' code is added by the server, not here. */
+  const [coupon, setCoupon] = useState("");
 
   const [orders, setOrders] = useState<StoreOrderRow[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
@@ -271,11 +310,12 @@ export default function SupplyStorePage() {
     try {
       const json = await authedFetch("/api/store/orders", {
         method: "POST",
-        body: JSON.stringify({ clinicId, lines: cart, contact, lang: language }),
+        body: JSON.stringify({ clinicId, lines: cart, contact, coupon, lang: language }),
       });
       const order = json.order as StoreOrderRow;
       setPlacedNumber(order?.number || "");
       setCart([]);
+      setCoupon("");
       setCartOpen(false);
       setTab("orders");
       await loadOrders();
@@ -458,7 +498,24 @@ export default function SupplyStorePage() {
                         key={product.id}
                         className="flex flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-sm transition-shadow hover:shadow-md"
                       >
-                        <div className="relative aspect-square bg-surface-subtle">
+                        {/*
+                          A FIXED height, not an aspect ratio.
+                          `aspect-square` did not constrain this: a tall portrait photo — and a
+                          supplier's catalogue is full of them, every handpiece is shot upright —
+                          stretched its own card, and because grid rows are as tall as their
+                          tallest cell, one such photo left every other card on the row with a
+                          crater of white space under the price. A fixed box with object-contain
+                          letterboxes instead, so a row of cards is a row of cards.
+                        */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDetail(product);
+                            setDetailImage(0);
+                          }}
+                          className="relative h-44 w-full shrink-0 cursor-zoom-in bg-surface-subtle"
+                          aria-label={product.name}
+                        >
                           {product.imageUrl ? (
                             /* The partner's shop is an arbitrary domain, so next/image's optimiser
                                would need it whitelisted in next.config. A plain img keeps a new
@@ -480,13 +537,31 @@ export default function SupplyStorePage() {
                               {ar ? "عرض" : "SALE"}
                             </span>
                           )}
-                        </div>
+                          {product.images.length > 1 && (
+                            <span className="absolute end-3 bottom-3 rounded-full bg-ink/80 px-2 py-0.5 text-[10px] font-black text-white">
+                              {product.images.length} {ar ? "صور" : "photos"}
+                            </span>
+                          )}
+                        </button>
 
                         <div className="flex flex-1 flex-col p-4">
-                          <h3 className="line-clamp-2 text-sm font-black leading-snug text-ink">{product.name}</h3>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDetail(product);
+                              setDetailImage(0);
+                            }}
+                            className="text-start"
+                          >
+                            <h3 className="line-clamp-2 text-sm font-black leading-snug text-ink hover:underline">
+                              {product.name}
+                            </h3>
+                          </button>
                           {product.sku && (
                             <p className="mt-1 text-[11px] font-bold text-ink-muted">{product.sku}</p>
                           )}
+
+                          <Stars rating={product.averageRating} count={product.ratingCount} ar={ar} />
 
                           <div className="mt-3 flex items-baseline gap-2">
                             <span className="text-lg font-black text-ink">{money(product.price)}</span>
@@ -496,6 +571,12 @@ export default function SupplyStorePage() {
                               </span>
                             )}
                           </div>
+
+                          {product.shortDescription && (
+                            <p className="mt-2 line-clamp-2 text-xs font-bold leading-relaxed text-ink-muted">
+                              {product.shortDescription}
+                            </p>
+                          )}
 
                           {product.stockQuantity !== null && product.stockQuantity <= 5 && (
                             <p className="mt-1 text-[11px] font-black text-amber-600">
@@ -602,6 +683,11 @@ export default function SupplyStorePage() {
                       </div>
                       <div className="text-end">
                         <div className="text-xl font-black text-ink">{money(order.total)}</div>
+                        {order.discount ? (
+                          <div className="text-[11px] font-black text-emerald-600">
+                            {ar ? `وفّرت ${money(order.discount)}` : `Saved ${money(order.discount)}`}
+                          </div>
+                        ) : null}
                         <div className="text-[11px] font-black uppercase tracking-wide text-ink-muted">
                           {ar ? "الدفع عند الاستلام" : "Cash on delivery"}
                         </div>
@@ -629,6 +715,160 @@ export default function SupplyStorePage() {
             </div>
           )}
         </div>
+
+        {/*
+          One product, in full: every photo the shop holds, the whole description, and his own
+          star rating. The catalogue card deliberately shows almost none of this — a grid where
+          every tile carries a paragraph is a grid nobody scans — so this is where someone lands
+          when they want to know whether the thing is actually what they need.
+        */}
+        {detail && (
+          <div
+            className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+            dir={isRTL ? "rtl" : "ltr"}
+          >
+            <button
+              type="button"
+              aria-label="close"
+              onClick={() => setDetail(null)}
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            />
+            <div className="relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl bg-surface shadow-2xl">
+              <button
+                type="button"
+                onClick={() => setDetail(null)}
+                className="absolute end-4 top-4 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-surface-subtle text-ink-muted shadow-sm hover:text-ink"
+              >
+                <X size={18} />
+              </button>
+
+              <div className="grid flex-1 gap-6 overflow-y-auto p-6 md:grid-cols-2">
+                {/* Photos */}
+                <div>
+                  <div className="flex h-72 items-center justify-center rounded-2xl bg-surface-subtle">
+                    {detail.images[detailImage] ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={detail.images[detailImage]}
+                        alt=""
+                        className="max-h-full max-w-full object-contain p-4"
+                      />
+                    ) : (
+                      <Package size={40} className="text-ink-muted" />
+                    )}
+                  </div>
+
+                  {detail.images.length > 1 && (
+                    <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                      {detail.images.map((src, i) => (
+                        <button
+                          key={src}
+                          type="button"
+                          onClick={() => setDetailImage(i)}
+                          className={`h-16 w-16 shrink-0 overflow-hidden rounded-xl border-2 bg-surface-subtle transition-colors ${
+                            i === detailImage ? "border-[#FACC15]" : "border-line"
+                          }`}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={src} alt="" loading="lazy" className="h-full w-full object-contain p-1" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Everything else */}
+                <div className="flex flex-col">
+                  <h2 className="pe-10 text-xl font-black leading-snug text-ink">{detail.name}</h2>
+                  {detail.sku && <p className="mt-1 text-xs font-bold text-ink-muted">{detail.sku}</p>}
+                  <Stars rating={detail.averageRating} count={detail.ratingCount} ar={ar} />
+
+                  <div className="mt-4 flex items-baseline gap-3">
+                    <span className="text-3xl font-black text-ink">{money(detail.price)}</span>
+                    {detail.onSale && (
+                      <span className="text-sm font-bold text-ink-muted line-through">
+                        {money(detail.regularPrice)}
+                      </span>
+                    )}
+                  </div>
+
+                  {detail.categoryNames.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {detail.categoryNames.map((name) => (
+                        <span
+                          key={name}
+                          className="rounded-full bg-surface-subtle px-2.5 py-1 text-[11px] font-black text-ink-muted"
+                        >
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {detail.stockQuantity !== null && (
+                    <p className="mt-3 text-xs font-black text-ink-muted">
+                      {detail.stockQuantity <= 5
+                        ? ar
+                          ? `باقي ${detail.stockQuantity} فقط`
+                          : `Only ${detail.stockQuantity} left`
+                        : ar
+                          ? "متوفر"
+                          : "In stock"}
+                    </p>
+                  )}
+
+                  {detail.description ? (
+                    <p className="mt-4 whitespace-pre-line text-sm font-bold leading-relaxed text-ink-body">
+                      {detail.description}
+                    </p>
+                  ) : (
+                    <p className="mt-4 text-sm font-bold text-ink-muted">
+                      {ar ? "المورّد لم يكتب وصفاً لهذا الصنف." : "The supplier has not written a description for this one."}
+                    </p>
+                  )}
+
+                  <div className="mt-6">
+                    {(() => {
+                      const inCart = cart.find((line) => line.productId === detail.id);
+                      if (!inCart) {
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => addToCart(detail)}
+                            className="w-full rounded-2xl bg-ink py-3.5 text-sm font-black text-white transition-transform hover:scale-[1.01]"
+                          >
+                            {ar ? "أضف للسلة" : "Add to basket"}
+                          </button>
+                        );
+                      }
+                      return (
+                        <div className="flex items-center justify-between rounded-2xl border border-line bg-surface-subtle p-2">
+                          <button
+                            type="button"
+                            onClick={() => setQty(detail.id, inCart.qty - 1)}
+                            className="flex h-10 w-10 items-center justify-center rounded-xl bg-surface text-ink-muted shadow-sm hover:text-red-600"
+                          >
+                            <Minus size={16} />
+                          </button>
+                          <span className="text-base font-black text-ink">
+                            {inCart.qty} {ar ? "في السلة" : "in basket"}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setQty(detail.id, inCart.qty + 1)}
+                            className="flex h-10 w-10 items-center justify-center rounded-xl bg-surface text-ink-muted shadow-sm hover:text-emerald-600"
+                          >
+                            <Plus size={16} />
+                          </button>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Basket + checkout */}
         {cartOpen && (
@@ -729,6 +969,37 @@ export default function SupplyStorePage() {
                       placeholder={ar ? "ملاحظات للمورّد (اختياري)" : "Note for the supplier (optional)"}
                       className="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm font-bold text-ink outline-none focus:border-[#FACC15]"
                     />
+
+                    <div className="border-t border-line pt-3">
+                      <h3 className="mb-2 text-sm font-black text-ink">{ar ? "كود خصم" : "Discount code"}</h3>
+                      <div className="relative">
+                        <Tag
+                          size={16}
+                          className={`pointer-events-none absolute top-1/2 -translate-y-1/2 text-ink-muted ${isRTL ? "right-3" : "left-3"}`}
+                        />
+                        <input
+                          value={coupon}
+                          onChange={(e) => setCoupon(e.target.value)}
+                          placeholder={ar ? "لو معاك كود من المورّد" : "If the supplier gave you a code"}
+                          className={`w-full rounded-xl border border-line bg-surface py-2.5 text-sm font-bold uppercase text-ink outline-none focus:border-[#FACC15] ${isRTL ? "pe-10 ps-3" : "ps-10 pe-3"}`}
+                        />
+                      </div>
+
+                      {/*
+                        The clinic is told a members' price applies, never what the code is. The
+                        code is the reason to order through Alpha rather than direct; a clinic that
+                        learned it would simply type it on his site and the arrangement would be
+                        worth nothing. The server attaches it — see couponCodesFor.
+                      */}
+                      {store.membersDiscount && (
+                        <p className="mt-2 flex items-start gap-2 rounded-xl bg-emerald-50 p-3 text-xs font-bold text-emerald-700">
+                          <Tag size={14} className="mt-0.5 shrink-0" />
+                          {ar
+                            ? "خصم عملاء ألفا بيتطبّق على الطلب ده تلقائياً — هتشوفه في تأكيد المورّد."
+                            : "The Alpha members' discount is applied to this order automatically — you'll see it on the supplier's confirmation."}
+                        </p>
+                      )}
+                    </div>
 
                     {store.deliveryNote && (
                       <p className="rounded-xl bg-surface-subtle p-3 text-xs font-bold text-ink-muted">

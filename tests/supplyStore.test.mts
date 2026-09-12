@@ -24,9 +24,11 @@ import {
   buildWooOrderPayload,
   cartTotals,
   commissionFor,
+  couponCodesFor,
   isAlphaOrder,
   mapWooOrder,
   mapWooProduct,
+  normalizeCouponCode,
   normalizeStoreUrl,
   readOrderMeta,
   stripHtml,
@@ -96,6 +98,41 @@ check("the delivery address travels with the order", () => {
   assert.equal(billing.address_1, "12 Nile St");
   assert.equal(billing.city, "Giza");
   assert.equal(payload.customer_note, "Ring the bell twice");
+});
+
+// --- 1b. Discount codes -------------------------------------------------------------------------
+
+check("coupon codes are lower-cased, because WooCommerce stores them that way", () => {
+  assert.equal(normalizeCouponCode("ALPHA10"), "alpha10");
+  assert.equal(normalizeCouponCode("  Alpha 10 "), "alpha10");
+  assert.equal(normalizeCouponCode(""), "");
+});
+
+check("the members' code leads, the typed one follows, and neither repeats", () => {
+  assert.deepEqual(couponCodesFor("ALPHA10", "summer"), ["alpha10", "summer"]);
+  // A clinic that works out the members' code and types it must not send it twice — WooCommerce
+  // refuses an order that lists the same coupon in two lines.
+  assert.deepEqual(couponCodesFor("ALPHA10", "alpha10"), ["alpha10"]);
+  assert.deepEqual(couponCodesFor("", "summer"), ["summer"]);
+  assert.deepEqual(couponCodesFor("ALPHA10", ""), ["alpha10"]);
+  assert.deepEqual(couponCodesFor("", ""), []);
+});
+
+check("the payload sends coupon CODES, never a discount amount", () => {
+  const payload = buildWooOrderPayload(draft, {
+    clinicId: "c",
+    ref: "r",
+    couponCodes: couponCodesFor("ALPHA10", "summer"),
+  });
+  assert.deepEqual(payload.coupon_lines, [{ code: "alpha10" }, { code: "summer" }]);
+  // Same principle as prices: his shop owns the rules that decide what a coupon is worth.
+  const wire = JSON.stringify(payload);
+  assert.ok(!wire.includes("discount"), "a discount amount reached the WooCommerce payload");
+});
+
+check("no coupons means no coupon_lines key at all", () => {
+  const payload = buildWooOrderPayload(draft, { clinicId: "c", ref: "r", couponCodes: [] });
+  assert.ok(!("coupon_lines" in payload), "an empty coupon_lines array makes Woo reject the order");
 });
 
 // --- 2. Validation --------------------------------------------------------------------------
@@ -193,6 +230,8 @@ const wooProduct = {
   images: [{ src: "https://shop.example.com/img/41.jpg" }],
   categories: [{ id: 9, name: "Restorative" }],
   short_description: "<p>A <strong>7-shade</strong> kit &amp; bonding agent.</p>",
+  average_rating: "4.50",
+  rating_count: 8,
 };
 
 check("a simple in-stock product maps cleanly", () => {
@@ -205,7 +244,45 @@ check("a simple in-stock product maps cleanly", () => {
   assert.equal(product.stockQuantity, 3);
   assert.equal(product.imageUrl, "https://shop.example.com/img/41.jpg");
   assert.deepEqual(product.categoryNames, ["Restorative"]);
-  assert.equal(product.description, "A 7-shade kit & bonding agent.");
+  assert.equal(product.shortDescription, "A 7-shade kit & bonding agent.");
+  assert.equal(product.averageRating, 4.5);
+  assert.equal(product.ratingCount, 8);
+});
+
+check("every photo is kept, in order, with duplicates dropped", () => {
+  const product = mapWooProduct({
+    ...wooProduct,
+    images: [
+      { src: "https://shop.example.com/a.jpg" },
+      { src: "https://shop.example.com/b.jpg" },
+      { src: "https://shop.example.com/a.jpg" },
+      { src: "" },
+      null,
+    ],
+  });
+  assert.ok(product);
+  assert.deepEqual(product.images, ["https://shop.example.com/a.jpg", "https://shop.example.com/b.jpg"]);
+  // The card shows images[0]; the two must never disagree or the grid and the detail view open
+  // on different photos.
+  assert.equal(product.imageUrl, product.images[0]);
+});
+
+check("a product with no photos has an empty gallery, not a list holding nothing", () => {
+  const product = mapWooProduct({ ...wooProduct, images: [] });
+  assert.ok(product);
+  assert.deepEqual(product.images, []);
+  assert.equal(product.imageUrl, "");
+});
+
+check("the long description is the one the detail view shows", () => {
+  const product = mapWooProduct({
+    ...wooProduct,
+    short_description: "<p>Short.</p>",
+    description: "<p>The <b>full</b> specification.</p>",
+  });
+  assert.ok(product);
+  assert.equal(product.shortDescription, "Short.");
+  assert.equal(product.description, "The full specification.");
 });
 
 check("variable, grouped, draft and unpurchasable products are dropped", () => {
@@ -241,6 +318,7 @@ check("an order read back from the shop keeps its status and total", () => {
   assert.equal(mapped.wooOrderId, 812);
   assert.equal(mapped.status, "processing");
   assert.equal(mapped.total, 3420);
+  assert.equal(mapped.discountTotal, 0);
   assert.equal(mapWooOrder({ status: "processing" }), null);
 });
 

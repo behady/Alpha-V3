@@ -30,6 +30,18 @@ export interface SupplyStoreConfig {
   commissionPercent: number;
   /** Shown at checkout: delivery areas, lead time, minimum order — the partner's own words. */
   deliveryNote: string;
+  /**
+   * A WooCommerce coupon the partner created for Alpha clinics, applied to every order we place.
+   *
+   * This is the exclusive price: a clinic gets it by ordering through Alpha and cannot get it by
+   * walking into his site and typing something. The server attaches it; the browser is never told
+   * what it is, only that a members' discount applies.
+   *
+   * Note it reduces the order total, and the commission is a percentage OF that total — so a
+   * discount he funds also costs us a little. That is deliberate: the alternative is invoicing him
+   * for a percentage of money nobody paid.
+   */
+  memberCoupon: string;
   updatedAt?: string;
 }
 
@@ -67,6 +79,7 @@ export async function loadSupplyStoreConfig(): Promise<SupplyStoreConfig> {
     currency: toText(data.currency) || "EGP",
     commissionPercent: Number(data.commissionPercent) || 0,
     deliveryNote: toText(data.deliveryNote),
+    memberCoupon: toText(data.memberCoupon),
     updatedAt: toText(data.updatedAt) || undefined,
   };
 

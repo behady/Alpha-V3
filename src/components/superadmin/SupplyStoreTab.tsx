@@ -24,6 +24,7 @@ interface ConfigState {
   currency: string;
   commissionPercent: number;
   deliveryNote: string;
+  memberCoupon: string;
   consumerKeyPreview: string;
   secretSet: boolean;
   usable: boolean;
@@ -55,6 +56,7 @@ export default function SupplyStoreTab() {
     currency: "EGP",
     commissionPercent: "0",
     deliveryNote: "",
+    memberCoupon: "",
     consumerKey: "",
     consumerSecret: "",
   });
@@ -84,6 +86,7 @@ export default function SupplyStoreTab() {
       currency: String(json.currency || "EGP"),
       commissionPercent: Number(json.commissionPercent) || 0,
       deliveryNote: String(json.deliveryNote || ""),
+      memberCoupon: String(json.memberCoupon || ""),
       consumerKeyPreview: String(json.consumerKeyPreview || ""),
       secretSet: json.secretSet === true,
       usable: json.usable === true,
@@ -97,6 +100,7 @@ export default function SupplyStoreTab() {
       currency: next.currency,
       commissionPercent: String(next.commissionPercent),
       deliveryNote: next.deliveryNote,
+      memberCoupon: next.memberCoupon,
       // Credentials are never repopulated — they are write-only by design.
       consumerKey: "",
       consumerSecret: "",
@@ -141,6 +145,7 @@ export default function SupplyStoreTab() {
           currency: form.currency,
           commissionPercent: Number(form.commissionPercent),
           deliveryNote: form.deliveryNote,
+          memberCoupon: form.memberCoupon,
           consumerKey: form.consumerKey || undefined,
           consumerSecret: form.consumerSecret || undefined,
           enabled: options.enabled,
@@ -285,6 +290,26 @@ export default function SupplyStoreTab() {
               onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
               className={field}
             />
+          </div>
+
+          <div>
+            <label className={label}>Alpha members&apos; coupon code</label>
+            <input
+              value={form.memberCoupon}
+              onChange={(e) => setForm((f) => ({ ...f, memberCoupon: e.target.value }))}
+              placeholder="alpha10"
+              className={field}
+              autoComplete="off"
+            />
+            <p className="mt-1 text-[11px] font-bold text-slate-500">
+              A coupon HE creates in WooCommerce. Applied to every order Alpha places, automatically. Clinics are
+              told a members&apos; discount applies but never see the code &mdash; if they did, they could use it on his
+              site directly and ordering through Alpha would stop being worth anything. Leave blank for none.
+            </p>
+            <p className="mt-1 text-[11px] font-bold text-amber-400">
+              Note: it lowers the order total, and our commission is a percentage of that total &mdash; so a discount he
+              funds also trims our cut a little.
+            </p>
           </div>
 
           <div className="md:col-span-2">

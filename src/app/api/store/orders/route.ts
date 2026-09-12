@@ -7,6 +7,7 @@ import {
   buildWooOrderPayload,
   cartTotals,
   commissionFor,
+  couponCodesFor,
   friendlyStoreError,
   mapWooOrder,
   validateOrderDraft,
@@ -136,6 +137,8 @@ export async function POST(request: Request) {
     clinicId?: string;
     lines?: CartLine[];
     contact?: OrderContact;
+    /** A code the clinic typed at checkout. The members' code is added here, not by the browser. */
+    coupon?: string;
     lang?: string;
   };
 
@@ -165,7 +168,8 @@ export async function POST(request: Request) {
      * it is why the ref is generated before the call rather than derived from the response.
      */
     const ref = `ALP-${clinicId.slice(0, 6)}-${Date.now().toString(36).toUpperCase()}`;
-    const payload = buildWooOrderPayload(draft, { clinicId, ref });
+    const couponCodes = couponCodesFor(config.memberCoupon, body.coupon || "");
+    const payload = buildWooOrderPayload(draft, { clinicId, ref, couponCodes });
 
     const created = await wooRequest<Record<string, unknown>>(config, "orders", {
       method: "POST",
@@ -221,6 +225,13 @@ export async function POST(request: Request) {
       placedByUid: staff.uid,
       placedByName: staff.name,
       paymentMethod: "cod",
+      // What the clinic can see: that a discount was applied and, if they typed one, which. The
+      // members' code is deliberately absent from the record for the same reason it is absent
+      // from the status route.
+      membersDiscountApplied: config.memberCoupon.trim().length > 0,
+      typedCoupon: (body.coupon || "").trim().toLowerCase().slice(0, 60),
+      // What the coupons took off, as his shop calculated it.
+      discount: wooOrder.discountTotal,
       createdAt: now,
       updatedAt: now,
     };
