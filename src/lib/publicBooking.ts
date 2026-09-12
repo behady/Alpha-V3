@@ -50,6 +50,15 @@ export type PublicClinicProfile = {
    * one message where that omission is not a cosmetic problem.
    */
   phone: string;
+  /**
+   * The clinic's logo, as a Storage download URL. Empty when the clinic never uploaded one.
+   *
+   * Read from `settings/clinic_info` with a fall back to the legacy `settings/clinicProfile`,
+   * because a clinic that has not re-saved the profile screen since the Phase-2 merge still has
+   * it only in the old document. Dropping the fallback would show a blank badge to exactly the
+   * clinics that have been on the system longest.
+   */
+  logoUrl: string;
 };
 
 export class PublicBookingError extends Error {
@@ -136,6 +145,13 @@ export async function loadPublicClinicProfile(
   const locationsSnap = await ref.collection("settings").doc("locations").get();
   const branches = parseClinicBranches(locationsSnap.exists ? locationsSnap.data() : null);
 
+  // Only clinics with no logo on the current document pay for the extra read.
+  let logoUrl = String(info.logoUrl || "").trim();
+  if (!logoUrl) {
+    const legacySnap = await ref.collection("settings").doc("clinicProfile").get();
+    logoUrl = String(legacySnap.data()?.logoUrl || "").trim();
+  }
+
   return {
     clinicName: String(info.name || "").trim() || "عيادة أسنان",
     enableDoctorSelection: booking.enableDoctorSelection === true,
@@ -147,6 +163,7 @@ export async function loadPublicClinicProfile(
     branches,
     address: String(info.address || "").trim(),
     phone: String(info.phone || "").trim(),
+    logoUrl,
   };
 }
 

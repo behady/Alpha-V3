@@ -43,6 +43,7 @@ import {
 
 type ClinicProfile = {
   clinicName: string;
+  logoUrl: string;
   enableDoctorSelection: boolean;
   defaultDurationMinutes: number;
   reasons: string[];
@@ -63,6 +64,39 @@ function formatSlotAr(timeKey: string): string {
   if (!m) return timeKey;
   const suffix = m[3].toUpperCase() === "PM" ? "م" : "ص";
   return `${toArDigits(String(Number(m[1])))}:${toArDigits(m[2])} ${suffix}`;
+}
+
+/** Minutes past midnight for a stored `hh:mm AM/PM`, or -1 when it is not one. */
+function slotMinutes(timeKey: string): number {
+  const m = timeKey.match(/^(\d{1,2}):(\d{2})\s?(AM|PM)$/i);
+  if (!m) return -1;
+  let hour = Number(m[1]) % 12;
+  if (m[3].toUpperCase() === "PM") hour += 12;
+  return hour * 60 + Number(m[2]);
+}
+
+/**
+ * Free times, split into the parts of the day people actually speak in.
+ *
+ * A flat list of every slot was unreadable — a normal clinic day is twenty-odd times, and twenty
+ * identical rows tell the patient nothing about which part of the day they are looking at.
+ * Empty groups are dropped, so a morning-only clinic shows one heading, not three.
+ */
+const SLOT_PERIODS: Array<{ label: string; until: number }> = [
+  { label: "الصبح", until: 12 * 60 },
+  { label: "بعد الضهر", until: 17 * 60 },
+  { label: "بالليل", until: 24 * 60 + 1 },
+];
+
+function groupSlotsByPeriod(slots: string[]): Array<{ label: string; slots: string[] }> {
+  const buckets = SLOT_PERIODS.map((p) => ({ label: p.label, slots: [] as string[] }));
+  for (const slot of slots) {
+    const mins = slotMinutes(slot);
+    // An unparseable time still has to be bookable — park it in the last group rather than drop it.
+    const index = mins < 0 ? buckets.length - 1 : SLOT_PERIODS.findIndex((p) => mins < p.until);
+    buckets[index === -1 ? buckets.length - 1 : index].slots.push(slot);
+  }
+  return buckets.filter((b) => b.slots.length > 0);
 }
 
 /* ── Calendar helpers ──────────────────────────────────────────────────────────────────────── */
@@ -230,6 +264,74 @@ function MonthCalendar({ value, onChange, offDays, minKey, maxKey, disabled = fa
   );
 }
 
+/* ── Shell ─────────────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * The dark ground every state of this page sits on.
+ *
+ * The wallpaper is anchored to the top, where the logo and clinic name are, and the flat colour
+ * underneath is the PNG's own bottom-edge colour — so a page taller than the image continues in
+ * black with no seam. `bg-cover` handles every width; the art is a soft gradient, so stretching
+ * it costs nothing.
+ */
+function BookingShell({ children }: { children: React.ReactNode }) {
+  // The document itself goes dark too, not just this div. Without it the app's light page colour
+  // is what shows in the overscroll bounce at the top and bottom of a phone screen — a white
+  // flash on either side of a black page — and it is what the browser samples for the address
+  // bar's tint. Restored on unmount so nothing leaks into the rest of the app.
+  useEffect(() => {
+    const root = document.documentElement;
+    const body = document.body;
+    const prevRoot = root.style.backgroundColor;
+    const prevBody = body.style.backgroundColor;
+    root.style.backgroundColor = "#07090D";
+    body.style.backgroundColor = "#07090D";
+    return () => {
+      root.style.backgroundColor = prevRoot;
+      body.style.backgroundColor = prevBody;
+    };
+  }, []);
+
+  return (
+    <div
+      dir="rtl"
+      className="min-h-screen bg-[#07090D] bg-[url('/booking/wallpaper.png')] bg-cover bg-top bg-no-repeat font-sans"
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
+ * The clinic's logo over the form, or its first letter when it has not uploaded one.
+ *
+ * The fallback is deliberate: an empty frame on a stranger-facing page reads as a broken image,
+ * and this is the first thing a patient sees of the clinic. onError covers a logo whose Storage
+ * object was deleted after the URL was saved.
+ */
+function ClinicMark({ name, logoUrl }: { name: string; logoUrl: string }) {
+  const [failed, setFailed] = useState(false);
+  const initial = (name || "").trim().charAt(0) || "ع";
+
+  return (
+    <div className="mx-auto mb-5 w-20 h-20 rounded-2xl border border-white/15 bg-white/5 shadow-lg shadow-black/40 flex items-center justify-center overflow-hidden">
+      {logoUrl && !failed ? (
+        // Plain <img>: the URL is a Firebase Storage download link on a host next/image is not
+        // configured for, and a public page must not 500 because a clinic's logo lives elsewhere.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={logoUrl}
+          alt={name}
+          onError={() => setFailed(true)}
+          className="w-full h-full object-contain p-2.5"
+        />
+      ) : (
+        <span className="text-3xl font-black text-white/70">{initial}</span>
+      )}
+    </div>
+  );
+}
+
 /* ── Page ──────────────────────────────────────────────────────────────────────────────────── */
 
 export default function OnlineBookingPage() {
@@ -374,39 +476,44 @@ export default function OnlineBookingPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-surface-subtle text-ink-muted font-bold" dir="rtl">
-        بنحمل النظام...
-      </div>
+      <BookingShell>
+        <div className="min-h-screen flex items-center justify-center text-white/60 font-bold">بنحمل النظام...</div>
+      </BookingShell>
     );
   }
 
   if (error || !clinic) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-surface-subtle p-4" dir="rtl">
-        <div className="bg-surface p-8 rounded-3xl shadow-xl text-center max-w-md w-full border border-slate-100">
-          <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
-            <span className="text-3xl">!</span>
+      <BookingShell>
+        <div className="min-h-screen flex items-center justify-center p-4">
+          <div className="bg-surface p-8 rounded-3xl shadow-2xl shadow-black/50 text-center max-w-md w-full border border-line">
+            <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+              <span className="text-3xl">!</span>
+            </div>
+            <h1 className="text-xl font-black text-ink mb-2">{error || "العيادة دي مش متاحة حالياً."}</h1>
           </div>
-          <h1 className="text-xl font-black text-slate-800 mb-2">{error || "العيادة دي مش متاحة حالياً."}</h1>
         </div>
-      </div>
+      </BookingShell>
     );
   }
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-surface-subtle p-4" dir="rtl">
-        <div className="bg-surface p-10 rounded-3xl shadow-xl text-center max-w-md w-full border border-slate-100">
-          <div className="w-20 h-20 bg-accent-tint text-accent-strong rounded-full flex items-center justify-center mx-auto mb-6">
-            <CheckCircle size={40} />
+      <BookingShell>
+        <div className="min-h-screen flex flex-col items-center justify-center p-4">
+          <ClinicMark name={clinic.clinicName} logoUrl={clinic.logoUrl} />
+          <div className="bg-surface p-10 rounded-3xl shadow-2xl shadow-black/50 text-center max-w-md w-full border border-line">
+            <div className="w-20 h-20 bg-accent-tint text-accent-strong rounded-full flex items-center justify-center mx-auto mb-6">
+              <CheckCircle size={40} />
+            </div>
+            <h1 className="text-2xl font-black text-ink mb-2">طلبك وصل!</h1>
+            <p className="text-ink-muted font-medium">
+              وصلنا طلب الحجز بتاعك يوم {formatDateAr(selectedDate)} الساعة {formatSlotAr(selectedTime)}
+              {selectedBranch ? ` في ${selectedBranch.name}` : ""}. هنتواصل معاك قريب عشان نأكد.
+            </p>
           </div>
-          <h1 className="text-2xl font-black text-slate-800 mb-2">طلبك وصل!</h1>
-          <p className="text-ink-muted font-medium">
-            وصلنا طلب الحجز بتاعك يوم {formatDateAr(selectedDate)} الساعة {formatSlotAr(selectedTime)}
-            {selectedBranch ? ` في ${selectedBranch.name}` : ""}. هنتواصل معاك قريب عشان نأكد.
-          </p>
         </div>
-      </div>
+      </BookingShell>
     );
   }
 
@@ -420,14 +527,16 @@ export default function OnlineBookingPage() {
   const stepOneDone = Boolean(selectedTime && reason);
 
   return (
-    <div className="min-h-screen bg-surface-subtle py-12 px-4 sm:px-6 lg:px-8 font-sans" dir="rtl">
+    <BookingShell>
+      <div className="py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-xl mx-auto">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-black text-ink">{clinic.clinicName}</h1>
-          <p className="text-ink-muted font-medium mt-1">احجز ميعادك</p>
+          <ClinicMark name={clinic.clinicName} logoUrl={clinic.logoUrl} />
+          <h1 className="text-3xl font-black text-white">{clinic.clinicName}</h1>
+          <p className="text-white/50 font-medium mt-1">احجز ميعادك</p>
         </div>
 
-        <div className="bg-surface rounded-3xl shadow-sm border border-line overflow-hidden animate-in fade-in">
+        <div className="bg-surface rounded-3xl shadow-2xl shadow-black/50 border border-line overflow-hidden animate-in fade-in">
           <div className="flex bg-surface-subtle border-b border-line">
             <div
               className={`flex-1 text-center py-4 font-bold text-sm ${step === 1 ? "text-accent border-b-2 border-accent" : "text-ink-faint"}`}
@@ -569,28 +678,33 @@ export default function OnlineBookingPage() {
                         مفيش مواعيد متاحة في اليوم ده.
                       </div>
                     ) : (
-                      // No inner scroll box here on purpose. Capping the height cut the list off
-                      // mid-row, so a busy day looked like it had five times, and a nested scroll
-                      // area is awkward to hit on a phone. The page scrolls instead.
-                      <div className="space-y-2">
-                        {availableSlots.map((time) => (
-                          <button
-                            key={time}
-                            type="button"
-                            onClick={() => setSelectedTime(time)}
-                            aria-pressed={selectedTime === time}
-                            className={`w-full flex items-center justify-between rounded-xl border px-4 py-3 text-sm font-bold transition-all ${
-                              selectedTime === time
-                                ? "bg-accent text-ink-on-accent border-accent shadow-sm"
-                                : "bg-surface text-ink-strong border-line hover:border-accent hover:bg-accent-tint"
-                            }`}
-                          >
-                            <span className="flex items-center gap-2">
-                              <Clock size={16} className={selectedTime === time ? "text-ink-on-accent" : "text-accent"} />
-                              {formatSlotAr(time)}
-                            </span>
-                            {selectedTime === time && <Check size={16} />}
-                          </button>
+                      // Chips under a heading per part of the day. A full-width row each was the
+                      // first attempt and it read as a wall: a normal day is twenty-odd times, all
+                      // of them identical apart from four digits. No inner scroll box either — a
+                      // capped height cut the list mid-row, and nested scrolling is hard to hit on
+                      // a phone. The page scrolls.
+                      <div className="space-y-4">
+                        {groupSlotsByPeriod(availableSlots).map((group) => (
+                          <div key={group.label}>
+                            <div className="text-xs font-bold text-ink-faint mb-2">{group.label}</div>
+                            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                              {group.slots.map((time) => (
+                                <button
+                                  key={time}
+                                  type="button"
+                                  onClick={() => setSelectedTime(time)}
+                                  aria-pressed={selectedTime === time}
+                                  className={`rounded-xl border py-2.5 text-sm font-bold text-center transition-all ${
+                                    selectedTime === time
+                                      ? "bg-accent text-ink-on-accent border-accent shadow-sm"
+                                      : "bg-surface text-ink-strong border-line hover:border-accent hover:bg-accent-tint"
+                                  }`}
+                                >
+                                  {formatSlotAr(time)}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         ))}
                       </div>
                     )}
@@ -680,6 +794,7 @@ export default function OnlineBookingPage() {
           <div className="h-2 bg-accent" />
         </div>
       </div>
-    </div>
+      </div>
+    </BookingShell>
   );
 }

@@ -26,6 +26,8 @@ export async function GET(request: Request) {
       ok: true,
       clinic: {
         clinicName: profile.clinicName,
+        // The logo the clinic already prints on its own receipts — public by nature.
+        logoUrl: profile.logoUrl,
         enableDoctorSelection: profile.enableDoctorSelection,
         defaultDurationMinutes: profile.defaultDurationMinutes,
         reasons: profile.reasons,
