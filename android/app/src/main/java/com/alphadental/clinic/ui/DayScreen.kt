@@ -26,6 +26,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -64,50 +66,53 @@ fun DayScreen(
         // The slab carries whose day it is; the five-day strip stays on the light
         // ground below, where a row of tappable chips reads as controls rather
         // than as decoration on a dark band.
-        SlabSurface {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        text = prettyDate(date, arabic),
-                        fontSize = 23.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontFamily = AlphaType.Display,
-                        color = onSlab,
-                        maxLines = 1,
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = countLabel(appointments.size, arabic),
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = onSlabDim,
-                    )
+        //
+        // Compact, because this screen is a list people scroll all day: every dp
+        // the header takes is a row of appointments the receptionist cannot see.
+        // That is the same reason the website's calendar uses its compact header.
+        Slab(
+            title = prettyDate(date, arabic),
+            subtitle = countLabel(appointments.size, arabic),
+            compact = true,
+            bar = {
+                if (!isToday) {
+                    Surface(
+                        onClick = onToday,
+                        shape = Alpha.PillShape,
+                        color = Alpha.SlabFill,
+                    ) {
+                        Text(
+                            if (arabic) "العودة إلى اليوم" else "Back to today",
+                            fontFamily = AlphaType.Body,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = Alpha.SlabInk,
+                            modifier = Modifier.padding(horizontal = 13.dp, vertical = 6.dp),
+                        )
+                    }
                 }
-                IconButton(onClick = { onShiftDay(-1) }, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Filled.ChevronLeft, contentDescription = "Previous day", tint = onSlabDim)
-                }
-                IconButton(onClick = { onShiftDay(1) }, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Filled.ChevronRight, contentDescription = "Next day", tint = onSlabDim)
-                }
-            }
-
-            if (!isToday) {
-                Spacer(Modifier.height(12.dp))
-                Surface(
-                    onClick = onToday,
-                    shape = Alpha.PillShape,
-                    color = onSlab.copy(alpha = .14f),
-                ) {
-                    Text(
-                        if (arabic) "العودة إلى اليوم" else "Back to today",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.5.sp,
-                        color = onSlab,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                    )
-                }
-            }
-        }
+                Spacer(Modifier.weight(1f))
+                SlabIcon(Icons.Filled.ChevronLeft, "Previous day") { onShiftDay(-1) }
+                Spacer(Modifier.width(6.dp))
+                SlabIcon(Icons.Filled.ChevronRight, "Next day") { onShiftDay(1) }
+            },
+            stats = buildList {
+                add(SlabStat(
+                    if (arabic) "محجوز" else "Booked",
+                    appointments.size.toString(),
+                ))
+                add(SlabStat(
+                    if (arabic) "تمت" else "Done",
+                    appointments.count { normalizeStatus(it.status) == "Completed" }.toString(),
+                ))
+                // Unconfirmed is the one figure here that is a to-do: somebody
+                // still has to ring those patients.
+                add(SlabStat(
+                    if (arabic) "غير مؤكد" else "Unconfirmed",
+                    appointments.count { normalizeStatus(it.status) == "Scheduled" }.toString(),
+                ))
+            },
+        )
 
         Surface(color = Alpha.Ground, modifier = Modifier.fillMaxWidth()) {
             Row(
@@ -128,11 +133,18 @@ fun DayScreen(
                 CircularProgressIndicator(color = Alpha.Slate400, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
             }
 
+            // Full-bleed: the rows are one ruled white surface running edge to
+            // edge, so the list asks for no side padding of its own.
             else -> LazyColumn(
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
             ) {
-                if (offline) item { OfflineBanner(pending, arabic) }
+                if (offline) {
+                    item {
+                        Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                            OfflineBanner(pending, arabic)
+                        }
+                    }
+                }
 
                 if (appointments.isEmpty()) {
                     item {
@@ -140,8 +152,15 @@ fun DayScreen(
                         EmptyState(if (arabic) "لا توجد مواعيد في هذا اليوم." else "Nothing booked on this day.")
                     }
                 } else {
-                    items(appointments, key = { it.id }) { appointment ->
-                        AppointmentCard(appointment, arabic) { onOpenAppointment(appointment) }
+                    // One group rather than one item per row: a whole day can run
+                    // to thirty appointments, so this stays lazy and each row
+                    // draws the rule above itself.
+                    itemsIndexed(appointments, key = { _, a -> a.id }) { index, appointment ->
+                        Column(Modifier.background(Alpha.Card)) {
+                            if (index == 0) RowHairline()
+                            AppointmentRow(appointment, arabic) { onOpenAppointment(appointment) }
+                            RowHairline()
+                        }
                     }
                 }
             }

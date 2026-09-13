@@ -2,16 +2,19 @@ package com.alphadental.clinic.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -58,6 +61,7 @@ import androidx.compose.ui.unit.sp
 import com.alphadental.clinic.data.Appointment
 import com.alphadental.clinic.data.DOCTOR_TITLES
 import com.alphadental.clinic.data.Session
+import com.alphadental.clinic.data.withDoctorTitle
 import java.util.Calendar
 import kotlinx.coroutines.delay
 
@@ -141,25 +145,20 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                DashboardHeader(
+                DashboardSlab(
                     name = session.name,
                     arabic = arabic,
+                    ownerView = ownerView,
+                    takingsToday = takingsToday,
+                    booked = appointments.size,
+                    seen = seen,
+                    waiting = active.count { normalizeStatus(it.status) == "Checked In" },
+                    noShow = noShow,
                     onShift = onShift,
                     shiftSince = shiftSince,
                     clocking = clocking,
                     onPunch = onPunch,
-                ) {
-                    if (ownerView) {
-                        Spacer(Modifier.height(20.dp))
-                        SlabTakings(
-                            takingsToday = takingsToday,
-                            seen = seen,
-                            total = appointments.size,
-                            noShow = noShow,
-                            arabic = arabic,
-                        )
-                    }
-                }
+                )
             }
 
             // A newer version of this app, when one is published. Above the briefing because it
@@ -264,56 +263,65 @@ private val GUTTER = 16.dp
 /**
  * The dark band the dashboard opens on.
  *
- * Everything that frames the shift — who you are, what day it is, whether you are
- * clocked in, and for the owner what the day has taken — sits on one unbroken
- * dark surface, and the whole screen below it stays plain. Spending the contrast
+ * Everything that frames the shift — whose day it is, what day it is, whether
+ * you are clocked in, and what the clinic has taken — sits on one unbroken dark
+ * surface, and the whole screen below it stays plain. Spending the contrast
  * budget in a single place is what keeps the list underneath readable: by the
- * time the eye arrives at the appointment cards the only colour left anywhere is
- * the status colours, so yellow genuinely does mean "ring this patient" rather
- * than competing with five other bright things for attention.
+ * time the eye arrives at the appointments the only colour left anywhere is the
+ * status colours, so amber genuinely does mean "ring this patient" rather than
+ * competing with five other bright things for attention.
+ *
+ * The counts used to be three tiles a third of the way down the screen, in the
+ * same white card as everything else. They are figures about the day, so they
+ * belong on the surface that states the day — and moving them up bought back a
+ * whole row of appointments.
  */
 @Composable
-private fun DashboardHeader(
+private fun DashboardSlab(
     name: String,
     arabic: Boolean,
+    ownerView: Boolean,
+    /** Null for roles that may not see clinic revenue, and while it is still loading. */
+    takingsToday: Double?,
+    booked: Int,
+    seen: Int,
+    waiting: Int,
+    noShow: Int,
     onShift: Boolean,
     shiftSince: Long,
     clocking: Boolean,
     onPunch: () -> Unit,
-    content: @Composable ColumnScope.() -> Unit,
 ) {
-    SlabSurface {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    Slab(
+        title = shortName(name),
+        eyebrow = timeGreeting(arabic) + " \u00B7 " + todayLabel(arabic),
+        bar = {
             SlabAvatar(name)
-            Spacer(Modifier.width(12.dp))
-            // The greeting is context, the person is the headline — so the small
-            // line goes on top and the name sits alone underneath, in the serif
-            // that marks out the screen's few important words and figures.
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = "${timeGreeting(arabic)} · ${todayLabel(arabic)}",
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = onSlabDim,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = shortName(name),
-                    fontSize = 23.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontFamily = AlphaType.Display,
-                    color = onSlab,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+            Spacer(Modifier.weight(1f))
+            ClockChip(onShift, shiftSince, clocking, arabic, onPunch)
+        },
+        // Shown whenever the figure exists rather than whenever the person is an
+        // owner: the permission already decided this upstream, and asking twice
+        // is how a manager who may see the money gets a dashboard that hides it.
+        figure = takingsToday?.let { money ->
+            {
+                SlabFigure(
+                    amount = money.toInt().toString(),
+                    currency = if (arabic) "ج.م" else "EGP",
+                    note = if (arabic) "تحصيل اليوم" else "collected today",
+                    size = if (ownerView) 46 else 38,
                 )
             }
-            Spacer(Modifier.width(8.dp))
-            ClockChip(onShift, shiftSince, clocking, arabic, onPunch)
-        }
-        content()
-    }
+        },
+        stats = buildList {
+            add(SlabStat(if (arabic) "محجوز" else "Booked", booked.toString()))
+            add(SlabStat(if (arabic) "تمت" else "Seen", seen.toString()))
+            add(SlabStat(if (arabic) "بالانتظار" else "Waiting", waiting.toString()))
+            // Only when there are any. A permanent "0 no-shows" teaches people to
+            // stop reading the strip.
+            if (noShow > 0) add(SlabStat(if (arabic) "لم يحضروا" else "No show", noShow.toString()))
+        },
+    )
 }
 
 /** A quiet ring rather than a filled disc — a solid blob up here fought the name. */
@@ -321,92 +329,18 @@ private fun DashboardHeader(
 private fun SlabAvatar(name: String) {
     Box(
         modifier = Modifier
-            .size(46.dp)
+            .size(34.dp)
             .clip(CircleShape)
-            .background(onSlab.copy(alpha = .12f))
-            .border(1.dp, onSlab.copy(alpha = .22f), CircleShape),
+            .background(Alpha.SlabFill)
+            .border(1.dp, Alpha.SlabLine, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = name.trim().firstOrNull()?.uppercase() ?: "•",
-            fontSize = 19.sp,
+            text = name.trim().firstOrNull()?.uppercase() ?: "\u2022",
+            fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = AlphaType.Display,
-            color = onSlab,
-        )
-    }
-}
-
-/**
- * The owner's day, on the slab: what came through the door, then how far through
- * the bookings the clinic is.
- *
- * Deliberately what was collected, not what was charged — billed-but-unpaid would
- * flatter the figure badly, and this is the one number an owner acts on.
- */
-@Composable
-private fun SlabTakings(
-    takingsToday: Double?,
-    seen: Int,
-    total: Int,
-    noShow: Int,
-    arabic: Boolean,
-) {
-    Row(verticalAlignment = Alignment.Bottom) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = takingsToday?.let { "${it.toInt()} EGP" } ?: "—",
-                fontSize = 34.sp,
-                fontWeight = FontWeight.ExtraBold,
-                fontFamily = AlphaType.Display,
-                color = slabAccent,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = if (arabic) "تحصيل اليوم" else "Collected today",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = onSlabDim,
-            )
-        }
-        Text(
-            text = if (arabic) "$seen من $total" else "$seen of $total seen",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = onSlabDim,
-        )
-    }
-    Spacer(Modifier.height(12.dp))
-    SlabProgress(fraction = if (total == 0) 0f else seen.toFloat() / total)
-    if (noShow > 0) {
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = if (arabic) "$noShow لم يحضروا" else "$noShow no-show${if (noShow == 1) "" else "s"}",
-            fontSize = 11.5.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Alpha.Pink,
-        )
-    }
-}
-
-/** A thin rounded progress bar, sized and coloured for the dark slab. */
-@Composable
-private fun SlabProgress(fraction: Float) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(6.dp)
-            .clip(Alpha.PillShape)
-            .background(onSlab.copy(alpha = .16f))
-    ) {
-        Box(
-            Modifier
-                .fillMaxWidth(fraction.coerceIn(0f, 1f))
-                .height(6.dp)
-                .clip(Alpha.PillShape)
-                .background(slabAccent)
+            color = Alpha.SlabInk,
         )
     }
 }
@@ -443,24 +377,8 @@ private fun LazyListScope.dentistHome(
     }
 
     if (next != null && next.id != inChair?.id) {
-        row { SectionHeading(if (arabic) "التالي" else "UP NEXT") }
-        row { AppointmentCard(next, arabic) { onOpen(next) } }
-    }
-
-    row {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            StatTile(
-                value = list.size.toString(),
-                caption = if (arabic) "مواعيد متبقية" else "Still to see",
-                modifier = Modifier.weight(1f),
-            )
-            StatTile(
-                value = all.count { normalizeStatus(it.status) == "Completed" }.toString(),
-                caption = if (arabic) "اكتملت" else "Completed",
-                tint = Alpha.Green,
-                modifier = Modifier.weight(1f),
-            )
-        }
+        item { SectionLabel(if (arabic) "التالي" else "Up next") }
+        appointmentRows(listOf(next), arabic, onOpen)
     }
 
     quickActions(
@@ -514,42 +432,19 @@ private fun LazyListScope.receptionHome(
         ),
     )
 
-    row {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            StatTile(all.size.toString(), if (arabic) "اليوم" else "Booked today", modifier = Modifier.weight(1f))
-            val waiting = active.count { normalizeStatus(it.status) == "Checked In" }
-            StatTile(
-                waiting.toString(),
-                if (arabic) "في الانتظار" else "Waiting",
-                tint = if (waiting == 0) Alpha.Slate900 else Alpha.Green,
-                modifier = Modifier.weight(1f),
-            )
-            val noShow = all.count { normalizeStatus(it.status) == "No Show" }
-            StatTile(
-                noShow.toString(),
-                if (arabic) "لم يحضروا" else "No shows",
-                tint = if (noShow == 0) Alpha.Slate900 else Alpha.Pink,
-                modifier = Modifier.weight(1f),
-            )
-        }
-    }
 
     val waiting = active.filter { normalizeStatus(it.status) == "Checked In" }
     if (waiting.isNotEmpty()) {
-        row { SectionHeading(if (arabic) "في غرفة الانتظار" else "IN THE WAITING ROOM") }
-        items(waiting, key = { "w-${it.id}" }) { appointment ->
-            Gutter { AppointmentCard(appointment, arabic) { onOpen(appointment) } }
-        }
+        item { SectionLabel(if (arabic) "في غرفة الانتظار" else "In the waiting room") }
+        appointmentRows(waiting, arabic, onOpen)
     }
 
-    row { SectionHeading(if (arabic) "القادم" else "COMING UP") }
+    item { SectionLabel(if (arabic) "القادم" else "Coming up") }
     val upcoming = active.filterNot { normalizeStatus(it.status) == "Checked In" }.take(6)
     if (upcoming.isEmpty()) {
         row { EmptyState(if (arabic) "لا شيء متبقٍ اليوم." else "Nothing left today.") }
     } else {
-        items(upcoming, key = { "u-${it.id}" }) { appointment ->
-            Gutter { AppointmentCard(appointment, arabic) { onOpen(appointment) } }
-        }
+        appointmentRows(upcoming, arabic, onOpen)
     }
 }
 
@@ -587,13 +482,11 @@ private fun LazyListScope.ownerHome(
         ),
     )
 
-    row { SectionHeading(if (arabic) "ما زال قادماً" else "STILL TO COME") }
+    item { SectionLabel(if (arabic) "ما زال قادماً" else "Still to come") }
     if (active.isEmpty()) {
         row { EmptyState(if (arabic) "انتهى اليوم." else "The day is done.") }
     } else {
-        items(active.take(5), key = { "o-${it.id}" }) { appointment ->
-            Gutter { AppointmentCard(appointment, arabic) { onOpen(appointment) } }
-        }
+        appointmentRows(active.take(5), arabic, onOpen)
     }
 }
 
@@ -689,77 +582,99 @@ private data class QuickAction(
 )
 
 /**
- * The shortcuts, deliberately colourless.
+ * The shortcuts: a ruled grid, deliberately colourless.
  *
  * They spent a version as six different hues, which made the busiest row on the
  * screen the one carrying the least information — a shortcut being violet says
- * nothing a person needs to know. Outlined pills instead: the icon says which
- * tool it is, and the dashboard's whole colour budget is left to the appointment
- * statuses further down, where a colour marks something somebody has to act on.
+ * nothing a person needs to know. The dashboard's whole colour budget belongs to
+ * the appointment statuses further down, where a colour marks something somebody
+ * has to act on.
  *
- * The row scrolls sideways rather than wrapping, so a sixth tool costs no height.
+ * They then spent a version as a rail of pills that scrolled sideways, which
+ * hid half of them: a tool nobody scrolls to is a tool nobody uses. Two columns
+ * ruled by hairlines shows every one of them at once, and gives each a caption —
+ * "4 threads waiting" is the thing that makes a person tap, not the word Chats.
  */
 private fun LazyListScope.quickActions(actions: List<QuickAction>) {
+    if (actions.isEmpty()) return
     item {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                // Inside the scroll, so the last chip can still clear the edge.
-                .padding(horizontal = GUTTER),
-        ) {
-            actions.forEach { QuickChip(it) }
-        }
-    }
-}
-
-@Composable
-private fun QuickChip(action: QuickAction) {
-    Surface(
-        onClick = action.onClick,
-        shape = Alpha.PillShape,
-        color = Alpha.Card,
-        border = BorderStroke(1.dp, Alpha.Slate200),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
-        ) {
-            Icon(action.icon, contentDescription = null, tint = Alpha.Slate700, modifier = Modifier.size(17.dp))
-            Spacer(Modifier.width(7.dp))
-            Text(
-                text = action.label,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = Alpha.Slate900,
-                maxLines = 1,
-            )
-            if (action.badge > 0) {
-                Spacer(Modifier.width(6.dp))
-                Box(
-                    modifier = Modifier
-                        .size(17.dp)
-                        .clip(CircleShape)
-                        .background(Alpha.Danger),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = if (action.badge > 9) "9+" else action.badge.toString(),
-                        fontSize = 9.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                    )
+        Column(Modifier.fillMaxWidth().padding(top = 12.dp)) {
+            RowGroup {
+                actions.chunked(2).forEachIndexed { index, pair ->
+                    if (index > 0) RowHairline()
+                    Row(Modifier.height(IntrinsicSize.Min)) {
+                        ActionCell(pair[0], Modifier.weight(1f))
+                        // A hairline between the columns, full height, so the grid
+                        // reads as one ruled surface rather than as loose tiles.
+                        Box(
+                            Modifier
+                                .width(1.dp)
+                                .fillMaxHeight()
+                                .background(Alpha.Line)
+                        )
+                        if (pair.size > 1) {
+                            ActionCell(pair[1], Modifier.weight(1f))
+                        } else {
+                            Spacer(Modifier.weight(1f))
+                        }
+                    }
                 }
             }
         }
     }
 }
 
+/** One shortcut: what the tool is, and why you would open it right now. */
+@Composable
+private fun ActionCell(action: QuickAction, modifier: Modifier = Modifier) {
+    Row(
+        modifier
+            .clickable(onClick = action.onClick)
+            .padding(horizontal = 16.dp, vertical = 15.dp),
+    ) {
+        Icon(
+            action.icon,
+            contentDescription = null,
+            tint = Alpha.Slate500,
+            modifier = Modifier.size(17.dp).padding(top = 1.dp),
+        )
+        Spacer(Modifier.width(11.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = action.label,
+                fontFamily = AlphaType.Display,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = Alpha.Slate900,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (action.badge > 0) {
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = if (action.badge == 1) "1 waiting" else "${action.badge} waiting",
+                    fontFamily = AlphaType.Body,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    // The brand colour as type, which is never the fill colour.
+                    color = Alpha.AccentInk,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
 /**
- * The big status-tinted card for the one appointment that matters right now.
- * Its whole surface takes the status colour, so "someone is in the chair"
- * is readable from across the room.
+ * The one card on the screen: whoever is in the chair right now.
+ *
+ * Everything else on the dashboard is a row on a ruled white surface, which is
+ * what lets this read as lifted. Its surface used to take the status colour
+ * across the whole card, on the reasoning that "someone is in the chair" should
+ * be readable from across the room — but when eleven statuses each tint a whole
+ * card, the screen is confetti and none of them reads as anything. The stage
+ * keeps its colour in the stripe, the pill and the progress bar; the card itself
+ * stays white and earns its emphasis from being the only one.
  */
 @Composable
 private fun HeroAppointment(
@@ -769,38 +684,40 @@ private fun HeroAppointment(
     onClick: () -> Unit,
 ) {
     val style = statusStyle(appointment.status)
-    Surface(
-        onClick = onClick,
-        shape = Alpha.BigCardShape,
-        color = style.card,
-        modifier = Modifier.fillMaxWidth(),
+    AlphaCard(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        shape = Alpha.CardShape,
     ) {
-        Column(Modifier.padding(18.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        Column {
+            Row(
+                Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 13.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Box(
                     Modifier
-                        .size(8.dp)
+                        .size(42.dp)
                         .clip(CircleShape)
-                        .background(style.accent)
-                )
-                Spacer(Modifier.width(7.dp))
-                Text(
-                    label,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = style.pillText,
-                    letterSpacing = 1.2.sp,
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                InitialBadge(appointment.patientName, style)
+                        .background(Alpha.Slab),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = appointment.patientName.trim().firstOrNull()?.uppercase() ?: "\u2022",
+                        fontFamily = AlphaType.Display,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Alpha.SlabInk,
+                    )
+                }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
+                    Eyebrow(label, color = Alpha.Slate500)
+                    Spacer(Modifier.height(3.dp))
                     Text(
                         appointment.patientName.ifBlank { if (arabic) "بدون اسم" else "No name" },
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.ExtraBold,
+                        fontFamily = AlphaType.Display,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = (-0.2).sp,
                         color = Alpha.Slate900,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -813,15 +730,25 @@ private fun HeroAppointment(
                         Spacer(Modifier.height(2.dp))
                         Text(
                             detail,
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.Medium,
+                            fontFamily = AlphaType.Body,
+                            fontSize = 12.sp,
                             color = Alpha.Slate600,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
+                Spacer(Modifier.width(10.dp))
+                StatusPill(appointment.status, arabic)
             }
+            // The stage's colour as a rule along the bottom edge, so the card
+            // still answers "which stage" from arm's length without wearing it.
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .background(style.accent)
+            )
         }
     }
 }

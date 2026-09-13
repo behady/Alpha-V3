@@ -1127,11 +1127,24 @@ private fun SplashScreen() {
 }
 
 /**
- * The floating pill navigation bar, with Book as the raised circle in the middle.
+ * The navigation bar, ported from the web app's mobile view.
  *
- * Four destinations around one action. The Money screen is deliberately not a
- * tab any more — it opens from the dashboard shortcut for the roles that see it,
- * which keeps the bar simple enough to leave room for the Book button.
+ * Not a redesign — the same object the website already shows on a phone: a pill
+ * inset from every edge, near-black under a white hairline, icons carrying no
+ * labels, and the current destination wearing a filled accent disc scaled up
+ * slightly (`src/app/(dashboard)/layout.tsx`). Staff who use the site on their
+ * phone arrive already knowing this bar.
+ *
+ * Two fills, deliberately different colours rather than two yellows: the accent
+ * disc means "you are here", and Book — the one action a clinic performs all day
+ * — takes a white disc. Book keeps the middle slot because that is where a thumb
+ * lands.
+ *
+ * It still sits in the Scaffold's `bottomBar` rather than floating over the
+ * content the way the website's does, so nothing can hide behind it while the
+ * screens are being rebuilt one at a time. The ground shows around the pill
+ * either way, so it reads as floating; what it does not yet do is let a list
+ * scroll underneath it.
  */
 @Composable
 private fun AlphaBottomBar(
@@ -1145,70 +1158,77 @@ private fun AlphaBottomBar(
         Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(start = 16.dp, end = 16.dp, bottom = 10.dp, top = 4.dp)
+            .padding(start = 16.dp, end = 16.dp, bottom = 16.dp, top = 4.dp)
     ) {
         Surface(
-            shape = Alpha.PillShape,
-            color = Alpha.Card,
-            border = if (Alpha.dark) BorderStroke(1.dp, Alpha.Slate100) else null,
-            shadowElevation = if (Alpha.dark) 0.dp else 6.dp,
-            modifier = Modifier.fillMaxWidth(),
+            shape = Alpha.BarShape,
+            color = Alpha.Bar,
+            border = BorderStroke(1.dp, Alpha.BarLine),
+            shadowElevation = 12.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(Alpha.BarHeight),
         ) {
             Row(
-                Modifier.padding(horizontal = 6.dp, vertical = 7.dp),
+                Modifier.padding(horizontal = 18.dp),
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                NavItem(Icons.Filled.Home, if (arabic) "الرئيسية" else "Home", current == Tab.HOME, Modifier.weight(1f)) { onSelect(Tab.HOME) }
-                NavItem(Icons.Filled.CalendarMonth, if (arabic) "اليوم" else "Day", current == Tab.DAY, Modifier.weight(1f)) { onSelect(Tab.DAY) }
+                NavItem(Icons.Filled.Home, if (arabic) "الرئيسية" else "Home", current == Tab.HOME) { onSelect(Tab.HOME) }
+                NavItem(Icons.Filled.CalendarMonth, if (arabic) "اليوم" else "Day", current == Tab.DAY) { onSelect(Tab.DAY) }
                 if (canBook) {
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        Surface(
-                            onClick = onBook,
-                            shape = CircleShape,
-                            color = Alpha.Ink,
-                            shadowElevation = if (Alpha.dark) 0.dp else 4.dp,
-                        ) {
-                            Box(Modifier.size(50.dp), contentAlignment = Alignment.Center) {
-                                Icon(
-                                    Icons.Filled.Add,
-                                    contentDescription = if (arabic) "حجز" else "Book",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(26.dp),
-                                )
-                            }
-                        }
+                    Box(
+                        Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(Color.White)
+                            .clickable(onClick = onBook),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Filled.Add,
+                            contentDescription = if (arabic) "حجز" else "Book",
+                            tint = Alpha.Slab,
+                            modifier = Modifier.size(24.dp),
+                        )
                     }
                 }
-                NavItem(Icons.Filled.People, if (arabic) "المرضى" else "Patients", current == Tab.PATIENTS, Modifier.weight(1f)) { onSelect(Tab.PATIENTS) }
-                NavItem(Icons.Filled.MoreHoriz, if (arabic) "المزيد" else "More", current == Tab.MORE, Modifier.weight(1f)) { onSelect(Tab.MORE) }
+                NavItem(Icons.Filled.People, if (arabic) "المرضى" else "Patients", current == Tab.PATIENTS) { onSelect(Tab.PATIENTS) }
+                NavItem(Icons.Filled.MoreHoriz, if (arabic) "المزيد" else "More", current == Tab.MORE) { onSelect(Tab.MORE) }
             }
         }
     }
 }
 
+/**
+ * One destination: the icon alone, in a disc that is only painted when selected.
+ *
+ * The label is the content description rather than type on screen. Five labelled
+ * items across a phone forces 10sp text, which is unreadable at arm's length and
+ * makes the bar look cramped — the website dropped them for the same reason.
+ */
 @Composable
 private fun NavItem(
     icon: ImageVector,
     label: String,
     selected: Boolean,
-    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    val tint = if (selected) Alpha.Ink else Alpha.Slate400
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier
-            .clip(Alpha.CardShape)
-            .clickable(onClick = onClick)
-            .padding(vertical = 6.dp),
+    Box(
+        Modifier
+            .size(if (selected) 44.dp else 42.dp)
+            .clip(CircleShape)
+            .background(if (selected) Alpha.Accent else Color.Transparent)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(22.dp))
-        Spacer(Modifier.height(3.dp))
-        Text(
-            label,
-            fontSize = 10.5.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            color = tint,
+        Icon(
+            icon,
+            contentDescription = label,
+            // Asked for, never hard-coded white: on Alpha's own yellow a white
+            // glyph is invisible, and yellow is the default accent.
+            tint = if (selected) Alpha.OnAccent else Alpha.BarIdle,
+            modifier = Modifier.size(23.dp),
         )
     }
 }

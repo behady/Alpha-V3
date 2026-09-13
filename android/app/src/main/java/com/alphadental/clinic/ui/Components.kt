@@ -38,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -98,6 +99,61 @@ fun StatusPill(status: String?, arabic: Boolean) {
             )
         }
     }
+}
+
+/**
+ * A run of appointments as ruled rows on one white surface.
+ *
+ * One `item` rather than `items` because these lists are capped at six: the
+ * saving from lazily composing six rows is nothing against the cost of the group
+ * being unable to draw its own top and bottom rule.
+ */
+fun LazyListScope.appointmentRows(
+    list: List<Appointment>,
+    arabic: Boolean,
+    onOpen: (Appointment) -> Unit,
+) {
+    if (list.isEmpty()) return
+    item {
+        RowGroup(list) { appointment ->
+            AppointmentRow(appointment, arabic) { onOpen(appointment) }
+        }
+    }
+}
+
+/**
+ * One appointment: the time, who it is, what for, and the stage.
+ *
+ * The stage rides the 3dp stripe down the leading edge and the pill at the far
+ * end, and tints nothing else. It used to tint the whole card, which is what
+ * made a day of eleven statuses read as confetti — the colour was everywhere, so
+ * it marked nothing.
+ */
+@Composable
+fun AppointmentRow(
+    appointment: Appointment,
+    arabic: Boolean,
+    onClick: () -> Unit,
+) {
+    val style = statusStyle(appointment.status)
+    // "10:45 AM" arrives as one string; the meridiem is split off so it can sit
+    // under the time and every row's digits start at the same x.
+    val parts = appointment.time.trim().split(" ", limit = 2)
+    AlphaRow(
+        title = appointment.patientName.ifBlank { if (arabic) "بدون اسم" else "No name" },
+        subtitle = listOfNotNull(
+            appointment.treatment.takeIf { it.isNotBlank() },
+            appointment.doctor.takeIf { it.isNotBlank() }?.let { withDoctorTitle(it) },
+        ).joinToString(" · ").ifBlank { null },
+        stripe = style.accent,
+        onClick = onClick,
+        leading = {
+            if (parts[0].isNotBlank()) {
+                RowTime(parts[0], parts.getOrNull(1))
+            }
+        },
+        trailing = { StatusPill(appointment.status, arabic) },
+    )
 }
 
 /** A circled initial, tinted by the appointment's status. */
