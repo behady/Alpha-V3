@@ -118,6 +118,18 @@ export interface TourStop {
    * make two test patients or two test treatments.
    */
   demoSkipIf?: "demoPatientExists" | "demoAppointmentExists" | "serviceRowExists";
+  /**
+   * What this stop becomes on a phone (below the app's `lg` breakpoint), where the black bar,
+   * its menus and the Settings gear do not exist — a bottom bar and a Menu sheet do. Only the
+   * fields given here change; `skip` drops the stop on a phone altogether.
+   */
+  phone?: {
+    title?: Localized;
+    say?: Localized;
+    spot?: string[];
+    walk?: DemoAction[];
+    skip?: boolean;
+  };
 }
 
 export const TOUR_CHAPTERS: TourChapter[] = [
@@ -167,6 +179,29 @@ export const TOUR_CHAPTERS: TourChapter[] = [
 /* The stops                                                                                    */
 /* ------------------------------------------------------------------------------------------ */
 
+/** The bottom bar, item by item, then the Menu sheet. Items a role lacks are simply not found. */
+const PHONE_BAR_WALK: DemoAction[] = [
+  { kind: "point", anchor: "nav-dashboard", container: "self", optional: true, say: { en: "Home.", ar: "البيت." } },
+  { kind: "point", anchor: "nav-chats", container: "self", optional: true, say: { en: "WhatsApp — the clinic's inbox, and the assistant that answers patients.", ar: "واتساب — صندوق العيادة، والمساعد اللي بيرد على المرضى." } },
+  { kind: "point", anchor: "nav-intelligence", container: "self", optional: true, say: { en: "Intelligence — the daily brief, and what needs a decision.", ar: "الذكاء — الملخص اليومي، واللي محتاج قرار." } },
+  { kind: "point", anchor: "nav-appointments", container: "self", optional: true, say: { en: "The calendar.", ar: "التقويم." } },
+  { kind: "point", anchor: "nav-finance", container: "self", optional: true, say: { en: "Finance — the clinic's ledger.", ar: "الحسابات — دفتر العيادة." } },
+  { kind: "point", anchor: "nav-patients", container: "self", optional: true, say: { en: "Patients — the directory, and every file.", ar: "المرضى — الدليل، وكل ملف." } },
+  { kind: "click", anchor: "nav-menu", optional: true, timeoutMs: 2500, say: { en: "And the Menu. Everything else is in here.", ar: "والقايمة. كل حاجة تانية هنا جوّه." } },
+  { kind: "point", anchor: "nav-leads", container: "self", optional: true, say: { en: "Leads, Inventory, the Supply Store, Lab Tracking, the Time Clock, Marketing, Reports…", ar: "العملاء المحتملين، المخزون، متجر المستلزمات، متابعة المعمل، الحضور، التسويق، التقارير…" } },
+  { kind: "point", anchor: "nav-settings", container: "self", optional: true, say: { en: "…Settings — we'll go through every section near the end…", ar: "…الإعدادات — هنمشي على كل قسم قرب الآخر…" } },
+  { kind: "point", anchor: "menu-welcome", container: "self", optional: true, say: { en: "…Getting started, which is your checklist and me…", ar: "…البداية، وهي قايمة خطواتك وأنا…" } },
+  { kind: "point", anchor: "menu-help", container: "self", optional: true, say: { en: "…and the Help Center, the written guides with screenshots.", ar: "…ومركز المساعدة، الأدلة المكتوبة بالصور." } },
+  { kind: "click", anchor: "menu-close", optional: true, timeoutMs: 2500 },
+];
+
+/** Where Settings is on a phone: inside the Menu sheet. */
+const PHONE_SETTINGS_WALK: DemoAction[] = [
+  { kind: "click", anchor: "nav-menu", optional: true, timeoutMs: 2500, say: { en: "Tap Menu…", ar: "اضغط القايمة…" } },
+  { kind: "point", anchor: "nav-settings", container: "self", optional: true, say: { en: "…and here is Settings.", ar: "…وأهي الإعدادات." } },
+  { kind: "click", anchor: "menu-close", optional: true, timeoutMs: 2500 },
+];
+
 const WELCOME_STOPS: TourStop[] = [
   {
     id: "topbar",
@@ -174,6 +209,15 @@ const WELCOME_STOPS: TourStop[] = [
     route: "/",
     spot: ["topnav", "nav-menu"],
     title: { en: "The black bar", ar: "الشريط الأسود" },
+    phone: {
+      title: { en: "The bar at the bottom", ar: "الشريط اللي تحت" },
+      spot: ["nav-menu"],
+      say: {
+        en: "On a phone everything lives in this bar at the bottom: Home, WhatsApp, Intelligence, the calendar, Finance and Patients. The Menu button at the end opens every other page — Settings, Getting started, the Help Center, and the language switch.",
+        ar: "على الموبايل كل حاجة في الشريط اللي تحت ده: البيت، واتساب، الذكاء، التقويم، الحسابات، والمرضى. زرار القايمة اللي في الآخر بيفتح باقي الصفحات كلها — الإعدادات، البداية، مركز المساعدة، وتغيير اللغة.",
+      },
+      walk: PHONE_BAR_WALK,
+    },
     say: {
       en: "Everything in the system is reached from this black bar. Dashboard is a direct link, and the three menus next to it — Front Desk, Operations, Insights & Growth — hold every page. On a phone the same pages sit behind the menu button at the bottom.",
       ar: "كل حاجة في النظام بتوصلها من الشريط الأسود ده. لوحة التحكم لينك مباشر، والتلات قوايم اللي جنبها — الاستقبال، العمليات، الرؤى والنمو — فيهم كل الصفحات. على الموبايل نفس الصفحات ورا زرار القايمة اللي تحت.",
@@ -191,6 +235,13 @@ const WELCOME_STOPS: TourStop[] = [
     route: "/",
     spot: ["account-menu", "nav-menu"],
     title: { en: "Your account menu", ar: "قايمة حسابك" },
+    phone: {
+      spot: ["account-menu"],
+      say: {
+        en: "Your initials up here open your account menu: Getting started, the Help Center, this tour, the language, and logout.",
+        ar: "حروف اسمك اللي فوق دي بتفتح قايمة حسابك: البداية، مركز المساعدة، الجولة دي، اللغة، وتسجيل الخروج.",
+      },
+    },
     say: {
       en: "Your name up here opens your account menu. That's where you switch the language between English and Arabic, open Getting started and the Help Center, restart this tour, and log out.",
       ar: "اسمك اللي فوق ده بيفتح قايمة حسابك. من هنا بتغيّر اللغة بين العربي والإنجليزي، وتفتح صفحة البداية ومركز المساعدة، وتعيد الجولة دي، وتسجّل خروج.",
@@ -226,6 +277,15 @@ const WELCOME_STOPS: TourStop[] = [
     spot: ["nav-settings", "nav-menu"],
     requiresSettingsLink: true,
     title: { en: "The Settings gear", ar: "ترس الإعدادات" },
+    phone: {
+      title: { en: "Settings, from the Menu", ar: "الإعدادات، من القايمة" },
+      spot: ["nav-menu"],
+      say: {
+        en: "On a phone there is no gear: Settings sits inside the Menu button at the bottom. Twenty-odd sections in four groups — Personal, Clinic, People, and System & Automation. We'll walk through every one of them near the end of the tour.",
+        ar: "على الموبايل مفيش ترس: الإعدادات جوّه زرار القايمة اللي تحت. حوالي عشرين قسم في أربع مجموعات — شخصي، العيادة، الفريق، والنظام والأتمتة. هنمشي على كل واحد فيهم قرب آخر الجولة.",
+      },
+      walk: PHONE_SETTINGS_WALK,
+    },
     say: {
       en: "This gear is Settings — twenty-odd sections in four groups: Personal, Clinic, People, and System & Automation. We'll walk through every one of them near the end of the tour.",
       ar: "الترس ده هو الإعدادات — حوالي عشرين قسم في أربع مجموعات: شخصي، العيادة، الفريق، والنظام والأتمتة. هنمشي عليهم كلهم قرب آخر الجولة.",
@@ -1241,6 +1301,8 @@ export interface TourViewer {
   visibleNavKeys: readonly string[];
   /** Whether the Settings gear is shown to them at all. */
   showSettings: boolean;
+  /** Below the app's navigation breakpoint: bottom bar and Menu sheet instead of the black bar. */
+  phone?: boolean;
   /** Settings section ids they may open. */
   visibleSettingsIds: readonly string[];
 }
@@ -1258,7 +1320,12 @@ export function tourStopsFor(viewer: TourViewer): TourStop[] {
     if (stop.navKey && !viewer.visibleNavKeys.includes(stop.navKey)) return false;
     if (stop.requiresSettingsLink && !viewer.showSettings) return false;
     if (stop.settingsId && !viewer.visibleSettingsIds.includes(stop.settingsId)) return false;
+    if (viewer.phone && stop.phone?.skip) return false;
     return true;
+  }).map((stop) => {
+    if (!viewer.phone || !stop.phone) return stop;
+    const { skip: _skip, ...overrides } = stop.phone;
+    return { ...stop, ...overrides };
   });
 }
 

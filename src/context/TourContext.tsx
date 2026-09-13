@@ -31,6 +31,7 @@ import {
   type TourStop,
 } from "@/lib/grandTour";
 import { demoValues as makeDemoValues, type DemoValues, type TourCheck, type TourOffer } from "@/lib/tourDemo";
+import { PHONE_NAV_QUERY } from "@/lib/tourDom";
 import {
   WELCOME_CHANGED_EVENT,
   markTourComplete,
@@ -129,13 +130,23 @@ export function TourProvider({
 
   const scope: WelcomeScope = useMemo(() => ({ clinicId, uid: user?.uid }), [clinicId, user?.uid]);
 
+  /** Phone navigation (bottom bar + Menu sheet) or the black bar: the stops differ. */
+  const [phone, setPhone] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(PHONE_NAV_QUERY);
+    const apply = () => setPhone(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+
   const stops = useMemo(() => {
     const viewer = { isAdmin, isReadOnly, role: user?.role, permissions: user?.permissions };
     const settingsIds = visibleSections(SETTINGS_SECTIONS, viewer, (f) =>
       hasFeature(clinic, f as Parameters<typeof hasFeature>[1]),
     ).map((s) => s.id);
-    return tourStopsFor({ isAdmin, visibleNavKeys, showSettings, visibleSettingsIds: settingsIds });
-  }, [isAdmin, isReadOnly, user?.role, user?.permissions, clinic, visibleNavKeys, showSettings]);
+    return tourStopsFor({ isAdmin, visibleNavKeys, showSettings, visibleSettingsIds: settingsIds, phone });
+  }, [isAdmin, isReadOnly, user?.role, user?.permissions, clinic, visibleNavKeys, showSettings, phone]);
 
   const chapters = useMemo(() => tourChaptersFor(stops), [stops]);
 

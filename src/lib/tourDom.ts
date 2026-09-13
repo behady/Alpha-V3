@@ -108,6 +108,16 @@ export function isPhoneViewport(): boolean {
 }
 
 /**
+ * The app's own navigation breakpoint (Tailwind `lg`): below it there is no black bar with
+ * menus and no Settings gear — a bottom bar and a Menu sheet instead. Stops that describe the
+ * bar carry a phone variant, chosen with this.
+ */
+export const PHONE_NAV_QUERY = "(max-width: 1023px)";
+export function usesPhoneNav(): boolean {
+  return typeof window !== "undefined" && window.matchMedia(PHONE_NAV_QUERY).matches;
+}
+
+/**
  * Whether an element is already comfortably on screen for the tour: below the top bar, and on a
  * phone above the panel that sits over the lower half.
  */
