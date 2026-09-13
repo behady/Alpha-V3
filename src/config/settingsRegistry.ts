@@ -353,6 +353,31 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     // Both WhatsApp add-ons are configured here, so either one opens it.
     feature: ["whatsappIntegration", "whatsappBot"],
   },
+  // The bot and the AI are slices of the same document as WhatsApp above — one component,
+  // three menu entries — because the seven-tab page they came from mixed the bot's switches
+  // with the AI's and nobody could tell which was which.
+  {
+    id: "whatsapp_bot",
+    route: "/settings/whatsapp-bot",
+    group: "system",
+    labelEn: "Bot",
+    labelAr: "البوت",
+    writes: [{ kind: "settingsDoc", docId: "whatsapp" }],
+    view: ADMIN,
+    edit: ADMIN,
+    feature: "whatsappBot",
+  },
+  {
+    id: "whatsapp_ai",
+    route: "/settings/whatsapp-ai",
+    group: "system",
+    labelEn: "AI Assistant",
+    labelAr: "المساعد الذكي",
+    writes: [{ kind: "settingsDoc", docId: "whatsapp" }],
+    view: ADMIN,
+    edit: ADMIN,
+    feature: "aiChat",
+  },
   {
     id: "sms",
     route: "/settings/sms",

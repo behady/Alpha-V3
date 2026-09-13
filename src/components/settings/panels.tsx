@@ -45,6 +45,8 @@ import {
   Users,
   UsersRound,
   Workflow,
+  Bot,
+  BrainCircuit,
   type LucideIcon,
 } from "lucide-react";
 
@@ -72,6 +74,8 @@ export const SETTINGS_ICONS: Record<string, LucideIcon> = {
   dentists: Armchair,           // the chair — what a dentist's own screen shows
   notifications: Bell,
   whatsapp: MessageCircle,
+  whatsapp_bot: Bot,            // the scripted receptionist
+  whatsapp_ai: BrainCircuit,    // the model behind it (Sparkles is taken by AI credits)
   sms: MessagesSquare,
   logs: History,                // what happened, in order
   ai_credits: Sparkles,
@@ -146,7 +150,9 @@ export const SETTINGS_PANELS: Record<string, ComponentType<SettingsPanelProps>> 
 
   // --- System ---
   notifications: panel(() => import("@/components/settings/hosts/AlertsHost")),
-  whatsapp: panel(() => import("@/components/settings/WhatsAppSettings")),
+  whatsapp: panel(() => import("@/components/settings/hosts/WhatsAppChannelHost")),
+  whatsapp_bot: panel(() => import("@/components/settings/hosts/WhatsAppBotHost")),
+  whatsapp_ai: panel(() => import("@/components/settings/hosts/WhatsAppAiHost")),
   sms: panel(() => import("@/components/settings/SmsSettings")),
   logs: panel(() => import("@/components/settings/ActivityLogs")),
   ai_credits: panel(() => import("@/components/settings/AiCreditsSettings")),

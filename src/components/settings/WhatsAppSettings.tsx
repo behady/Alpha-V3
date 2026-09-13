@@ -171,10 +171,27 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
 }
 
 /** The four jobs this page does, in the order someone new to it needs them. */
-const WHATSAPP_TABS = ["connection", "assistant", "answers", "playground", "messages", "wording", "alerts"] as const;
+const WHATSAPP_TABS = ["connection", "assistant", "answers", "playground", "ai", "messages", "wording", "alerts"] as const;
 type WhatsAppTab = (typeof WHATSAPP_TABS)[number];
 
-export default function WhatsAppSettings() {
+/**
+ * One settings document, three menu entries.
+ *
+ * Everything here writes `settings/whatsapp`, and the state, the listener and the optimistic
+ * save are one piece — so the screen stays one component and the Settings menu decides which
+ * slice of it to show. "channel" is the number and the automatic messages, "bot" is the
+ * scripted receptionist, "ai" is the model that may answer when the script cannot. They were
+ * one seven-tab page and nobody could tell the bot's switches from the AI's.
+ */
+export type WhatsAppSection = "all" | "channel" | "bot" | "ai";
+const SECTION_TABS: Record<WhatsAppSection, readonly WhatsAppTab[]> = {
+  all: WHATSAPP_TABS,
+  channel: ["connection", "messages", "wording", "alerts"],
+  bot: ["assistant", "answers", "playground"],
+  ai: ["ai"],
+};
+
+export default function WhatsAppSettings({ section = "all" }: { section?: WhatsAppSection }) {
   const { language, isRTL } = useLanguage();
   const { user } = useAuth();
   const { showToast } = useUI();
@@ -204,7 +221,7 @@ export default function WhatsAppSettings() {
    * was next opened and it had silently gone back.
    */
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [tab, setTab] = useState<WhatsAppTab>("connection");
+  const [tab, setTab] = useState<WhatsAppTab>(SECTION_TABS[section][0]);
   /** The last state the server confirmed, to restore when a write is refused. */
   const serverState = useRef<WhatsAppSettingsDocument | null>(null);
   const [state, setState] = useState<WhatsAppSettingsDocument>({
@@ -310,24 +327,36 @@ export default function WhatsAppSettings() {
       savingNow: language === "ar" ? "جارٍ الحفظ..." : "Saving...",
       savedAll: language === "ar" ? "كل التغييرات محفوظة" : "All changes saved",
       tab_connection: language === "ar" ? "الاتصال" : "Connection",
-      tab_assistant: language === "ar" ? "المساعد" : "Assistant",
+      tab_assistant: language === "ar" ? "البوت" : "Bot",
+      tab_ai: language === "ar" ? "الذكاء الاصطناعي" : "AI",
       tab_answers: language === "ar" ? "الردود الجاهزة" : "Ready answers",
       tab_playground: language === "ar" ? "جرّب البوت" : "Try it",
       tab_messages: language === "ar" ? "الرسائل التلقائية" : "Automations",
       tab_wording: language === "ar" ? "الصياغة" : "Wording",
       tab_alerts: language === "ar" ? "تنبيهات المالك" : "Owner alerts",
       tabHint_connection: language === "ar" ? "ربط رقم الواتساب بالنظام واختبار الإرسال." : "Link the clinic's WhatsApp number and test sending.",
-      tabHint_assistant: language === "ar" ? "البوت اللي بيرد على المرضى: شغّله، اختار أسلوبه، واكتبله تعليماتك." : "The bot that answers patients: switch it on, choose its style, write it your instructions.",
+      tabHint_assistant: language === "ar" ? "البوت اللي بيرد على المرضى بردود جاهزة: شغّله واختار مين يرد." : "The bot that answers patients from ready scripts: switch it on and choose who answers.",
+      tabHint_ai: language === "ar" ? "الذكاء الاصطناعي اللي بيرد لما البوت ميعرفش: اسمه، تعليماته، وحد ردوده. كل رد بيخصم رصيد." : "The AI that answers when the bot cannot: its name, its instructions, its reply cap. Every reply spends a credit.",
       tabHint_answers: language === "ar" ? "إجابات بكلماتك للأسئلة اللي النظام معندوش بياناتها. كل خانة تملاها بتوفر رد بشري." : "Your own words for the questions the system has no data for. Every box you fill saves a staff reply.",
       tabHint_playground: language === "ar" ? "اتكلم مع البوت زي المريض وشوف بيرد إزاي. مفيش حاجة بتتبعت لحد." : "Chat with the bot as a patient and see what it says. Nothing is sent to anyone.",
       tabHint_messages: language === "ar" ? "الرسايل اللي العيادة بتبعتها لوحدها: تأكيدات، تذكيرات، متابعة بعد الزيارة، واسترجاع الغايبين." : "Messages the clinic sends by itself: confirmations, reminders, after-visit follow-ups, winning back the absent.",
       tabHint_wording: language === "ar" ? "نص كل رسالة تلقائية، بالعربي أو بلغتين." : "The text of each automatic message, Arabic or bilingual.",
       tabHint_alerts: language === "ar" ? "إيه اللي يوصلك انت على واتساب لما حاجة تحصل في النظام." : "What reaches you on WhatsApp when something happens in the system.",
-      botOffFirst: language === "ar" ? "شغّل المساعد الأول من تبويب «المساعد»." : "Switch the assistant on first, in the Assistant tab.",
+      botOffFirst: language === "ar" ? "شغّل البوت الأول: الإعدادات ← البوت ← «مين اللي بيرد على المرضى؟»." : "Switch the bot on first: Settings → Bot → \"Who answers patients?\".",
+      aiNotAnswering: language === "ar" ? "الذكاء الاصطناعي مش بيرد دلوقتي. من الإعدادات ← البوت اختار «البوت + الذكاء الاصطناعي» أو «الذكاء الاصطناعي بس»." : "The AI is not answering right now. In Settings → Bot choose \"Bot + AI\" or \"AI only\".",
+      answerModeOff: language === "ar" ? "محدش" : "Nobody",
+      answerModeOffHint: language === "ar" ? "الرسايل تتجمع في المحادثات والفريق يرد بنفسه." : "Messages collect in Chats and the team answers by hand.",
+      needsBotAddon: language === "ar" ? "يحتاج إضافة البوت." : "Needs the Scripted Bot add-on.",
+      needsAiAddon: language === "ar" ? "يحتاج إضافة المساعد الذكي." : "Needs the AI Assistant add-on.",
       groupAppointments: language === "ar" ? "المواعيد" : "Appointments",
       groupAfterVisit: language === "ar" ? "بعد الزيارة" : "After the visit",
       groupWinBack: language === "ar" ? "استرجاع اللي غابوا" : "Winning people back",
-      title: language === "ar" ? "واتساب" : "WhatsApp",
+      title:
+        section === "bot"
+          ? language === "ar" ? "بوت واتساب" : "WhatsApp Bot"
+          : section === "ai"
+            ? language === "ar" ? "المساعد الذكي" : "AI Assistant"
+            : language === "ar" ? "واتساب" : "WhatsApp",
       patientCard: language === "ar" ? "أتمتة رسائل المرضى" : "Patient automation",
     saveRefused:
       language === "ar"
@@ -1110,9 +1139,9 @@ export default function WhatsAppSettings() {
         </div>
       </div>
 
-      <div className="border-b border-line">
+      <div className="border-b border-line" hidden={SECTION_TABS[section].length < 2}>
         <div className="-mb-px flex gap-6 overflow-x-auto no-scrollbar">
-          {WHATSAPP_TABS.map((id) => (
+          {SECTION_TABS[section].map((id) => (
             <button
               key={id}
               type="button"
@@ -1735,7 +1764,7 @@ export default function WhatsAppSettings() {
       </div>
       )}
 
-      {(tab === "assistant" || tab === "answers" || tab === "playground" || tab === "alerts") && (
+      {(tab === "assistant" || tab === "answers" || tab === "playground" || tab === "ai" || tab === "alerts") && (
         <div className="space-y-6">
       <div hidden={tab === "alerts"} className="flex flex-col gap-8">
         {/* Answering inbound messages. Sits under the opt-out card because it shares the same
@@ -1752,30 +1781,61 @@ export default function WhatsAppSettings() {
               <Lock size={14} className="mt-0.5 shrink-0" />
               <span>
                 {language === "ar"
-                  ? "موظف الاستقبال الذكي إضافة مدفوعة غير مفعّلة في اشتراكك — كلّم فريق ألفا على "
-                  : "The AI receptionist is an add-on not in your subscription — contact the Alpha team on "}
+                  ? "البوت إضافة مدفوعة غير مفعّلة في اشتراكك — كلّم فريق ألفا على "
+                  : "The scripted bot is an add-on not in your subscription — contact the Alpha team on "}
                 <a dir="ltr" className="underline" href={`https://wa.me/${SUPPORT_WHATSAPP.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer">{SUPPORT_WHATSAPP}</a>
               </span>
             </div>
           )}
-          <label className={`flex items-center justify-between gap-4 ${botInPlan ? "cursor-pointer" : "opacity-60"}`}>
-            <span className="text-sm font-black text-ink leading-relaxed">{txt.botToggle}</span>
-            <input
-              type="checkbox"
-              className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
-              checked={state.botEnabled === true}
-              disabled={!botInPlan}
-              onChange={(e) => {
-                const checked = e.target.checked;
-                setState((s) => {
-                  const next = { ...s, botEnabled: checked };
-                  void persist(next, "silent");
-                  return next;
-                });
-              }}
-            />
-          </label>
-          <p className="text-xs text-ink-body leading-relaxed">{txt.botHint}</p>
+          {/*
+            One decision instead of an on/off box plus a three-way chooser two screens apart:
+            who picks up when a patient writes. Stored as the same three fields the server
+            already reads (botEnabled + botMode + botAiEnabled), so nothing behind it changes.
+            Choices the clinic has not bought stay visible and locked, with the reason.
+          */}
+          <p className="text-sm font-bold text-ink leading-relaxed">{txt.answerMode}</p>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {(
+              [
+                { id: "off", label: txt.answerModeOff, hint: txt.answerModeOffHint, enabled: false, mode: "assisted" as const, ai: false, needsBot: false, needsAi: false },
+                { id: "bot", label: txt.answerModeBot, hint: txt.answerModeBotHint, enabled: true, mode: "assisted" as const, ai: false, needsBot: !botInPlan, needsAi: false },
+                { id: "both", label: txt.answerModeBoth, hint: txt.answerModeBothHint, enabled: true, mode: "assisted" as const, ai: true, needsBot: !botInPlan, needsAi: !aiInPlan },
+                // The AI answers through the bot engine, so "AI only" still needs the bot add-on.
+                { id: "ai", label: txt.answerModeAi, hint: txt.answerModeAiHint, enabled: true, mode: "ai_first" as const, ai: true, needsBot: !botInPlan, needsAi: !aiInPlan },
+              ]
+            ).map((opt) => {
+              const current = state.botEnabled !== true ? "off" : state.botMode === "ai_first" ? "ai" : state.botAiEnabled ? "both" : "bot";
+              const active = current === opt.id;
+              const locked = opt.needsBot || opt.needsAi;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  aria-pressed={active}
+                  disabled={locked}
+                  onClick={() => {
+                    setState((s) => {
+                      const next = { ...s, botEnabled: opt.enabled, botMode: opt.mode, botAiEnabled: opt.ai };
+                      void persist(next, "silent");
+                      return next;
+                    });
+                  }}
+                  className={`text-start rounded-xl border px-4 py-3 transition-colors ${
+                    active ? "border-accent bg-accent/5 ring-1 ring-accent" : "border-line bg-surface-subtle hover:bg-surface-muted"
+                  } ${locked ? "opacity-50 cursor-not-allowed" : ""}`}
+                >
+                  <span className="flex items-center gap-1.5 text-sm font-black text-ink">
+                    {opt.label}
+                    {locked && <Lock size={12} className="shrink-0 text-ink-muted" />}
+                  </span>
+                  <span className="mt-1 block text-xs leading-relaxed text-ink-muted">
+                    {opt.needsBot ? txt.needsBotAddon : opt.needsAi ? txt.needsAiAddon : opt.hint}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botLimits}</p>
           </div>
           {state.botEnabled !== true && tab !== "assistant" && (
             <p className="text-xs font-bold text-warn bg-warn-tint border border-warn/25 rounded-lg px-3 py-2">{txt.botOffFirst}</p>
@@ -1823,57 +1883,6 @@ export default function WhatsAppSettings() {
                 />
               </label>
               <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botAutoConfirmHint}</p>
-              {/*
-                Who answers: the fixed bot alone, the AI alone, or both. One choice instead of two
-                checkboxes whose combination nobody could name. Stored as the same two fields the
-                server already reads (botMode + botAiEnabled), so nothing behind it changes.
-              */}
-              <div className="pt-3 space-y-2">
-                <p className="text-sm font-bold text-ink leading-relaxed">{txt.answerMode}</p>
-                <div className="grid gap-2 sm:grid-cols-3">
-                  {(
-                    [
-                      { id: "bot", label: txt.answerModeBot, hint: txt.answerModeBotHint, mode: "assisted" as const, ai: false },
-                      { id: "both", label: txt.answerModeBoth, hint: txt.answerModeBothHint, mode: "assisted" as const, ai: true },
-                      { id: "ai", label: txt.answerModeAi, hint: txt.answerModeAiHint, mode: "ai_first" as const, ai: true },
-                    ]
-                  ).map((opt) => {
-                    const current = state.botMode === "ai_first" ? "ai" : state.botAiEnabled ? "both" : "bot";
-                    const active = current === opt.id;
-                    const needsAi = opt.ai && !aiInPlan;
-                    return (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        aria-pressed={active}
-                        disabled={needsAi}
-                        title={needsAi ? (language === "ar" ? "يحتاج إضافة المساعد الذكي" : "Needs the AI Assistant add-on") : undefined}
-                        onClick={() => {
-                          setState((s) => {
-                            const next = { ...s, botMode: opt.mode, botAiEnabled: opt.ai };
-                            void persist(next, "silent");
-                            return next;
-                          });
-                        }}
-                        className={`text-start rounded-xl border px-4 py-3 transition-colors ${
-                          active ? "border-accent bg-accent/5 ring-1 ring-accent" : "border-line bg-surface-subtle hover:bg-surface-muted"
-                        } ${needsAi ? "opacity-50 cursor-not-allowed" : ""}`}
-                      >
-                        <span className="flex items-center gap-1.5 text-sm font-black text-ink">
-                          {opt.label}
-                          {needsAi && <Lock size={12} className="shrink-0 text-ink-muted" />}
-                        </span>
-                        <span className="mt-1 block text-xs leading-relaxed text-ink-muted">
-                          {needsAi
-                            ? language === "ar" ? "إضافة المساعد الذكي غير مفعّلة في اشتراكك." : "The AI Assistant add-on is not in your subscription."
-                            : opt.hint}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botLimits}</p>
-              </div>
 
               {/* Symptoms: a person, or the AI as a dentist first. Needs the AI on to mean anything. */}
               <label className={`flex items-center justify-between gap-4 pt-1 ${state.botAiEnabled ? "cursor-pointer" : "opacity-50"}`}>
@@ -1917,8 +1926,20 @@ export default function WhatsAppSettings() {
               <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botClaimHint}</p>
 
               {/* The AI's own settings: cap, name, pacing, coaching. Meaningless without it. */}
-              <div hidden={!state.botAiEnabled && state.botMode !== "ai_first"} className="pt-4 mt-2 border-t border-line space-y-3">
+              <div hidden={tab !== "ai"} className="space-y-3">
                 <p className="text-[11px] font-black uppercase tracking-widest text-ink-body">{txt.aiSettingsTitle}</p>
+                {!aiInPlan && (
+                  <div className="flex items-start gap-2 rounded-xl border border-line bg-surface-subtle px-3 py-2.5 text-xs font-bold text-ink-body">
+                    <Lock size={14} className="mt-0.5 shrink-0" />
+                    <span>
+                      {txt.needsAiAddon}{" "}
+                      <a dir="ltr" className="underline" href={`https://wa.me/${SUPPORT_WHATSAPP.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer">{SUPPORT_WHATSAPP}</a>
+                    </span>
+                  </div>
+                )}
+                {aiInPlan && !state.botAiEnabled && state.botMode !== "ai_first" && (
+                  <p className="text-xs font-bold text-warn bg-warn-tint border border-warn/25 rounded-lg px-3 py-2 leading-relaxed">{txt.aiNotAnswering}</p>
+                )}
 
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="text-xs font-bold text-ink">{txt.botAiCap}</span>
