@@ -78,7 +78,7 @@ export type QuickIntent =
    */
   | "complaint";
 
-function normalize(raw: string): string {
+export function normalize(raw: string): string {
   return normalizeReplyText(raw)
     .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
     .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
@@ -95,7 +95,7 @@ function normalize(raw: string): string {
  * `علي مرات`, and the intent silently never fired. Normalising the needle here means the lists
  * can be written in ordinary Arabic and still work.
  */
-function has(text: string, needles: string[]): boolean {
+export function has(text: string, needles: string[]): boolean {
   const loose = text.replace(/(^|\s)و(?=\S{2,})/g, "$1و ");
   for (const raw of needles) {
     const n = normalize(raw);

@@ -180,6 +180,12 @@ export interface WhatsAppSettingsDocument {
   /** Answers to the questions the clinic's data cannot supply. See BotFacts. */
   botFacts?: BotFacts;
   /**
+   * The clinic's own scripts: trigger words → the exact reply. Matched before every built-in
+   * answer and before the AI, and sent verbatim — the scripted bot's equivalent of a receptionist's
+   * sticky notes. Free: no model is consulted for a script.
+   */
+  botScripts?: BotScript[];
+  /**
    * Answer new leads automatically. Separate from `isPatientAutomationEnabled` on purpose: a
    * clinic may happily remind its own patients while wanting no machine to greet strangers,
    * or the reverse. Off until a manager turns it on — nothing messages anybody by surprise.
@@ -203,6 +209,18 @@ export interface WhatsAppSettingsDocument {
  * Written by the clinic in its own words and sent verbatim. The bot does not rephrase them, which
  * is what makes them safe to quote: a sentence the clinic wrote is a sentence the clinic meant.
  */
+/** One scripted answer. `triggers` are words or phrases; any one of them in a message fires it. */
+export interface BotScript {
+  id: string;
+  /** A short name for the list — "Kids", "Whitening", "Parking". Shown to staff only. */
+  title?: string;
+  triggers: string[];
+  /** Sent verbatim, in whatever language it was written. */
+  reply: string;
+  /** Absent means on. */
+  enabled?: boolean;
+}
+
 export interface BotFacts {
   /** Can a patient turn up without an appointment, and what happens if they do. */
   walkIn?: string;
@@ -265,7 +283,7 @@ export interface WhatsAppLogEntry {
   timestamp: string;
   /** Optional metadata for debugging */
   meta?: Record<string, unknown>;
-}
+}
 
 /**
  * One medicine the clinic has authorised, in the clinic's own words.

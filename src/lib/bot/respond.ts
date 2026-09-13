@@ -23,7 +23,8 @@ import { resolveWhatsappDeliveryMode, sendPatientWhatsAppRich } from "@/lib/what
 import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { loadMetaWhatsappConfig, sendMetaWhatsappMedia } from "@/lib/metaWhatsapp";
 import type { MetaInteractive } from "@/lib/metaWhatsapp";
-import type { BotFacts, BotMedicine } from "@/types/whatsapp";
+import type { BotFacts, BotMedicine, BotScript } from "@/types/whatsapp";
+import { cleanScripts } from "./scripts";
 import { arabicClock, arabicDayLabel, arabicTimeLabel } from "@/lib/arabicDateTime";
 import { appendOptOutFooter, normalizeReplyText, WHATSAPP_OPT_OUT_FOOTER_AR } from "@/lib/patientMessaging";
 import {
@@ -81,6 +82,8 @@ interface BotSettings {
   autoConfirm: boolean;
   /** Let the model answer free text the buttons could not. Off by default; costs credits. */
   aiEnabled: boolean;
+  /** The clinic's own trigger→reply scripts, already cleaned of rows that could never fire. */
+  scripts: BotScript[];
   /** The clinic's own answers to the questions its data cannot supply. */
   facts: BotFacts;
   /** The model leads the conversation (sales mode) instead of answering last. */
@@ -110,6 +113,7 @@ async function loadBotSettings(clinicId: string): Promise<BotSettings> {
   const d = snap.exists ? snap.data() || {} : {};
   return {
     enabled: d.botEnabled === true,
+    scripts: cleanScripts(Array.isArray(d.botScripts) ? (d.botScripts as BotScript[]) : []),
     answerStrangers: d.botAnswerStrangers === true,
     autoConfirm: d.botAutoConfirmBookings === true,
     aiEnabled: d.botAiEnabled === true || d.botMode === "ai_first",
@@ -622,7 +626,7 @@ export async function respondToPatientMessage(args: {
   const clinicName = await clinicDisplayName(clinicId);
   // Offers carry their own end date; past it the sentence disappears from every reply at once.
   const offersActive = activeOffers(settings.facts, clinicNow().dateKey);
-  const ctx: BotContext = { clinicName, facts: { ...settings.facts, offers: offersActive } };
+  const ctx: BotContext = { clinicName, facts: { ...settings.facts, offers: offersActive }, scripts: settings.scripts };
   ctx.offersExpired = Boolean(settings.facts.offers?.trim()) && !offersActive;
 
   let profile: PublicClinicProfile | null = null;

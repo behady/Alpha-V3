@@ -1,5 +1,5 @@
 import { isOptOutReply, normalizeReplyText } from "@/lib/patientMessaging";
-import type { BotFacts } from "@/types/whatsapp";
+import type { BotFacts, BotScript } from "@/types/whatsapp";
 import { voiceFor, type Gender } from "@/lib/arabicNames";
 
 /**
@@ -146,6 +146,8 @@ export interface BotContext {
   clinicPhone?: string;
   /** Answers the clinic wrote for the questions its data cannot supply. Any field may be absent. */
   facts?: BotFacts;
+  /** The clinic's own trigger→reply scripts. Checked before every built-in answer (lib/bot/scripts). */
+  scripts?: BotScript[];
   /** The clinic wrote an offer and its end date has passed: `facts.offers` is blank on purpose. */
   offersExpired?: boolean;
   /** The patient has an appointment within two days — a one-word "تمام" then confirms it. */
@@ -218,6 +220,7 @@ export { needsHuman, triageMessage } from "./clinicalTriage";
 import { needsHuman, triageMessage } from "./clinicalTriage";
 import { competitorReply, expensiveReply, offersExpiredReply, thinkingReply } from "./sales";
 import { looksLikeQuestion, quickIntent, type QuickIntent } from "./quickAnswers";
+import { matchScript } from "./scripts";
 
 /*
  * The voice.
@@ -592,6 +595,23 @@ export function decideBotReply(args: {
   // given up on the menu must never have to find the right digit to escape it.
   if (intent === "human") {
     return { reply: HANDOFF_REPLY, next: "handed_off", handoff: true, reason: "asked_for_human" };
+  }
+
+  /*
+   * The clinic's own scripts, before every built-in answer and before the model.
+   *
+   * A script is the clinic saying "when they ask THIS, say exactly THAT" — more specific than
+   * any keyword route here and free, so it outranks both. Two things still beat it: asking for
+   * a person (above), and the time-critical intents — a cancellation, a "running late", a
+   * complaint — because a patient cancelling with a word that happens to be a trigger must be
+   * cancelled, not read a paragraph about whitening. A name typed at the name step is a name.
+   */
+  const TIME_CRITICAL = new Set<QuickIntent>(["cancel", "late", "reschedule", "my_appointment", "complaint"]);
+  if (state !== "booking_name" && !(intent && TIME_CRITICAL.has(intent))) {
+    const script = matchScript(text, ctx.scripts);
+    if (script) {
+      return { reply: script.reply, next: state === "new" ? "awaiting_choice" : state, handoff: false, reason: "script" };
+    }
   }
 
   /*

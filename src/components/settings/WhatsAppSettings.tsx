@@ -14,6 +14,7 @@ import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
 import { currentClinicId } from "@/lib/db-utils";
 import { isAnyUnlocked, isUnlocked, SUPPORT_WHATSAPP } from "@/lib/featureCatalog";
+import BotScriptsEditor from "@/components/settings/BotScriptsEditor";
 import { logActivity } from "@/lib/logger";
 import { useDirtyFlag } from "@/context/UnsavedChangesContext";
 import type {
@@ -160,6 +161,7 @@ function normalizeFromFirestore(data: Record<string, unknown> | undefined): What
     // holding `undefined` is rejected by Firestore on the next write, which reads on screen as a
     // save that silently did nothing.
     ...(data?.botFacts && typeof data.botFacts === "object" ? { botFacts: data.botFacts } : {}),
+    ...(Array.isArray(data?.botScripts) ? { botScripts: data.botScripts } : {}),
     // Dropping this field here is what made "manual" look unselectable: the click saved it,
     // the listener echoed the document back through this function, and the choice vanished
     // from the screen — while the server was already honouring it. Spread conditionally so an
@@ -2106,6 +2108,19 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
                 </div>
               </div>
 
+              {/* The clinic's own trigger→reply scripts. Free, verbatim, and matched before every built-in answer. */}
+              <div hidden={tab !== "answers"}>
+                <BotScriptsEditor
+                  scripts={state.botScripts ?? []}
+                  onChange={(botScripts) => {
+                    setState((s) => {
+                      const next = { ...s, botScripts };
+                      void persist(next, "silent");
+                      return next;
+                    });
+                  }}
+                />
+              </div>
               <div hidden={tab !== "answers"}><BotMediaLibrary /></div>
               <div hidden={tab !== "answers"}><BotMedicineList /></div>
               <div hidden={tab !== "playground"}><BotPlayground /></div>
