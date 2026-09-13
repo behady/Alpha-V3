@@ -177,7 +177,13 @@ function BandShell({ nav, strip }: { nav: React.ReactNode; strip: React.ReactNod
 
   return (
     <header
-      className="relative z-[45] shrink-0 bg-ink-slab text-white"
+      /* No z-index, deliberately. A z-index here would make the band a stacking context, which
+         traps its own dropdown menus inside it — they could then never rise above anything the
+         page puts on top. Without one the bar itself sits at the very bottom of the stack, where
+         it covers nothing, while the menus inside it carry their own z-[200] measured against the
+         whole document. Nothing on a page can reach up and cover the bar anyway: the page scrolls
+         inside <main>, which begins below it. */
+      className="relative shrink-0 bg-ink-slab text-white"
       onMouseEnter={() => setCollapsed(false)}
       onFocusCapture={() => setCollapsed(false)}
     >
@@ -445,15 +451,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           Navigation on top, the page's own title and buttons underneath it. One dark block, then
           white: everything below this is the page. */}
       {/*
-        z-[45] is chosen, not arbitrary. The band has to sit ABOVE the sticky toolbars pages mount
-        inside the scroll area (the patients search, the prescription tools, the odontogram tools —
-        all `sticky top-0 z-40`), or a dropdown hanging down from the bar is painted over by them.
-        It has to sit BELOW every modal, and the lowest modal overlay in the product is `z-50`.
-        Hence 45, in the gap.
+        The band carries no z-index at all, and neither does <main>. Both facts matter and both are
+        about stacking contexts rather than about numbers.
 
-        It used to be z-[120], inherited from the left rail's z-[150]. That was safe for a rail:
-        88px down the side of the screen, where a centred dialog never reached it. A bar across the
-        whole top clipped the top of every modal instead.
+        It began at z-[120], inherited from the old left rail's z-[150]. Harmless for a rail — 88px
+        down the side, where a centred dialog never reached it — and fatal for a bar across the
+        whole top, which met every dialog and clipped its head. Lowering it to z-[45] looked like
+        the fix and was not: `main` was `relative z-0`, a stacking context, and every dialog in this
+        product is rendered inline by its page rather than through a portal. Each one was therefore
+        sealed inside `main` and painted at `main`'s level, under the band, no matter how high its
+        own z-index went.
+
+        So the rule now is the simple one: the bar claims nothing. Its menus reach over the page
+        with their own z-[200] — free to, because the bar is not a stacking context around them —
+        and the page's dialogs cover the bar because nothing is holding them down.
       */}
       <BandShell
         nav={
@@ -605,7 +616,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
          {/* --- MAIN PAGE CONTENT --- */}
          <main
            data-tour="page-main"
-           className={`flex-1 min-h-0 relative z-0 animate-in fade-in duration-300 ${
+           /* `relative` but NOT `z-0`. Together they made a stacking context, and every dialog in
+              the product is rendered inline by its page rather than through a portal — so each one
+              was sealed inside this element and painted at ITS level, under the black band, however
+              high its own z-index was. That is why dialogs kept opening with their heads cut off
+              after the band was lowered: the band was never the thing that outranked them. */
+           className={`flex-1 min-h-0 relative animate-in fade-in duration-300 ${
              isFullHeightPage
                ? "flex flex-col overflow-hidden"
                : "overflow-x-hidden overflow-y-auto pb-24 lg:pb-0"
