@@ -99,7 +99,7 @@ export default function BotScriptsEditor({
                 onClick={() => setOpen(isOpen ? null : s.id)}
                 className="flex w-full items-center gap-3 px-4 py-3 text-start"
               >
-                <span className={`h-2 w-2 shrink-0 rounded-full ${live ? "bg-emerald-500" : "bg-line-strong"}`} />
+                <span className={`h-2 w-2 shrink-0 rounded-full ${live ? "bg-ok" : "bg-line-strong"}`} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-black text-ink">{label}</span>
                   <span className="block truncate text-[11px] text-ink-muted">

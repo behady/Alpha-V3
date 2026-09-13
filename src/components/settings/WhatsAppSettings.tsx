@@ -53,6 +53,45 @@ const ACTION_HEADERS = [
   { key: "delete" as const, labelEn: "Delete", labelAr: "حذف" },
 ];
 
+/**
+ * An on/off switch that reads as one from across the room.
+ *
+ * The automations used to use a bare checkbox, which is a tick or nothing — at a glance a screen
+ * of them says only "some of these are ticked", and you have to look at each in turn to find out
+ * which. A switch carries its state in its shape and its colour, so "three of the six are on" is
+ * a thing you see rather than something you count.
+ */
+function AutomationSwitch({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <span className="relative mt-0.5 inline-flex shrink-0">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="peer absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+      />
+      <span
+        aria-hidden
+        className={`pointer-events-none block h-6 w-11 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-ink peer-focus-visible:ring-offset-2 ${
+          checked ? "bg-accent" : "bg-line-strong"
+        }`}
+      >
+        <span
+          className={`block size-5 translate-y-0.5 rounded-full bg-white shadow-sm transition-transform ${
+            checked ? "translate-x-[1.375rem] rtl:-translate-x-[1.375rem]" : "translate-x-0.5 rtl:-translate-x-0.5"
+          }`}
+        />
+      </span>
+    </span>
+  );
+}
+
 function newId() {
   return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `tpl_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
@@ -365,6 +404,11 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
         ? "لم يُحفظ هذا التغيير، وأُعيد ما هو مخزَّن بالفعل. إعدادات الواتساب لا يغيّرها إلا مدير العيادة، ولا تُحفظ إذا كان اشتراك العيادة منتهياً."
         : "That change was not saved, and the screen has been put back to what is stored. Only a clinic Admin can change WhatsApp settings, and nothing saves while the clinic's subscription has lapsed.",
       patientToggle: language === "ar" ? "تفعيل الرسائل التلقائية للمرضى" : "Enable automated patient messages",
+      patientToggleHint:
+        language === "ar"
+          ? "المفتاح الرئيسي. وهو مقفول، مفيش حاجة تحت بتتبعت."
+          : "The master switch. While it is off, nothing below is sent.",
+      needsLabel: language === "ar" ? "يحتاج" : "Needs",
       recallToggle: language === "ar" ? "رسالة \"وحشتنا\" للمرضى الغايبين" : "\"We miss you\" to patients who stopped coming",
       recallHint:
         language === "ar"
@@ -374,13 +418,17 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
       reviewToggle: language === "ar" ? "طلب تقييم جوجل بعد الزيارة" : "Ask for a Google review after visits",
       reviewHint:
         language === "ar"
-          ? "صباح اليوم التالي لكل زيارة مكتملة. يحتاج رابط تقييم جوجل في ملف العيادة، ولا يتكرر لنفس المريض خلال شهر."
-          : "The morning after each completed visit. Needs the Google review link in the clinic profile; never twice to the same patient within a month.",
+          ? "صباح اليوم التالي لكل زيارة مكتملة، ولا يتكرر لنفس المريض خلال شهر."
+          : "The morning after each completed visit, and never twice to the same patient within a month.",
+      reviewNeeds:
+        language === "ar" ? "رابط تقييم جوجل في ملف العيادة" : "A Google review link in the clinic profile",
       reminderButtonsToggle: language === "ar" ? "أزرار \"تأكيد الحضور\" و\"تعديل الميعاد\" في التذكير" : "Confirm / reschedule buttons on the reminder",
       reminderButtonsHint:
         language === "ar"
-          ? "فعّلها بعد ما ميتا توافق على قالب alpha_appt_reminder_btn_ar. الضغطة بتأكد الميعاد أو تفتح خطوات التعديل في البوت."
-          : "Turn on once Meta approves the alpha_appt_reminder_btn_ar template. A tap confirms the appointment or starts the reschedule steps in the assistant.",
+          ? "الضغطة بتأكد الميعاد أو بتفتح خطوات التعديل في البوت."
+          : "A tap confirms the appointment, or starts the reschedule steps in the assistant.",
+      reminderButtonsNeeds:
+        language === "ar" ? "موافقة ميتا على alpha_appt_reminder_btn_ar" : "Meta approval for alpha_appt_reminder_btn_ar",
       deliveryTitle: language === "ar" ? "طريقة الإرسال" : "How messages are sent",
       deliveryAuto: language === "ar" ? "إرسال تلقائي" : "Send automatically",
       deliveryAutoHint:
@@ -539,18 +587,28 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
       checkinToggle: language === "ar" ? "«إزيك النهارده؟» بعد العلاج" : "\"How are you feeling?\" after a procedure",
       checkinHint:
         language === "ar"
-          ? "صباح اليوم التالي لكل علاج مكتمل (مش الكشف أو التنظيف)، مع تعليمات ما بعد العلاج لو مكتوبة. زرار «عندي ألم» بيروح لموظف فوراً. فعّلها بعد ما ميتا توافق على قالب alpha_checkin_ar. لما تكون شغالة، طلب التقييم بيتأجل يوم."
-          : "The morning after every completed procedure (not check-ups or cleanings), with your aftercare line if written. \"I have pain\" goes straight to a person. Turn on once Meta approves alpha_checkin_ar. When on, the review request waits a day.",
+          ? "صباح اليوم التالي لكل علاج مكتمل (مش الكشف أو التنظيف). زرار «عندي ألم» بيروح لموظف فوراً."
+          : "The morning after every completed procedure — not check-ups or cleanings. \"I have pain\" goes straight to a person.",
+      checkinNeeds:
+        language === "ar" ? "موافقة ميتا على alpha_checkin_ar" : "Meta approval for alpha_checkin_ar",
+      checkinNote:
+        language === "ar"
+          ? "بيضيف تعليمات ما بعد العلاج لو مكتوبة، وبيأجل طلب التقييم يوم."
+          : "Adds your aftercare line if you have written one, and pushes the review request back a day.",
       noshowToggle: language === "ar" ? "رسالة بعد الغياب عن الميعاد" : "Message after a no-show",
       noshowHint:
         language === "ar"
-          ? "صباح اليوم التالي لأي ميعاد اتسجل «لم يحضر»، من غير لوم، بزرار حجز. مش بتتبعت لو المريض حجز تاني بالفعل. فعّلها بعد ما ميتا توافق على قالب alpha_noshow_ar."
-          : "The morning after any appointment marked No Show, without blame, with a book button. Not sent if they already rebooked. Turn on once Meta approves alpha_noshow_ar.",
+          ? "صباح اليوم التالي لأي ميعاد اتسجل «لم يحضر»، من غير لوم، بزرار حجز. مش بتتبعت لو حجز تاني بالفعل."
+          : "The morning after an appointment marked No Show — no blame, with a book button. Skipped if they already rebooked.",
+      noshowNeeds:
+        language === "ar" ? "موافقة ميتا على alpha_noshow_ar" : "Meta approval for alpha_noshow_ar",
       leadFollowupToggle: language === "ar" ? "متابعة اللي سأل ومحجزش" : "Follow up leads who asked but didn't book",
       leadFollowupHint:
         language === "ar"
-          ? "رسالة واحدة بس، بعد يوم من سؤاله عن سعر أو خدمة على واتساب من غير ما يحجز. فعّلها بعد ما ميتا توافق على قالب alpha_lead_followup_ar."
-          : "One message, the day after someone asked about a price or service on WhatsApp without booking. Turn on once Meta approves the alpha_lead_followup_ar template.",
+          ? "رسالة واحدة بس، بعد يوم من سؤاله عن سعر أو خدمة على واتساب من غير ما يحجز."
+          : "One message, the day after someone asked about a price or a service without booking.",
+      leadFollowupNeeds:
+        language === "ar" ? "موافقة ميتا على alpha_lead_followup_ar" : "Meta approval for alpha_lead_followup_ar",
       factWhyUs: language === "ar" ? "ليه تختارنا (البوت بيقولها لما حد يتردد)" : "Why us (said when someone hesitates)",
       factWhyUsPh:
         language === "ar"
@@ -1450,15 +1508,18 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
       )}
 
       {tab === "messages" && (
-      <div className="flex flex-col gap-8">
-        <label className="flex items-center justify-between gap-4 cursor-pointer rounded-xl border border-line bg-surface-subtle px-4 py-3">
-          <span className="text-sm font-bold text-ink-body">{txt.patientToggle}</span>
-          <input
-            type="checkbox"
-            className="h-5 w-5 rounded border-line-strong text-accent focus:ring-accent shrink-0"
+      /*
+       * Capped at a reading width. This is a list of sentences, and at the full width of a desktop
+       * the switch ended up a metre from the label it belonged to — you read a row on the left,
+       * then hunted across empty space to find out whether it was on.
+       */
+      <div className="flex max-w-3xl flex-col gap-8">
+        {/* The master switch, told apart from the six it governs rather than sitting in the same
+            grey card as them: it is the reason none of the others are sending. */}
+        <label className="flex cursor-pointer items-start gap-3.5 rounded-2xl border border-line bg-surface px-4 py-3.5 shadow-sm">
+          <AutomationSwitch
             checked={state.isPatientAutomationEnabled}
-            onChange={(e) => {
-              const checked = e.target.checked;
+            onChange={(checked) => {
               setState((s) => {
                 const next = { ...s, isPatientAutomationEnabled: checked };
                 void persist(next, "silent");
@@ -1466,66 +1527,104 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
               });
             }}
           />
+          <span className="min-w-0">
+            <span className="block text-sm font-black text-ink">{txt.patientToggle}</span>
+            <span className="mt-0.5 block text-xs font-medium text-ink-muted">{txt.patientToggleHint}</span>
+          </span>
         </label>
 
-        {/* The three business-initiated automations. Each is a template Meta has to approve
-            first, so they ship switched off and the hint says what unlocks them. */}
+        {/* The six business-initiated automations. Each is a template Meta has to approve first,
+            so they ship switched off and carry a line saying what unlocks them. */}
+        <div
+          className={`flex flex-col gap-6 transition-opacity ${
+            state.isPatientAutomationEnabled ? "" : "pointer-events-none opacity-45"
+          }`}
+          aria-disabled={!state.isPatientAutomationEnabled}
+        >
         {(
           [
-            { key: "useReminderButtons", group: txt.groupAppointments, label: txt.reminderButtonsToggle, hint: txt.reminderButtonsHint },
-            { key: "isCheckinEnabled", group: txt.groupAfterVisit, label: txt.checkinToggle, hint: txt.checkinHint },
-            { key: "isReviewRequestEnabled", group: txt.groupAfterVisit, label: txt.reviewToggle, hint: txt.reviewHint },
-            { key: "isNoShowRecoveryEnabled", group: txt.groupWinBack, label: txt.noshowToggle, hint: txt.noshowHint },
-            { key: "isLeadFollowupEnabled", group: txt.groupWinBack, label: txt.leadFollowupToggle, hint: txt.leadFollowupHint },
+            { key: "useReminderButtons", group: txt.groupAppointments, label: txt.reminderButtonsToggle, hint: txt.reminderButtonsHint, needs: txt.reminderButtonsNeeds },
+            { key: "isCheckinEnabled", group: txt.groupAfterVisit, label: txt.checkinToggle, hint: txt.checkinHint, needs: txt.checkinNeeds, note: txt.checkinNote },
+            { key: "isReviewRequestEnabled", group: txt.groupAfterVisit, label: txt.reviewToggle, hint: txt.reviewHint, needs: txt.reviewNeeds },
+            { key: "isNoShowRecoveryEnabled", group: txt.groupWinBack, label: txt.noshowToggle, hint: txt.noshowHint, needs: txt.noshowNeeds },
+            { key: "isLeadFollowupEnabled", group: txt.groupWinBack, label: txt.leadFollowupToggle, hint: txt.leadFollowupHint, needs: txt.leadFollowupNeeds },
             { key: "isRecallEnabled", group: txt.groupWinBack, label: txt.recallToggle, hint: txt.recallHint },
           ] as const
-        ).map((row, i, rows) => (
-          <div key={row.key} className="space-y-2">
-            {(i === 0 || rows[i - 1].group !== row.group) && (
-              <p className="pt-2 text-[11px] font-black uppercase tracking-widest text-ink-muted">{row.group}</p>
+        ).map((row, i, rows) => {
+          const on = Boolean(state[row.key]);
+          const newGroup = i === 0 || rows[i - 1].group !== row.group;
+          return (
+          <div key={row.key} className={newGroup ? "" : "-mt-3"}>
+            {newGroup && (
+              <p className="mb-2 text-[11px] font-black uppercase tracking-widest text-ink-faint">{row.group}</p>
             )}
-          <div className="rounded-xl border border-line bg-surface-subtle px-4 py-3">
-            <label className="flex items-center justify-between gap-4 cursor-pointer">
-              <span className="text-sm font-bold text-ink-body">{row.label}</span>
-              <input
-                type="checkbox"
-                className="h-5 w-5 rounded border-line-strong text-accent focus:ring-accent shrink-0"
-                checked={Boolean(state[row.key])}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  setState((s) => {
-                    const next = { ...s, [row.key]: checked };
-                    void persist(next, "silent");
-                    return next;
-                  });
-                }}
-              />
-            </label>
-            <p className="mt-1.5 text-xs text-ink-muted leading-relaxed">{row.hint}</p>
-            {row.key === "isRecallEnabled" && state.isRecallEnabled && (
-              <label className="mt-3 flex items-center gap-3 text-xs font-semibold text-ink-body">
-                {txt.recallMonths}
-                <select
-                  className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm"
-                  value={state.recallAfterMonths ?? 6}
-                  onChange={(e) => {
-                    const months = Number(e.target.value) || 6;
+            {/* The switch leads the row. It used to sit at the far end of a full-width card with
+                the label at the other, which reads as two unrelated things. */}
+            {/* Colour lives in the switch and nowhere else. Tinting the whole card when a row is
+                on looked obvious in one row and, with six of them, turned the page into the wall
+                of shouting it already was. An "on" row is simply a card that has come forward;
+                an "off" one recedes into the page. */}
+            <div className={`rounded-2xl border px-4 py-3.5 transition-colors ${on ? "border-line-strong bg-surface shadow-sm" : "border-line bg-surface-subtle"}`}>
+              <label className="flex cursor-pointer items-start gap-3.5">
+                <AutomationSwitch
+                  checked={on}
+                  onChange={(checked) => {
                     setState((s) => {
-                      const next = { ...s, recallAfterMonths: months };
+                      const next = { ...s, [row.key]: checked };
                       void persist(next, "silent");
                       return next;
                     });
                   }}
-                >
-                  {[3, 4, 6, 9, 12].map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm font-bold text-ink">{row.label}</span>
+                  <span className="mt-0.5 block text-xs font-medium leading-relaxed text-ink-muted">{row.hint}</span>
+                </span>
               </label>
-            )}
+
+              {/* What it needs before it can work, kept off the description. Mixed into the same
+                  sentence, a template id nobody can act on read as part of the explanation and
+                  made every row twice as long as the thing it was explaining. */}
+              {"needs" in row && row.needs && (
+                <p className="mt-2 flex items-start gap-1.5 ps-[3.25rem] text-[11px] font-bold text-ink-faint">
+                  <Lock size={11} className="mt-0.5 shrink-0" />
+                  <span>
+                    {txt.needsLabel}: <span className="font-mono font-semibold">{row.needs}</span>
+                  </span>
+                </p>
+              )}
+
+              {/* A second-order effect, shown only once the thing is actually on. */}
+              {"note" in row && row.note && on && (
+                <p className="mt-1.5 ps-[3.25rem] text-[11px] font-medium text-ink-muted">{row.note}</p>
+              )}
+
+              {row.key === "isRecallEnabled" && state.isRecallEnabled && (
+                <label className="mt-2.5 flex items-center gap-2.5 ps-[3.25rem] text-xs font-bold text-ink-body">
+                  {txt.recallMonths}
+                  <select
+                    className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm font-bold"
+                    value={state.recallAfterMonths ?? 6}
+                    onChange={(e) => {
+                      const months = Number(e.target.value) || 6;
+                      setState((s) => {
+                        const next = { ...s, recallAfterMonths: months };
+                        void persist(next, "silent");
+                        return next;
+                      });
+                    }}
+                  >
+                    {[3, 4, 6, 9, 12].map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
           </div>
-          </div>
-        ))}
+          );
+        })}
+        </div>
 
         {/* A refused save, said once and left on screen. A toast for this was
             missed every time, which is how a setting that never saved looked
