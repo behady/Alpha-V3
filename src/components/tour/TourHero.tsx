@@ -2,8 +2,12 @@
 
 import { ArrowLeft, ArrowRight, Check, Clock, Play, RotateCcw } from "lucide-react";
 import AvatarFace from "@/components/appointments/AvatarFace";
+import { useState } from "react";
 import { useTour } from "@/context/TourContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { useClinic } from "@/context/ClinicContext";
+import { useUI } from "@/context/UIContext";
+import { auth } from "@/lib/firebase";
 import { ON_DEMAND_CHAPTERS, TOUR_CHAPTERS, TOUR_GUIDE, tourMinutes } from "@/lib/grandTour";
 
 /**
@@ -16,7 +20,45 @@ import { ON_DEMAND_CHAPTERS, TOUR_CHAPTERS, TOUR_GUIDE, tourMinutes } from "@/li
  */
 export default function TourHero() {
   const tour = useTour();
+  const { clinicId } = useClinic();
+  const { showToast } = useUI();
   const { language, isRTL } = useLanguage();
+  const [clearing, setClearing] = useState(false);
+
+  /**
+   * Remove whatever a half-finished tour left in the clinic.
+   *
+   * The tour's last chapter deletes its own test records; a tour closed in the middle never gets
+   * there, and "Test patient (Sara)" sits in the patient list until somebody notices. A nightly
+   * job clears them too, but the person looking at the leftover right now should not have to wait
+   * for the night.
+   */
+  const clearTestRecords = async () => {
+    if (!clinicId || clearing) return;
+    setClearing(true);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch("/api/tour/cleanup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ clinicId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      const removed = Object.values((data?.deleted || {}) as Record<string, number>).reduce((a, b) => a + b, 0);
+      showToast(
+        !res.ok
+          ? isAr ? "معرفتش أمسحهم. جرّب تاني." : "Could not remove them. Try again."
+          : removed === 0
+            ? isAr ? "مفيش أي سجلات تجريبية." : "Nothing of hers is left."
+            : isAr ? `اتمسح ${removed} سجل تجريبي.` : `Removed ${removed} test record${removed === 1 ? "" : "s"}.`,
+        res.ok ? "success" : "error",
+      );
+    } catch {
+      showToast(isAr ? "معرفتش أمسحهم. جرّب تاني." : "Could not remove them. Try again.", "error");
+    } finally {
+      setClearing(false);
+    }
+  };
   const isAr = language === "ar";
   const guide = isAr ? TOUR_GUIDE.ar : TOUR_GUIDE.en;
   const ArrowIcon = isRTL ? ArrowLeft : ArrowRight;
@@ -139,6 +181,18 @@ export default function TourHero() {
               );
             })}
           </ul>
+          {progress.visited.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void clearTestRecords()}
+              disabled={clearing}
+              className="mt-2 w-full rounded-xl px-2.5 py-2 text-start text-[11px] font-bold text-white/35 transition-colors hover:bg-white/10 hover:text-white/70 disabled:opacity-50"
+            >
+              {clearing
+                ? isAr ? "بمسح…" : "Removing…"
+                : isAr ? "امسح سجلات سارة التجريبية" : "Remove Sara's test records"}
+            </button>
+          )}
         </div>
       </div>
     </section>

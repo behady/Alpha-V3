@@ -130,13 +130,26 @@ export const APPOINTMENT_DEMO_STOP: TourStop = {
   id: "appointment-demo",
   chapter: "frontdesk",
   core: true,
+  coreRoles: ["reception", "owner"],
   handsOn: {
     tutorial: "book-appointment",
+    roles: ["reception", "owner"],
     say: {
-      en: "Now book one yourself — for the patient you just added. Pick them, a dentist, a time. If you used your own number, the confirmation reaches your phone in a moment.",
-      ar: "دلوقتي احجز واحد بنفسك — للمريض اللي لسه ضايفه. اختاره، والدكتور، والوقت. لو حطيت رقمك، التأكيد هيوصلك على موبايلك بعد شوية.",
+      en: "Now book one yourself — for the patient you just added. Pick them, a dentist, a free time.",
+      ar: "دلوقتي احجز واحد بنفسك — للمريض اللي لسه ضايفه. اختاره، والدكتور، ووقت فاضي.",
     },
-    done: { en: "Booked. Check your WhatsApp.", ar: "اتحجز. بص على الواتساب." },
+    done: {
+      en: "Booked — and if that was your own number, the confirmation is on your phone already.",
+      ar: "اتحجز — ولو ده كان رقمك إنت، التأكيد وصل موبايلك خلاص.",
+    },
+    doneUnless: {
+      check: "whatsappAuto",
+      say: {
+        en: "Booked. Nothing was sent to anyone: your WhatsApp isn't connected yet, so confirmations wait until it is — Settings, WhatsApp.",
+        ar: "اتحجز. ومحدش وصله حاجة: الواتساب بتاعك لسه مش متوصّل، فالتأكيدات بتستنى لحد ما يتوصّل — من الإعدادات، واتساب.",
+      },
+    },
+    gaveUp: { en: "No problem — booking is on Getting started whenever you want it.", ar: "ولا يهمك — الحجز في صفحة البداية وقت ما تحب." },
   },
   // One booking per test patient: a second run of the tour must not stack appointments.
   demoSkipIf: "demoAppointmentExists",
@@ -163,7 +176,24 @@ export const APPOINTMENT_DEMO_STOP: TourStop = {
     { kind: "selectFirst", anchor: "booking-doctor", say: l("The dentist — anyone on the team with the Dentist role.", "الدكتور — أي حد في الفريق بدور دكتور.") },
     { kind: "selectFirst", anchor: "booking-time", say: l("And a free time. Only the hours you're open are offered.", "ووقت فاضي. مش بيعرض غير ساعات الشغل."), optional: true },
     { kind: "selectFirst", anchor: "booking-duration", optional: true },
-    click("booking-confirm", "Book. For a real patient the WhatsApp confirmation goes out by itself; mine is marked not to be messaged.", "احجز. للمريض الحقيقي تأكيد الواتساب بيطلع لوحده؛ التجريبي معلّم عليه إنه ميتبعتلوش."),
+    click("booking-confirm", "Book. Mine is marked never to be messaged.", "احجز. بتاعي معلّم عليه إنه ميتبعتلوش."),
+    {
+      kind: "if",
+      check: "whatsappAuto",
+      is: true,
+      then: [say("For a real patient the WhatsApp confirmation goes out by itself.", "للمريض الحقيقي تأكيد الواتساب بيطلع لوحده.")],
+    },
+    {
+      kind: "if",
+      check: "whatsappAuto",
+      is: false,
+      then: [
+        say(
+          "For a real patient it would go out by itself — once your WhatsApp is connected under Settings, WhatsApp. Until then nothing is sent.",
+          "للمريض الحقيقي كان هيطلع لوحده — أول ما الواتساب يتوصّل من الإعدادات، واتساب. لحد ساعتها مفيش حاجة بتتبعت.",
+        ),
+      ],
+    },
     // The first offered slot can already hold someone: the system warns before a double booking.
     // Sara goes ahead (the booking is hers and is deleted at the end) and says why.
     click("confirm-yes", "It warns when the slot already has someone — a double booking is a choice, never an accident. Mine is a test, so I'll go ahead.", "بيحذّر لو الميعاد فيه حد — الحجز المزدوج قرار، مش غلطة. بتاعي تجريبي، فهكمّل.", { optional: true, timeoutMs: 2500 }),
@@ -177,6 +207,7 @@ export const DAY_FLOW_STOP: TourStop = {
   id: "day-flow",
   chapter: "frontdesk",
   core: true,
+  coreRoles: ["reception", "owner"],
   route: "/",
   demoOnly: true,
   spot: ["dashboard-appointment", "page-main"],
@@ -214,6 +245,18 @@ export const DAY_FLOW_STOP: TourStop = {
 export const PATIENT_CLINICAL_STOP: TourStop = {
   id: "patient-clinical",
   chapter: "frontdesk",
+  core: true,
+  coreRoles: ["dentist"],
+  handsOn: {
+    tutorial: "record-treatment",
+    roles: ["dentist"],
+    say: {
+      en: "Now you record one. Same file, same steps — I'll ring each one and you do the clicking.",
+      ar: "دلوقتي إنت سجّل واحد. نفس الملف، نفس الخطوات — أنا هنوّر كل خطوة وإنت اللي تضغط.",
+    },
+    done: { en: "That's the clinical note done by your own hand.", ar: "كده سجّلت الملاحظة الإكلينيكية بإيدك." },
+    gaveUp: { en: "No problem — the lesson waits for you on Getting started.", ar: "ولا يهمك — الدرس مستنيك في صفحة البداية." },
+  },
   route: "/patients",
   dynamic: "demoPatient",
   demoPatientTab: "clinical",
@@ -249,6 +292,18 @@ export const PATIENT_CLINICAL_STOP: TourStop = {
 export const PATIENT_RX_STOP: TourStop = {
   id: "patient-rx",
   chapter: "frontdesk",
+  core: true,
+  coreRoles: ["dentist"],
+  handsOn: {
+    tutorial: "write-prescription",
+    roles: ["dentist"],
+    say: {
+      en: "Your turn to write one. Pick any drug from the list — nothing is sent until you press send.",
+      ar: "دورك تكتب واحدة. اختار أي دوا من القايمة — مفيش حاجة بتتبعت غير لما تضغط إرسال.",
+    },
+    done: { en: "And that's a prescription, on your letterhead.", ar: "وكده روشتة، على ورق عيادتك." },
+    gaveUp: { en: "It's on Getting started when you want it.", ar: "هتلاقيه في صفحة البداية وقت ما تحب." },
+  },
   route: "/patients",
   dynamic: "demoPatient",
   demoOnly: true,

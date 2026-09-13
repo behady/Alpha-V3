@@ -48,29 +48,88 @@ for (const stop of TOUR_STOPS) {
 assert.ok(TOUR_STOPS.length >= 40, `a grand tour has many stops, got ${TOUR_STOPS.length}`);
 assert.equal(tourStopById("finale")?.chapter, "wrapup");
 
-// --- the core tour: short, in order, ends on its own finale, hands-on lessons exist ---------------
+// --- the core tour: short, in order, per job, and every hands-on lesson is real -------------------
 {
-  const core = coreStopsFor(TOUR_STOPS, ["clinical", "services", "users"]);
-  const ids = core.map((s) => s.id);
-  assert.ok(core.length >= 12 && core.length <= 20, `core tour should be short, got ${core.length}`);
+  const SETUP_MISSING = ["clinical", "services", "users"];
+  const reception = coreStopsFor(TOUR_STOPS, SETUP_MISSING, "reception");
+  const ids = reception.map((s) => s.id);
+  assert.ok(reception.length >= 12 && reception.length <= 20, `core tour should be short, got ${reception.length}`);
   assert.equal(ids[0], "topbar");
   assert.equal(ids[ids.length - 1], "core-finale");
   for (const must of ["patients-add", "appointment-demo", "day-flow", "patient-payment", "demo-cleanup-patient"]) {
     assert.ok(ids.includes(must), `core tour must include ${must}`);
   }
   assert.ok(ids.indexOf("settings-services") < ids.indexOf("patients-add"), "setup comes before the first demo");
-  assert.equal(coreStopsFor(TOUR_STOPS, []).filter((s) => s.core === "setup").length, 0, "no setup stops when nothing is missing");
+  assert.equal(
+    coreStopsFor(TOUR_STOPS, [], "reception").filter((s) => s.core === "setup").length,
+    0,
+    "no setup stops when nothing is missing",
+  );
+
+  // Each job gets its own day, and every core run still ends on the same closing stop.
+  for (const role of ["reception", "dentist", "owner"] as const) {
+    const run = coreStopsFor(TOUR_STOPS, SETUP_MISSING, role);
+    assert.ok(run.length >= 8, `${role}: core tour is too short (${run.length})`);
+    assert.equal(run[run.length - 1].id, "core-finale", `${role}: core tour must end on the finale`);
+    assert.equal(run[0].id, "topbar", `${role}: core tour must start on the navigation`);
+    for (const s of run) {
+      assert.ok(!s.coreRoles || s.coreRoles.includes(role), `${role}: ${s.id} does not belong in this run`);
+      assert.ok(!s.handsOn?.roles || s.handsOn.roles.includes(role), `${role}: ${s.id} kept a hands-on meant for someone else`);
+    }
+  }
+  const dentistIds = coreStopsFor(TOUR_STOPS, SETUP_MISSING, "dentist").map((s) => s.id);
+  assert.ok(dentistIds.includes("patient-clinical") && dentistIds.includes("patient-rx"), "a dentist is taught the chair");
+  assert.ok(!dentistIds.includes("patient-payment"), "a dentist is not taught the desk's payment");
+  // The clinical stops act on Sara's test patient, so the stop that creates it has to come first.
+  assert.ok(
+    dentistIds.indexOf("patients-add") >= 0 && dentistIds.indexOf("patients-add") < dentistIds.indexOf("patient-clinical"),
+    "the test patient must exist before the clinical stops use it",
+  );
+  const ownerIds = coreStopsFor(TOUR_STOPS, SETUP_MISSING, "owner").map((s) => s.id);
+  assert.ok(ownerIds.includes("patient-payment"), "an owner sees the desk's day too");
+
   const handsOn = TOUR_STOPS.filter((s) => s.handsOn);
   assert.ok(handsOn.length >= 3, "the core tour has hands-on moments");
   for (const s of handsOn) {
     assert.ok(TUTORIAL_IDS.includes(s.handsOn!.tutorial), `${s.id}: hands-on lesson '${s.handsOn!.tutorial}' does not exist`);
-    for (const key of ["say", "done"] as const) {
-      assert.ok(s.handsOn![key].en.trim() && s.handsOn![key].ar.trim(), `${s.id}: hands-on ${key} must be bilingual`);
+    for (const key of ["say", "done", "gaveUp"] as const) {
+      const line = s.handsOn![key];
+      assert.ok(line, `${s.id}: hands-on needs a ${key} line`);
+      assert.ok(line!.en.trim() && line!.ar.trim(), `${s.id}: hands-on ${key} must be bilingual`);
     }
+    const unless = s.handsOn!.doneUnless;
+    if (unless) assert.ok(unless.say.en.trim() && unless.say.ar.trim(), `${s.id}: doneUnless must be bilingual`);
   }
   for (const s of TOUR_STOPS) {
     const points = (s.walk ?? []).filter((a) => a.kind === "point").length;
     assert.ok(points <= MAX_WALK_POINTS, `${s.id}: walk points at ${points} things; the cap is ${MAX_WALK_POINTS}`);
+  }
+}
+
+// --- Sara never promises a message a clinic cannot send ------------------------------------------
+{
+  // The whole tour, including every nested branch of a demo.
+  const lines: string[] = [];
+  const walk = (actions: readonly any[] | undefined) => {
+    for (const a of actions ?? []) {
+      for (const key of ["say", "text"] as const) {
+        const v = (a as any)[key];
+        if (v && typeof v === "object" && typeof v.en === "string") lines.push(v.en);
+      }
+      if ((a as any).then) walk((a as any).then);
+    }
+  };
+  for (const stop of TOUR_STOPS) {
+    lines.push(stop.say.en);
+    walk(stop.walk);
+    walk(stop.demo);
+    if (stop.handsOn) lines.push(stop.handsOn.done.en, stop.handsOn.say.en);
+  }
+  for (const line of lines) {
+    const promises = /goes out by itself|reaches your phone|check your whatsapp|on your phone already/i.test(line);
+    if (!promises) continue;
+    const hedged = /once your whatsapp|if that was your own number|for a real patient/i.test(line);
+    assert.ok(hedged, `a line promises a message with no condition attached: "${line.slice(0, 90)}"`);
   }
 }
 assert.equal(tourStopById("nope"), undefined);

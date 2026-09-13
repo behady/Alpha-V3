@@ -9,7 +9,7 @@ import { typedNameMatches } from "@/lib/clinicTrash";
 import { useRouter } from "next/navigation";
 import { Clinic, SubscriptionTier } from "@/types/saas";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
-import { ShieldCheck, Search, Loader2, Check, X, Building2, BarChart3, Users, MoreVertical, RefreshCcw, Trash2, ExternalLink, Megaphone, HardDriveDownload, SlidersHorizontal, ShoppingBag } from "lucide-react";
+import { ShieldCheck, Search, Loader2, Check, X, Building2, BarChart3, Users, MoreVertical, RefreshCcw, Trash2, ExternalLink, Megaphone, HardDriveDownload, SlidersHorizontal, ShoppingBag, Compass } from "lucide-react";
 import { useUI } from "@/context/UIContext";
 import { KpiStrip } from "@/components/superadmin/KpiStrip";
 import { ClinicDetailPanel } from "@/components/superadmin/ClinicDetailPanel";
@@ -21,9 +21,10 @@ import MisplacedRecordsTab from "@/components/superadmin/MisplacedRecordsTab";
 import { PlatformTab } from "@/components/superadmin/PlatformTab";
 import { CostsTab } from "@/components/superadmin/CostsTab";
 import SupplyStoreTab from "@/components/superadmin/SupplyStoreTab";
+import { TourTab } from "@/components/superadmin/TourTab";
 
 // Tabs
-type Tab = 'clinics' | 'analytics' | 'costs' | 'users' | 'meta' | 'migrate' | 'misplaced' | 'platform' | 'supply';
+type Tab = 'clinics' | 'analytics' | 'costs' | 'users' | 'meta' | 'migrate' | 'misplaced' | 'platform' | 'supply' | 'tour';
 
 interface RichClinic extends Clinic {
   ownerEmail?: string;
@@ -287,6 +288,9 @@ export default function SuperAdminDashboard() {
             <button onClick={() => setActiveTab('supply')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'supply' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
               <ShoppingBag size={16} /> Supply store
             </button>
+            <button onClick={() => setActiveTab('tour')} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'tour' ? 'bg-indigo-500 text-white' : 'text-slate-400 hover:text-white'}`}>
+              <Compass size={16} /> Tour
+            </button>
           </div>
         </div>
       </div>
@@ -475,6 +479,12 @@ export default function SuperAdminDashboard() {
           </>
         )}
 
+        {activeTab === 'tour' && (
+          <div className="mt-4">
+            {/* Where Sara's tour loses people, across every clinic. */}
+            <TourTab />
+          </div>
+        )}
         {activeTab === 'costs' && (
           <div className="mt-4">
             {/* Supplier invoices per clinic. Superadmin only — a clinic sees credits, never money. */}

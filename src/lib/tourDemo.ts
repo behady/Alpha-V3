@@ -30,6 +30,12 @@ export type TourCheck =
   | "anyDentist"
   | "demoPatientExists"
   | "demoAppointmentExists"
+  /**
+   * Will a message the clinic sends actually leave the building unattended? Patient automation
+   * switched on, and delivery not set to manual. Sara must not promise a confirmation that a
+   * clinic without a connected WhatsApp will never see arrive.
+   */
+  | "whatsappAuto"
   | "demoDentistExists"
   | "isAdmin";
 
@@ -112,6 +118,25 @@ export interface DemoValues {
   drugQuery: string;
   noteText: string;
 }
+
+/**
+ * Every name Sara's test records can carry, in both languages.
+ *
+ * The sweep that clears abandoned test records (api/tour/cleanup) has nothing else to match on:
+ * the tour creates these through the real buttons, so nothing can attach a flag to them on the
+ * way in — except the patient, which is flagged the moment it is saved because that is the one
+ * that can be messaged. So these names are the handle, and they must stay exact. Changing one
+ * without changing this list would leave the old records unsweepable.
+ */
+export const DEMO_RECORD_NAMES = {
+  patient: ["Test patient (Sara)", "مريض تجريبي (سارة)"],
+  service: ["Test treatment (Sara)", "علاج تجريبي (سارة)"],
+  dentist: ["Dr. Test (Sara)", "د. تجريبي (سارة)"],
+  lead: ["Test lead (Sara)", "عميل تجريبي (سارة)"],
+  item: ["Test item (Sara)", "صنف تجريبي (سارة)"],
+  expense: ["Sara's test expense", "مصروف تجريبي من سارة"],
+  payment: ["Sara's test payment", "دفعة تجريبية من سارة"],
+} as const;
 
 /**
  * The names Sara gives her test records — one look at Recently Deleted says whose they were.

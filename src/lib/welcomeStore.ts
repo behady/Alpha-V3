@@ -162,6 +162,11 @@ export function restoreCoach(scope: WelcomeScope): void {
 
 /* --- Sara's tour ------------------------------------------------------------------------- */
 
+/** Did this person finish this lesson? Written by the lesson overlay on its last step. */
+export function isLessonDone(scope: WelcomeScope, tutorialId: string): boolean {
+  return readWelcomeState(scope).lessons.includes(tutorialId);
+}
+
 export function readTourProgress(scope: WelcomeScope): TourProgress {
   return readWelcomeState(scope).tour;
 }

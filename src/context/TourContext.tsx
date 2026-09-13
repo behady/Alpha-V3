@@ -30,8 +30,10 @@ import {
   tourChaptersFor,
   tourStopsFor,
   type TourChapter,
+  type TourRole,
   type TourStop,
 } from "@/lib/grandTour";
+import { logTourEvent, type TourEventName } from "@/lib/tourEvents";
 import { demoValues as makeDemoValues, type DemoValues, type TourCheck, type TourOffer } from "@/lib/tourDemo";
 import { PHONE_NAV_QUERY } from "@/lib/tourDom";
 import {
@@ -82,8 +84,12 @@ interface TourContextType {
   stops: TourStop[];
   /** Every stop this person may see, across all chapters — for the hero, the widget, Sara. */
   allStops: TourStop[];
-  /** The core tour as it would run for this clinic right now. */
+  /** The core tour as it would run for this clinic, and this person's job, right now. */
   coreStops: TourStop[];
+  /** Whose day this is: it decides which stops the core tour contains. */
+  role: TourRole;
+  /** Record what happened, for the drop-off table. Fire and forget. */
+  track: (event: TourEventName, detail?: Record<string, unknown>) => void;
   runId: TourRun | null;
   chapters: TourChapter[];
   stop: TourStop | null;
@@ -151,6 +157,15 @@ export function TourProvider({
     return () => mq.removeEventListener("change", apply);
   }, []);
 
+  /**
+   * Which day this person works, for the core tour.
+   *
+   * Role first, because it is the only thing the system actually knows: a Dentist is a dentist
+   * whatever else is true. An admin who is not a dentist is treated as the owner — they get the
+   * owner's view and the money, on top of the desk. Everyone else runs the desk.
+   */
+  const role: TourRole = user?.role === "Dentist" ? "dentist" : isAdmin ? "owner" : "reception";
+
   const allStops = useMemo(() => {
     // The tour is a laptop thing for now (user's call, 2026-09-13): on a phone every surface
     // that offers it — the intro, the menu row, the widget button, the Getting-started hero,
@@ -172,14 +187,14 @@ export function TourProvider({
   const [setupNeeded, setSetupNeeded] = useState<string[]>([]);
   const stopsForRun = useCallback(
     (run: TourRun | null, needed: readonly string[]): TourStop[] => {
-      if (run === "core") return coreStopsFor(allStops, needed);
+      if (run === "core") return coreStopsFor(allStops, needed, role);
       if (run) return chapterStopsFor(allStops, run);
       return allStops;
     },
-    [allStops],
+    [allStops, role],
   );
   const stops = useMemo(() => stopsForRun(runId, setupNeeded), [stopsForRun, runId, setupNeeded]);
-  const coreStops = useMemo(() => coreStopsFor(allStops, setupNeeded), [allStops, setupNeeded]);
+  const coreStops = useMemo(() => coreStopsFor(allStops, setupNeeded, role), [allStops, setupNeeded, role]);
 
   const chapters = useMemo(() => tourChaptersFor(stops), [stops]);
 
@@ -263,6 +278,13 @@ export function TourProvider({
           case "demoDentistExists": {
             const snap = await getDocs(query(getClinicCollection("staff"), where("name", "==", demoValues.dentistName), limit(1)));
             return !snap.empty;
+          }
+          case "whatsappAuto": {
+            // What the server checks before it sends anything to a patient: automation on, and
+            // delivery not handed back to a human. Either one off means nothing leaves by itself.
+            const snap = await getDoc(getClinicDoc("settings", "whatsapp"));
+            const data = snap.data();
+            return Boolean(data?.isPatientAutomationEnabled) && String(data?.deliveryMode || "") !== "manual";
           }
           case "demoPatientExists":
             return !!(await resolveDemoPatient());
@@ -418,10 +440,15 @@ export function TourProvider({
     });
   }, [active, stop, demoMode, firstPatientId, demoPatientId, stops.length, scope, runId]);
 
+  /** The stop the tracker should name, without making every event depend on the render. */
+  const stopIdRef = useRef<string | null>(null);
+  stopIdRef.current = stop?.id ?? null;
+
   useEffect(() => {
     if (!active || paused || !stop) return;
     saveTourPosition(scope, stop.id, runId);
-  }, [active, paused, stop, scope, runId]);
+    if (clinicId) void logTourEvent({ clinicId, event: "stop", run: runId, stopId: stop.id, role });
+  }, [active, paused, stop, scope, runId, clinicId, role]);
 
   useEffect(() => {
     if (!active) return;
@@ -459,6 +486,14 @@ export function TourProvider({
     return [...(hours ? [] : ["clinical"]), ...(services ? [] : ["services"]), ...(dentist ? [] : ["users"])];
   }, [isAdmin, check]);
 
+  const track = useCallback(
+    (event: TourEventName, detail?: Record<string, unknown>) => {
+      if (!clinicId) return;
+      void logTourEvent({ clinicId, event, run: runId, stopId: stopIdRef.current, role, ...(detail ? { detail } : {}) });
+    },
+    [clinicId, runId, role],
+  );
+
   const start = useCallback(
     (opts?: { stopId?: string; fromStart?: boolean; run?: TourRun }) => {
       if (allStops.length === 0) return;
@@ -471,7 +506,7 @@ export function TourProvider({
         const inCurrent = runId && current.some((s) => s.id === opts.stopId);
         const target = allStops.find((s) => s.id === opts.stopId);
         run = inCurrent && runId ? runId : target ? target.chapter : "core";
-        if (target && !inCurrent && (saved.run === "core" || !saved.run) && coreStopsFor(allStops, setupNeeded).some((s) => s.id === target.id)) run = "core";
+        if (target && !inCurrent && (saved.run === "core" || !saved.run) && coreStopsFor(allStops, setupNeeded, role).some((s) => s.id === target.id)) run = "core";
       } else if (!opts?.run && !opts?.fromStart && saved.run) {
         run = saved.run;
       }
@@ -492,22 +527,25 @@ export function TourProvider({
       setStopIndex(index);
       setPaused(false);
       setActive(true);
+      if (clinicId) void logTourEvent({ clinicId, event: "started", run, stopId: list[index]?.id ?? null, role });
       // The setup stops sit after the first two; the checks are back long before then.
       if (run === "core") void findSetupNeeded().then(setSetupNeeded);
     },
-    [allStops, scope, runId, setupNeeded, stopsForRun, findSetupNeeded],
+    [allStops, scope, runId, setupNeeded, stopsForRun, findSetupNeeded, clinicId, role],
   );
 
   const leave = useCallback(() => {
+    if (clinicId) void logTourEvent({ clinicId, event: "left", run: runId, stopId: stopIdRef.current, role });
     setActive(false);
     setPaused(false);
-  }, []);
+  }, [clinicId, runId, role]);
 
   const next = useCallback(() => {
     direction.current = 1;
     setStopIndex((i) => {
       if (i >= stops.length - 1) {
         // The core tour reaching its end is "the tour is done"; a chapter just closes.
+        if (clinicId) void logTourEvent({ clinicId, event: "finished", run: runId, stopId: stops[i]?.id ?? null, role });
         if (runId === "core") markTourComplete(scope);
         else clearTourRun(scope);
         setActive(false);
@@ -515,7 +553,8 @@ export function TourProvider({
       }
       return i + 1;
     });
-  }, [stops.length, scope, runId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stops.length, scope, runId, clinicId, role]);
 
   const back = useCallback(() => {
     direction.current = -1;
@@ -545,13 +584,13 @@ export function TourProvider({
 
   const value = useMemo<TourContextType>(
     () => ({
-      active, paused, stops, allStops, coreStops, runId, chapters, stop, stopIndex, stopRoute, progress, firstTour,
+      active, paused, stops, allStops, coreStops, role, track, runId, chapters, stop, stopIndex, stopRoute, progress, firstTour,
       start, next, back, goTo, leave, declineIntro,
       demoMode, setDemoMode, demoValues, liveDemoValues, firstPatientName,
       resolveDemoPatient, markDemoPatient, check, applyOffer, setHomeView, restoreHomeView,
     }),
     [
-      active, paused, stops, allStops, coreStops, runId, chapters, stop, stopIndex, stopRoute, progress, firstTour,
+      active, paused, stops, allStops, coreStops, role, track, runId, chapters, stop, stopIndex, stopRoute, progress, firstTour,
       start, next, back, goTo, leave, declineIntro,
       demoMode, setDemoMode, demoValues, liveDemoValues, firstPatientName,
       resolveDemoPatient, markDemoPatient, check, applyOffer, setHomeView, restoreHomeView,

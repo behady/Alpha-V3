@@ -29,6 +29,7 @@ import { useUI } from "@/context/UIContext";
 import { auth } from "@/lib/firebase";
 import { TOUR_GUIDE, type Localized, type TourStop } from "@/lib/grandTour";
 import { tutorialsFor } from "@/lib/tutorials";
+import { isLessonDone } from "@/lib/welcomeStore";
 import { navPlanFor, stopRouteMatches, type DemoAction, type TourOffer } from "@/lib/tourDemo";
 import { findAnchorInRowContaining, findFirstVisibleAnchor, isPhoneViewport, revealForTour } from "@/lib/tourDom";
 import { toSpeechText, trimForSpeech } from "@/lib/speechText";
@@ -301,14 +302,19 @@ export default function GrandTourOverlay() {
       setTakeover(null);
       return;
     }
-    if (handsOnRef.current === stop.id) {
+    if (handsOnRef.current?.stopId === stop.id) {
       // Back from the lesson: her closing line, then the chips — not the stop from the top.
+      const { tutorial } = handsOnRef.current;
       handsOnRef.current = null;
       setTakeover(null);
       setOffer(null);
-      setFailureLine(stop.handsOn ? (isAr ? stop.handsOn.done.ar : stop.handsOn.done.en) : null);
+      setFailureLine(null);
       setPhase("done");
-      if (stop.handsOn) void speakAsync(isAr ? stop.handsOn.done.ar : stop.handsOn.done.en);
+      void handsOnOutcome(stop, tutorial).then((line) => {
+        if (!line) return;
+        setFailureLine(isAr ? line.ar : line.en);
+        void speakAsync(isAr ? line.ar : line.en);
+      });
       return;
     }
     setFailureLine(null);
@@ -355,6 +361,7 @@ export default function GrandTourOverlay() {
   }, [phase, stop?.id]);
   useEffect(() => {
     if (phase !== "handson" || !stop?.handsOn) return;
+    tour.track("hands_on_offered", { lesson: stop.handsOn.tutorial });
     void speakAsync(isAr ? stop.handsOn.say.ar : stop.handsOn.say.en);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, stop?.id]);
@@ -457,16 +464,42 @@ export default function GrandTourOverlay() {
    * and would replay the stop when it resumes; this ref makes it land on "done" instead, with
    * her closing line.
    */
-  const handsOnRef = useRef<string | null>(null);
+  const handsOnRef = useRef<{ stopId: string; tutorial: string } | null>(null);
   const beginHandsOn = () => {
     if (!stop?.handsOn) return;
     stopSpeaking();
-    handsOnRef.current = stop.id;
+    handsOnRef.current = { stopId: stop.id, tutorial: stop.handsOn.tutorial };
+    tour.track("hands_on_started", { lesson: stop.handsOn.tutorial });
     if (!startTutorial(stop.handsOn.tutorial)) {
       handsOnRef.current = null;
       setPhase("done");
     }
   };
+
+  /**
+   * What she says when the lesson hands back.
+   *
+   * Finished and abandoned are not the same event, and saying "that's yours now" to someone who
+   * closed the ring at step one is the kind of thing that makes a guide feel like a recording.
+   * The lesson overlay writes the completion to the same local store the checklist reads, which
+   * is how this knows the difference. `doneUnless` then keeps the line honest about promises the
+   * clinic's own setup has to keep — a confirmation nobody's WhatsApp can send.
+   */
+  const handsOnOutcome = useCallback(
+    async (s: TourStop, tutorial: string): Promise<Localized | null> => {
+      if (!s.handsOn) return null;
+      const finished = isLessonDone({ clinicId, uid: user?.uid }, tutorial);
+      if (!finished) {
+        tour.track("hands_on_gave_up", { lesson: tutorial });
+        return s.handsOn.gaveUp ?? null;
+      }
+      tour.track("hands_on_done", { lesson: tutorial });
+      const unless = s.handsOn.doneUnless;
+      if (unless && !(await tour.check(unless.check))) return unless.say;
+      return s.handsOn.done;
+    },
+    [clinicId, user?.uid, tour],
+  );
 
   const runWalk = useCallback(
     async (s: TourStop, from = 0) => {
@@ -504,6 +537,7 @@ export default function GrandTourOverlay() {
   };
 
   const skipHand = () => {
+    tour.track("skipped_hand");
     runnerRef.current.abort();
     stopSpeaking();
     setTakeover(null);
@@ -524,6 +558,7 @@ export default function GrandTourOverlay() {
       if (!target || target.closest("[data-tour-chrome]")) return;
       if (runnerRef.current.state.running) {
         userClickRef.current = true;
+        tour.track("took_over");
         runnerRef.current.abort();
       }
       stopSpeaking();
@@ -615,6 +650,7 @@ export default function GrandTourOverlay() {
       const prompt = text.trim();
       if (!prompt || asking || !stop || !clinicId) return;
       setQuestion("");
+      tour.track("question", { chip: standalone });
       const userMsg: QaMessage = { id: `${Date.now()}u`, role: "user", content: prompt, stopId: stop.id };
       // Context is this stop's own exchange only. A suggested chip is a standalone question: it
       // goes without history so the server can answer it from the shared cache, for free.

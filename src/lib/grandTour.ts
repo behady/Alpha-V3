@@ -25,7 +25,7 @@
  */
 
 import { SETTINGS_SECTIONS, type SettingsSection } from "@/config/settingsRegistry";
-import type { DemoAction } from "@/lib/tourDemo";
+import type { DemoAction, TourCheck } from "@/lib/tourDemo";
 import { TOUR_WALKS } from "@/lib/grandTourWalks";
 import {
   APPOINTMENT_DEMO_STOP,
@@ -137,10 +137,29 @@ export interface TourStop {
    */
   core?: boolean | "setup";
   /**
+   * Whose core tour this stop belongs to. Absent: everybody's. A receptionist has no use for
+   * the prescription pad, and a dentist does not run the day from the desk.
+   */
+  coreRoles?: readonly TourRole[];
+  /**
    * After Sara has shown it, the person does it: a lesson (the pulsing ring) they click through
    * themselves. `say` invites them; `done` is her line when the lesson ends.
    */
-  handsOn?: { tutorial: string; say: Localized; done: Localized };
+  handsOn?: {
+    tutorial: string;
+    say: Localized;
+    /** Her line when they finish it. */
+    done: Localized;
+    /** Her line when they close the lesson without finishing — never congratulate a non-event. */
+    gaveUp?: Localized;
+    /**
+     * When `check` is false, this line replaces `done`. For promises that depend on the clinic
+     * being set up: "check your WhatsApp" is a lie until WhatsApp is connected.
+     */
+    doneUnless?: { check: TourCheck; say: Localized };
+    /** Whose turn it is. Absent: everybody's. */
+    roles?: readonly TourRole[];
+  };
 }
 
 export const TOUR_CHAPTERS: TourChapter[] = [
@@ -352,6 +371,7 @@ const FRONTDESK_STOPS: TourStop[] = [
   {
     id: "chats",
     core: true,
+    coreRoles: ["reception", "owner"],
     chapter: "frontdesk",
     route: "/chats",
     navKey: "chats",
@@ -411,6 +431,8 @@ const FRONTDESK_STOPS: TourStop[] = [
     core: true,
     handsOn: {
       tutorial: "add-patient",
+      roles: ["reception", "owner"],
+      gaveUp: { en: "No problem — it's waiting for you on Getting started whenever you want it.", ar: "ولا يهمك — هتلاقيه مستنيك في صفحة البداية وقت ما تحب." },
       say: {
         en: "Now you. Add a patient yourself — use your own name and your own phone, so later you'll see the WhatsApp messages land on your phone. I'll ring each step; you do the clicking.",
         ar: "دلوقتي إنت. ضيف مريض بنفسك — حط اسمك ورقمك إنت، عشان بعدين تشوف رسايل الواتساب بتوصل على موبايلك. أنا هنوّر كل خطوة، وإنت اللي تضغط.",
@@ -450,7 +472,7 @@ const FRONTDESK_STOPS: TourStop[] = [
         kind: "type",
         anchor: "new-patient-phone",
         text: "{{phone}}",
-        say: { en: "Then the phone. For a real patient, WhatsApp confirmations and reminders go here — this one is a made-up number that reaches nobody.", ar: "وبعدين التليفون. للمريض الحقيقي، تأكيدات الواتساب والتذكيرات بتروح هنا — ده رقم وهمي مش بيوصل لحد." },
+        say: { en: "Then the phone. Once your WhatsApp is connected, confirmations and reminders go to this number — this one is a made-up number that reaches nobody.", ar: "وبعدين التليفون. أول ما الواتساب بتاعك يتوصّل، التأكيدات والتذكيرات بتروح على الرقم ده — وده رقم متخيّل مبيوصلش لحد." },
       },
       {
         kind: "click",
@@ -496,8 +518,11 @@ const FRONTDESK_STOPS: TourStop[] = [
   {
     id: "patient-payment",
     core: true,
+    coreRoles: ["reception", "owner"],
     handsOn: {
       tutorial: "record-payment",
+      roles: ["reception", "owner"],
+      gaveUp: { en: "That one's on Getting started too, whenever you want it.", ar: "ده كمان في صفحة البداية، وقت ما تحب." },
       say: {
         en: "Your turn: take a payment on the patient you added. Any amount — it's your file, and you can delete it after. I'll ring the steps.",
         ar: "دورك: استلم دفعة على المريض اللي ضفته. أي مبلغ — ده ملفك، وتقدر تحذفه بعدين. هنوّرلك الخطوات.",
@@ -1371,6 +1396,9 @@ export function tourStopById(id: string): TourStop | undefined {
 }
 
 /** Who is being shown around, and what they are allowed to see. */
+/** Which day this person actually works: it decides what their core tour contains. */
+export type TourRole = "reception" | "dentist" | "owner";
+
 export interface TourViewer {
   isAdmin: boolean;
   /** Nav keys actually rendered for this person (permissions, plan and connected features applied). */
@@ -1418,8 +1446,17 @@ export const ON_DEMAND_CHAPTERS: TourChapterId[] = ["setup", "frontdesk", "opera
  * The core tour, from a person's full stop list: the stops marked `core`, plus the setup stops
  * for whatever the clinic still lacks (`setupNeeded` holds their settings ids).
  */
-export function coreStopsFor(stops: readonly TourStop[], setupNeeded: readonly string[]): TourStop[] {
-  return stops.filter((s) => s.core === true || (s.core === "setup" && !!s.settingsId && setupNeeded.includes(s.settingsId)));
+export function coreStopsFor(
+  stops: readonly TourStop[],
+  setupNeeded: readonly string[],
+  role: TourRole = "reception",
+): TourStop[] {
+  return stops
+    .filter((s) => {
+      if (s.coreRoles && !s.coreRoles.includes(role)) return false;
+      return s.core === true || (s.core === "setup" && !!s.settingsId && setupNeeded.includes(s.settingsId));
+    })
+    .map((s) => (s.handsOn?.roles && !s.handsOn.roles.includes(role) ? { ...s, handsOn: undefined } : s));
 }
 
 /** A chapter on its own, as a run. */
