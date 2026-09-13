@@ -86,8 +86,9 @@ export function ClinicProvider({ children }: { children: React.ReactNode }) {
   // mounted below run their effects. Browser only: on the server this module-level pointer is
   // shared by every request being rendered at once, and one clinic's id must never leak into
   // another's render. The effect below is what sets it there (it does not run on the server).
+  const resolvedClinicId = resolveClinicId(user, clinicId);
   if (typeof window !== "undefined" && !authLoading) {
-    setGlobalClinicId(resolveClinicId(user, clinicId));
+    setGlobalClinicId(resolvedClinicId);
   }
 
   useEffect(() => {
@@ -201,19 +202,21 @@ export function ClinicProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <ClinicContext.Provider value={{ clinicId, clinic, role, isAdmin, isOwner, isReadOnly, readOnlyReason, setClinicId }}>
-      {/* We don't block render entirely here so that onboarding/login can still render, 
-          but you might want to show a spinner if loading && user exists */}
-      {loading && user && pathname !== '/onboarding' && pathname !== '/superadmin' && (user.isSuperAdmin || userClinicsLength(user) > 0) ? (
+      {/* Signed in but not yet standing in a clinic: hold the page. Two cases. The clinic is
+          known and its document is still on its way (`loading`); or there is no clinic to
+          stand in — a superadmin in a fresh tab, a new account with no clinic yet — and the
+          effect above is redirecting to /superadmin or /onboarding. Those two routes render
+          without a clinic on purpose and are let through. Everything else is a dashboard page
+          that builds Firestore paths on mount, and letting it mount for even one frame before
+          the redirect lands throws "No clinic selected globally". The old gate dropped on
+          `loading` alone, which the redirect branches cleared first. */}
+      {user && pathname !== '/onboarding' && pathname !== '/superadmin' && (loading || !resolvedClinicId) ? (
         <div className="flex h-screen w-screen items-center justify-center">Loading Clinic...</div>
       ) : (
         children
       )}
     </ClinicContext.Provider>
   );
-}
-
-function userClinicsLength(user: any) {
-  return Object.keys(user.clinicRoles || {}).length;
 }
 
 export const useClinic = () => {
