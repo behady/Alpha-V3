@@ -118,13 +118,16 @@ assert.equal(tourStopById("finale")?.chapter, "wrapup");
 {
   // The whole tour, including every nested branch of a demo.
   const lines: string[] = [];
-  const walk = (actions: readonly any[] | undefined) => {
-    for (const a of actions ?? []) {
+  // A demo action is a union whose branches carry different fields; reading it as a bag of
+  // unknowns is what lets one walker cover all of them, nested branches included.
+  const walk = (actions: readonly unknown[] | undefined) => {
+    for (const action of actions ?? []) {
+      const a = action as Record<string, unknown>;
       for (const key of ["say", "text"] as const) {
-        const v = (a as any)[key];
+        const v = a[key] as { en?: unknown } | undefined;
         if (v && typeof v === "object" && typeof v.en === "string") lines.push(v.en);
       }
-      if ((a as any).then) walk((a as any).then);
+      if (Array.isArray(a.then)) walk(a.then as unknown[]);
     }
   };
   for (const stop of TOUR_STOPS) {
