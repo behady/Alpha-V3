@@ -1509,14 +1509,19 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
 
       {tab === "messages" && (
       /*
-       * Capped at a reading width. This is a list of sentences, and at the full width of a desktop
-       * the switch ended up a metre from the label it belonged to — you read a row on the left,
-       * then hunted across empty space to find out whether it was on.
+       * No width cap here. There was one — `max-w-3xl`, meant to stop the switch drifting a metre
+       * from its label — and it wrapped the whole tab rather than the list it was written for, so
+       * the delivery cards, the lead auto-reply and the STOP line were all squeezed into 768px and
+       * pinned to the left of a 1250px panel. The measure for this area is set once by the shell
+       * in settings/layout.tsx; a panel that sets its own makes the content jump sideways between
+       * tabs. The eye-travel problem is solved where it actually lives instead: the rows below sit
+       * two to a line, so each one is about half the panel wide and the switch stays beside its
+       * label.
        */
-      <div className="flex max-w-3xl flex-col gap-8">
+      <div className="flex flex-col gap-8">
         {/* The master switch, told apart from the six it governs rather than sitting in the same
             grey card as them: it is the reason none of the others are sending. */}
-        <label className="flex cursor-pointer items-start gap-3.5 rounded-2xl border border-line bg-surface px-4 py-3.5 shadow-sm">
+        <label className="flex max-w-2xl cursor-pointer items-start gap-3.5 rounded-2xl border border-line bg-surface px-4 py-3.5 shadow-sm">
           <AutomationSwitch
             checked={state.isPatientAutomationEnabled}
             onChange={(checked) => {
@@ -1541,89 +1546,107 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
           }`}
           aria-disabled={!state.isPatientAutomationEnabled}
         >
-        {(
-          [
-            { key: "useReminderButtons", group: txt.groupAppointments, label: txt.reminderButtonsToggle, hint: txt.reminderButtonsHint, needs: txt.reminderButtonsNeeds },
-            { key: "isCheckinEnabled", group: txt.groupAfterVisit, label: txt.checkinToggle, hint: txt.checkinHint, needs: txt.checkinNeeds, note: txt.checkinNote },
-            { key: "isReviewRequestEnabled", group: txt.groupAfterVisit, label: txt.reviewToggle, hint: txt.reviewHint, needs: txt.reviewNeeds },
-            { key: "isNoShowRecoveryEnabled", group: txt.groupWinBack, label: txt.noshowToggle, hint: txt.noshowHint, needs: txt.noshowNeeds },
-            { key: "isLeadFollowupEnabled", group: txt.groupWinBack, label: txt.leadFollowupToggle, hint: txt.leadFollowupHint, needs: txt.leadFollowupNeeds },
-            { key: "isRecallEnabled", group: txt.groupWinBack, label: txt.recallToggle, hint: txt.recallHint },
-          ] as const
-        ).map((row, i, rows) => {
-          const on = Boolean(state[row.key]);
-          const newGroup = i === 0 || rows[i - 1].group !== row.group;
-          return (
-          <div key={row.key} className={newGroup ? "" : "-mt-3"}>
-            {newGroup && (
-              <p className="mb-2 text-[11px] font-black uppercase tracking-widest text-ink-faint">{row.group}</p>
-            )}
-            {/* The switch leads the row. It used to sit at the far end of a full-width card with
-                the label at the other, which reads as two unrelated things. */}
-            {/* Colour lives in the switch and nowhere else. Tinting the whole card when a row is
-                on looked obvious in one row and, with six of them, turned the page into the wall
-                of shouting it already was. An "on" row is simply a card that has come forward;
-                an "off" one recedes into the page. */}
-            <div className={`rounded-2xl border px-4 py-3.5 transition-colors ${on ? "border-line-strong bg-surface shadow-sm" : "border-line bg-surface-subtle"}`}>
-              <label className="flex cursor-pointer items-start gap-3.5">
-                <AutomationSwitch
-                  checked={on}
-                  onChange={(checked) => {
-                    setState((s) => {
-                      const next = { ...s, [row.key]: checked };
-                      void persist(next, "silent");
-                      return next;
-                    });
-                  }}
-                />
-                <span className="min-w-0">
-                  <span className="block text-sm font-bold text-ink">{row.label}</span>
-                  <span className="mt-0.5 block text-xs font-medium leading-relaxed text-ink-muted">{row.hint}</span>
-                </span>
-              </label>
-
-              {/* What it needs before it can work, kept off the description. Mixed into the same
-                  sentence, a template id nobody can act on read as part of the explanation and
-                  made every row twice as long as the thing it was explaining. */}
-              {"needs" in row && row.needs && (
-                <p className="mt-2 flex items-start gap-1.5 ps-[3.25rem] text-[11px] font-bold text-ink-faint">
-                  <Lock size={11} className="mt-0.5 shrink-0" />
-                  <span>
-                    {txt.needsLabel}: <span className="font-mono font-semibold">{row.needs}</span>
-                  </span>
-                </p>
-              )}
-
-              {/* A second-order effect, shown only once the thing is actually on. */}
-              {"note" in row && row.note && on && (
-                <p className="mt-1.5 ps-[3.25rem] text-[11px] font-medium text-ink-muted">{row.note}</p>
-              )}
-
-              {row.key === "isRecallEnabled" && state.isRecallEnabled && (
-                <label className="mt-2.5 flex items-center gap-2.5 ps-[3.25rem] text-xs font-bold text-ink-body">
-                  {txt.recallMonths}
-                  <select
-                    className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm font-bold"
-                    value={state.recallAfterMonths ?? 6}
-                    onChange={(e) => {
-                      const months = Number(e.target.value) || 6;
-                      setState((s) => {
-                        const next = { ...s, recallAfterMonths: months };
-                        void persist(next, "silent");
-                        return next;
-                      });
-                    }}
+        {[
+          {
+            group: txt.groupAppointments,
+            rows: [
+              { key: "useReminderButtons", label: txt.reminderButtonsToggle, hint: txt.reminderButtonsHint, needs: txt.reminderButtonsNeeds },
+            ],
+          },
+          {
+            group: txt.groupAfterVisit,
+            rows: [
+              { key: "isCheckinEnabled", label: txt.checkinToggle, hint: txt.checkinHint, needs: txt.checkinNeeds, note: txt.checkinNote },
+              { key: "isReviewRequestEnabled", label: txt.reviewToggle, hint: txt.reviewHint, needs: txt.reviewNeeds },
+            ],
+          },
+          {
+            group: txt.groupWinBack,
+            rows: [
+              { key: "isNoShowRecoveryEnabled", label: txt.noshowToggle, hint: txt.noshowHint, needs: txt.noshowNeeds },
+              { key: "isLeadFollowupEnabled", label: txt.leadFollowupToggle, hint: txt.leadFollowupHint, needs: txt.leadFollowupNeeds },
+              { key: "isRecallEnabled", label: txt.recallToggle, hint: txt.recallHint },
+            ],
+          },
+        ].map((section) => (
+          <div key={section.group}>
+            <p className="mb-2.5 text-[11px] font-black uppercase tracking-widest text-ink-faint">{section.group}</p>
+            {/* Two to a line from `lg` up. Six of these stacked in one column on a wide screen is
+                a page you scroll past rather than read, with the whole right half empty. */}
+            <div className="grid items-start gap-3 lg:grid-cols-2">
+              {section.rows.map((row) => {
+                const key = row.key as keyof typeof state;
+                const on = Boolean(state[key]);
+                return (
+                  <div
+                    key={row.key}
+                    className={`rounded-2xl border px-4 py-3.5 transition-colors ${
+                      on ? "border-line-strong bg-surface shadow-sm" : "border-line bg-surface-subtle"
+                    }`}
                   >
-                    {[3, 4, 6, 9, 12].map((m) => (
-                      <option key={m} value={m}>{m}</option>
-                    ))}
-                  </select>
-                </label>
-              )}
+                    {/* The switch leads the row. It used to sit at the far end of a full-width
+                        card with the label at the other, which reads as two unrelated things. */}
+                    <label className="flex cursor-pointer items-start gap-3.5">
+                      <AutomationSwitch
+                        checked={on}
+                        onChange={(checked) => {
+                          setState((s) => {
+                            const next = { ...s, [row.key]: checked };
+                            void persist(next, "silent");
+                            return next;
+                          });
+                        }}
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-bold text-ink">{row.label}</span>
+                        <span className="mt-0.5 block text-xs font-medium leading-relaxed text-ink-muted">{row.hint}</span>
+                      </span>
+                    </label>
+
+                    {/* What it needs before it can work, kept off the description. Mixed into the
+                        same sentence, a template id nobody can act on from this screen read as
+                        part of the explanation and made every row twice as long. */}
+                    {row.needs && (
+                      <p className="mt-2 flex items-start gap-1.5 ps-[3.25rem] text-[11px] font-bold text-ink-faint">
+                        <Lock size={11} className="mt-0.5 shrink-0" />
+                        <span>
+                          {txt.needsLabel}: <span className="font-mono font-semibold">{row.needs}</span>
+                        </span>
+                      </p>
+                    )}
+
+                    {/* A second-order effect, shown only once the thing is actually on. */}
+                    {"note" in row && row.note && on && (
+                      <p className="mt-1.5 ps-[3.25rem] text-[11px] font-medium text-ink-muted">{row.note}</p>
+                    )}
+
+                    {row.key === "isRecallEnabled" && state.isRecallEnabled && (
+                      <label className="mt-2.5 flex items-center gap-2.5 ps-[3.25rem] text-xs font-bold text-ink-body">
+                        {txt.recallMonths}
+                        <select
+                          className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm font-bold"
+                          value={state.recallAfterMonths ?? 6}
+                          onChange={(e) => {
+                            const months = Number(e.target.value) || 6;
+                            setState((s) => {
+                              const next = { ...s, recallAfterMonths: months };
+                              void persist(next, "silent");
+                              return next;
+                            });
+                          }}
+                        >
+                          {[3, 4, 6, 9, 12].map((m) => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
-          );
-        })}
+        ))}
         </div>
 
         {/* A refused save, said once and left on screen. A toast for this was
