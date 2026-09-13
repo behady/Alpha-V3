@@ -55,6 +55,8 @@ export interface TourProgress {
   demoMode: "unasked" | "on" | "off";
   /** Which run the resume point belongs to: "core", or a chapter id. */
   run: string | null;
+  /** Release walks this person has been offered — offered once, then never again. */
+  whatsNewSeen: string[];
 }
 
 interface StoredState {
@@ -69,7 +71,7 @@ interface StoredState {
   tour: TourProgress;
 }
 
-const EMPTY_TOUR: TourProgress = { introSeen: false, lastStopId: null, visited: [], completedAt: 0, demoMode: "unasked", run: null };
+const EMPTY_TOUR: TourProgress = { introSeen: false, lastStopId: null, visited: [], completedAt: 0, demoMode: "unasked", run: null, whatsNewSeen: [] };
 
 const EMPTY: StoredState = {
   lessons: [],
@@ -88,6 +90,7 @@ function readTour(raw: unknown): TourProgress {
     completedAt: typeof t.completedAt === "number" ? t.completedAt : 0,
     demoMode: t.demoMode === "on" || t.demoMode === "off" ? t.demoMode : "unasked",
     run: typeof t.run === "string" && t.run ? t.run : null,
+    whatsNewSeen: Array.isArray(t.whatsNewSeen) ? t.whatsNewSeen.filter((x): x is string => typeof x === "string") : [],
   };
 }
 
@@ -197,6 +200,13 @@ export function markTourComplete(scope: WelcomeScope): void {
 /** A chapter run reached its end: the resume point clears, the ticks stay. */
 export function clearTourRun(scope: WelcomeScope): void {
   writeTour(scope, { lastStopId: null, run: null });
+}
+
+/** This release has been offered. It does not come back, whether or not they watched it. */
+export function markWhatsNewSeen(scope: WelcomeScope, releaseId: string): void {
+  const seen = readWelcomeState(scope).tour.whatsNewSeen;
+  if (seen.includes(releaseId)) return;
+  writeTour(scope, { whatsNewSeen: [...seen, releaseId] });
 }
 
 /** Start over: forgets the resume point but keeps the intro as seen. */

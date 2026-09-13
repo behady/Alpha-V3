@@ -34,12 +34,14 @@ import {
   type TourStop,
 } from "@/lib/grandTour";
 import { logTourEvent, type TourEventName } from "@/lib/tourEvents";
+import { LATEST_RELEASE, releaseById } from "@/lib/whatsNew";
 import { demoValues as makeDemoValues, type DemoValues, type TourCheck, type TourOffer } from "@/lib/tourDemo";
 import { PHONE_NAV_QUERY } from "@/lib/tourDom";
 import {
   WELCOME_CHANGED_EVENT,
   markTourComplete,
   markTourIntroSeen,
+  markWhatsNewSeen,
   readTourProgress,
   resetTourPosition,
   saveTourDemoMode,
@@ -88,6 +90,8 @@ interface TourContextType {
   coreStops: TourStop[];
   /** Whose day this is: it decides which stops the core tour contains. */
   role: TourRole;
+  /** The release walk this person has not been offered yet, if there is one. */
+  unseenRelease: typeof LATEST_RELEASE;
   /** Record what happened, for the drop-off table. Fire and forget. */
   track: (event: TourEventName, detail?: Record<string, unknown>) => void;
   runId: TourRun | null;
@@ -188,6 +192,11 @@ export function TourProvider({
   const stopsForRun = useCallback(
     (run: TourRun | null, needed: readonly string[]): TourStop[] => {
       if (run === "core") return coreStopsFor(allStops, needed, role);
+      if (run?.startsWith("whatsnew:")) {
+        const release = releaseById(run.slice("whatsnew:".length));
+        const ids = new Set(release?.stops.map((s) => s.id) ?? []);
+        return allStops.filter((s) => ids.has(s.id));
+      }
       if (run) return chapterStopsFor(allStops, run);
       return allStops;
     },
@@ -478,6 +487,8 @@ export function TourProvider({
     [scope, localTick],
   );
   const firstTour = progress.completedAt === 0;
+  /** A release walk this person has never been offered. Offered once, from Getting started. */
+  const unseenRelease = LATEST_RELEASE && !progress.whatsNewSeen.includes(LATEST_RELEASE.id) ? LATEST_RELEASE : undefined;
 
   /** What the clinic still lacks for a normal day: hours, a price list, a dentist. Admins only. */
   const findSetupNeeded = useCallback(async (): Promise<string[]> => {
@@ -522,6 +533,8 @@ export function TourProvider({
       }
       if (opts?.fromStart) resetTourPosition(scope);
       markTourIntroSeen(scope);
+      // Offered once: watching it and skipping it both count, or it would nag.
+      if (run.startsWith("whatsnew:")) markWhatsNewSeen(scope, run.slice("whatsnew:".length));
       direction.current = 1;
       setRunId(run);
       setStopIndex(index);
@@ -584,13 +597,13 @@ export function TourProvider({
 
   const value = useMemo<TourContextType>(
     () => ({
-      active, paused, stops, allStops, coreStops, role, track, runId, chapters, stop, stopIndex, stopRoute, progress, firstTour,
+      active, paused, stops, allStops, coreStops, role, track, unseenRelease, runId, chapters, stop, stopIndex, stopRoute, progress, firstTour,
       start, next, back, goTo, leave, declineIntro,
       demoMode, setDemoMode, demoValues, liveDemoValues, firstPatientName,
       resolveDemoPatient, markDemoPatient, check, applyOffer, setHomeView, restoreHomeView,
     }),
     [
-      active, paused, stops, allStops, coreStops, role, track, runId, chapters, stop, stopIndex, stopRoute, progress, firstTour,
+      active, paused, stops, allStops, coreStops, role, track, unseenRelease, runId, chapters, stop, stopIndex, stopRoute, progress, firstTour,
       start, next, back, goTo, leave, declineIntro,
       demoMode, setDemoMode, demoValues, liveDemoValues, firstPatientName,
       resolveDemoPatient, markDemoPatient, check, applyOffer, setHomeView, restoreHomeView,

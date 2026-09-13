@@ -14,6 +14,8 @@ import { DIAGNOSIS_OPTIONS } from "@/lib/diagnosisCatalog";
 import { hasFeature, getAiCreditLimit } from "@/lib/subscriptions";
 import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
+import { SCREEN_MAP } from "@/lib/screenMap";
+import { buildTourInstruction } from "@/lib/tourPrompt";
 import { logAiAction } from "@/lib/serverLogger";
 import { logAiCreditUsage, createUsageMeter } from "@/lib/aiCreditLog";
 import { resolveNavigablePath, NAVIGABLE_PATHS_HINT } from "@/lib/aiNavigation";
@@ -130,62 +132,10 @@ function tourAnswerKey(language: string, stopId: string, question: string): stri
   return createHash("sha1").update(`${TOUR_MODEL}|${language}|${stopId}|${normalized}`).digest("hex");
 }
 
-/** Help articles are handed to the model whole, but never past this many characters each. */
-const TOUR_ARTICLE_CHARS = 3500;
 
 /** Questions a person may ask on their first tour without spending the clinic's credits. */
 const FREE_TOUR_QUESTIONS = 30;
 
-/**
- * Sara's persona and briefing for one stop of the tour.
- *
- * The model answers FROM the stop's notes and the help articles listed on it, and is told so:
- * the tour's whole value is that it never describes a screen that is not there. Stops she can
- * move to are the ones the client said it can open.
- */
-function buildTourInstruction(
-  stop: TourStop | undefined,
-  offered: readonly TourStop[],
-  language: "ar" | "en" | null,
-): string {
-  const articles = (stop?.helpSlugs ?? [])
-    .map((slug) => getHelpArticle(slug, "en"))
-    .filter((a): a is NonNullable<typeof a> => !!a)
-    .map((a) => `--- Help article: ${a.title} ---\n${a.body.slice(0, TOUR_ARTICLE_CHARS)}`)
-    .join("\n\n");
-
-  const stopBlock = stop
-    ? `THE USER IS LOOKING AT THIS STOP RIGHT NOW:
-      Stop id: ${stop.id}
-      Title: ${stop.title.en} / ${stop.title.ar}
-      Screen: ${stop.route}
-      What you already said here: "${stop.say.en}"
-      NOTES ABOUT THIS SCREEN (answer from these):
-      ${stop.knowledge}
-      ${articles ? `\nLONGER GUIDES FOR THIS STOP:\n${articles}` : ""}`
-    : "The tour has no current stop; answer generally from WHERE THINGS LIVE ON SCREEN.";
-
-  const languageLine =
-    language === "ar"
-      ? "Reply in Egyptian Arabic (عامية مصرية), warm and simple, even if the question is in English words."
-      : language === "en"
-        ? "Reply in English, warm and simple, even if the question mixes in Arabic."
-        : "Reply in the user's language.";
-
-  return `
-
-      CURRENT MODE: GUIDED TOUR. You are ${TOUR_GUIDE.en} (${TOUR_GUIDE.ar}), the guide walking this person through the whole system, screen by screen. The page they are looking at is spotlit and locked; they are asking you a question from your panel.
-      ${stopBlock}
-
-      HOW TO ANSWER ON THE TOUR:
-      - Two to four short sentences. Plain words, no lists, no headings, no markdown. ${languageLine}
-      - Answer from the notes above and the help articles. If the notes do not cover it, say you are not sure and offer the Help Center or a lesson — never invent a button, a menu or a setting.
-      - If the question is about a DIFFERENT part of the app that has a tour stop, call 'open_tour_stop' with that stop and say in one line that you are taking them there. The stop's own narration will explain it.
-      - If they ask HOW to do something or to be SHOWN it ("show me how to add a service"): FIRST ask, in one short line, whether they want you to show them for real ("Want me to do it in front of you?"). Only when they say yes, call 'open_tour_stop' with a stop marked "(demonstrates)" — Sara does it herself on screen with her cursor. If no demonstrating stop fits, offer 'start_tutorial' (a ring they click through) the same way. Never just describe steps when either exists.
-      - You cannot look up the clinic's own records during the tour (no data tools here). For "how many patients do I have" or any question about their data, say that the orb in the corner answers that after the tour. Never write, delete, send a message or navigate during the tour.
-      - Every answer costs the clinic one credit; do not pad.
-      - Stops you can move to: ${offered.map((s) => `${s.id} (${s.title.en}${s.demo ? ", demonstrates" : ""})`).join(", ")}.`;
-}
 
 const RECEPTION_TOOL_NAMES = new Set([
   "db_read",
@@ -311,13 +261,8 @@ HOW THE MONEY SCREENS CALCULATE (explain with these; never re-derive totals your
 - Clinic cash (Finance dashboard) counts differently: per row it takes the first non-zero money field ('paid' for payments/income, 'cost' for expenses) — and a 'paid' amount sitting on a procedure row DOES count as cash there while the patient screen ignores it. This mismatch is the most common reason the finance page and a patient's file seem to disagree.
 - When any number is questioned, call 'audit_patient_records' (one patient) or 'run_clinic_report' (clinic-wide). Never sum rows yourself.
 
-WHERE THINGS LIVE ON SCREEN (the app's real layout — when telling a user where to click, use ONLY these; NEVER invent a menu path):
-- Navigation is ONE BLACK BAR across the top (there is no sidebar): a direct Dashboard link, then three dropdown menus — Front Desk (WhatsApp /chats, Patients, Appointments, Leads), Operations (Finance, Inventory, Supply Store /store, Lab Tracking /lab, Time Clock /attendance), Insights & Growth (Intelligence /ai, Marketing, Reports) — plus the Settings gear, the notification bell and the account menu (Getting started /welcome, Help Center, language, Tour with Sara, Logout). On phones: a bottom bar (Dashboard, WhatsApp, Intelligence, Appointments, Finance, Patients) and a Menu button opening every page.
-- Pages: Dashboard (/ — reception's desk view; a user whose role is Dentist sees their own home there instead: the next patient in their chair, their day, lab cases back for them, patients they left mid-treatment with no next visit, and their own money — what their patients paid today, their share if the clinic allows it, and what their patients still owe; an admin chooses between the desk, the owner's view (cash today, who's on the floor, the waiting room, then Money / Team / The floor / Growth tabs with every dentist by name) and — if also a dentist — the chair, under Settings → Interface → "Your home screen"), Patients (/patients — directory, each patient's file has tabs: Clinical, Treatment Plan, Finance, Overview, Timeline, X-rays, Prescriptions, Notes), Appointments (/appointments — the calendar; booking, statuses, the reception assistant panel), Finance (/finance — clinic-wide cash in/out, manual income & expense entries; /finance/recovery for unpaid balances), Inventory (/inventory), Reports (/reports — five reports with PDF/Excel export), Leads (/leads), Marketing (/marketing), Ortho (/ortho), Attendance (/attendance — the STAFF time clock), Help Center (/help), Intelligence (/ai — under Insights & Growth; ONE page with tabs: The Brief (today's/this week's numbers), Messages (the WhatsApp send queue — messages the system wrote, waiting for a person to press send), No-Shows (patients who did not turn up, and past appointments still needing an answer), The Bot (patient questions the WhatsApp assistant handed to a person). Deep links: /ai?tab=brief, /ai?tab=messages, /ai?tab=noshows, /ai?tab=bot. The old separate pages /ai/briefing, /messages and /ai/attendance now redirect into it), other AI pages (/ai/revenue, /ai/operations, /ai/reactivation), WhatsApp (/chats — the clinic's WhatsApp inbox; the assistant answers patients there), Lab Tracking (/lab — lab cases, due dates, remakes, what each lab is owed), Supply Store (/store — a partner supplier's shop, cash on delivery; only when connected), Getting started (/welcome — the setup checklist and Sara's tour of the whole system).
-- Settings (/settings) is grouped into Personal, Clinic, People, and System & Automation, with a search box; each section has its own address (e.g. /settings/prices). The sections and their English/Arabic labels:
-  Profile|الملف الشخصي · Attendance|الحضور · Schedule|الجدول (clinic hours, slot length, days off) · Branches & Rooms|الفروع والغرف · Recall|المتابعة · Prescriptions|الوصفات · Prices|الأسعار · Users|المستخدمين · Join Requests · Dentists|الأطباء (whether each dentist sees their share of what their patients paid, on their home screen) · Recently Deleted · Activity Logs · AI Credits · Alerts · WhatsApp · SMS · Theme · Interface · Online Booking · Patient Sources · Visit Reasons.
-- THE PRICE LIST lives at Settings → Prices (الأسعار). That tab holds: the service catalog (every treatment with its price — add/edit/delete), price lists per branch with a blanket discount, discount reasons, and the discount ceiling for non-Admins. There is NO "Settings → Services" menu — the tab is named Prices.
-- If a place is not in this list, say you are not sure where it is — offer navigate_to or a lesson instead of guessing.`;
+${SCREEN_MAP}
+`;
 
 /**
  * The reception persona.
@@ -1148,7 +1093,7 @@ export async function POST(req: Request) {
         : replyLanguage === "en"
           ? "LANGUAGE RULE (applies to every reply): answer in English, even when the question mixes in Arabic."
           : "LANGUAGE RULE (applies to every reply): answer in the language the question was asked in.";
-    const screenMap = ALPHA_DATABASE_SCHEMAS.slice(Math.max(0, ALPHA_DATABASE_SCHEMAS.indexOf("WHERE THINGS LIVE ON SCREEN")));
+    const screenMap = SCREEN_MAP;
     const tourSystemInstruction = clientIsTour
       ? `${tourLanguageRule}
       You are Sara (in Arabic: سارة), the guide built into the Alpha Dental System. Never introduce yourself as an AI or a model. Current local time: ${currentDate}.

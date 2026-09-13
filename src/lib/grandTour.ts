@@ -26,6 +26,7 @@
 
 import { SETTINGS_SECTIONS, type SettingsSection } from "@/config/settingsRegistry";
 import type { DemoAction, TourCheck } from "@/lib/tourDemo";
+import { WHATS_NEW_STOPS } from "@/lib/whatsNew";
 import { TOUR_WALKS } from "@/lib/grandTourWalks";
 import {
   APPOINTMENT_DEMO_STOP,
@@ -56,7 +57,9 @@ export type TourChapterId =
   | "operations"
   | "insights"
   | "settings"
-  | "wrapup";
+  | "wrapup"
+  /** One release, walked. Never part of the core tour, never listed with the chapters. */
+  | "whatsnew";
 
 export interface TourChapter {
   id: TourChapterId;
@@ -202,6 +205,12 @@ export const TOUR_CHAPTERS: TourChapter[] = [
     id: "wrapup",
     title: { en: "Help, and me", ar: "المساعدة، وأنا" },
     blurb: { en: "Where to get help, and how to keep asking.", ar: "تلاقي المساعدة فين، وتسألني إزاي." },
+  },
+  // Last, because its stops are last: a release walk is opened by name, never walked into.
+  {
+    id: "whatsnew",
+    title: { en: "What's new", ar: "الجديد" },
+    blurb: { en: "What changed since you were last here.", ar: "اللي اتغيّر من آخر مرة." },
   },
 ];
 
@@ -1379,6 +1388,8 @@ export const TOUR_STOPS: TourStop[] = [
   ...INSIGHTS_STOPS,
   ...OTHER_SETTINGS,
   ...wrapup,
+  // Last: a release walk is opened by name, never reached by pressing Next off the finale.
+  ...WHATS_NEW_STOPS,
 ]
   // The walkthroughs live in their own file (they are long); a stop keeps its own `walk` if it
   // has one, otherwise takes the one written for its id. Same for the demos on existing stops.

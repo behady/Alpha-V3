@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, ArrowRight, Check, Clock, Play, RotateCcw } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Clock, Play, RotateCcw, Sparkles } from "lucide-react";
 import AvatarFace from "@/components/appointments/AvatarFace";
 import { useState } from "react";
 import { useTour } from "@/context/TourContext";
@@ -63,7 +63,7 @@ export default function TourHero() {
   const guide = isAr ? TOUR_GUIDE.ar : TOUR_GUIDE.en;
   const ArrowIcon = isRTL ? ArrowLeft : ArrowRight;
 
-  const { allStops, coreStops, progress } = tour;
+  const { allStops, coreStops, progress, unseenRelease } = tour;
   if (allStops.length === 0) return null;
 
   const visited = new Set(progress.visited);
@@ -80,6 +80,29 @@ export default function TourHero() {
   };
 
   return (
+    <div className="flex flex-col gap-3">
+    {/* What changed since they were last here — offered once, then never again. */}
+    {unseenRelease && (
+      <button
+        type="button"
+        onClick={() => tour.start({ run: `whatsnew:${unseenRelease.id}`, fromStart: true })}
+        className="group flex items-center gap-3 rounded-2xl border border-[#FACC15]/30 bg-[#FACC15]/10 px-5 py-3.5 text-start transition-colors hover:bg-[#FACC15]/15"
+      >
+        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#FACC15] text-ink">
+          <Sparkles size={16} strokeWidth={2.5} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13px] font-black text-ink">{isAr ? unseenRelease.title.ar : unseenRelease.title.en}</span>
+          <span className="block truncate text-[12px] font-medium text-ink-body">
+            {isAr ? unseenRelease.blurb.ar : unseenRelease.blurb.en}
+          </span>
+        </span>
+        <span className="shrink-0 text-[11.5px] font-black text-ink">
+          {isAr ? "وريني" : "Show me"}
+        </span>
+        <ArrowIcon size={14} className="shrink-0 text-ink/50 transition-colors group-hover:text-ink" />
+      </button>
+    )}
     <section
       className="relative overflow-hidden rounded-[2rem] bg-ink-slab px-6 py-6 text-white shadow-xl shadow-ink-slab/20 sm:px-8 sm:py-7"
       data-tour="tour-hero"
@@ -196,5 +219,6 @@ export default function TourHero() {
         </div>
       </div>
     </section>
+    </div>
   );
 }

@@ -212,8 +212,26 @@ const idx = (id: string) => TOUR_STOPS.findIndex((s) => s.id === id);
 assert.ok(idx("settings-services") < idx("appointment-demo"), "prices are set up before the booking demo");
 assert.ok(idx("settings-users") < idx("appointment-demo"), "the team is set up before the booking demo");
 assert.ok(idx("appointment-demo") < idx("day-flow") && idx("day-flow") < idx("demo-cleanup-day"), "book, run the day, then clean up");
-assert.equal(TOUR_STOPS[TOUR_STOPS.length - 1].id, "finale", "the tour ends on questions");
-assert.equal(TOUR_STOPS[TOUR_STOPS.length - 2].id, "settings-ai_credits", "credits are explained right before the end");
+// The release walks sit past the end of the tour proper: they are opened by name, never reached
+// by pressing Next. So the LAST TOURED stop is the finale, and everything after it is a release.
+{
+  const toured = TOUR_STOPS.filter((s) => s.chapter !== "whatsnew");
+  assert.equal(toured[toured.length - 1].id, "finale", "the tour ends on questions");
+  const firstRelease = TOUR_STOPS.findIndex((s) => s.chapter === "whatsnew");
+  if (firstRelease >= 0) {
+    assert.ok(
+      TOUR_STOPS.slice(firstRelease).every((s) => s.chapter === "whatsnew"),
+      "release stops must all sit after the finale, or Next would walk into one",
+    );
+    for (const s of TOUR_STOPS.slice(firstRelease)) {
+      assert.ok(!s.core, `${s.id}: a release stop is never part of a core tour`);
+    }
+  }
+}
+{
+  const toured = TOUR_STOPS.filter((s) => s.chapter !== "whatsnew");
+  assert.equal(toured[toured.length - 2].id, "settings-ai_credits", "credits are explained right before the end");
+}
 
 // --- 5c. walkthroughs ------------------------------------------------------------------------
 // Every page stop walks its elements; every point has a target and a line in both languages.
