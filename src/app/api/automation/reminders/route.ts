@@ -419,9 +419,9 @@ async function runUpcoming24hForClinic(clinicId: string) {
  * Cron has no user to resolve a clinic from, so it sweeps every active clinic. A staff member
  * triggering the same sweep manually only ever acts on their own clinic.
  */
-async function runUpcoming24h(authz: { cron: boolean; uid?: string }) {
+async function runUpcoming24h(authz: { cron: boolean; uid?: string }, requestedClinicId?: string) {
   if (!authz.cron) {
-    const clinicId = await resolveUserClinicId(authz.uid as string);
+    const clinicId = await resolveUserClinicId(authz.uid as string, requestedClinicId);
     const run = await runUpcoming24hForClinic(clinicId);
     return { clinics: [{ clinicId, ok: true, result: run }], ...run };
   }
@@ -465,7 +465,8 @@ export async function GET(request: Request) {
   if (!authz.ok) return authz.response;
 
   try {
-    const { results, tomorrowStr, timeZone, clinics } = await runUpcoming24h(authz);
+    const requestedClinicId = new URL(request.url).searchParams.get("clinicId") || undefined;
+    const { results, tomorrowStr, timeZone, clinics } = await runUpcoming24h(authz, requestedClinicId);
     const sent = results.filter((r) => r.status === "sent").length;
     // Reported apart from `sent`: these are with the clinic's phone, not with the patient yet.
     const queued = results.filter((r) => r.status === "queued").length;
@@ -485,7 +486,13 @@ export async function POST(request: Request) {
       mode?: ReminderMode;
       appointmentId?: string;
       force?: boolean;
+      clinicId?: string;
     };
+
+    // The clinic on screen. Without it the server falls back to the user's default clinic, which
+    // for a multi-clinic account can be a tenant they left years ago — the send then "succeeds"
+    // against the wrong clinic, or 404s on an appointment that plainly exists.
+    const requestedClinicId = typeof body.clinicId === "string" ? body.clinicId : undefined;
 
     const mode: ReminderMode = body.mode || "upcoming24h";
     if (mode === "single") {
@@ -497,7 +504,7 @@ export async function POST(request: Request) {
       if (authz.cron) {
         return NextResponse.json({ ok: false, error: "single mode requires a signed-in staff user" }, { status: 400 });
       }
-      const clinicId = await resolveUserClinicId(authz.uid as string);
+      const clinicId = await resolveUserClinicId(authz.uid as string, requestedClinicId);
       const appointment = await getAppointmentById(clinicId, body.appointmentId);
       if (!appointment) {
         return NextResponse.json({ ok: false, error: "Appointment not found" }, { status: 404 });
@@ -506,7 +513,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, mode, result });
     }
 
-    const { results, tomorrowStr, timeZone, clinics } = await runUpcoming24h(authz);
+    const { results, tomorrowStr, timeZone, clinics } = await runUpcoming24h(authz, requestedClinicId);
     const sent = results.filter((r) => r.status === "sent").length;
     const queued = results.filter((r) => r.status === "queued").length;
     return NextResponse.json({ ok: true, mode, sent, queued, tomorrowStr, timeZone, clinics, results });
