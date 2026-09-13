@@ -297,7 +297,15 @@ private fun ModeButton(
     }
 }
 
-/** A swatch: the theme's two colours, its name, and a tick when it is the one in use. */
+/**
+ * A swatch: the theme's colour, its name, and a tick when it is the one in use.
+ *
+ * One disc rather than the two it used to show. A theme used to carry an ink as
+ * well, and that ink repainted the app's whole frame — which is why six themes
+ * produced six differently-coloured products. The frame is fixed now, so what
+ * this card is choosing really is a single colour, and showing two would be
+ * promising something the picker no longer does.
+ */
 @Composable
 private fun ThemeCard(
     theme: AlphaThemeOption,
@@ -307,7 +315,6 @@ private fun ThemeCard(
     onClick: () -> Unit,
 ) {
     val dark = Alpha.dark
-    val ink = if (dark) theme.inkDark else theme.ink
     val accent = if (dark) theme.accentDark else theme.accent
 
     Surface(
@@ -322,14 +329,7 @@ private fun ThemeCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(ink)
-                )
-                Spacer(Modifier.width((-9).dp))
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
+                        .size(32.dp)
                         .clip(CircleShape)
                         .background(accent)
                 )
@@ -342,7 +342,14 @@ private fun ThemeCard(
                             .background(accent),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Filled.Check, null, tint = Color.White, modifier = Modifier.size(13.dp))
+                        // Asked for, not hard-coded white: a white tick on Alpha's
+                        // own yellow is invisible, which is what used to ship.
+                        Icon(
+                            Icons.Filled.Check,
+                            null,
+                            tint = readableOn(accent),
+                            modifier = Modifier.size(13.dp),
+                        )
                     }
                 }
             }
