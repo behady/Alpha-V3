@@ -239,7 +239,7 @@ fun SettingsScreen(
         Column(
             Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
+                
                 .navigationBarsPadding()
                 .imePadding()
         ) {
@@ -304,20 +304,20 @@ fun SettingsScreen(
     }
 }
 
+/**
+ * Every settings page's header, which is now the slab.
+ *
+ * Settings is the deepest part of the app — a hub, then a section, then often a
+ * form — and it was the part that most looked like a different product, because
+ * its header was a small heading on the ground while every tab opened on black.
+ */
 @Composable
 private fun SettingsHeader(title: String, hint: String, onBack: () -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(start = 4.dp, end = 16.dp, top = 6.dp, bottom = 4.dp),
-    ) {
-        IconButton(onClick = onBack) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Alpha.Slate700)
-        }
-        Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, color = Alpha.Slate900, fontFamily = AlphaType.Display)
-            if (hint.isNotBlank()) Text(hint, fontSize = 12.sp, color = Alpha.Slate500, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
-    }
+    DetailSlab(
+        title = title,
+        subtitle = hint.takeIf { it.isNotBlank() },
+        onBack = onBack,
+    )
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -397,7 +397,7 @@ internal fun SettingsField(
         maxLines = lines,
         keyboardOptions = if (numeric) KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions.Default,
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = Alpha.Green,
+            focusedBorderColor = Alpha.Slate900,
             unfocusedBorderColor = Alpha.Slate200,
             cursorColor = Alpha.Ink,
             focusedContainerColor = Alpha.Card,
@@ -421,7 +421,7 @@ internal fun SettingsSwitch(title: String, hint: String, checked: Boolean, onCha
         Switch(
             checked = checked,
             onCheckedChange = onChange,
-            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Alpha.Green),
+            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Alpha.Slate900),
         )
     }
 }

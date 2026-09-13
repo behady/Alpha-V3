@@ -89,6 +89,7 @@ import com.alphadental.clinic.data.Appointment
 import com.alphadental.clinic.ui.Alpha
 import com.alphadental.clinic.ui.AlphaCard
 import com.alphadental.clinic.ui.AlphaTheme
+import com.alphadental.clinic.ui.Slab
 import com.alphadental.clinic.ui.AppearanceScreen
 import com.alphadental.clinic.ui.AddLeadSheet
 import com.alphadental.clinic.ui.AddNoteSheet
@@ -1325,171 +1326,179 @@ private fun MoreScreen(
     // dozen now — clock, assistant, reports, ortho, WhatsApp, stock, hours, language, sign out —
     // so everything past the fold, sign out included, was simply unreachable. Bottom padding
     // clears the navigation bar, which would otherwise sit on top of the last row.
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        if (update != null) {
-            UpdateBanner(
-                versionName = update.versionName,
-                sizeBytes = update.sizeBytes,
-                notes = update.notes,
-                arabic = arabic,
-                onDownload = onDownloadUpdate,
-                onDismiss = onDismissUpdate,
-            )
-        }
+    Column(Modifier.fillMaxSize()) {
 
-        AlphaCard(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(18.dp)) {
-                Text(name, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = Alpha.Slate900)
-                Text(email, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Alpha.Slate500)
-                Spacer(Modifier.height(6.dp))
-                Text(role, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = Alpha.Green)
+        // Who is signed in, on the slab. It was the first white card in a stack
+        // of white cards, which made the one thing this screen is certain about
+        // — whose account this is — look like another setting.
+        Slab(
+            title = name,
+            eyebrow = role,
+            subtitle = email,
+        )
 
-                // A role the app does not recognise passes every gate as "no", so the
-                // dashboard quietly arrives with its tools stripped out and nothing
-                // says why. Naming it here is the difference between a five-minute
-                // fix in Settings and an afternoon of guessing.
-                if (role !in RECOGNISED_ROLES) {
-                    Spacer(Modifier.height(10.dp))
-                    Surface(shape = Alpha.CardShape, color = Alpha.WarnBg, modifier = Modifier.fillMaxWidth()) {
-                        Text(
-                            if (arabic) {
-                                "الدور \"$role\" غير معروف للتطبيق، لذلك أغلبية الأدوات مخفية. " +
-                                    "صحّح الدور من إعدادات المستخدمين على الموقع."
-                            } else {
-                                "The app does not recognise the role \"$role\", so most tools are " +
-                                    "hidden. Fix this account's role in Settings → Users on the website."
-                            },
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Alpha.WarnText,
-                            modifier = Modifier.padding(12.dp),
-                        )
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (update != null) {
+                UpdateBanner(
+                    versionName = update.versionName,
+                    sizeBytes = update.sizeBytes,
+                    notes = update.notes,
+                    arabic = arabic,
+                    onDownload = onDownloadUpdate,
+                    onDismiss = onDismissUpdate,
+                )
+            }
+
+            AlphaCard(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(18.dp)) {
+
+                    // A role the app does not recognise passes every gate as "no", so the
+                    // dashboard quietly arrives with its tools stripped out and nothing
+                    // says why. Naming it here is the difference between a five-minute
+                    // fix in Settings and an afternoon of guessing.
+                    if (role !in RECOGNISED_ROLES) {
+                        Spacer(Modifier.height(10.dp))
+                        Surface(shape = Alpha.CardShape, color = Alpha.WarnBg, modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                if (arabic) {
+                                    "الدور \"$role\" غير معروف للتطبيق، لذلك أغلبية الأدوات مخفية. " +
+                                        "صحّح الدور من إعدادات المستخدمين على الموقع."
+                                } else {
+                                    "The app does not recognise the role \"$role\", so most tools are " +
+                                        "hidden. Fix this account's role in Settings → Users on the website."
+                                },
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Alpha.WarnText,
+                                modifier = Modifier.padding(12.dp),
+                            )
+                        }
                     }
                 }
             }
-        }
 
-        SectionHeading(if (arabic) "الحضور" else "ATTENDANCE")
+            SectionHeading(if (arabic) "الحضور" else "ATTENDANCE")
 
-        ClockCard(
-            onShift = onShift,
-            since = shiftSince,
-            busy = clocking,
-            error = clockError,
-            arabic = arabic,
-            onPunch = punchWithPermission,
-            onDismissError = onDismissClockError,
-        )
+            ClockCard(
+                onShift = onShift,
+                since = shiftSince,
+                busy = clocking,
+                error = clockError,
+                arabic = arabic,
+                onPunch = punchWithPermission,
+                onDismissError = onDismissClockError,
+            )
 
-        SectionHeading(if (arabic) "الرسائل النصية" else "TEXT MESSAGES")
+            SectionHeading(if (arabic) "الرسائل النصية" else "TEXT MESSAGES")
 
-        SmsSenderCard(
-            enabled = isSender,
-            arabic = arabic,
-            lastResult = SmsPrefs.lastResult(context),
-            lastRunAt = SmsPrefs.lastRunAt(context),
-            sentTotal = SmsPrefs.sentTotal(context),
-            onToggle = { wanted ->
-                if (!wanted) {
-                    SmsPrefs.setSender(context, false)
-                    isSender = false
-                    SmsWorker.cancel(context)
-                } else if (SmsWorker.hasSmsPermission(context)) {
-                    SmsPrefs.setSender(context, true)
-                    isSender = true
-                    SmsWorker.schedule(context)
-                    SmsWorker.runNow(context)
-                } else {
-                    smsPermission.launch(Manifest.permission.SEND_SMS)
+            SmsSenderCard(
+                enabled = isSender,
+                arabic = arabic,
+                lastResult = SmsPrefs.lastResult(context),
+                lastRunAt = SmsPrefs.lastRunAt(context),
+                sentTotal = SmsPrefs.sentTotal(context),
+                onToggle = { wanted ->
+                    if (!wanted) {
+                        SmsPrefs.setSender(context, false)
+                        isSender = false
+                        SmsWorker.cancel(context)
+                    } else if (SmsWorker.hasSmsPermission(context)) {
+                        SmsPrefs.setSender(context, true)
+                        isSender = true
+                        SmsWorker.schedule(context)
+                        SmsWorker.runNow(context)
+                    } else {
+                        smsPermission.launch(Manifest.permission.SEND_SMS)
+                    }
+                },
+            )
+
+            SectionHeading(if (arabic) "الأدوات" else "TOOLS")
+
+            // A grid, not a list: every tool visible at once with no scrolling hunt.
+            // The WhatsApp tile is always present, even at zero — a tile that only
+            // appears when there is work is a tile nobody learns is there.
+            val tools = listOfNotNull(
+                onOpenLeads?.let { ToolSpec(Icons.Filled.PersonSearch, if (arabic) "عملاء" else "Leads", onClick = it) },
+                ToolSpec(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", onClick = onOpenAssistant),
+                ToolSpec(Icons.Filled.Timeline, if (arabic) "التقويم" else "Ortho", onClick = onOpenOrtho),
+                onOpenChats?.let {
+                    ToolSpec(Icons.AutoMirrored.Filled.Chat, if (arabic) "المحادثات" else "Chats", badge = chatsWaiting, onClick = it)
+                },
+                onOpenLab?.let { ToolSpec(Icons.Filled.Science, if (arabic) "المعمل" else "Lab", onClick = it) },
+                onOpenAttendance?.let { ToolSpec(Icons.Filled.Groups, if (arabic) "الحضور" else "Attendance", onClick = it) },
+                onOpenRecovery?.let { ToolSpec(Icons.Filled.RequestQuote, if (arabic) "التحصيل" else "Collect", onClick = it) },
+                onOpenIntelligence?.let { ToolSpec(Icons.Filled.Insights, if (arabic) "اكتشاف" else "Find money", onClick = it) },
+                onOpenMarketing?.let { ToolSpec(Icons.Filled.Campaign, if (arabic) "المحتوى" else "Content", onClick = it) },
+                onOpenSettings?.let { ToolSpec(Icons.Filled.Settings, if (arabic) "الإعدادات" else "Settings", onClick = it) },
+                ToolSpec(
+                    Icons.Filled.Send, if (arabic) "قائمة الإرسال" else "Send list",
+                    badge = whatsappWaiting, onClick = onOpenWhatsappQueue,
+                ),
+                onOpenReports?.let { ToolSpec(Icons.Filled.BarChart, if (arabic) "التقارير" else "Reports", onClick = it) },
+                ToolSpec(Icons.Filled.Inventory2, if (arabic) "المخزون" else "Stock", onClick = onOpenInventory),
+                onOpenHours?.let { ToolSpec(Icons.Filled.Schedule, if (arabic) "الساعات" else "Hours", onClick = it) },
+                ToolSpec(Icons.Filled.OpenInNew, if (arabic) "الموقع" else "Website") {
+                    runCatching {
+                        CustomTabsIntent.Builder()
+                            .setShowTitle(true)
+                            .build()
+                            .launchUrl(context, BuildConfig.WEB_URL.toUri())
+                    }
+                },
+            )
+            tools.chunked(4).forEach { rowTools ->
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    rowTools.forEach { tool ->
+                        ToolTile(
+                            icon = tool.icon,
+                            label = tool.label,
+                            badge = tool.badge,
+                            modifier = Modifier.weight(1f),
+                            onClick = tool.onClick,
+                        )
+                    }
+                    repeat(4 - rowTools.size) { Spacer(Modifier.weight(1f)) }
                 }
-            },
-        )
-
-        SectionHeading(if (arabic) "الأدوات" else "TOOLS")
-
-        // A grid, not a list: every tool visible at once with no scrolling hunt.
-        // The WhatsApp tile is always present, even at zero — a tile that only
-        // appears when there is work is a tile nobody learns is there.
-        val tools = listOfNotNull(
-            onOpenLeads?.let { ToolSpec(Icons.Filled.PersonSearch, if (arabic) "عملاء" else "Leads", onClick = it) },
-            ToolSpec(Icons.Filled.Mic, if (arabic) "المساعد" else "Assistant", onClick = onOpenAssistant),
-            ToolSpec(Icons.Filled.Timeline, if (arabic) "التقويم" else "Ortho", onClick = onOpenOrtho),
-            onOpenChats?.let {
-                ToolSpec(Icons.AutoMirrored.Filled.Chat, if (arabic) "المحادثات" else "Chats", badge = chatsWaiting, onClick = it)
-            },
-            onOpenLab?.let { ToolSpec(Icons.Filled.Science, if (arabic) "المعمل" else "Lab", onClick = it) },
-            onOpenAttendance?.let { ToolSpec(Icons.Filled.Groups, if (arabic) "الحضور" else "Attendance", onClick = it) },
-            onOpenRecovery?.let { ToolSpec(Icons.Filled.RequestQuote, if (arabic) "التحصيل" else "Collect", onClick = it) },
-            onOpenIntelligence?.let { ToolSpec(Icons.Filled.Insights, if (arabic) "اكتشاف" else "Find money", onClick = it) },
-            onOpenMarketing?.let { ToolSpec(Icons.Filled.Campaign, if (arabic) "المحتوى" else "Content", onClick = it) },
-            onOpenSettings?.let { ToolSpec(Icons.Filled.Settings, if (arabic) "الإعدادات" else "Settings", onClick = it) },
-            ToolSpec(
-                Icons.Filled.Send, if (arabic) "قائمة الإرسال" else "Send list",
-                badge = whatsappWaiting, onClick = onOpenWhatsappQueue,
-            ),
-            onOpenReports?.let { ToolSpec(Icons.Filled.BarChart, if (arabic) "التقارير" else "Reports", onClick = it) },
-            ToolSpec(Icons.Filled.Inventory2, if (arabic) "المخزون" else "Stock", onClick = onOpenInventory),
-            onOpenHours?.let { ToolSpec(Icons.Filled.Schedule, if (arabic) "الساعات" else "Hours", onClick = it) },
-            ToolSpec(Icons.Filled.OpenInNew, if (arabic) "الموقع" else "Website") {
-                runCatching {
-                    CustomTabsIntent.Builder()
-                        .setShowTitle(true)
-                        .build()
-                        .launchUrl(context, BuildConfig.WEB_URL.toUri())
-                }
-            },
-        )
-        tools.chunked(4).forEach { rowTools ->
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                rowTools.forEach { tool ->
-                    ToolTile(
-                        icon = tool.icon,
-                        label = tool.label,
-                        badge = tool.badge,
-                        modifier = Modifier.weight(1f),
-                        onClick = tool.onClick,
-                    )
-                }
-                repeat(4 - rowTools.size) { Spacer(Modifier.weight(1f)) }
             }
-        }
 
-        SectionHeading(if (arabic) "الإعدادات" else "SETTINGS")
+            SectionHeading(if (arabic) "الإعدادات" else "SETTINGS")
 
-        MoreRow(
-            icon = Icons.Filled.Palette,
-            label = if (arabic) "المظهر" else "Appearance",
-            caption = if (arabic) "الألوان والوضع الليلي" else "Colours and night mode",
-            onClick = onOpenAppearance,
-        )
+            MoreRow(
+                icon = Icons.Filled.Palette,
+                label = if (arabic) "المظهر" else "Appearance",
+                caption = if (arabic) "الألوان والوضع الليلي" else "Colours and night mode",
+                onClick = onOpenAppearance,
+            )
 
-        MoreRow(
-            icon = Icons.Filled.Psychology,
-            label = if (arabic) "ما تعلّمه المساعد" else "What Alpha has learned",
-            caption = if (arabic) "راجع القواعد التي حفظها" else "Review the rules it has saved",
-            onClick = onOpenAiMemory,
-        )
+            MoreRow(
+                icon = Icons.Filled.Psychology,
+                label = if (arabic) "ما تعلّمه المساعد" else "What Alpha has learned",
+                caption = if (arabic) "راجع القواعد التي حفظها" else "Review the rules it has saved",
+                onClick = onOpenAiMemory,
+            )
 
-        MoreRow(
-            icon = Icons.Filled.Language,
-            label = if (arabic) "English" else "العربية",
-            caption = if (arabic) "تغيير لغة التطبيق" else "Change the app's language",
-            onClick = onToggleLanguage,
-        )
+            MoreRow(
+                icon = Icons.Filled.Language,
+                label = if (arabic) "English" else "العربية",
+                caption = if (arabic) "تغيير لغة التطبيق" else "Change the app's language",
+                onClick = onToggleLanguage,
+            )
 
-        MoreRow(
-            icon = Icons.Filled.Logout,
-            label = if (arabic) "تسجيل الخروج" else "Sign out",
-            caption = email,
-            tint = Alpha.Danger,
-            onClick = onSignOut,
-        )
+            MoreRow(
+                icon = Icons.Filled.Logout,
+                label = if (arabic) "تسجيل الخروج" else "Sign out",
+                caption = email,
+                tint = Alpha.Danger,
+                onClick = onSignOut,
+            )
+            }
     }
 }
 

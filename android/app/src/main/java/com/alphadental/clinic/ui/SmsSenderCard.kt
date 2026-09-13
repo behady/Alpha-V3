@@ -89,7 +89,7 @@ fun SmsSenderCard(
                     onCheckedChange = onToggle,
                     colors = SwitchDefaults.colors(
                         checkedThumbColor = Color.White,
-                        checkedTrackColor = Alpha.Green,
+                        checkedTrackColor = Alpha.Slate900,
                     ),
                 )
             }

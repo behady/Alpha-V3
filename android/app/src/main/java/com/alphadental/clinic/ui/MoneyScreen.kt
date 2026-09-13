@@ -255,7 +255,7 @@ fun MoneyScreen(
                     leadingIcon = { Icon(Icons.Filled.Search, null, tint = Alpha.Slate400, modifier = Modifier.size(18.dp)) },
                     shape = Alpha.PillShape,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Alpha.Green,
+                        focusedBorderColor = Alpha.Slate900,
                         unfocusedBorderColor = if (Alpha.dark) Alpha.Slate100 else Color.Transparent,
                         focusedContainerColor = Alpha.Card,
                         unfocusedContainerColor = Alpha.Card,

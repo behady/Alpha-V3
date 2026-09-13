@@ -137,22 +137,33 @@ fun LoginScreen(
         ) {
             Spacer(Modifier.height(48.dp))
 
-            // The website's black rounded badge with the sparkle mark.
+            // The brand mark, as it appears on the slab of every screen behind
+            // this one: the accent as a fill, with readable ink on top. It was a
+            // black badge with a white sparkle, which is the one thing on this
+            // screen that could have carried the brand and did not.
             Surface(
                 shape = Alpha.CardShape,
-                color = Alpha.Ink,
+                color = Alpha.Accent,
                 modifier = Modifier.size(60.dp),
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text("✦", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(
+                        "A",
+                        color = Alpha.OnAccent,
+                        fontFamily = AlphaType.Display,
+                        fontSize = 30.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
                 }
             }
 
             Spacer(Modifier.height(20.dp))
             Text(
                 "Welcome to Alpha",
+                fontFamily = AlphaType.Display,
                 fontSize = 26.sp,
-                fontWeight = FontWeight.ExtraBold,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-0.5).sp,
                 color = Alpha.Slate900,
                 textAlign = TextAlign.Center,
             )
@@ -305,11 +316,11 @@ fun LoginScreen(
 
 @Composable
 private fun alphaFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedBorderColor = Alpha.Green,
+    focusedBorderColor = Alpha.Slate900,
     unfocusedBorderColor = Alpha.Slate200,
     focusedContainerColor = Alpha.Card,
     unfocusedContainerColor = Alpha.Slate50,
-    focusedLabelColor = Alpha.Green,
+    focusedLabelColor = Alpha.Slate900,
     unfocusedLabelColor = Alpha.Slate400,
     cursorColor = Alpha.Ink,
 )

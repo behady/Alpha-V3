@@ -347,7 +347,7 @@ fun AssistantScreen(
                     },
                     shape = Alpha.PillShape,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Alpha.Green,
+                        focusedBorderColor = Alpha.Slate900,
                         unfocusedBorderColor = if (Alpha.dark) Alpha.Slate100 else Color.Transparent,
                         focusedContainerColor = Alpha.Card,
                         unfocusedContainerColor = Alpha.Card,

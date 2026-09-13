@@ -789,13 +789,13 @@ private fun StatusChip(status: String, arabic: Boolean) {
 
 @Composable
 private fun orthoFieldColors(pill: Boolean = false) = OutlinedTextFieldDefaults.colors(
-    focusedBorderColor = Alpha.Green,
+    focusedBorderColor = Alpha.Slate900,
     unfocusedBorderColor = if (pill) {
         if (Alpha.dark) Alpha.Slate100 else Color.Transparent
     } else Alpha.Slate200,
     focusedContainerColor = Alpha.Card,
     unfocusedContainerColor = if (pill) Alpha.Card else Alpha.Slate50,
-    focusedLabelColor = Alpha.Green,
+    focusedLabelColor = Alpha.Slate900,
     unfocusedLabelColor = Alpha.Slate400,
     cursorColor = Alpha.Ink,
 )

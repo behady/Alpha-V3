@@ -117,7 +117,7 @@ fun RecoveryScreen(
                 placeholder = { Text(if (arabic) "ابحث بالاسم أو الرقم" else "Search by name or number", color = Alpha.Slate400) },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = Alpha.Slate400) },
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Alpha.Green,
+                    focusedBorderColor = Alpha.Slate900,
                     unfocusedBorderColor = Alpha.Slate200,
                     cursorColor = Alpha.Ink,
                     focusedContainerColor = Alpha.Card,

@@ -349,11 +349,11 @@ fun noteStatusLabel(status: String, arabic: Boolean): String = when (status) {
 
 @Composable
 private fun noteFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedBorderColor = Alpha.Green,
+    focusedBorderColor = Alpha.Slate900,
     unfocusedBorderColor = Alpha.Slate200,
     focusedContainerColor = Alpha.Card,
     unfocusedContainerColor = Alpha.Slate50,
-    focusedLabelColor = Alpha.Green,
+    focusedLabelColor = Alpha.Slate900,
     unfocusedLabelColor = Alpha.Slate400,
     cursorColor = Alpha.Ink,
 )

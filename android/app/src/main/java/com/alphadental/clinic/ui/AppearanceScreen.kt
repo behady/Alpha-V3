@@ -59,33 +59,14 @@ fun AppearanceScreen(arabic: Boolean, onClose: () -> Unit) {
         Column(
             Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(start = 4.dp, end = 16.dp, top = 6.dp),
-            ) {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Alpha.Slate700)
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        if (arabic) "المظهر" else "Appearance",
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Alpha.Slate900,
-                        fontFamily = AlphaType.Display,
-                    )
-                    Text(
-                        if (arabic) "الألوان والوضع الليلي" else "Colours and night mode",
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Alpha.Slate400,
-                    )
-                }
-            }
+            DetailSlab(
+                title = if (arabic) "المظهر" else "Appearance",
+                subtitle = if (arabic) "الألوان والوضع الليلي" else "Colours and night mode",
+                onBack = onClose,
+            )
 
             Column(Modifier.padding(horizontal = 16.dp)) {
 
@@ -120,7 +101,7 @@ fun AppearanceScreen(arabic: Boolean, onClose: () -> Unit) {
                                 onCheckedChange = { AppearanceStore.setFollowPhone(it) },
                                 colors = SwitchDefaults.colors(
                                     checkedThumbColor = Color.White,
-                                    checkedTrackColor = Alpha.Green,
+                                    checkedTrackColor = Alpha.Slate900,
                                     uncheckedTrackColor = Alpha.Slate200,
                                 ),
                             )

@@ -729,7 +729,7 @@ private fun ArrivedSheet(case: LabCase, arabic: Boolean, onOpenPatient: ((String
 
 @Composable
 private fun labFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedBorderColor = Alpha.Green,
+    focusedBorderColor = Alpha.Slate900,
     unfocusedBorderColor = Alpha.Slate200,
     cursorColor = Alpha.Ink,
     focusedContainerColor = Alpha.Card,

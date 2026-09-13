@@ -221,35 +221,16 @@ private fun ChatList(
         Column(
             Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(start = 4.dp, end = 16.dp, top = 6.dp),
-            ) {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Alpha.Slate700)
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        if (arabic) "المحادثات" else "Chats",
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Alpha.Slate900,
-                        fontFamily = AlphaType.Display,
-                    )
-                    Text(
-                        when {
+            DetailSlab(
+                title = if (arabic) "المحادثات" else "Chats",
+                subtitle = when {
                             needsCount > 0 -> if (arabic) "$needsCount في انتظار رد من شخص" else "$needsCount waiting for a person"
                             else -> if (arabic) "واتساب العيادة — البوت والفريق" else "The clinic's WhatsApp — bot and team"
                         },
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = if (needsCount > 0) Alpha.DangerText else Alpha.Slate500,
-                    )
-                }
-            }
+                onBack = onClose,
+            )
 
             OutlinedTextField(
                 value = search,
@@ -525,26 +506,30 @@ private fun ChatThread(
         Column(
             Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .navigationBarsPadding()
                 .imePadding()
         ) {
-            // Header: who, and who has them.
+            // Header: who, and who has them. On the slab, like every other screen
+            // — and this one is a conversation, where a dark bar over a light
+            // thread is the shape every messaging app already taught people.
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Alpha.Slab)
+                    .padding(start = 10.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
             ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Alpha.Slate700)
-                }
+                SlabIcon(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack)
+                Spacer(Modifier.width(10.dp))
                 Avatar(chat, size = 38)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
                         chat.title,
+                        fontFamily = AlphaType.Display,
                         fontSize = 16.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Alpha.Slate900,
+                        fontWeight = FontWeight.Bold,
+                        color = Alpha.SlabInk,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -562,9 +547,9 @@ private fun ChatThread(
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = when {
-                            chat.needsHuman -> Alpha.DangerText
-                            botQuiet || chat.optedOut -> Alpha.WarnText
-                            else -> Alpha.Green
+                            chat.needsHuman -> Color(0xFFFB7185)
+                            botQuiet || chat.optedOut -> Color(0xFFFBBF24)
+                            else -> Color(0xFF34D399)
                         },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -572,12 +557,12 @@ private fun ChatThread(
                 }
                 if (chat.phone.isNotBlank()) {
                     IconButton(onClick = { context.dial(chat.phone) }) {
-                        Icon(Icons.Filled.Phone, contentDescription = "Call", tint = Alpha.Slate700)
+                        Icon(Icons.Filled.Phone, contentDescription = "Call", tint = Alpha.SlabInk2)
                     }
                 }
                 Box {
                     IconButton(onClick = { menuOpen = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = Alpha.Slate700)
+                        Icon(Icons.Filled.MoreVert, contentDescription = "More", tint = Alpha.SlabInk2)
                     }
                     DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                         DropdownMenuItem(
@@ -1300,7 +1285,7 @@ private fun mediaLabel(media: String, arabic: Boolean): String = when (media) {
 
 @Composable
 private fun chatFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedBorderColor = Alpha.Green,
+    focusedBorderColor = Alpha.Slate900,
     unfocusedBorderColor = Alpha.Slate200,
     cursorColor = Alpha.Ink,
     focusedContainerColor = Alpha.Card,

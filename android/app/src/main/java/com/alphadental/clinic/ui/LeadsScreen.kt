@@ -126,7 +126,7 @@ fun LeadsScreen(
                         )
                     },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Alpha.Green,
+                        focusedBorderColor = Alpha.Slate900,
                         unfocusedBorderColor = Alpha.Slate200,
                         cursorColor = Alpha.Ink,
                     ),
@@ -792,11 +792,11 @@ fun AddLeadSheet(
 
 @Composable
 private fun leadFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedBorderColor = Alpha.Green,
+    focusedBorderColor = Alpha.Slate900,
     unfocusedBorderColor = Alpha.Slate200,
     focusedContainerColor = Alpha.Card,
     unfocusedContainerColor = Alpha.Slate50,
-    focusedLabelColor = Alpha.Green,
+    focusedLabelColor = Alpha.Slate900,
     unfocusedLabelColor = Alpha.Slate400,
     cursorColor = Alpha.Ink,
 )

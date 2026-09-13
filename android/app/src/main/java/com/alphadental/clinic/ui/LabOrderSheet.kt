@@ -516,7 +516,7 @@ private fun LabField(
         maxLines = lines,
         keyboardOptions = if (numeric) KeyboardOptions(keyboardType = KeyboardType.Number) else KeyboardOptions.Default,
         colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = Alpha.Green,
+            focusedBorderColor = Alpha.Slate900,
             unfocusedBorderColor = Alpha.Slate200,
             cursorColor = Alpha.Ink,
             focusedContainerColor = Alpha.Card,
@@ -568,7 +568,7 @@ private fun SwitchRow(title: String, hint: String, checked: Boolean, onChange: (
         Switch(
             checked = checked,
             onCheckedChange = onChange,
-            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Alpha.Green),
+            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Alpha.Slate900),
         )
     }
 }
@@ -699,7 +699,7 @@ private fun PatientPicker(
                 placeholder = { Text(if (arabic) "الاسم أو رقم الهاتف" else "Name or phone number", color = Alpha.Slate400) },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = Alpha.Slate400) },
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Alpha.Green,
+                    focusedBorderColor = Alpha.Slate900,
                     unfocusedBorderColor = Alpha.Slate200,
                     cursorColor = Alpha.Ink,
                     focusedContainerColor = Alpha.Ground,

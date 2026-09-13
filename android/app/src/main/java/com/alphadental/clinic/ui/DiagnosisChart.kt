@@ -355,11 +355,11 @@ private fun ToothDiagnosisSheet(
                 label = { Text(if (arabic) "ملاحظات على هذا السن" else "Notes on this tooth") },
                 shape = Alpha.CardShape,
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Alpha.Green,
+                    focusedBorderColor = Alpha.Slate900,
                     unfocusedBorderColor = Alpha.Slate200,
                     focusedContainerColor = Alpha.Card,
                     unfocusedContainerColor = Alpha.Slate50,
-                    focusedLabelColor = Alpha.Green,
+                    focusedLabelColor = Alpha.Slate900,
                     unfocusedLabelColor = Alpha.Slate400,
                     cursorColor = Alpha.Ink,
                 ),

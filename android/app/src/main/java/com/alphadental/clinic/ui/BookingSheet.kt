@@ -770,11 +770,11 @@ private fun Warning(text: String) {
 
 @Composable
 private fun bookingFieldColors() = OutlinedTextFieldDefaults.colors(
-    focusedBorderColor = Alpha.Green,
+    focusedBorderColor = Alpha.Slate900,
     unfocusedBorderColor = Alpha.Slate200,
     focusedContainerColor = Alpha.Card,
     unfocusedContainerColor = Alpha.Slate50,
-    focusedLabelColor = Alpha.Green,
+    focusedLabelColor = Alpha.Slate900,
     unfocusedLabelColor = Alpha.Slate400,
     cursorColor = Alpha.Ink,
 )
