@@ -595,7 +595,17 @@ export async function POST(req: Request) {
           }
           chargeCredits = async () => {
             if (freeTourTurn) {
-              // Logged for the record (feature "tour-free"), never metered against the clinic.
+              // Never metered against the clinic, but logged (feature "tour-free", 0 credits) so
+              // what the tour costs US stays visible — these turns were invisible before.
+              await logAiCreditUsage({
+                clinicId,
+                feature: "tour-free",
+                credits: 0,
+                userId,
+                userName: typeof userName === "string" ? userName : "",
+                detail: "",
+                usage: meter.snapshot(),
+              });
               return;
             }
             await usageRef.set(
