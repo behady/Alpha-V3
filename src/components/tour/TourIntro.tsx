@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, ArrowRight, Clock } from "lucide-react";
+import { ArrowLeft, ArrowRight, Clock, X } from "lucide-react";
 import AvatarFace from "@/components/appointments/AvatarFace";
 import { useTour } from "@/context/TourContext";
 import { useTutorial } from "@/context/TutorialContext";
@@ -35,6 +35,18 @@ export default function TourIntro() {
   const pathname = usePathname();
   const isAr = language === "ar";
 
+  /**
+   * Escape declines it, on either step, and is remembered. An invitation that cannot be turned
+   * down is a nag, and this one covers the whole screen.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") tour.declineIntro();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tour]);
+
   // A beat after the page paints, so the app is seen first and this arrives over it.
   const [ready, setReady] = useState(false);
   useEffect(() => {
@@ -42,8 +54,21 @@ export default function TourIntro() {
     return () => clearTimeout(t);
   }, []);
 
-  /** First the language, then the welcome. */
-  const [languageChosen, setLanguageChosen] = useState(false);
+  /**
+   * First the language, then the welcome — unless the language is already settled.
+   *
+   * `alpha-lang` is written only when somebody actually uses the language switch, so its presence
+   * means this person has chosen before. Asking them again is how a returning user ends up
+   * staring at a question they answered weeks ago with no way past it: the language step had no
+   * "not now", so anyone who reloaded instead of answering got it back on the next page, for ever.
+   */
+  const [languageChosen, setLanguageChosen] = useState(() => {
+    try {
+      return !!window.localStorage.getItem("alpha-lang");
+    } catch {
+      return false; // private mode: ask, it is only one question
+    }
+  });
 
   if (!ready || !clinicId || !user) return null;
   if (tour.progress.introSeen || tour.active) return null;
@@ -70,6 +95,17 @@ export default function TourIntro() {
       data-tour-chrome
     >
       <div className="pointer-events-none absolute -top-40 start-1/2 h-[32rem] w-[32rem] -translate-x-1/2 rounded-full bg-[#FACC15]/10 blur-3xl" aria-hidden />
+
+      {/* The way out, on both steps. Declining is remembered; it does not come back on its own. */}
+      <button
+        type="button"
+        onClick={tour.declineIntro}
+        aria-label={isAr ? "مش دلوقتي" : "Not now"}
+        title={isAr ? "مش دلوقتي" : "Not now"}
+        className="absolute top-5 end-5 grid size-10 place-items-center rounded-full border border-white/15 text-white/50 transition-colors hover:bg-white/10 hover:text-white"
+      >
+        <X size={18} />
+      </button>
 
       <div className="relative flex w-full max-w-lg flex-col items-center text-center animate-in fade-in slide-in-from-bottom-6 duration-700">
         <div className="rounded-full bg-white/5 p-2 ring-1 ring-white/10">
