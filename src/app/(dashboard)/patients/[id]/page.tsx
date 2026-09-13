@@ -39,6 +39,7 @@ import {
   splitE164ToCountryAndLocal,
 } from "@/lib/phoneNumber";
 import PageHeader from "@/components/dashboard/PageHeader";
+import { isUnlocked } from "@/lib/featureCatalog";
 
 // Helper for the CRM Timeline Icons, Colors & Human Titles
 function formatWhatsAppLogType(type: string) {
@@ -168,7 +169,9 @@ export default function PatientProfile() {
   const { showToast, confirm } = useUI();
   const { t, language, isRTL } = useLanguage();
   const { user, loading: authLoading } = useAuth();
-  const { isAdmin, clinicId } = useClinic();
+  const { isAdmin, clinicId, clinic } = useClinic();
+  // Sold as an add-on; the route refuses the send too, this only keeps a dead button off the screen.
+  const canSendPdf = isUnlocked(clinic, "clinicalPdfs");
   
   const params = useParams();
   const router = useRouter();
@@ -2010,6 +2013,7 @@ export default function PatientProfile() {
                   )}
                   {language === "ar" ? "PDF / طباعة" : "PDF / print"}
                 </button>
+                {canSendPdf && (
                 <button
                   type="button"
                   disabled={
@@ -2034,6 +2038,7 @@ export default function PatientProfile() {
                   )}
                   {language === "ar" ? "واتساب (PDF)" : "WhatsApp (PDF)"}
                 </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setSelectedPrescription(null)}

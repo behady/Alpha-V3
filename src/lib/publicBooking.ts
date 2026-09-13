@@ -23,6 +23,7 @@ import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
 import { apptBlocksDoctor } from "@/lib/appointmentConflicts";
 import { minutesToTimeKey, normalizeDateKey, parseApptTimeToMinutes } from "@/lib/appointmentTime";
 import { isFullAccessRole } from "@/lib/permissions";
+import { clinicHasFeature } from "@/lib/clinicFeatures";
 
 /** Statuses that do NOT hold a slot. A cancelled 3pm must not block 3pm forever. */
 const RELEASED_STATUSES = new Set(["Cancelled", "No Show"]);
@@ -103,6 +104,12 @@ export async function loadPublicClinicProfile(
 
   const bookingSnap = await ref.collection("settings").doc("onlineBooking").get();
   if (opts?.requireEnabled !== false && (!bookingSnap.exists || bookingSnap.data()?.enabled !== true)) {
+    throw new PublicBookingError("Online booking is not enabled for this clinic.", 404);
+  }
+  // Online booking is sold as an add-on. The clinic's own switch above can stay on after the
+  // add-on is turned off; the public page must still close, because a patient who books through
+  // a page the clinic no longer pays for is a booking the clinic is not watching for.
+  if (opts?.requireEnabled !== false && !(await clinicHasFeature(clinicId, "onlineBooking"))) {
     throw new PublicBookingError("Online booking is not enabled for this clinic.", 404);
   }
   const booking = bookingSnap.data() || {};

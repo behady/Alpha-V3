@@ -19,6 +19,7 @@ import SourceReport from "@/components/reports/SourceReport";
 import ClinicReport from "@/components/reports/ClinicReport";
 import LeadFunnelReport from "@/components/reports/LeadFunnelReport";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import FeatureGate from "@/components/FeatureGate";
 
 type ReportTab = "service" | "dentist" | "source" | "leads" | "clinic";
 
@@ -42,7 +43,7 @@ interface Snapshot {
   leads: Record<string, unknown>[];
 }
 
-export default function ReportsPage() {
+function ReportsPage() {
   const { language } = useLanguage();
   const { user } = useAuth();
   const isAr = language === "ar";
@@ -298,5 +299,14 @@ export default function ReportsPage() {
         </div>
       </div>
     </PermissionGuard>
+  );
+}
+
+/** Sold as an add-on: the page renders only once the clinic's subscription says so. */
+export default function ReportsPageGated() {
+  return (
+    <FeatureGate feature="reports">
+      <ReportsPage />
+    </FeatureGate>
   );
 }

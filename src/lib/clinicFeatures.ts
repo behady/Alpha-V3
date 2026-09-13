@@ -1,5 +1,5 @@
 import { adminDb } from "@/lib/firebaseAdmin";
-import { hasFeature, type TIER_LIMITS } from "@/lib/subscriptions";
+import { isUnlocked, type FeatureKey } from "@/lib/featureCatalog";
 import type { Clinic } from "@/types/saas";
 
 /**
@@ -9,8 +9,6 @@ import type { Clinic } from "@/types/saas";
  * routes do not. This reads it, with the same per-clinic override-then-tier logic, so a paid
  * feature cannot be reached by calling the endpoint directly.
  */
-
-type FeatureKey = keyof (typeof TIER_LIMITS)["Basic"]["features"];
 
 type CacheEntry = { clinic: Clinic | null; at: number };
 const cache = new Map<string, CacheEntry>();
@@ -44,5 +42,7 @@ async function loadClinic(clinicId: string): Promise<Clinic | null> {
  * out a paid feature whenever Firestore hiccups — is the failure nobody reports.
  */
 export async function clinicHasFeature(clinicId: string, featureKey: FeatureKey): Promise<boolean> {
-  return hasFeature(await loadClinic(clinicId), featureKey);
+  // isUnlocked, not hasFeature: an add-on that depends on another (the bot on automatic
+  // messages) is off on the server exactly when it is off in the browser.
+  return isUnlocked(await loadClinic(clinicId), featureKey);
 }

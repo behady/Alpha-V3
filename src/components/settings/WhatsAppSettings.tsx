@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MessageCircle, Save, Loader2, Send, Plug, CheckCircle2, AlertCircle } from "lucide-react";
+import { MessageCircle, Save, Loader2, Send, Plug, CheckCircle2, AlertCircle, Lock } from "lucide-react";
 import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import BotPlayground from "./BotPlayground";
@@ -13,7 +13,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
 import { currentClinicId } from "@/lib/db-utils";
-import { hasFeature } from "@/lib/subscriptions";
+import { isAnyUnlocked, isUnlocked, SUPPORT_WHATSAPP } from "@/lib/featureCatalog";
 import { logActivity } from "@/lib/logger";
 import { useDirtyFlag } from "@/context/UnsavedChangesContext";
 import type {
@@ -182,7 +182,10 @@ export default function WhatsAppSettings() {
 
   // The same check the server makes before using the gateway, so this screen cannot promise
   // something the API will then refuse.
-  const canSendAutomatically = hasFeature(clinic, "whatsappIntegration");
+  // Either WhatsApp add-on makes the connected number usable; which messages may go through it
+  // unattended is decided per purpose on the server (resolveWhatsappDeliveryMode).
+  const canSendAutomatically = isAnyUnlocked(clinic, ["whatsappIntegration", "whatsappBot"]);
+  const botInPlan = isUnlocked(clinic, "whatsappBot");
 
   const [hasLoaded, setHasLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1736,12 +1739,27 @@ export default function WhatsAppSettings() {
         <div className="space-y-3">
           <div hidden={tab !== "assistant"} className="space-y-3">
           <p className="text-[11px] font-black uppercase tracking-widest text-ink-body">{txt.botTitle}</p>
-          <label className="flex items-center justify-between gap-4 cursor-pointer">
+          {/* The receptionist is its own add-on. Without it the switch stays visible but inert,
+              and the line under it says who to write to — a switch that quietly does nothing is
+              the complaint this replaces. */}
+          {!botInPlan && (
+            <div className="flex items-start gap-2 rounded-xl border border-line bg-surface-subtle px-3 py-2.5 text-xs font-bold text-ink-body">
+              <Lock size={14} className="mt-0.5 shrink-0" />
+              <span>
+                {language === "ar"
+                  ? "موظف الاستقبال الذكي إضافة مدفوعة غير مفعّلة في اشتراكك — كلّم فريق ألفا على "
+                  : "The AI receptionist is an add-on not in your subscription — contact the Alpha team on "}
+                <a dir="ltr" className="underline" href={`https://wa.me/${SUPPORT_WHATSAPP.replace(/\D/g, "")}`} target="_blank" rel="noopener noreferrer">{SUPPORT_WHATSAPP}</a>
+              </span>
+            </div>
+          )}
+          <label className={`flex items-center justify-between gap-4 ${botInPlan ? "cursor-pointer" : "opacity-60"}`}>
             <span className="text-sm font-black text-ink leading-relaxed">{txt.botToggle}</span>
             <input
               type="checkbox"
               className="h-5 w-5 rounded border-line-strong text-ink-muted focus:ring-accent-soft/30 shrink-0"
               checked={state.botEnabled === true}
+              disabled={!botInPlan}
               onChange={(e) => {
                 const checked = e.target.checked;
                 setState((s) => {

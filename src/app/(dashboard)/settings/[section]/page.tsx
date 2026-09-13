@@ -23,7 +23,8 @@ import { useLanguage } from "@/context/LanguageContext";
 import { SETTINGS_SECTIONS } from "@/config/settingsRegistry";
 import { SETTINGS_PANELS } from "@/components/settings/panels";
 import { canEditSection, canViewSection, denialMessage } from "@/lib/settingsAccess";
-import { hasFeature } from "@/lib/subscriptions";
+import { isAnyUnlocked, type FeatureKey } from "@/lib/featureCatalog";
+import { FeatureLocked } from "@/components/FeatureGate";
 
 export default function SettingsSectionPage() {
   const params = useParams<{ section: string }>();
@@ -42,8 +43,11 @@ export default function SettingsSectionPage() {
 
   if (!section) return <NotFound />;
 
-  if (section.feature && !hasFeature(clinic, section.feature as Parameters<typeof hasFeature>[1])) {
-    return <NotFound />;
+  // A section behind an add-on the clinic does not hold says so, with the number to write to —
+  // a 404 here read as the page being broken rather than the add-on being off.
+  if (section.feature && !isAnyUnlocked(clinic, section.feature as FeatureKey | FeatureKey[])) {
+    const first = Array.isArray(section.feature) ? section.feature[0] : section.feature;
+    return <FeatureLocked feature={first as FeatureKey} />;
   }
 
   const viewer = { isAdmin, isReadOnly, role: user?.role, permissions: user?.permissions };

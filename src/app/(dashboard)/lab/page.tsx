@@ -71,6 +71,7 @@ import { notifyLabCaseReady } from "@/lib/labNotify";
 import { buildLabOrderMessage } from "@/lib/labMessages";
 import { labMessagingNumber, findLab } from "@/lib/dentalLabs";
 import { openWhatsAppWithText } from "@/lib/whatsappManual";
+import FeatureGate from "@/components/FeatureGate";
 
 /**
  * "out" is not a status, it is the two statuses that mean the case is physically at a lab.
@@ -100,7 +101,7 @@ const DUE_STYLE: Record<DueState, { pill: string; en: (n: number) => string; ar:
   none: { pill: "", en: () => "", ar: () => "" },
 };
 
-export default function LabTrackingPage() {
+function LabTrackingPage() {
   const { language, isRTL } = useLanguage();
   const { user } = useAuth();
   const { clinic } = useClinic();
@@ -782,5 +783,14 @@ function CaseRow({
         )}
       </div>
     </div>
+  );
+}
+
+/** Sold as an add-on: the page renders only once the clinic's subscription says so. */
+export default function LabTrackingPageGated() {
+  return (
+    <FeatureGate feature="lab">
+      <LabTrackingPage />
+    </FeatureGate>
   );
 }

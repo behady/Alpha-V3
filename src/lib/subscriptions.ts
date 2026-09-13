@@ -34,6 +34,27 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
     marketingText: boolean;
     /** Marketing add-on, level 2 (Design). Implies nothing by itself — gate design features on it IN ADDITION to marketingText. */
     marketingDesign: boolean;
+    /**
+     * The WhatsApp receptionist answering patients on its own. Independent of
+     * `whatsappIntegration`: both send through the same connected number, but
+     * `resolveWhatsappDeliveryMode` asks per purpose, so a clinic can hold either without the
+     * other. Its AI-written replies additionally need `aiChat` (they spend credits).
+     */
+    whatsappBot: boolean;
+    /** The public /book page and its settings. */
+    onlineBooking: boolean;
+    /** The ads-leads inbox and the automatic lead follow-up. */
+    leads: boolean;
+    /** Lab tracking board. */
+    lab: boolean;
+    /** Orthodontic case tracking. */
+    ortho: boolean;
+    /** The reports centre. */
+    reports: boolean;
+    /** A second (and further) branch. One branch is always allowed. */
+    multiBranch: boolean;
+    /** Prescription and treatment-plan PDFs sent to the patient on WhatsApp. */
+    clinicalPdfs: boolean;
   }
 }> = {
   'Free Trial': {
@@ -51,6 +72,14 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiVoice: false,
       marketingText: false,
       marketingDesign: false,
+      whatsappBot: false,
+      onlineBooking: true,
+      leads: true,
+      lab: true,
+      ortho: true,
+      reports: true,
+      multiBranch: false,
+      clinicalPdfs: true,
     }
   },
   'Basic': {
@@ -66,6 +95,14 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiVoice: false,
       marketingText: false,
       marketingDesign: false,
+      whatsappBot: false,
+      onlineBooking: false,
+      leads: false,
+      lab: false,
+      ortho: false,
+      reports: false,
+      multiBranch: false,
+      clinicalPdfs: false,
     }
   },
   'Pro': {
@@ -82,6 +119,14 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiVoice: false,
       marketingText: false,
       marketingDesign: false,
+      whatsappBot: false,
+      onlineBooking: true,
+      leads: true,
+      lab: true,
+      ortho: true,
+      reports: true,
+      multiBranch: false,
+      clinicalPdfs: true,
     }
   },
   'Premium': {
@@ -98,6 +143,14 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiVoice: true,
       marketingText: false,
       marketingDesign: false,
+      whatsappBot: true,
+      onlineBooking: true,
+      leads: true,
+      lab: true,
+      ortho: true,
+      reports: true,
+      multiBranch: true,
+      clinicalPdfs: true,
     }
   }
 };

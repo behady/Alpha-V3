@@ -20,6 +20,7 @@ import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { resolveLidToPhone } from "@/lib/whatsapp";
 import { findPatientByLid } from "@/lib/whatsappLid";
 import { resolveWhatsappDeliveryMode, sendPatientWhatsAppRich } from "@/lib/whatsappDelivery";
+import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { loadMetaWhatsappConfig, sendMetaWhatsappMedia } from "@/lib/metaWhatsapp";
 import type { MetaInteractive } from "@/lib/metaWhatsapp";
 import type { BotFacts, BotMedicine } from "@/types/whatsapp";
@@ -477,11 +478,16 @@ export async function respondToPatientMessage(args: {
 
   const settings = await loadBotSettings(clinicId);
   if (!settings.enabled) return skip("bot_disabled");
+  // The receptionist is an add-on on top of automatic messages. The clinic's own toggle above
+  // says whether they WANT it; this says whether they have PAID for it. Checked here, at the
+  // one door every inbound message passes, so a switched-off clinic's bot stays silent whatever
+  // the settings page still shows.
+  if (!(await clinicHasFeature(clinicId, "whatsappBot"))) return skip("bot_not_in_plan");
 
   // A bot needs to be able to answer by itself. In manual delivery there is nobody at a screen at
   // the moment the patient writes — queueing a reply for someone to tap tomorrow is not a
   // conversation, it is a worse version of the message they already sent.
-  const mode = await resolveWhatsappDeliveryMode(clinicId);
+  const mode = await resolveWhatsappDeliveryMode(clinicId, { purpose: "bot" });
   if (mode !== "auto") return skip("no_gateway");
 
   // Behind a lid, identity comes from what the system has already learned: every outgoing

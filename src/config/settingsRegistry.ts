@@ -95,7 +95,7 @@ export interface SettingsSection {
   /** Frozen tutorial anchor. The walkthrough's pulsing ring attaches to this exact string. */
   tourAnchor?: string;
   /** Subscription feature this section is gated behind, if any. */
-  feature?: string;
+  feature?: string | string[];
 }
 
 const ADMIN: SettingsAccess = { kind: "admin" };
@@ -192,6 +192,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     writes: [{ kind: "settingsDoc", docId: "labs" }],
     view: ADMIN,
     edit: ADMIN,
+    feature: "lab",
   },
   {
     id: "services",
@@ -264,6 +265,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     writes: [{ kind: "settingsDoc", docId: "onlineBooking" }],
     view: ADMIN,
     edit: ADMIN,
+    feature: "onlineBooking",
   },
   {
     id: "recall",
@@ -348,7 +350,8 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     writes: [{ kind: "settingsDoc", docId: "whatsapp" }],
     view: ADMIN,
     edit: ADMIN,
-    feature: "whatsappIntegration",
+    // Both WhatsApp add-ons are configured here, so either one opens it.
+    feature: ["whatsappIntegration", "whatsappBot"],
   },
   {
     id: "sms",

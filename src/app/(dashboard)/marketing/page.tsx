@@ -24,7 +24,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useUI } from "@/context/UIContext";
 import PermissionGuard from "@/components/PermissionGuard";
 import PageHeader from "@/components/dashboard/PageHeader";
-import { UpgradeRequired } from "@/components/UpgradeRequired";
+import { FeatureLocked } from "@/components/FeatureGate";
 import { hasFeature, getMarketingCreditLimit } from "@/lib/subscriptions";
 import { logActivity } from "@/lib/logger";
 import {
@@ -1224,12 +1224,7 @@ export default function MarketingPage() {
 
   if (clinic && !unlocked) {
     return (
-      <div className="max-w-4xl mx-auto px-4 py-10">
-        <UpgradeRequired
-          featureName={isAr ? "استوديو التسويق" : "Marketing Studio"}
-          minTier={isAr ? "إضافة التسويق" : "Marketing add-on"}
-        />
-      </div>
+      <FeatureLocked feature="marketingText" />
     );
   }
 

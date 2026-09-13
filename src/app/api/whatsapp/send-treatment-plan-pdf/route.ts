@@ -5,6 +5,7 @@ import { adminBucket } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { sendWhatsAppPdfFromUrl } from "@/lib/whatsapp";
 import { resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
+import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { pickPatientPhone } from "@/lib/patientPhone";
 
 const MAX_PDF_BYTES = 6 * 1024 * 1024;
@@ -45,6 +46,10 @@ export async function POST(request: Request) {
     // patient looked up in the wrong tenant and be told "Patient not found" for a patient that
     // is plainly on screen. resolveUserClinicId still proves membership before honouring it.
     const clinicId = await resolveUserClinicId(authz.uid, body.clinicId);
+    // Same add-on gate as the prescription sender: hidden in the browser, refused here.
+    if (!(await clinicHasFeature(clinicId, "clinicalPdfs"))) {
+      return NextResponse.json({ error: "Clinical PDFs on WhatsApp are not included in this clinic's subscription." }, { status: 403 });
+    }
 
     /**
      * Same clinical gate as the prescription sender, for the same reason: the PDF arrives

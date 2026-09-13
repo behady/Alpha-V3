@@ -10,6 +10,7 @@ import { phoneMatchKey } from "@/lib/patientPhone";
 import { conversationKey } from "@/lib/bot/conversation";
 import { deliverWhatsAppMessage } from "@/lib/whatsappDelivery";
 import { normalizeAppointmentStatus } from "@/lib/appointmentStages";
+import { clinicHasFeature } from "@/lib/clinicFeatures";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -73,6 +74,9 @@ async function runForClinic(clinicId: string): Promise<{ results: FollowupResult
   const settingsSnap = await adminClinicDoc(clinicId, "settings", "whatsapp").get();
   const settings = (settingsSnap.data() || {}) as Record<string, unknown>;
   if (settings.isLeadFollowupEnabled !== true) return { results: [] };
+  // The leads add-on covers the follow-up too: a clinic that no longer holds it keeps its
+  // own switch on, and this is what stops the sweep from messaging on its behalf.
+  if (!(await clinicHasFeature(clinicId, "leads"))) return { results: [] };
 
   const clinicName = await clinicDisplayName(clinicId);
   /*

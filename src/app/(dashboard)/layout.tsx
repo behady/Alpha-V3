@@ -8,8 +8,10 @@ import {
   LayoutDashboard, Users, Calendar, Wallet, Settings, Sparkles,
   FileBarChart, Menu, X, LogOut, Languages,
   Package, Clock, FlaskConical, ShieldCheck,
-  LifeBuoy, Inbox, Megaphone, Rocket, ShoppingBag
+  LifeBuoy, Inbox, Megaphone, Rocket, ShoppingBag, Lock
 } from "lucide-react";
+import { isAnyUnlocked, type FeatureKey } from "@/lib/featureCatalog";
+
 import { useLanguage } from "@/context/LanguageContext";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
@@ -17,7 +19,6 @@ import { useAuth } from "@/context/AuthContext";
 import { useClinic } from "@/context/ClinicContext";
 import { getClinicLogo } from "@/lib/clinicLogo";
 import { canAccessNavItem, canShowSettingsNavLink } from "@/lib/navAccess";
-import { hasFeature } from "@/lib/subscriptions";
 import ReceptionSummonOverlay from "@/components/summon/ReceptionSummonOverlay";
 import { useUI } from "@/context/UIContext";
 import ClinicSwitcher from "@/components/dashboard/ClinicSwitcher";
@@ -39,6 +40,21 @@ import WhatsAppIcon from "@/components/icons/WhatsAppIcon";
 import { useUnreadChatCount } from "@/lib/useUnreadChatCount";
 import { useChatAlerts } from "@/lib/useChatAlerts";
 import { useSupplyStoreStatus } from "@/lib/useSupplyStore";
+
+/**
+ * Which add-on each destination is sold as. A key missing here is free on every plan. The
+ * pages themselves repeat the check (FeatureGate), so this only decides what the menu shows.
+ */
+const NAV_FEATURES: Record<string, FeatureKey | FeatureKey[]> = {
+  // The inbox serves both WhatsApp add-ons: either one opens it.
+  chats: ["whatsappIntegration", "whatsappBot"],
+  leads: "leads",
+  inventory: "inventory",
+  lab: "lab",
+  attendance: "attendance",
+  reports: "reports",
+  marketing: "marketingText",
+};
 
 const plusJakartaSans = Plus_Jakarta_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"] });
 const cairo = Cairo({ subsets: ["arabic"] });
@@ -318,15 +334,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       return canAccessNavItem('store', user, isAdmin);
     }
 
-    // Tier based gating
-    if (key === 'inventory' && !hasFeature(clinic, 'inventory')) return false;
-    if (key === 'attendance' && !hasFeature(clinic, 'attendance')) return false;
+    /**
+     * Add-on gating. A destination the clinic has not paid for disappears for staff; admins keep
+     * it, marked with a lock (see lockedFor), because the page behind it is where the number to
+     * write to lives. An unmarked item that opened onto a locked page once read as the switch
+     * not working — the lock is what makes it read as intended.
+     */
+    const feature = NAV_FEATURES[key];
+    if (feature && !isAnyUnlocked(clinic, feature) && !isAdmin) return false;
 
-    // The marketing studio is a paid add-on, and switching it off in the superadmin panel has to
-    // make it disappear for EVERYONE — admins included. It used to stay in the nav for admins as
-    // an upsell, which read as the switch not working. Staff additionally need access.marketing.
     if (key === 'marketing') {
-      if (!hasFeature(clinic, 'marketingText')) return false;
       if (isAdmin) return true;
       return canAccessNavItem('marketing', user, isAdmin);
     }
@@ -354,7 +371,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return canAccessNavItem(key, user, isAdmin);
   }, [user, isAdmin, appointmentsVisibility, clinic, supplyStore.connected]);
 
-  const visibleItems = allNavItems.filter((item) => hasAccess(item.key, false));
+  /** Whether an admin's item is an add-on the clinic lacks. Undecided (clinic still loading) is "no": a lock that flashes on every cold load teaches people to ignore it. */
+  const lockedFor = useCallback((key: string) => {
+    const feature = NAV_FEATURES[key];
+    return !!clinic && !!feature && !isAnyUnlocked(clinic, feature);
+  }, [clinic]);
+
+  const visibleItems = allNavItems
+    .filter((item) => hasAccess(item.key, false))
+    .map((item) => (lockedFor(item.key) ? { ...item, locked: true } : item));
   const showSettings = canShowSettingsNavLink(user, isAdmin);
 
   /**
@@ -542,6 +567,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                            >
                              <item.icon size={22} strokeWidth={isActive ? 2.5 : 2} />
                              <span className="text-base truncate">{label}</span>
+                             {lockedFor(item.key) && <Lock size={16} className="ms-auto opacity-50" />}
                              {"badge" in item && (item.badge ?? 0) > 0 && (
                                <span className="ms-auto min-w-[22px] h-[22px] px-1.5 rounded-full bg-[#c0392b] text-white text-[11px] font-black flex items-center justify-center">
                                  {item.badge}

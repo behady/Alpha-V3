@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import { useUI } from "@/context/UIContext";
 import { useLanguage } from "@/context/LanguageContext";
+import { useClinic } from "@/context/ClinicContext";
+import { isUnlocked } from "@/lib/featureCatalog";
 import { useSettingsText } from "@/lib/useSettingsText";
 import { countedNoun } from "@/lib/arabicCount";
 import { getClinicDoc } from "@/lib/db-utils";
@@ -46,8 +48,12 @@ const INPUT =
 export default function LocationsSettings() {
   const { showToast, confirm } = useUI();
   const { language, isRTL } = useLanguage();
+  const { clinic } = useClinic();
   const isAr = language === "ar";
   const txt = useSettingsText("locations");
+  // One branch is always included; the second is the add-on. Branches already saved stay —
+  // switching the add-on off must never delete a clinic's rooms out from under its calendar.
+  const canAddBranch = isUnlocked(clinic, "multiBranch");
 
   const [stored, setStored] = useState<ClinicBranch[] | null>(null);
   const [newBranchName, setNewBranchName] = useState("");
@@ -93,6 +99,15 @@ export default function LocationsSettings() {
   const addBranch = () => {
     const name = newBranchName.trim();
     if (!name) return;
+    if (branches.length >= 1 && !canAddBranch) {
+      showToast(
+        isAr
+          ? "أكثر من فرع إضافة مدفوعة — كلّم فريق ألفا لتفعيلها."
+          : "Multiple branches is an add-on — contact the Alpha team to activate it.",
+        "error"
+      );
+      return;
+    }
     if (branches.some((b) => b.name.toLowerCase() === name.toLowerCase())) {
       showToast(txt.branchExists, "error");
       return;

@@ -42,6 +42,15 @@ export interface Clinic {
     marketingDesign?: boolean;
     /** Monthly cap on marketing AI generations. A single generation costs 1, a month plan costs 5. */
     marketingMonthlyCredits?: number;
+    /** The add-ons listed in src/lib/featureCatalog.ts. Absent means "whatever the tier says". */
+    whatsappBot?: boolean;
+    onlineBooking?: boolean;
+    leads?: boolean;
+    lab?: boolean;
+    ortho?: boolean;
+    reports?: boolean;
+    multiBranch?: boolean;
+    clinicalPdfs?: boolean;
   };
   billingCycle?: 'Monthly' | 'Yearly' | '2-Yearly';
   customPrice?: number;

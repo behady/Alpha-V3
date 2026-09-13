@@ -10,6 +10,7 @@ import { getClinicCollection } from "@/lib/db-utils";
 import PermissionGuard from "@/components/PermissionGuard";
 import { onSnapshot } from "firebase/firestore";
 import PageHeader from "@/components/dashboard/PageHeader";
+import FeatureGate from "@/components/FeatureGate";
 
 interface OrthoCase {
   id: string;
@@ -23,7 +24,7 @@ interface OrthoCase {
 
 type Filter = "Active" | "Completed" | "All";
 
-export default function OrthoDashboard() {
+function OrthoDashboard() {
   const router = useRouter();
   const [cases, setCases] = useState<OrthoCase[]>([]);
   const [loading, setLoading] = useState(true);
@@ -221,5 +222,14 @@ function StatCard({ icon, label, value, accent }: { icon: React.ReactNode; label
         <div className="text-xl font-black text-ink tabular-nums leading-tight">{value}</div>
       </div>
     </div>
+  );
+}
+
+/** Sold as an add-on: the page renders only once the clinic's subscription says so. */
+export default function OrthoDashboardGated() {
+  return (
+    <FeatureGate feature="ortho">
+      <OrthoDashboard />
+    </FeatureGate>
   );
 }

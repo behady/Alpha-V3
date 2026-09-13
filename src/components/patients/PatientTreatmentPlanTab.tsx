@@ -19,6 +19,7 @@ import { useClinic } from "@/context/ClinicContext";
 import { logActivity } from "@/lib/logger";
 import ServiceCombobox, { type ComboboxService } from "@/components/shared/ServiceCombobox";
 import { handleWhatsAppApiResult } from "@/lib/whatsappManual";
+import { isUnlocked } from "@/lib/featureCatalog";
 import {
   buildTreatmentPlanSrcDoc,
   treatmentPlanSrcDocToPdfBlob,
@@ -307,7 +308,9 @@ export default function PatientTreatmentPlanTab({
   const { language, isRTL } = useLanguage();
   const { showToast, confirm } = useUI();
   const { user } = useAuth();
-  const { clinicId } = useClinic();
+  const { clinicId, clinic } = useClinic();
+  // Sold as an add-on; the route refuses the send too, this only keeps a dead button off the screen.
+  const canSendPdf = isUnlocked(clinic, "clinicalPdfs");
   const ar = language === "ar";
 
   const [plans, setPlans] = useState<TreatmentPlan[]>([]);
@@ -1553,6 +1556,7 @@ export default function PatientTreatmentPlanTab({
                   >
                     {busy && busyAction === "pdf" ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} {txt.downloadPdf}
                   </button>
+                  {canSendPdf && (
                   <button
                     onClick={() => handleSendWhatsApp(plan)}
                     disabled={busy}
@@ -1560,6 +1564,7 @@ export default function PatientTreatmentPlanTab({
                   >
                     {busy && busyAction === "whatsapp" ? <Loader2 size={14} className="animate-spin" /> : <MessageCircle size={14} />} {txt.sendWhatsApp}
                   </button>
+                  )}
                   <button
                     onClick={() => handleDeletePlan(plan)}
                     className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-50 text-rose-600 border border-rose-100 hover:bg-rose-100 transition-colors ms-auto"

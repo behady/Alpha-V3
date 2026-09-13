@@ -18,6 +18,8 @@ import { mergeDrugList, searchDrugEntries, type ClinicDrugDoc } from "@/lib/drug
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import PermissionGuard from "@/components/PermissionGuard";
 import PageHeader from "@/components/dashboard/PageHeader";
+import { useClinic } from "@/context/ClinicContext";
+import { isUnlocked } from "@/lib/featureCatalog";
 
 
 /**
@@ -80,6 +82,9 @@ function PrescriptionStudio() {
   const id = (params?.id as string) || "";
   const { showToast } = useUI();
   const { user } = useAuth();
+  const { clinic } = useClinic();
+  // Sold as an add-on; the route refuses the send too, this only keeps a dead button off the screen.
+  const canSendPdf = isUnlocked(clinic, "clinicalPdfs");
 
   const [loading, setLoading] = useState(true);
   const [patient, setPatient] = useState<any>(null);
@@ -379,6 +384,7 @@ function PrescriptionStudio() {
                 {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
                 Save
              </button>
+             {canSendPdf && (
              <button
                 type="button"
                 onClick={() => void handleShare()}
@@ -388,6 +394,7 @@ function PrescriptionStudio() {
                 {whatsappSending ? <Loader2 size={18} className="animate-spin" /> : <MessageCircle size={18}/>}
                 WhatsApp
              </button>
+             )}
              <button
                 type="button"
                 onClick={handlePrint}

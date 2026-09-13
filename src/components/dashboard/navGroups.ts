@@ -31,4 +31,9 @@ export interface NavItem {
   href: string;
   icon: React.ElementType;
   badge?: number;
+  /**
+   * The destination is an add-on the clinic does not hold. Shown to admins with a lock so the
+   * page (which says who to contact) is one click away; staff never see a locked item at all.
+   */
+  locked?: boolean;
 }

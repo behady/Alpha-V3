@@ -60,14 +60,32 @@ export type WhatsappDeliveryResult =
  * and fail. Queueing to the clinic's phone is a property of *delivering* a patient message, not of
  * this question, so it lives in `deliverWhatsAppMessage` below.
  *
- * Unattended sending is a paid feature. It needs gateway credentials, which cost money and carry
- * the risk that Meta restricts the number, so it sits behind `whatsappIntegration` on the clinic's
- * plan. Everything else falls back to a human pressing send, which is free and cannot be banned.
+ * Unattended sending is sold, and sold twice: the automatic messages (confirmations, reminders,
+ * receipts, everything the system writes on the clinic's behalf) are the `whatsappIntegration`
+ * add-on, and the receptionist answering patients is the `whatsappBot` add-on. They share one
+ * connected number, so the question "can the server send this itself" depends on WHAT it is
+ * sending — `purpose` says which, and defaults to the automatic messages because that is what
+ * every existing caller is. Everything a clinic has not paid for falls back to a human pressing
+ * send, which is free and cannot be banned.
  */
-export async function resolveWhatsappDeliveryMode(clinicId: string): Promise<WhatsappDeliveryMode> {
-  // The official Cloud API wins outright. It is Meta-hosted, cannot drop a session, and does not
-  // sit behind the whatsappIntegration plan gate the way the Wapilot path does — a clinic that has
-  // connected an official number is auto, full stop, whatever else is configured.
+export type WhatsappSendPurpose = "notifications" | "bot";
+
+export async function resolveWhatsappDeliveryMode(
+  clinicId: string,
+  opts?: { purpose?: WhatsappSendPurpose }
+): Promise<WhatsappDeliveryMode> {
+  const feature = opts?.purpose === "bot" ? "whatsappBot" : "whatsappIntegration";
+
+  // Checked before any channel, because a clinic that has downgraded may still have a working
+  // gateway — official or Wapilot — configured, and must stop using it for this purpose. The
+  // official channel used to be "auto, full stop"; since the add-ons were split it is gated the
+  // same way, or the switch in the superadmin panel would mean nothing for the clinics that
+  // matter most.
+  if (!(await clinicHasFeature(clinicId, feature))) return "manual";
+
+  // The official Cloud API wins over Wapilot. It is Meta-hosted, cannot drop a session, and
+  // ignores the manual/auto preference below — a clinic that has connected an official number
+  // is auto for everything it has paid for.
   try {
     if (await loadMetaWhatsappConfig(clinicId)) return "auto";
   } catch {
@@ -81,10 +99,6 @@ export async function resolveWhatsappDeliveryMode(clinicId: string): Promise<Wha
     // A missing or unreadable settings doc is not a reason to fail a send; fall through to
     // deciding on whether credentials exist.
   }
-
-  // Checked before the credentials, because a clinic that has downgraded may still have a working
-  // gateway configured and must stop using it.
-  if (!(await clinicHasFeature(clinicId, "whatsappIntegration"))) return "manual";
 
   try {
     const config = await loadWapilotConfig(clinicId);

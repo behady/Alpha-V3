@@ -8,6 +8,7 @@ import {
   Languages,
   LayoutDashboard,
   LifeBuoy,
+  Lock,
   LogOut,
   Rocket,
   Settings,
@@ -204,7 +205,8 @@ export default function TopNav({
                       className={`${menuRow} ${active ? "bg-[#FACC15] text-ink" : "text-ink-body hover:bg-surface-subtle hover:text-ink"}`}
                     >
                       <item.icon size={18} strokeWidth={active ? 2.5 : 2} className="shrink-0" />
-                      <span className="truncate">{labelFor(item.key)}</span>
+                      <span className={`truncate ${item.locked ? "opacity-60" : ""}`}>{labelFor(item.key)}</span>
+                      {item.locked && <Lock size={14} className="ms-auto shrink-0 opacity-50" />}
                       {(item.badge ?? 0) > 0 && (
                         <span className="ms-auto grid h-[20px] min-w-[20px] place-items-center rounded-full bg-[#c0392b] px-1 text-[11px] font-black text-white">
                           {(item.badge ?? 0) > 99 ? "99+" : item.badge}

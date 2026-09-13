@@ -4,7 +4,8 @@
 import React, { useState } from "react";
 import { Clinic, SubscriptionTier } from "@/types/saas";
 import { X, Building2, Save, Users, ShieldAlert, KeyRound, CalendarDays, DollarSign, CreditCard } from "lucide-react";
-import { TIER_LIMITS, getAiCreditLimit } from "@/lib/subscriptions";
+import { TIER_LIMITS, getAiCreditLimit, hasFeature } from "@/lib/subscriptions";
+import { FEATURE_CATALOG, FEATURE_GROUPS, featureInfo, type FeatureKey } from "@/lib/featureCatalog";
 
 interface ClinicDetailPanelProps {
   clinic: Clinic | null;
@@ -30,9 +31,11 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
 
   const staff = users.filter(u => u.clinicRoles && u.clinicRoles[clinic.id]);
 
-  const handleToggleFeature = async (feature: keyof NonNullable<Clinic["features"]>) => {
+  // Flips what the clinic EFFECTIVELY has, not the raw override: a Premium clinic with no
+  // override shows "on" from its tier, and the first click has to switch it off, not on again.
+  const handleToggleFeature = async (feature: FeatureKey) => {
     const currentFeatures = clinic.features || {};
-    const updatedFeatures = { ...currentFeatures, [feature]: !currentFeatures[feature] };
+    const updatedFeatures = { ...currentFeatures, [feature]: !hasFeature(clinic, feature) };
     await onUpdateClinic(clinic.id, { features: updatedFeatures });
   };
 
@@ -82,9 +85,19 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
                 value={clinic.subscriptionTier}
                 onChange={(e) => {
                   const newTier = e.target.value as SubscriptionTier;
-                  onUpdateClinic(clinic.id, { 
+                  // A tier change resets the add-on switches to the new plan's preset but keeps
+                  // the numbers (credits, seats, bonus): those were sold separately and used to
+                  // vanish here, which silently took back what a clinic had paid for.
+                  const f = clinic.features || {};
+                  onUpdateClinic(clinic.id, {
                     subscriptionTier: newTier,
-                    features: { ...TIER_LIMITS[newTier].features }
+                    features: {
+                      ...TIER_LIMITS[newTier].features,
+                      ...(typeof f.aiMonthlyCredits === "number" ? { aiMonthlyCredits: f.aiMonthlyCredits } : {}),
+                      ...(typeof f.extraAiCredits === "number" ? { extraAiCredits: f.extraAiCredits } : {}),
+                      ...(typeof f.maxStaff === "number" ? { maxStaff: f.maxStaff } : {}),
+                      ...(typeof f.marketingMonthlyCredits === "number" ? { marketingMonthlyCredits: f.marketingMonthlyCredits } : {}),
+                    },
                   });
                 }}
                 className="w-full bg-surface border border-line text-slate-700 text-sm font-bold rounded-xl px-3 py-2 outline-none focus:border-indigo-500"
@@ -241,25 +254,43 @@ export function ClinicDetailPanel({ clinic, users, onClose, onUpdateClinic, onDe
           <h3 className="text-sm font-black text-ink uppercase tracking-wider flex items-center gap-2">
             <Building2 size={16} className="text-emerald-500" /> Feature Overrides
           </h3>
-          <div className="space-y-3">
-            {['aiChat', 'whatsappIntegration', 'inventory', 'attendance', 'marketingText', 'marketingDesign'].map((feature) => (
-              <div key={feature} className="flex items-center justify-between p-3 bg-surface border border-line rounded-xl">
-                <span className="font-bold text-sm text-slate-700 capitalize">
-                  {feature === 'aiChat' ? 'AI Assistant'
-                    : feature === 'marketingText' ? 'Marketing — Text & Strategy'
-                    : feature === 'marketingDesign' ? 'Marketing — Design'
-                    : feature.replace(/([A-Z])/g, ' $1').trim()}
-                </span>
-                <button
-                  onClick={() => handleToggleFeature(feature as any)}
-                  className={`w-11 h-6 rounded-full transition-colors relative ${
-                    clinic.features?.[feature as keyof NonNullable<Clinic["features"]>] ? 'bg-emerald-500' : 'bg-slate-200'
-                  }`}
-                >
-                  <div className={`w-5 h-5 bg-surface rounded-full absolute top-0.5 shadow transition-transform ${
-                    clinic.features?.[feature as keyof NonNullable<Clinic["features"]>] ? 'translate-x-5' : 'translate-x-0.5'
-                  }`} />
-                </button>
+          <p className="text-[11px] text-ink-muted font-semibold -mt-2">
+            Every add-on the platform sells. A switch shows what the clinic actually has — its own
+            override, or the tier default when nothing was set. Grey means the add-on it depends on is off.
+          </p>
+          <div className="space-y-4">
+            {FEATURE_GROUPS.map((group) => (
+              <div key={group.id} className="space-y-2">
+                <p className="text-[10px] font-black uppercase tracking-widest text-ink-faint px-1">{group.labelEn}</p>
+                {FEATURE_CATALOG.filter((f) => f.group === group.id).map((f) => {
+                  const on = hasFeature(clinic, f.key);
+                  const parentOff = !!f.requires && !hasFeature(clinic, f.requires);
+                  const overridden = typeof clinic.features?.[f.key] === "boolean";
+                  return (
+                    <div key={f.key} className={`flex items-center justify-between gap-3 p-3 bg-surface border border-line rounded-xl ${parentOff ? "opacity-60" : ""}`}>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm text-slate-700">{f.labelEn}</span>
+                          {!overridden && (
+                            <span className="text-[9px] font-black uppercase tracking-wider text-ink-faint border border-line rounded px-1">tier</span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-ink-muted leading-snug">
+                          {f.descEn}
+                          {parentOff && <span className="text-warn font-bold"> — needs {featureInfo(f.requires!).labelEn}</span>}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        title={on ? "Switch off" : "Switch on"}
+                        onClick={() => handleToggleFeature(f.key)}
+                        className={`shrink-0 w-11 h-6 rounded-full transition-colors relative ${on ? 'bg-emerald-500' : 'bg-slate-200'}`}
+                      >
+                        <div className={`w-5 h-5 bg-surface rounded-full absolute top-0.5 shadow transition-transform ${on ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             ))}
 

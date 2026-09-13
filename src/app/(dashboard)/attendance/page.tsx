@@ -12,7 +12,7 @@ import { useLanguage } from "@/context/LanguageContext";
 import PageHeader from "@/components/dashboard/PageHeader";
 import { logActivity } from "@/lib/logger";
 import { hasFeature } from "@/lib/subscriptions";
-import { UpgradeRequired } from "@/components/UpgradeRequired";
+import { FeatureLocked } from "@/components/FeatureGate";
 
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -1163,11 +1163,7 @@ export default function AttendancePage() {
    * entire page.
    */
   if (!hasFeature(clinic, 'attendance')) {
-    return (
-      <div className="p-4 lg:p-8">
-        <UpgradeRequired featureName="Attendance & Staff Tracking" minTier="Pro" />
-      </div>
-    );
+    return <FeatureLocked feature="attendance" />;
   }
 
   if (loading && !personalLogs.length && !allLogs.length) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-accent-soft" size={40}/></div>;

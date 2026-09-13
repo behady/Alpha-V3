@@ -9,6 +9,7 @@ import { isWhatsAppBlocked } from "@/lib/patientMessaging";
 import { phoneMatchKey } from "@/lib/patientPhone";
 import { conversationKey } from "@/lib/bot/conversation";
 import { recordThreadMessage } from "@/lib/bot/thread";
+import { clinicHasFeature } from "@/lib/clinicFeatures";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -88,6 +89,9 @@ interface FlushResult {
 
 async function runForClinic(clinicId: string): Promise<FlushResult> {
   const out: FlushResult = { sent: 0, expired: 0, skipped: 0, waiting: 0 };
+  // Leads are an add-on: a queued greeting for a clinic without it stays queued for the desk
+  // rather than going out on a subscription the clinic does not hold.
+  if (!(await clinicHasFeature(clinicId, "leads"))) return out;
   const queued = await adminClinicCollection(clinicId, "whatsapp_outbox").where("status", "==", "queued").limit(500).get();
   const rows = queued.docs.filter((d) => String((d.data() || {}).type || "") === "lead_welcome");
   if (!rows.length) return out;

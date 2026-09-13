@@ -27,6 +27,7 @@ import {
   DEFAULT_COUNTRY_CODE, COUNTRY_CODE_OPTIONS, buildE164FromCountryCode,
 } from "@/lib/phoneNumber";
 import { SourceIcon } from "@/components/SourceIcon";
+import FeatureGate from "@/components/FeatureGate";
 
 /**
  * The Leads inbox — the CRM's front door.
@@ -34,7 +35,7 @@ import { SourceIcon } from "@/components/SourceIcon";
  * Built list-first rather than as a kanban board: the person using it most is reception, on a
  * phone, between patients. Due follow-ups float to the top; everything else is newest first.
  */
-export default function LeadsPage() {
+function LeadsPage() {
   const { language } = useLanguage();
   const isAr = language === "ar";
   const { user } = useAuth();
@@ -844,5 +845,14 @@ export default function LeadsPage() {
         )}
       </div>
     </PermissionGuard>
+  );
+}
+
+/** Sold as an add-on: the page renders only once the clinic's subscription says so. */
+export default function LeadsPageGated() {
+  return (
+    <FeatureGate feature="leads">
+      <LeadsPage />
+    </FeatureGate>
   );
 }

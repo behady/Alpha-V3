@@ -84,7 +84,7 @@ export function canEditSection(section: SettingsSection, viewer: SettingsViewer)
 export function visibleSections(
   sections: SettingsSection[],
   viewer: SettingsViewer,
-  hasFeature: (feature: string) => boolean
+  hasFeature: (feature: string | string[]) => boolean
 ): SettingsSection[] {
   return sections.filter(
     (section) =>

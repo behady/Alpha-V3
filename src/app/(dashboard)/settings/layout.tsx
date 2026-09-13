@@ -38,7 +38,7 @@ import {
 } from "@/config/settingsRegistry";
 import { SETTINGS_GROUP_ICONS, SETTINGS_ICONS } from "@/components/settings/panels";
 import { visibleSections } from "@/lib/settingsAccess";
-import { hasFeature } from "@/lib/subscriptions";
+import { isAnyUnlocked, type FeatureKey } from "@/lib/featureCatalog";
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -76,7 +76,7 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
   const sections = useMemo(
     () =>
       visibleSections(SETTINGS_SECTIONS, viewer, (feature) =>
-        hasFeature(clinic, feature as Parameters<typeof hasFeature>[1])
+        isAnyUnlocked(clinic, feature as FeatureKey | FeatureKey[])
       ),
     [clinic, viewer]
   );

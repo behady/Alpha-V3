@@ -5,6 +5,7 @@ import { adminBucket } from "@/lib/firebaseAdmin";
 import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/lib/adminClinicDb";
 import { sendWhatsAppPdfFromUrl } from "@/lib/whatsapp";
 import { resolveWhatsappDeliveryMode } from "@/lib/whatsappDelivery";
+import { clinicHasFeature } from "@/lib/clinicFeatures";
 import { pickPatientPhone } from "@/lib/patientPhone";
 
 const MAX_PDF_BYTES = 6 * 1024 * 1024;
@@ -26,6 +27,11 @@ export async function POST(request: Request) {
     // collections that do not exist, so they silently resolved to empty and this route
     // could never find the record it was asked to send.
     const clinicId = await resolveUserClinicId(authz.uid);
+    // Sold as an add-on; the button in the browser is hidden when it is off, and this is the
+    // check that hiding cannot be talked out of.
+    if (!(await clinicHasFeature(clinicId, "clinicalPdfs"))) {
+      return NextResponse.json({ error: "Clinical PDFs on WhatsApp are not included in this clinic's subscription." }, { status: 403 });
+    }
 
     /**
      * Sending a prescription is a clinical act, and this route is the only door to it that a
