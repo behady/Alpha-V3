@@ -35,7 +35,7 @@ export default function ClinicalNotesContainer({
   onWriteRx?: () => void;
 }) {
   const { language } = useLanguage();
-  const { showToast, confirm, clinicalEditorMode, clinicalEditorModeChosen } = useUI();
+  const { showToast, confirm, clinicalEditorMode } = useUI();
   const { user } = useAuth();
 
   const [notes, setNotes] = useState<Note[]>([]);
@@ -45,26 +45,21 @@ export default function ClinicalNotesContainer({
   const [doctors, setDoctors] = useState<Staff[]>([]);
   const [servicesList, setServicesList] = useState<Service[]>([]);
 
-  const [isDesktop, setIsDesktop] = useState(false);
-
-  useEffect(() => {
-    const checkIsDesktop = () => setIsDesktop(window.innerWidth >= 1024);
-    checkIsDesktop();
-    window.addEventListener("resize", checkIsDesktop);
-    return () => window.removeEventListener("resize", checkIsDesktop);
-  }, []);
 
   /**
-   * Which editor this screen actually uses.
+   * Which editor this screen actually uses: the preference, at every width, always.
    *
-   * This used to be `isDesktop` alone, and that is why the Interface setting appeared broken:
-   * any window wider than 1024px got the chart-first workspace and `clinicalEditorMode` was never
-   * read at all. Choosing "Pop-up Modal" on a laptop did nothing, with no way to tell whether the
-   * setting or the feature was at fault.
+   * It was `isDesktop` alone once, which is why the Interface setting looked broken — any window
+   * wider than 1024px got the chart-first workspace and `clinicalEditorMode` was never read.
+   * Then it was "the preference if you have ever opened that screen, otherwise the width", which
+   * was gentler but had the same effect on the people who matter: nobody opens Settings to find
+   * out why a form is not a window, so almost everyone on a laptop still had the embedded
+   * workspace and no idea there was anything else.
    *
-   * An explicit choice now wins at every width. Someone who has never opened the setting keeps
-   * exactly what they have today — the workspace on a wide screen, the sheet on a phone — because
-   * a layout should not rearrange itself because a preference grew a third option.
+   * So the default is the default now — `modal`, a pop-up, as `uiPreferences` has always said —
+   * and the chart-first workspace is the deliberate choice it deserves to be, one row down in
+   * Settings → Interface. The pop-up carries the same teeth chart at the same size; it is where
+   * the editor opens that changes, not what it can do.
    */
   /**
    * What has been done to each tooth, read off the notes this screen already has.
@@ -85,9 +80,7 @@ export default function ClinicalNotesContainer({
     );
   }, [notes, servicesList]);
 
-  const useInlineWorkspace = clinicalEditorModeChosen
-    ? clinicalEditorMode === "inline"
-    : isDesktop;
+  const useInlineWorkspace = clinicalEditorMode === "inline";
 
   // Drawer state (mobile, and any desktop user who has not been switched over yet)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);

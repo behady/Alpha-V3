@@ -96,7 +96,6 @@ interface UIContextType {
    * False until somebody actually chooses. The Clinical tab uses it to keep the layout every
    * desktop user already has, while still letting an explicit choice win at any width.
    */
-  clinicalEditorModeChosen: boolean;
   appointmentEditorMode: 'modal' | 'drawer';
   setAppointmentEditorMode: (mode: 'modal' | 'drawer') => void;
   /** Which panel fills the column beside the schedule when an appointment is selected. */
@@ -151,7 +150,6 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const promptInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
 
   const [clinicalEditorMode, setClinicalEditorModeState] = useState<ClinicalEditorMode>('modal');
-  const [clinicalEditorModeChosen, setClinicalEditorModeChosen] = useState(false);
   const [appointmentEditorMode, setAppointmentEditorModeState] = useState<'modal' | 'drawer'>('modal');
   const [appointmentPanelMode, setAppointmentPanelModeState] = useState<'editor' | 'avatar'>('editor');
   const [receptionPanelActive, setReceptionPanelActive] = useState(false);
@@ -172,7 +170,6 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const applyPreferences = useCallback((prefs: Partial<UiPreferences>) => {
     if (prefs.clinicalEditorMode !== undefined) {
       setClinicalEditorModeState(prefs.clinicalEditorMode);
-      setClinicalEditorModeChosen(true);
     }
     if (prefs.appointmentEditorMode !== undefined) setAppointmentEditorModeState(prefs.appointmentEditorMode);
     if (prefs.appointmentPanelMode !== undefined) setAppointmentPanelModeState(prefs.appointmentPanelMode);
@@ -235,7 +232,6 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
 
   const setClinicalEditorMode = useCallback((mode: ClinicalEditorMode) => {
     setClinicalEditorModeState(mode);
-    setClinicalEditorModeChosen(true);
     rememberPreference("clinicalEditorMode", mode);
   }, [rememberPreference]);
 
@@ -389,7 +385,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   const promptCanSubmit = !promptState.required || promptValue.trim().length > 0;
 
   return (
-    <UIContext.Provider value={{ showToast, confirm, prompt, clinicalEditorMode, setClinicalEditorMode, clinicalEditorModeChosen, appointmentEditorMode, setAppointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode, receptionPanelActive, setReceptionPanelActive, assistantPanelOpen, setAssistantPanelOpen, appointmentsVisibility, setAppointmentsVisibility, latePatientTrackerEnabled: latePatientTrackerEnabledState, setLatePatientTrackerEnabled, clinicalNoteSort, setClinicalNoteSort, clinicalNoteGrouping, setClinicalNoteGrouping, clinicalNoteDensity, setClinicalNoteDensity, homeView, setHomeView }}>
+    <UIContext.Provider value={{ showToast, confirm, prompt, clinicalEditorMode, setClinicalEditorMode, appointmentEditorMode, setAppointmentEditorMode, appointmentPanelMode, setAppointmentPanelMode, receptionPanelActive, setReceptionPanelActive, assistantPanelOpen, setAssistantPanelOpen, appointmentsVisibility, setAppointmentsVisibility, latePatientTrackerEnabled: latePatientTrackerEnabledState, setLatePatientTrackerEnabled, clinicalNoteSort, setClinicalNoteSort, clinicalNoteGrouping, setClinicalNoteGrouping, clinicalNoteDensity, setClinicalNoteDensity, homeView, setHomeView }}>
       {children}
 
       {/* --- TOAST CONTAINER (Smartphone Style) --- */}
