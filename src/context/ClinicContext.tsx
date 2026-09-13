@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import { useAuth } from "./AuthContext";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Clinic } from "@/types/saas";
+import { Clinic, UserProfile } from "@/types/saas";
 import { useRouter, usePathname } from "next/navigation";
 import { setGlobalClinicId } from "@/lib/db-utils";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
@@ -30,6 +30,50 @@ interface ClinicContextType {
 
 const ClinicContext = createContext<ClinicContextType | undefined>(undefined);
 
+/**
+ * Which clinic this session points at, decided from what is already in hand — no reads, no state.
+ *
+ * It is a function of its own because the answer is needed twice: once during render, to point
+ * db-utils at the tenant, and once in the effect below, to subscribe to the clinic document.
+ *
+ * The render-time call is the important one. React runs a child's effects BEFORE its parent's,
+ * so on the first render after sign-in every page that builds a Firestore path on mount —
+ * `getClinicCollection("attendance")` in the clock widget, and ninety-odd other call sites — ran
+ * while the tenant pointer was still null and threw "No clinic selected globally". With no error
+ * boundary below the root, that throw blanked the whole app: the "Something went wrong" screen
+ * people hit right after logging in, and at random on /leads, /attendance, /chats and /settings.
+ * Resolving here means the pointer is set before any child effect can ask for it.
+ */
+function resolveClinicId(user: UserProfile | null, current: string | null): string | null {
+  if (!user) return null;
+  if (current) return current;
+
+  const session = (key: string): string | null => {
+    if (typeof window === "undefined") return null;
+    try { return sessionStorage.getItem(key); } catch { return null; }
+  };
+
+  if (user.isSuperAdmin) {
+    // An impersonation link wins, then whatever this tab was already looking at.
+    const fromUrl = typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("clinic")
+      : null;
+    return fromUrl || session("superAdminClinicId");
+  }
+
+  const userClinics = Object.keys(user.clinicRoles || {});
+  if (userClinics.length === 0) return null;
+
+  // A clinic entered on the login form wins over the stored default, but only if the user
+  // genuinely holds a role in it — the login page already checked this, and re-checking here
+  // means a hand-edited sessionStorage value falls back to the default instead of parking
+  // clinicId on a clinic whose reads will just be denied.
+  const requested = session("preferredClinicId");
+  return (requested && userClinics.includes(requested))
+    ? requested
+    : (user.defaultClinicId || userClinics[0]);
+}
+
 export function ClinicProvider({ children }: { children: React.ReactNode }) {
   const { user, loading: authLoading } = useAuth();
   const [clinicId, setClinicIdState] = useState<string | null>(null);
@@ -37,6 +81,14 @@ export function ClinicProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const pathname = usePathname();
+
+  // Point db-utils at the tenant now, in render, so it is already right when the children
+  // mounted below run their effects. Browser only: on the server this module-level pointer is
+  // shared by every request being rendered at once, and one clinic's id must never leak into
+  // another's render. The effect below is what sets it there (it does not run on the server).
+  if (typeof window !== "undefined" && !authLoading) {
+    setGlobalClinicId(resolveClinicId(user, clinicId));
+  }
 
   useEffect(() => {
     if (authLoading) return;
@@ -58,26 +110,15 @@ export function ClinicProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Determine which clinic to load
+    // Determine which clinic to load — the same decision render just made.
     const userClinics = Object.keys(user.clinicRoles || {});
-    let targetClinicId = clinicId;
+    const targetClinicId = resolveClinicId(user, clinicId);
 
     if (user.isSuperAdmin) {
-      // 1. Check URL for impersonation param (e.g. opened in new tab from superadmin)
+      // An impersonation that arrived in the URL is remembered for the rest of this tab.
       if (typeof window !== "undefined") {
-        const urlParams = new URLSearchParams(window.location.search);
-        const queryClinicId = urlParams.get("clinic");
-        
-        if (queryClinicId) {
-          targetClinicId = queryClinicId;
-          sessionStorage.setItem("superAdminClinicId", queryClinicId);
-        } else {
-          // 2. Check session storage for existing impersonation in this tab
-          const storedClinicId = sessionStorage.getItem("superAdminClinicId");
-          if (storedClinicId) {
-            targetClinicId = storedClinicId;
-          }
-        }
+        const queryClinicId = new URLSearchParams(window.location.search).get("clinic");
+        if (queryClinicId) sessionStorage.setItem("superAdminClinicId", queryClinicId);
       }
 
       if (targetClinicId) {
@@ -103,22 +144,11 @@ export function ClinicProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      if (!targetClinicId && userClinics.length > 0) {
-        // A clinic entered on the login form wins over the stored default, but only if the user
-        // genuinely holds a role in it — the login page already checked this, and re-checking here
-        // means a hand-edited sessionStorage value falls back to the default instead of parking
-        // clinicId on a clinic whose reads will just be denied.
-        const requested = typeof window !== "undefined" ? sessionStorage.getItem("preferredClinicId") : null;
-        targetClinicId = (requested && userClinics.includes(requested))
-          ? requested
-          : (user.defaultClinicId || userClinics[0]);
-        setClinicIdState(targetClinicId);
-      }
-
       if (!targetClinicId) {
         setLoading(false);
         return;
       }
+      setClinicIdState(targetClinicId);
       setGlobalClinicId(targetClinicId);
     }
 
