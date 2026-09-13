@@ -204,6 +204,19 @@ export async function POST(request: Request) {
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Could not generate speech.";
+    /*
+     * The speech model's own daily allowance, as opposed to the clinic's monthly one: Gemini
+     * permits 100 requests a day PER PROJECT for gemini-2.5-flash-tts, shared by every clinic.
+     * Returned as 429 rather than 502 because the two mean different things to the caller — a
+     * 502 reads as "try again", and the client would try again on every line for the rest of the
+     * day. A 429 tells it to stop asking and say so.
+     */
+    if (/\b429\b|RESOURCE_EXHAUSTED|exceeded your current quota/i.test(message)) {
+      return NextResponse.json(
+        { error: "The speech service has no requests left today. Written narration carries on.", retryAfterHours: 24 },
+        { status: 429 },
+      );
+    }
     reportServerError("TTS route failed:", error);
     // The panel falls back to the device voice on any failure, so this is a soft error: the
     // assistant still answers, it just answers in the browser's own voice.

@@ -142,12 +142,20 @@ export default function GrandTourOverlay() {
   const isLast = stopIndex >= stops.length - 1;
 
   /* --- preferences: voice, pace ----------------------------------------------------------- */
-  // Defaults (user's call after the QA round): step by step, and spoken. Both remembered.
-  const [voiceOn, setVoiceOn] = useState(true);
+  /*
+   * Defaults: step by step, and written.
+   *
+   * Voice was on by default for a few hours, until the speech model turned out to allow 100
+   * requests a DAY for the whole project — against a tour of roughly 670 distinct lines. Until
+   * every line is in the shared cache (scripts/warm-tour-voice.mts, ~100 a day), on-by-default
+   * means the first person to tour each day hears it and everyone after them hears silence.
+   * A cached line costs no request at all, so this goes back on once the cache is full.
+   */
+  const [voiceOn, setVoiceOn] = useState(false);
   const [pace, setPaceState] = useState<Pace>("step");
   const paceRef = useRef<Pace>("step");
   useEffect(() => {
-    setVoiceOn(readPref(VOICE_KEY, "on") === "on");
+    setVoiceOn(readPref(VOICE_KEY, "off") === "on");
     const p = readPref(PACE_KEY, "step") === "auto" ? "auto" : "step";
     setPaceState(p);
     paceRef.current = p;
@@ -212,7 +220,7 @@ export default function GrandTourOverlay() {
             showToast(
               res.status === 403
                 ? isAr ? "الصوت جزء من المساعد الذكي — متاح في باقات Pro وPremium." : "Voice is part of the AI assistant — available on Pro and Premium plans."
-                : isAr ? "رصيد الصوت للشهر ده خلص. الجولة هتكمل مكتوبة." : "This month's voice allowance is used up. The tour continues in text.",
+                : isAr ? "الصوت مش متاح دلوقتي. الجولة هتكمل مكتوبة." : "Voice isn't available right now. The tour carries on in writing.",
               "info",
             );
             return;
