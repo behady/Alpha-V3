@@ -94,7 +94,6 @@ export default function AiChatWidget() {
   const pathname = usePathname();
   const onFarSide = receptionPanelActive ? !isRTL : isRTL;
   const lifted = pathname === "/chats";
-  const cornerClass = onFarSide ? "left-4 sm:left-6" : "right-4 sm:right-6";
   const launcherCornerClass = onFarSide ? "left-5" : "right-5";
 
   const [isOpen, setIsOpen] = useState(false);
@@ -601,7 +600,7 @@ export default function AiChatWidget() {
       {/* The assistant panel — same glass shell as the reception panel beside the schedule. */}
       {isOpen && (
         <div
-          className={`fixed bottom-44 ${lifted ? "lg:bottom-[11.5rem]" : "lg:bottom-24"} ${cornerClass} z-50 w-[calc(100vw-2rem)] sm:w-[400px] h-[560px] max-h-[calc(100dvh-13rem)] lg:max-h-[75vh] bg-white/80 backdrop-blur-3xl border border-white/60 shadow-[0_8px_40px_rgba(0,0,0,0.12)] rounded-[2rem] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200`}
+          className={`fixed bottom-44 ${lifted ? "lg:bottom-[11.5rem]" : "lg:bottom-24"} inset-x-4 sm:inset-x-6 ${onFarSide ? "sm:end-auto" : "sm:start-auto"} z-50 sm:w-[400px] sm:max-w-[calc(100vw-3rem)] h-[560px] max-h-[calc(100dvh-13rem)] lg:max-h-[75vh] bg-white/80 backdrop-blur-3xl border border-white/60 shadow-[0_8px_40px_rgba(0,0,0,0.12)] rounded-[2rem] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200`}
           dir={isRTL ? "rtl" : "ltr"}
         >
           {/* Header */}

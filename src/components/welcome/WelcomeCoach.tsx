@@ -56,7 +56,6 @@ export default function WelcomeCoach() {
    */
   const onFarSide = receptionPanelActive ? !isRTL : isRTL;
   const lifted = pathname === "/chats";
-  const cornerClass = onFarSide ? "left-4 sm:left-6" : "right-4 sm:right-6";
 
   if (!coach.speak) return null;
   // The chat panel unfolds from the orb directly below this bubble and would bury it.
@@ -89,7 +88,18 @@ export default function WelcomeCoach() {
 
   return (
     <div
-      className={`fixed z-[60] bottom-40 ${lifted ? "lg:bottom-44" : "lg:bottom-20"} ${cornerClass} w-[calc(100vw-2rem)] sm:w-[22rem]`}
+      /*
+       * Pinned to BOTH side edges rather than one edge plus a width.
+       *
+       * With `right-6 w-[22rem]` the card is only on screen while the browser agrees that its
+       * containing block is the viewport — and a single transformed or contained ancestor
+       * anywhere above it silently makes that untrue, which puts the card's right half past the
+       * window with its text cut mid-word. Pinning both edges and capping the width means the
+       * worst case is a card that is narrower than intended, never one that is off screen.
+       */
+      className={`fixed z-[60] bottom-24 ${lifted ? "lg:bottom-44" : "lg:bottom-20"} inset-x-4 sm:inset-x-6 ${
+        onFarSide ? "sm:end-auto" : "sm:start-auto"
+      } sm:w-[22rem] sm:max-w-[calc(100vw-3rem)] max-h-[calc(100dvh-8rem)] overflow-y-auto`}
       dir={isRTL ? "rtl" : "ltr"}
     >
       <div className="rounded-[1.75rem] border border-white/60 bg-white/90 shadow-[0_8px_40px_rgba(0,0,0,0.14)] backdrop-blur-3xl animate-in slide-in-from-bottom-4 fade-in duration-300 overflow-hidden">
