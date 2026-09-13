@@ -199,7 +199,9 @@ export default function GrandTourOverlay() {
           const res = await fetch("/api/tts", {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-            body: JSON.stringify({ clinicId, text: spoken, language: isAr ? "ar" : "en" }),
+            // Tour speech never carries clinic data (fixed narration, or an answer from the shared
+            // notes), so the server may keep it for every clinic.
+            body: JSON.stringify({ clinicId, text: spoken, language: isAr ? "ar" : "en", shared: true }),
           });
           if (res.status === 403 || res.status === 429) {
             setVoiceOn(false);
@@ -541,12 +543,16 @@ export default function GrandTourOverlay() {
   }, [qa.length, asking]);
 
   const ask = useCallback(
-    async (text: string) => {
+    async (text: string, standalone = false) => {
       const prompt = text.trim();
       if (!prompt || asking || !stop || !clinicId) return;
       setQuestion("");
       const userMsg: QaMessage = { id: `${Date.now()}u`, role: "user", content: prompt, stopId: stop.id };
-      const history = [...qa].slice(-HISTORY_TURNS).map((m) => ({ role: m.role, content: m.content }));
+      // Context is this stop's own exchange only. A suggested chip is a standalone question: it
+      // goes without history so the server can answer it from the shared cache, for free.
+      const history = standalone
+        ? []
+        : qa.filter((m) => m.stopId === stop.id).slice(-HISTORY_TURNS).map((m) => ({ role: m.role, content: m.content }));
       setQa((q) => [...q, userMsg]);
       setAsking(true);
       stopSpeaking();
@@ -922,7 +928,7 @@ export default function GrandTourOverlay() {
                 {stop.ask.map((q) => {
                   const label = isAr ? q.ar : q.en;
                   return (
-                    <button key={label} type="button" onClick={() => void ask(label)} className="rounded-full border border-white/15 px-3 py-1.5 text-[11.5px] font-bold text-white/75 hover:border-[#FACC15]/60 hover:text-white">
+                    <button key={label} type="button" onClick={() => void ask(label, true)} className="rounded-full border border-white/15 px-3 py-1.5 text-[11.5px] font-bold text-white/75 hover:border-[#FACC15]/60 hover:text-white">
                       {label}
                     </button>
                   );

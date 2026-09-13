@@ -1,6 +1,7 @@
 import { reportServerError } from "@/lib/server/reportError";
 // src/app/api/gemini/route.ts
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
@@ -109,16 +110,25 @@ const RECEPTION_READABLE_COLLECTIONS = new Set([
  * that writes, sends, or navigates — the tour is a guided look, and the page under the spotlight
  * is locked for exactly as long as she is talking.
  */
-const TOUR_TOOL_NAMES = new Set([
-  "db_read",
-  "find_patient",
-  "run_clinic_report",
-  "generate_financial_summary",
-  "audit_patient_records",
-  "get_diagnosis_catalog",
-  "start_tutorial",
-  "open_tour_stop",
-]);
+/**
+ * The tour answers from its own notes only — no data tools. Two reasons: the answer to "what is
+ * the teeth chart for?" is the same for every clinic, so it can be cached and served without a
+ * model call at all (see `tour_answers` below); and the tour used to ride the general assistant's
+ * prompt — schemas, directives, every tool — at ~23,000 input tokens a question. Without tools
+ * that read data the prompt is a fraction of that, and a small model handles it.
+ */
+const TOUR_TOOL_NAMES = new Set(["start_tutorial", "open_tour_stop"]);
+
+/** The tour's model: cheap, and adequate for "answer from these notes in 2-4 sentences". */
+const TOUR_MODEL = "gemini-3.1-flash-lite";
+
+/** Root collection of tour answers, shared by every clinic: the notes are the same everywhere. */
+const TOUR_ANSWERS_COLLECTION = "tour_answers";
+
+function tourAnswerKey(language: string, stopId: string, question: string): string {
+  const normalized = question.trim().toLowerCase().replace(/\s+/g, " ").replace(/[؟?!.،,]+$/g, "");
+  return createHash("sha1").update(`${TOUR_MODEL}|${language}|${stopId}|${normalized}`).digest("hex");
+}
 
 /** Help articles are handed to the model whole, but never past this many characters each. */
 const TOUR_ARTICLE_CHARS = 3500;
@@ -172,7 +182,7 @@ function buildTourInstruction(
       - Answer from the notes above and the help articles. If the notes do not cover it, say you are not sure and offer the Help Center or a lesson — never invent a button, a menu or a setting.
       - If the question is about a DIFFERENT part of the app that has a tour stop, call 'open_tour_stop' with that stop and say in one line that you are taking them there. The stop's own narration will explain it.
       - If they ask HOW to do something or to be SHOWN it ("show me how to add a service"): FIRST ask, in one short line, whether they want you to show them for real ("Want me to do it in front of you?"). Only when they say yes, call 'open_tour_stop' with a stop marked "(demonstrates)" — Sara does it herself on screen with her cursor. If no demonstrating stop fits, offer 'start_tutorial' (a ring they click through) the same way. Never just describe steps when either exists.
-      - You may read the clinic's data to answer a factual question ("how many patients do I have") with db_read, find_patient or run_clinic_report. Never write, delete, send a message or navigate during the tour — say those can be done after the tour from the orb, or offer the lesson.
+      - You cannot look up the clinic's own records during the tour (no data tools here). For "how many patients do I have" or any question about their data, say that the orb in the corner answers that after the tour. Never write, delete, send a message or navigate during the tour.
       - Every answer costs the clinic one credit; do not pad.
       - Stops you can move to: ${offered.map((s) => `${s.id} (${s.title.en}${s.demo ? ", demonstrates" : ""})`).join(", ")}.`;
 }
@@ -429,6 +439,34 @@ export async function POST(req: Request) {
      * lies about it gets at most the same handful of free turns as an honest one.
      */
     const claimsFirstTour = clientIsTour && body?.tour?.firstTour === true;
+    /**
+     * A standalone tour question (no follow-up history, no image) is cacheable: the tour has no
+     * data tools, so the answer depends only on the stop's notes and the language — the same for
+     * every clinic. Served from the cache it costs nothing and counts against nothing.
+     */
+    const tourCacheRef =
+      clientIsTour && tourStop && replyLanguage && typeof prompt === "string" && prompt.trim() && !image && (!Array.isArray(history) || history.length === 0)
+        ? db.collection(TOUR_ANSWERS_COLLECTION).doc(tourAnswerKey(replyLanguage, tourStop.id, prompt))
+        : null;
+    const rememberTourAnswer = async (payload: { reply: string; tourGoTo?: { stopId: string }; startTutorial?: { id: string } }) => {
+      if (!tourCacheRef || !payload.reply.trim()) return;
+      try {
+        await tourCacheRef.set(
+          {
+            ...payload,
+            stopId: tourStop?.id ?? null,
+            language: replyLanguage,
+            question: String(prompt).trim(),
+            model: TOUR_MODEL,
+            hits: 0,
+            createdAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+      } catch {
+        /* A cache miss next time is the only consequence. */
+      }
+    };
 
     /**
      * The widget's three hats: normal, trainer, support.
@@ -479,6 +517,24 @@ export async function POST(req: Request) {
     // their actions and learned facts to any colleague.
     const userId = authz.uid;
 
+    if (tourCacheRef) {
+      try {
+        const hit = await tourCacheRef.get();
+        const data = hit.data();
+        if (hit.exists && typeof data?.reply === "string" && data.reply.trim()) {
+          void tourCacheRef.set({ hits: FieldValue.increment(1), lastHitAt: FieldValue.serverTimestamp() }, { merge: true }).catch(() => {});
+          return NextResponse.json({
+            reply: data.reply,
+            ...(data.tourGoTo?.stopId ? { tourGoTo: { stopId: String(data.tourGoTo.stopId) } } : {}),
+            ...(data.startTutorial?.id ? { startTutorial: { id: String(data.startTutorial.id) } } : {}),
+            cached: true,
+          });
+        }
+      } catch {
+        /* Fall through to the model. */
+      }
+    }
+
     // Images cost more to process, so they draw more credits.
     const requiredCredits = image ? 3 : 1;
 
@@ -488,7 +544,7 @@ export async function POST(req: Request) {
      * Declared here so the chargeCredits closure below can read it: the closure runs after the
      * tool loop has finished, by which point the meter holds every round the turn took.
      */
-    const meter = createUsageMeter(CHAT_MODEL);
+    const meter = createUsageMeter(clientIsTour ? TOUR_MODEL : CHAT_MODEL);
 
     // Set by the quota check below, invoked only once the turn has produced a real result.
     let chargeCredits: (() => Promise<void>) | null = null;
@@ -1071,6 +1127,26 @@ export async function POST(req: Request) {
 - Say numbers, dates and times the way a person would speak them.`
       : "";
 
+    /**
+     * The tour's own system prompt: the language rule first (a small model reads the top of a
+     * prompt more reliably than the bottom), a short persona, the screen map, and the stop's
+     * notes. None of the schemas, directives or workflows the general assistant carries.
+     */
+    const tourLanguageRule =
+      replyLanguage === "ar"
+        ? "LANGUAGE RULE (applies to every reply): answer in Egyptian Arabic (عامية مصرية), even when the question is in English."
+        : replyLanguage === "en"
+          ? "LANGUAGE RULE (applies to every reply): answer in English, even when the question mixes in Arabic."
+          : "LANGUAGE RULE (applies to every reply): answer in the language the question was asked in.";
+    const screenMap = ALPHA_DATABASE_SCHEMAS.slice(Math.max(0, ALPHA_DATABASE_SCHEMAS.indexOf("WHERE THINGS LIVE ON SCREEN")));
+    const tourSystemInstruction = clientIsTour
+      ? `${tourLanguageRule}
+      You are Sara (in Arabic: سارة), the guide built into the Alpha Dental System. Never introduce yourself as an AI or a model. Current local time: ${currentDate}.
+
+      ${screenMap}
+      ${tourInstruction}`
+      : "";
+
     const receptionInstruction = `${RECEPTION_PERSONA}${voiceInstruction}
 
       Current local time: ${currentDate}.
@@ -1127,8 +1203,8 @@ export async function POST(req: Request) {
       .filter((f) => (f.name !== "file_bug_report" && f.name !== "file_feature_request") || clientCanFileTickets);
 
     const model = genAI.getGenerativeModel({
-      model: CHAT_MODEL,
-      systemInstruction: isReception ? receptionInstruction : generalInstruction,
+      model: clientIsTour ? TOUR_MODEL : CHAT_MODEL,
+      systemInstruction: isReception ? receptionInstruction : clientIsTour ? tourSystemInstruction : generalInstruction,
       tools: [{ functionDeclarations: activeTools }] as any
     });
 
@@ -1816,6 +1892,7 @@ export async function POST(req: Request) {
                 // Ends the turn like navigate_to does: the client starts the overlay, and the
                 // walkthrough itself is free of the model from here on.
                 await chargeCredits?.();
+                await rememberTourAnswer({ reply: reason, startTutorial: { id: tutorial.id } });
                 return NextResponse.json({ reply: reason, startTutorial: { id: tutorial.id } });
              }
           } else if (call.name === "open_tour_stop") {
@@ -1833,6 +1910,7 @@ export async function POST(req: Request) {
                 // Ends the turn like start_tutorial: the client moves the tour, and the stop's
                 // own narration takes it from here.
                 await chargeCredits?.();
+                await rememberTourAnswer({ reply: reason, tourGoTo: { stopId: target.id } });
                 return NextResponse.json({ reply: reason, tourGoTo: { stopId: target.id } });
              }
           } else if (call.name === "navigate_to") {
@@ -1957,6 +2035,7 @@ export async function POST(req: Request) {
       }
 
       await chargeCredits?.();
+      if (!pendingAction) await rememberTourAnswer({ reply: replyText });
       return NextResponse.json({ reply: replyText, pendingAction });
 
   } catch (error: any) {

@@ -1,7 +1,8 @@
 import { reportServerError } from "@/lib/server/reportError";
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
-import { adminDb } from "@/lib/firebaseAdmin";
+import { adminBucket, adminDb } from "@/lib/firebaseAdmin";
 import { adminClinicDoc } from "@/lib/adminClinicDb";
 import { requireStaffUser } from "@/lib/apiStaffAuth";
 import { hasFeature } from "@/lib/subscriptions";
@@ -61,10 +62,16 @@ function cacheSet(key: string, value: { audioBase64: string; mimeType: string })
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
-  const { clinicId, text, language } = body as {
+  const { clinicId, text, language, shared } = body as {
     clinicId?: string;
     text?: string;
     language?: string;
+    /**
+     * True for text that holds no clinic data — the tour's fixed narration. Such audio is kept in
+     * Storage under a hash of the text and served to every clinic: each line is synthesised once,
+     * ever, instead of once per clinic per server instance.
+     */
+    shared?: boolean;
   };
 
   if (!clinicId || typeof clinicId !== "string") {
@@ -107,7 +114,8 @@ export async function POST(request: Request) {
 
     // Served before the quota read and before any generation: a repeat costs nothing and should
     // therefore neither wait nor count against the ceiling.
-    const cacheKey = `${clinicId}::${lang}::${spoken}`;
+    const isShared = shared === true;
+    const cacheKey = isShared ? `shared::${lang}::${spoken}` : `${clinicId}::${lang}::${spoken}`;
     const cached = cacheGet(cacheKey);
     if (cached) {
       return NextResponse.json({
@@ -115,6 +123,25 @@ export async function POST(request: Request) {
         mimeType: cached.mimeType,
         cached: true,
       });
+    }
+
+    // The durable, cross-clinic copy. The in-memory map above dies with the serverless instance;
+    // this one does not, so a line of narration is paid for once.
+    const sharedFile = isShared
+      ? adminBucket().file(`tts-cache/${lang}/${createHash("sha1").update(spoken).digest("hex")}.wav`)
+      : null;
+    if (sharedFile) {
+      try {
+        const [exists] = await sharedFile.exists();
+        if (exists) {
+          const [buf] = await sharedFile.download();
+          const hit = { audioBase64: buf.toString("base64"), mimeType: "audio/wav" };
+          cacheSet(cacheKey, hit);
+          return NextResponse.json({ audio: hit.audioBase64, mimeType: hit.mimeType, cached: true });
+        }
+      } catch {
+        /* Storage unavailable: synthesise as before. */
+      }
     }
 
     let provider = getTtsProvider(lang);
@@ -163,6 +190,11 @@ export async function POST(request: Request) {
     );
 
     cacheSet(cacheKey, { audioBase64: result.audioBase64, mimeType: result.mimeType });
+    if (sharedFile && result.mimeType === "audio/wav") {
+      sharedFile
+        .save(Buffer.from(result.audioBase64, "base64"), { contentType: "audio/wav", resumable: false })
+        .catch((error) => reportServerError("TTS shared cache write failed:", error));
+    }
 
     return NextResponse.json({
       audio: result.audioBase64,
