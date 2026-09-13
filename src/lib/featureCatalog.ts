@@ -47,14 +47,14 @@ export const FEATURE_CATALOG: FeatureInfo[] = [
   {
     key: "whatsappBot",
     group: "messaging",
-    labelEn: "WhatsApp Receptionist",
-    labelAr: "موظف الاستقبال على واتساب",
+    labelEn: "WhatsApp Scripted Bot",
+    labelAr: "بوت واتساب (ردود جاهزة)",
     // Its own add-on, on purpose: it shares the connected number with the automatic messages
     // but neither needs the other. Its rule-based answers cost the platform nothing (Meta does
     // not bill replies inside the 24-hour window); the AI-written answers it can fall back to
     // spend the clinic's AI credits and therefore need the AI Assistant add-on as well.
-    descEn: "Answers patients on WhatsApp, books and reschedules by itself. AI-written replies also need the AI Assistant.",
-    descAr: "يرد على المرضى على واتساب ويحجز ويعدّل المواعيد بنفسه. الردود المكتوبة بالذكاء الاصطناعي تحتاج المساعد الذكي كمان.",
+    descEn: "Ready answers, keyword replies, booking and rescheduling by rules — no AI, no per-message cost. AI-written replies are the AI Assistant add-on.",
+    descAr: "ردود جاهزة وكلمات مفتاحية وحجز وتعديل مواعيد بقواعد ثابتة — بدون ذكاء اصطناعي وبدون تكلفة لكل رسالة. الردود بالذكاء الاصطناعي هي إضافة المساعد الذكي.",
   },
   {
     key: "clinicalPdfs",

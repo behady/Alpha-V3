@@ -186,6 +186,11 @@ export default function WhatsAppSettings() {
   // unattended is decided per purpose on the server (resolveWhatsappDeliveryMode).
   const canSendAutomatically = isAnyUnlocked(clinic, ["whatsappIntegration", "whatsappBot"]);
   const botInPlan = isUnlocked(clinic, "whatsappBot");
+  // The scripted bot is one add-on and costs the platform nothing to run; AI-written replies
+  // are the AI Assistant add-on, because every one of them is a paid model call. The server
+  // (bot/aiReply.ts) refuses AI without it — this only stops the screen offering a mode that
+  // would silently fall back to the script.
+  const aiInPlan = isUnlocked(clinic, "aiChat");
 
   const [hasLoaded, setHasLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1835,11 +1840,14 @@ export default function WhatsAppSettings() {
                   ).map((opt) => {
                     const current = state.botMode === "ai_first" ? "ai" : state.botAiEnabled ? "both" : "bot";
                     const active = current === opt.id;
+                    const needsAi = opt.ai && !aiInPlan;
                     return (
                       <button
                         key={opt.id}
                         type="button"
                         aria-pressed={active}
+                        disabled={needsAi}
+                        title={needsAi ? (language === "ar" ? "يحتاج إضافة المساعد الذكي" : "Needs the AI Assistant add-on") : undefined}
                         onClick={() => {
                           setState((s) => {
                             const next = { ...s, botMode: opt.mode, botAiEnabled: opt.ai };
@@ -1849,10 +1857,17 @@ export default function WhatsAppSettings() {
                         }}
                         className={`text-start rounded-xl border px-4 py-3 transition-colors ${
                           active ? "border-accent bg-accent/5 ring-1 ring-accent" : "border-line bg-surface-subtle hover:bg-surface-muted"
-                        }`}
+                        } ${needsAi ? "opacity-50 cursor-not-allowed" : ""}`}
                       >
-                        <span className="block text-sm font-black text-ink">{opt.label}</span>
-                        <span className="mt-1 block text-xs leading-relaxed text-ink-muted">{opt.hint}</span>
+                        <span className="flex items-center gap-1.5 text-sm font-black text-ink">
+                          {opt.label}
+                          {needsAi && <Lock size={12} className="shrink-0 text-ink-muted" />}
+                        </span>
+                        <span className="mt-1 block text-xs leading-relaxed text-ink-muted">
+                          {needsAi
+                            ? language === "ar" ? "إضافة المساعد الذكي غير مفعّلة في اشتراكك." : "The AI Assistant add-on is not in your subscription."
+                            : opt.hint}
+                        </span>
                       </button>
                     );
                   })}
