@@ -407,6 +407,9 @@ export default function GrandTourOverlay() {
       if (r.outcome === "failed") failed();
       return r.outcome;
     },
+    // `tour` itself is intentionally out: it changes identity on every stop, and rebuilding the
+    // hand mid-script would abort the very run it is driving.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [tour.demoValues, tour.liveDemoValues, failed],
   );
 
@@ -569,6 +572,8 @@ export default function GrandTourOverlay() {
     };
     document.addEventListener("click", onClick, true);
     return () => document.removeEventListener("click", onClick, true);
+    // Same reason: re-binding this listener on every stop would drop clicks mid-swap.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, paused, stopSpeaking]);
 
   const continueHand = () => {

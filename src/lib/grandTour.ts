@@ -1439,7 +1439,8 @@ export function tourStopsFor(viewer: TourViewer): TourStop[] {
     return true;
   }).map((stop) => {
     if (!viewer.phone || !stop.phone) return stop;
-    const { skip: _skip, ...overrides } = stop.phone;
+    const overrides = { ...stop.phone };
+    delete overrides.skip;
     return { ...stop, ...overrides };
   });
 }

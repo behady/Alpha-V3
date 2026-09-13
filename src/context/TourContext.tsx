@@ -448,6 +448,7 @@ export function TourProvider({
       }
       return n;
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, stop, demoMode, firstPatientId, demoPatientId, stops.length, scope, runId]);
 
   /** The stop the tracker should name, without making every event depend on the render. */

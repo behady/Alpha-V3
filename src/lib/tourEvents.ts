@@ -59,7 +59,11 @@ async function flush(): Promise<void> {
     await fetch("/api/tour/event", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ clinicId: batch[0].clinicId, events: batch.map(({ clinicId: _c, ...rest }) => rest) }),
+      // The clinic is sent once, at the top: the server takes it from there, not from each row.
+      body: JSON.stringify({
+        clinicId: batch[0].clinicId,
+        events: batch.map((e) => ({ event: e.event, run: e.run, stopId: e.stopId, role: e.role, detail: e.detail })),
+      }),
       keepalive: true,
     });
   } catch {
