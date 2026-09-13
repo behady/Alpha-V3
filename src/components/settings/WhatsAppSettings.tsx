@@ -1924,6 +1924,7 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
                 <span className="text-xs text-ink-muted">{txt.botClaimUnit}</span>
               </div>
               <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botClaimHint}</p>
+              </div>
 
               {/* The AI's own settings: cap, name, pacing, coaching. Meaningless without it. */}
               <div hidden={tab !== "ai"} className="space-y-3">
@@ -2041,7 +2042,6 @@ export default function WhatsAppSettings({ section = "all" }: { section?: WhatsA
                   />
                 </label>
                 <p className="max-w-2xl text-xs leading-relaxed text-ink-muted">{txt.botCoachingHint}</p>
-              </div>
               </div>
 
               {/*
