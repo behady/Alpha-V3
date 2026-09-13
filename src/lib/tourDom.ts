@@ -102,6 +102,44 @@ export function setNativeValue(el: HTMLInputElement | HTMLTextAreaElement | HTML
   el.dispatchEvent(new Event(el instanceof HTMLSelectElement ? "change" : "input", { bubbles: true }));
 }
 
+/** A phone-sized viewport, where Sara's panel covers the lower half of the screen. */
+export function isPhoneViewport(): boolean {
+  return typeof window !== "undefined" && window.innerWidth < 640;
+}
+
+/**
+ * Whether an element is already comfortably on screen for the tour: below the top bar, and on a
+ * phone above the panel that sits over the lower half.
+ */
+export function isRevealed(rect: DOMRect): boolean {
+  if (typeof window === "undefined") return true;
+  const bottomLimit = isPhoneViewport() ? window.innerHeight * 0.5 : window.innerHeight - 40;
+  return rect.top >= 80 && rect.bottom <= bottomLimit && rect.left >= 0 && rect.right <= window.innerWidth;
+}
+
+/**
+ * Scrolls an element into the place the tour can show it. Desktop: the middle of the viewport.
+ * Phone: the upper third, because the panel takes the lower half — `block: "center"` there
+ * lands the target exactly under Sara. `scroll-margin-top` keeps this correct inside nested
+ * scrollers, which a plain scrollBy on the window would not be.
+ */
+export function revealForTour(el: HTMLElement): void {
+  try {
+    if (isPhoneViewport()) {
+      const previous = el.style.scrollMarginTop;
+      el.style.scrollMarginTop = `${Math.round(window.innerHeight * 0.18)}px`;
+      el.scrollIntoView({ block: "start", inline: "nearest", behavior: "smooth" });
+      window.setTimeout(() => {
+        el.style.scrollMarginTop = previous;
+      }, 900);
+    } else {
+      el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Where to point a cursor at an element: its centre, in viewport pixels. */
 export function centreOf(rect: DOMRect): { x: number; y: number } {
   return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };

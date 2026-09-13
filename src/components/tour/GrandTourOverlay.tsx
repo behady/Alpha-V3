@@ -29,7 +29,7 @@ import { useUI } from "@/context/UIContext";
 import { auth } from "@/lib/firebase";
 import { TOUR_GUIDE, type Localized, type TourStop } from "@/lib/grandTour";
 import { navPlanFor, stopRouteMatches, type DemoAction, type TourOffer } from "@/lib/tourDemo";
-import { findAnchorInRowContaining, findFirstVisibleAnchor } from "@/lib/tourDom";
+import { findAnchorInRowContaining, findFirstVisibleAnchor, isPhoneViewport, revealForTour } from "@/lib/tourDom";
 import { toSpeechText, trimForSpeech } from "@/lib/speechText";
 import { useTourRunner, type Pace } from "@/lib/useTourRunner";
 
@@ -495,13 +495,8 @@ export default function GrandTourOverlay() {
       if (scrolledFor.current !== key && !runnerAnchor) {
         scrolledFor.current = key;
         const r = found.rect;
-        if (r.top < 0 || r.bottom > window.innerHeight) {
-          try {
-            found.el.scrollIntoView({ block: "center", behavior: "smooth" });
-          } catch {
-            /* ignore */
-          }
-        }
+        const bottomLimit = isPhoneViewport() ? window.innerHeight * 0.5 : window.innerHeight;
+        if (r.top < 0 || r.bottom > bottomLimit) revealForTour(found.el);
       }
       setRect(found.rect);
     };
@@ -729,31 +724,38 @@ export default function GrandTourOverlay() {
       <>
         {sheet}
         <TourCursor cursor={runner.cursor} label={guideName} />
-        <div className={`fixed z-[10001] inset-x-3 ${dockTop ? "top-3" : "bottom-3"} sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-[min(44rem,calc(100vw-2rem))]`} dir={isRTL ? "rtl" : "ltr"} role="dialog" aria-label={guideName} data-tour-chrome>
-          <div className="flex items-center gap-3 rounded-full bg-ink-slab py-2 pe-2 ps-2 text-white shadow-[0_16px_50px_rgba(0,0,0,0.4)] ring-1 ring-white/10 animate-in fade-in zoom-in-95 duration-200">
-            <div className="shrink-0 rounded-full bg-white/5 p-0.5">
-              <AvatarFace state={avatarState} size={36} />
+        <div className={`fixed z-[10001] inset-x-2 ${dockTop ? "top-2" : "bottom-2"} sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-[min(44rem,calc(100vw-2rem))]`} dir={isRTL ? "rtl" : "ltr"} role="dialog" aria-label={guideName} data-tour-chrome>
+          {/* A phone gets two rows — the line, then the controls — so a long line never squeezes
+              the buttons into a sliver. Wider screens keep the single pill. */}
+          <div className="flex flex-col gap-2 rounded-[1.5rem] bg-ink-slab px-3 py-2.5 text-white shadow-[0_16px_50px_rgba(0,0,0,0.4)] ring-1 ring-white/10 animate-in fade-in zoom-in-95 duration-200 sm:flex-row sm:items-center sm:gap-3 sm:rounded-full sm:px-2 sm:py-2">
+            <div className="flex min-w-0 flex-1 items-center gap-2.5 sm:gap-3">
+              <div className="shrink-0 rounded-full bg-white/5 p-0.5">
+                <AvatarFace state={avatarState} size={32} />
+              </div>
+              <p onClick={typed.finish} className="min-w-0 flex-1 text-[13px] font-medium leading-snug text-white/90">
+                {typed.shown || "…"}
+                {!typed.done && <span className="ms-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-[#FACC15]" />}
+              </p>
             </div>
-            <p onClick={typed.finish} className="min-w-0 flex-1 text-[13px] font-medium leading-snug text-white/90">
-              {typed.shown || "…"}
-              {!typed.done && <span className="ms-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-[#FACC15]" />}
-            </p>
-            <span className="hidden shrink-0 text-[10.5px] font-black tabular-nums text-white/40 md:block">{shownIndex + 1}/{total}</span>
-            <span className="hidden shrink-0 md:block">{paceToggle}</span>
-            <button type="button" onClick={minimize} className="hidden shrink-0 rounded-full border border-white/15 px-3 py-1.5 text-[11.5px] font-bold text-white/70 hover:bg-white/10 hover:text-white sm:block">
-              {isAr ? "خليني أتفرج" : "Let me look"}
-            </button>
-            <button type="button" onClick={skipHand} className="shrink-0 rounded-full border border-white/15 px-3 py-1.5 text-[11.5px] font-bold text-white/70 hover:bg-white/10 hover:text-white">
-              {isAr ? "كفاية" : "Skip"}
-            </button>
-            <button
-              type="button"
-              onClick={() => (waiting ? runner.pressNext() : tour.next())}
-              className={`grid h-8 shrink-0 place-items-center rounded-full bg-[#FACC15] text-ink transition-all hover:brightness-105 active:scale-[0.98] ${waiting ? "animate-pulse px-3" : "w-8"}`}
-              aria-label={waiting ? (isAr ? "التالي" : "Next") : isLast ? (isAr ? "إنهاء" : "Finish") : isAr ? "المحطة الجاية" : "Next stop"}
-            >
-              {waiting ? <span className="text-[11px] font-black">{isAr ? "التالي" : "Next"}</span> : isLast ? <Check size={14} strokeWidth={3} /> : <ArrowNext size={14} />}
-            </button>
+            <div className="flex shrink-0 items-center gap-2 ps-10 sm:ps-0">
+              <span className="text-[10.5px] font-black tabular-nums text-white/40">{shownIndex + 1}/{total}</span>
+              {paceToggle}
+              <button type="button" onClick={minimize} className="rounded-full border border-white/15 px-2.5 py-1.5 text-[11px] font-bold text-white/70 hover:bg-white/10 hover:text-white sm:px-3 sm:text-[11.5px]">
+                <span className="sm:hidden">{isAr ? "أتفرج" : "Look"}</span>
+                <span className="hidden sm:inline">{isAr ? "خليني أتفرج" : "Let me look"}</span>
+              </button>
+              <button type="button" onClick={skipHand} className="rounded-full border border-white/15 px-2.5 py-1.5 text-[11px] font-bold text-white/70 hover:bg-white/10 hover:text-white sm:px-3 sm:text-[11.5px]">
+                {isAr ? "كفاية" : "Skip"}
+              </button>
+              <button
+                type="button"
+                onClick={() => (waiting ? runner.pressNext() : tour.next())}
+                className={`ms-auto grid h-8 shrink-0 place-items-center rounded-full bg-[#FACC15] text-ink transition-all hover:brightness-105 active:scale-[0.98] sm:ms-0 ${waiting ? "animate-pulse px-3" : "w-8"}`}
+                aria-label={waiting ? (isAr ? "التالي" : "Next") : isLast ? (isAr ? "إنهاء" : "Finish") : isAr ? "المحطة الجاية" : "Next stop"}
+              >
+                {waiting ? <span className="text-[11px] font-black">{isAr ? "التالي" : "Next"}</span> : isLast ? <Check size={14} strokeWidth={3} /> : <ArrowNext size={14} />}
+              </button>
+            </div>
           </div>
         </div>
       </>
@@ -765,44 +767,46 @@ export default function GrandTourOverlay() {
       {sheet}
       <TourCursor cursor={runner.cursor} label={guideName} />
 
-      <div className={`fixed z-[10001] inset-x-3 ${dockTop ? "top-3" : "bottom-3"} sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-[min(44rem,calc(100vw-2rem))]`} dir={isRTL ? "rtl" : "ltr"} role="dialog" aria-label={guideName} data-tour-chrome>
+      <div className={`fixed z-[10001] inset-x-2 ${dockTop ? "top-2" : "bottom-2"} sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-[min(44rem,calc(100vw-2rem))]`} dir={isRTL ? "rtl" : "ltr"} role="dialog" aria-label={guideName} data-tour-chrome>
         <div className="relative rounded-[1.75rem] bg-ink-slab text-white shadow-[0_24px_80px_rgba(0,0,0,0.45)] ring-1 ring-white/10 animate-in fade-in slide-in-from-bottom-4 duration-300">
           <div className="h-1 w-full overflow-hidden rounded-t-[1.75rem] bg-white/10">
             <div className="h-full bg-[#FACC15] transition-[width] duration-500" style={{ width: `${pct}%` }} />
           </div>
 
           {/* Header */}
-          <div className="flex items-center gap-3 px-4 pt-3 sm:px-5">
+          <div className="flex items-center gap-2 px-3 pt-3 sm:gap-3 sm:px-5">
             <div className="shrink-0 rounded-full bg-white/5 p-0.5">
-              <AvatarFace state={avatarState} size={40} />
+              <AvatarFace state={avatarState} size={36} />
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 sm:gap-2">
                 <span className="text-[13px] font-black tracking-tight">{guideName}</span>
-                <span className="rounded-full bg-[#FACC15] px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-ink">{isAr ? "الجولة" : "Tour"}</span>
+                <span className="hidden rounded-full bg-[#FACC15] px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-ink sm:inline">{isAr ? "الجولة" : "Tour"}</span>
               </div>
               <p className="truncate text-[11px] font-semibold text-white/50">
-                {chapter ? (isAr ? chapter.title.ar : chapter.title.en) : ""}
-                <span className="mx-1.5 text-white/25">·</span>
+                <span className="hidden sm:inline">
+                  {chapter ? (isAr ? chapter.title.ar : chapter.title.en) : ""}
+                  <span className="mx-1.5 text-white/25">·</span>
+                </span>
                 <span className="tabular-nums">{shownIndex + 1} / {total}</span>
               </p>
             </div>
-            <button type="button" onClick={toggleLanguage} title={isAr ? "English" : "العربية"} className="grid size-9 shrink-0 place-items-center rounded-full border border-white/15 text-white/60 hover:bg-white/10 hover:text-white">
+            <button type="button" onClick={toggleLanguage} title={isAr ? "English" : "العربية"} className="grid size-8 shrink-0 sm:size-9 place-items-center rounded-full border border-white/15 text-white/60 hover:bg-white/10 hover:text-white">
               <Languages size={16} />
             </button>
-            <button type="button" onClick={minimize} title={isAr ? "خليني أتفرج (الصفحة بتفتح)" : "Let me look"} className="grid size-9 shrink-0 place-items-center rounded-full border border-white/15 text-white/60 hover:bg-white/10 hover:text-white">
+            <button type="button" onClick={minimize} title={isAr ? "خليني أتفرج (الصفحة بتفتح)" : "Let me look"} className="grid size-8 shrink-0 sm:size-9 place-items-center rounded-full border border-white/15 text-white/60 hover:bg-white/10 hover:text-white">
               <Minus size={16} />
             </button>
             <button
               type="button"
               onClick={toggleVoice}
               title={voiceOn ? (isAr ? "إيقاف الصوت" : "Voice off") : (isAr ? "تشغيل الصوت" : "Read aloud")}
-              className={`grid size-9 shrink-0 place-items-center rounded-full border transition-colors ${voiceOn ? "border-[#FACC15]/50 bg-[#FACC15]/15 text-[#FACC15]" : "border-white/15 text-white/60 hover:bg-white/10 hover:text-white"}`}
+              className={`grid size-8 shrink-0 place-items-center rounded-full border transition-colors sm:size-9 ${voiceOn ? "border-[#FACC15]/50 bg-[#FACC15]/15 text-[#FACC15]" : "border-white/15 text-white/60 hover:bg-white/10 hover:text-white"}`}
             >
               {voiceOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
             </button>
             <div className="relative shrink-0">
-              <button type="button" onClick={() => setChaptersOpen((o) => !o)} title={isAr ? "الفصول" : "Chapters"} className="grid size-9 place-items-center rounded-full border border-white/15 text-white/60 hover:bg-white/10 hover:text-white">
+              <button type="button" onClick={() => setChaptersOpen((o) => !o)} title={isAr ? "الفصول" : "Chapters"} className="grid size-8 place-items-center sm:size-9 rounded-full border border-white/15 text-white/60 hover:bg-white/10 hover:text-white">
                 <ListTree size={16} />
               </button>
               {chaptersOpen && (
@@ -826,14 +830,14 @@ export default function GrandTourOverlay() {
                 </div>
               )}
             </div>
-            <button type="button" onClick={tour.leave} title={isAr ? "إنهاء الجولة (تقدر ترجعلها)" : "Leave the tour (you can come back)"} className="grid size-9 shrink-0 place-items-center rounded-full text-white/50 hover:bg-white/10 hover:text-white">
+            <button type="button" onClick={tour.leave} title={isAr ? "إنهاء الجولة (تقدر ترجعلها)" : "Leave the tour (you can come back)"} className="grid size-8 sm:size-9 shrink-0 place-items-center rounded-full text-white/50 hover:bg-white/10 hover:text-white">
               <X size={16} />
             </button>
           </div>
 
           {/* The stop */}
-          <div className="px-4 pb-3 pt-3 sm:px-5">
-            <h2 className="font-display text-[1.35rem] font-bold leading-tight tracking-tight sm:text-2xl">{isAr ? stop.title.ar : stop.title.en}</h2>
+          <div className="max-h-[46vh] overflow-y-auto px-3 pb-3 pt-2.5 sm:max-h-none sm:px-5 sm:pt-3">
+            <h2 className="font-display text-[1.2rem] font-bold leading-tight tracking-tight sm:text-2xl">{isAr ? stop.title.ar : stop.title.en}</h2>
             <p onClick={typed.finish} className="mt-1.5 min-h-[3.2em] cursor-default text-[13.5px] font-medium leading-relaxed text-white/85 sm:text-[14px]">
               {phase === "navigating" ? (
                 <span className="inline-flex items-center gap-2 text-white/50">
@@ -961,7 +965,7 @@ export default function GrandTourOverlay() {
           </div>
 
           {/* Footer */}
-          <div className="flex flex-wrap items-center gap-2 border-t border-white/10 px-4 py-3 sm:px-5">
+          <div className="flex flex-wrap items-center gap-2 border-t border-white/10 px-3 py-2.5 sm:px-5 sm:py-3">
             <button type="button" onClick={tour.back} disabled={stopIndex === 0} className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[12px] font-black text-white/70 hover:bg-white/10 hover:text-white disabled:opacity-30">
               <ArrowBack size={14} />
               {isAr ? "رجوع" : "Back"}

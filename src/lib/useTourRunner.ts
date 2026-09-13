@@ -5,6 +5,9 @@ import type { Localized } from "@/lib/grandTour";
 import { fillTemplate, type DemoAction, type DemoValues, type TourCheck, type TourOffer } from "@/lib/tourDemo";
 import {
   centreOf,
+  isPhoneViewport,
+  isRevealed,
+  revealForTour,
   findAnchorInRowContaining,
   findByText,
   findDirectAnchor,
@@ -83,7 +86,10 @@ const sleep = (ms: number, signal?: AbortSignal) =>
 
 /** How long a person needs to read a line. Bounded so a long line never stalls the demo. */
 export function readMsFor(text: string): number {
-  return Math.min(8000, Math.max(1600, text.length * 38));
+  // A comfortable reading pace is ~15 characters a second; a phone reads slower still, with
+  // the eyes moving between the caption and what the hand is pointing at.
+  const perChar = isPhoneViewport() ? 80 : 65;
+  return Math.min(20000, Math.max(2800, text.length * perChar));
 }
 
 /** The editable control inside (or being) an element: a wrapper anchor still gets typed into. */
@@ -167,14 +173,9 @@ export function useTourRunner(opts: {
   );
 
   const moveTo = useCallback(async (found: FoundAnchor, signal: AbortSignal) => {
-    const r = found.el.getBoundingClientRect();
-    if (r.top < 80 || r.bottom > window.innerHeight - 40 || r.left < 0 || r.right > window.innerWidth) {
-      try {
-        found.el.scrollIntoView({ block: "center", inline: "nearest", behavior: "smooth" });
-      } catch {
-        /* ignore */
-      }
-      await sleep(500, signal);
+    if (!isRevealed(found.el.getBoundingClientRect())) {
+      revealForTour(found.el);
+      await sleep(600, signal);
     }
     const { x, y } = centreOf(found.el.getBoundingClientRect());
     setCursor((c) => ({ ...c, x, y, visible: true }));
