@@ -384,7 +384,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return clinic?.name || "Alpha";
   })();
 
-  if (isCheckingAuth || authLoading) {
+  // Every page under this layout builds Firestore paths from the current clinic, some of them
+  // during render. So the skeleton stays up until there IS a clinic — not merely until Firebase
+  // has a user. `isCheckingAuth` alone cleared the instant sign-in completed, a beat before the
+  // profile and the clinic existed, and that one frame was the "No clinic selected globally"
+  // crash. A signed-in person with no clinic to stand in (a superadmin in a fresh tab, a new
+  // account) is being sent to /superadmin or /onboarding by ClinicProvider; they see the
+  // skeleton on the way rather than a page that cannot exist.
+  if (isCheckingAuth || authLoading || !user || !clinicId) {
     return (
       <div className="min-h-screen bg-surface-page">
         {/* Black band skeleton, so the first paint is the shape the app actually has */}

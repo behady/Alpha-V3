@@ -26,7 +26,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         if (unsubscribeUserDoc) unsubscribeUserDoc();
-        
+
+        // Firebase knows who this is; the app does not yet. Until the profile document arrives
+        // there is no `user`, no clinic roles and no clinic — and `loading` had already gone
+        // false back when nobody was signed in. Left false, the gap between sign-in and the
+        // profile reads as "signed out": ClinicProvider wiped the clinic chosen on the login
+        // form, and the dashboard rendered a page with no clinic to stand in, which threw.
+        setLoading(true);
+
         try {
           // Ensure user document exists (if this is their first time logging in)
           const userRef = getClinicDoc("users", firebaseUser.uid);
