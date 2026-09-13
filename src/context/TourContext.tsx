@@ -141,6 +141,11 @@ export function TourProvider({
   }, []);
 
   const stops = useMemo(() => {
+    // The tour is a laptop thing for now (user's call, 2026-09-13): on a phone every surface
+    // that offers it — the intro, the menu row, the widget button, the Getting-started hero,
+    // the overlay itself — keys off an empty stop list, so this one line hides all of them.
+    // The phone variants on the stops stay in place for the day it comes back.
+    if (phone) return [];
     const viewer = { isAdmin, isReadOnly, role: user?.role, permissions: user?.permissions };
     const settingsIds = visibleSections(SETTINGS_SECTIONS, viewer, (f) =>
       hasFeature(clinic, f as Parameters<typeof hasFeature>[1]),
