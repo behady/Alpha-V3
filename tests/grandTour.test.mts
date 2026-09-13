@@ -87,6 +87,14 @@ assert.equal(tourStopById("finale")?.chapter, "wrapup");
   );
   const ownerIds = coreStopsFor(TOUR_STOPS, SETUP_MISSING, "owner").map((s) => s.id);
   assert.ok(ownerIds.includes("patient-payment"), "an owner sees the desk's day too");
+  assert.ok(ownerIds.includes("finance") && ownerIds.includes("dashboard-faces"), "an owner is shown their own two screens");
+  assert.ok(!dentistIds.includes("finance"), "a dentist's ten minutes are not spent on the ledger");
+  // Three jobs, three different tours: if a future edit collapses two of them, the whole point
+  // of the role split is gone and nothing else would notice.
+  const signatures = new Set(
+    (["reception", "dentist", "owner"] as const).map((r) => coreStopsFor(TOUR_STOPS, SETUP_MISSING, r).map((s) => s.id).join(",")),
+  );
+  assert.equal(signatures.size, 3, "each job's core tour must actually differ");
 
   const handsOn = TOUR_STOPS.filter((s) => s.handsOn);
   assert.ok(handsOn.length >= 3, "the core tour has hands-on moments");

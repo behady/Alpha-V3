@@ -361,6 +361,9 @@ const DASHBOARD_STOPS: TourStop[] = [
   {
     id: "dashboard-faces",
     chapter: "dashboard",
+    // An owner's first ten minutes should include the screen built for them.
+    core: true,
+    coreRoles: ["owner"],
     route: "/",
     title: { en: "Three home screens", ar: "تلات شاشات رئيسية" },
     say: {
@@ -658,6 +661,8 @@ const OPERATIONS_STOPS: TourStop[] = [
   {
     id: "finance",
     chapter: "operations",
+    core: true,
+    coreRoles: ["owner"],
     route: "/finance",
     navKey: "finance",
     title: { en: "Finance", ar: "الحسابات" },
@@ -1061,6 +1066,30 @@ const SETTINGS_NARRATION: Record<string, SettingsNarration> = {
     ],
     knowledge:
       "WhatsApp (/settings/whatsapp, admin, plan feature whatsappIntegration): connect the clinic's WhatsApp Business number (Meta), the assistant's name and persona notes, ready answers (question → answer pairs the bot uses first), coaching notes (house rules), the media library (photos/videos it may send on request), the medicine list it may discuss, message templates, working of handoff to humans, and the Playground — a sandbox chat to test the bot without a real patient or real bookings. Bot replies spend AI credits; testing in the playground also spends them.",
+  },
+  whatsapp_bot: {
+    say: {
+      en: "The scripted bot: the answers it gives without asking the AI anything. Your ready answers to the questions every clinic gets — price, address, opening hours — and the words that hand a chat to a human. It costs nothing to run, and it answers instantly.",
+      ar: "البوت المكتوب: الردود اللي بيقولها من غير ما يسأل الذكاء الاصطناعي. إجاباتك الجاهزة للأسئلة اللي بتتكرر — السعر، العنوان، المواعيد — والكلمات اللي بتحوّل المحادثة لبني آدم. مبيكلّفش حاجة، وبيرد على طول.",
+    },
+    ask: [
+      { en: "When does the bot hand over to a person?", ar: "البوت بيحوّل للموظف إمتى؟" },
+      { en: "Do the scripted answers cost credits?", ar: "الردود الجاهزة بتتكلف رصيد؟" },
+    ],
+    knowledge:
+      "Bot (/settings/whatsapp-bot, admin, plan feature whatsappBot) holds the scripted half of the WhatsApp assistant, saved into the same settings/whatsapp document as the other two WhatsApp sections: ready answers for the recurring questions (prices, address, hours, directions), the handover words that pass a conversation to a human, and the switches for which automated messages the bot may send. Scripted answers are free — they never call a model — and they are answered before the AI is ever consulted.",
+  },
+  whatsapp_ai: {
+    say: {
+      en: "And the AI half: what happens when a patient asks something your ready answers do not cover. This is where you set how freely it may answer, what it must never do, and when it must stop and fetch a person. Every answer here costs one credit.",
+      ar: "والنص التاني، الذكاء الاصطناعي: بيشتغل لما المريض يسأل حاجة إجاباتك الجاهزة مش مغطّياها. من هنا بتحدد بيرد بحرية قد إيه، وإيه اللي ممنوع يعمله، وإمتى لازم يوقف وينادي حد. كل رد هنا بيتكلف كريديت واحد.",
+    },
+    ask: [
+      { en: "Can it book an appointment on its own?", ar: "يقدر يحجز موعد لوحده؟" },
+      { en: "What stops it inventing a price?", ar: "إيه اللي يمنعه يخترع سعر؟" },
+    ],
+    knowledge:
+      "AI Assistant (/settings/whatsapp-ai, admin, plan feature aiChat) is the model-backed half of the WhatsApp assistant, saved into the same settings/whatsapp document: the persona and tone, what it is allowed to answer on its own, the coaching notes that correct it, and the limits that make it hand over instead of guessing. It answers only what the scripted bot did not, and every answer costs one credit. It quotes prices from the clinic's own price list rather than inventing them, and any medical question is handed to a person.",
   },
   sms: {
     say: {
