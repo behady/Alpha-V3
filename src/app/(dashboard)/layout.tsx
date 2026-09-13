@@ -65,7 +65,7 @@ function WelcomeLayer({ children }: { children: React.ReactNode }) {
 function TourMenuRow({ className, onPick }: { className: string; onPick: () => void }) {
   const tour = useTour();
   const { language } = useLanguage();
-  if (tour.stops.length === 0) return null;
+  if (tour.allStops.length === 0) return null;
   const guide = language === "ar" ? TOUR_GUIDE.ar : TOUR_GUIDE.en;
   return (
     <button

@@ -47,13 +47,13 @@ export default function TourIntro() {
 
   if (!ready || !clinicId || !user) return null;
   if (tour.progress.introSeen || tour.active) return null;
-  if (tour.stops.length === 0) return null;
+  if (tour.allStops.length === 0) return null;
   // Not over the setup wizard (it comes first), a lesson, or the reception desk mid-call.
   if (pathname === "/setup" || activeTutorial || receptionPanelActive) return null;
 
   const firstName = (user.name || "").trim().split(/\s+/)[0] || "";
   const guide = isAr ? TOUR_GUIDE.ar : TOUR_GUIDE.en;
-  const minutes = tourMinutes(tour.stops.length);
+  const minutes = tourMinutes(tour.coreStops);
   const ArrowIcon = isRTL ? ArrowLeft : ArrowRight;
 
   const choose = (lang: "en" | "ar") => {
@@ -118,12 +118,12 @@ export default function TourIntro() {
             </h1>
             <p className="mt-5 max-w-md text-[15px] font-medium leading-relaxed text-white/70">
               {isAr
-                ? `هاخدك في جولة على ${clinic?.name || "النظام"} كله — كل شاشة، وكل إعداد، وكل مفتاح. هساعدك تجهّز العيادة بجد، وهعمل كل حاجة قدامك بإيدي، وتقدر تسألني أي حاجة في أي وقت. وقّفني لما تحب وارجع من نفس المكان.`
-                : `I'll show you the whole of ${clinic?.name || "the system"} — every screen, every setting, every switch. I'll help you set the clinic up for real, do things in front of you with my own hands, and you can ask me anything along the way. Stop whenever you like and pick up where you left off.`}
+                ? `عشر دقايق على أساسيات اليوم في ${clinic?.name || "النظام"}: مريض، وحجز، واليوم من المكتب، ودفعة. هعمل كل حاجة قدامك بإيدي، وبعدين تعملها إنت بنفسك. الباقي كله في فصول قصيرة تفتحها وقت ما تحب. اضغط في أي حتة وأنا هتنحّى.`
+                : `Ten minutes on the daily basics of ${clinic?.name || "the system"}: a patient, a booking, the day from the desk, a payment. I do each one in front of you, then you do it yourself. Everything else is in short chapters you open whenever you like. Click anywhere and I step aside.`}
             </p>
             <p className="mt-4 flex items-center gap-1.5 text-[12px] font-bold text-white/40">
               <Clock size={13} />
-              {isAr ? `حوالي ${minutes} دقيقة · ${tour.stops.length} محطة · تقدر تسمعني بصوتي كمان` : `About ${minutes} minutes · ${tour.stops.length} stops · you can hear me too`}
+              {isAr ? `حوالي ${minutes} دقيقة · ${tour.coreStops.length} محطة · بصوتي، أو اقرا` : `About ${minutes} minutes · ${tour.coreStops.length} stops · spoken, or read along`}
             </p>
             <div className="mt-9 flex w-full flex-col items-center gap-3 sm:flex-row sm:justify-center">
               <button

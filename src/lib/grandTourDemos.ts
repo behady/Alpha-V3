@@ -129,6 +129,15 @@ export const SETTINGS_DEMOS: Record<string, { demo: DemoAction[]; demoSkipIf?: T
 export const APPOINTMENT_DEMO_STOP: TourStop = {
   id: "appointment-demo",
   chapter: "frontdesk",
+  core: true,
+  handsOn: {
+    tutorial: "book-appointment",
+    say: {
+      en: "Now book one yourself — for the patient you just added. Pick them, a dentist, a time. If you used your own number, the confirmation reaches your phone in a moment.",
+      ar: "دلوقتي احجز واحد بنفسك — للمريض اللي لسه ضايفه. اختاره، والدكتور، والوقت. لو حطيت رقمك، التأكيد هيوصلك على موبايلك بعد شوية.",
+    },
+    done: { en: "Booked. Check your WhatsApp.", ar: "اتحجز. بص على الواتساب." },
+  },
   // One booking per test patient: a second run of the tour must not stack appointments.
   demoSkipIf: "demoAppointmentExists",
   route: "/appointments",
@@ -167,6 +176,7 @@ export const APPOINTMENT_DEMO_STOP: TourStop = {
 export const DAY_FLOW_STOP: TourStop = {
   id: "day-flow",
   chapter: "frontdesk",
+  core: true,
   route: "/",
   demoOnly: true,
   spot: ["dashboard-appointment", "page-main"],
@@ -352,6 +362,7 @@ export const CLEANUP_STOPS: TourStop[] = [
   {
     id: "demo-cleanup-day",
     chapter: "wrapup",
+    core: true,
     route: "/",
     demoOnly: true,
     spot: ["dashboard-appointment", "page-main"],
@@ -374,6 +385,7 @@ export const CLEANUP_STOPS: TourStop[] = [
   {
     id: "demo-cleanup-patient",
     chapter: "wrapup",
+    core: true,
     route: "/patients",
     dynamic: "demoPatient",
     demoPatientTab: "finance",

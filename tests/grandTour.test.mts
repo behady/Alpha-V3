@@ -20,7 +20,10 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { TUTORIAL_IDS } from "../src/lib/tutorials";
 import {
+  coreStopsFor,
+  MAX_WALK_POINTS,
   TOUR_CHAPTERS,
   TOUR_STOPS,
   TOUR_STOP_IDS,
@@ -44,6 +47,32 @@ for (const stop of TOUR_STOPS) {
 }
 assert.ok(TOUR_STOPS.length >= 40, `a grand tour has many stops, got ${TOUR_STOPS.length}`);
 assert.equal(tourStopById("finale")?.chapter, "wrapup");
+
+// --- the core tour: short, in order, ends on its own finale, hands-on lessons exist ---------------
+{
+  const core = coreStopsFor(TOUR_STOPS, ["clinical", "services", "users"]);
+  const ids = core.map((s) => s.id);
+  assert.ok(core.length >= 12 && core.length <= 20, `core tour should be short, got ${core.length}`);
+  assert.equal(ids[0], "topbar");
+  assert.equal(ids[ids.length - 1], "core-finale");
+  for (const must of ["patients-add", "appointment-demo", "day-flow", "patient-payment", "demo-cleanup-patient"]) {
+    assert.ok(ids.includes(must), `core tour must include ${must}`);
+  }
+  assert.ok(ids.indexOf("settings-services") < ids.indexOf("patients-add"), "setup comes before the first demo");
+  assert.equal(coreStopsFor(TOUR_STOPS, []).filter((s) => s.core === "setup").length, 0, "no setup stops when nothing is missing");
+  const handsOn = TOUR_STOPS.filter((s) => s.handsOn);
+  assert.ok(handsOn.length >= 3, "the core tour has hands-on moments");
+  for (const s of handsOn) {
+    assert.ok(TUTORIAL_IDS.includes(s.handsOn!.tutorial), `${s.id}: hands-on lesson '${s.handsOn!.tutorial}' does not exist`);
+    for (const key of ["say", "done"] as const) {
+      assert.ok(s.handsOn![key].en.trim() && s.handsOn![key].ar.trim(), `${s.id}: hands-on ${key} must be bilingual`);
+    }
+  }
+  for (const s of TOUR_STOPS) {
+    const points = (s.walk ?? []).filter((a) => a.kind === "point").length;
+    assert.ok(points <= MAX_WALK_POINTS, `${s.id}: walk points at ${points} things; the cap is ${MAX_WALK_POINTS}`);
+  }
+}
 assert.equal(tourStopById("nope"), undefined);
 
 // --- 2. every route is a real screen ---------------------------------------------------------
@@ -176,7 +205,12 @@ assert.ok(chaptersForReceptionist.some((c) => c.id === "frontdesk"));
 assert.ok(!chaptersForReceptionist.some((c) => c.id === "settings") || receptionist.some((s) => s.chapter === "settings"));
 
 // Minutes: never a silly number.
-assert.ok(tourMinutes(0) >= 3);
-assert.equal(tourMinutes(60), 20);
+assert.ok(tourMinutes([]) >= 3);
+{
+  const plain = TOUR_STOPS.filter((s) => !s.handsOn);
+  assert.equal(tourMinutes(plain), Math.max(3, Math.round((plain.length * 20) / 60)));
+  const withHands = TOUR_STOPS.filter((s) => s.handsOn);
+  assert.ok(tourMinutes(withHands) >= withHands.length * 2, "a hands-on moment counts for about two minutes");
+}
 
 console.log(`grandTour: ${TOUR_STOPS.length} stops in ${TOUR_CHAPTERS.length} chapters — all checks passed.`);

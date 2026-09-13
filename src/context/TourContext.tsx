@@ -25,6 +25,8 @@ import { isDentistStaff } from "@/lib/staffRoles";
 import { categoryOf, suggestCategory, suggestIcon } from "@/lib/dentalIcons";
 import { DEFAULT_SCHEDULE, initialServiceChoices, scheduleDocFrom, serviceDocsFrom } from "@/lib/setupWizard";
 import {
+  chapterStopsFor,
+  coreStopsFor,
   tourChaptersFor,
   tourStopsFor,
   type TourChapter,
@@ -41,8 +43,7 @@ import {
   saveTourDemoMode,
   saveTourPosition,
   type TourProgress,
-  type WelcomeScope,
-} from "@/lib/welcomeStore";
+  type WelcomeScope, clearTourRun } from "@/lib/welcomeStore";
 
 /**
  * Where Sara is in the tour, and who she is showing around.
@@ -71,10 +72,19 @@ import {
 export type DemoMode = "unasked" | "on" | "off";
 export type HomeView = "desk" | "owner" | "chair";
 
+/** A run is what the person is taking right now: the short core tour, or one chapter. */
+export type TourRun = "core" | string;
+
 interface TourContextType {
   active: boolean;
   paused: boolean;
+  /** The stops of the current run (the core tour, or one chapter). */
   stops: TourStop[];
+  /** Every stop this person may see, across all chapters — for the hero, the widget, Sara. */
+  allStops: TourStop[];
+  /** The core tour as it would run for this clinic right now. */
+  coreStops: TourStop[];
+  runId: TourRun | null;
   chapters: TourChapter[];
   stop: TourStop | null;
   stopIndex: number;
@@ -82,7 +92,8 @@ interface TourContextType {
   progress: TourProgress;
   /** True until this person has finished the tour once — questions are free until then. */
   firstTour: boolean;
-  start: (opts?: { stopId?: string; fromStart?: boolean }) => void;
+  /** Start (or resume) a run: the core tour by default, a chapter by id, or the run holding a stop. */
+  start: (opts?: { stopId?: string; fromStart?: boolean; run?: TourRun }) => void;
   next: () => void;
   back: () => void;
   goTo: (stopId: string) => boolean;
@@ -140,7 +151,7 @@ export function TourProvider({
     return () => mq.removeEventListener("change", apply);
   }, []);
 
-  const stops = useMemo(() => {
+  const allStops = useMemo(() => {
     // The tour is a laptop thing for now (user's call, 2026-09-13): on a phone every surface
     // that offers it — the intro, the menu row, the widget button, the Getting-started hero,
     // the overlay itself — keys off an empty stop list, so this one line hides all of them.
@@ -152,6 +163,23 @@ export function TourProvider({
     ).map((s) => s.id);
     return tourStopsFor({ isAdmin, visibleNavKeys, showSettings, visibleSettingsIds: settingsIds, phone });
   }, [isAdmin, isReadOnly, user?.role, user?.permissions, clinic, visibleNavKeys, showSettings, phone]);
+
+  /**
+   * Which run is on: the core tour, or one chapter. The core tour also carries the setup stops
+   * for whatever the clinic still lacks — decided by real checks when the run starts.
+   */
+  const [runId, setRunId] = useState<TourRun | null>(null);
+  const [setupNeeded, setSetupNeeded] = useState<string[]>([]);
+  const stopsForRun = useCallback(
+    (run: TourRun | null, needed: readonly string[]): TourStop[] => {
+      if (run === "core") return coreStopsFor(allStops, needed);
+      if (run) return chapterStopsFor(allStops, run);
+      return allStops;
+    },
+    [allStops],
+  );
+  const stops = useMemo(() => stopsForRun(runId, setupNeeded), [stopsForRun, runId, setupNeeded]);
+  const coreStops = useMemo(() => coreStopsFor(allStops, setupNeeded), [allStops, setupNeeded]);
 
   const chapters = useMemo(() => tourChaptersFor(stops), [stops]);
 
@@ -381,18 +409,19 @@ export function TourProvider({
       const n = i + direction.current;
       if (n < 0) return 0;
       if (n >= stops.length) {
-        markTourComplete(scope);
+        if (runId === "core") markTourComplete(scope);
+        else clearTourRun(scope);
         setActive(false);
         return 0;
       }
       return n;
     });
-  }, [active, stop, demoMode, firstPatientId, demoPatientId, stops.length, scope]);
+  }, [active, stop, demoMode, firstPatientId, demoPatientId, stops.length, scope, runId]);
 
   useEffect(() => {
     if (!active || paused || !stop) return;
-    saveTourPosition(scope, stop.id);
-  }, [active, paused, stop, scope]);
+    saveTourPosition(scope, stop.id, runId);
+  }, [active, paused, stop, scope, runId]);
 
   useEffect(() => {
     if (!active) return;
@@ -423,26 +452,50 @@ export function TourProvider({
   );
   const firstTour = progress.completedAt === 0;
 
+  /** What the clinic still lacks for a normal day: hours, a price list, a dentist. Admins only. */
+  const findSetupNeeded = useCallback(async (): Promise<string[]> => {
+    if (!isAdmin) return [];
+    const [hours, services, dentist] = await Promise.all([check("scheduleSet"), check("anyService"), check("anyDentist")]);
+    return [...(hours ? [] : ["clinical"]), ...(services ? [] : ["services"]), ...(dentist ? [] : ["users"])];
+  }, [isAdmin, check]);
+
   const start = useCallback(
-    (opts?: { stopId?: string; fromStart?: boolean }) => {
-      if (stops.length === 0) return;
+    (opts?: { stopId?: string; fromStart?: boolean; run?: TourRun }) => {
+      if (allStops.length === 0) return;
+      const saved = readTourProgress(scope);
+      // Which run: the one asked for; else the one holding the stop asked for (the current run if
+      // it is there, its chapter otherwise); else the run being resumed; else the core tour.
+      let run: TourRun = opts?.run ?? "core";
+      if (!opts?.run && opts?.stopId) {
+        const current = stopsForRun(runId, setupNeeded);
+        const inCurrent = runId && current.some((s) => s.id === opts.stopId);
+        const target = allStops.find((s) => s.id === opts.stopId);
+        run = inCurrent && runId ? runId : target ? target.chapter : "core";
+        if (target && !inCurrent && (saved.run === "core" || !saved.run) && coreStopsFor(allStops, setupNeeded).some((s) => s.id === target.id)) run = "core";
+      } else if (!opts?.run && !opts?.fromStart && saved.run) {
+        run = saved.run;
+      }
+      const list = stopsForRun(run, setupNeeded);
+      if (list.length === 0) return;
       let index = 0;
       if (opts?.stopId) {
-        const i = stops.findIndex((s) => s.id === opts.stopId);
+        const i = list.findIndex((s) => s.id === opts.stopId);
         if (i >= 0) index = i;
-      } else if (!opts?.fromStart) {
-        const last = readTourProgress(scope).lastStopId;
-        const i = last ? stops.findIndex((s) => s.id === last) : -1;
+      } else if (!opts?.fromStart && saved.run === run) {
+        const i = saved.lastStopId ? list.findIndex((s) => s.id === saved.lastStopId) : -1;
         if (i >= 0) index = i;
       }
       if (opts?.fromStart) resetTourPosition(scope);
       markTourIntroSeen(scope);
       direction.current = 1;
+      setRunId(run);
       setStopIndex(index);
       setPaused(false);
       setActive(true);
+      // The setup stops sit after the first two; the checks are back long before then.
+      if (run === "core") void findSetupNeeded().then(setSetupNeeded);
     },
-    [stops, scope],
+    [allStops, scope, runId, setupNeeded, stopsForRun, findSetupNeeded],
   );
 
   const leave = useCallback(() => {
@@ -454,13 +507,15 @@ export function TourProvider({
     direction.current = 1;
     setStopIndex((i) => {
       if (i >= stops.length - 1) {
-        markTourComplete(scope);
+        // The core tour reaching its end is "the tour is done"; a chapter just closes.
+        if (runId === "core") markTourComplete(scope);
+        else clearTourRun(scope);
         setActive(false);
         return 0;
       }
       return i + 1;
     });
-  }, [stops.length, scope]);
+  }, [stops.length, scope, runId]);
 
   const back = useCallback(() => {
     direction.current = -1;
@@ -469,29 +524,34 @@ export function TourProvider({
 
   const goTo = useCallback(
     (stopId: string): boolean => {
-      const i = stops.findIndex((s) => s.id === stopId);
-      if (i < 0) return false;
-      direction.current = i >= stopIndex ? 1 : -1;
-      markTourIntroSeen(scope);
-      setStopIndex(i);
-      setPaused(false);
-      setActive(true);
+      const i = active ? stops.findIndex((s) => s.id === stopId) : -1;
+      if (i >= 0) {
+        direction.current = i >= stopIndex ? 1 : -1;
+        markTourIntroSeen(scope);
+        setStopIndex(i);
+        setPaused(false);
+        return true;
+      }
+      // Not in the current run (or no run): open the run that holds it — "teach me Finance"
+      // from the orb starts the chapter at that stop.
+      if (!allStops.some((s) => s.id === stopId)) return false;
+      start({ stopId });
       return true;
     },
-    [stops, stopIndex, scope],
+    [active, stops, stopIndex, scope, allStops, start],
   );
 
   const declineIntro = useCallback(() => markTourIntroSeen(scope), [scope]);
 
   const value = useMemo<TourContextType>(
     () => ({
-      active, paused, stops, chapters, stop, stopIndex, stopRoute, progress, firstTour,
+      active, paused, stops, allStops, coreStops, runId, chapters, stop, stopIndex, stopRoute, progress, firstTour,
       start, next, back, goTo, leave, declineIntro,
       demoMode, setDemoMode, demoValues, liveDemoValues, firstPatientName,
       resolveDemoPatient, markDemoPatient, check, applyOffer, setHomeView, restoreHomeView,
     }),
     [
-      active, paused, stops, chapters, stop, stopIndex, stopRoute, progress, firstTour,
+      active, paused, stops, allStops, coreStops, runId, chapters, stop, stopIndex, stopRoute, progress, firstTour,
       start, next, back, goTo, leave, declineIntro,
       demoMode, setDemoMode, demoValues, liveDemoValues, firstPatientName,
       resolveDemoPatient, markDemoPatient, check, applyOffer, setHomeView, restoreHomeView,

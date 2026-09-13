@@ -152,16 +152,33 @@ export function useTourRunner(opts: {
     setCursor((c) => ({ ...c, visible: false, clicking: false, typing: false }));
   }, []);
 
-  /** The person pressed Next while the hand was waiting. */
+  /**
+   * A Next pressed before the hand reached its gate — while a line was still being read — is
+   * not lost: it cuts the reading short and passes the gate that follows. One press, one step.
+   */
+  const pendingNext = useRef(false);
+  const readResolver = useRef<(() => void) | null>(null);
+
+  /** The person pressed Next. */
   const pressNext = useCallback(() => {
-    nextResolver.current?.();
-    nextResolver.current = null;
+    if (nextResolver.current) {
+      nextResolver.current();
+      nextResolver.current = null;
+      return;
+    }
+    pendingNext.current = true;
+    readResolver.current?.();
+    readResolver.current = null;
   }, []);
 
   /** In step pacing, hold here until Next. Aborting releases it. */
   const gate = useCallback(
     async (signal: AbortSignal) => {
       if (getPace() !== "step" || signal.aborted) return;
+      if (pendingNext.current) {
+        pendingNext.current = false;
+        return;
+      }
       setState((s) => ({ ...s, waitingForNext: true }));
       await new Promise<void>((resolve) => {
         nextResolver.current = resolve;
@@ -170,6 +187,26 @@ export function useTourRunner(opts: {
       setState((s) => ({ ...s, waitingForNext: false }));
     },
     [getPace],
+  );
+
+  /** Reading time that a Next press can cut short. */
+  const readFor = useCallback(
+    (ms: number, signal: AbortSignal) =>
+      new Promise<void>((resolve) => {
+        const t = setTimeout(() => {
+          readResolver.current = null;
+          resolve();
+        }, ms);
+        readResolver.current = () => {
+          clearTimeout(t);
+          resolve();
+        };
+        signal.addEventListener("abort", () => {
+          clearTimeout(t);
+          resolve();
+        });
+      }),
+    [],
   );
 
   const moveTo = useCallback(async (found: FoundAnchor, signal: AbortSignal) => {
@@ -220,9 +257,12 @@ export function useTourRunner(opts: {
     async (text: Localized, signal: AbortSignal) => {
       setState((s) => ({ ...s, say: text }));
       const line = isAr ? text.ar : text.en;
-      await Promise.all([sleep(readMsFor(line), signal), speak(line)]);
+      // Step pacing: the line types out, then the hand waits for Next — no reading timer on top,
+      // since the person decides when they have read it.
+      const ms = getPace() === "step" ? Math.min(6000, 500 + line.length * 18) : readMsFor(line);
+      await Promise.all([readFor(ms, signal), speak(line)]);
     },
-    [isAr, speak],
+    [isAr, speak, getPace, readFor],
   );
 
   const clickEl = useCallback(async (el: HTMLElement, signal: AbortSignal) => {
@@ -238,6 +278,7 @@ export function useTourRunner(opts: {
       const ctl = new AbortController();
       controller.current = ctl;
       const { signal } = ctl;
+      pendingNext.current = false;
       setState({ running: true, say: null, anchor: null, target: null, failedAnchor: null, waitingForNext: false, pendingOffer: null });
 
       const finish = (outcome: RunOutcome, index: number, failedAnchor: string | null = null): RunResult => {

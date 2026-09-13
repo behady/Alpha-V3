@@ -53,6 +53,8 @@ export interface TourProgress {
    * after a reload still reaches its cleanup stops rather than leaving her test patient behind.
    */
   demoMode: "unasked" | "on" | "off";
+  /** Which run the resume point belongs to: "core", or a chapter id. */
+  run: string | null;
 }
 
 interface StoredState {
@@ -67,7 +69,7 @@ interface StoredState {
   tour: TourProgress;
 }
 
-const EMPTY_TOUR: TourProgress = { introSeen: false, lastStopId: null, visited: [], completedAt: 0, demoMode: "unasked" };
+const EMPTY_TOUR: TourProgress = { introSeen: false, lastStopId: null, visited: [], completedAt: 0, demoMode: "unasked", run: null };
 
 const EMPTY: StoredState = {
   lessons: [],
@@ -85,6 +87,7 @@ function readTour(raw: unknown): TourProgress {
     visited: Array.isArray(t.visited) ? t.visited.filter((v) => typeof v === "string") : [],
     completedAt: typeof t.completedAt === "number" ? t.completedAt : 0,
     demoMode: t.demoMode === "on" || t.demoMode === "off" ? t.demoMode : "unasked",
+    run: typeof t.run === "string" && t.run ? t.run : null,
   };
 }
 
@@ -175,20 +178,25 @@ export function markTourIntroSeen(scope: WelcomeScope): void {
 }
 
 /** Where the tour is now. Called on every stop, so leaving mid-way resumes at the right place. */
-export function saveTourPosition(scope: WelcomeScope, stopId: string): void {
+export function saveTourPosition(scope: WelcomeScope, stopId: string, run: string | null = null): void {
   const tour = readWelcomeState(scope).tour;
   const visited = tour.visited.includes(stopId) ? tour.visited : [...tour.visited, stopId];
-  writeTour(scope, { lastStopId: stopId, visited, introSeen: true });
+  writeTour(scope, { lastStopId: stopId, visited, introSeen: true, run: run ?? tour.run });
 }
 
 /** The last stop was reached. The resume point clears; the visited list stays for the ticks. */
 export function markTourComplete(scope: WelcomeScope): void {
-  writeTour(scope, { lastStopId: null, completedAt: Date.now(), introSeen: true });
+  writeTour(scope, { lastStopId: null, completedAt: Date.now(), introSeen: true, run: null });
+}
+
+/** A chapter run reached its end: the resume point clears, the ticks stay. */
+export function clearTourRun(scope: WelcomeScope): void {
+  writeTour(scope, { lastStopId: null, run: null });
 }
 
 /** Start over: forgets the resume point but keeps the intro as seen. */
 export function resetTourPosition(scope: WelcomeScope): void {
-  writeTour(scope, { lastStopId: null });
+  writeTour(scope, { lastStopId: null, run: null });
 }
 
 /** The answer to "shall I do it for real?" — kept so a resumed tour still cleans up after itself. */

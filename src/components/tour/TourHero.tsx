@@ -4,7 +4,7 @@ import { ArrowLeft, ArrowRight, Check, Clock, Play, RotateCcw } from "lucide-rea
 import AvatarFace from "@/components/appointments/AvatarFace";
 import { useTour } from "@/context/TourContext";
 import { useLanguage } from "@/context/LanguageContext";
-import { TOUR_GUIDE, tourMinutes } from "@/lib/grandTour";
+import { ON_DEMAND_CHAPTERS, TOUR_CHAPTERS, TOUR_GUIDE, tourMinutes } from "@/lib/grandTour";
 
 /**
  * The tour's card on the Getting started page: where it stands, and the way in.
@@ -21,19 +21,20 @@ export default function TourHero() {
   const guide = isAr ? TOUR_GUIDE.ar : TOUR_GUIDE.en;
   const ArrowIcon = isRTL ? ArrowLeft : ArrowRight;
 
-  const { stops, chapters, progress } = tour;
-  if (stops.length === 0) return null;
+  const { allStops, coreStops, progress } = tour;
+  if (allStops.length === 0) return null;
 
   const visited = new Set(progress.visited);
-  const seen = stops.filter((s) => visited.has(s.id)).length;
-  const finished = progress.completedAt > 0 && !progress.lastStopId;
-  const resumeStop = progress.lastStopId ? stops.find((s) => s.id === progress.lastStopId) : null;
-  const pct = Math.round((seen / stops.length) * 100);
+  const seen = coreStops.filter((s) => visited.has(s.id)).length;
+  const finished = progress.completedAt > 0 && !(progress.run === "core" && progress.lastStopId);
+  const resumeStop = progress.run === "core" && progress.lastStopId ? coreStops.find((s) => s.id === progress.lastStopId) : null;
+  const pct = coreStops.length ? Math.round((seen / coreStops.length) * 100) : 0;
+  const chapters = TOUR_CHAPTERS.filter((c) => ON_DEMAND_CHAPTERS.includes(c.id));
 
   const chapterState = (chapterId: string) => {
-    const inChapter = stops.filter((s) => s.chapter === chapterId);
+    const inChapter = allStops.filter((s) => s.chapter === chapterId);
     const done = inChapter.filter((s) => visited.has(s.id)).length;
-    return { total: inChapter.length, done, first: inChapter[0] };
+    return { total: inChapter.length, done, first: inChapter[0], minutes: tourMinutes(inChapter) };
   };
 
   return (
@@ -62,13 +63,13 @@ export default function TourHero() {
                     ? `نكمّل من «${resumeStop.title.ar}»؟`
                     : `Pick up at "${resumeStop.title.en}"?`
                   : isAr
-                    ? "كل شاشة، وكل إعداد، وكل مفتاح"
-                    : "Every screen, every setting, every switch"}
+                    ? "عشر دقايق على أساسيات اليوم"
+                    : "Ten minutes on the daily basics"}
             </h2>
             <p className="mt-2 max-w-xl text-[13px] font-medium leading-relaxed text-white/65">
               {isAr
-                ? `${guide} بتمشي معاك على النظام كله وبتشرح كل حاجة وهي بتنوّر مكانها على الشاشة، وتقدر تسألها أي سؤال في أي محطة. الجولة نفسها ببلاش؛ كل سؤال بيتكلف رصيد واحد.`
-                : `${guide} walks you through the whole system, lighting up each part on the real screen as she explains it, and you can ask her anything at any stop. The tour itself is free; each question costs one credit.`}
+                ? `${guide} بتعمل كل حاجة قدامك — مريض، حجز، اليوم من المكتب، دفعة — وبعدين بتعملها إنت بنفسك. الباقي في فصول قصيرة على اليمين، افتح اللي تحبه وقت ما تحب، أو قولّها «علّميني الحسابات».`
+                : `${guide} does each thing in front of you — a patient, a booking, the day from the desk, a payment — then you do it yourself. The rest is in short chapters on the right: open any of them whenever you like, or tell her "teach me Finance".`}
             </p>
 
             <div className="mt-4 flex flex-wrap items-center gap-2.5">
@@ -96,7 +97,7 @@ export default function TourHero() {
               </button>
               <span className="flex items-center gap-1.5 text-[11.5px] font-bold text-white/40">
                 <Clock size={12} />
-                {isAr ? `حوالي ${tourMinutes(stops.length)} دقيقة` : `About ${tourMinutes(stops.length)} min`}
+                {isAr ? `حوالي ${tourMinutes(coreStops)} دقيقة` : `About ${tourMinutes(coreStops)} min`}
               </span>
             </div>
           </div>
@@ -105,7 +106,7 @@ export default function TourHero() {
         {/* Chapters — each one a way in. */}
         <div className="w-full shrink-0 lg:w-72">
           <div className="mb-2 flex items-center justify-between text-[10.5px] font-black uppercase tracking-widest text-white/40">
-            <span>{isAr ? "الفصول" : "Chapters"}</span>
+            <span>{isAr ? "فصول تفتحها وقت ما تحب" : "Chapters, whenever you like"}</span>
             <span className="tabular-nums">{pct}%</span>
           </div>
           <ul className="space-y-1">
@@ -116,7 +117,7 @@ export default function TourHero() {
                 <li key={c.id}>
                   <button
                     type="button"
-                    onClick={() => st.first && tour.start({ stopId: st.first.id })}
+                    onClick={() => tour.start({ run: c.id, fromStart: true })}
                     className="group flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-start transition-colors hover:bg-white/10"
                   >
                     <span
@@ -128,7 +129,9 @@ export default function TourHero() {
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[12.5px] font-bold text-white/90">{isAr ? c.title.ar : c.title.en}</span>
-                      <span className="block truncate text-[11px] font-medium text-white/40">{isAr ? c.blurb.ar : c.blurb.en}</span>
+                      <span className="block truncate text-[11px] font-medium text-white/40">
+                        {isAr ? c.blurb.ar : c.blurb.en} · {isAr ? `${st.minutes} د` : `${st.minutes} min`}
+                      </span>
                     </span>
                     <ArrowIcon size={13} className="shrink-0 text-white/30 transition-colors group-hover:text-white" />
                   </button>

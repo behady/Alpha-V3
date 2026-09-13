@@ -462,7 +462,7 @@ export default function AiChatWidget() {
           assistantMode: mode,
           // The tour stops this person can be shown, so the model is only offered ones the
           // client can actually open — see the client-capability note above.
-          tourStopIds: tour.stops.map((s) => s.id),
+          tourStopIds: tour.allStops.map((s) => s.id),
           history: outgoingHistory
         })
       });
@@ -737,7 +737,7 @@ export default function AiChatWidget() {
 
                 {/* The whole system, narrated. Free, resumable, and the surest way to learn
                     where everything is. */}
-                {tour.stops.length > 0 && (
+                {tour.allStops.length > 0 && (
                   <button
                     onClick={() => {
                       setIsOpen(false);

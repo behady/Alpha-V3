@@ -28,6 +28,7 @@ import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
 import { auth } from "@/lib/firebase";
 import { TOUR_GUIDE, type Localized, type TourStop } from "@/lib/grandTour";
+import { tutorialsFor } from "@/lib/tutorials";
 import { navPlanFor, stopRouteMatches, type DemoAction, type TourOffer } from "@/lib/tourDemo";
 import { findAnchorInRowContaining, findFirstVisibleAnchor, isPhoneViewport, revealForTour } from "@/lib/tourDom";
 import { toSpeechText, trimForSpeech } from "@/lib/speechText";
@@ -66,7 +67,7 @@ const VOICE_KEY = "alphaTourVoice";
 const PACE_KEY = "alphaTourPace";
 const HISTORY_TURNS = 8;
 
-type Phase = "idle" | "navigating" | "narrating" | "walk" | "asking" | "demo" | "done";
+type Phase = "idle" | "navigating" | "narrating" | "walk" | "asking" | "demo" | "handson" | "done";
 type HandPhase = "walk" | "demo";
 
 interface QaMessage {
@@ -126,7 +127,7 @@ export default function GrandTourOverlay() {
   const { startTutorial } = useTutorial();
   const { language, isRTL, toggleLanguage } = useLanguage();
   const { user } = useAuth();
-  const { clinicId } = useClinic();
+  const { clinicId, isAdmin } = useClinic();
   const { showToast } = useUI();
   const router = useRouter();
   const pathname = usePathname();
@@ -140,12 +141,13 @@ export default function GrandTourOverlay() {
   const isLast = stopIndex >= stops.length - 1;
 
   /* --- preferences: voice, pace ----------------------------------------------------------- */
-  const [voiceOn, setVoiceOn] = useState(false);
-  const [pace, setPaceState] = useState<Pace>("auto");
-  const paceRef = useRef<Pace>("auto");
+  // Defaults (user's call after the QA round): step by step, and spoken. Both remembered.
+  const [voiceOn, setVoiceOn] = useState(true);
+  const [pace, setPaceState] = useState<Pace>("step");
+  const paceRef = useRef<Pace>("step");
   useEffect(() => {
-    setVoiceOn(readPref(VOICE_KEY, "off") === "on");
-    const p = readPref(PACE_KEY, "auto") === "step" ? "step" : "auto";
+    setVoiceOn(readPref(VOICE_KEY, "on") === "on");
+    const p = readPref(PACE_KEY, "step") === "auto" ? "auto" : "step";
     setPaceState(p);
     paceRef.current = p;
   }, []);
@@ -274,8 +276,13 @@ export default function GrandTourOverlay() {
   const runnerRef = useRef(runner);
   runnerRef.current = runner;
 
+  const [chaptersOpen, setChaptersOpen] = useState(false);
+  const [minimized, setMinimized] = useState(false);
+
   /* --- the stop's life -------------------------------------------------------------------- */
   const [phase, setPhase] = useState<Phase>("idle");
+  /** Bumped by the pill's Continue when there is nothing to resume: the stop plays again. */
+  const [replayTick, setReplayTick] = useState(0);
   const [failureLine, setFailureLine] = useState<string | null>(null);
   /** Where the hand stopped when the person took over, so Continue resumes there. */
   const [takeover, setTakeover] = useState<{ actions: DemoAction[]; index: number; phase: HandPhase } | null>(null);
@@ -292,6 +299,16 @@ export default function GrandTourOverlay() {
       stopSpeaking();
       setPhase("idle");
       setTakeover(null);
+      return;
+    }
+    if (handsOnRef.current === stop.id) {
+      // Back from the lesson: her closing line, then the chips — not the stop from the top.
+      handsOnRef.current = null;
+      setTakeover(null);
+      setOffer(null);
+      setFailureLine(stop.handsOn ? (isAr ? stop.handsOn.done.ar : stop.handsOn.done.en) : null);
+      setPhase("done");
+      if (stop.handsOn) void speakAsync(isAr ? stop.handsOn.done.ar : stop.handsOn.done.en);
       return;
     }
     setFailureLine(null);
@@ -322,17 +339,23 @@ export default function GrandTourOverlay() {
       tour.restoreHomeView();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, paused, stop?.id, dynamicReady, resolvedRoute]);
+  }, [active, paused, stop?.id, dynamicReady, resolvedRoute, replayTick]);
 
   /* --- what she is saying ----------------------------------------------------------------- */
   const stopLine = stop ? (isAr ? stop.say.ar : stop.say.en) : "";
   const subLine = runner.state.say ? (isAr ? runner.state.say.ar : runner.state.say.en) : null;
-  const displayed = phase === "navigating" ? "" : subLine ?? failureLine ?? stopLine;
+  const handsOnLine = stop?.handsOn ? (isAr ? stop.handsOn.say.ar : stop.handsOn.say.en) : "";
+  const displayed = phase === "navigating" ? "" : phase === "handson" ? handsOnLine : subLine ?? failureLine ?? stopLine;
   const typed = useTypewriter(displayed, `${stop?.id ?? ""}:${language}:${displayed}`);
 
   useEffect(() => {
     if (phase !== "narrating" || !stop) return;
     void speakAsync(stopLine);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, stop?.id]);
+  useEffect(() => {
+    if (phase !== "handson" || !stop?.handsOn) return;
+    void speakAsync(isAr ? stop.handsOn.say.ar : stop.handsOn.say.en);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, stop?.id]);
 
@@ -343,6 +366,22 @@ export default function GrandTourOverlay() {
         : "That step didn't go through — your role may not allow it, or the screen has changed. If anything of mine is left behind, it is named after me and sits in Recently Deleted. Let's carry on.",
     );
   }, [isAr]);
+
+  /**
+   * The hand is finished with a stop: hands-on next, when the stop has a lesson the person's
+   * role can complete; otherwise the chips and the question box.
+   */
+  const canRunLesson = useCallback(
+    (id: string) => tutorialsFor(isAdmin, user?.permissions).some((t) => t.id === id),
+    [isAdmin, user?.permissions],
+  );
+  const finishStop = useCallback(
+    (s: TourStop) => {
+      if (s.handsOn && canRunLesson(s.handsOn.tutorial)) setPhase("handson");
+      else setPhase("done");
+    },
+    [canRunLesson],
+  );
 
   /** Runs a hand script for a phase; a takeover parks it for Continue. */
   const runHand = useCallback(
@@ -393,25 +432,41 @@ export default function GrandTourOverlay() {
               : await tour.check(s.demoSkipIf);
           if (exists) {
             setFailureLine(isAr ? "أنا عملت ده قبل كده في جولة سابقة، فمش هعمله تاني — نكمّل." : "I already did this on an earlier run of the tour, so I won't make a second one — let's carry on.");
-            setPhase("done");
+            finishStop(s);
             return;
           }
         }
       }
       const outcome = await runHand(s, s.demo, "demo", from);
-      if (outcome !== "aborted") setPhase("done");
+      if (outcome !== "aborted") finishStop(s);
     },
-    [tour, isAr, runHand],
+    [tour, isAr, runHand, finishStop],
   );
 
   const afterWalk = useCallback(
     (s: TourStop) => {
       if (s.demo && demoMode === "on") void runDemo(s);
       else if (s.demo && demoMode === "unasked") setPhase("asking");
-      else setPhase("done");
+      else finishStop(s);
     },
-    [demoMode, runDemo],
+    [demoMode, runDemo, finishStop],
   );
+
+  /**
+   * Hands-on: the person does it with the pulsing ring. The tour pauses while the lesson runs
+   * and would replay the stop when it resumes; this ref makes it land on "done" instead, with
+   * her closing line.
+   */
+  const handsOnRef = useRef<string | null>(null);
+  const beginHandsOn = () => {
+    if (!stop?.handsOn) return;
+    stopSpeaking();
+    handsOnRef.current = stop.id;
+    if (!startTutorial(stop.handsOn.tutorial)) {
+      handsOnRef.current = null;
+      setPhase("done");
+    }
+  };
 
   const runWalk = useCallback(
     async (s: TourStop, from = 0) => {
@@ -426,10 +481,21 @@ export default function GrandTourOverlay() {
     [afterWalk, runHand],
   );
 
+  /** Step pacing: after the opening line, the hand waits for "Show me". */
+  const [awaitingShow, setAwaitingShow] = useState(false);
   useEffect(() => {
     if (phase !== "narrating" || !typed.done || !stop) return;
-    void runWalk(stop);
+    if (paceRef.current === "step") setAwaitingShow(true);
+    else void runWalk(stop);
   }, [phase, typed.done, stop, runWalk]);
+  useEffect(() => {
+    if (phase !== "narrating") setAwaitingShow(false);
+  }, [phase]);
+  const showMe = () => {
+    if (!stop) return;
+    setAwaitingShow(false);
+    void runWalk(stop);
+  };
 
   const answerDemo = (yes: boolean) => {
     tour.setDemoMode(yes ? "on" : "off");
@@ -444,7 +510,11 @@ export default function GrandTourOverlay() {
     setPhase("done");
   };
 
-  /** The person clicked something themselves while the hand was moving: stop and ask. */
+  /**
+   * The person clicked the page themselves: she stops at once and steps aside into the pill
+   * (user's call after the QA round — no "shall I carry on?" card in the way). Continue on the
+   * pill resumes at the very action she was on.
+   */
   const userClickRef = useRef(false);
   useEffect(() => {
     if (!active || paused) return;
@@ -452,10 +522,13 @@ export default function GrandTourOverlay() {
       if (!e.isTrusted) return; // the hand's own clicks
       const target = e.target as HTMLElement | null;
       if (!target || target.closest("[data-tour-chrome]")) return;
-      if (!runnerRef.current.state.running) return;
-      userClickRef.current = true;
-      runnerRef.current.abort();
+      if (runnerRef.current.state.running) {
+        userClickRef.current = true;
+        runnerRef.current.abort();
+      }
       stopSpeaking();
+      setChaptersOpen(false);
+      setMinimized(true);
     };
     document.addEventListener("click", onClick, true);
     return () => document.removeEventListener("click", onClick, true);
@@ -591,8 +664,6 @@ export default function GrandTourOverlay() {
   );
 
   /* --- chapters / minimize ---------------------------------------------------------------- */
-  const [chaptersOpen, setChaptersOpen] = useState(false);
-  const [minimized, setMinimized] = useState(false);
   useEffect(() => {
     setChaptersOpen(false);
     setMinimized(false);
@@ -619,14 +690,20 @@ export default function GrandTourOverlay() {
       if (typing) return;
       const forward = isRTL ? "ArrowLeft" : "ArrowRight";
       const backward = isRTL ? "ArrowRight" : "ArrowLeft";
-      if (e.key === forward) {
-        if (runnerRef.current.state.waitingForNext) runnerRef.current.pressNext();
-        else tour.next();
+      if (e.key === forward || e.key === " ") {
+        if (e.key === " ") e.preventDefault();
+        if (awaitingShow) showMe();
+        else if (runnerRef.current.state.waitingForNext || (paceRef.current === "step" && runnerRef.current.state.running)) {
+          stopSpeaking();
+          runnerRef.current.pressNext();
+        }
+        else if (e.key !== " ") tour.next();
       } else if (e.key === backward) tour.back();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [active, paused, isRTL, tour, chaptersOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, paused, isRTL, tour, chaptersOpen, awaitingShow]);
 
   /* --- derived ---------------------------------------------------------------------------- */
   const chapter = useMemo(() => chapters.find((c) => c.id === stop?.chapter) ?? null, [chapters, stop?.chapter]);
@@ -698,13 +775,21 @@ export default function GrandTourOverlay() {
         <div className="flex items-center gap-2 rounded-full bg-ink-slab py-1.5 pe-2 ps-1.5 text-white shadow-[0_16px_50px_rgba(0,0,0,0.4)] ring-1 ring-white/10 animate-in fade-in zoom-in-95 duration-200">
           <button type="button" onClick={() => setMinimized(false)} className="flex items-center gap-2 rounded-full py-0.5 pe-2 transition-colors hover:bg-white/10">
             <AvatarFace state="idle" size={32} />
-            <span className="max-w-[10rem] truncate text-[12px] font-bold">{isAr ? stop.title.ar : stop.title.en}</span>
-            <span className="text-[10.5px] font-black tabular-nums text-white/45">{shownIndex + 1}/{total}</span>
+            <span className="max-w-[12rem] truncate text-[14px] font-bold">{isAr ? stop.title.ar : stop.title.en}</span>
+            <span className="text-[12px] font-black tabular-nums text-white/45">{shownIndex + 1}/{total}</span>
           </button>
           <button type="button" onClick={tour.back} disabled={stopIndex === 0} className="grid size-8 place-items-center rounded-full text-white/60 hover:bg-white/10 hover:text-white disabled:opacity-30" aria-label={isAr ? "رجوع" : "Back"}>
             <ArrowBack size={14} />
           </button>
-          <button type="button" onClick={() => setMinimized(false)} className="rounded-full bg-[#FACC15] px-3.5 py-1.5 text-[12px] font-black text-ink hover:brightness-105">
+          <button
+            type="button"
+            onClick={() => {
+              setMinimized(false);
+              if (takeover) continueHand();
+              else if (phase === "walk" || phase === "demo" || phase === "navigating") setReplayTick((t) => t + 1);
+            }}
+            className="rounded-full bg-[#FACC15] px-4 py-2 text-[13.5px] font-black text-ink hover:brightness-105"
+          >
             {isAr ? "كمّلي" : "Continue"}
           </button>
           <button type="button" onClick={tour.next} className="grid size-8 place-items-center rounded-full text-white/60 hover:bg-white/10 hover:text-white" aria-label={isLast ? (isAr ? "إنهاء" : "Finish") : isAr ? "التالي" : "Next"}>
@@ -732,7 +817,7 @@ export default function GrandTourOverlay() {
               <div className="shrink-0 rounded-full bg-white/5 p-0.5">
                 <AvatarFace state={avatarState} size={32} />
               </div>
-              <p onClick={typed.finish} className="min-w-0 flex-1 text-[13px] font-medium leading-snug text-white/90">
+              <p onClick={typed.finish} className="min-w-0 flex-1 text-[15px] font-medium leading-snug text-white/95 sm:text-[16px]">
                 {typed.shown || "…"}
                 {!typed.done && <span className="ms-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-[#FACC15]" />}
               </p>
@@ -749,11 +834,16 @@ export default function GrandTourOverlay() {
               </button>
               <button
                 type="button"
-                onClick={() => (waiting ? runner.pressNext() : tour.next())}
-                className={`ms-auto grid h-8 shrink-0 place-items-center rounded-full bg-[#FACC15] text-ink transition-all hover:brightness-105 active:scale-[0.98] sm:ms-0 ${waiting ? "animate-pulse px-3" : "w-8"}`}
-                aria-label={waiting ? (isAr ? "التالي" : "Next") : isLast ? (isAr ? "إنهاء" : "Finish") : isAr ? "المحطة الجاية" : "Next stop"}
+                onClick={() => {
+                  if (waiting || pace === "step") {
+                    stopSpeaking();
+                    runner.pressNext();
+                  } else tour.next();
+                }}
+                className={`ms-auto grid h-9 shrink-0 place-items-center rounded-full bg-[#FACC15] text-ink transition-all hover:brightness-105 active:scale-[0.98] sm:ms-0 ${waiting ? "animate-pulse px-4" : pace === "step" ? "px-4" : "w-9"}`}
+                aria-label={waiting || pace === "step" ? (isAr ? "التالي" : "Next") : isLast ? (isAr ? "إنهاء" : "Finish") : isAr ? "المحطة الجاية" : "Next stop"}
               >
-                {waiting ? <span className="text-[11px] font-black">{isAr ? "التالي" : "Next"}</span> : isLast ? <Check size={14} strokeWidth={3} /> : <ArrowNext size={14} />}
+                {waiting || pace === "step" ? <span className="text-[12.5px] font-black">{isAr ? "التالي" : "Next"}</span> : isLast ? <Check size={14} strokeWidth={3} /> : <ArrowNext size={14} />}
               </button>
             </div>
           </div>
@@ -873,6 +963,19 @@ export default function GrandTourOverlay() {
               </div>
             )}
 
+            {/* Hands-on: their turn */}
+            {phase === "handson" && stop.handsOn && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" onClick={beginHandsOn} className="inline-flex items-center gap-1.5 rounded-full bg-[#FACC15] px-4 py-2 text-[12.5px] font-black text-ink hover:brightness-105">
+                  <Hand size={13} />
+                  {isAr ? "يلا، أجرّب" : "I'll try"}
+                </button>
+                <button type="button" onClick={() => setPhase("done")} className="rounded-full border border-white/15 px-4 py-2 text-[12px] font-bold text-white/75 hover:bg-white/10 hover:text-white">
+                  {isAr ? "مش دلوقتي" : "Not now"}
+                </button>
+              </div>
+            )}
+
             {/* A real setup offer */}
             {offer && (
               <div className="mt-3 rounded-2xl border border-[#FACC15]/30 bg-[#FACC15]/10 p-3.5">
@@ -976,11 +1079,18 @@ export default function GrandTourOverlay() {
               {isAr ? "خليني أتفرج" : "Let me look"}
             </button>
             <span className="ms-auto hidden text-[10.5px] font-semibold text-white/35 lg:block">{isAr ? "الأسهم للتنقل · Esc للخروج" : "Arrow keys to move · Esc to leave"}</span>
-            <button type="button" onClick={tour.next} className="ms-auto inline-flex items-center gap-1.5 rounded-full bg-[#FACC15] px-5 py-2 text-[12.5px] font-black text-ink shadow-lg shadow-[#FACC15]/20 hover:brightness-105 active:scale-[0.98] lg:ms-0">
-              {isLast ? (isAr ? "إنهاء الجولة" : "Finish the tour") : isAr ? "التالي" : "Next"}
-              {!isLast && <ArrowNext size={14} />}
-              {isLast && <Check size={14} strokeWidth={3} />}
-            </button>
+            {awaitingShow ? (
+              <button type="button" onClick={showMe} className="ms-auto inline-flex items-center gap-1.5 rounded-full bg-[#FACC15] px-5 py-2 text-[12.5px] font-black text-ink shadow-lg shadow-[#FACC15]/20 hover:brightness-105 active:scale-[0.98] lg:ms-0">
+                <Play size={12} strokeWidth={3} />
+                {isAr ? "وريني" : "Show me"}
+              </button>
+            ) : (
+              <button type="button" onClick={tour.next} className="ms-auto inline-flex items-center gap-1.5 rounded-full bg-[#FACC15] px-5 py-2 text-[12.5px] font-black text-ink shadow-lg shadow-[#FACC15]/20 hover:brightness-105 active:scale-[0.98] lg:ms-0">
+                {isLast ? (isAr ? "إنهاء الجولة" : "Finish the tour") : isAr ? "التالي" : "Next"}
+                {!isLast && <ArrowNext size={14} />}
+                {isLast && <Check size={14} strokeWidth={3} />}
+              </button>
+            )}
           </div>
         </div>
       </div>

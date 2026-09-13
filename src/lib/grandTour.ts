@@ -130,6 +130,17 @@ export interface TourStop {
     walk?: DemoAction[];
     skip?: boolean;
   };
+  /**
+   * Part of the short core tour — the ten-minute "daily basics" a new person is offered first.
+   * `"setup"` marks a setup stop taken only when the clinic still lacks that piece (hours, a
+   * price list, a dentist). Everything else stays in its chapter, opened on demand.
+   */
+  core?: boolean | "setup";
+  /**
+   * After Sara has shown it, the person does it: a lesson (the pulsing ring) they click through
+   * themselves. `say` invites them; `done` is her line when the lesson ends.
+   */
+  handsOn?: { tutorial: string; say: Localized; done: Localized };
 }
 
 export const TOUR_CHAPTERS: TourChapter[] = [
@@ -205,6 +216,7 @@ const PHONE_SETTINGS_WALK: DemoAction[] = [
 const WELCOME_STOPS: TourStop[] = [
   {
     id: "topbar",
+    core: true,
     chapter: "welcome",
     route: "/",
     spot: ["topnav", "nav-menu"],
@@ -302,6 +314,7 @@ const WELCOME_STOPS: TourStop[] = [
 const DASHBOARD_STOPS: TourStop[] = [
   {
     id: "dashboard",
+    core: true,
     chapter: "dashboard",
     route: "/",
     title: { en: "The dashboard", ar: "لوحة التحكم" },
@@ -338,6 +351,7 @@ const DASHBOARD_STOPS: TourStop[] = [
 const FRONTDESK_STOPS: TourStop[] = [
   {
     id: "chats",
+    core: true,
     chapter: "frontdesk",
     route: "/chats",
     navKey: "chats",
@@ -357,6 +371,7 @@ const FRONTDESK_STOPS: TourStop[] = [
   },
   {
     id: "patients",
+    core: true,
     chapter: "frontdesk",
     route: "/patients",
     navKey: "patients",
@@ -393,14 +408,23 @@ const FRONTDESK_STOPS: TourStop[] = [
   },
   {
     id: "patients-add",
+    core: true,
+    handsOn: {
+      tutorial: "add-patient",
+      say: {
+        en: "Now you. Add a patient yourself — use your own name and your own phone, so later you'll see the WhatsApp messages land on your phone. I'll ring each step; you do the clicking.",
+        ar: "دلوقتي إنت. ضيف مريض بنفسك — حط اسمك ورقمك إنت، عشان بعدين تشوف رسايل الواتساب بتوصل على موبايلك. أنا هنوّر كل خطوة، وإنت اللي تضغط.",
+      },
+      done: { en: "That's yours now. Adding a patient will never need me again.", ar: "كده بقت في إيدك. إضافة مريض مش هتحتاجني تاني." },
+    },
     chapter: "frontdesk",
     route: "/patients",
     navKey: "patients",
     spot: ["patients-add"],
     title: { en: "Adding a patient", ar: "إضافة مريض" },
     say: {
-      en: "New patients start with this button. Name and phone are enough to book them; everything else can be filled in later, even from the chair. If you'd like, after the tour I can walk you through it on the real screen.",
-      ar: "المريض الجديد بيبدأ من الزرار ده. الاسم والتليفون كفاية عشان تحجزله؛ الباقي ممكن يتملى بعدين، حتى من على الكرسي. لو تحب، بعد الجولة أمشي معاك عليها على الشاشة الحقيقية.",
+      en: "New patients start with this button. Name and phone are enough to book them; everything else can be filled in later, even from the chair. I'll add one now, and then it's your turn.",
+      ar: "المريض الجديد بيبدأ من الزرار ده. الاسم والتليفون كفاية عشان تحجزله؛ الباقي ممكن يتملى بعدين، حتى من على الكرسي. هضيف واحد دلوقتي، وبعدين دورك.",
     },
     ask: [
       { en: "What fields are required for a new patient?", ar: "إيه الحقول المطلوبة للمريض الجديد؟" },
@@ -449,6 +473,7 @@ const FRONTDESK_STOPS: TourStop[] = [
   },
   {
     id: "patient-file",
+    core: true,
     chapter: "frontdesk",
     route: "/patients",
     dynamic: "firstPatient",
@@ -470,6 +495,15 @@ const FRONTDESK_STOPS: TourStop[] = [
   },
   {
     id: "patient-payment",
+    core: true,
+    handsOn: {
+      tutorial: "record-payment",
+      say: {
+        en: "Your turn: take a payment on the patient you added. Any amount — it's your file, and you can delete it after. I'll ring the steps.",
+        ar: "دورك: استلم دفعة على المريض اللي ضفته. أي مبلغ — ده ملفك، وتقدر تحذفه بعدين. هنوّرلك الخطوات.",
+      },
+      done: { en: "And that's the desk's whole day: patient, booking, payment.", ar: "وده يوم المكتب كله: مريض، حجز، دفعة." },
+    },
     chapter: "frontdesk",
     route: "/patients",
     dynamic: "demoPatient",
@@ -529,6 +563,7 @@ const FRONTDESK_STOPS: TourStop[] = [
   },
   {
     id: "appointments",
+    core: true,
     chapter: "frontdesk",
     route: "/appointments",
     navKey: "appointments",
@@ -1037,6 +1072,7 @@ const SETTINGS_NARRATION: Record<string, SettingsNarration> = {
 function settingsStops(): TourStop[] {
   const intro: TourStop = {
     id: "settings",
+    core: true,
     chapter: "settings",
     route: "/settings",
     requiresSettingsLink: true,
@@ -1242,6 +1278,22 @@ const WRAPUP_STOPS: TourStop[] = [
   },
 ];
 
+/**
+ * Walks used to name every column and button; the tester called it boring, and he was right.
+ * A walk now points at four things at most (the clicks that open and close menus, and the closing
+ * line, are kept), and the rest of a page is a question away.
+ */
+export const MAX_WALK_POINTS = 4;
+export function trimWalk(walk: DemoAction[] | undefined): DemoAction[] | undefined {
+  if (!walk) return walk;
+  let points = 0;
+  return walk.filter((a) => {
+    if (a.kind !== "point") return true;
+    points += 1;
+    return points <= MAX_WALK_POINTS;
+  });
+}
+
 /** Insert `extra` right after the stop with `afterId`. */
 function after(list: TourStop[], afterId: string, ...extra: TourStop[]): TourStop[] {
   const i = list.findIndex((s) => s.id === afterId);
@@ -1252,7 +1304,28 @@ function after(list: TourStop[], afterId: string, ...extra: TourStop[]): TourSto
 const ALL_SETTINGS = settingsStops();
 const SETUP_STOPS = (SETUP_SECTION_IDS as readonly string[])
   .map((id) => ALL_SETTINGS.find((s) => s.settingsId === id))
-  .filter((s): s is TourStop => !!s);
+  .filter((s): s is TourStop => !!s)
+  // On the core tour only when the clinic still lacks the piece (hours, a price list, a dentist).
+  .map((s) => (s.settingsId === "clinic_profile" ? s : { ...s, core: "setup" as const }));
+
+/** The core tour's last stop: what was covered, where the rest lives, and the door to questions. */
+const CORE_FINALE: TourStop = {
+  id: "core-finale",
+  chapter: "wrapup",
+  core: true,
+  route: "/",
+  title: { en: "That's the daily basics", ar: "دي أساسيات اليوم" },
+  say: {
+    en: "That's a normal day: a patient, a booking, the day from the desk, and a payment. The rest — Finance, Inventory, the Lab, every section of Settings — lives in short chapters on Getting started, or just tell me 'teach me Finance'. From now on I'm the orb in the corner: ask me anything, in Arabic or English. Before you go: any questions? On this first tour they're free.",
+    ar: "ده يوم عادي: مريض، وحجز، واليوم من المكتب، ودفعة. الباقي — الحسابات، المخزون، المعمل، وكل قسم في الإعدادات — في فصول قصيرة في صفحة البداية، أو قولّي «علّميني الحسابات». من دلوقتي أنا الدايرة اللي في الركن: اسألني أي حاجة، بالعربي أو الإنجليزي. قبل ما تمشي: عندك أي سؤال؟ في أول جولة الأسئلة ببلاش.",
+  },
+  ask: [
+    { en: "Teach me Finance", ar: "علّميني الحسابات" },
+    { en: "What can you do for me every day?", ar: "بتقدري تعمليلي إيه كل يوم؟" },
+  ],
+  knowledge:
+    "The core tour covers: the navigation bar, the desk dashboard, adding a patient (Sara demonstrates, then the person does it), booking (same), running the day from the desk (arrive/seat/check out), the patient file, taking a payment (same), WhatsApp, and where Settings is. The remaining chapters — Setting up the clinic, A normal day (in full), Money and running the clinic, Insights and growth, Every setting — open from Getting started (/welcome) or by asking Sara ('teach me Finance' → open_tour_stop on that chapter's first stop). After the tour the assistant lives in the floating orb at the bottom corner of every page; lessons (the pulsing ring) start from its 'Teach me' menu or from the tour.",
+};
 const OTHER_SETTINGS = ALL_SETTINGS.filter((s) => s.chapter === "settings");
 const CREDITS_STOP = ALL_SETTINGS.find((s) => s.settingsId === "ai_credits");
 
@@ -1266,6 +1339,8 @@ const finale = wrapupBase.find((s) => s.id === "finale");
 const wrapup = [
   ...wrapupBase.filter((s) => s.id !== "finale"),
   ...CLEANUP_STOPS,
+  // The core tour ends here, after its cleanup; the full tour goes on to credits and its own finale.
+  CORE_FINALE,
   ...(CREDITS_STOP ? [CREDITS_STOP] : []),
   ...(finale ? [finale] : []),
 ];
@@ -1284,7 +1359,8 @@ export const TOUR_STOPS: TourStop[] = [
   // has one, otherwise takes the one written for its id. Same for the demos on existing stops.
   .map((stop) => ({
     ...stop,
-    walk: stop.walk ?? TOUR_WALKS[stop.id],
+    walk: trimWalk(stop.walk ?? TOUR_WALKS[stop.id]),
+    phone: stop.phone?.walk ? { ...stop.phone, walk: trimWalk(stop.phone.walk) } : stop.phone,
     demo: stop.demo ?? STOP_DEMOS[stop.id],
   }));
 
@@ -1329,10 +1405,28 @@ export function tourStopsFor(viewer: TourViewer): TourStop[] {
   });
 }
 
-/** Roughly how long the tour takes at a reading pace: about twenty seconds a stop. */
-export function tourMinutes(stopCount: number): number {
-  return Math.max(3, Math.round((stopCount * 20) / 60));
+/** Roughly how long a run takes at a reading pace: about twenty seconds a stop, two minutes a hands-on. */
+export function tourMinutes(stops: readonly TourStop[]): number {
+  const handsOn = stops.filter((s) => s.handsOn).length;
+  return Math.max(3, Math.round((stops.length * 20) / 60 + handsOn * 2));
 }
+
+/** The chapters offered on their own, after (or instead of) the core tour. */
+export const ON_DEMAND_CHAPTERS: TourChapterId[] = ["setup", "frontdesk", "operations", "insights", "settings"];
+
+/**
+ * The core tour, from a person's full stop list: the stops marked `core`, plus the setup stops
+ * for whatever the clinic still lacks (`setupNeeded` holds their settings ids).
+ */
+export function coreStopsFor(stops: readonly TourStop[], setupNeeded: readonly string[]): TourStop[] {
+  return stops.filter((s) => s.core === true || (s.core === "setup" && !!s.settingsId && setupNeeded.includes(s.settingsId)));
+}
+
+/** A chapter on its own, as a run. */
+export function chapterStopsFor(stops: readonly TourStop[], chapterId: string): TourStop[] {
+  return stops.filter((s) => s.chapter === chapterId);
+}
+
 
 /** Ordered chapters that still have at least one stop for this person. */
 export function tourChaptersFor(stops: readonly TourStop[]): TourChapter[] {
