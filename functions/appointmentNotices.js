@@ -22,7 +22,7 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { getFirestore } = require("firebase-admin/firestore");
 
 const db = () => getFirestore(admin.app(), "default");
-const APP_BASE_URL = (process.env.APP_BASE_URL || "https://alpha-v3-live.vercel.app").replace(/\/$/, "");
+const APP_BASE_URL = (process.env.APP_BASE_URL || "https://alphadental.app").replace(/\/$/, "");
 
 async function automationToken() {
   try {

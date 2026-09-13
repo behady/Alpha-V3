@@ -27,7 +27,7 @@ const db = () => getFirestore(admin.app(), "default");
 const todayKey = () => DateTime.now().setZone(TIMEZONE).toFormat("yyyy-MM-dd");
 
 /** Where patients' rating links point. The stable production domain, not a per-deploy URL. */
-const APP_BASE_URL = process.env.APP_BASE_URL || "https://alpha-v3-live.vercel.app";
+const APP_BASE_URL = process.env.APP_BASE_URL || "https://alphadental.app";
 
 /** How long after a review ask before the same patient may be asked again. */
 const REVIEW_COOLDOWN_DAYS = 90;

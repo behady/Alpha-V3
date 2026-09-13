@@ -85,7 +85,7 @@ android {
         // wrong site. Which is exactly what happened, because the old preview
         // deployment still answers with a working-looking page rather than an
         // error, so nobody noticed.
-        buildConfigField("String", "WEB_URL", "\"https://alpha-v3-live.vercel.app/\"")
+        buildConfigField("String", "WEB_URL", "\"https://alphadental.app/\"")
     }
 
     signingConfigs {
