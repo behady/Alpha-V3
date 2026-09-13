@@ -138,6 +138,48 @@ export default function TeethChart({
     el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2;
   }, [isPrimary]);
 
+  /**
+   * Whether the chart is currently wider than the space it has.
+   *
+   * Watched rather than inferred from a breakpoint: the same chart is a full-width card on the
+   * Clinical tab, a column in a side sheet and a panel in a pop-up, and only the element knows
+   * which of those it is right now. Drives the edge fades, so the hint appears exactly when
+   * there is something off-screen to find.
+   */
+  const [overflowing, setOverflowing] = useState(false);
+  /**
+   * How much room the chart actually has, in pixels. 0 until it has been measured once.
+   *
+   * Read off the scroll container, whose width is the space available and is unaffected by how
+   * wide the row inside it turns out to be — so making the teeth smaller in response cannot feed
+   * back into this and oscillate.
+   */
+  const [avail, setAvail] = useState(0);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const measure = () => {
+      setOverflowing(el.scrollWidth - el.clientWidth > 4);
+      setAvail(el.clientWidth);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [isPrimary, narrow, wide, dense]);
+
+  /**
+   * The small tooth, either because a caller asked for it or because the chart can see it has to.
+   *
+   * `narrow` was the caller's promise about its own container, and callers get it wrong — the
+   * procedure pop-up passed `narrow={false}` because a pop-up is "the wide one", which is true on
+   * a monitor and false on the tablet where the same pop-up is 700px. Measuring removes the guess.
+   * Below the width sixteen full-size teeth need, the chart drops to the size it uses in the side
+   * sheet: every tooth still on screen, none of them clipped, nothing to scroll. Narrower than
+   * that — a phone — and it scrolls, because 19px teeth are not a chart.
+   */
+  const tight = narrow || (avail > 0 && avail < (isPrimary ? 460 : 760));
+
   // Modal/draft state
   const [draftStatuses, setDraftStatuses] = useState<string[]>([]);
   const [draftSurfaces, setDraftSurfaces] = useState<Record<string, string[]>>({});
@@ -388,7 +430,7 @@ export default function TeethChart({
 
         <div
           className={`transition-all duration-200 ${
-            narrow
+            tight
               // A narrow container is not a wide screen — hold the small tooth here whatever the
               // monitor says, so all sixteen still fit the card instead of being clipped by it.
               ? isPrimary ? "w-[26px] h-[34px]" : "w-[28px] h-[38px]"
@@ -491,11 +533,40 @@ export default function TeethChart({
   return (
     <div className="w-full" dir={isRTL ? "rtl" : "ltr"}>
       <div className="relative" dir="ltr">
-        {/* Edge fades — a quiet "there's more" hint while the chart can scroll (mobile only) */}
-        <div className="md:hidden pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-white to-transparent z-20 rounded-l-3xl" />
-        <div className="md:hidden pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-white to-transparent z-20 rounded-r-3xl" />
+        {/* Edge fades — a quiet "there's more" hint, shown while the chart actually overflows.
+            They were `md:hidden`, which asked the monitor a question only the container can
+            answer: a chart squeezed into a pop-up on a wide screen scrolled with no hint at all. */}
+        {overflowing && (
+          <>
+            <div className="pointer-events-none absolute inset-y-0 left-0 w-6 bg-gradient-to-r from-white to-transparent z-20 rounded-l-3xl" />
+            <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-white to-transparent z-20 rounded-r-3xl" />
+          </>
+        )}
       <div ref={scrollRef} className="w-full overflow-x-auto no-scrollbar" dir="ltr">
-        <div className={`w-full ${wide ? "max-w-none" : "max-w-5xl"} mx-auto ${narrow ? (isPrimary ? "min-w-[380px]" : "min-w-[570px]") : `${isPrimary ? "min-w-[440px]" : "min-w-[620px]"} md:min-w-0`}`}>
+        {/*
+          The floor under the chart, and the reason it is a ladder rather than one number.
+
+          The tooth sizes below are picked off `md:`/`lg:`/`xl:`, so the row gets wider at each
+          breakpoint whatever the container is doing. This used to say `md:min-w-0`, which released
+          the floor at exactly the breakpoint the teeth grew at: past 768px the wrapper was free to
+          shrink to whatever the card was, the row stayed its full width, and the card's
+          `overflow-hidden` sliced the ends off both arches — 18 and 28 gone, with no scrollbar to
+          say so, because nothing had overflowed the scroller. That is the failure in a pop-up
+          editor on a laptop or a tablet: a wide-screen tooth in a container that is not wide.
+
+          Each figure is sixteen teeth at that breakpoint's size, plus the centre gap and the
+          card's own padding. Hold the floor and the row never has to squash: it overflows the
+          scroller above, which is what the scroller is for.
+        */}
+        <div
+          className={`w-full ${wide ? "max-w-none" : "max-w-5xl"} mx-auto ${
+            tight
+              ? isPrimary ? "min-w-[380px]" : "min-w-[570px]"
+              : isPrimary
+                ? "min-w-[440px] md:min-w-[460px]"
+                : `min-w-[620px] md:min-w-[760px] ${wide ? "lg:min-w-[850px] xl:min-w-[1000px]" : ""}`
+          }`}
+        >
           {/* Arch label header */}
           <div className={`${dense ? "hidden" : "flex"} items-center justify-between px-3 mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400`}>
             <span>{language === "ar" ? "يمين" : "Right"}</span>
@@ -522,7 +593,7 @@ export default function TeethChart({
                  <div className="flex flex-row w-full justify-center gap-0.5 md:gap-1 px-1 md:px-2">
                    <div className="flex justify-end gap-0 w-full">
                      { (isPrimary ? ChildQ1 : Q1).map((id, index) => (
-                        <div key={`u-buc-${id}`} className={narrow ? "shrink-0" : undefined} style={{ transform: `translateY(${(isPrimary ? 5 - index : 8 - index) * 3}px)` }}>
+                        <div key={`u-buc-${id}`} className="shrink-0" style={{ transform: `translateY(${(isPrimary ? 5 - index : 8 - index) * 3}px)` }}>
                           {renderTooth(id, "buccal")}
                         </div>
                      )) }
@@ -530,7 +601,7 @@ export default function TeethChart({
                    <div className="w-1 md:w-2 shrink-0" />
                    <div className="flex justify-start gap-0 w-full">
                      { (isPrimary ? ChildQ2 : Q2).map((id, index) => (
-                        <div key={`u-buc-${id}`} className={narrow ? "shrink-0" : undefined} style={{ transform: `translateY(${(index + 1) * 3}px)` }}>
+                        <div key={`u-buc-${id}`} className="shrink-0" style={{ transform: `translateY(${(index + 1) * 3}px)` }}>
                           {renderTooth(id, "buccal")}
                         </div>
                      )) }
@@ -581,7 +652,7 @@ export default function TeethChart({
                  <div className="flex flex-row w-full justify-center gap-0.5 md:gap-1 px-1 md:px-2">
                    <div className="flex justify-end gap-0 w-full">
                      { (isPrimary ? ChildQ4 : Q4).map((id, index) => (
-                        <div key={`l-buc-${id}`} className={narrow ? "shrink-0" : undefined} style={{ transform: `translateY(-${(isPrimary ? 5 - index : 8 - index) * 3}px)` }}>
+                        <div key={`l-buc-${id}`} className="shrink-0" style={{ transform: `translateY(-${(isPrimary ? 5 - index : 8 - index) * 3}px)` }}>
                           {renderTooth(id, "buccal")}
                         </div>
                      )) }
@@ -589,7 +660,7 @@ export default function TeethChart({
                    <div className="w-1 md:w-2 shrink-0" />
                    <div className="flex justify-start gap-0 w-full">
                      { (isPrimary ? ChildQ3 : Q3).map((id, index) => (
-                        <div key={`l-buc-${id}`} className={narrow ? "shrink-0" : undefined} style={{ transform: `translateY(-${(index + 1) * 3}px)` }}>
+                        <div key={`l-buc-${id}`} className="shrink-0" style={{ transform: `translateY(-${(index + 1) * 3}px)` }}>
                           {renderTooth(id, "buccal")}
                         </div>
                      )) }
