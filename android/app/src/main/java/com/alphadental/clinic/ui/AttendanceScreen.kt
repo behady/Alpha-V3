@@ -80,32 +80,13 @@ fun AttendanceScreen(
         Column(
             Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(start = 4.dp, end = 16.dp, top = 6.dp),
-            ) {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Alpha.Slate700)
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        if (arabic) "الحضور" else "Attendance",
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Alpha.Slate900,
-                        fontFamily = AlphaType.Display,
-                    )
-                    Text(
-                        if (arabic) "من في العيادة الآن، ومن كان" else "Who is in right now, and who has been",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Alpha.Slate500,
-                    )
-                }
-            }
+            DetailSlab(
+                title = if (arabic) "الحضور" else "Attendance",
+                subtitle = if (arabic) "من في العيادة الآن، ومن كان" else "Who is in right now, and who has been",
+                onBack = onClose,
+            )
 
             RefreshBox(refreshing = payrollLoading && payroll != null, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
                 LazyColumn(

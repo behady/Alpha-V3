@@ -9,6 +9,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -233,58 +234,66 @@ fun PatientScreen(
                 }
 
                 file != null -> {
-                    // Header: back, identity, reach-them buttons.
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(start = 4.dp, end = 10.dp, top = 4.dp),
-                    ) {
-                        IconButton(onClick = onClose) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Alpha.Slate700)
-                        }
-                        Box(
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(CircleShape)
-                                .background(Alpha.GreenSoft),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                file.patient.name.trim().firstOrNull()?.uppercase() ?: "•",
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Alpha.Green,
-                            )
-                        }
-                        Spacer(Modifier.width(10.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                file.patient.name.ifBlank { if (arabic) "بدون اسم" else "No name" },
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Alpha.Slate900,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                listOfNotNull(
-                                    file.fileId.takeIf { it.isNotBlank() },
-                                    file.patient.phone.takeIf { it.isNotBlank() },
-                                ).joinToString("  ·  ").ifBlank { if (arabic) "لا يوجد هاتف" else "no phone" },
-                                fontSize = 11.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Alpha.Slate400,
-                                maxLines = 1,
-                            )
-                        }
-                        if (file.patient.phone.isNotBlank()) {
-                            IconButton(onClick = { context.dialNumber(file.patient.phone) }) {
-                                Icon(Icons.Filled.Phone, contentDescription = if (arabic) "اتصال" else "Call", tint = Alpha.Green, modifier = Modifier.size(20.dp))
+                    // The record opens on who they are and what they owe.
+                    //
+                    // The balance used to live inside the Finance tab, three taps
+                    // in — which is the wrong place for the one number that
+                    // decides whether reception says anything as the patient
+                    // leaves. It is the screen's headline figure now.
+                    val owed = file.balance.owed
+                    val credit = file.balance.creditAmount
+                    DetailSlab(
+                        title = file.patient.name.ifBlank { if (arabic) "بدون اسم" else "No name" },
+                        eyebrow = listOfNotNull(
+                            file.fileId.takeIf { it.isNotBlank() },
+                        ).joinToString(" · ").ifBlank { null },
+                        subtitle = file.patient.phone.takeIf { it.isNotBlank() }
+                            ?: (if (arabic) "لا يوجد هاتف" else "no phone"),
+                        onBack = onClose,
+                        actions = {
+                            if (file.patient.phone.isNotBlank()) {
+                                SlabIcon(Icons.Filled.Phone, if (arabic) "اتصال" else "Call") {
+                                    context.dialNumber(file.patient.phone)
+                                }
+                                Spacer(Modifier.width(6.dp))
+                                SlabIcon(Icons.Filled.Chat, "WhatsApp") {
+                                    onMessage?.invoke() ?: context.openWhatsApp(file.patient.phone)
+                                }
                             }
-                            IconButton(onClick = { onMessage?.invoke() ?: context.openWhatsApp(file.patient.phone) }) {
-                                Icon(Icons.Filled.Chat, contentDescription = "WhatsApp", tint = Alpha.Green, modifier = Modifier.size(20.dp))
+                        },
+                        // A settled account states nothing: a patient who owes
+                        // nothing is the normal case, and a 38sp "0" on every
+                        // second record teaches people to stop reading the figure.
+                        figure = if (owed <= 0.0 && credit <= 0.0) null else {
+                            {
+                                SlabFigure(
+                                    amount = (if (owed > 0) owed else credit).toInt().toString(),
+                                    currency = if (arabic) "ج.م" else "EGP",
+                                    note = when {
+                                        owed > 0 && arabic -> "مستحق"
+                                        owed > 0 -> "outstanding"
+                                        arabic -> "رصيد دائن"
+                                        else -> "in credit"
+                                    },
+                                    size = 38,
+                                )
                             }
-                        }
-                    }
+                        },
+                        stats = listOf(
+                            SlabStat(
+                                if (arabic) "زيارات" else "Visits",
+                                file.past.size.toString(),
+                            ),
+                            SlabStat(
+                                if (arabic) "قادمة" else "Upcoming",
+                                file.upcoming.size.toString(),
+                            ),
+                            SlabStat(
+                                if (arabic) "إجمالي الفواتير" else "Billed",
+                                file.balance.charged.toInt().toString(),
+                            ),
+                        ),
+                    )
 
                     var tab by rememberSaveable { mutableStateOf("overview") }
 
@@ -308,7 +317,8 @@ fun PatientScreen(
                             Surface(
                                 onClick = { tab = spec.id },
                                 shape = Alpha.PillShape,
-                                color = if (selected) Alpha.Ink else Alpha.Card,
+                                color = if (selected) Alpha.Slab else Alpha.Card,
+                                border = if (selected) null else BorderStroke(1.dp, Alpha.Line),
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,

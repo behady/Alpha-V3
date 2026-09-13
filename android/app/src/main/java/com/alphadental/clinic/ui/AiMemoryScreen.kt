@@ -63,32 +63,13 @@ fun AiMemoryScreen(
         Column(
             Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(start = 4.dp, end = 16.dp, top = 6.dp),
-            ) {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Alpha.Slate700)
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        if (arabic) "ما تعلّمه المساعد" else "What Alpha has learned",
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Alpha.Slate900,
-                        fontFamily = AlphaType.Display,
-                    )
-                    Text(
-                        if (arabic) "قواعد يستخدمها في كل إجابة" else "Rules it applies to every answer",
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Alpha.Slate400,
-                    )
-                }
-            }
+            DetailSlab(
+                title = if (arabic) "ما تعلّمه المساعد" else "What Alpha has learned",
+                subtitle = if (arabic) "قواعد يستخدمها في كل إجابة" else "Rules it applies to every answer",
+                onBack = onClose,
+            )
 
             if (error != null) {
                 Spacer(Modifier.height(8.dp))

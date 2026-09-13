@@ -84,33 +84,13 @@ fun IntelligenceScreen(
         Column(
             Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(start = 4.dp, end = 16.dp, top = 6.dp),
-            ) {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Alpha.Slate700)
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        if (arabic) "اكتشاف" else "Find money",
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Alpha.Slate900,
-                        fontFamily = AlphaType.Display,
-                    )
-                    Text(
-                        if (arabic) "مرضى انقطعوا، وشغل لم يُحاسب عليه" else "Patients who stopped coming, and work nobody billed",
-                        fontSize = 12.sp,
-                        color = Alpha.Slate500,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
+            DetailSlab(
+                title = if (arabic) "اكتشاف" else "Find money",
+                subtitle = if (arabic) "مرضى انقطعوا، وشغل لم يُحاسب عليه" else "Patients who stopped coming, and work nobody billed",
+                onBack = onClose,
+            )
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),

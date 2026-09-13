@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -352,6 +354,43 @@ fun SlabStrip(stats: List<SlabStat>, modifier: Modifier = Modifier) {
             }
         }
     }
+}
+
+/**
+ * The slab for a screen opened from somewhere else: a back arrow, then the title.
+ *
+ * Eleven screens had each drawn this header themselves — a back `IconButton`, a
+ * title, a caption, sometimes a round action button — on the light ground, at
+ * eleven slightly different sizes and paddings. That is how an app ends up
+ * looking like eleven apps. One component, and a sub-screen now opens on the
+ * same black band as the tabs do.
+ */
+@Composable
+fun DetailSlab(
+    title: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    eyebrow: String? = null,
+    figure: @Composable (RowScope.() -> Unit)? = null,
+    stats: List<SlabStat> = emptyList(),
+    /** Controls at the far end of the top row — add, filter, overflow. */
+    actions: @Composable (RowScope.() -> Unit)? = null,
+) {
+    Slab(
+        title = title,
+        modifier = modifier,
+        eyebrow = eyebrow,
+        subtitle = subtitle,
+        figure = figure,
+        stats = stats,
+        bar = {
+            // Auto-mirrored: in Arabic the way back is the other way.
+            SlabIcon(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack)
+            Spacer(Modifier.weight(1f))
+            if (actions != null) actions()
+        },
+    )
 }
 
 /** A circular control on the slab — a back arrow, a bell, an overflow. */

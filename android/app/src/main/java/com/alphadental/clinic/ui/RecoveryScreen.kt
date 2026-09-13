@@ -101,32 +101,14 @@ fun RecoveryScreen(
         Column(
             Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(start = 4.dp, end = 16.dp, top = 6.dp),
-            ) {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Alpha.Slate700)
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        if (arabic) "تحصيل المستحقات" else "Collect dues",
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Alpha.Slate900,
-                        fontFamily = AlphaType.Display,
-                    )
-                    Text(
-                        if (arabic) "${debtors.size} مريض · ${outstanding.toInt()} ج.م"
+            DetailSlab(
+                title = if (arabic) "تحصيل المستحقات" else "Collect dues",
+                subtitle = if (arabic) "${debtors.size} مريض · ${outstanding.toInt()} ج.م"
                         else "${debtors.size} patient${if (debtors.size == 1) "" else "s"} · ${outstanding.toInt()} EGP outstanding",
-                        fontSize = 12.sp,
-                        color = Alpha.Slate500,
-                    )
-                }
-            }
+                onBack = onClose,
+            )
 
             OutlinedTextField(
                 value = search,

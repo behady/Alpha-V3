@@ -80,16 +80,18 @@ fun PatientsScreen(
     }
 
     Column(Modifier.fillMaxSize()) {
-        Surface(color = Alpha.Ground, modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp)) {
-                Text(
-                    if (arabic) "المرضى" else "Patients",
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontFamily = AlphaType.Display,
-                    color = Alpha.Slate900,
-                )
-                Spacer(Modifier.height(10.dp))
+        // The directory is a screen with something to state — how many people the
+        // clinic has on its books — so it gets a slab like every other screen,
+        // rather than a heading floating on the ground.
+        Slab(
+            title = if (arabic) "المرضى" else "Patients",
+            subtitle = directoryCount(results.size, hasMore, arabic),
+        )
+
+        // The search box sits on white directly under the slab, where it reads as
+        // the top of the list rather than as a control stranded on the ground.
+        Surface(color = Alpha.Card, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
@@ -112,10 +114,10 @@ fun PatientsScreen(
                     },
                     shape = Alpha.PillShape,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Alpha.Green,
-                        unfocusedBorderColor = if (Alpha.dark) Alpha.Slate100 else Color.Transparent,
-                        focusedContainerColor = Alpha.Card,
-                        unfocusedContainerColor = Alpha.Card,
+                        focusedBorderColor = Alpha.Slate900,
+                        unfocusedBorderColor = Alpha.Line,
+                        focusedContainerColor = Alpha.Slate50,
+                        unfocusedContainerColor = Alpha.Slate50,
                         cursorColor = Alpha.Ink,
                     ),
                     modifier = Modifier.fillMaxWidth(),
@@ -181,62 +183,28 @@ fun PatientsScreen(
                             }
                         }
 
+                        // Full-bleed: the register is one ruled white surface
+                        // running edge to edge, the way a contacts list is.
                         else -> LazyColumn(
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(bottom = 24.dp),
                         ) {
                             items(results, key = { it.id }) { patient ->
-                                // A plain tappable row with an initial badge — reads like a
-                                // contacts list, which is what this screen is.
-                                AlphaCard(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(Alpha.CardShape)
-                                        .clickable { onOpenPatient(patient) },
-                                    shape = Alpha.CardShape,
-                                ) {
-                                    Row(
-                                        Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(40.dp)
-                                                .clip(CircleShape)
-                                                .background(Alpha.GreenSoft),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            Text(
-                                                patient.name.trim().firstOrNull()?.uppercase() ?: "•",
-                                                fontSize = 16.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Alpha.Green,
+                                Column(Modifier.background(Alpha.Card)) {
+                                    AlphaRow(
+                                        title = patient.name,
+                                        subtitle = patient.phone.takeIf { it.isNotBlank() },
+                                        onClick = { onOpenPatient(patient) },
+                                        leading = { PatientInitial(patient.name) },
+                                        trailing = {
+                                            Icon(
+                                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                                contentDescription = null,
+                                                tint = Alpha.Slate300,
+                                                modifier = Modifier.size(20.dp),
                                             )
-                                        }
-                                        Spacer(Modifier.size(12.dp))
-                                        Column(Modifier.weight(1f)) {
-                                            Text(
-                                                patient.name,
-                                                fontSize = 15.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Alpha.Slate900,
-                                            )
-                                            if (patient.phone.isNotBlank()) {
-                                                Text(
-                                                    patient.phone,
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Medium,
-                                                    color = Alpha.Slate500,
-                                                )
-                                            }
-                                        }
-                                        Icon(
-                                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                            contentDescription = null,
-                                            tint = Alpha.Slate300,
-                                            modifier = Modifier.size(20.dp),
-                                        )
-                                    }
+                                        },
+                                    )
+                                    RowHairline()
                                 }
                             }
 
@@ -261,9 +229,10 @@ fun PatientsScreen(
                                     ) {
                                         Text(
                                             if (arabic) "تحميل المزيد" else "Load more",
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            color = Alpha.Green,
+                                            fontFamily = AlphaType.Display,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Alpha.AccentInk,
                                         )
                                     }
 
@@ -287,4 +256,37 @@ fun PatientsScreen(
             }
         }
     }
+}
+
+
+/**
+ * A patient's initial.
+ *
+ * Achromatic on purpose. It used to be the success green, which put a colour
+ * that means "paid" beside every name in the register — colour in this app marks
+ * something to act on, and a person existing is not something to act on.
+ */
+@Composable
+private fun PatientInitial(name: String) {
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(Alpha.Slate100),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = name.trim().firstOrNull()?.uppercase() ?: "\u2022",
+            fontFamily = AlphaType.Display,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            color = Alpha.Slate600,
+        )
+    }
+}
+
+/** "1,482 records" under the title — with a + while more pages are still unread. */
+private fun directoryCount(shown: Int, hasMore: Boolean, arabic: Boolean): String {
+    val n = if (hasMore) "$shown+" else shown.toString()
+    return if (arabic) "$n سجل" else "$n record" + if (shown == 1 && !hasMore) "" else "s"
 }

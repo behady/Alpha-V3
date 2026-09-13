@@ -60,32 +60,13 @@ fun BriefingScreen(
         Column(
             Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(start = 4.dp, end = 16.dp, top = 6.dp),
-            ) {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Alpha.Slate700)
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        if (arabic) "ملخص اليوم" else "Today at a glance",
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Alpha.Slate900,
-                        fontFamily = AlphaType.Display,
-                    )
-                    Text(
-                        if (arabic) "محسوب من السجلات، لا من تخمين" else "Computed from records, not guessed",
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Alpha.Slate400,
-                    )
-                }
-            }
+            DetailSlab(
+                title = if (arabic) "ملخص اليوم" else "Today at a glance",
+                subtitle = if (arabic) "محسوب من السجلات، لا من تخمين" else "Computed from records, not guessed",
+                onBack = onClose,
+            )
 
             when {
                 loading && briefing == null -> Box(

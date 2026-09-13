@@ -71,30 +71,13 @@ fun ReportsScreen(
     BackHandler { onClose() }
 
     Surface(color = Alpha.Ground, modifier = Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+        Column(Modifier.fillMaxSize().navigationBarsPadding()) {
 
-            Row(
-                Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Filled.ArrowBack, contentDescription = "Back", tint = Alpha.Slate700)
-                }
-                Column {
-                    Text(
-                        if (arabic) "التقارير" else "Reports",
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Alpha.Slate900,
-                    )
-                    Text(
-                        rangeLabel,
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Alpha.Slate400,
-                    )
-                }
-            }
+            DetailSlab(
+                title = if (arabic) "التقارير" else "Reports",
+                eyebrow = rangeLabel,
+                onBack = onClose,
+            )
 
             RefreshBox(
                 refreshing = loading && summary != null,

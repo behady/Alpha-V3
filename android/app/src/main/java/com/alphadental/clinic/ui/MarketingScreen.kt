@@ -97,32 +97,14 @@ fun MarketingScreen(
         Column(
             Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .navigationBarsPadding()
                 .imePadding()
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(start = 4.dp, end = 16.dp, top = 6.dp),
-            ) {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Alpha.Slate700)
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        if (arabic) "المحتوى" else "Content studio",
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Alpha.Slate900,
-                        fontFamily = AlphaType.Display,
-                    )
-                    Text(
-                        if (arabic) "اكتب منشوراً وانسخه للمنصة" else "Write a post, then copy it to the platform",
-                        fontSize = 12.sp,
-                        color = Alpha.Slate500,
-                    )
-                }
-            }
+            DetailSlab(
+                title = if (arabic) "المحتوى" else "Content studio",
+                subtitle = if (arabic) "اكتب منشوراً وانسخه للمنصة" else "Write a post, then copy it to the platform",
+                onBack = onClose,
+            )
 
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),

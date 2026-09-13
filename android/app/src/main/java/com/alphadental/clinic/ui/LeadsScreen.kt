@@ -181,42 +181,28 @@ fun LeadsScreen(
         Column(
             Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(start = 4.dp, end = 16.dp, top = 6.dp),
-            ) {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Alpha.Slate700)
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        if (arabic) "العملاء المحتملون" else "Leads",
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Alpha.Slate900,
-                        fontFamily = AlphaType.Display,
-                    )
-                    Text(
-                        if (arabic) "من الإعلانات والاتصالات — اتصل بسرعة" else "From ads and calls — speed wins them",
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Alpha.Slate400,
-                    )
-                }
-                Surface(onClick = onAdd, shape = CircleShape, color = Alpha.Ink) {
-                    Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Filled.Add,
-                            contentDescription = if (arabic) "إضافة عميل" else "Add lead",
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp),
-                        )
+            DetailSlab(
+                title = if (arabic) "العملاء المحتملون" else "Leads",
+                subtitle = if (arabic) "من الإعلانات والاتصالات — اتصل بسرعة" else "From ads and calls — speed wins them",
+                onBack = onClose,
+                actions = {
+                    // The accent, spent once: adding a lead is what this screen is
+                    // for. It used to be a black disc, which on the black slab
+                    // would now be invisible.
+                    Surface(onClick = onAdd, shape = CircleShape, color = Alpha.Accent) {
+                        Box(Modifier.size(34.dp), contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.Filled.Add,
+                                contentDescription = if (arabic) "إضافة عميل" else "Add lead",
+                                tint = Alpha.OnAccent,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
                     }
-                }
-            }
+                },
+            )
 
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),

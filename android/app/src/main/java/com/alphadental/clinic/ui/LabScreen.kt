@@ -149,32 +149,13 @@ fun LabScreen(
         Column(
             Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(start = 4.dp, end = 16.dp, top = 6.dp),
-            ) {
-                IconButton(onClick = onClose) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Alpha.Slate700)
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        if (arabic) "متابعة المعمل" else "Lab Tracking",
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Alpha.Slate900,
-                        fontFamily = AlphaType.Display,
-                    )
-                    Text(
-                        if (arabic) "${summary.atLab} حالة في المعامل الآن" else "${summary.atLab} case${if (summary.atLab == 1) "" else "s"} out at labs right now",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Alpha.Slate500,
-                    )
-                }
-            }
+            DetailSlab(
+                title = if (arabic) "متابعة المعمل" else "Lab Tracking",
+                subtitle = if (arabic) "${summary.atLab} حالة في المعامل الآن" else "${summary.atLab} case${if (summary.atLab == 1) "" else "s"} out at labs right now",
+                onBack = onClose,
+            )
 
             // The three numbers, each a filter. Tapping a count that says 3 must show 3 rows.
             Row(

@@ -146,29 +146,11 @@ private fun CaseList(
         .filter { stage == "All" || it.status == stage }
         .filter { query.isBlank() || it.patientName.contains(query.trim(), ignoreCase = true) }
 
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(start = 4.dp, end = 16.dp, top = 6.dp),
-    ) {
-        IconButton(onClick = onClose) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Alpha.Slate700)
-        }
-        Column(Modifier.weight(1f)) {
-            Text(
-                if (arabic) "حالات التقويم" else "Ortho cases",
-                fontSize = 19.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = Alpha.Slate900,
-                fontFamily = AlphaType.Display,
-            )
-            Text(
-                if (arabic) "المتابعة والتعديلات" else "Follow-ups and adjustments",
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.Medium,
-                color = Alpha.Slate400,
-            )
-        }
-    }
+    DetailSlab(
+        title = if (arabic) "حالات التقويم" else "Ortho cases",
+        subtitle = if (arabic) "المتابعة والتعديلات" else "Follow-ups and adjustments",
+        onBack = onClose,
+    )
 
     Column(Modifier.padding(horizontal = 16.dp)) {
         OutlinedTextField(

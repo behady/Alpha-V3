@@ -148,61 +148,50 @@ fun MoneyScreen(
     Column(Modifier.fillMaxSize()) {
         // The slab carries the one figure the screen exists to report, and the
         // period it belongs to. The four equal tiles it replaced said nothing
-        // about which of them mattered.
-        SlabSurface {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    if (arabic) "الحسابات" else "Finance",
-                    fontSize = 23.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontFamily = AlphaType.Display,
-                    color = onSlab,
-                    modifier = Modifier.weight(1f),
+        // about which of them mattered; the strip underneath says what the figure
+        // is made of, which is the question the tiles were actually answering.
+        Slab(
+            title = if (arabic) "الحسابات" else "Money",
+            eyebrow = periodLabel(view, anchor, arabic),
+            bar = {
+                if (!isCurrentPeriod) {
+                    Surface(
+                        onClick = onToday,
+                        shape = Alpha.PillShape,
+                        color = Alpha.SlabFill,
+                    ) {
+                        Text(
+                            if (arabic) "العودة إلى اليوم" else "Back to today",
+                            fontFamily = AlphaType.Body,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = Alpha.SlabInk,
+                            modifier = Modifier.padding(horizontal = 13.dp, vertical = 6.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                SlabIcon(Icons.Filled.ChevronLeft, "Back") { onShift(-1) }
+                Spacer(Modifier.width(6.dp))
+                SlabIcon(Icons.Filled.ChevronRight, "Forward") { onShift(1) }
+            },
+            figure = {
+                SlabFigure(
+                    amount = finalNet.toInt().toString(),
+                    currency = if (arabic) "ج.م" else "EGP",
+                    note = (if (arabic) "صافي الربح" else "net profit") +
+                        if (labFees > 0) (if (arabic) " بعد المعمل" else " after lab") else "",
                 )
-                IconButton(onClick = { onShift(-1) }, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Filled.ChevronLeft, contentDescription = "Back", tint = onSlabDim)
-                }
-                IconButton(onClick = { onShift(1) }, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Filled.ChevronRight, contentDescription = "Forward", tint = onSlabDim)
-                }
-            }
-
-            Spacer(Modifier.height(14.dp))
-            Text(
-                text = "${finalNet.toInt()} EGP",
-                fontSize = 34.sp,
-                fontWeight = FontWeight.ExtraBold,
-                fontFamily = AlphaType.Display,
-                color = if (finalNet >= 0) slabAccent else Alpha.Pink,
-                maxLines = 1,
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = (if (arabic) "صافي الربح · " else "Net profit · ") + periodLabel(view, anchor, arabic) +
-                    if (labFees > 0) (if (arabic) " (بعد المعمل)" else " (after lab)") else "",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = onSlabDim,
-                maxLines = 1,
-            )
-
-            if (!isCurrentPeriod) {
-                Spacer(Modifier.height(10.dp))
-                Surface(
-                    onClick = onToday,
-                    shape = Alpha.PillShape,
-                    color = onSlab.copy(alpha = .14f),
-                ) {
-                    Text(
-                        if (arabic) "العودة إلى اليوم" else "Back to today",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.5.sp,
-                        color = onSlab,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                    )
-                }
-            }
-        }
+            },
+            stats = buildList {
+                add(SlabStat(if (arabic) "المحصل" else "Collected", cashIn.toInt().toString()))
+                add(SlabStat(if (arabic) "المصروفات" else "Expenses", expenses.toInt().toString()))
+                // Only when the clinic actually pays them — a permanent "0 lab"
+                // on a practice that sends nothing out is a column of nothing.
+                if (labFees > 0) add(SlabStat(if (arabic) "المعمل" else "Lab", labFees.toInt().toString()))
+                if (commissions > 0) add(SlabStat(if (arabic) "العمولات" else "Commission", commissions.toInt().toString()))
+            },
+        )
 
         Surface(color = Alpha.Ground, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(horizontal = 16.dp)) {
