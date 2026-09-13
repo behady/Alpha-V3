@@ -10,7 +10,9 @@
  * Gemini while it is made. Running this after a narration change means nobody ever does.
  *
  * It writes to the same key the /api/tts route reads, and skips anything already there, so it is
- * safe to run repeatedly and cheap to run after a small edit.
+ * safe to run repeatedly and cheap to run after a small edit — which is also how it survives the
+ * speech model's daily quota: when the quota is gone it stops, says how many are left, and the
+ * next run picks up exactly where it stopped.
  */
 
 import fs from "node:fs";
@@ -100,6 +102,26 @@ async function main() {
   let skipped = 0;
   let failed = 0;
   let characters = 0;
+  let remaining = 0;
+  let quotaGone = false;
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  /**
+   * One line, with patience. A 429 from this model is usually the per-minute rate rather than the
+   * day's allowance, and waiting is the whole fix; when waiting stops helping, the day is gone.
+   */
+  const synthesise = async (text: string, lang: "en" | "ar") => {
+    for (const wait of [0, 8000, 30000]) {
+      if (wait) await sleep(wait);
+      try {
+        return await provider.synthesize({ text, language: lang });
+      } catch (error) {
+        if (!String(error).includes("429")) throw error;
+      }
+    }
+    return null;
+  };
 
   for (const lang of langs) {
     const lines = linesFor(lang);
@@ -113,8 +135,20 @@ async function main() {
       }
       characters += text.length;
       if (dry) continue;
+      if (quotaGone) {
+        remaining += 1;
+        continue;
+      }
       try {
-        const result = await provider.synthesize({ text, language: lang });
+        const result = await synthesise(text, lang);
+        if (!result) {
+          // Three tries and two waits later it is still refusing: that is the day's allowance,
+          // not a burst. Stop rather than hammer a closed door 500 more times.
+          quotaGone = true;
+          remaining += 1;
+          console.warn(`  ! the speech model's quota is used up — stopping here.`);
+          continue;
+        }
         await file.save(Buffer.from(result.audioBase64, "base64"), { contentType: "audio/wav", resumable: false });
         made += 1;
         if (made % 10 === 0) console.log(`  …${made} made (${i + 1}/${lines.length})`);
@@ -131,6 +165,9 @@ async function main() {
     `\n${dry ? "Would synthesise" : "Synthesised"} ${dry ? characters : made} ${dry ? "characters" : "lines"}` +
       `, ${skipped} already cached, ${failed} failed. Rough cost: $${dollars.toFixed(2)}.`,
   );
+  if (remaining > 0) {
+    console.log(`${remaining} lines still to do. Run this again when the quota resets; it resumes where it stopped.`);
+  }
 }
 
 main().catch((error) => {

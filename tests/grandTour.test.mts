@@ -126,7 +126,11 @@ assert.equal(tourStopById("finale")?.chapter, "wrapup");
     if (stop.handsOn) lines.push(stop.handsOn.done.en, stop.handsOn.say.en);
   }
   for (const line of lines) {
-    const promises = /goes out by itself|reaches your phone|check your whatsapp|on your phone already/i.test(line);
+    // Only about something the clinic SENDS. "the bell chimes when a message lands" is incoming,
+    // and has nothing to do with whether WhatsApp is connected.
+    const promises =
+      /(confirmation|reminder|receipt)[^.]{0,60}(goes out|is sent|will be sent|reaches|lands)/i.test(line) ||
+      /check your whatsapp|on your phone already|land on your phone/i.test(line);
     if (!promises) continue;
     const hedged = /once your whatsapp|if that was your own number|for a real patient/i.test(line);
     assert.ok(hedged, `a line promises a message with no condition attached: "${line.slice(0, 90)}"`);

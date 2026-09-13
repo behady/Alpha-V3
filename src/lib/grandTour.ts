@@ -443,8 +443,8 @@ const FRONTDESK_STOPS: TourStop[] = [
       roles: ["reception", "owner"],
       gaveUp: { en: "No problem — it's waiting for you on Getting started whenever you want it.", ar: "ولا يهمك — هتلاقيه مستنيك في صفحة البداية وقت ما تحب." },
       say: {
-        en: "Now you. Add a patient yourself — use your own name and your own phone, so later you'll see the WhatsApp messages land on your phone. I'll ring each step; you do the clicking.",
-        ar: "دلوقتي إنت. ضيف مريض بنفسك — حط اسمك ورقمك إنت، عشان بعدين تشوف رسايل الواتساب بتوصل على موبايلك. أنا هنوّر كل خطوة، وإنت اللي تضغط.",
+        en: "Now you. Add a patient yourself — your own name and your own number are the easiest way to try it. I'll ring each step; you do the clicking.",
+        ar: "دلوقتي إنت. ضيف مريض بنفسك — اسمك ورقمك إنت أسهل طريقة تجرّب بيها. أنا هنوّر كل خطوة، وإنت اللي تضغط.",
       },
       done: { en: "That's yours now. Adding a patient will never need me again.", ar: "كده بقت في إيدك. إضافة مريض مش هتحتاجني تاني." },
     },

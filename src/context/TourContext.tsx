@@ -440,6 +440,7 @@ export function TourProvider({
       const n = i + direction.current;
       if (n < 0) return 0;
       if (n >= stops.length) {
+        trackFinished(runId, stop?.id ?? null);
         if (runId === "core") markTourComplete(scope);
         else clearTourRun(scope);
         setActive(false);
@@ -497,6 +498,21 @@ export function TourProvider({
     return [...(hours ? [] : ["clinical"]), ...(services ? [] : ["services"]), ...(dentist ? [] : ["users"])];
   }, [isAdmin, check]);
 
+  /**
+   * A run can reach its end twice — the last Next, and the effect that skips stops whose record
+   * no longer exists — and a finish counted twice makes the completion rate a lie. One per run.
+   */
+  const finishedRuns = useRef<Set<string>>(new Set());
+  const trackFinished = useCallback(
+    (run: TourRun | null, stopId: string | null) => {
+      const key = run ?? "?";
+      if (!clinicId || finishedRuns.current.has(key)) return;
+      finishedRuns.current.add(key);
+      void logTourEvent({ clinicId, event: "finished", run, stopId, role });
+    },
+    [clinicId, role],
+  );
+
   const track = useCallback(
     (event: TourEventName, detail?: Record<string, unknown>) => {
       if (!clinicId) return;
@@ -536,6 +552,7 @@ export function TourProvider({
       // Offered once: watching it and skipping it both count, or it would nag.
       if (run.startsWith("whatsnew:")) markWhatsNewSeen(scope, run.slice("whatsnew:".length));
       direction.current = 1;
+      finishedRuns.current.delete(run);
       setRunId(run);
       setStopIndex(index);
       setPaused(false);
@@ -558,7 +575,7 @@ export function TourProvider({
     setStopIndex((i) => {
       if (i >= stops.length - 1) {
         // The core tour reaching its end is "the tour is done"; a chapter just closes.
-        if (clinicId) void logTourEvent({ clinicId, event: "finished", run: runId, stopId: stops[i]?.id ?? null, role });
+        trackFinished(runId, stops[i]?.id ?? null);
         if (runId === "core") markTourComplete(scope);
         else clearTourRun(scope);
         setActive(false);
@@ -567,7 +584,7 @@ export function TourProvider({
       return i + 1;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stops.length, scope, runId, clinicId, role]);
+  }, [stops.length, scope, runId, clinicId, role, trackFinished]);
 
   const back = useCallback(() => {
     direction.current = -1;

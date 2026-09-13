@@ -518,7 +518,9 @@ export default function GrandTourOverlay() {
   const [awaitingShow, setAwaitingShow] = useState(false);
   useEffect(() => {
     if (phase !== "narrating" || !typed.done || !stop) return;
-    if (paceRef.current === "step") setAwaitingShow(true);
+    // "Show me" only where there is something to show: a stop with no walk would offer a button
+    // that visibly does nothing.
+    if (paceRef.current === "step" && (stop.walk?.length || stop.demo?.length)) setAwaitingShow(true);
     else void runWalk(stop);
   }, [phase, typed.done, stop, runWalk]);
   useEffect(() => {
@@ -1006,7 +1008,14 @@ export default function GrandTourOverlay() {
                   <Hand size={13} />
                   {isAr ? "يلا، أجرّب" : "I'll try"}
                 </button>
-                <button type="button" onClick={() => setPhase("done")} className="rounded-full border border-white/15 px-4 py-2 text-[12px] font-bold text-white/75 hover:bg-white/10 hover:text-white">
+                <button
+                  type="button"
+                  onClick={() => {
+                    tour.track("hands_on_gave_up", { lesson: stop.handsOn?.tutorial, declined: true });
+                    setPhase("done");
+                  }}
+                  className="rounded-full border border-white/15 px-4 py-2 text-[12px] font-bold text-white/75 hover:bg-white/10 hover:text-white"
+                >
                   {isAr ? "مش دلوقتي" : "Not now"}
                 </button>
               </div>
