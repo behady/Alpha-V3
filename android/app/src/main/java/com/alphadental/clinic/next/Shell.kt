@@ -50,6 +50,7 @@ fun Shell(preview: Boolean = false) {
     var openMoney by rememberSaveable { mutableStateOf(false) }
     var openReports by rememberSaveable { mutableStateOf(false) }
     var openLab by rememberSaveable { mutableStateOf(false) }
+    var openSms by rememberSaveable { mutableStateOf(false) }
     // A screen can ask for the bar to go away. A conversation does: the bar
     // would cover its foot, and offer to walk away from a thread mid-read.
     var immersive by remember { mutableStateOf(false) }
@@ -77,6 +78,11 @@ fun Shell(preview: Boolean = false) {
         return
     }
 
+    if (openSms) {
+        SmsPane(preview) { openSms = false }
+        return
+    }
+
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
         when (tab) {
@@ -91,6 +97,7 @@ fun Shell(preview: Boolean = false) {
                 onOpenMoney = { openMoney = true },
                 onOpenReports = { openReports = true },
                 onOpenLab = { openLab = true },
+                onOpenSms = { openSms = true },
             )
         }
 
@@ -193,6 +200,7 @@ private fun MoreTab(
     onOpenMoney: () -> Unit,
     onOpenReports: () -> Unit,
     onOpenLab: () -> Unit,
+    onOpenSms: () -> Unit,
 ) {
     var confirmSignOut by remember { mutableStateOf(false) }
 
@@ -212,6 +220,7 @@ private fun MoreTab(
                 Destination.Money -> onOpenMoney()
                 Destination.Reports -> onOpenReports()
                 Destination.Lab -> onOpenLab()
+                Destination.Reminders -> onOpenSms()
                 else -> Unit
             }
         },
@@ -364,6 +373,59 @@ private fun MoneyPane(preview: Boolean, onBack: () -> Unit) {
         onBack = onBack,
         onShiftMonth = model::shiftMonth,
         onThisMonth = model::thisMonth,
+    )
+}
+
+
+/**
+ * Auto SMS, over the top of everything.
+ *
+ * The phone's own sender state lives in SharedPreferences that the background
+ * worker writes, so it is re-read every time the screen comes back rather than
+ * held: a run that happened while the screen was closed is exactly the run
+ * somebody opens it to check on.
+ */
+@Composable
+private fun SmsPane(preview: Boolean, onBack: () -> Unit) {
+    BackHandler { onBack() }
+    if (preview) {
+        var state by remember { mutableStateOf(previewSms()) }
+        SmsScreen(
+            state = state,
+            onBack = onBack,
+            onEnabled = { state = state.copy(setup = state.setup.copy(enabled = it)) },
+            onChannel = { state = state.copy(setup = state.setup.copy(channel = it)) },
+            onHour = { state = state.copy(setup = state.setup.copy(sendHour = it.coerceIn(6, 22))) },
+            onEvent = { e, on ->
+                state = state.copy(setup = state.setup.copy(events = state.setup.events + (e.stored to on)))
+            },
+            onFooter = { state = state.copy(setup = state.setup.copy(optOutFooter = it)) },
+            onBecomeSender = {}, onStopSending = {}, onCheckNow = {},
+            onPair = {}, onUnpair = {}, onRetire = {},
+        )
+        return
+    }
+    val model: SmsModel = viewModel()
+    val state by model.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+        model.refreshPhone()
+        onPauseOrDispose { }
+    }
+    SmsScreen(
+        state = state,
+        onBack = onBack,
+        onEnabled = model::setEnabled,
+        onChannel = model::setChannel,
+        onHour = model::setSendHour,
+        onEvent = model::setEvent,
+        onFooter = model::setFooter,
+        onBecomeSender = model::becomeSender,
+        onStopSending = model::stopSending,
+        onCheckNow = model::checkNow,
+        onPair = model::pair,
+        onUnpair = model::unpair,
+        onRetire = model::retire,
     )
 }
 

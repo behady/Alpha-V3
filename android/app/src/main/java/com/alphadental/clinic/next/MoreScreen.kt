@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -219,6 +220,7 @@ enum class Destination(
     Leads("Leads", "Enquiries from ads and calls", Icons.Filled.PersonSearch, Area.Tool, permission = "access.marketing"),
     Stock("Stock", "What is running out", Icons.Filled.Inventory2, Area.Tool),
     Attendance("Attendance", "Who is in, and their hours", Icons.Filled.Groups, Area.Admin, permission = "attendance.admin"),
+    Reminders("Auto SMS", "Reminders sent from a clinic phone", Icons.Filled.Sms, Area.Admin, built = true, permission = "access.settings"),
     Hours("Opening hours", "When the clinic is open", Icons.Filled.Schedule, Area.Admin, permission = "access.settings"),
     Settings("Settings", "How the clinic runs", Icons.Filled.Settings, Area.Admin, permission = "access.settings"),
     // Built, and not a website thing: it flips the app's own language.
