@@ -10,13 +10,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.core.view.WindowCompat
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.alphadental.clinic.next.design.DarkPalette
 import com.alphadental.clinic.next.design.LightPalette
 import com.alphadental.clinic.next.design.LocalPalette
@@ -70,14 +67,7 @@ private fun NextApp(preview: Boolean = false) {
     CompositionLocalProvider(LocalPalette provides palette) {
         MaterialTheme {
             Surface(color = T.ground, modifier = Modifier.fillMaxSize()) {
-                if (preview) {
-                    DashboardScreen(state = previewDashboard(), onCheckOut = {})
-                } else {
-                    val model: DashboardModel = viewModel()
-                    val state by model.state.collectAsState()
-                    androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
-                    DashboardScreen(state = state, onCheckOut = model::checkOut)
-                }
+                Shell(preview)
             }
         }
     }

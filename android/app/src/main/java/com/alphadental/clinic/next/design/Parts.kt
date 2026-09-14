@@ -157,17 +157,23 @@ fun RowScope.SlabFigure(
 @Composable
 private fun SlabStrip(stats: List<Stat>) {
     val rule = T.slabLine
+    // Four across a phone is tight. Rather than truncate the fourth label into
+    // nonsense, the whole strip steps down a size so all four stay words.
+    val tight = stats.size >= 4
+    val labelStyle = if (tight) Type.eyebrow.copy(fontSize = 9.sp, letterSpacing = 0.5.sp) else Type.eyebrow
+    val valueStyle = if (tight) Type.stat.copy(fontSize = 18.sp) else Type.stat
+    val pad = if (tight) 11.dp else 13.dp
     Column(Modifier.fillMaxWidth()) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(rule))
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
             stats.forEachIndexed { i, stat ->
                 if (i > 0) Box(Modifier.width(1.dp).fillMaxHeight().background(rule))
                 Column(
-                    Modifier.weight(1f).padding(horizontal = 13.dp, vertical = 12.dp),
+                    Modifier.weight(1f).padding(horizontal = pad, vertical = 12.dp),
                 ) {
-                    Txt(stat.label, Type.eyebrow, T.onSlabFaint, uppercase = true)
+                    Txt(stat.label, labelStyle, T.onSlabFaint, uppercase = true)
                     Spacer(Modifier.height(5.dp))
-                    Txt(stat.value, Type.stat, T.onSlab)
+                    Txt(stat.value, valueStyle, T.onSlab)
                 }
             }
         }

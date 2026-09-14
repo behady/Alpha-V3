@@ -109,6 +109,22 @@ object ClinicSource {
         )
     }
 
+    /**
+     * When the clinic opens, closes, and how long a slot is.
+     *
+     * Same document as the profile, so the two are usually one read apart — kept
+     * separate because a screen that only needs the name should not pay for the
+     * parsing, and because `configured` decides whether a free-slot count is
+     * honest or invented.
+     */
+    suspend fun hours(clinicId: String): Hours = withContext(Dispatchers.IO) {
+        val d = runCatching {
+            clinic(clinicId).collection("settings").document("clinic_info").get().await()
+        }.getOrNull()
+        @Suppress("UNCHECKED_CAST")
+        parseHours(d?.get("schedule") as? Map<String, Any?>)
+    }
+
     // ------------------------------------------------------------- the day
 
     /**
