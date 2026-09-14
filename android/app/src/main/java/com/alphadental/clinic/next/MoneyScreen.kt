@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.CircularProgressIndicator
@@ -60,6 +61,7 @@ fun MoneyScreen(
     onBack: () -> Unit,
     onShiftMonth: (Int) -> Unit,
     onThisMonth: () -> Unit,
+    onAdd: (() -> Unit)? = null,
 ) {
     Column(Modifier.fillMaxSize().background(T.ground)) {
 
@@ -71,6 +73,10 @@ fun MoneyScreen(
                 Spacer(Modifier.width(8.dp))
                 SlabIcon(Icons.Filled.ChevronRight, "Next month") { onShiftMonth(1) }
                 Spacer(Modifier.weight(1f))
+                onAdd?.let {
+                    SlabIcon(Icons.Filled.Add, "Record money", onClick = it)
+                    Spacer(Modifier.width(8.dp))
+                }
                 if (!state.isThisMonth) {
                     Surface(
                         shape = T.pill,

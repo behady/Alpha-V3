@@ -45,8 +45,17 @@ data class RecordState(
     val taking: Boolean = false,
     val payError: String? = null,
     val paid: String? = null,
+    /** The price list and the dentists, for recording a treatment. */
+    val services: List<com.alphadental.clinic.data.Service> = emptyList(),
+    val doctors: List<com.alphadental.clinic.data.Doctor> = emptyList(),
+    val recording: Boolean = false,
+    val recordError: String? = null,
+    val recorded: String? = null,
 ) {
     val canTakePayment: Boolean get() = who?.can("payments.add") == true
+
+    /** Recording treatment is the clinical write, gated on the clinical key. */
+    val canRecord: Boolean get() = who?.can("clinical.edit") == true
     /**
      * What has to be read before treating this patient.
      *
@@ -108,6 +117,7 @@ class RecordModel : ViewModel() {
                 .onSuccess {
                     _state.value = _state.value.copy(loading = false, who = who, record = it)
                     if (who.can("payments.add")) loadUnpaid(who, id)
+                    if (who.can("clinical.edit")) loadLists(who)
                 }
                 .onFailure { _state.value = _state.value.copy(loading = false, who = who, error = it.message) }
         }
@@ -188,6 +198,81 @@ class RecordModel : ViewModel() {
                 .onSuccess { _state.value = _state.value.copy(record = it) }
             loadUnpaid(who, id)
         }
+    }
+
+    private fun loadLists(who: Who) = viewModelScope.launch {
+        val services = runCatching {
+            com.alphadental.clinic.data.Repository.loadServices(who.clinicId)
+        }.getOrDefault(emptyList())
+        val doctors = runCatching {
+            com.alphadental.clinic.data.Repository.loadDoctors(who.clinicId)
+        }.getOrDefault(emptyList())
+        _state.value = _state.value.copy(services = services, doctors = doctors)
+    }
+
+    /**
+     * Record what was done, and bill it.
+     *
+     * Two documents linked both ways — the clinical note and a ledger row — and
+     * `addClinicalNote` writes both. That link is the point: a note carrying a
+     * cost with no ledger row is exactly what the website reports as "treated,
+     * never invoiced", so writing the note alone would file the work as lost
+     * revenue.
+     *
+     * The price given is the price for ONE tooth. Multiplying by the number of
+     * teeth is the repository's job, because it knows the service's billing rule
+     * — flat once, per arch per jaw, everything else per tooth. The phone used to
+     * write the single-tooth price whatever was selected, which undercharged for
+     * exactly the treatments worth the most.
+     */
+    fun recordTreatment(
+        procedure: String,
+        teeth: List<String>,
+        note: String,
+        unitCost: Double,
+        doctor: com.alphadental.clinic.data.Doctor?,
+        service: com.alphadental.clinic.data.Service?,
+        done: Boolean,
+    ) {
+        val who = _state.value.who ?: return
+        val record = _state.value.record ?: return
+        if (!_state.value.canRecord || _state.value.recording) return
+        _state.value = _state.value.copy(recording = true, recordError = null, recorded = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.Repository.addClinicalNote(
+                clinicId = who.clinicId,
+                patient = com.alphadental.clinic.data.Patient(
+                    id = record.person.id,
+                    name = record.person.name,
+                    phone = record.person.phone,
+                ),
+                procedure = procedure,
+                teeth = teeth,
+                noteText = note,
+                unitCost = unitCost,
+                status = if (done) "Completed" else "Planned",
+                doctor = doctor,
+                service = service,
+                byName = who.name,
+            )
+                .onSuccess {
+                    _state.value = _state.value.copy(
+                        recording = false,
+                        recorded = if (unitCost > 0) "Recorded and charged." else "Recorded.",
+                    )
+                    reload()
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        recording = false,
+                        recordError = e.message ?: "That treatment could not be recorded.",
+                    )
+                }
+        }
+    }
+
+    fun clearRecorded() {
+        _state.value = _state.value.copy(recorded = null, recordError = null)
     }
 
     fun show(tab: RecordTab) {

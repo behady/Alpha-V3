@@ -424,20 +424,45 @@ private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) 
 
     if (preview) {
         var state by remember { mutableStateOf(previewRecord()) }
+        var previewSheet by remember { mutableStateOf("") }
         RecordScreen(
             state = state,
             onBack = onBack,
             onTab = { state = state.copy(tab = it) },
             onSelectTooth = { state = state.copy(tooth = it) },
-            onTakePayment = {},
+            onTakePayment = { previewSheet = "pay" },
+            onRecordTreatment = { previewSheet = "treat" },
         )
+        when (previewSheet) {
+            "treat" -> TreatmentSheet(
+                patientName = state.record?.person?.name.orEmpty(),
+                services = previewServices(),
+                doctors = previewDoctors(),
+                busy = false, error = null,
+                onRecord = { _, _, _, _, _, _, _ -> previewSheet = "" },
+                onDismiss = { previewSheet = "" },
+            )
+            "pay" -> PaymentSheet(
+                patientName = state.record?.person?.name.orEmpty(),
+                owed = state.record?.balance?.owed ?: 0.0,
+                unpaid = previewUnpaid(),
+                busy = false, error = null,
+                onTake = { _, _ -> previewSheet = "" },
+                onDismiss = { previewSheet = "" },
+            )
+        }
         return
     }
 
     val model: RecordModel = viewModel()
     val state by model.state.collectAsState()
     var taking by remember { mutableStateOf(false) }
+    var recording by remember { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(patientId) { model.open(patientId) }
+
+    androidx.compose.runtime.LaunchedEffect(state.recorded) {
+        if (state.recorded != null) recording = false
+    }
 
     // Close the sheet once the money is in, and leave the confirmation on the
     // file rather than in a sheet nobody is looking at any more.
@@ -454,7 +479,24 @@ private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) 
         onMessage = { context.whatsapp(it) },
         // A write, so only for someone the server would accept it from.
         onTakePayment = if (state.canTakePayment) ({ taking = true }) else null,
+        onRecordTreatment = if (state.canRecord) ({ recording = true }) else null,
     )
+
+    if (recording) {
+        state.record?.let { record ->
+            TreatmentSheet(
+                patientName = record.person.name,
+                services = state.services,
+                doctors = state.doctors,
+                busy = state.recording,
+                error = state.recordError,
+                onRecord = { procedure, teeth, note, cost, doctor, service, done ->
+                    model.recordTreatment(procedure, teeth, note, cost, doctor, service, done)
+                },
+                onDismiss = { recording = false; model.clearRecorded() },
+            )
+        }
+    }
 
     if (taking) {
         state.record?.let { record ->
@@ -507,18 +549,43 @@ private fun MoneyPane(preview: Boolean, onBack: () -> Unit) {
     BackHandler { onBack() }
     if (preview) {
         val state = remember { previewMoney() }
-        MoneyScreen(state, onBack = onBack, onShiftMonth = {}, onThisMonth = {})
+        var entering by remember { mutableStateOf(false) }
+        MoneyScreen(
+            state, onBack = onBack, onShiftMonth = {}, onThisMonth = {},
+            onAdd = { entering = true },
+        )
+        if (entering) {
+            FinanceEntrySheet(
+                busy = false, error = null,
+                onAdd = { _, _, _, _ -> entering = false },
+                onDismiss = { entering = false },
+            )
+        }
         return
     }
     val model: MoneyModel = viewModel()
     val state by model.state.collectAsState()
+    var adding by remember { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
+    androidx.compose.runtime.LaunchedEffect(state.entered) {
+        if (state.entered != null) adding = false
+    }
     MoneyScreen(
         state = state,
         onBack = onBack,
         onShiftMonth = model::shiftMonth,
         onThisMonth = model::thisMonth,
+        onAdd = if (state.canAdd) ({ adding = true }) else null,
     )
+
+    if (adding) {
+        FinanceEntrySheet(
+            busy = state.saving,
+            error = state.entryError,
+            onAdd = model::addEntry,
+            onDismiss = { adding = false; model.clearEntry() },
+        )
+    }
 }
 
 
@@ -845,13 +912,39 @@ private fun LabPane(preview: Boolean, onBack: () -> Unit) {
     BackHandler { onBack() }
     if (preview) {
         var state by remember { mutableStateOf(previewLab()) }
-        LabScreen(state, onBack = onBack, onFilter = { state = state.copy(filter = it) })
+        LabScreen(
+            state, onBack = onBack,
+            onFilter = { state = state.copy(filter = it) },
+            onOpenCase = { state = state.copy(openId = it) },
+        )
+        state.openCase?.let { case ->
+            LabMoveSheet(
+                case = case, busy = false, error = null,
+                onMove = { state = state.copy(openId = null) },
+                onDismiss = { state = state.copy(openId = null) },
+            )
+        }
         return
     }
     val model: LabModel = viewModel()
     val state by model.state.collectAsState()
     androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
-    LabScreen(state, onBack = onBack, onFilter = model::show)
+    LabScreen(
+        state = state,
+        onBack = onBack,
+        onFilter = model::show,
+        onOpenCase = { if (state.canMove) model.openCase(it) },
+    )
+
+    state.openCase?.let { case ->
+        LabMoveSheet(
+            case = case,
+            busy = state.moving,
+            error = state.error,
+            onMove = { model.move(it); model.openCase(null) },
+            onDismiss = { model.openCase(null) },
+        )
+    }
 }
 
 
@@ -872,3 +965,22 @@ private fun ReportsPane(preview: Boolean, onBack: () -> Unit) {
 
 /** Minutes past midnight as "14:30", for a slot that books into itself. */
 private fun clockOf(minute: Int): String = "%02d:%02d".format((minute / 60) % 24, minute % 60)
+
+// --- example data for the entry sheets, preview only -------------------------
+
+private fun previewServices() = listOf(
+    com.alphadental.clinic.data.Service("s1", "Composite filling", 750.0, 45, 0.0, "Restorative", "", "per_tooth"),
+    com.alphadental.clinic.data.Service("s2", "Root canal", 3_200.0, 90, 0.0, "Endodontics", "", "per_tooth"),
+    com.alphadental.clinic.data.Service("s3", "Scale & polish", 350.0, 30, 0.0, "Hygiene", "", "flat"),
+    com.alphadental.clinic.data.Service("s4", "Zirconia crown", 4_500.0, 60, 1_100.0, "Prosthetics", "", "per_tooth"),
+)
+
+private fun previewDoctors() = listOf(
+    com.alphadental.clinic.data.Doctor("d1", "Dr. Youssef Kamal", 40.0),
+    com.alphadental.clinic.data.Doctor("d2", "Dr. Nour Hassan", 35.0),
+)
+
+private fun previewUnpaid() = listOf(
+    com.alphadental.clinic.data.UnpaidProcedure("u1", "Root canal (T: 36)", 3_200.0, 1_000.0, 0.0, "d1", "Dr. Youssef Kamal", 40.0),
+    com.alphadental.clinic.data.UnpaidProcedure("u2", "Crown (T: 46)", 4_500.0, 0.0, 1_100.0, "d1", "Dr. Youssef Kamal", 40.0),
+)

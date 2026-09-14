@@ -21,6 +21,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
@@ -64,12 +65,13 @@ fun RecordScreen(
     onCall: (String) -> Unit = {},
     onMessage: (String) -> Unit = {},
     onTakePayment: (() -> Unit)? = null,
+    onRecordTreatment: (() -> Unit)? = null,
 ) {
     val record = state.record
 
     Column(Modifier.fillMaxSize().background(T.ground)) {
 
-        RecordSlab(state, record, onBack, onCall, onMessage, onTakePayment)
+        RecordSlab(state, record, onBack, onCall, onMessage, onTakePayment, onRecordTreatment)
 
         if (record != null) Tabs(state.tab, onTab)
 
@@ -105,6 +107,7 @@ private fun RecordSlab(
     onCall: (String) -> Unit,
     onMessage: (String) -> Unit,
     onTakePayment: (() -> Unit)?,
+    onRecordTreatment: (() -> Unit)?,
 ) {
     val owed = record?.balance?.owed ?: 0.0
     val credit = record?.balance?.credit ?: 0.0
@@ -121,9 +124,16 @@ private fun RecordSlab(
                 Spacer(Modifier.width(8.dp))
                 SlabIcon(Icons.AutoMirrored.Filled.Chat, "WhatsApp") { onMessage(phone) }
             }
+            // Recording treatment lives in the bar rather than beside the
+            // balance, because it is the one thing on this screen that is done
+            // whether or not the patient owes anything.
+            onRecordTreatment?.let {
+                Spacer(Modifier.width(8.dp))
+                SlabIcon(Icons.Filled.Add, "Record treatment", onClick = it)
+            }
         },
         // Nothing at all when the account is settled, which most are.
-        figure = if (record == null || (owed <= 0 && credit <= 0)) null else {
+        figure = if (record == null || (owed <= 0 && credit <= 0 && onTakePayment == null)) null else {
             {
                 // The word goes in the currency slot rather than the note
                 // column: with a button on this row there is no note column, and
@@ -133,7 +143,7 @@ private fun RecordSlab(
                     currency = if (owed > 0) "EGP owed" else "EGP credit",
                     compact = onTakePayment != null && owed > 0,
                 )
-                if (owed > 0 && onTakePayment != null) {
+                if (onTakePayment != null) {
                     Spacer(Modifier.weight(1f))
                     Surface(
                         shape = T.pill,
@@ -141,7 +151,7 @@ private fun RecordSlab(
                         modifier = Modifier.padding(bottom = 6.dp).clickable(onClick = onTakePayment),
                     ) {
                         Txt(
-                            "Take payment",
+                            if (owed > 0) "Take payment" else "Take deposit",
                             Type.label.copy(fontSize = 12.5.sp),
                             T.onAccent,
                             Modifier.padding(horizontal = 14.dp, vertical = 9.dp),

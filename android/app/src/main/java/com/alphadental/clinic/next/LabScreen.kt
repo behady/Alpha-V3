@@ -58,6 +58,7 @@ fun LabScreen(
     state: Lab,
     onBack: () -> Unit,
     onFilter: (LabFilter) -> Unit,
+    onOpenCase: (String) -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize().background(T.ground)) {
 
@@ -109,7 +110,7 @@ fun LabScreen(
                     RowGroup {
                         state.shown.forEachIndexed { i, case ->
                             if (i > 0) Rule()
-                            CaseRow(case, state.today)
+                            CaseRow(case, state.today) { onOpenCase(case.id) }
                         }
                     }
                 }
@@ -165,7 +166,7 @@ private fun Filters(state: Lab, onFilter: (LabFilter) -> Unit) {
  * different problem and gets a different colour.
  */
 @Composable
-private fun CaseRow(case: LabCases.LabCase, today: String) {
+private fun CaseRow(case: LabCases.LabCase, today: String, onOpen: () -> Unit) {
     val due = LabCases.dueStateFor(case, today)
     val stripe = when {
         due == LabCases.Due.OVERDUE -> T.danger
@@ -176,7 +177,7 @@ private fun CaseRow(case: LabCases.LabCase, today: String) {
     }
 
     Row(
-        Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+        Modifier.fillMaxWidth().clickable(onClick = onOpen).height(IntrinsicSize.Min),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.width(3.dp).fillMaxHeight().background(stripe))
