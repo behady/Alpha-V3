@@ -41,8 +41,9 @@ if (getApps().length === 0) {
 }
 const db = getFirestore(getApps()[0], "default");
 
+// eslint-disable-next-line no-unused-vars
 const email = (process.argv[2] || "").toLowerCase();
-if (!email) {
+if (!email && !process.argv.includes("--uid")) {
   console.error("Usage: node scripts/grant-demo-access.mjs <email>");
   process.exit(1);
 }
@@ -51,9 +52,23 @@ const demo = await db.collection("clinics").where(DEMO_MARKER, "==", true).limit
 if (demo.empty) throw new Error("No demo clinic found — run seed-demo-clinic.mjs first.");
 const clinicId = demo.docs[0].id;
 
-const users = await db.collection("users").where("email", "==", email).limit(1).get();
-if (users.empty) throw new Error(`No user document for ${email}`);
-const user = users.docs[0];
+/**
+ * Accounts created before the signup route started stamping `email` have no such field, so the
+ * query below finds nothing even though the account is real and signs in fine. Passing
+ * `--uid <uid>` addresses the user document directly; the uid comes from Firebase Auth.
+ */
+const uidArg = process.argv.includes("--uid") ? process.argv[process.argv.indexOf("--uid") + 1] : null;
+
+let user;
+if (uidArg) {
+  const doc = await db.collection("users").doc(uidArg).get();
+  if (!doc.exists) throw new Error(`No user document with uid ${uidArg}`);
+  user = doc;
+} else {
+  const users = await db.collection("users").where("email", "==", email).limit(1).get();
+  if (users.empty) throw new Error(`No user document for ${email}`);
+  user = users.docs[0];
+}
 
 const before = Object.keys(user.data().clinicRoles || {}).length;
 
