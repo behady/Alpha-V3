@@ -51,6 +51,7 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.NoCredentialException
 import androidx.lifecycle.HasDefaultViewModelProviderFactory
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -253,6 +254,15 @@ fun SignInScreen() {
                     }
                 } catch (e: GetCredentialCancellationException) {
                     model.googleFailed(null)
+                } catch (e: NoCredentialException) {
+                    // Worth its own message. "Not available" sends somebody
+                    // looking for a fault in the app; the actual problem is that
+                    // this phone has no Google account on it, which they can fix
+                    // in thirty seconds.
+                    model.googleFailed(
+                        "There is no Google account on this phone. Add one in Android's settings, " +
+                            "or sign in with the email and password."
+                    )
                 } catch (e: Exception) {
                     // Credential Manager's own messages name classes and error
                     // codes. The one thing worth saying is what to do instead.

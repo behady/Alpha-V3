@@ -212,17 +212,20 @@ private fun MoreTab(
 ) {
     var confirmSignOut by remember { mutableStateOf(false) }
 
-    val who = if (preview) {
-        previewDashboard().who
+    var retry: (() -> Unit)? = null
+    val state = if (preview) {
+        MoreState(loading = false, who = previewDashboard().who)
     } else {
         val model: MoreModel = viewModel()
-        val state by model.state.collectAsState()
+        val live by model.state.collectAsState()
         androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
-        state
+        retry = model::retry
+        live
     }
 
     MoreScreen(
-        who = who,
+        state = state,
+        onRetry = { retry?.invoke() },
         onOpen = { d ->
             when (d) {
                 Destination.Money -> onOpenMoney()

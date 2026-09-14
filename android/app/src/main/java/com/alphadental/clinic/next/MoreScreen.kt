@@ -1,5 +1,6 @@
 package com.alphadental.clinic.next
 
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -62,10 +63,13 @@ import com.alphadental.clinic.next.design.Type
  */
 @Composable
 fun MoreScreen(
-    who: Who?,
+    state: MoreState,
     onOpen: (Destination) -> Unit,
     onSignOut: () -> Unit,
+    onRetry: () -> Unit = {},
 ) {
+    val who = state.who
+
     Column(Modifier.fillMaxSize().background(T.ground)) {
 
         Slab(
@@ -77,6 +81,14 @@ fun MoreScreen(
             Surface(color = T.surface, modifier = Modifier.fillMaxWidth()) {
                 Txt(email, Type.caption, T.inkMuted, Modifier.padding(horizontal = T.gutter, vertical = 11.dp))
             }
+        }
+
+        // Until the account is read, nothing below it can be drawn honestly: a
+        // menu built from permissions nobody has fetched yet is a menu missing
+        // half its entries, which reads as the app having lost them.
+        if (who == null) {
+            Unknown(state, onRetry, onSignOut)
+            return
         }
 
         val tools = Destination.entries.filter { it.area == Area.Tool && it.allowed(who) }
@@ -115,6 +127,56 @@ fun MoreScreen(
                         }
                     SignOutRow(onSignOut)
                 }
+            }
+        }
+    }
+}
+
+/**
+ * The account has not been read.
+ *
+ * Either still being fetched or genuinely unreadable, and the difference is
+ * said out loud. Signing out stays reachable throughout: somebody whose profile
+ * cannot be read is exactly the person who needs to get out and back in.
+ */
+@Composable
+private fun Unknown(state: MoreState, onRetry: () -> Unit, onSignOut: () -> Unit) {
+    Column(
+        Modifier.fillMaxSize().padding(horizontal = T.gutter),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Spacer(Modifier.height(80.dp))
+        if (state.loading) {
+            CircularProgressIndicator(color = T.inkFaint, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
+            Spacer(Modifier.height(16.dp))
+            Txt("Reading this account\u2026", Type.body, T.inkMuted)
+        } else {
+            Txt(
+                state.error ?: "This account could not be read.",
+                Type.body, T.inkBody, maxLines = 4,
+            )
+            Spacer(Modifier.height(18.dp))
+            Surface(
+                shape = T.pill,
+                color = T.slab,
+                modifier = Modifier.clickable(onClick = onRetry),
+            ) {
+                Txt(
+                    "Try again", Type.label, T.onSlab,
+                    Modifier.padding(horizontal = 20.dp, vertical = 11.dp),
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            Surface(
+                shape = T.pill,
+                color = T.surface,
+                border = androidx.compose.foundation.BorderStroke(1.dp, T.dangerTint),
+                modifier = Modifier.clickable(onClick = onSignOut),
+            ) {
+                Txt(
+                    "Sign out", Type.label, T.danger,
+                    Modifier.padding(horizontal = 20.dp, vertical = 11.dp),
+                )
             }
         }
     }
