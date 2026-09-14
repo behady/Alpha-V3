@@ -52,6 +52,7 @@ fun Shell(preview: Boolean = false) {
     var openLab by rememberSaveable { mutableStateOf(false) }
     var openSms by rememberSaveable { mutableStateOf(false) }
     var openSettings by rememberSaveable { mutableStateOf(false) }
+    var openOrtho by rememberSaveable { mutableStateOf(false) }
     // A screen can ask for the bar to go away. A conversation does: the bar
     // would cover its foot, and offer to walk away from a thread mid-read.
     var immersive by remember { mutableStateOf(false) }
@@ -89,6 +90,11 @@ fun Shell(preview: Boolean = false) {
         return
     }
 
+    if (openOrtho) {
+        OrthoPane(preview) { openOrtho = false }
+        return
+    }
+
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
         when (tab) {
@@ -105,6 +111,7 @@ fun Shell(preview: Boolean = false) {
                 onOpenLab = { openLab = true },
                 onOpenSms = { openSms = true },
                 onOpenSettings = { openSettings = true },
+                onOpenOrtho = { openOrtho = true },
             )
         }
 
@@ -209,6 +216,7 @@ private fun MoreTab(
     onOpenLab: () -> Unit,
     onOpenSms: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenOrtho: () -> Unit,
 ) {
     var confirmSignOut by remember { mutableStateOf(false) }
 
@@ -233,6 +241,7 @@ private fun MoreTab(
                 Destination.Lab -> onOpenLab()
                 Destination.Reminders -> onOpenSms()
                 Destination.Settings -> onOpenSettings()
+                Destination.Ortho -> onOpenOrtho()
                 else -> Unit
             }
         },
@@ -385,6 +394,58 @@ private fun MoneyPane(preview: Boolean, onBack: () -> Unit) {
         onBack = onBack,
         onShiftMonth = model::shiftMonth,
         onThisMonth = model::thisMonth,
+    )
+}
+
+
+/**
+ * Ortho, over the top of everything.
+ *
+ * Its own back stack: a case goes back to the board, and the board goes back to
+ * More. Losing a half-typed adjustment because back meant "leave ortho" would be
+ * the app's fault, not the person's.
+ */
+@Composable
+private fun OrthoPane(preview: Boolean, onBack: () -> Unit) {
+    if (preview) {
+        var state by remember { mutableStateOf(previewOrtho()) }
+        BackHandler { if (state.open != null) state = state.copy(open = null) else onBack() }
+        OrthoScreen(
+            state = state,
+            onBack = onBack,
+            actions = OrthoActions(
+                filter = { state = state.copy(filter = it) },
+                open = { state = state.copy(open = it) },
+                close = { state = state.copy(open = null) },
+                logVisit = { _, _ -> },
+                reviseVisit = { _, _ -> },
+                setStage = { },
+                saveDetails = { _, _ -> },
+                search = { state = state.copy(search = it) },
+                startCase = { },
+            ),
+        )
+        return
+    }
+
+    val model: OrthoModel = viewModel()
+    val state by model.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
+    BackHandler { if (state.open != null) model.close() else onBack() }
+    OrthoScreen(
+        state = state,
+        onBack = onBack,
+        actions = OrthoActions(
+            filter = model::show,
+            open = model::open,
+            close = model::close,
+            logVisit = { work, next -> model.logVisit(work, next) },
+            reviseVisit = model::reviseVisit,
+            setStage = model::setStage,
+            saveDetails = model::saveDetails,
+            search = model::searchPatients,
+            startCase = model::startCase,
+        ),
     )
 }
 
