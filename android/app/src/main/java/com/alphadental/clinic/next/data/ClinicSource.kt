@@ -417,6 +417,44 @@ object ClinicSource {
         perPatient.values.sumOf { it.coerceAtLeast(0.0) }
     }
 
+    /**
+     * Every money line between two dates, inclusive.
+     *
+     * Dates are zero-padded "yyyy-MM-dd", so a string range really is a date
+     * range — that is the assumption the whole screen rests on, and it holds
+     * only because the website pads them.
+     *
+     * Expenses are kept rather than filtered: this is the clinic's money screen,
+     * and a takings figure with no costs beside it is the number that makes a
+     * bad month look like a good one.
+     */
+    suspend fun ledgerBetween(clinicId: String, fromKey: String, toKey: String): List<Money> =
+        withContext(Dispatchers.IO) {
+            val snap = clinic(clinicId).collection("ledger")
+                .whereGreaterThanOrEqualTo("date", fromKey)
+                .whereLessThanOrEqualTo("date", toKey)
+                .get().await()
+
+            snap.documents.map { d ->
+                val type = d.text("type")
+                Money(
+                    id = d.id,
+                    date = d.text("date"),
+                    type = type,
+                    description = d.text("description").ifBlank { d.text("patientName") },
+                    // A payment's real value can sit in `paid` with `amount` left
+                    // at zero by an older write path; a charge is the other way.
+                    amount = if (type == "payment") {
+                        d.number("paid") ?: d.number("amount") ?: 0.0
+                    } else {
+                        d.number("amount") ?: d.number("cost") ?: 0.0
+                    },
+                    method = d.text("method"),
+                    doctor = d.text("doctorName").ifBlank { d.text("doctor") },
+                )
+            }.sortedByDescending { it.date }
+        }
+
     // ---------------------------------------------------------------- writes
 
     /** Move a visit on. The only write the dashboard performs. */

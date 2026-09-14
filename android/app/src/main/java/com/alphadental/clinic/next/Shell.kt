@@ -47,6 +47,7 @@ enum class Tab { Today, Day, Patients, Chats, More }
 fun Shell(preview: Boolean = false) {
     var tab by rememberSaveable { mutableStateOf(Tab.Today) }
     var openRecord by rememberSaveable { mutableStateOf<String?>(null) }
+    var openMoney by rememberSaveable { mutableStateOf(false) }
     // A screen can ask for the bar to go away. A conversation does: the bar
     // would cover its foot, and offer to walk away from a thread mid-read.
     var immersive by remember { mutableStateOf(false) }
@@ -59,6 +60,11 @@ fun Shell(preview: Boolean = false) {
         return
     }
 
+    if (openMoney) {
+        MoneyPane(preview) { openMoney = false }
+        return
+    }
+
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
         when (tab) {
@@ -68,7 +74,7 @@ fun Shell(preview: Boolean = false) {
             // Not built yet. Saying so is better than a blank screen that reads
             // as a bug, and better than hiding the tab so the bar keeps moving.
             Tab.Chats -> ChatsTab(preview) { immersive = it }
-            Tab.More -> MoreTab(preview)
+            Tab.More -> MoreTab(preview) { openMoney = true }
         }
 
         if (!immersive) FloatingBar(
@@ -165,7 +171,7 @@ private fun ChatsTab(preview: Boolean, onImmersive: (Boolean) -> Unit) {
  * Losing a session costs a receptionist a password they may not carry.
  */
 @Composable
-private fun MoreTab(preview: Boolean) {
+private fun MoreTab(preview: Boolean, onOpenMoney: () -> Unit) {
     var confirmSignOut by remember { mutableStateOf(false) }
 
     val who = if (preview) {
@@ -179,7 +185,7 @@ private fun MoreTab(preview: Boolean) {
 
     MoreScreen(
         who = who,
-        onOpen = { },
+        onOpen = { d -> if (d == Destination.Money) onOpenMoney() },
         onSignOut = { confirmSignOut = true },
     )
 
@@ -302,4 +308,30 @@ private fun android.content.Context.whatsapp(phone: String) {
             )
         )
     }
+}
+
+
+/**
+ * The clinic's money, over the top of everything.
+ *
+ * Reached from More rather than being a tab of its own: it is a screen an owner
+ * opens on purpose, not one a receptionist passes through all day.
+ */
+@Composable
+private fun MoneyPane(preview: Boolean, onBack: () -> Unit) {
+    BackHandler { onBack() }
+    if (preview) {
+        val state = remember { previewMoney() }
+        MoneyScreen(state, onBack = onBack, onShiftMonth = {}, onThisMonth = {})
+        return
+    }
+    val model: MoneyModel = viewModel()
+    val state by model.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
+    MoneyScreen(
+        state = state,
+        onBack = onBack,
+        onShiftMonth = model::shiftMonth,
+        onThisMonth = model::thisMonth,
+    )
 }

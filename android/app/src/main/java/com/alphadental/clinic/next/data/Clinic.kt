@@ -300,6 +300,11 @@ data class Money(
     val doctor: String,
 ) {
     val isCharge: Boolean get() = type == "procedure"
+
+    /** The clinic's own overheads — not a patient's debt, and not income. */
+    val isExpense: Boolean get() = type == "expense"
+
+    val isPayment: Boolean get() = type == "payment"
 }
 
 /**
