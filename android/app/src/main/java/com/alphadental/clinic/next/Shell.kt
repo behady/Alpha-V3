@@ -15,6 +15,8 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,13 +44,22 @@ enum class Tab { Today, Day, Patients, Chats, More }
 @Composable
 fun Shell(preview: Boolean = false) {
     var tab by rememberSaveable { mutableStateOf(Tab.Today) }
+    var openRecord by rememberSaveable { mutableStateOf<String?>(null) }
+
+    // A patient's file is pushed over the tabs rather than being one of them: it
+    // belongs to whatever opened it, and the bar has no business offering to
+    // navigate away in the middle of reading someone's allergies.
+    openRecord?.let { id ->
+        RecordPane(id, preview) { openRecord = null }
+        return
+    }
 
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
         when (tab) {
             Tab.Today -> TodayTab(preview)
             Tab.Day -> DayTab(preview)
-            Tab.Patients -> PatientsTab(preview)
+            Tab.Patients -> PatientsTab(preview) { openRecord = it }
             // Not built yet. Saying so is better than a blank screen that reads
             // as a bug, and better than hiding the tab so the bar keeps moving.
             Tab.Chats -> Unbuilt("WhatsApp")
@@ -81,10 +92,10 @@ private fun TodayTab(preview: Boolean) {
 }
 
 @Composable
-private fun PatientsTab(preview: Boolean) {
+private fun PatientsTab(preview: Boolean, onOpen: (String) -> Unit) {
     if (preview) {
         val state = remember { previewPatients() }
-        PatientsScreen(state = state, onSearch = {}, onLoadMore = {}, onAdd = {})
+        PatientsScreen(state = state, onSearch = {}, onLoadMore = {}, onOpen = { onOpen(it.id) }, onAdd = {})
     } else {
         val model: PatientsModel = viewModel()
         val state by model.state.collectAsState()
@@ -93,6 +104,7 @@ private fun PatientsTab(preview: Boolean) {
             state = state,
             onSearch = model::search,
             onLoadMore = model::loadMore,
+            onOpen = { onOpen(it.id) },
             // Adding a patient is a write; only offer it to someone the server
             // would accept it from.
             onAdd = if (state.who?.can("patients.add") == true) ({ }) else null,
@@ -127,5 +139,68 @@ private fun Unbuilt(name: String) {
         Box(Modifier.fillMaxSize().padding(T.gutter), contentAlignment = Alignment.Center) {
             Txt("$name is still on the old app for now.", Type.body, T.inkFaint, maxLines = 2)
         }
+    }
+}
+
+
+/**
+ * A patient's file, over the top of everything.
+ *
+ * The phone and WhatsApp buttons hand off to whatever the person already uses to
+ * ring patients. Dialling is an intent rather than a call placed by this app:
+ * the phone's own dialler shows the number before it rings it, which is the
+ * safer default when a wrong tap costs a patient a confusing call.
+ */
+@Composable
+private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) {
+    BackHandler { onBack() }
+    val context = LocalContext.current
+
+    if (preview) {
+        var state by remember { mutableStateOf(previewRecord()) }
+        RecordScreen(
+            state = state,
+            onBack = onBack,
+            onTab = { state = state.copy(tab = it) },
+            onTakePayment = {},
+        )
+        return
+    }
+
+    val model: RecordModel = viewModel()
+    val state by model.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(patientId) { model.open(patientId) }
+    RecordScreen(
+        state = state,
+        onBack = onBack,
+        onTab = model::show,
+        onCall = { context.dial(it) },
+        onMessage = { context.whatsapp(it) },
+        // A write, so only for someone the server would accept it from.
+        onTakePayment = if (state.who?.can("payments.add") == true) ({ }) else null,
+    )
+}
+
+/** Hand the number to the phone's dialler, which shows it before ringing. */
+private fun android.content.Context.dial(phone: String) {
+    runCatching {
+        startActivity(
+            android.content.Intent(
+                android.content.Intent.ACTION_DIAL,
+                android.net.Uri.parse("tel:" + phone.filter { it.isDigit() || it == '+' }),
+            )
+        )
+    }
+}
+
+private fun android.content.Context.whatsapp(phone: String) {
+    val digits = phone.filter(Char::isDigit)
+    runCatching {
+        startActivity(
+            android.content.Intent(
+                android.content.Intent.ACTION_VIEW,
+                android.net.Uri.parse("https://wa.me/$digits"),
+            )
+        )
     }
 }

@@ -287,3 +287,74 @@ fun looksLikePhone(term: String): Boolean {
     val t = term.trim()
     return t.isNotEmpty() && Regex("""^[0-9+\-\s()]+$""").matches(t)
 }
+
+/** One money line on a patient's file. */
+data class Money(
+    val id: String,
+    val date: String,
+    /** "procedure" charges; anything else that is not an expense is a payment. */
+    val type: String,
+    val description: String,
+    val amount: Double,
+    val method: String,
+    val doctor: String,
+) {
+    val isCharge: Boolean get() = type == "procedure"
+}
+
+/**
+ * What a patient owes.
+ *
+ * Never negative: someone who overpaid holds a credit, not a debt, and showing
+ * "owes -200" invites a receptionist to ask them for money they do not owe.
+ */
+data class Balance(val charged: Double, val paid: Double) {
+    val owed: Double get() = (charged - paid).coerceAtLeast(0.0)
+    val credit: Double get() = (paid - charged).coerceAtLeast(0.0)
+}
+
+/** A patient's whole file, as one screen needs it. */
+data class Record(
+    val person: Person,
+    val fileId: String,
+    val dateOfBirth: String,
+    val gender: String,
+    /** Free text the clinic typed. Blank means nobody has written any. */
+    val allergies: String,
+    /**
+     * Blank means NOT ASKED, not "healthy".
+     *
+     * The website used to default this to "None (Healthy)" — an assertion of
+     * absence no clinician ever made, and indistinguishable downstream from a
+     * real negative screening. It is blank now, and this screen must say
+     * "not recorded" rather than inventing a clean bill of health.
+     */
+    val medicalHistory: String,
+    val balance: Balance,
+    val upcoming: List<Visit>,
+    val past: List<Visit>,
+    val ledger: List<Money>,
+) {
+    /** Everything ever charged to this patient — what they are worth to the clinic. */
+    val lifetime: Double get() = balance.charged
+
+    val lastSeen: String? get() = past.firstOrNull()?.date
+
+    /**
+     * Age in years, if a date of birth was recorded.
+     *
+     * Null rather than zero when it is missing or unparseable: "0" beside a name
+     * is a claim about a newborn, and the field is frequently left empty.
+     */
+    val age: Int?
+        get() {
+            val dob = runCatching {
+                java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(dateOfBirth)
+            }.getOrNull() ?: return null
+            val born = java.util.Calendar.getInstance().apply { time = dob }
+            val now = java.util.Calendar.getInstance()
+            var years = now.get(java.util.Calendar.YEAR) - born.get(java.util.Calendar.YEAR)
+            if (now.get(java.util.Calendar.DAY_OF_YEAR) < born.get(java.util.Calendar.DAY_OF_YEAR)) years--
+            return years.takeIf { it in 0..130 }
+        }
+}

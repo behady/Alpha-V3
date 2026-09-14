@@ -122,8 +122,10 @@ fun RowScope.SlabFigure(
     currency: String,
     note: String? = null,
     noteValue: String? = null,
+    /** Smaller, for a slab that also carries a button on this row. */
+    compact: Boolean = false,
 ) {
-    Txt(amount, Type.figure, T.onSlab)
+    Txt(amount, if (compact) Type.figure.copy(fontSize = 36.sp) else Type.figure, T.onSlab)
     Spacer(Modifier.width(9.dp))
     Txt(
         currency,

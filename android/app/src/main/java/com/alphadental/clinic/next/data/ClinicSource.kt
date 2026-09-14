@@ -235,6 +235,74 @@ object ClinicSource {
             }.getOrDefault(emptyList())
         }
 
+    /**
+     * One patient's whole file.
+     *
+     * Three reads in sequence rather than a join, because Firestore has none.
+     * The visits are ordered here rather than in the query: ordering by date with
+     * a patientId filter needs a composite index, and a missing index fails the
+     * entire read — which turns a tidy query into a screen that shows nothing.
+     */
+    suspend fun record(clinicId: String, patientId: String): Result<Record> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val c = clinic(clinicId)
+                val snap = c.collection("patients").document(patientId).get().await()
+                if (!snap.exists()) error("That patient is no longer on file.")
+
+                val ledgerSnap = c.collection("ledger")
+                    .whereEqualTo("patientId", patientId).get().await()
+                val visitSnap = c.collection("appointments")
+                    .whereEqualTo("patientId", patientId).get().await()
+
+                var charged = 0.0
+                var paid = 0.0
+                val lines = mutableListOf<Money>()
+
+                ledgerSnap.documents.forEach { d ->
+                    val type = d.text("type")
+                    // The clinic's own overheads are not a patient debt.
+                    if (type == "expense") return@forEach
+
+                    val value = if (type == "payment") {
+                        d.number("paid") ?: d.number("amount") ?: 0.0
+                    } else {
+                        d.number("amount") ?: d.number("cost") ?: 0.0
+                    }
+                    if (type == "procedure") charged += value else paid += value
+                    if (value <= 0) return@forEach
+
+                    lines += Money(
+                        id = d.id,
+                        date = d.text("date"),
+                        type = type,
+                        description = d.text("description"),
+                        amount = value,
+                        method = d.text("method"),
+                        doctor = d.text("doctorName").ifBlank { d.text("doctor") },
+                    )
+                }
+
+                val today = dateKey()
+                val visits = visitSnap.documents.map { it.toVisit() }
+                    .sortedWith(compareByDescending<Visit> { it.date }.thenByDescending { it.minuteOfDay })
+
+                Record(
+                    person = snap.toPerson(),
+                    fileId = snap.text("fileId"),
+                    dateOfBirth = snap.text("dateOfBirth"),
+                    gender = snap.text("gender"),
+                    allergies = snap.text("allergies"),
+                    medicalHistory = snap.text("medicalHistory"),
+                    balance = Balance(charged, paid),
+                    upcoming = visits.filter { it.date >= today && !it.status.isFinished }
+                        .sortedWith(compareBy({ it.date }, { it.minuteOfDay })),
+                    past = visits.filter { it.date < today || it.status.isFinished },
+                    ledger = lines.sortedByDescending { it.date },
+                )
+            }
+        }
+
     // ----------------------------------------------------------------- money
 
     /**

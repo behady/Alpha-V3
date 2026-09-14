@@ -96,12 +96,12 @@ fun DashboardScreen(
 
             if (state.waiting.isNotEmpty()) {
                 item { SectionLabel("Waiting room · ${state.waiting.size}", action = "See the day") }
-                item { VisitRows(state.waiting, onOpenVisit) }
+                item { VisitRows(state.waiting, onOpen = onOpenVisit) }
             }
 
             if (state.upcoming.isNotEmpty()) {
                 item { SectionLabel("Next up") }
-                item { VisitRows(state.upcoming.take(6), onOpenVisit) }
+                item { VisitRows(state.upcoming.take(6), onOpen = onOpenVisit) }
             }
 
             if (!state.loading && state.visits.isEmpty()) {

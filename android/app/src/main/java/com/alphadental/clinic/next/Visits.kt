@@ -37,11 +37,11 @@ import com.alphadental.clinic.next.design.Type
 
 /** A run of appointments as ruled rows on one white surface. */
 @Composable
-fun VisitRows(visits: List<Visit>, onOpen: (Visit) -> Unit) {
+fun VisitRows(visits: List<Visit>, showPatient: Boolean = true, onOpen: (Visit) -> Unit) {
     RowGroup {
         visits.forEachIndexed { i, visit ->
             if (i > 0) Rule()
-            VisitRow(visit) { onOpen(visit) }
+            VisitRow(visit, showPatient) { onOpen(visit) }
         }
     }
 }
@@ -54,7 +54,7 @@ fun VisitRows(visits: List<Visit>, onOpen: (Visit) -> Unit) {
  * size so every row's digits start at the same x and the column scans as one.
  */
 @Composable
-fun VisitRow(visit: Visit, onClick: () -> Unit) {
+fun VisitRow(visit: Visit, showPatient: Boolean = true, onClick: () -> Unit) {
     val stripe = stageColours(visit.status).stripe
     // A cancelled visit is still part of the day's record, but it is not work to
     // be done — it greys out rather than disappearing, so nobody wonders where
@@ -84,12 +84,19 @@ fun VisitRow(visit: Visit, onClick: () -> Unit) {
             }
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Txt(
-                    visit.patientName.ifBlank { "No name" },
-                    Type.rowName,
-                    if (struck) T.inkMuted else T.ink,
-                )
-                val detail = listOf(visit.treatment, visit.doctor).filter { it.isNotBlank() }
+                // Inside a patient's own file the name is on the slab above, so
+                // the treatment becomes the line worth reading.
+                val title = if (showPatient) {
+                    visit.patientName.ifBlank { "No name" }
+                } else {
+                    visit.treatment.ifBlank { "Appointment" }
+                }
+                Txt(title, Type.rowName, if (struck) T.inkMuted else T.ink)
+                val detail = if (showPatient) {
+                    listOf(visit.treatment, visit.doctor)
+                } else {
+                    listOf(visit.doctor)
+                }.filter { it.isNotBlank() }
                 if (detail.isNotEmpty()) {
                     Spacer(Modifier.height(2.dp))
                     Txt(detail.joinToString(" · "), Type.caption, T.inkMuted)
