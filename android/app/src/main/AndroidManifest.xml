@@ -98,6 +98,19 @@
             android:authorities="${applicationId}.firebaseinitprovider"
             tools:node="remove" />
 
+        <!--
+            The rebuilt app's shell. No launcher category on purpose: it is not a
+            second icon on the home screen, it is a screen under construction.
+            Exported so it can be started from adb while it is being built:
+              adb shell am start -n <package>/com.alphadental.clinic.next.NextActivity
+        -->
+        <activity
+            android:name=".next.NextActivity"
+            android:exported="true"
+            android:label="Alpha (new)"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|density|uiMode|navigation|fontScale"
+            android:windowSoftInputMode="adjustResize" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
