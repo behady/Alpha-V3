@@ -15,6 +15,8 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.runtime.Composable
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
 import androidx.compose.ui.platform.LocalContext
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.getValue
@@ -66,7 +68,7 @@ fun Shell(preview: Boolean = false) {
             // Not built yet. Saying so is better than a blank screen that reads
             // as a bug, and better than hiding the tab so the bar keeps moving.
             Tab.Chats -> ChatsTab(preview) { immersive = it }
-            Tab.More -> Unbuilt("More")
+            Tab.More -> MoreTab(preview)
         }
 
         if (!immersive) FloatingBar(
@@ -153,6 +155,59 @@ private fun ChatsTab(preview: Boolean, onImmersive: (Boolean) -> Unit) {
         ThreadScreen(state, onBack = model::close, onCall = { context.dial(it) })
     } else {
         ChatsScreen(state = state, onFilter = model::show, onOpen = model::open)
+    }
+}
+
+/**
+ * Everything that is not a tab, plus signing out.
+ *
+ * Signing out is the one destructive thing on this screen, so it asks first.
+ * Losing a session costs a receptionist a password they may not carry.
+ */
+@Composable
+private fun MoreTab(preview: Boolean) {
+    var confirmSignOut by remember { mutableStateOf(false) }
+
+    val who = if (preview) {
+        previewDashboard().who
+    } else {
+        val model: MoreModel = viewModel()
+        val state by model.state.collectAsState()
+        androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
+        state
+    }
+
+    MoreScreen(
+        who = who,
+        onOpen = { },
+        onSignOut = { confirmSignOut = true },
+    )
+
+    if (confirmSignOut) {
+        AlertDialog(
+            onDismissRequest = { confirmSignOut = false },
+            containerColor = T.surface,
+            title = { Txt("Sign out?", Type.heading, T.ink) },
+            text = {
+                Txt(
+                    "You will need this account's password to get back in.",
+                    Type.body,
+                    T.inkMuted,
+                    maxLines = 3,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmSignOut = false
+                    if (!preview) com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
+                }) { Txt("Sign out", Type.label, T.danger) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmSignOut = false }) {
+                    Txt("Stay signed in", Type.label, T.inkMuted)
+                }
+            },
+        )
     }
 }
 
