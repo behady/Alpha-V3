@@ -928,6 +928,34 @@ object Repository {
             }
     }
 
+    /**
+     * What the same weekday usually takes, from the last [weeks] of them.
+     *
+     * The comparison a clinic actually makes is "is this a good Saturday", not
+     * "is this more than yesterday" — a Saturday and a Tuesday are different
+     * businesses. Days that took nothing are left out of the average rather
+     * than counted as zero: a closed day is not a bad day, and including it
+     * would flatter every open one.
+     *
+     * Returns null when there is nothing to compare against, which is the
+     * honest answer for a clinic that has been running a fortnight.
+     */
+    suspend fun weekdayAverage(clinicId: String, dateKey: String, weeks: Int = 4): Double? {
+        val cal = java.util.Calendar.getInstance().apply { time = parseKey(dateKey) }
+        val totals = mutableListOf<Double>()
+        repeat(weeks) {
+            cal.add(java.util.Calendar.DAY_OF_YEAR, -7)
+            val key = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(cal.time)
+            val taken = runCatching { takingsOn(clinicId, key) }.getOrNull() ?: 0.0
+            if (taken > 0) totals.add(taken)
+        }
+        return if (totals.isEmpty()) null else totals.average()
+    }
+
+    private fun parseKey(dateKey: String): java.util.Date =
+        runCatching { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(dateKey) }
+            .getOrNull() ?: java.util.Date()
+
     /** One line on the day's money screen. */
     data class DayLedgerRow(
         val id: String,
@@ -2081,6 +2109,32 @@ object Repository {
         leads(clinicId).document(lead.id).update(patch).await()
 
         patientId to existed
+    }
+
+    /**
+     * When to chase this lead next.
+     *
+     * A plain "yyyy-MM-dd", as the website stores it, and null to clear. It is
+     * the only field on a lead that makes the inbox sort itself: without a date
+     * a lead sits wherever its age puts it, and the person who said "call me
+     * after Eid" is lost among the ones nobody has rung yet.
+     */
+    suspend fun setLeadFollowUp(clinicId: String, leadId: String, dateKey: String?): Result<Unit> = runCatching {
+        leads(clinicId).document(leadId).update(
+            mapOf(
+                "followUpDate" to dateKey?.takeIf { it.isNotBlank() },
+                "updatedAt" to FieldValue.serverTimestamp(),
+            )
+        ).await()
+        Unit
+    }
+
+    /** Whatever the person on the phone was told. Replaces the note rather than appending. */
+    suspend fun setLeadNotes(clinicId: String, leadId: String, notes: String): Result<Unit> = runCatching {
+        leads(clinicId).document(leadId).update(
+            mapOf("notes" to notes.trim(), "updatedAt" to FieldValue.serverTimestamp())
+        ).await()
+        Unit
     }
 
     /** A lead typed in at the desk — a walk-in, a phone call. Same shape the website writes. */

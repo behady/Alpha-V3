@@ -53,6 +53,7 @@ fun Shell(preview: Boolean = false) {
     var openSms by rememberSaveable { mutableStateOf(false) }
     var openSettings by rememberSaveable { mutableStateOf(false) }
     var openOrtho by rememberSaveable { mutableStateOf(false) }
+    var openLeads by rememberSaveable { mutableStateOf(false) }
     // A screen can ask for the bar to go away. A conversation does: the bar
     // would cover its foot, and offer to walk away from a thread mid-read.
     var immersive by remember { mutableStateOf(false) }
@@ -95,6 +96,11 @@ fun Shell(preview: Boolean = false) {
         return
     }
 
+    if (openLeads) {
+        LeadsPane(preview) { openLeads = false }
+        return
+    }
+
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
         when (tab) {
@@ -112,6 +118,7 @@ fun Shell(preview: Boolean = false) {
                 onOpenSms = { openSms = true },
                 onOpenSettings = { openSettings = true },
                 onOpenOrtho = { openOrtho = true },
+                onOpenLeads = { openLeads = true },
             )
         }
 
@@ -217,6 +224,7 @@ private fun MoreTab(
     onOpenSms: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenOrtho: () -> Unit,
+    onOpenLeads: () -> Unit,
 ) {
     var confirmSignOut by remember { mutableStateOf(false) }
 
@@ -242,6 +250,7 @@ private fun MoreTab(
                 Destination.Reminders -> onOpenSms()
                 Destination.Settings -> onOpenSettings()
                 Destination.Ortho -> onOpenOrtho()
+                Destination.Leads -> onOpenLeads()
                 else -> Unit
             }
         },
@@ -394,6 +403,61 @@ private fun MoneyPane(preview: Boolean, onBack: () -> Unit) {
         onBack = onBack,
         onShiftMonth = model::shiftMonth,
         onThisMonth = model::thisMonth,
+    )
+}
+
+
+/**
+ * Leads, over the top of everything.
+ *
+ * Calling and messaging hand off to the phone's own dialler and WhatsApp, as
+ * they do on a patient's file: the dialler shows the number before it rings it,
+ * which is the safer default when a wrong tap rings a stranger.
+ */
+@Composable
+private fun LeadsPane(preview: Boolean, onBack: () -> Unit) {
+    val context = LocalContext.current
+
+    if (preview) {
+        var state by remember { mutableStateOf(previewLeads()) }
+        BackHandler { if (state.open != null) state = state.copy(open = null) else onBack() }
+        LeadsScreen(
+            state = state,
+            onBack = onBack,
+            actions = LeadActions(
+                filter = { state = state.copy(filter = it) },
+                open = { state = state.copy(open = it) },
+                close = { state = state.copy(open = null) },
+                setStage = { _, _ -> },
+                convert = { },
+                followUp = { },
+                setNotes = { },
+                add = { _, _, _, _ -> },
+                call = { }, message = { },
+            ),
+        )
+        return
+    }
+
+    val model: LeadsModel = viewModel()
+    val state by model.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
+    BackHandler { if (state.open != null) model.close() else onBack() }
+    LeadsScreen(
+        state = state,
+        onBack = onBack,
+        actions = LeadActions(
+            filter = model::show,
+            open = model::open,
+            close = model::close,
+            setStage = { stage, reason -> model.setStage(stage, reason) },
+            convert = model::convert,
+            followUp = model::setFollowUp,
+            setNotes = model::setNotes,
+            add = { name, phone, source, interest -> model.add(name, phone, source, interest, "") },
+            call = { context.dial(it) },
+            message = { context.whatsapp(it) },
+        ),
     )
 }
 
