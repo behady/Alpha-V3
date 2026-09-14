@@ -46,9 +46,10 @@ function readLines() {
     if (!line.startsWith("|")) continue;
     const cells = line.split("|").map((c) => c.trim());
     // | n | time | screen | narration |  ->  ["", n, time, screen, narration, ""]
-    if (cells.length < 6) continue;
+    // | n | time | screen | narration (EN) | subtitle (AR) |  ->  7 cells with the empty ends
+    if (cells.length < 7) continue;
     if (!/^\d+$/.test(cells[1])) continue;
-    rows.push({ n: Number(cells[1]), time: cells[2], screen: cells[3], text: cells[4] });
+    rows.push({ n: Number(cells[1]), time: cells[2], screen: cells[3], text: cells[4], subtitle: cells[5] });
   }
   if (!rows.length) throw new Error("No table rows found in the script.");
   return rows;
@@ -59,7 +60,7 @@ const MODEL = "gemini-2.5-flash-preview-tts";
 async function synth(text, voice, apiKey) {
   // Steering the read: the model follows a plain instruction prefix, and without one it
   // drifts to a formal MSA newsreader cadence that sounds nothing like a dentist talking.
-  const prompt = `اقرأ النص ده بلهجة مصرية طبيعية، بصوت واثق وودود، بسرعة عادية زي واحد بيشرح لزميله:\n\n${text}`;
+  const prompt = `Read this in a warm, confident, matter-of-fact voice, at a normal speaking pace, like someone explaining their own product to a colleague. Do not sound like an advertisement:\n\n${text}`;
   for (let attempt = 1; attempt <= 4; attempt++) {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`,
@@ -115,7 +116,7 @@ async function main() {
     // 44-byte header, 16-bit mono: duration falls straight out of the payload size.
     const rate = wav.readUInt32LE(24);
     const seconds = (wav.length - 44) / (rate * 2);
-    timings.push({ n: row.n, file: name, seconds: Number(seconds.toFixed(2)), screen: row.screen, text: row.text });
+    timings.push({ n: row.n, file: name, seconds: Number(seconds.toFixed(2)), screen: row.screen, text: row.text, subtitle: row.subtitle });
     console.log(`  ${name}  ${seconds.toFixed(2)}s  ${row.screen}`);
   }
 

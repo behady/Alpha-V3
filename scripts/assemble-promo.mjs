@@ -1,7 +1,7 @@
 /**
  * Cuts the promo reel together from one continuous screen take plus the synthesised narration.
  *
- *   node scripts/assemble-promo.mjs --rec <rec dir> --vo <vo dir> --out <file.mp4>
+ *   node scripts/assemble-promo.mjs --rec <rec dir> --vo <vo dir> --out <file.mp4> [--subs <dir>]
  *
  * The narration is the master clock, not the script's guide timings: each beat's video is cut to
  * that beat's measured voice length, so a line that ran long is never clipped mid-word. Where a
@@ -30,6 +30,8 @@ function main() {
   const recDir = arg("rec");
   const voDir = arg("vo");
   const outFile = arg("out");
+  // Optional: without it the reel builds clean, which is what you want for a non-subtitled cut.
+  const subsDir = arg("subs");
   if (!recDir || !voDir || !outFile) throw new Error("Pass --rec, --vo and --out.");
 
   const { video, cuts } = JSON.parse(fs.readFileSync(path.join(recDir, "cuts.json"), "utf8"));
@@ -60,15 +62,33 @@ function main() {
     // concatenated audio would drift out of sync with every beat that follows.
     if (holdFor > 0.05) filters.push(`tpad=stop_mode=clone:stop_duration=${holdFor.toFixed(2)}`);
 
-    run([
-      "-y", "-loglevel", "error",
-      "-ss", (cut.startMs / 1000).toFixed(2),
-      "-t", take.toFixed(2),
-      "-i", video,
-      "-vf", filters.join(","),
-      "-an", "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p",
-      vPath,
-    ]);
+    // The Arabic caption, pre-rendered to a full-frame transparent PNG. It is overlaid AFTER
+    // tpad so the held frames carry the subtitle too — otherwise the caption vanishes for the
+    // tail of any beat whose narration outran its footage.
+    const subPath = subsDir ? path.join(subsDir, `sub-${String(line.n).padStart(2, "0")}.png`) : null;
+    const hasSub = subPath && fs.existsSync(subPath);
+
+    run(hasSub
+      ? [
+          "-y", "-loglevel", "error",
+          "-ss", (cut.startMs / 1000).toFixed(2),
+          "-t", take.toFixed(2),
+          "-i", video,
+          "-i", subPath,
+          "-filter_complex", `[0:v]${filters.join(",")}[base];[base][1:v]overlay=0:0:format=auto[out]`,
+          "-map", "[out]",
+          "-an", "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p",
+          vPath,
+        ]
+      : [
+          "-y", "-loglevel", "error",
+          "-ss", (cut.startMs / 1000).toFixed(2),
+          "-t", take.toFixed(2),
+          "-i", video,
+          "-vf", filters.join(","),
+          "-an", "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p",
+          vPath,
+        ]);
 
     // The matching audio: the line, then silence across the gap.
     const aPath = path.join(work, `seg-${String(line.n).padStart(2, "0")}.wav`);
@@ -81,7 +101,7 @@ function main() {
     ]);
 
     segments.push({ n: line.n, video: vPath, audio: aPath, seconds: want });
-    console.log(`  beat ${String(line.n).padStart(2)}  ${want.toFixed(2)}s${holdFor > 0.05 ? `  (held ${holdFor.toFixed(2)}s)` : ""}`);
+    console.log(`  beat ${String(line.n).padStart(2)}  ${want.toFixed(2)}s${holdFor > 0.05 ? `  (held ${holdFor.toFixed(2)}s)` : ""}${subsDir && !hasSub ? "  NO SUBTITLE" : ""}`);
   }
 
   const listFile = (key) => {
