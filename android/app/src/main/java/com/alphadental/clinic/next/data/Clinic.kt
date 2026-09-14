@@ -218,3 +218,72 @@ internal fun parseHours(raw: Map<String, Any?>?): Hours {
             ((m["start"] as? String)?.isNotBlank() == true && (m["end"] as? String)?.isNotBlank() == true),
     )
 }
+
+/** Someone on the clinic's register. */
+data class Person(
+    val id: String,
+    val name: String,
+    val phone: String,
+    /** What they still owe, as the website keeps it on the patient document. */
+    val balance: Double,
+) {
+    val initials: String
+        get() {
+            val parts = name.trim().split(" ").filter(String::isNotBlank)
+            return when {
+                parts.isEmpty() -> "•"
+                parts.size == 1 -> parts[0].take(1).uppercase()
+                else -> (parts[0].take(1) + parts[1].take(1)).uppercase()
+            }
+        }
+
+    /** The letter this name files under, for the directory's dividers. */
+    val initial: String get() = name.trim().firstOrNull()?.uppercase() ?: "#"
+}
+
+/**
+ * A phone can be stored under any of five keys.
+ *
+ * Which one depends on the form that created the record — the website has grown
+ * several. Reading only `phone` is how a patient with a perfectly good mobile
+ * shows up with none.
+ */
+private val PHONE_KEYS = listOf("phone", "phoneNumber", "mobile", "whatsapp", "contactNumber")
+
+internal fun DocumentSnapshot.toPerson(): Person = Person(
+    id = id,
+    name = getString("name").orEmpty(),
+    phone = PHONE_KEYS.firstNotNullOfOrNull { getString(it)?.takeIf(String::isNotBlank) }.orEmpty(),
+    balance = number("balance") ?: 0.0,
+)
+
+/**
+ * Does this patient match what was typed?
+ *
+ * Ported from the website's flexible search, not reinvented: someone who finds a
+ * patient by typing "ahmed hassan" on the website must find the same patient
+ * typing the same thing here. Two rules carry that.
+ *
+ *  - **Names match tokenised and in any order**, so "hassan ahmed" finds
+ *    "Ahmed Hassan". Egyptian patients are commonly recorded with three or four
+ *    names and staff rarely type them in the stored order.
+ *  - **Phone matching needs at least two digits** and compares digits only. One
+ *    digit would match most of the register, and stored numbers carry +20,
+ *    spaces and dashes that nobody types.
+ */
+fun matchesSearch(query: String, person: Person): Boolean {
+    val q = query.trim().lowercase().replace(Regex("""\s+"""), " ")
+    if (q.isEmpty()) return true
+
+    val queryDigits = query.filter(Char::isDigit)
+    if (queryDigits.length >= 2 && person.phone.filter(Char::isDigit).contains(queryDigits)) return true
+
+    val name = person.name.lowercase()
+    return q.split(" ").filter(String::isNotEmpty).all { name.contains(it) }
+}
+
+/** Is this a phone number rather than a name? Matches the website's test. */
+fun looksLikePhone(term: String): Boolean {
+    val t = term.trim()
+    return t.isNotEmpty() && Regex("""^[0-9+\-\s()]+$""").matches(t)
+}

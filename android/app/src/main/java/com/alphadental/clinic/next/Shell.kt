@@ -48,9 +48,9 @@ fun Shell(preview: Boolean = false) {
         when (tab) {
             Tab.Today -> TodayTab(preview)
             Tab.Day -> DayTab(preview)
+            Tab.Patients -> PatientsTab(preview)
             // Not built yet. Saying so is better than a blank screen that reads
             // as a bug, and better than hiding the tab so the bar keeps moving.
-            Tab.Patients -> Unbuilt("Patients")
             Tab.Chats -> Unbuilt("WhatsApp")
             Tab.More -> Unbuilt("More")
         }
@@ -77,6 +77,26 @@ private fun TodayTab(preview: Boolean) {
         val state by model.state.collectAsState()
         androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
         DashboardScreen(state = state, onCheckOut = model::checkOut)
+    }
+}
+
+@Composable
+private fun PatientsTab(preview: Boolean) {
+    if (preview) {
+        val state = remember { previewPatients() }
+        PatientsScreen(state = state, onSearch = {}, onLoadMore = {}, onAdd = {})
+    } else {
+        val model: PatientsModel = viewModel()
+        val state by model.state.collectAsState()
+        androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
+        PatientsScreen(
+            state = state,
+            onSearch = model::search,
+            onLoadMore = model::loadMore,
+            // Adding a patient is a write; only offer it to someone the server
+            // would accept it from.
+            onAdd = if (state.who?.can("patients.add") == true) ({ }) else null,
+        )
     }
 }
 

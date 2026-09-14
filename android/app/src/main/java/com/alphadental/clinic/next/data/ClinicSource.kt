@@ -2,6 +2,7 @@ package com.alphadental.clinic.next.data
 
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
@@ -152,6 +153,87 @@ object ClinicSource {
             }
         awaitClose { reg.remove() }
     }
+
+    // -------------------------------------------------------------- patients
+
+    /** One page of the register, plus where to carry on from. */
+    data class Page(val people: List<Person>, val cursor: DocumentSnapshot?, val more: Boolean)
+
+    private const val PAGE = 40L
+
+    /**
+     * The register in name order, a page at a time.
+     *
+     * Ordered by name because that is what makes paging stable and makes "load
+     * more" mean anything — an unordered page can repeat and skip records as
+     * documents change underneath it.
+     */
+    suspend fun browsePeople(clinicId: String, after: DocumentSnapshot? = null): Page =
+        withContext(Dispatchers.IO) {
+            var q = clinic(clinicId).collection("patients").orderBy("name").limit(PAGE)
+            if (after != null) q = q.startAfter(after)
+            val snap = q.get().await()
+            Page(
+                people = snap.documents.map { it.toPerson() },
+                cursor = snap.documents.lastOrNull(),
+                // A full page probably has more behind it. One wasted empty fetch
+                // at the end beats hiding the button while patients remain.
+                more = snap.documents.size.toLong() == PAGE,
+            )
+        }
+
+    /**
+     * Search the register.
+     *
+     * A phone number is answered by an indexed range query. A name cannot be:
+     * Firestore has no substring search, so a bounded slice of the register is
+     * scanned and filtered here — the same compromise the website makes, and the
+     * reason the scan is capped rather than unbounded.
+     */
+    suspend fun searchPeople(clinicId: String, term: String): List<Person> =
+        withContext(Dispatchers.IO) {
+            val t = term.trim()
+            if (t.isEmpty()) return@withContext browsePeople(clinicId).people
+
+            if (looksLikePhone(t)) {
+                val snap = clinic(clinicId).collection("patients")
+                    .orderBy("phone")
+                    .startAt(t)
+                    //  is past every ordinary character, so this is a prefix range.
+                    .endAt(t + "")
+                    .limit(PAGE)
+                    .get().await()
+                return@withContext snap.documents.map { it.toPerson() }
+            }
+
+            val snap = clinic(clinicId).collection("patients")
+                .orderBy("name")
+                .limit(SEARCH_SCAN)
+                .get().await()
+            snap.documents.map { it.toPerson() }.filter { matchesSearch(t, it) }
+        }
+
+    /** A cap on the name scan. Large enough for a real register, small enough to answer. */
+    private const val SEARCH_SCAN = 800L
+
+    /**
+     * Who owes the clinic money, most first.
+     *
+     * A separate query rather than a filter over the browsed page: the people who
+     * owe are rarely the first forty alphabetically, and a "who owes" list that
+     * only knows about the As is worse than none.
+     */
+    suspend fun debtors(clinicId: String, limit: Long = 20): List<Person> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                clinic(clinicId).collection("patients")
+                    .whereGreaterThan("balance", 0)
+                    .orderBy("balance", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                    .limit(limit)
+                    .get().await()
+                    .documents.map { it.toPerson() }
+            }.getOrDefault(emptyList())
+        }
 
     // ----------------------------------------------------------------- money
 
