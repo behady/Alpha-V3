@@ -214,7 +214,7 @@ enum class Destination(
 ) {
     Money("Money", "Takings, expenses and the day's ledger", Icons.Filled.Payments, Area.Tool, built = true, permission = "access.finance"),
     Reports("Reports", "How the clinic is doing", Icons.Filled.BarChart, Area.Tool, built = true, permission = "access.reports"),
-    Lab("Lab", "Cases out at the laboratory", Icons.Filled.Science, Area.Tool, permission = "access.lab"),
+    Lab("Lab", "Cases out at the laboratory", Icons.Filled.Science, Area.Tool, built = true, permission = "access.lab"),
     Ortho("Ortho", "Cases and adjustments", Icons.Filled.Timeline, Area.Tool),
     Leads("Leads", "Enquiries from ads and calls", Icons.Filled.PersonSearch, Area.Tool, permission = "access.marketing"),
     Stock("Stock", "What is running out", Icons.Filled.Inventory2, Area.Tool),

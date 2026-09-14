@@ -49,6 +49,7 @@ fun Shell(preview: Boolean = false) {
     var openRecord by rememberSaveable { mutableStateOf<String?>(null) }
     var openMoney by rememberSaveable { mutableStateOf(false) }
     var openReports by rememberSaveable { mutableStateOf(false) }
+    var openLab by rememberSaveable { mutableStateOf(false) }
     // A screen can ask for the bar to go away. A conversation does: the bar
     // would cover its foot, and offer to walk away from a thread mid-read.
     var immersive by remember { mutableStateOf(false) }
@@ -71,6 +72,11 @@ fun Shell(preview: Boolean = false) {
         return
     }
 
+    if (openLab) {
+        LabPane(preview) { openLab = false }
+        return
+    }
+
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
         when (tab) {
@@ -84,6 +90,7 @@ fun Shell(preview: Boolean = false) {
                 preview,
                 onOpenMoney = { openMoney = true },
                 onOpenReports = { openReports = true },
+                onOpenLab = { openLab = true },
             )
         }
 
@@ -181,7 +188,12 @@ private fun ChatsTab(preview: Boolean, onImmersive: (Boolean) -> Unit) {
  * Losing a session costs a receptionist a password they may not carry.
  */
 @Composable
-private fun MoreTab(preview: Boolean, onOpenMoney: () -> Unit, onOpenReports: () -> Unit) {
+private fun MoreTab(
+    preview: Boolean,
+    onOpenMoney: () -> Unit,
+    onOpenReports: () -> Unit,
+    onOpenLab: () -> Unit,
+) {
     var confirmSignOut by remember { mutableStateOf(false) }
 
     val who = if (preview) {
@@ -199,6 +211,7 @@ private fun MoreTab(preview: Boolean, onOpenMoney: () -> Unit, onOpenReports: ()
             when (d) {
                 Destination.Money -> onOpenMoney()
                 Destination.Reports -> onOpenReports()
+                Destination.Lab -> onOpenLab()
                 else -> Unit
             }
         },
@@ -352,6 +365,27 @@ private fun MoneyPane(preview: Boolean, onBack: () -> Unit) {
         onShiftMonth = model::shiftMonth,
         onThisMonth = model::thisMonth,
     )
+}
+
+
+/**
+ * The lab board, over the top of everything.
+ *
+ * Reached from More rather than the bar: it is a queue somebody works down once
+ * or twice a day, not a screen passed through between patients.
+ */
+@Composable
+private fun LabPane(preview: Boolean, onBack: () -> Unit) {
+    BackHandler { onBack() }
+    if (preview) {
+        var state by remember { mutableStateOf(previewLab()) }
+        LabScreen(state, onBack = onBack, onFilter = { state = state.copy(filter = it) })
+        return
+    }
+    val model: LabModel = viewModel()
+    val state by model.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
+    LabScreen(state, onBack = onBack, onFilter = model::show)
 }
 
 
