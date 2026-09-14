@@ -99,17 +99,28 @@
             tools:node="remove" />
 
         <!--
-            The rebuilt app's shell. No launcher category on purpose: it is not a
-            second icon on the home screen, it is a screen under construction.
-            Exported so it can be started from adb while it is being built:
-              adb shell am start -n <package>/com.alphadental.clinic.next.NextActivity
+            The rebuilt app's shell.
+
+            Its own launcher icon, beside the old app's, for as long as the
+            rebuild is unfinished. Two icons is the honest arrangement while some
+            screens exist in only one of them: making this the only launcher
+            would silently take Ortho, Leads, Stock and Attendance off the phone,
+            and leaving it adb-only means nobody can actually try it.
+
+            This filter goes when the rebuild is complete, at which point
+            MainActivity's moves here and the old icon disappears.
         -->
         <activity
             android:name=".next.NextActivity"
             android:exported="true"
             android:label="Alpha (new)"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|density|uiMode|navigation|fontScale"
-            android:windowSoftInputMode="adjustResize" />
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
 
         <activity
             android:name=".MainActivity"
