@@ -72,6 +72,7 @@ fun DashboardScreen(
     onCheckOut: (Visit) -> Unit,
     onOpenVisit: (Visit) -> Unit = {},
     onClock: () -> Unit = {},
+    onBook: () -> Unit = {},
 ) {
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
@@ -109,7 +110,7 @@ fun DashboardScreen(
                 item { Empty("Nothing booked today.") }
             }
 
-            item { Tools(state, onClock) }
+            item { Tools(state, onClock, onBook) }
         }
 
         if (state.loading) {
@@ -274,9 +275,9 @@ private fun ChairCard(
  * being the point of the screen.
  */
 @Composable
-private fun Tools(state: Dashboard, onClock: () -> Unit) {
+private fun Tools(state: Dashboard, onClock: () -> Unit, onBook: () -> Unit) {
     val tools = listOfNotNull(
-        Tool(Icons.Filled.Add, "New booking", "Book a patient in"),
+        Tool(Icons.Filled.Add, "New booking", "Book a patient in", onBook),
         Tool(Icons.AutoMirrored.Filled.Chat, "WhatsApp", "Messages from patients"),
         Tool(Icons.Filled.People, "Find a patient", "Search the register"),
         // The only one wired so far. A tile that does nothing when tapped is

@@ -26,7 +26,13 @@ data class Patients(
     val more: Boolean = false,
     val loadingMore: Boolean = false,
     val error: String? = null,
+    /** A new patient is being written. */
+    val adding: Boolean = false,
+    val addError: String? = null,
+    /** The file that was just opened, so the screen can go straight to it. */
+    val added: String? = null,
 ) {
+    val canAdd: Boolean get() = who?.can("patients.add") == true
     val isSearching: Boolean get() = query.isNotBlank()
 
     /**
@@ -108,6 +114,40 @@ class PatientsModel : ViewModel() {
      * character is enough: that is what the website accepts, and someone typing
      * "m" expects the Ms.
      */
+    /**
+     * Open a file for somebody new.
+     *
+     * The file number comes from a counter transaction shared with the website
+     * and the booking flow, so two people registering at once cannot both be
+     * handed PT-1042. That transaction is the one part of this that needs a
+     * connection, and it says so when there is none rather than inventing a
+     * number that would collide later.
+     */
+    fun addPatient(name: String, phone: String) {
+        val who = _state.value.who ?: return
+        if (!_state.value.canAdd || name.isBlank() || _state.value.adding) return
+        _state.value = _state.value.copy(adding = true, addError = null, added = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.Repository.createPatient(who.clinicId, name, phone)
+                .onSuccess { patient ->
+                    _state.value = _state.value.copy(adding = false, added = patient.id)
+                    // Put them in the list straight away rather than waiting for
+                    // a reload: the next thing anybody does is open the file.
+                    firstPage(who)
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        adding = false,
+                        addError = e.message ?: "That patient could not be added.",
+                    )
+                }
+        }
+    }
+
+    fun clearAdded() {
+        _state.value = _state.value.copy(added = null, addError = null)
+    }
+
     fun search(term: String) {
         _state.value = _state.value.copy(query = term)
         searchJob?.cancel()

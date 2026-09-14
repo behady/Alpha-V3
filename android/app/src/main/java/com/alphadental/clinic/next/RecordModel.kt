@@ -40,7 +40,13 @@ data class RecordState(
     /** Which tooth the chart is showing the detail of. */
     val tooth: Int? = null,
     val error: String? = null,
+    /** Treatments with money still outstanding, for the payment sheet. */
+    val unpaid: List<com.alphadental.clinic.data.UnpaidProcedure> = emptyList(),
+    val taking: Boolean = false,
+    val payError: String? = null,
+    val paid: String? = null,
 ) {
+    val canTakePayment: Boolean get() = who?.can("payments.add") == true
     /**
      * What has to be read before treating this patient.
      *
@@ -99,8 +105,88 @@ class RecordModel : ViewModel() {
                 return@launch
             }
             ClinicSource.record(who.clinicId, id)
-                .onSuccess { _state.value = _state.value.copy(loading = false, who = who, record = it) }
+                .onSuccess {
+                    _state.value = _state.value.copy(loading = false, who = who, record = it)
+                    if (who.can("payments.add")) loadUnpaid(who, id)
+                }
                 .onFailure { _state.value = _state.value.copy(loading = false, who = who, error = it.message) }
+        }
+    }
+
+    /**
+     * What this patient still owes, treatment by treatment.
+     *
+     * Read through the old ledger model on purpose: `unpaidProcedures` matches
+     * payments to charges by procedureId and is the same arithmetic the website
+     * and the payment split use. Re-deriving it here from the rebuild's own
+     * ledger type would be a second opinion about what somebody owes.
+     */
+    private fun loadUnpaid(who: Who, patientId: String) = viewModelScope.launch {
+        val rows = runCatching {
+            com.alphadental.clinic.data.Repository.loadLedger(who.clinicId, patientId)
+        }.getOrDefault(emptyList())
+        _state.value = _state.value.copy(
+            unpaid = com.alphadental.clinic.data.unpaidProcedures(rows).filter { it.remaining > 0.009 },
+        )
+    }
+
+    /**
+     * Take money.
+     *
+     * Against a named treatment where there is one, because that is what drives
+     * the dentist's commission and the lab fee coming off it — the split lives in
+     * `recordPayment`, not here. A payment with no treatment named sits against
+     * the account as a whole, which is a real thing a desk does and not a
+     * fallback: it is how a deposit is taken before any work is charged.
+     */
+    fun takePayment(procedure: com.alphadental.clinic.data.UnpaidProcedure?, amount: Double) {
+        val who = _state.value.who ?: return
+        val record = _state.value.record ?: return
+        if (!_state.value.canTakePayment || _state.value.taking) return
+        _state.value = _state.value.copy(taking = true, payError = null, paid = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.Repository.recordPayment(
+                clinicId = who.clinicId,
+                patient = com.alphadental.clinic.data.Patient(
+                    id = record.person.id,
+                    name = record.person.name,
+                    phone = record.person.phone,
+                ),
+                procedure = procedure,
+                amount = amount,
+                byName = who.name,
+                byUid = who.uid,
+            )
+                .onSuccess {
+                    _state.value = _state.value.copy(
+                        taking = false,
+                        paid = "${amount.toLong()} taken.",
+                    )
+                    reload()
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        taking = false,
+                        // require() failures here are sentences worth showing as
+                        // written — "that is more than the 800 still owed".
+                        payError = e.message ?: "That payment could not be recorded.",
+                    )
+                }
+        }
+    }
+
+    fun clearPayment() {
+        _state.value = _state.value.copy(paid = null, payError = null)
+    }
+
+    /** Re-read the file after a write, so the balance and the ledger agree with it. */
+    private fun reload() {
+        val who = _state.value.who ?: return
+        val id = _state.value.record?.person?.id ?: return
+        viewModelScope.launch {
+            ClinicSource.record(who.clinicId, id)
+                .onSuccess { _state.value = _state.value.copy(record = it) }
+            loadUnpaid(who, id)
         }
     }
 

@@ -113,11 +113,23 @@ fun Shell(preview: Boolean = false) {
         return
     }
 
+    // Booking sits at the shell rather than inside a tab, because it is reached
+    // from three places — the dashboard tile, a free slot in the day, and the
+    // day's own button — and all three want the same half-filled sheet back if
+    // the person looks something up mid-booking.
+    val booking: BookingModel? = if (preview) null else viewModel()
+    val bookingState by (booking?.state?.collectAsState()
+        ?: androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(Booking()) })
+
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
         when (tab) {
-            Tab.Today -> TodayTab(preview) { openAttendance = true }
-            Tab.Day -> DayTab(preview)
+            Tab.Today -> TodayTab(
+                preview,
+                onOpenAttendance = { openAttendance = true },
+                onBook = { booking?.open() },
+            )
+            Tab.Day -> DayTab(preview) { date, time -> booking?.open(date, time) }
             Tab.Patients -> PatientsTab(preview) { openRecord = it }
             // Not built yet. Saying so is better than a blank screen that reads
             // as a bug, and better than hiding the tab so the bar keeps moving.
@@ -136,6 +148,24 @@ fun Shell(preview: Boolean = false) {
             )
         }
 
+        if (bookingState.open && booking != null) {
+            BookingSheet(
+                state = bookingState,
+                actions = BookingActions(
+                    search = booking::search,
+                    choose = booking::choose,
+                    setDoctor = booking::setDoctor,
+                    setService = booking::setService,
+                    shiftDay = booking::shiftDay,
+                    setTime = booking::setTime,
+                    setMinutes = booking::setMinutes,
+                    setNotes = booking::setNotes,
+                    book = booking::book,
+                    close = booking::close,
+                ),
+            )
+        }
+
         if (!immersive) FloatingBar(
             modifier = Modifier.align(Alignment.BottomCenter),
             items = listOf(
@@ -150,14 +180,20 @@ fun Shell(preview: Boolean = false) {
 }
 
 @Composable
-private fun TodayTab(preview: Boolean, onOpenAttendance: () -> Unit) {
+private fun TodayTab(preview: Boolean, onOpenAttendance: () -> Unit, onBook: () -> Unit) {
     if (preview) {
-        DashboardScreen(state = previewDashboard(), onCheckOut = {}, onClock = onOpenAttendance)
+        DashboardScreen(
+            state = previewDashboard(), onCheckOut = {},
+            onClock = onOpenAttendance, onBook = onBook,
+        )
     } else {
         val model: DashboardModel = viewModel()
         val state by model.state.collectAsState()
         androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
-        DashboardScreen(state = state, onCheckOut = model::checkOut, onClock = onOpenAttendance)
+        DashboardScreen(
+            state = state, onCheckOut = model::checkOut,
+            onClock = onOpenAttendance, onBook = onBook,
+        )
     }
 }
 
@@ -169,7 +205,19 @@ private fun PatientsTab(preview: Boolean, onOpen: (String) -> Unit) {
     } else {
         val model: PatientsModel = viewModel()
         val state by model.state.collectAsState()
+        var adding by remember { mutableStateOf(false) }
         androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
+
+        // Straight into the new file. Whoever just typed a name is about to take
+        // a phone number or book them in, and both live there.
+        androidx.compose.runtime.LaunchedEffect(state.added) {
+            state.added?.let { id ->
+                adding = false
+                model.clearAdded()
+                onOpen(id)
+            }
+        }
+
         PatientsScreen(
             state = state,
             onSearch = model::search,
@@ -177,8 +225,17 @@ private fun PatientsTab(preview: Boolean, onOpen: (String) -> Unit) {
             onOpen = { onOpen(it.id) },
             // Adding a patient is a write; only offer it to someone the server
             // would accept it from.
-            onAdd = if (state.who?.can("patients.add") == true) ({ }) else null,
+            onAdd = if (state.canAdd) ({ adding = true }) else null,
         )
+
+        if (adding) {
+            AddPatientSheet(
+                busy = state.adding,
+                error = state.addError,
+                onAdd = model::addPatient,
+                onDismiss = { adding = false; model.clearAdded() },
+            )
+        }
     }
 }
 
@@ -314,15 +371,23 @@ private fun MoreTab(
 }
 
 @Composable
-private fun DayTab(preview: Boolean) {
+private fun DayTab(preview: Boolean, onBook: (String, String) -> Unit) {
     if (preview) {
         val state = remember { previewDay() }
-        DayScreen(state = state, onShiftDay = {}, onToday = {})
+        DayScreen(
+            state = state, onShiftDay = {}, onToday = {},
+            onBookGap = { gap -> onBook(state.dateKey, clockOf(gap.minute)) },
+        )
     } else {
         val model: DayModel = viewModel()
         val state by model.state.collectAsState()
         androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
-        DayScreen(state = state, onShiftDay = model::shiftDay, onToday = model::today)
+        DayScreen(
+            state = state, onShiftDay = model::shiftDay, onToday = model::today,
+            // A free slot books into itself: the whole point of tapping one is
+            // that the day and time are already decided.
+            onBookGap = { gap -> onBook(state.dateKey, clockOf(gap.minute)) },
+        )
     }
 }
 
@@ -371,7 +436,15 @@ private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) 
 
     val model: RecordModel = viewModel()
     val state by model.state.collectAsState()
+    var taking by remember { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(patientId) { model.open(patientId) }
+
+    // Close the sheet once the money is in, and leave the confirmation on the
+    // file rather than in a sheet nobody is looking at any more.
+    androidx.compose.runtime.LaunchedEffect(state.paid) {
+        if (state.paid != null) taking = false
+    }
+
     RecordScreen(
         state = state,
         onBack = onBack,
@@ -380,8 +453,22 @@ private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) 
         onCall = { context.dial(it) },
         onMessage = { context.whatsapp(it) },
         // A write, so only for someone the server would accept it from.
-        onTakePayment = if (state.who?.can("payments.add") == true) ({ }) else null,
+        onTakePayment = if (state.canTakePayment) ({ taking = true }) else null,
     )
+
+    if (taking) {
+        state.record?.let { record ->
+            PaymentSheet(
+                patientName = record.person.name,
+                owed = record.balance.owed,
+                unpaid = state.unpaid,
+                busy = state.taking,
+                error = state.payError,
+                onTake = model::takePayment,
+                onDismiss = { taking = false; model.clearPayment() },
+            )
+        }
+    }
 }
 
 /** Hand the number to the phone's dialler, which shows it before ringing. */
@@ -782,3 +869,6 @@ private fun ReportsPane(preview: Boolean, onBack: () -> Unit) {
     androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
     ReportsScreen(state, onBack = onBack, onWindow = model::show)
 }
+
+/** Minutes past midnight as "14:30", for a slot that books into itself. */
+private fun clockOf(minute: Int): String = "%02d:%02d".format((minute / 60) % 24, minute % 60)
