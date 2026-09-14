@@ -29,7 +29,18 @@ import java.util.Locale
  */
 object ClinicSource {
 
-    private val db: FirebaseFirestore get() = FirebaseFirestore.getInstance()
+    /**
+     * The clinic's Firestore, from the one place that knows its name.
+     *
+     * Not `FirebaseFirestore.getInstance()`. This project's database is literally
+     * called "default" — not the conventional "(default)", which does not exist
+     * here at all — so the plain call binds to a database that is not there and
+     * every read comes back empty with no error to explain it. The app signs in,
+     * looks connected, and shows a clinic with no patients in it. Whoever wrote
+     * this the first time lost a day to it; the handle lives in one object so it
+     * can only be got wrong once.
+     */
+    private val db: FirebaseFirestore get() = com.alphadental.clinic.Firebase.db()
     private val auth: FirebaseAuth get() = FirebaseAuth.getInstance()
 
     private fun clinic(clinicId: String) = db.collection("clinics").document(clinicId)

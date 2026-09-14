@@ -96,6 +96,29 @@ fun Gate(preview: Boolean) {
         return
     }
 
+    // Firebase is configured in Application.onCreate, which is deliberately not
+    // allowed to throw — a crash there kills the process before any pixel exists
+    // and reads, to whoever is holding the phone, as the app simply not opening.
+    // It records the failure instead, and this is where that gets said out loud
+    // rather than becoming an unexplained crash on the first query.
+    com.alphadental.clinic.AlphaApp.startupError?.let { problem ->
+        Column(
+            Modifier.fillMaxSize().background(T.slab).statusBarsPadding().padding(T.gutter),
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+        ) {
+            Txt("This app could not start", Type.title, T.onSlab, maxLines = 2)
+            Spacer(Modifier.height(10.dp))
+            Txt(problem, Type.body, T.onSlabSoft, maxLines = 6)
+            Spacer(Modifier.height(10.dp))
+            Txt(
+                "Its connection to the clinic's database was not set up, so nothing it shows " +
+                    "would be real. Reinstalling the app is the usual fix.",
+                Type.caption, T.onSlabFaint, maxLines = 4,
+            )
+        }
+        return
+    }
+
     val auth = remember { FirebaseAuth.getInstance() }
     var uid by remember { mutableStateOf(auth.currentUser?.uid) }
     DisposableEffect(auth) {
