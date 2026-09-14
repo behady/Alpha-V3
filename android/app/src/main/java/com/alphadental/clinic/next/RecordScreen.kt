@@ -60,6 +60,7 @@ fun RecordScreen(
     state: RecordState,
     onBack: () -> Unit,
     onTab: (RecordTab) -> Unit,
+    onSelectTooth: (Int?) -> Unit = {},
     onCall: (String) -> Unit = {},
     onMessage: (String) -> Unit = {},
     onTakePayment: (() -> Unit)? = null,
@@ -87,6 +88,7 @@ fun RecordScreen(
             ) {
                 when (state.tab) {
                     RecordTab.Overview -> overview(state, record)
+                    RecordTab.Chart -> chart(state, record, onSelectTooth)
                     RecordTab.Visits -> visits(record)
                     RecordTab.Ledger -> ledger(state)
                 }
@@ -296,6 +298,28 @@ private fun Fact(label: String, value: String, valueColour: androidx.compose.ui.
 // ---------------------------------------------------------------------------
 // Visits and ledger
 // ---------------------------------------------------------------------------
+
+/**
+ * The mouth, and whatever is recorded on the tooth being looked at.
+ *
+ * The detail sits under the chart rather than over it: a dentist reading a chart
+ * is comparing teeth, and a dialog covering the mouth to describe one of them
+ * makes that impossible.
+ */
+private fun androidx.compose.foundation.lazy.LazyListScope.chart(
+    state: RecordState,
+    record: Record,
+    onSelectTooth: (Int?) -> Unit,
+) {
+    item {
+        ToothChart(
+            teeth = record.teeth,
+            selected = state.tooth,
+            onSelect = onSelectTooth,
+        )
+    }
+    item { ToothDetail(record.teeth[state.tooth], state.tooth) }
+}
 
 private fun androidx.compose.foundation.lazy.LazyListScope.visits(record: Record) {
     if (record.upcoming.isNotEmpty()) {

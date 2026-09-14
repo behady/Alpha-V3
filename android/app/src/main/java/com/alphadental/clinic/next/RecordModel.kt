@@ -8,6 +8,7 @@ import com.alphadental.clinic.next.data.Money
 import com.alphadental.clinic.next.data.Person
 import com.alphadental.clinic.next.data.Record
 import com.alphadental.clinic.next.data.Stage
+import com.alphadental.clinic.next.data.Tooth
 import com.alphadental.clinic.next.data.Visit
 import com.alphadental.clinic.next.data.Who
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +19,7 @@ import kotlinx.coroutines.launch
 /** Which part of the file is showing. */
 enum class RecordTab(val label: String) {
     Overview("Overview"),
+    Chart("Chart"),
     Visits("Visits"),
     Ledger("Ledger"),
 }
@@ -35,6 +37,8 @@ data class RecordState(
     val who: Who? = null,
     val record: Record? = null,
     val tab: RecordTab = RecordTab.Overview,
+    /** Which tooth the chart is showing the detail of. */
+    val tooth: Int? = null,
     val error: String? = null,
 ) {
     /**
@@ -103,6 +107,10 @@ class RecordModel : ViewModel() {
     fun show(tab: RecordTab) {
         _state.value = _state.value.copy(tab = tab)
     }
+
+    fun selectTooth(number: Int?) {
+        _state.value = _state.value.copy(tooth = number)
+    }
 }
 
 /** A patient's file, filled with the design's example data. See [previewDashboard]. */
@@ -131,6 +139,18 @@ fun previewRecord(): RecordState = RecordState(
             Money("m3", "2026-07-30", "procedure", "Crown · UR6", 4_500.0, "", "Dr. Youssef"),
             Money("m4", "2026-06-02", "payment", "Paid in full", 350.0, "Card", "Dr. Nour"),
             Money("m5", "2026-06-02", "procedure", "Scale & polish", 350.0, "", "Dr. Nour"),
+        ),
+        // A plausible mouth: a treated upper-right six now carrying secondary
+        // caries, a couple of fillings, one extraction and a sensitive canine.
+        teeth = mapOf(
+            16 to Tooth(16, listOf("caries_secondary", "pulp_prev_treated"), "Crown planned once the root canal settles."),
+            14 to Tooth(14, listOf("rest_composite"), ""),
+            13 to Tooth(13, listOf("sens_dentin"), ""),
+            26 to Tooth(26, listOf("rest_composite"), ""),
+            36 to Tooth(36, listOf("surg_extracted"), "Extracted 2024, bridge discussed."),
+            37 to Tooth(37, listOf("caries_moderate"), ""),
+            45 to Tooth(45, listOf("perio_gingivitis"), ""),
+            11 to Tooth(11, listOf("trauma_enamel_fracture"), "Chipped edge, patient not bothered."),
         ),
     ),
 )

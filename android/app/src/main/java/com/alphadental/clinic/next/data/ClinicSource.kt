@@ -349,6 +349,7 @@ object ClinicSource {
                         .sortedWith(compareBy({ it.date }, { it.minuteOfDay })),
                     past = visits.filter { it.date < today || it.status.isFinished },
                     ledger = lines.sortedByDescending { it.date },
+                    teeth = snap.toTeeth(),
                 )
             }
         }

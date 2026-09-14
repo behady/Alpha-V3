@@ -267,6 +267,7 @@ private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) 
             state = state,
             onBack = onBack,
             onTab = { state = state.copy(tab = it) },
+            onSelectTooth = { state = state.copy(tooth = it) },
             onTakePayment = {},
         )
         return
@@ -279,6 +280,7 @@ private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) 
         state = state,
         onBack = onBack,
         onTab = model::show,
+        onSelectTooth = model::selectTooth,
         onCall = { context.dial(it) },
         onMessage = { context.whatsapp(it) },
         // A write, so only for someone the server would accept it from.

@@ -339,6 +339,8 @@ data class Record(
     val upcoming: List<Visit>,
     val past: List<Visit>,
     val ledger: List<Money>,
+    /** The chart, keyed by FDI number. Teeth with nothing recorded are absent. */
+    val teeth: Map<Int, Tooth> = emptyMap(),
 ) {
     /** Everything ever charged to this patient — what they are worth to the clinic. */
     val lifetime: Double get() = balance.charged
