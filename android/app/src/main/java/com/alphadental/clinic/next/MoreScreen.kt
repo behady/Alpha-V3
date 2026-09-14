@@ -222,7 +222,7 @@ enum class Destination(
     Attendance("Attendance", "Who is in, and their hours", Icons.Filled.Groups, Area.Admin, permission = "attendance.admin"),
     Reminders("Auto SMS", "Reminders sent from a clinic phone", Icons.Filled.Sms, Area.Admin, built = true, permission = "access.settings"),
     Hours("Opening hours", "When the clinic is open", Icons.Filled.Schedule, Area.Admin, permission = "access.settings"),
-    Settings("Settings", "How the clinic runs", Icons.Filled.Settings, Area.Admin, permission = "access.settings"),
+    Settings("Settings", "How the clinic runs", Icons.Filled.Settings, Area.Admin, built = true, permission = "access.settings"),
     // Built, and not a website thing: it flips the app's own language.
     Language("العربية", "Change the app's language", Icons.Filled.Language, Area.Account, built = true),
     ;

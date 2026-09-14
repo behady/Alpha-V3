@@ -51,6 +51,7 @@ fun Shell(preview: Boolean = false) {
     var openReports by rememberSaveable { mutableStateOf(false) }
     var openLab by rememberSaveable { mutableStateOf(false) }
     var openSms by rememberSaveable { mutableStateOf(false) }
+    var openSettings by rememberSaveable { mutableStateOf(false) }
     // A screen can ask for the bar to go away. A conversation does: the bar
     // would cover its foot, and offer to walk away from a thread mid-read.
     var immersive by remember { mutableStateOf(false) }
@@ -83,6 +84,11 @@ fun Shell(preview: Boolean = false) {
         return
     }
 
+    if (openSettings) {
+        SettingsPane(preview) { openSettings = false }
+        return
+    }
+
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
         when (tab) {
@@ -98,6 +104,7 @@ fun Shell(preview: Boolean = false) {
                 onOpenReports = { openReports = true },
                 onOpenLab = { openLab = true },
                 onOpenSms = { openSms = true },
+                onOpenSettings = { openSettings = true },
             )
         }
 
@@ -201,6 +208,7 @@ private fun MoreTab(
     onOpenReports: () -> Unit,
     onOpenLab: () -> Unit,
     onOpenSms: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     var confirmSignOut by remember { mutableStateOf(false) }
 
@@ -221,6 +229,7 @@ private fun MoreTab(
                 Destination.Reports -> onOpenReports()
                 Destination.Lab -> onOpenLab()
                 Destination.Reminders -> onOpenSms()
+                Destination.Settings -> onOpenSettings()
                 else -> Unit
             }
         },
@@ -373,6 +382,83 @@ private fun MoneyPane(preview: Boolean, onBack: () -> Unit) {
         onBack = onBack,
         onShiftMonth = model::shiftMonth,
         onThisMonth = model::thisMonth,
+    )
+}
+
+
+/**
+ * Settings, over the top of everything.
+ *
+ * It keeps its own back stack: a sub-screen goes back to the index, and the
+ * index goes back to More. Pressing back out of a half-edited form to the
+ * clinic's whole settings list is what people expect; being thrown out to the
+ * dashboard is not.
+ */
+@Composable
+private fun SettingsPane(preview: Boolean, onBack: () -> Unit) {
+    if (preview) {
+        var state by remember { mutableStateOf(previewSettings()) }
+        BackHandler { if (state.section != null) state = state.copy(section = null) else onBack() }
+        SettingsScreen(
+            state = state,
+            onBack = onBack,
+            actions = SettingsActions(
+                open = { state = state.copy(section = it) },
+                close = { state = state.copy(section = null) },
+                saveProfile = { state = state.copy(profile = it) },
+                saveArea = { state = state.copy(area = it) },
+                setAlert = { key, on -> state = state.copy(alerts = state.alerts + (key to on)) },
+                saveBooking = { state = state.copy(booking = it) },
+                saveRecall = { state = state.copy(recall = it) },
+                saveBot = { state = state.copy(bot = it) },
+                setDentistShare = { state = state.copy(dentistShare = it) },
+                saveReasons = { state = state.copy(reasons = it) },
+                saveSources = { state = state.copy(sources = it) },
+                saveBranches = { state = state.copy(branches = it) },
+                saveLabs = { state = state.copy(labs = it) },
+                saveService = { row ->
+                    val list = state.services.toMutableList()
+                    val at = list.indexOfFirst { it.id == row.id && row.id.isNotBlank() }
+                    if (at >= 0) list[at] = row else list.add(row.copy(id = "new"))
+                    state = state.copy(services = list)
+                },
+                saveStaff = { row ->
+                    val list = state.staff.toMutableList()
+                    val at = list.indexOfFirst { it.id == row.id && row.id.isNotBlank() }
+                    if (at >= 0) list[at] = row else list.add(row.copy(id = "new"))
+                    state = state.copy(staff = list)
+                },
+                rejectRequest = { id -> state = state.copy(requests = state.requests.filterNot { it.id == id }) },
+            ),
+        )
+        return
+    }
+
+    val model: SettingsModel = viewModel()
+    val state by model.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
+    BackHandler { if (state.section != null) model.close() else onBack() }
+    SettingsScreen(
+        state = state,
+        onBack = onBack,
+        actions = SettingsActions(
+            open = model::open,
+            close = model::close,
+            saveProfile = model::saveProfile,
+            saveArea = model::saveArea,
+            setAlert = model::setAlert,
+            saveBooking = model::saveBooking,
+            saveRecall = model::saveRecall,
+            saveBot = model::saveBot,
+            setDentistShare = model::setDentistShare,
+            saveReasons = model::saveReasons,
+            saveSources = model::saveSources,
+            saveBranches = model::saveBranches,
+            saveLabs = model::saveLabs,
+            saveService = model::saveService,
+            saveStaff = model::saveStaff,
+            rejectRequest = model::rejectRequest,
+        ),
     )
 }
 
