@@ -120,11 +120,25 @@ class DashboardModel : ViewModel() {
             val takings = async { runCatching { ClinicSource.takings(who.clinicId, today) }.getOrNull() }
             val average = async { runCatching { ClinicSource.weekdayAverage(who.clinicId, today) }.getOrNull() }
             val owed = async { runCatching { ClinicSource.owed(who.clinicId) }.getOrNull() }
+
+            // Awaited into locals BEFORE the copy, and this is not a style
+            // preference. Kotlin evaluates the receiver of `.copy()` first, so
+            // writing `_state.value.copy(takings = takings.await())` reads the
+            // state now, suspends for as long as the network takes, and then
+            // applies the copy to that stale snapshot — throwing away everything
+            // the day listener and the clinic read wrote while it waited. It did
+            // exactly that: the dashboard showed the right takings beside an
+            // empty day and a nameless clinic, while the Day tab showed nine
+            // appointments for the same date.
+            val money = takings.await()
+            val weekday = average.await()
+            val outstanding = owed.await()
+
             _state.value = _state.value.copy(
                 // A failed re-read keeps the old figure rather than blanking it.
-                takings = takings.await() ?: _state.value.takings,
-                weekdayAverage = average.await() ?: _state.value.weekdayAverage,
-                owed = owed.await() ?: _state.value.owed,
+                takings = money ?: _state.value.takings,
+                weekdayAverage = weekday ?: _state.value.weekdayAverage,
+                owed = outstanding ?: _state.value.owed,
                 refreshing = false,
             )
         }
