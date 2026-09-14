@@ -224,6 +224,9 @@ private fun ChatsTab(preview: Boolean, onImmersive: (Boolean) -> Unit) {
             onSend = model::send,
             onFollowup = model::sendFollowup,
             onClearResult = model::clearSendResult,
+            onAttach = { model.attach(context, it) },
+            onClearAttachment = model::clearAttachment,
+            onSendAttachment = { model.sendAttachment(context, it) },
         )
     } else {
         ChatsScreen(state = state, onFilter = model::show, onOpen = model::open)

@@ -10,6 +10,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -245,6 +248,9 @@ fun ThreadScreen(
     onSend: (String) -> Unit = {},
     onFollowup: () -> Unit = {},
     onClearResult: () -> Unit = {},
+    onAttach: (android.net.Uri) -> Unit = {},
+    onClearAttachment: () -> Unit = {},
+    onSendAttachment: (String) -> Unit = {},
 ) {
     val thread = state.open ?: return
     val listState = rememberLazyListState()
@@ -283,7 +289,10 @@ fun ThreadScreen(
             }
         }
 
-        Composer(state, thread, onSend, onFollowup, onClearResult)
+        Composer(
+            state, thread, onSend, onFollowup, onClearResult,
+            onAttach, onClearAttachment, onSendAttachment,
+        )
     }
 }
 
@@ -309,9 +318,18 @@ private fun Composer(
     onSend: (String) -> Unit,
     onFollowup: () -> Unit,
     onClearResult: () -> Unit,
+    onAttach: (android.net.Uri) -> Unit,
+    onClearAttachment: () -> Unit,
+    onSendAttachment: (String) -> Unit,
 ) {
     var draft by remember(thread.id) { mutableStateOf("") }
     val keyboard = LocalSoftwareKeyboardController.current
+
+    // One picker for everything. Two buttons — photos here, files there — is a
+    // choice nobody wants to make about a thing they can already see.
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) onAttach(uri)
+    }
 
     // Clear the last confirmation once the person starts typing the next reply.
     LaunchedEffect(draft) { if (draft.isNotEmpty()) onClearResult() }
@@ -387,14 +405,65 @@ private fun Composer(
                 )
             }
 
+            state.attachment?.let { file ->
+                Surface(color = T.surfaceSoft, modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Filled.AttachFile, null,
+                            tint = T.inkFaint, modifier = Modifier.size(17.dp),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Txt(file.name, Type.rowName, T.ink, maxLines = 1)
+                            Spacer(Modifier.height(2.dp))
+                            Txt(
+                                listOfNotNull(file.kind, file.readableSize.takeIf { it.isNotBlank() })
+                                    .joinToString(" · "),
+                                Type.caption, T.inkMuted,
+                            )
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Txt(
+                            "Remove", Type.label.copy(fontSize = 12.sp), T.danger,
+                            Modifier.clickable(enabled = !state.sending) { onClearAttachment() },
+                        )
+                    }
+                }
+            }
+
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 10.dp),
                 verticalAlignment = Alignment.Bottom,
             ) {
+                Surface(
+                    shape = CircleShape,
+                    color = T.surfaceSoft,
+                    modifier = Modifier.size(46.dp).clickable(enabled = !state.sending) {
+                        pick.launch("*/*")
+                    },
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Filled.AttachFile, "Attach a file",
+                            tint = T.inkMuted, modifier = Modifier.size(19.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
                 OutlinedTextField(
                     value = draft,
-                    onValueChange = { if (it.length <= 1500) draft = it },
-                    placeholder = { Txt("Write a reply", Type.body, T.inkFaint) },
+                    // A caption travels with the file and the route caps it lower
+                    // than a plain message, so the box has to cap it too.
+                    onValueChange = { if (it.length <= (if (state.attachment != null) 1000 else 1500)) draft = it },
+                    placeholder = {
+                        Txt(
+                            if (state.attachment != null) "Add a caption" else "Write a reply",
+                            Type.body, T.inkFaint,
+                        )
+                    },
                     maxLines = 4,
                     shape = T.cardShape,
                     colors = TextFieldDefaults.colors(
@@ -409,13 +478,13 @@ private fun Composer(
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(10.dp))
-                val ready = draft.isNotBlank() && !state.sending
+                val ready = (draft.isNotBlank() || state.attachment != null) && !state.sending
                 Surface(
                     shape = CircleShape,
                     color = if (ready) T.accent else T.line,
                     modifier = Modifier.size(46.dp).clickable(enabled = ready) {
                         keyboard?.hide()
-                        onSend(draft)
+                        if (state.attachment != null) onSendAttachment(draft) else onSend(draft)
                         draft = ""
                     },
                 ) {
@@ -436,8 +505,13 @@ private fun Composer(
             }
 
             Txt(
-                "Sent from the clinic's own WhatsApp number. The bot stays out of this thread for an " +
-                    "hour once you answer.",
+                if (state.attachment != null) {
+                    "The file is uploaded to the clinic's own storage first, then WhatsApp fetches " +
+                        "it from there. Up to 20 MB."
+                } else {
+                    "Sent from the clinic's own WhatsApp number. The bot stays out of this thread " +
+                        "for an hour once you answer."
+                },
                 Type.caption, T.inkFaint,
                 Modifier.padding(start = T.gutter, end = T.gutter, bottom = 12.dp),
                 maxLines = 2,

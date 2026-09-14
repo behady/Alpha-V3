@@ -1,5 +1,8 @@
 package com.alphadental.clinic.next
 
+import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.alphadental.clinic.ai.ChatReplyClient
@@ -21,6 +24,30 @@ enum class Inbox(val label: String) {
     Archived("Archived"),
 }
 
+/**
+ * A file picked on the phone, waiting for its caption.
+ *
+ * Held as a Uri rather than bytes: a twenty-megabyte photograph sitting in the
+ * view model across a rotation is how a phone runs out of memory holding
+ * something it has not decided to send yet.
+ */
+data class Attachment(
+    val uri: android.net.Uri,
+    val name: String,
+    val mime: String,
+    val bytes: Long,
+) {
+    /** What the reply route calls it: image, video, audio or document. */
+    val kind: String get() = com.alphadental.clinic.data.Chats.kindFor(mime)
+
+    val readableSize: String
+        get() = when {
+            bytes >= 1024 * 1024 -> "%.1f MB".format(bytes / 1024.0 / 1024.0)
+            bytes > 0 -> "${bytes / 1024} KB"
+            else -> ""
+        }
+}
+
 data class Chats(
     val loading: Boolean = true,
     val who: Who? = null,
@@ -33,6 +60,8 @@ data class Chats(
     val error: String? = null,
     /** A reply is in flight. */
     val sending: Boolean = false,
+    /** A file chosen but not yet sent, so a caption can be typed against it. */
+    val attachment: Attachment? = null,
     /** What the last send actually did, in the person's own words. */
     val sent: String? = null,
     val sendError: String? = null,
@@ -90,6 +119,9 @@ data class Chats(
  * work at once, and a message answered at the desk must stop showing as unread
  * on the phone without anyone refreshing.
  */
+/** Cloud Storage refuses anything larger, and says so unhelpfully. */
+private const val MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+
 class ChatsModel : ViewModel() {
 
     private val _state = MutableStateFlow(Chats())
@@ -167,6 +199,111 @@ class ChatsModel : ViewModel() {
                 )
             }
                 .onSuccess { result -> _state.value = _state.value.copy(sending = false, sent = describe(result.mode)) }
+                .onFailure { e -> _state.value = _state.value.copy(sending = false, sendError = readable(e)) }
+        }
+    }
+
+    /**
+     * Take a file the person chose, without reading it yet.
+     *
+     * Its name, type and size come from the content resolver so the composer can
+     * show what is attached and refuse an oversized one before anybody waits on
+     * an upload. Storage caps a file at twenty megabytes; hitting that limit
+     * comes back as a bare "Upload failed", which tells nobody anything.
+     */
+    fun attach(context: Context, uri: android.net.Uri) {
+        val resolver = context.contentResolver
+        val mime = resolver.getType(uri).orEmpty().ifBlank { "application/octet-stream" }
+        var name = "file"
+        var size = 0L
+        runCatching {
+            resolver.query(uri, null, null, null, null)?.use { c ->
+                val nameAt = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                val sizeAt = c.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                if (c.moveToFirst()) {
+                    if (nameAt >= 0) name = c.getString(nameAt).orEmpty().ifBlank { "file" }
+                    if (sizeAt >= 0 && !c.isNull(sizeAt)) size = c.getLong(sizeAt)
+                }
+            }
+        }
+
+        if (size > MAX_UPLOAD_BYTES) {
+            _state.value = _state.value.copy(
+                sendError = "That file is ${size / 1024 / 1024} MB. The limit is 20 MB.",
+                attachment = null,
+            )
+            return
+        }
+
+        _state.value = _state.value.copy(
+            attachment = Attachment(uri, name, mime, size),
+            sendError = null,
+            sent = null,
+        )
+    }
+
+    fun clearAttachment() {
+        _state.value = _state.value.copy(attachment = null)
+    }
+
+    /**
+     * Send the attached file, with whatever was typed as its caption.
+     *
+     * Two steps, and the first is the reason this cannot be one: the file goes
+     * into the clinic's own Storage folder, and the server hands Meta the
+     * resulting download link rather than the bytes. The route accepts links
+     * into that bucket and nowhere else — otherwise the clinic's number would
+     * relay anything on the internet.
+     *
+     * On the unofficial gateway only documents can be forwarded, so a photo
+     * comes back refused rather than delivered as a broken link. That refusal is
+     * the server's own sentence and is shown as written.
+     */
+    fun sendAttachment(context: Context, caption: String) {
+        val who = _state.value.who ?: return
+        val thread = _state.value.open ?: return
+        val file = _state.value.attachment ?: return
+        if (_state.value.sending || !_state.value.canReply) return
+        if (thread.optedOut) {
+            _state.value = _state.value.copy(
+                sendError = "This person asked not to be messaged. Nothing can be sent to them.",
+            )
+            return
+        }
+
+        _state.value = _state.value.copy(sending = true, sendError = null, sent = null)
+        viewModelScope.launch {
+            runCatching {
+                val bytes = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(file.uri)?.use { it.readBytes() }
+                } ?: error("That file could not be read.")
+                if (bytes.size > MAX_UPLOAD_BYTES) error("That file is too large. The limit is 20 MB.")
+
+                val url = com.alphadental.clinic.data.Chats.uploadOutbound(
+                    clinicId = who.clinicId,
+                    bytes = bytes,
+                    mime = file.mime,
+                    name = file.name,
+                )
+                ChatReplyClient.sendMedia(
+                    clinicId = who.clinicId,
+                    phone = thread.phone,
+                    patientId = thread.patientId,
+                    patientName = thread.patientName,
+                    caption = caption.trim(),
+                    url = url,
+                    mime = file.mime,
+                    kind = file.kind,
+                    filename = file.name,
+                )
+            }
+                .onSuccess { result ->
+                    _state.value = _state.value.copy(
+                        sending = false,
+                        attachment = null,
+                        sent = describe(result.mode),
+                    )
+                }
                 .onFailure { e -> _state.value = _state.value.copy(sending = false, sendError = readable(e)) }
         }
     }
