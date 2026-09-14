@@ -55,6 +55,7 @@ fun Shell(preview: Boolean = false) {
     var openOrtho by rememberSaveable { mutableStateOf(false) }
     var openLeads by rememberSaveable { mutableStateOf(false) }
     var openStock by rememberSaveable { mutableStateOf(false) }
+    var openAttendance by rememberSaveable { mutableStateOf(false) }
     // A screen can ask for the bar to go away. A conversation does: the bar
     // would cover its foot, and offer to walk away from a thread mid-read.
     var immersive by remember { mutableStateOf(false) }
@@ -107,10 +108,15 @@ fun Shell(preview: Boolean = false) {
         return
     }
 
+    if (openAttendance) {
+        AttendancePane(preview) { openAttendance = false }
+        return
+    }
+
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
         when (tab) {
-            Tab.Today -> TodayTab(preview)
+            Tab.Today -> TodayTab(preview) { openAttendance = true }
             Tab.Day -> DayTab(preview)
             Tab.Patients -> PatientsTab(preview) { openRecord = it }
             // Not built yet. Saying so is better than a blank screen that reads
@@ -126,6 +132,7 @@ fun Shell(preview: Boolean = false) {
                 onOpenOrtho = { openOrtho = true },
                 onOpenLeads = { openLeads = true },
                 onOpenStock = { openStock = true },
+                onOpenAttendance = { openAttendance = true },
             )
         }
 
@@ -143,14 +150,14 @@ fun Shell(preview: Boolean = false) {
 }
 
 @Composable
-private fun TodayTab(preview: Boolean) {
+private fun TodayTab(preview: Boolean, onOpenAttendance: () -> Unit) {
     if (preview) {
-        DashboardScreen(state = previewDashboard(), onCheckOut = {})
+        DashboardScreen(state = previewDashboard(), onCheckOut = {}, onClock = onOpenAttendance)
     } else {
         val model: DashboardModel = viewModel()
         val state by model.state.collectAsState()
         androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
-        DashboardScreen(state = state, onCheckOut = model::checkOut)
+        DashboardScreen(state = state, onCheckOut = model::checkOut, onClock = onOpenAttendance)
     }
 }
 
@@ -233,6 +240,7 @@ private fun MoreTab(
     onOpenOrtho: () -> Unit,
     onOpenLeads: () -> Unit,
     onOpenStock: () -> Unit,
+    onOpenAttendance: () -> Unit,
 ) {
     var confirmSignOut by remember { mutableStateOf(false) }
 
@@ -260,6 +268,7 @@ private fun MoreTab(
                 Destination.Ortho -> onOpenOrtho()
                 Destination.Leads -> onOpenLeads()
                 Destination.Stock -> onOpenStock()
+                Destination.Attendance -> onOpenAttendance()
                 else -> Unit
             }
         },
@@ -412,6 +421,41 @@ private fun MoneyPane(preview: Boolean, onBack: () -> Unit) {
         onBack = onBack,
         onShiftMonth = model::shiftMonth,
         onThisMonth = model::thisMonth,
+    )
+}
+
+
+/**
+ * Attendance, over the top of everything.
+ *
+ * Reached from More and from the dashboard's Clock in tile, because the two
+ * things it does belong to two different people: the shift is whoever is holding
+ * the phone, the roster is whoever runs the clinic.
+ */
+@Composable
+private fun AttendancePane(preview: Boolean, onBack: () -> Unit) {
+    BackHandler { onBack() }
+    val context = LocalContext.current
+
+    if (preview) {
+        var state by remember { mutableStateOf(previewAttendance()) }
+        AttendanceScreen(
+            state = state,
+            onBack = onBack,
+            onPunch = { },
+            onPeriod = { state = state.copy(period = it) },
+        )
+        return
+    }
+
+    val model: AttendanceModel = viewModel()
+    val state by model.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
+    AttendanceScreen(
+        state = state,
+        onBack = onBack,
+        onPunch = { model.punch(context) },
+        onPeriod = model::show,
     )
 }
 

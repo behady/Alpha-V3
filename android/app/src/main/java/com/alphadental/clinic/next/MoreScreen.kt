@@ -281,7 +281,10 @@ enum class Destination(
     Ortho("Ortho", "Cases and adjustments", Icons.Filled.Timeline, Area.Tool, built = true, permission = "access.ortho"),
     Leads("Leads", "Enquiries from ads and calls", Icons.Filled.PersonSearch, Area.Tool, built = true, permission = "access.marketing"),
     Stock("Stock", "What is running out", Icons.Filled.Inventory2, Area.Tool, built = true, permission = "access.inventory"),
-    Attendance("Attendance", "Who is in, and their hours", Icons.Filled.Groups, Area.Admin, permission = "attendance.admin"),
+    // No permission key: everybody has a shift of their own, and clocking in
+    // is not an admin act. The screen itself shows the clinic-wide half only
+    // to whoever the website would show it to.
+    Attendance("Attendance", "Your shift, and who is in", Icons.Filled.Groups, Area.Admin, built = true),
     Reminders("Auto SMS", "Reminders sent from a clinic phone", Icons.Filled.Sms, Area.Admin, built = true, permission = "access.settings"),
     Hours("Opening hours", "When the clinic is open", Icons.Filled.Schedule, Area.Admin, permission = "access.settings"),
     Settings("Settings", "How the clinic runs", Icons.Filled.Settings, Area.Admin, built = true, permission = "access.settings"),

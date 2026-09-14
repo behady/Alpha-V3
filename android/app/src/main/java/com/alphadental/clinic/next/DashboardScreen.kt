@@ -71,6 +71,7 @@ fun DashboardScreen(
     state: Dashboard,
     onCheckOut: (Visit) -> Unit,
     onOpenVisit: (Visit) -> Unit = {},
+    onClock: () -> Unit = {},
 ) {
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
@@ -108,7 +109,7 @@ fun DashboardScreen(
                 item { Empty("Nothing booked today.") }
             }
 
-            item { Tools(state) }
+            item { Tools(state, onClock) }
         }
 
         if (state.loading) {
@@ -273,12 +274,14 @@ private fun ChairCard(
  * being the point of the screen.
  */
 @Composable
-private fun Tools(state: Dashboard) {
+private fun Tools(state: Dashboard, onClock: () -> Unit) {
     val tools = listOfNotNull(
         Tool(Icons.Filled.Add, "New booking", "Book a patient in"),
         Tool(Icons.AutoMirrored.Filled.Chat, "WhatsApp", "Messages from patients"),
         Tool(Icons.Filled.People, "Find a patient", "Search the register"),
-        Tool(Icons.Filled.Schedule, "Clock in", "Shift not started"),
+        // The only one wired so far. A tile that does nothing when tapped is
+        // worse than one that is not there, so the rest go as they are built.
+        Tool(Icons.Filled.Schedule, "Clock in", "Start or end your shift", onClock),
     )
     Column(Modifier.padding(top = 20.dp)) {
         RowGroup {
@@ -295,11 +298,20 @@ private fun Tools(state: Dashboard) {
     }
 }
 
-private data class Tool(val icon: ImageVector, val label: String, val caption: String)
+private data class Tool(
+    val icon: ImageVector,
+    val label: String,
+    val caption: String,
+    val onClick: (() -> Unit)? = null,
+)
 
 @Composable
 private fun ToolCell(tool: Tool, modifier: Modifier = Modifier) {
-    Row(modifier.padding(horizontal = 16.dp, vertical = 15.dp)) {
+    Row(
+        modifier
+            .then(if (tool.onClick != null) Modifier.clickable(onClick = tool.onClick) else Modifier)
+            .padding(horizontal = 16.dp, vertical = 15.dp)
+    ) {
         Icon(tool.icon, null, tint = T.inkFaint, modifier = Modifier.size(18.dp).padding(top = 1.dp))
         Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f)) {
