@@ -125,9 +125,12 @@ async function runActions(page, actions, report) {
           : a.role
             ? page.getByRole(a.role, { name: a.text, exact: !!a.exact })
             : page.getByText(a.text, { exact: !!a.exact });
-        await loc.first().scrollIntoViewIfNeeded({ timeout: 4000 }).catch(() => {});
-        await sleep(500);
-        await loc.first().click({ timeout: 8000 });
+        // An optional step waits briefly: it is checking whether something appeared, and a full
+        // timeout on a prompt that never showed adds a quarter-minute of silence to the beat.
+        const t = a.timeout ?? (a.optional ? 2000 : 8000);
+        await loc.first().scrollIntoViewIfNeeded({ timeout: a.optional ? 1200 : 4000 }).catch(() => {});
+        await sleep(a.optional ? 200 : 500);
+        await loc.first().click({ timeout: t });
         await sleep(900);
         continue;
       }
@@ -172,6 +175,9 @@ async function runActions(page, actions, report) {
 
       throw new Error(`unknown action "${a.do}"`);
     } catch (e) {
+      // `optional` steps handle something that may or may not appear — a conflict prompt, a
+      // consent banner. Reporting those as misses would bury the ones that actually matter.
+      if (a.optional) continue;
       report.push(`${a.do} ${a.text || a.placeholder || a.sel || a.index}: ${String(e.message).split(/\r?\n/)[0]}`);
     }
   }

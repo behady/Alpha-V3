@@ -80,7 +80,12 @@ export const CHAPTERS = {
         n: 6, label: "confirm", settle: 500,
         actions: [
           { do: "click", text: "أكّد الحجز" },
-          { do: "wait", ms: 5000 },
+          { do: "wait", ms: 2000 },
+          // The app refuses to double-book silently: if the slot is taken it asks first. Marked
+          // optional because it only appears when it applies — and it does apply here, since
+          // every take of this chapter books the same five o'clock.
+          { do: "click", text: "أيوه", optional: true, timeout: 4000 },
+          { do: "wait", ms: 4000 },
         ],
       },
       {
@@ -90,10 +95,19 @@ export const CHAPTERS = {
         // the selected one and clicking it just times out.
         n: 7, label: "in-the-diary", settle: 2500,
         actions: [
-          { do: "wheel", ms: 2500, dy: 90 },
-          // The booking just made is the last of this patient's rows in the day.
-          { do: "scrollTo", text: "Ziad Refaat", which: "last", ms: 3500 },
+          /**
+           * The List view, not the grid. Three attempts at showing the new booking in the day
+           * grid all failed for the same underlying reason — where the grid is scrolled after
+           * the dialog closes is not knowable in advance. Anchoring on the patient's name hit
+           * his morning appointment, anchoring on the time label found nothing because the grid
+           * only keeps nearby rows in the DOM, and a fixed wheel distance overshot in both
+           * directions. The list renders the day as rows from the top, so there is nothing to
+           * scroll to and nothing to get wrong.
+           */
+          { do: "click", role: "button", text: "قائمة", exact: true },
           { do: "wait", ms: 3000 },
+          { do: "wheel", ms: 2500, dy: 80 },
+          { do: "wait", ms: 2500 },
         ],
       },
     ],
