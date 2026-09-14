@@ -154,6 +154,56 @@ object ClinicSource {
         awaitClose { reg.remove() }
     }
 
+    // ------------------------------------------------------------- whatsapp
+    //
+    // READ ONLY. Sending goes through the clinic's live WhatsApp channel, where a
+    // wrong message costs real money and a wrong recipient risks the number being
+    // banned. Nothing here writes; replying is deliberately not wired up.
+
+    private fun conversations(clinicId: String) =
+        clinic(clinicId).collection("whatsapp_conversations")
+
+    /**
+     * The whole inbox, live.
+     *
+     * A listener because the queue is worked by two people at once: a message
+     * answered at the desk has to stop showing as unread on the phone.
+     */
+    fun watchThreads(clinicId: String): Flow<List<Thread>> = callbackFlow {
+        val reg = conversations(clinicId).addSnapshotListener { snap, error ->
+            if (error != null) { close(error); return@addSnapshotListener }
+            trySend(
+                snap?.documents.orEmpty()
+                    // Staff rehearsal rows live in this collection and are not
+                    // conversations with anybody.
+                    .filterNot { it.id.startsWith("play_") }
+                    .map { it.toThread() }
+                    // A row with no activity is a conversation the bot created and
+                    // never spoke in. There is nothing to read there.
+                    .filter { it.lastAt > 0L }
+                    .sortedByDescending { it.lastAt }
+            )
+        }
+        awaitClose { reg.remove() }
+    }
+
+    /**
+     * The recent end of one thread, oldest first, live.
+     *
+     * Newest 200 at the query and then reversed: the recent end is what anyone
+     * opens a thread for, and a year of history is not worth the read.
+     */
+    fun watchLines(clinicId: String, threadId: String): Flow<List<Line>> = callbackFlow {
+        val reg = conversations(clinicId).document(threadId).collection("messages")
+            .orderBy("at", com.google.firebase.firestore.Query.Direction.DESCENDING)
+            .limit(200)
+            .addSnapshotListener { snap, error ->
+                if (error != null) { close(error); return@addSnapshotListener }
+                trySend(snap?.documents.orEmpty().map { it.toLine() }.reversed())
+            }
+        awaitClose { reg.remove() }
+    }
+
     // -------------------------------------------------------------- patients
 
     /** One page of the register, plus where to carry on from. */

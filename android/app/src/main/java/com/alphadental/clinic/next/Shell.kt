@@ -45,6 +45,9 @@ enum class Tab { Today, Day, Patients, Chats, More }
 fun Shell(preview: Boolean = false) {
     var tab by rememberSaveable { mutableStateOf(Tab.Today) }
     var openRecord by rememberSaveable { mutableStateOf<String?>(null) }
+    // A screen can ask for the bar to go away. A conversation does: the bar
+    // would cover its foot, and offer to walk away from a thread mid-read.
+    var immersive by remember { mutableStateOf(false) }
 
     // A patient's file is pushed over the tabs rather than being one of them: it
     // belongs to whatever opened it, and the bar has no business offering to
@@ -62,11 +65,11 @@ fun Shell(preview: Boolean = false) {
             Tab.Patients -> PatientsTab(preview) { openRecord = it }
             // Not built yet. Saying so is better than a blank screen that reads
             // as a bug, and better than hiding the tab so the bar keeps moving.
-            Tab.Chats -> Unbuilt("WhatsApp")
+            Tab.Chats -> ChatsTab(preview) { immersive = it }
             Tab.More -> Unbuilt("More")
         }
 
-        FloatingBar(
+        if (!immersive) FloatingBar(
             modifier = Modifier.align(Alignment.BottomCenter),
             items = listOf(
                 BarItem(Icons.Filled.Home, "Today", tab == Tab.Today) { tab = Tab.Today },
@@ -109,6 +112,47 @@ private fun PatientsTab(preview: Boolean, onOpen: (String) -> Unit) {
             // would accept it from.
             onAdd = if (state.who?.can("patients.add") == true) ({ }) else null,
         )
+    }
+}
+
+/**
+ * The WhatsApp inbox, and one thread over the top of it.
+ *
+ * A thread covers the tabs for the same reason a patient's file does: it belongs
+ * to the inbox that opened it, and the bar should not offer to walk away from a
+ * conversation somebody is in the middle of reading.
+ */
+@Composable
+private fun ChatsTab(preview: Boolean, onImmersive: (Boolean) -> Unit) {
+    if (preview) {
+        var state by remember { mutableStateOf(previewChats()) }
+        androidx.compose.runtime.LaunchedEffect(state.open?.id) { onImmersive(state.open != null) }
+        if (state.open != null) {
+            BackHandler { state = state.copy(open = null, lines = emptyList()) }
+            ThreadScreen(state, onBack = { state = state.copy(open = null, lines = emptyList()) })
+        } else {
+            ChatsScreen(
+                state = state,
+                onFilter = { state = state.copy(filter = it) },
+                onOpen = { state = previewThread().copy(filter = state.filter) },
+            )
+        }
+        return
+    }
+
+    val context = LocalContext.current
+    val model: ChatsModel = viewModel()
+    val state by model.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
+    androidx.compose.runtime.LaunchedEffect(state.open?.id) { onImmersive(state.open != null) }
+    // Leaving the tab entirely must hand the bar back, or it stays hidden.
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { onImmersive(false) } }
+
+    if (state.open != null) {
+        BackHandler { model.close() }
+        ThreadScreen(state, onBack = model::close, onCall = { context.dial(it) })
+    } else {
+        ChatsScreen(state = state, onFilter = model::show, onOpen = model::open)
     }
 }
 

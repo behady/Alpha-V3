@@ -358,3 +358,106 @@ data class Record(
             return years.takeIf { it in 0..130 }
         }
 }
+
+/**
+ * One WhatsApp conversation.
+ *
+ * Written by the bot and the website; this app only reads it. The fields that
+ * matter most to someone at a desk are [needsHuman] and [unread] — the queue is
+ * worked, not browsed.
+ */
+data class Thread(
+    val id: String,
+    val phone: String,
+    val patientId: String,
+    val patientName: String,
+    val lastText: String,
+    val lastAt: Long,
+    /** "in" from the patient, "out" from the clinic. */
+    val lastDirection: String,
+    val unread: Int,
+    /** The bot gave up and asked for a person. */
+    val needsHuman: Boolean,
+    val handoffReason: String,
+    /** "urgent", "complaint" or "normal". */
+    val severity: String,
+    val botPaused: Boolean,
+    /** They asked not to be messaged. Nothing may be sent to them. */
+    val optedOut: Boolean,
+    val assignedName: String,
+    val archived: Boolean,
+) {
+    /** Who this is: their name if the clinic knows it, else the number. */
+    val title: String get() = patientName.ifBlank { phone.ifBlank { id } }
+
+    val initials: String
+        get() {
+            // A thread with no name is a bare phone number, and the first two
+            // characters of one are not initials — "+20 111…" was showing "+1".
+            if (patientName.isBlank()) return "#"
+            val parts = patientName.trim().split(" ").filter(String::isNotBlank)
+            return when {
+                parts.isEmpty() -> "#"
+                parts.size == 1 -> parts[0].take(1).uppercase()
+                else -> (parts[0].take(1) + parts[1].take(1)).uppercase()
+            }
+        }
+
+    val urgent: Boolean get() = severity == "urgent" || severity == "complaint"
+}
+
+/** One message in a thread. */
+data class Line(
+    val id: String,
+    /** "in" from the patient, "out" from the clinic. */
+    val direction: String,
+    /** "patient", "bot", "staff" or "system". */
+    val author: String,
+    val text: String,
+    val at: Long,
+    /** "image", "audio", "video", "document"… when the message carried a file. */
+    val media: String,
+    /** A voice note's words, attached a few seconds after it arrives. */
+    val transcript: String,
+    /** Meta's own ticks: "sent", "delivered", "read", "failed". Blank inbound. */
+    val status: String,
+    val name: String,
+) {
+    val fromPatient: Boolean get() = direction == "in"
+    val fromBot: Boolean get() = author == "bot"
+    val failed: Boolean get() = status == "failed"
+}
+
+internal fun DocumentSnapshot.millis(field: String): Long = (get(field) as? Number)?.toLong() ?: 0L
+
+internal fun DocumentSnapshot.toThread(): Thread = Thread(
+    id = id,
+    phone = text("phone"),
+    patientId = text("patientId"),
+    patientName = text("patientName"),
+    lastText = text("lastText"),
+    // Three fields carry "when something last happened" depending on which
+    // writer touched the row; the newest of them is the truth.
+    lastAt = maxOf(millis("lastAt"), millis("lastMessageAt"), millis("handoffAtMs")),
+    lastDirection = text("lastDirection"),
+    unread = millis("unreadCount").toInt(),
+    needsHuman = getBoolean("needsHuman") == true,
+    handoffReason = text("handoffReason"),
+    severity = text("severity"),
+    botPaused = getBoolean("botPaused") == true,
+    optedOut = getBoolean("optedOut") == true,
+    assignedName = text("assignedName"),
+    archived = getBoolean("archived") == true,
+)
+
+internal fun DocumentSnapshot.toLine(): Line = Line(
+    id = id,
+    direction = text("direction"),
+    author = text("author"),
+    text = text("text"),
+    at = millis("at"),
+    media = text("media"),
+    transcript = text("transcript"),
+    status = text("status"),
+    name = text("name"),
+)
