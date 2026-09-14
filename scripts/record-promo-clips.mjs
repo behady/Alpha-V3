@@ -36,11 +36,15 @@ const BEATS = [
   { n: 1,  url: `/`,                    label: "dashboard",       motion: "none" },
   { n: 2,  url: `/appointments`,        label: "appointments",    motion: "scroll", settle: 3000 },
   { n: 3,  url: `/book/${CLINIC}`,      label: "online-booking",  motion: "scroll", settle: 3000 },
-  { n: 4,  url: `/patients/${STAR}?tab=clinical`, label: "dental-chart", motion: "none", settle: 5000 },
+  // The chart lives on its own route (TeethChart); ?tab=clinical is the written record, which
+  // is a different promise from "his teeth, drawn in front of you".
+  { n: 4,  url: `/patients/${STAR}/diagnosis`, label: "dental-chart", motion: "none", settle: 6000 },
   { n: 5,  url: `/patients/${STAR}?tab=plan`,     label: "treatment-plan", motion: "none", settle: 5000 },
   { n: 6,  url: `/chats?chat=201000000115`, label: "wa-reminder", motion: "none",   settle: 5000 },
   { n: 7,  url: `/chats?chat=201000000117`, label: "wa-bot",      motion: "none",   settle: 5000 },
-  { n: 8,  url: `/chats`,               label: "chats-inbox",     motion: "scroll", settle: 4000 },
+  // Opened on the handed-off thread, not the bare list: with nothing selected, two thirds of
+  // the frame is the "pick a conversation" empty state.
+  { n: 8,  url: `/chats?chat=201000000108`, label: "chats-inbox", motion: "none", settle: 5000 },
   { n: 9,  url: `/finance`,             label: "finance",         motion: "scroll", settle: 3000 },
   { n: 10, url: `/reports`,             label: "reports",         motion: "scroll", settle: 4000 },
   { n: 11, url: `/lab`,                 label: "lab",             motion: "scroll" },
