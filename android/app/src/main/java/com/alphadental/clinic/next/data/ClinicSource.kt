@@ -92,6 +92,23 @@ object ClinicSource {
         }
     }
 
+    /**
+     * Sign in with the ID token Android's Credential Manager handed back.
+     *
+     * The token is exchanged with Firebase Auth, which resolves it to the same
+     * account the website's Google sign-in uses — same project, same provider,
+     * same uid — so the staff record and clinic roles line up with no extra
+     * step. Nothing about the clinic is decided here; that is still users/{uid},
+     * which only the server writes.
+     */
+    suspend fun signInWithGoogle(idToken: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val credential = com.google.firebase.auth.GoogleAuthProvider.getCredential(idToken, null)
+            auth.signInWithCredential(credential).await()
+            Unit
+        }.recoverCatching { e -> throw Exception(signInMessage(e)) }
+    }
+
     fun signOut() = auth.signOut()
 
     /** The signed-in account's uid, or null. Null is the whole gate's question. */

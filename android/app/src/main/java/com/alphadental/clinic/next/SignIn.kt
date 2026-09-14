@@ -3,6 +3,7 @@ package com.alphadental.clinic.next
 import android.app.Application
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,6 +35,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +47,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.lifecycle.HasDefaultViewModelProviderFactory
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -53,11 +59,14 @@ import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.alphadental.clinic.BuildConfig
 import com.alphadental.clinic.next.data.ClinicSource
 import com.alphadental.clinic.next.design.BrandMark
 import com.alphadental.clinic.next.design.T
 import com.alphadental.clinic.next.design.Txt
 import com.alphadental.clinic.next.design.Type
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -160,6 +169,27 @@ class SignInModel : ViewModel() {
         }
     }
 
+    /** Hand Firebase the token the phone's account picker produced. */
+    fun submitGoogle(idToken: String) {
+        _state.value = _state.value.copy(busy = true, error = null, sent = null)
+        viewModelScope.launch {
+            ClinicSource.signInWithGoogle(idToken)
+                .onSuccess { _state.value = _state.value.copy(busy = false) }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(busy = false, error = e.message ?: "Could not sign in.")
+                }
+        }
+    }
+
+    /** The account picker was closed, or it failed before any token existed. */
+    fun googleFailed(message: String?) {
+        _state.value = _state.value.copy(busy = false, error = message)
+    }
+
+    fun working() {
+        _state.value = _state.value.copy(busy = true, error = null, sent = null)
+    }
+
     fun reset() {
         val s = _state.value
         if (s.busy) return
@@ -195,7 +225,46 @@ class SignInModel : ViewModel() {
 fun SignInScreen() {
     val model: SignInModel = viewModel()
     val state by model.state.collectAsState()
-    SignInBody(state, model::setEmail, model::setPassword, model::submit, model::reset)
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // Asks the phone for a Google account, then hands the ID token to Firebase.
+    // Closing the sheet is a choice rather than a failure, so it says nothing —
+    // an error panel for "changed my mind" is how a screen teaches people that
+    // its errors are noise.
+    val google: () -> Unit = {
+        if (!state.busy) {
+            scope.launch {
+                model.working()
+                try {
+                    val request = GetCredentialRequest.Builder()
+                        .addCredentialOption(
+                            GetSignInWithGoogleOption.Builder(BuildConfig.FB_WEB_CLIENT_ID).build()
+                        )
+                        .build()
+                    val credential = CredentialManager.create(context)
+                        .getCredential(context, request).credential
+                    if (credential is CustomCredential &&
+                        credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+                    ) {
+                        model.submitGoogle(GoogleIdTokenCredential.createFrom(credential.data).idToken)
+                    } else {
+                        model.googleFailed("Google did not return a sign-in.")
+                    }
+                } catch (e: GetCredentialCancellationException) {
+                    model.googleFailed(null)
+                } catch (e: Exception) {
+                    // Credential Manager's own messages name classes and error
+                    // codes. The one thing worth saying is what to do instead.
+                    model.googleFailed(
+                        "Google sign-in is not available on this phone. Use the email and password."
+                    )
+                }
+            }
+        }
+    }
+
+    SignInBody(state, model::setEmail, model::setPassword, model::submit, model::reset, google)
 }
 
 @Composable
@@ -205,6 +274,7 @@ fun SignInBody(
     onPassword: (String) -> Unit,
     onSubmit: () -> Unit,
     onReset: () -> Unit,
+    onGoogle: () -> Unit = {},
 ) {
     var shown by remember { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -306,14 +376,67 @@ fun SignInBody(
             )
         }
 
+        Spacer(Modifier.height(26.dp))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f).height(1.dp).background(T.slabLine))
+            Txt("or", Type.caption, T.onSlabFaint, Modifier.padding(horizontal = 12.dp))
+            Box(Modifier.weight(1f).height(1.dp).background(T.slabLine))
+        }
+        Spacer(Modifier.height(26.dp))
+
+        // The same account as the website's Google button, resolved by Firebase
+        // to the same uid — so whoever set the clinic up on a laptop signs in
+        // here without anybody minting them a second password.
+        Surface(
+            shape = T.pill,
+            color = T.slabFill,
+            border = androidx.compose.foundation.BorderStroke(1.dp, T.slabLine),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = !state.busy) { keyboard?.hide(); onGoogle() },
+        ) {
+            Row(
+                Modifier.padding(vertical = 15.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                GoogleG()
+                Spacer(Modifier.width(10.dp))
+                Txt("Continue with Google", Type.label.copy(fontSize = 14.sp), T.onSlab)
+            }
+        }
+
         Spacer(Modifier.height(40.dp))
-        Txt(
-            // Said rather than left as an absence: somebody who signs in to the
-            // website with Google will look for that button here.
-            "Google sign-in is on the website only for now.",
-            Type.caption, T.onSlabFaint, maxLines = 2,
+    }
+}
+
+/**
+ * Google's G, drawn rather than shipped as an asset.
+ *
+ * Four arcs and a bar, in Google's own four colours, which their brand terms
+ * require to be exact — a grey or monochrome G on a dark button is the version
+ * that gets an app rejected.
+ */
+@Composable
+private fun GoogleG() {
+    androidx.compose.foundation.Canvas(Modifier.size(18.dp)) {
+        val w = size.width
+        val stroke = w * 0.22f
+        val inset = stroke / 2f
+        val rect = androidx.compose.ui.geometry.Size(w - stroke, w - stroke)
+        val at = androidx.compose.ui.geometry.Offset(inset, inset)
+        val style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke)
+        // Starting at the right and going clockwise: red, yellow, green, blue.
+        drawArc(androidx.compose.ui.graphics.Color(0xFFEA4335), -45f, -135f, false, at, rect, style = style)
+        drawArc(androidx.compose.ui.graphics.Color(0xFFFBBC05), 180f, -45f, false, at, rect, style = style)
+        drawArc(androidx.compose.ui.graphics.Color(0xFF34A853), 135f, -90f, false, at, rect, style = style)
+        drawArc(androidx.compose.ui.graphics.Color(0xFF4285F4), 45f, -90f, false, at, rect, style = style)
+        // The bar into the middle, which is what makes it a G and not an O.
+        drawRect(
+            color = androidx.compose.ui.graphics.Color(0xFF4285F4),
+            topLeft = androidx.compose.ui.geometry.Offset(w * 0.5f, w * 0.39f),
+            size = androidx.compose.ui.geometry.Size(w * 0.5f - inset, stroke),
         )
-        Spacer(Modifier.height(40.dp))
     }
 }
 
