@@ -38,6 +38,65 @@ object ClinicSource {
     fun dateKey(date: Date = Date()): String =
         SimpleDateFormat("yyyy-MM-dd", Locale.US).format(date)
 
+    // ------------------------------------------------------------------ the door
+
+    /**
+     * Sign in with an email address and a password.
+     *
+     * Email only, and not because Google sign-in is unwanted: an Android app has
+     * to be registered in the Firebase project with this build's signing
+     * certificate before Google will hand back a token, and until that is done a
+     * Google button is a button that always fails.
+     *
+     * Firebase's own messages are replaced. "ERROR_INVALID_CREDENTIAL" tells a
+     * receptionist nothing; "That password is not right" tells them which of the
+     * two boxes to look at.
+     */
+    suspend fun signIn(email: String, password: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            auth.signInWithEmailAndPassword(email.trim(), password).await()
+            Unit
+        }.recoverCatching { e -> throw Exception(signInMessage(e)) }
+    }
+
+    private fun signInMessage(e: Throwable): String {
+        val raw = e.message.orEmpty()
+        return when {
+            e is com.google.firebase.auth.FirebaseAuthInvalidUserException ->
+                "No account with that email address."
+            e is com.google.firebase.auth.FirebaseAuthInvalidCredentialsException ->
+                "That email address and password do not match."
+            raw.contains("network", true) || raw.contains("UNAVAILABLE", true) ->
+                "No connection. Try again once the phone is back online."
+            // Firebase throttles an account after several wrong passwords, and
+            // says so in a way nobody would guess from the screen.
+            raw.contains("blocked all requests", true) || raw.contains("too many", true) ->
+                "Too many attempts. Wait a few minutes, or reset the password."
+            else -> "Could not sign in."
+        }
+    }
+
+    /** Email a password reset link. Sent by Firebase, not by this app. */
+    suspend fun sendReset(email: String): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            auth.sendPasswordResetEmail(email.trim()).await()
+            Unit
+        }.recoverCatching { e ->
+            throw Exception(
+                if (e is com.google.firebase.auth.FirebaseAuthInvalidUserException) {
+                    "No account with that email address."
+                } else {
+                    "Could not send the reset email."
+                }
+            )
+        }
+    }
+
+    fun signOut() = auth.signOut()
+
+    /** The signed-in account's uid, or null. Null is the whole gate's question. */
+    fun uid(): String? = auth.currentUser?.uid
+
     // ------------------------------------------------------------------ who
 
     /**

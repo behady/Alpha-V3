@@ -27,8 +27,8 @@ import com.alphadental.clinic.next.design.T
  *
  *     adb shell am start -n com.alphadental.clinic.debug/com.alphadental.clinic.next.NextActivity
  *
- * It has no launcher icon on purpose — two icons for one app is a worse problem
- * than an extra adb command.
+ * It has its own launcher icon, "Alpha (new)", for as long as the rebuild is
+ * unfinished — some screens still exist only in the old one.
  */
 class NextActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -67,7 +67,7 @@ private fun NextApp(preview: Boolean = false) {
     CompositionLocalProvider(LocalPalette provides palette) {
         MaterialTheme {
             Surface(color = T.ground, modifier = Modifier.fillMaxSize()) {
-                Shell(preview)
+                Gate(preview)
             }
         }
     }
