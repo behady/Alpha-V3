@@ -217,7 +217,14 @@ private fun ChatsTab(preview: Boolean, onImmersive: (Boolean) -> Unit) {
 
     if (state.open != null) {
         BackHandler { model.close() }
-        ThreadScreen(state, onBack = model::close, onCall = { context.dial(it) })
+        ThreadScreen(
+            state = state,
+            onBack = model::close,
+            onCall = { context.dial(it) },
+            onSend = model::send,
+            onFollowup = model::sendFollowup,
+            onClearResult = model::clearSendResult,
+        )
     } else {
         ChatsScreen(state = state, onFilter = model::show, onOpen = model::open)
     }

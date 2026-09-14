@@ -2,6 +2,7 @@ package com.alphadental.clinic.next
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.alphadental.clinic.ai.ChatReplyClient
 import com.alphadental.clinic.next.data.ClinicSource
 import com.alphadental.clinic.next.data.Line
 import com.alphadental.clinic.next.data.Thread
@@ -30,6 +31,11 @@ data class Chats(
     val lines: List<Line> = emptyList(),
     val linesLoading: Boolean = false,
     val error: String? = null,
+    /** A reply is in flight. */
+    val sending: Boolean = false,
+    /** What the last send actually did, in the person's own words. */
+    val sent: String? = null,
+    val sendError: String? = null,
 ) {
     private val live: List<Thread> get() = threads.filterNot { it.archived }
 
@@ -44,6 +50,33 @@ data class Chats(
             Inbox.All -> live
             Inbox.Archived -> threads.filter { it.archived }
         }
+
+    /** Replying is a clinic-facing act; the same key that opens the inbox allows it. */
+    val canReply: Boolean get() = who?.can("access.marketing") == true || who?.isAdmin == true
+
+    /**
+     * When the patient last wrote.
+     *
+     * The whole composer hangs off this. Meta only delivers free text for
+     * twenty-four hours after a patient's own message; past that a typed reply
+     * is accepted, charged for nothing, and never arrives. The one thing that
+     * does deliver is the pre-approved template, whose only job is to make them
+     * write back and re-open the window.
+     */
+    val lastInboundAt: Long
+        get() = lines.filter { it.fromPatient }.maxOfOrNull { it.at }
+            ?: open?.takeIf { it.lastDirection == "in" }?.lastAt
+            ?: 0L
+
+    val hoursSincePatient: Long
+        get() = if (lastInboundAt <= 0) Long.MAX_VALUE
+        else (System.currentTimeMillis() - lastInboundAt) / 3_600_000L
+
+    /** Free text will still be delivered. */
+    val windowOpen: Boolean get() = hoursSincePatient < 24
+
+    /** Hours left before free text stops arriving. Null once it has closed. */
+    val windowHoursLeft: Long? get() = if (windowOpen) (24 - hoursSincePatient) else null
 }
 
 /**
@@ -94,6 +127,112 @@ class ChatsModel : ViewModel() {
                         open = _state.value.open?.let { o -> threads.firstOrNull { it.id == o.id } ?: o },
                     )
                 }
+        }
+    }
+
+    /**
+     * Answer a patient.
+     *
+     * The POST is the website's own reply route, which also writes the line into
+     * the thread, tells the bot to stand down for an hour, and files the answer
+     * as a lesson for it. None of that is reimplemented here — and the reply
+     * cannot be written straight to Firestore anyway: the clinic's number lives
+     * on Meta's servers and only the server holds the credentials.
+     */
+    fun send(text: String) {
+        val who = _state.value.who ?: return
+        val thread = _state.value.open ?: return
+        val body = text.trim()
+        if (body.isBlank() || _state.value.sending) return
+        if (!_state.value.canReply) return
+
+        // Nothing may be sent to somebody who asked not to be messaged. Not a
+        // preference — it is the thing that keeps the number off a ban list.
+        if (thread.optedOut) {
+            _state.value = _state.value.copy(
+                sendError = "This person asked not to be messaged. Nothing can be sent to them.",
+            )
+            return
+        }
+
+        _state.value = _state.value.copy(sending = true, sendError = null, sent = null)
+        viewModelScope.launch {
+            runCatching {
+                ChatReplyClient.sendText(
+                    clinicId = who.clinicId,
+                    phone = thread.phone,
+                    patientId = thread.patientId,
+                    patientName = thread.patientName,
+                    text = body,
+                )
+            }
+                .onSuccess { result -> _state.value = _state.value.copy(sending = false, sent = describe(result.mode)) }
+                .onFailure { e -> _state.value = _state.value.copy(sending = false, sendError = readable(e)) }
+        }
+    }
+
+    /**
+     * Send the re-engagement template.
+     *
+     * The only thing that arrives once the day is up. It costs money — templates
+     * are what Meta bills for, replies inside the window are free — so it is a
+     * separate, deliberate button rather than a silent fallback when a typed
+     * message would not have delivered.
+     */
+    fun sendFollowup() {
+        val who = _state.value.who ?: return
+        val thread = _state.value.open ?: return
+        if (_state.value.sending || !_state.value.canReply) return
+        if (thread.optedOut) {
+            _state.value = _state.value.copy(
+                sendError = "This person asked not to be messaged. Nothing can be sent to them.",
+            )
+            return
+        }
+
+        _state.value = _state.value.copy(sending = true, sendError = null, sent = null)
+        viewModelScope.launch {
+            runCatching {
+                ChatReplyClient.sendFollowupTemplate(
+                    clinicId = who.clinicId,
+                    phone = thread.phone,
+                    patientId = thread.patientId,
+                    patientName = thread.patientName,
+                )
+            }
+                .onSuccess { result -> _state.value = _state.value.copy(sending = false, sent = describe(result.mode)) }
+                .onFailure { e -> _state.value = _state.value.copy(sending = false, sendError = readable(e)) }
+        }
+    }
+
+    /**
+     * What the server did with it, said plainly.
+     *
+     * "queued" is not "sent". It means the message landed in the manual list for
+     * somebody to forward by hand, and a receptionist who reads that as delivered
+     * will tell a patient something untrue. This cost a clinic four replies
+     * nobody ever received.
+     */
+    private fun describe(mode: String): String = when (mode) {
+        "auto" -> "Sent."
+        "queued", "manual" ->
+            "Not sent yet — it is waiting in the manual send list on the website."
+        "blocked" -> "Blocked before sending."
+        else -> "Sent."
+    }
+
+    fun clearSendResult() {
+        _state.value = _state.value.copy(sent = null, sendError = null)
+    }
+
+    private fun readable(e: Throwable): String {
+        val raw = e.message.orEmpty()
+        return when {
+            raw.isBlank() -> "The message could not be sent."
+            raw.contains("offline", true) || raw.contains("Unable to resolve host", true) ->
+                "No connection. Nothing was sent."
+            // The route's own sentences are written for the person reading them.
+            else -> raw
         }
     }
 

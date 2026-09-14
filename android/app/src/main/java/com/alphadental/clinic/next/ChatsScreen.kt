@@ -1,5 +1,15 @@
 package com.alphadental.clinic.next
 
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -232,6 +242,9 @@ fun ThreadScreen(
     state: Chats,
     onBack: () -> Unit,
     onCall: (String) -> Unit = {},
+    onSend: (String) -> Unit = {},
+    onFollowup: () -> Unit = {},
+    onClearResult: () -> Unit = {},
 ) {
     val thread = state.open ?: return
     val listState = rememberLazyListState()
@@ -270,7 +283,173 @@ fun ThreadScreen(
             }
         }
 
-        ReadOnlyNote(thread)
+        Composer(state, thread, onSend, onFollowup, onClearResult)
+    }
+}
+
+/**
+ * Answering a patient.
+ *
+ * Three things decide what this is allowed to be, and all three are said out
+ * loud rather than enforced silently:
+ *
+ *  - Somebody who asked not to be messaged gets nothing, ever. That is not a
+ *    preference to weigh, it is what keeps the clinic's number off a ban list.
+ *  - Free text only arrives within twenty-four hours of the patient's own last
+ *    message. Past that Meta accepts the send and delivers nothing, which is the
+ *    worst possible failure: the receptionist believes they have replied.
+ *  - What does arrive after that is the pre-approved template, and templates are
+ *    the thing Meta charges for. So it is its own button with its own warning,
+ *    never a quiet fallback.
+ */
+@Composable
+private fun Composer(
+    state: Chats,
+    thread: Thread,
+    onSend: (String) -> Unit,
+    onFollowup: () -> Unit,
+    onClearResult: () -> Unit,
+) {
+    var draft by remember(thread.id) { mutableStateOf("") }
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    // Clear the last confirmation once the person starts typing the next reply.
+    LaunchedEffect(draft) { if (draft.isNotEmpty()) onClearResult() }
+
+    Surface(color = T.surface, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.navigationBarsPadding().imePadding()) {
+            Rule()
+
+            if (thread.optedOut) {
+                Note(
+                    "This patient asked not to be messaged. Nothing can be sent to them.",
+                    T.dangerTint, T.danger,
+                )
+                return@Column
+            }
+
+            if (!state.canReply) {
+                Note(
+                    "This account can read the inbox but not answer. Replying is a marketing permission.",
+                    T.surfaceSoft, T.inkMuted,
+                )
+                return@Column
+            }
+
+            state.sendError?.let { Note(it, T.dangerTint, T.danger) }
+            state.sent?.let {
+                val good = it.startsWith("Sent")
+                Note(it, if (good) T.surfaceSoft else T.accentTint, if (good) T.inkMuted else T.accentInk)
+            }
+
+            if (!state.windowOpen) {
+                Note(
+                    "More than a day has passed since they last wrote, so a typed message will not " +
+                        "reach them. The follow-up below is the only thing that will, and it is the " +
+                        "kind of message Meta charges for.",
+                    T.accentTint, T.accentInk,
+                )
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Txt("Ask them to write back", Type.body, T.inkBody, Modifier.weight(1f), maxLines = 2)
+                    Spacer(Modifier.width(10.dp))
+                    Surface(
+                        shape = T.pill,
+                        color = T.slab,
+                        modifier = Modifier.clickable(enabled = !state.sending) { onFollowup() },
+                    ) {
+                        Box(
+                            Modifier.padding(horizontal = 18.dp, vertical = 11.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (state.sending) {
+                                CircularProgressIndicator(
+                                    color = T.onSlabFaint, strokeWidth = 2.dp,
+                                    modifier = Modifier.size(15.dp),
+                                )
+                            } else {
+                                Txt("Send follow-up", Type.label.copy(fontSize = 12.sp), T.onSlab)
+                            }
+                        }
+                    }
+                }
+                return@Column
+            }
+
+            state.windowHoursLeft?.takeIf { it <= 4 }?.let {
+                // Only near the edge. A countdown running all day would be noise.
+                Note(
+                    "About " + (if (it <= 1) "an hour" else "$it hours") +
+                        " left to reply before free messages stop reaching them.",
+                    T.surfaceSoft, T.inkMuted,
+                )
+            }
+
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 10.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                OutlinedTextField(
+                    value = draft,
+                    onValueChange = { if (it.length <= 1500) draft = it },
+                    placeholder = { Txt("Write a reply", Type.body, T.inkFaint) },
+                    maxLines = 4,
+                    shape = T.cardShape,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = T.surfaceSoft,
+                        unfocusedContainerColor = T.surfaceSoft,
+                        focusedTextColor = T.ink,
+                        unfocusedTextColor = T.ink,
+                        focusedIndicatorColor = T.lineStrong,
+                        unfocusedIndicatorColor = T.line,
+                        cursorColor = T.ink,
+                    ),
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(10.dp))
+                val ready = draft.isNotBlank() && !state.sending
+                Surface(
+                    shape = CircleShape,
+                    color = if (ready) T.accent else T.line,
+                    modifier = Modifier.size(46.dp).clickable(enabled = ready) {
+                        keyboard?.hide()
+                        onSend(draft)
+                        draft = ""
+                    },
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        if (state.sending) {
+                            CircularProgressIndicator(
+                                color = T.inkFaint, strokeWidth = 2.dp, modifier = Modifier.size(18.dp),
+                            )
+                        } else {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Send, "Send",
+                                tint = if (ready) T.onAccent else T.inkFaint,
+                                modifier = Modifier.size(19.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
+            Txt(
+                "Sent from the clinic's own WhatsApp number. The bot stays out of this thread for an " +
+                    "hour once you answer.",
+                Type.caption, T.inkFaint,
+                Modifier.padding(start = T.gutter, end = T.gutter, bottom = 12.dp),
+                maxLines = 2,
+            )
+        }
+    }
+}
+
+@Composable
+private fun Note(text: String, fill: Color, ink: Color) {
+    Surface(color = fill, modifier = Modifier.fillMaxWidth()) {
+        Txt(text, Type.caption, ink, Modifier.padding(horizontal = T.gutter, vertical = 12.dp), maxLines = 5)
     }
 }
 
@@ -394,26 +573,6 @@ private fun Bubble(line: Line) {
  * Stated rather than hidden: a chat screen with no composer looks broken, and
  * the reason it has none is a decision worth showing.
  */
-@Composable
-private fun ReadOnlyNote(thread: Thread) {
-    Surface(color = T.surface, modifier = Modifier.fillMaxWidth()) {
-        Column {
-            Rule()
-            Txt(
-                if (thread.optedOut) {
-                    "This patient asked not to be messaged. Nothing can be sent to them."
-                } else {
-                    "Replying from the phone is not switched on yet. Answer from the website."
-                },
-                Type.caption,
-                T.inkMuted,
-                Modifier.padding(horizontal = T.gutter, vertical = 14.dp),
-                maxLines = 2,
-            )
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 
 private fun emptyLine(state: Chats): String = when (state.filter) {
