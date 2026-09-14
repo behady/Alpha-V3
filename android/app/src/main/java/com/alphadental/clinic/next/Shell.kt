@@ -54,6 +54,7 @@ fun Shell(preview: Boolean = false) {
     var openSettings by rememberSaveable { mutableStateOf(false) }
     var openOrtho by rememberSaveable { mutableStateOf(false) }
     var openLeads by rememberSaveable { mutableStateOf(false) }
+    var openStock by rememberSaveable { mutableStateOf(false) }
     // A screen can ask for the bar to go away. A conversation does: the bar
     // would cover its foot, and offer to walk away from a thread mid-read.
     var immersive by remember { mutableStateOf(false) }
@@ -101,6 +102,11 @@ fun Shell(preview: Boolean = false) {
         return
     }
 
+    if (openStock) {
+        StockPane(preview) { openStock = false }
+        return
+    }
+
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
         when (tab) {
@@ -119,6 +125,7 @@ fun Shell(preview: Boolean = false) {
                 onOpenSettings = { openSettings = true },
                 onOpenOrtho = { openOrtho = true },
                 onOpenLeads = { openLeads = true },
+                onOpenStock = { openStock = true },
             )
         }
 
@@ -225,6 +232,7 @@ private fun MoreTab(
     onOpenSettings: () -> Unit,
     onOpenOrtho: () -> Unit,
     onOpenLeads: () -> Unit,
+    onOpenStock: () -> Unit,
 ) {
     var confirmSignOut by remember { mutableStateOf(false) }
 
@@ -251,6 +259,7 @@ private fun MoreTab(
                 Destination.Settings -> onOpenSettings()
                 Destination.Ortho -> onOpenOrtho()
                 Destination.Leads -> onOpenLeads()
+                Destination.Stock -> onOpenStock()
                 else -> Unit
             }
         },
@@ -403,6 +412,46 @@ private fun MoneyPane(preview: Boolean, onBack: () -> Unit) {
         onBack = onBack,
         onShiftMonth = model::shiftMonth,
         onThisMonth = model::thisMonth,
+    )
+}
+
+
+/** The shelf, over the top of everything. */
+@Composable
+private fun StockPane(preview: Boolean, onBack: () -> Unit) {
+    if (preview) {
+        var state by remember { mutableStateOf(previewStock()) }
+        BackHandler { if (state.open != null) state = state.copy(open = null) else onBack() }
+        StockScreen(
+            state = state,
+            onBack = onBack,
+            actions = StockActions(
+                filter = { state = state.copy(filter = it) },
+                search = { state = state.copy(search = it) },
+                open = { state = state.copy(open = it) },
+                close = { state = state.copy(open = null) },
+                adjust = { },
+                save = { },
+            ),
+        )
+        return
+    }
+
+    val model: StockModel = viewModel()
+    val state by model.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
+    BackHandler { if (state.open != null) model.close() else onBack() }
+    StockScreen(
+        state = state,
+        onBack = onBack,
+        actions = StockActions(
+            filter = model::show,
+            search = model::search,
+            open = model::open,
+            close = model::close,
+            adjust = model::adjust,
+            save = model::save,
+        ),
     )
 }
 

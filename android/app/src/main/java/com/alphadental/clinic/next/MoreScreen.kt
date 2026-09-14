@@ -280,7 +280,7 @@ enum class Destination(
     Lab("Lab", "Cases out at the laboratory", Icons.Filled.Science, Area.Tool, built = true, permission = "access.lab"),
     Ortho("Ortho", "Cases and adjustments", Icons.Filled.Timeline, Area.Tool, built = true, permission = "access.ortho"),
     Leads("Leads", "Enquiries from ads and calls", Icons.Filled.PersonSearch, Area.Tool, built = true, permission = "access.marketing"),
-    Stock("Stock", "What is running out", Icons.Filled.Inventory2, Area.Tool),
+    Stock("Stock", "What is running out", Icons.Filled.Inventory2, Area.Tool, built = true, permission = "access.inventory"),
     Attendance("Attendance", "Who is in, and their hours", Icons.Filled.Groups, Area.Admin, permission = "attendance.admin"),
     Reminders("Auto SMS", "Reminders sent from a clinic phone", Icons.Filled.Sms, Area.Admin, built = true, permission = "access.settings"),
     Hours("Opening hours", "When the clinic is open", Icons.Filled.Schedule, Area.Admin, permission = "access.settings"),
