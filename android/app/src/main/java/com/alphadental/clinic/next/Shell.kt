@@ -48,6 +48,7 @@ fun Shell(preview: Boolean = false) {
     var tab by rememberSaveable { mutableStateOf(Tab.Today) }
     var openRecord by rememberSaveable { mutableStateOf<String?>(null) }
     var openMoney by rememberSaveable { mutableStateOf(false) }
+    var openReports by rememberSaveable { mutableStateOf(false) }
     // A screen can ask for the bar to go away. A conversation does: the bar
     // would cover its foot, and offer to walk away from a thread mid-read.
     var immersive by remember { mutableStateOf(false) }
@@ -65,6 +66,11 @@ fun Shell(preview: Boolean = false) {
         return
     }
 
+    if (openReports) {
+        ReportsPane(preview) { openReports = false }
+        return
+    }
+
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
         when (tab) {
@@ -74,7 +80,11 @@ fun Shell(preview: Boolean = false) {
             // Not built yet. Saying so is better than a blank screen that reads
             // as a bug, and better than hiding the tab so the bar keeps moving.
             Tab.Chats -> ChatsTab(preview) { immersive = it }
-            Tab.More -> MoreTab(preview) { openMoney = true }
+            Tab.More -> MoreTab(
+                preview,
+                onOpenMoney = { openMoney = true },
+                onOpenReports = { openReports = true },
+            )
         }
 
         if (!immersive) FloatingBar(
@@ -171,7 +181,7 @@ private fun ChatsTab(preview: Boolean, onImmersive: (Boolean) -> Unit) {
  * Losing a session costs a receptionist a password they may not carry.
  */
 @Composable
-private fun MoreTab(preview: Boolean, onOpenMoney: () -> Unit) {
+private fun MoreTab(preview: Boolean, onOpenMoney: () -> Unit, onOpenReports: () -> Unit) {
     var confirmSignOut by remember { mutableStateOf(false) }
 
     val who = if (preview) {
@@ -185,7 +195,13 @@ private fun MoreTab(preview: Boolean, onOpenMoney: () -> Unit) {
 
     MoreScreen(
         who = who,
-        onOpen = { d -> if (d == Destination.Money) onOpenMoney() },
+        onOpen = { d ->
+            when (d) {
+                Destination.Money -> onOpenMoney()
+                Destination.Reports -> onOpenReports()
+                else -> Unit
+            }
+        },
         onSignOut = { confirmSignOut = true },
     )
 
@@ -336,4 +352,20 @@ private fun MoneyPane(preview: Boolean, onBack: () -> Unit) {
         onShiftMonth = model::shiftMonth,
         onThisMonth = model::thisMonth,
     )
+}
+
+
+/** How the clinic has been doing. Reached from More, like Money. */
+@Composable
+private fun ReportsPane(preview: Boolean, onBack: () -> Unit) {
+    BackHandler { onBack() }
+    if (preview) {
+        var state by remember { mutableStateOf(previewReports()) }
+        ReportsScreen(state, onBack = onBack, onWindow = { state = state.copy(window = it) })
+        return
+    }
+    val model: ReportsModel = viewModel()
+    val state by model.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
+    ReportsScreen(state, onBack = onBack, onWindow = model::show)
 }

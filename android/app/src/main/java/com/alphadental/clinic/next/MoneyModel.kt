@@ -83,7 +83,13 @@ data class MoneyState(
      */
     val earners: List<Earner>
         get() = lines.filter { it.isCharge }
-            .groupBy { it.description.trim().ifBlank { "Unlabelled" } }
+            // The tooth list is part of the description a charge is written with
+            // — "Root canal (T: 36,37)" — so grouping on the raw string files the
+            // same treatment under a new heading for every combination of teeth
+            // it was ever done on. The website already strips it; reuse that.
+            .groupBy {
+                com.alphadental.clinic.data.serviceLabelOf(it.description).ifBlank { "Unlabelled" }
+            }
             .map { (label, rows) -> Earner(label, rows.sumOf { it.amount }) }
             .sortedByDescending { it.total }
             .take(8)

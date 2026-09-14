@@ -213,7 +213,7 @@ enum class Destination(
     private val permission: String? = null,
 ) {
     Money("Money", "Takings, expenses and the day's ledger", Icons.Filled.Payments, Area.Tool, built = true, permission = "access.finance"),
-    Reports("Reports", "How the clinic is doing", Icons.Filled.BarChart, Area.Tool, permission = "access.reports"),
+    Reports("Reports", "How the clinic is doing", Icons.Filled.BarChart, Area.Tool, built = true, permission = "access.reports"),
     Lab("Lab", "Cases out at the laboratory", Icons.Filled.Science, Area.Tool, permission = "access.lab"),
     Ortho("Ortho", "Cases and adjustments", Icons.Filled.Timeline, Area.Tool),
     Leads("Leads", "Enquiries from ads and calls", Icons.Filled.PersonSearch, Area.Tool, permission = "access.marketing"),
