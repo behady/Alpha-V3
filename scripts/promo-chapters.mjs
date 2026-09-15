@@ -115,6 +115,71 @@ export const CHAPTERS = {
       },
     ],
   },
+  // ---------------------------------------------------------------------
+  whatsapp: {
+    title: "WhatsApp",
+    slug: "2-whatsapp",
+    /**
+     * Built entirely from conversations that already happened, not from a live demonstration.
+     *
+     * The built-in "try the bot" playground would have been the better shot — it runs the bot
+     * against a rehearsal thread, so nothing leaves the building — but the demo clinic has
+     * `whatsappIntegration` and `aiChat` without the `whatsappBot` add-on, and no settings/whatsapp
+     * document, so the playground accepts a message and never answers. Enable the add-on and this
+     * chapter can gain a live beat; until then, showing a question with no reply would be worse
+     * than showing none.
+     *
+     * Replying inside a real thread is not an option either: that goes out through the live
+     * WhatsApp channel to a real number.
+     */
+    beats: [
+      { n: 0, label: "the-queue", url: "/chats", settle: 11000, actions: [{ do: "wait", ms: 3500 }] },
+      {
+        n: 1, label: "needs-a-human", settle: 800,
+        actions: [
+          { do: "click", text: "محتاج رد" },
+          { do: "wait", ms: 4000 },
+        ],
+      },
+      {
+        n: 2, label: "the-handoff", settle: 500,
+        actions: [
+          { do: "clickFirst", text: "Heba Gamal" },
+          { do: "wait", ms: 6000 },
+        ],
+      },
+      {
+        n: 3, label: "bot-booked-it", settle: 500,
+        actions: [
+          { do: "click", text: "الكل" },
+          { do: "wait", ms: 1500 },
+          { do: "clickFirst", text: "Mohamed Abdelrahman" },
+          { do: "wait", ms: 6500 },
+        ],
+      },
+      {
+        n: 4, label: "reschedule", settle: 500,
+        actions: [
+          { do: "clickFirst", text: "Salma Ezzat" },
+          { do: "wait", ms: 6500 },
+        ],
+      },
+      {
+        n: 5, label: "reminder", settle: 500,
+        actions: [
+          { do: "clickFirst", text: "Sherif Adly" },
+          { do: "wait", ms: 6000 },
+        ],
+      },
+      {
+        n: 6, label: "take-over", settle: 500,
+        actions: [
+          { do: "clickFirst", text: STAR_PATIENT.name },
+          { do: "wait", ms: 5500 },
+        ],
+      },
+    ],
+  },
 };
 
 export function chapter(name) {
