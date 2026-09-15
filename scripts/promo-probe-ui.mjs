@@ -54,6 +54,47 @@ async function main() {
   await page.goto(BASE + target, { waitUntil: "domcontentloaded" });
   await sleep(Number(arg("settle", 9000)));
 
+  const slotTime = arg("slot");
+  if (slotTime) {
+    const row = page.locator("div.border-dashed").filter({ hasText: slotTime }).first();
+    await row.scrollIntoViewIfNeeded({ timeout: 8000 }).catch(() => {});
+    await row.click({ position: { x: 700, y: 60 }, timeout: 8000 })
+      .catch((e) => console.log(`  ! slot click failed: ${e.message.split(/\r?\n/)[0]}`));
+    await sleep(Number(arg("after", 4000)));
+  }
+
+  // Type into a placeholder, then dump what appeared — search results are usually not buttons,
+  // so the element listing alone cannot show them.
+  const typeText = arg("type");
+  if (typeText) {
+    const ph = arg("into", "دور بالاسم");
+    const box = page.getByPlaceholder(ph, { exact: false }).first();
+    await box.click({ timeout: 8000 }).catch((e) => console.log("  ! type click: " + e.message));
+    await box.pressSequentially(typeText, { delay: 120 }).catch(() => {});
+    await sleep(Number(arg("after", 4000)));
+    const hits = await page.evaluate((needle) => {
+      const out = [];
+      for (const el of document.querySelectorAll("*")) {
+        if (el.children.length) continue;
+        const t = (el.textContent || "").trim();
+        if (!t.includes(needle)) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 5) continue;
+        const path = [];
+        for (let n = el; n && path.length < 5; n = n.parentElement) {
+          path.push(`${n.tagName.toLowerCase()}${n.className && typeof n.className === "string" ? "." + n.className.trim().split(/\s+/).slice(0, 3).join(".") : ""}`);
+        }
+        out.push({ t: t.slice(0, 40), x: Math.round(r.x), y: Math.round(r.y), path: path.join(" < ") });
+      }
+      return out.slice(0, 12);
+    }, typeText);
+    console.log(`
+Leaf nodes containing "${typeText}"
+${"-".repeat(72)}`);
+    for (const h of hits) console.log(`${String(h.x).padStart(5)},${String(h.y).padStart(5)}  "${h.t}"
+        ${h.path}`);
+  }
+
   const clickText = arg("click");
   if (clickText) {
     const el = page.locator(`text=${clickText}`).first();
@@ -97,6 +138,36 @@ async function main() {
     );
   }
   console.log(`${"-".repeat(72)}\n${found.length} interactive elements`);
+
+  /**
+   * Clickable things that are not buttons — the diary's empty slots are plain divs carrying a
+   * click handler, so the element listing above cannot see them and a flow that books from the
+   * dashboard has nothing to aim at.
+   */
+  if (process.argv.includes("--slots")) {
+    const slots = await page.evaluate(() => {
+      const out = [];
+      for (const el of document.querySelectorAll("div,td,li")) {
+        const r = el.getBoundingClientRect();
+        if (r.width < 30 || r.height < 12 || r.height > 200) continue;
+        if (getComputedStyle(el).cursor !== "pointer") continue;
+        // Only leaf-ish nodes: a pointer container wrapping the whole grid is not a slot.
+        if (el.querySelectorAll("div,td,li").length > 3) continue;
+        out.push({
+          cls: String(el.className || "").slice(0, 70),
+          text: (el.innerText || "").replace(/\s+/g, " ").trim().slice(0, 40),
+          x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height),
+        });
+      }
+      return out.slice(0, 40);
+    });
+    console.log(`
+Pointer-cursor elements (possible slots)
+${"-".repeat(72)}`);
+    for (const s of slots) {
+      console.log(`${String(s.x).padStart(4)},${String(s.y).padStart(5)} ${String(s.w).padStart(4)}x${String(s.h).padStart(3)}  "${s.text}"  .${s.cls}`);
+    }
+  }
 
   if (arg("shot")) await page.screenshot({ path: arg("shot") });
   await ctx.close();

@@ -19,6 +19,20 @@
  */
 
 /** A patient with a full record, so anything opened from these flows looks lived-in. */
+/**
+ * The booking modal's patient-results dropdown, as a scope for clicking a result.
+ *
+ * Scoping is not optional here. Unscoped, the patient's name matches his EXISTING appointment
+ * card in the schedule behind the modal; clicking that closes the booking and opens an edit
+ * panel, and the rest of the flow then clicks at controls that are no longer there. The results
+ * are a sibling of the search input, not a child of its wrapper — scoping to the input's parent
+ * (the obvious guess) matches nothing at all.
+ */
+export const SEARCH_PANEL = "div.absolute.start-0.end-0";
+
+/** The slot the diary chapter books into. Must be a time the seed leaves empty. */
+export const BOOKING_SLOT = "07:00 PM";
+
 export const STAR_PATIENT = { id: "REv947qYLGBe5SIQA2I9", name: "Ziad Refaat", phone: "201000000117" };
 
 export const CHAPTERS = {
@@ -26,20 +40,24 @@ export const CHAPTERS = {
   diary: {
     title: "The Diary",
     slug: "1-diary",
+    /**
+     * Recorded on the desk dashboard ("/"), not /appointments.
+     *
+     * The dashboard carries the same day and week views in a denser layout, and — the reason it
+     * is worth the switch — an empty slot there IS the booking button: clicking a gap opens the
+     * modal with that time already filled in. The appointments page makes you press "add" and
+     * then pick the time back out of a dropdown.
+     */
     beats: [
       {
-        // /appointments opens on the WEEK, so the day view has to be asked for explicitly.
-        n: 0, label: "day-view", url: "/appointments", settle: 6000,
-        actions: [
-          { do: "click", role: "button", text: "يوم", exact: true },
-          { do: "wait", ms: 4000 },
-        ],
+        n: 0, label: "the-desk", url: "/", settle: 9000,
+        actions: [{ do: "wait", ms: 3000 }],
       },
       {
-        n: 1, label: "week-view", settle: 1500,
+        n: 1, label: "week-view", settle: 1200,
         actions: [
-          { do: "click", role: "button", text: "أسبوع", exact: true },
-          { do: "wait", ms: 4000 },
+          { do: "click", role: "button", text: "أسبوعي", exact: true },
+          { do: "wait", ms: 4500 },
         ],
       },
       {
@@ -47,12 +65,14 @@ export const CHAPTERS = {
         actions: [{ do: "wheel", ms: 5000, dy: 70 }],
       },
       {
-        n: 3, label: "open-booking", settle: 500,
+        // Clicking the gap itself. SLOT is a time with nothing booked in it — a slot covered by
+        // an appointment card cannot be clicked, the card is on top of it.
+        n: 3, label: "click-the-gap", settle: 500,
         actions: [
-          { do: "click", role: "button", text: "يوم", exact: true },
-          { do: "wait", ms: 2000 },
-          { do: "click", text: "إضافة موعد" },
-          { do: "wait", ms: 3500 },
+          { do: "click", role: "button", text: "يومي", exact: true },
+          { do: "wait", ms: 2500 },
+          { do: "clickSlot", time: BOOKING_SLOT },
+          { do: "wait", ms: 3000 },
         ],
       },
       {
@@ -60,18 +80,16 @@ export const CHAPTERS = {
         actions: [
           { do: "fill", placeholder: "دور بالاسم أو رقم الموبايل", text: "Ziad", perChar: 110 },
           { do: "wait", ms: 3000 },
-          { do: "clickFirst", text: "Ziad Refaat" },
+          { do: "clickFirst", text: STAR_PATIENT.name, within: SEARCH_PANEL },
           { do: "wait", ms: 2000 },
         ],
       },
       {
-        n: 5, label: "pick-slot", settle: 500,
+        // No time picked here: it came from the gap. Only the dentist and the length.
+        n: 5, label: "dentist-and-length", settle: 500,
         actions: [
-          // Identified by an option only that dropdown has — see selectWhere in the recorder.
-          { do: "selectWhere", has: "09:00 ص", pick: "05:00 م" },
-          { do: "wait", ms: 1200 },
-          { do: "selectWhere", has: "Dr. Youssef", pick: "Dr. Hana" },
-          { do: "wait", ms: 1200 },
+          { do: "selectWhere", has: "Dr. Omar", pick: "Dr. Hana" },
+          { do: "wait", ms: 1500 },
           { do: "selectWhere", has: "15 دقيقة", pick: "30 دقيقة" },
           { do: "wait", ms: 2000 },
         ],
@@ -81,33 +99,18 @@ export const CHAPTERS = {
         actions: [
           { do: "click", text: "أكّد الحجز" },
           { do: "wait", ms: 2000 },
-          // The app refuses to double-book silently: if the slot is taken it asks first. Marked
-          // optional because it only appears when it applies — and it does apply here, since
-          // every take of this chapter books the same five o'clock.
+          // Only appears if that slot is already taken — see promo-clean-bookings.mjs.
           { do: "click", text: "أيوه", optional: true, timeout: 4000 },
           { do: "wait", ms: 4000 },
         ],
       },
       {
-        // The payoff shot: the booking just made, sitting in the day at five o'clock. Without
-        // the wheel the diary is still showing the morning and the new row is off screen.
-        // No view switch here: beat 3 already put the diary in day view, so the Day button is
-        // the selected one and clicking it just times out.
-        n: 7, label: "in-the-diary", settle: 2500,
+        // The dashboard keeps every row in the DOM, so unlike the appointments grid the new
+        // booking can simply be scrolled to by its time.
+        n: 7, label: "in-the-day", settle: 2500,
         actions: [
-          /**
-           * The List view, not the grid. Three attempts at showing the new booking in the day
-           * grid all failed for the same underlying reason — where the grid is scrolled after
-           * the dialog closes is not knowable in advance. Anchoring on the patient's name hit
-           * his morning appointment, anchoring on the time label found nothing because the grid
-           * only keeps nearby rows in the DOM, and a fixed wheel distance overshot in both
-           * directions. The list renders the day as rows from the top, so there is nothing to
-           * scroll to and nothing to get wrong.
-           */
-          { do: "click", role: "button", text: "قائمة", exact: true },
-          { do: "wait", ms: 3000 },
-          { do: "wheel", ms: 2500, dy: 80 },
-          { do: "wait", ms: 2500 },
+          { do: "scrollTo", text: BOOKING_SLOT, ms: 3000 },
+          { do: "wait", ms: 4000 },
         ],
       },
     ],

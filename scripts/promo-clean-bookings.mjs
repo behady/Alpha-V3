@@ -18,7 +18,7 @@ import path from "node:path";
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { DEMO_MARKER } from "./demo-clinic-data.mjs";
-import { STAR_PATIENT } from "./promo-chapters.mjs";
+import { STAR_PATIENT, BOOKING_SLOT } from "./promo-chapters.mjs";
 
 function loadEnvLocal() {
   const file = path.join(process.cwd(), ".env.local");
@@ -51,7 +51,7 @@ const db = getFirestore(getApps()[0], "default");
 const DRY = process.argv.includes("--dry-run");
 
 /** What the diary chapter books: see CHAPTERS.diary beat 5. */
-const SLOT_TIME = "17:00";
+const SLOT_TIME = BOOKING_SLOT;
 
 async function main() {
   const demo = await db.collection("clinics").where(DEMO_MARKER, "==", true).limit(1).get();

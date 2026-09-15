@@ -115,16 +115,40 @@ async function runActions(page, actions, report) {
         await sleep(a.ms || 1500);
         continue;
       }
+      /**
+       * Clicks an empty slot in the desk schedule.
+       *
+       * The rows are plain divs with a click handler, not buttons, so nothing in the element
+       * listing can see them — they are found by the dashed border they all share plus the time
+       * label they carry. Clicking the row rather than the label matters: the label is a small
+       * floating chip and the handler is on the row.
+       */
+      if (a.do === "clickSlot") {
+        const row = page.locator("div.border-dashed").filter({ hasText: a.time }).first();
+        await row.scrollIntoViewIfNeeded({ timeout: 8000 });
+        await sleep(800);
+        await row.click({ position: { x: 700, y: 60 }, timeout: 8000 });
+        await sleep(1200);
+        continue;
+      }
       if (a.do === "press") { await page.keyboard.press(a.key); await sleep(600); continue; }
 
       if (a.do === "click" || a.do === "clickFirst") {
         // `exact` matters more than it looks: "يوم" (Day) is a substring of "اليوم" (Today), so a
         // loose match can click the wrong control and silently record the wrong view.
+        /**
+         * `within` scopes the search to one container, and it is not optional for anything
+         * whose text also appears on the page behind a dialog. Clicking the patient's name in
+         * the booking modal's results matched his EXISTING appointment card in the schedule
+         * first — which closed the modal, opened an edit panel, and left the rest of the flow
+         * clicking at controls that were no longer there.
+         */
+        const root = a.within ? page.locator(a.within).first() : page;
         const loc = a.sel
-          ? page.locator(a.sel)
+          ? root.locator(a.sel)
           : a.role
-            ? page.getByRole(a.role, { name: a.text, exact: !!a.exact })
-            : page.getByText(a.text, { exact: !!a.exact });
+            ? root.getByRole(a.role, { name: a.text, exact: !!a.exact })
+            : root.getByText(a.text, { exact: !!a.exact });
         // An optional step waits briefly: it is checking whether something appeared, and a full
         // timeout on a prompt that never showed adds a quarter-minute of silence to the beat.
         const t = a.timeout ?? (a.optional ? 2000 : 8000);
@@ -155,15 +179,24 @@ async function runActions(page, actions, report) {
        * `has` identifies the right control by an option only it could have.
        */
       if (a.do === "selectWhere") {
-        const selects = page.locator("select");
-        const count = await selects.count();
         let target = null;
         let options = [];
-        for (let i = 0; i < count; i++) {
-          const candidate = selects.nth(i);
-          if (!(await candidate.isVisible().catch(() => false))) continue;
-          const texts = await candidate.locator("option").allTextContents();
-          if (texts.some((t) => t.includes(a.has))) { target = candidate; options = texts; break; }
+        // Retried: choosing one value re-renders the dialog, and for a moment the next dropdown
+        // is detached. A single pass caught that gap and reported the control as missing.
+        for (let attempt = 0; attempt < 4 && !target; attempt++) {
+          if (attempt) await sleep(1200);
+          const selects = page.locator("select");
+          const count = await selects.count();
+          for (let i = 0; i < count; i++) {
+            const candidate = selects.nth(i);
+            const texts = await candidate.locator("option").allTextContents().catch(() => []);
+            if (!texts.some((t) => t.includes(a.has))) continue;
+            await candidate.scrollIntoViewIfNeeded({ timeout: 2500 }).catch(() => {});
+            if (!(await candidate.isVisible().catch(() => false))) continue;
+            target = candidate;
+            options = texts;
+            break;
+          }
         }
         if (!target) throw new Error(`no visible select containing "${a.has}"`);
         const idx = options.findIndex((t) => t.includes(a.pick));
