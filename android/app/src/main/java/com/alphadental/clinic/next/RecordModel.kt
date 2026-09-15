@@ -21,8 +21,12 @@ enum class RecordTab(val label: String) {
     Overview("Overview"),
     Chart("Chart"),
     Visits("Visits"),
+    Photos("Photos"),
     Ledger("Ledger"),
 }
+
+/** The website's own gallery filters, stored by their English id. */
+val MEDIA_CATEGORIES = listOf("X-Ray", "Clinical Photo", "Panoramic", "CT Scan", "Periodontal")
 
 /**
  * One thing about a patient that a clinician must know before touching them.
@@ -51,8 +55,27 @@ data class RecordState(
     val recording: Boolean = false,
     val recordError: String? = null,
     val recorded: String? = null,
+    /** Photos and x-rays on this file, newest first. */
+    val media: List<com.alphadental.clinic.data.PatientMedia> = emptyList(),
+    val mediaFilter: String = "",
+    val uploading: Boolean = false,
+    val uploadCategory: String = "Clinical Photo",
+    val mediaError: String? = null,
+    /** The one being looked at full-size. */
+    val viewing: String? = null,
 ) {
+    /**
+     * The photos the filter is showing.
+     *
+     * An empty filter means everything, rather than a sixth category called
+     * "All" that would have to be excluded from every count.
+     */
+    val shownMedia: List<com.alphadental.clinic.data.PatientMedia>
+        get() = if (mediaFilter.isBlank()) media else media.filter { it.category == mediaFilter }
     val canTakePayment: Boolean get() = who?.can("payments.add") == true
+
+    /** Adding a photo writes to the file, so it wants the clinical key. */
+    val canAddPhoto: Boolean get() = who?.can("clinical.edit") == true
 
     /** Recording treatment is the clinical write, gated on the clinical key. */
     val canRecord: Boolean get() = who?.can("clinical.edit") == true
@@ -118,6 +141,7 @@ class RecordModel : ViewModel() {
                     _state.value = _state.value.copy(loading = false, who = who, record = it)
                     if (who.can("payments.add")) loadUnpaid(who, id)
                     if (who.can("clinical.edit")) loadLists(who)
+                    loadMedia(who, id)
                 }
                 .onFailure { _state.value = _state.value.copy(loading = false, who = who, error = it.message) }
         }
@@ -273,6 +297,74 @@ class RecordModel : ViewModel() {
 
     fun clearRecorded() {
         _state.value = _state.value.copy(recorded = null, recordError = null)
+    }
+
+    private fun loadMedia(who: Who, patientId: String) = viewModelScope.launch {
+        val rows = runCatching {
+            com.alphadental.clinic.data.Repository.loadPatientMedia(who.clinicId, patientId)
+        }.getOrDefault(emptyList())
+        _state.value = _state.value.copy(media = rows)
+    }
+
+    fun filterMedia(category: String) {
+        _state.value = _state.value.copy(
+            mediaFilter = if (_state.value.mediaFilter == category) "" else category,
+        )
+    }
+
+    fun setUploadCategory(category: String) {
+        _state.value = _state.value.copy(uploadCategory = category)
+    }
+
+    fun view(url: String?) {
+        _state.value = _state.value.copy(viewing = url)
+    }
+
+    /**
+     * A photo taken chairside.
+     *
+     * Written the way the website writes one — the image into Storage under the
+     * patient, then a `patient_media` row pointing at it — so a picture taken on
+     * a phone appears in the website's gallery like any other upload rather than
+     * in a second place only the phone knows about.
+     *
+     * The bytes arrive already downscaled. A 12-megapixel shot of one tooth is
+     * the clinic's storage bill, not a better photograph.
+     */
+    fun addPhoto(bytes: ByteArray) {
+        val who = _state.value.who ?: return
+        val record = _state.value.record ?: return
+        if (!_state.value.canAddPhoto || _state.value.uploading) return
+        _state.value = _state.value.copy(uploading = true, mediaError = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.Repository.uploadPatientMedia(
+                clinicId = who.clinicId,
+                patientId = record.person.id,
+                patientName = record.person.name,
+                bytes = bytes,
+                category = _state.value.uploadCategory,
+                byName = who.name,
+            )
+                .onSuccess {
+                    _state.value = _state.value.copy(uploading = false)
+                    loadMedia(who, record.person.id)
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        uploading = false,
+                        mediaError = when {
+                            e.message?.contains("PERMISSION_DENIED", true) == true ||
+                                e.message?.contains("not authorized", true) == true ->
+                                "This account is not allowed to add photos."
+                            else -> "That photo could not be saved."
+                        },
+                    )
+                }
+        }
+    }
+
+    fun dismissMediaError() {
+        _state.value = _state.value.copy(mediaError = null)
     }
 
     fun show(tab: RecordTab) {

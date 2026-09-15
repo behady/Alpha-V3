@@ -56,7 +56,7 @@ android {
         applicationId = "com.alphadental.clinic"
         minSdk = 26
         targetSdk = 36
-        versionCode = 81
+        versionCode = 82
         versionName = "6.0.0"
 
         buildConfigField("String", "FB_PROJECT_ID", "\"${firebase("firebase.projectId")}\"")
@@ -188,3 +188,19 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
 }
+
+/**
+ * The help articles are the website's files, not a copy of them.
+ *
+ * They live in src/content/help and are written once, in English and Arabic.
+ * Keeping a second set under android/ would mean every correction had to be made
+ * twice and would be made once — so they are copied into assets at build time
+ * and the copy is not committed.
+ */
+val copyHelpArticles by tasks.registering(Copy::class) {
+    from(rootProject.file("../src/content/help"))
+    into(layout.projectDirectory.dir("src/main/assets/help"))
+    include("**/*.md")
+}
+
+tasks.named("preBuild") { dependsOn(copyHelpArticles) }

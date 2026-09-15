@@ -7,6 +7,13 @@ import com.alphadental.clinic.next.design.Type
 import com.alphadental.clinic.next.design.Txt
 import com.alphadental.clinic.next.design.Slab
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.Surface
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
@@ -46,6 +53,20 @@ enum class Tab { Today, Day, Patients, Chats, More }
 @Composable
 fun Shell(preview: Boolean = false) {
     var tab by rememberSaveable { mutableStateOf(Tab.Today) }
+
+    // Whichever screen this account chose to open on. Applied once, and only
+    // before anybody has touched the bar: a preference that yanked somebody back
+    // to Today mid-tap would be a bug wearing a setting's clothes.
+    var applied by rememberSaveable { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(preview) {
+        if (preview || applied) return@LaunchedEffect
+        applied = true
+        val uid = com.alphadental.clinic.next.data.ClinicSource.uid() ?: return@LaunchedEffect
+        val wanted = runCatching {
+            com.alphadental.clinic.data.ClinicSettings.loadHomeTab(uid)
+        }.getOrNull().orEmpty()
+        Tab.entries.firstOrNull { it.name == wanted }?.let { tab = it }
+    }
     var openRecord by rememberSaveable { mutableStateOf<String?>(null) }
     var openMoney by rememberSaveable { mutableStateOf(false) }
     var openReports by rememberSaveable { mutableStateOf(false) }
@@ -58,6 +79,7 @@ fun Shell(preview: Boolean = false) {
     var openAttendance by rememberSaveable { mutableStateOf(false) }
     var openContent by rememberSaveable { mutableStateOf(false) }
     var openAssistant by rememberSaveable { mutableStateOf(false) }
+    var openHelp by rememberSaveable { mutableStateOf(false) }
     // A screen can ask for the bar to go away. A conversation does: the bar
     // would cover its foot, and offer to walk away from a thread mid-read.
     var immersive by remember { mutableStateOf(false) }
@@ -117,6 +139,11 @@ fun Shell(preview: Boolean = false) {
 
     if (openContent) {
         ContentPane(preview) { openContent = false }
+        return
+    }
+
+    if (openHelp) {
+        HelpPane { openHelp = false }
         return
     }
 
@@ -185,6 +212,7 @@ fun Shell(preview: Boolean = false) {
                 onOpenAttendance = { openAttendance = true },
                 onOpenContent = { openContent = true },
                 onOpenAssistant = { openAssistant = true },
+                onOpenHelp = { openHelp = true },
             )
         }
 
@@ -378,6 +406,7 @@ private fun MoreTab(
     onOpenAttendance: () -> Unit,
     onOpenContent: () -> Unit,
     onOpenAssistant: () -> Unit,
+    onOpenHelp: () -> Unit,
 ) {
     var confirmSignOut by remember { mutableStateOf(false) }
 
@@ -408,6 +437,7 @@ private fun MoreTab(
                 Destination.Attendance -> onOpenAttendance()
                 Destination.Content -> onOpenContent()
                 Destination.Assistant -> onOpenAssistant()
+                Destination.Help -> onOpenHelp()
                 else -> Unit
             }
         },
@@ -449,10 +479,11 @@ private fun DayTab(
     onOpenVisit: (com.alphadental.clinic.next.data.Visit) -> Unit,
 ) {
     if (preview) {
-        val state = remember { previewDay() }
+        var state by remember { mutableStateOf(previewDay()) }
         DayScreen(
             state = state, onShiftDay = {}, onToday = {},
             onOpenVisit = onOpenVisit,
+            onSpan = { span -> state = state.copy(span = span, counts = previewCounts(span)) },
             onBookGap = { gap -> onBook(state.dateKey, clockOf(gap.minute)) },
         )
     } else {
@@ -460,8 +491,10 @@ private fun DayTab(
         val state by model.state.collectAsState()
         androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
         DayScreen(
-            state = state, onShiftDay = model::shiftDay, onToday = model::today,
+            state = state, onShiftDay = { model.shiftSpan(it) }, onToday = model::today,
             onOpenVisit = onOpenVisit,
+            onSpan = model::show,
+            onOpenDay = model::openDay,
             // A free slot books into itself: the whole point of tapping one is
             // that the day and time are already decided.
             onBookGap = { gap -> onBook(state.dateKey, clockOf(gap.minute)) },
@@ -501,13 +534,20 @@ private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) 
     val context = LocalContext.current
 
     if (preview) {
-        var state by remember { mutableStateOf(previewRecord()) }
+        var state by remember { mutableStateOf(previewRecord().copy(media = previewMedia())) }
         var previewSheet by remember { mutableStateOf("") }
         RecordScreen(
             state = state,
             onBack = onBack,
             onTab = { state = state.copy(tab = it) },
             onSelectTooth = { state = state.copy(tooth = it) },
+            onFilterMedia = { c ->
+                state = state.copy(mediaFilter = if (state.mediaFilter == c) "" else c)
+            },
+            onUploadCategory = { state = state.copy(uploadCategory = it) },
+            onView = { state = state.copy(viewing = it) },
+            onCamera = {},
+            onGallery = {},
             onTakePayment = { previewSheet = "pay" },
             onRecordTreatment = { previewSheet = "treat" },
             onMore = { previewSheet = "more" },
@@ -646,6 +686,26 @@ private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) 
     var taking by remember { mutableStateOf(false) }
     var recording by remember { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
+
+    // Camera and gallery end at the same place: JPEG bytes, downscaled on the
+    // phone. A 12-megapixel photograph of one tooth is a storage bill, not a
+    // better picture.
+    var cameraUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val pickImage = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            com.alphadental.clinic.ui.readScaledJpeg(context, uri)?.let(model::addPhoto)
+        }
+    }
+    val takePicture = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.TakePicture(),
+    ) { saved ->
+        val uri = cameraUri
+        if (saved && uri != null) {
+            com.alphadental.clinic.ui.readScaledJpeg(context, uri)?.let(model::addPhoto)
+        }
+    }
     androidx.compose.runtime.LaunchedEffect(patientId) { model.open(patientId) }
 
     androidx.compose.runtime.LaunchedEffect(state.recorded) {
@@ -669,7 +729,51 @@ private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) 
         onTakePayment = if (state.canTakePayment) ({ taking = true }) else null,
         onRecordTreatment = if (state.canRecord) ({ recording = true }) else null,
         onMore = { more = true },
+        onFilterMedia = model::filterMedia,
+        onUploadCategory = model::setUploadCategory,
+        onView = model::view,
+        onCamera = if (state.canAddPhoto) ({
+            runCatching {
+                val dir = java.io.File(context.cacheDir, "camera").apply { mkdirs() }
+                val file = java.io.File(dir, "capture_${System.currentTimeMillis()}.jpg")
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    context,
+                    com.alphadental.clinic.BuildConfig.APPLICATION_ID + ".files",
+                    file,
+                )
+                cameraUri = uri
+                takePicture.launch(uri)
+            }
+            Unit
+        }) else null,
+        onGallery = if (state.canAddPhoto) ({
+            pickImage.launch(
+                androidx.activity.result.PickVisualMediaRequest(
+                    androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly,
+                )
+            )
+        }) else null,
     )
+
+    // Full size, over everything. A thumbnail of an x-ray is a grey square.
+    state.viewing?.let { url ->
+        androidx.compose.ui.window.Dialog(onDismissRequest = { model.view(null) }) {
+            Surface(shape = T.cardShape, color = T.surface) {
+                Column(Modifier.padding(10.dp)) {
+                    coil.compose.AsyncImage(
+                        model = url,
+                        contentDescription = null,
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        SettingsPill("Close") { model.view(null) }
+                    }
+                }
+            }
+        }
+    }
 
     if (more) {
         state.record?.let { record ->
@@ -1063,6 +1167,13 @@ private fun SettingsPane(preview: Boolean, onBack: () -> Unit) {
                 saveProfile = { state = state.copy(profile = it) },
                 saveArea = { state = state.copy(area = it) },
                 saveSchedule = { state = state.copy(schedule = it) },
+                saveDrug = { _, _, _, _, _ -> },
+                hideDrug = { _, _, _ -> },
+                binDrug = {},
+                restoreDeleted = {},
+                purgeDeleted = {},
+                forget = {},
+                saveHomeTab = {},
                 setAlert = { key, on -> state = state.copy(alerts = state.alerts + (key to on)) },
                 saveBooking = { state = state.copy(booking = it) },
                 saveRecall = { state = state.copy(recall = it) },
@@ -1103,6 +1214,13 @@ private fun SettingsPane(preview: Boolean, onBack: () -> Unit) {
             saveProfile = model::saveProfile,
             saveArea = model::saveArea,
             saveSchedule = model::saveSchedule,
+            saveDrug = model::saveDrug,
+            hideDrug = model::hideDrug,
+            binDrug = model::binDrug,
+            restoreDeleted = model::restoreDeleted,
+            purgeDeleted = model::purgeDeleted,
+            forget = model::forget,
+            saveHomeTab = model::saveHomeTab,
             setAlert = model::setAlert,
             saveBooking = model::saveBooking,
             saveRecall = model::saveRecall,
@@ -1453,4 +1571,67 @@ private fun AssistantPane(preview: Boolean, onOpenPatient: (String) -> Unit, onB
         onOpenPatient = onOpenPatient,
         onCall = { context.dial(it) },
     )
+}
+
+/**
+ * The help centre, over the top of everything.
+ *
+ * No preview branch: the articles are files in the app rather than clinic data,
+ * so the preview build reads exactly the same ones.
+ */
+@Composable
+private fun HelpPane(onBack: () -> Unit) {
+    BackHandler { onBack() }
+    val model: HelpModel = viewModel()
+    val state by model.state.collectAsState()
+    androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
+    HelpScreen(state = state, onBack = onBack, onSearch = model::search, onOpen = model::open)
+}
+
+/**
+ * A fortnight of invented bookings, so the week and month grids have something
+ * to draw. The live screen counts real appointments; this only has to prove the
+ * squares line up under the right weekday.
+ */
+private fun previewCounts(span: Span): List<DayCount> {
+    if (span == Span.Day) return emptyList()
+    val busy = listOf(6, 0, 9, 11, 4, 7, 0, 3, 12, 8, 0, 5, 10, 2)
+    // Month starts on a Monday in this example, so two squares are blank first.
+    val pad = if (span == Span.Month) 2 else 0
+    val days = if (span == Span.Week) 7 else 30
+    return List(pad) { DayCount("", 0, 0, 0, inSpan = false) } +
+        (1..days).map { day ->
+            val booked = busy[(day - 1) % busy.size]
+            DayCount(
+                dateKey = "2026-09-%02d".format(day),
+                dayOfMonth = day,
+                booked = booked,
+                // Every third day is already finished, to show the greyed count.
+                done = if (day % 3 == 0) booked else 0,
+            )
+        }
+}
+
+/**
+ * A few photographs for the preview build, so the grid has something in it.
+ * They are the help centre's own screenshots — already on the website, already
+ * the right shape, and nothing invented that could be mistaken for a patient.
+ */
+private fun previewMedia(): List<com.alphadental.clinic.data.PatientMedia> {
+    val base = com.alphadental.clinic.BuildConfig.WEB_URL.trimEnd('/') + "/help/en/"
+    return listOf(
+        "new-patient-form.png" to "Clinical Photo",
+        "add-treatment.png" to "X-Ray",
+        "add-lead.png" to "Panoramic",
+        "add-team-member-form.png" to "Clinical Photo",
+    ).mapIndexed { i, (file, category) ->
+        com.alphadental.clinic.data.PatientMedia(
+            id = "m$i",
+            url = base + file,
+            category = category,
+            filename = file,
+            uploadedBy = "Dr. Youssef",
+            createdAtMillis = System.currentTimeMillis() - i * 86_400_000L,
+        )
+    }
 }

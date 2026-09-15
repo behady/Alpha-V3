@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -294,6 +295,8 @@ enum class Destination(
     Reminders("Auto SMS", "Reminders sent from a clinic phone", Icons.Filled.Sms, Area.Admin, built = true, permission = "access.settings"),
     Settings("Settings", "How the clinic runs", Icons.Filled.Settings, Area.Admin, built = true, permission = "access.settings"),
     // Built, and not a website thing: it flips the app's own language.
+    // No permission key: everybody is allowed to read how the thing works.
+    Help("Help", "How the system works, article by article", Icons.AutoMirrored.Filled.HelpOutline, Area.Account, built = true),
     Language("العربية", "Change the app's language", Icons.Filled.Language, Area.Account, built = true),
     ;
 

@@ -1,6 +1,10 @@
 package com.alphadental.clinic.next
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,6 +60,8 @@ fun DayScreen(
     onToday: () -> Unit,
     onOpenVisit: (Visit) -> Unit = {},
     onBookGap: (DayEntry.Gap) -> Unit = {},
+    onSpan: (Span) -> Unit = {},
+    onOpenDay: (String) -> Unit = {},
 ) {
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
@@ -64,6 +70,22 @@ fun DayScreen(
             contentPadding = PaddingValues(bottom = T.barClearance),
         ) {
             item { DaySlab(state, onShiftDay, onToday) }
+
+            item {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Span.entries.forEach { s ->
+                        SettingsPill(s.label, solid = state.span == s) { onSpan(s) }
+                    }
+                }
+            }
+
+            if (state.span != Span.Day) {
+                calendar(state, onOpenDay)
+                return@LazyColumn
+            }
 
             state.error?.let { message ->
                 item {
@@ -154,6 +176,102 @@ private fun DaySlab(state: Day, onShiftDay: (Int) -> Unit, onToday: () -> Unit) 
  * stage stripe and no chip, and the only thing with any weight on the row is
  * the button that does something about it.
  */
+/**
+ * A week or a month as squares.
+ *
+ * Not a grid of appointments: on a phone that is six pixels per patient and
+ * unreadable. What a week view is actually asked is "which day is quiet" and
+ * "is anything on the 24th", and a count answers both — then a tap drops into
+ * the day, which is the screen that can show the detail.
+ *
+ * Saturday first, because that is the Egyptian working week and the one the
+ * payroll period already uses.
+ */
+private fun LazyListScope.calendar(state: Day, onOpenDay: (String) -> Unit) {
+    if (state.counting && state.counts.isEmpty()) {
+        item {
+            Box(Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(
+                    color = T.inkFaint, strokeWidth = 2.dp, modifier = Modifier.size(24.dp),
+                )
+            }
+        }
+        return
+    }
+
+    item {
+        Row(Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 6.dp)) {
+            listOf("Sa", "Su", "Mo", "Tu", "We", "Th", "Fr").forEach { day ->
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    Txt(day, Type.chip, T.inkFaint, uppercase = true)
+                }
+            }
+        }
+    }
+
+    state.counts.chunked(7).forEachIndexed { row, week ->
+        item(key = "cal-$row") {
+            Row(Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 3.dp)) {
+                week.forEach { day -> DaySquare(day, state.dateKey, Modifier.weight(1f), onOpenDay) }
+                // A short last week keeps its squares the same size as a full one.
+                repeat(7 - week.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+
+    item {
+        val total = state.counts.sumOf { it.booked }
+        Txt(
+            if (total == 0) {
+                "Nothing booked in this stretch."
+            } else {
+                "$total booked. Tap a day to open it."
+            },
+            Type.caption, T.inkMuted,
+            Modifier.padding(horizontal = T.gutter, vertical = 16.dp),
+            maxLines = 2,
+        )
+    }
+}
+
+@Composable
+private fun DaySquare(day: DayCount, today: String, modifier: Modifier, onOpen: (String) -> Unit) {
+    if (!day.inSpan) {
+        Spacer(modifier.aspectRatio(1f))
+        return
+    }
+    val isShown = day.dateKey == today
+    Box(
+        modifier
+            .aspectRatio(1f)
+            .padding(2.dp)
+            .clip(T.cardShape)
+            .background(if (isShown) T.slab else T.surface)
+            .clickable { onOpen(day.dateKey) },
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Txt(
+                day.dayOfMonth.toString(),
+                Type.label,
+                if (isShown) T.onSlab else T.ink,
+            )
+            if (day.booked > 0) {
+                Spacer(Modifier.height(2.dp))
+                Txt(
+                    day.booked.toString(),
+                    Type.chip,
+                    // Grey once everybody has been seen: a full day already
+                    // dealt with is not the same news as a full day ahead.
+                    if (isShown) T.onSlab
+                    else if (day.done >= day.booked) T.inkFaint
+                    else T.accentInk,
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun GapRow(gap: DayEntry.Gap, onBook: () -> Unit) {
     Row(

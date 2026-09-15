@@ -1,6 +1,11 @@
 package com.alphadental.clinic.next
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
@@ -17,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -68,6 +74,11 @@ fun RecordScreen(
     onTakePayment: (() -> Unit)? = null,
     onRecordTreatment: (() -> Unit)? = null,
     onMore: (() -> Unit)? = null,
+    onFilterMedia: (String) -> Unit = {},
+    onUploadCategory: (String) -> Unit = {},
+    onView: (String?) -> Unit = {},
+    onCamera: (() -> Unit)? = null,
+    onGallery: (() -> Unit)? = null,
 ) {
     val record = state.record
 
@@ -94,11 +105,143 @@ fun RecordScreen(
                     RecordTab.Overview -> overview(state, record)
                     RecordTab.Chart -> chart(state, record, onSelectTooth)
                     RecordTab.Visits -> visits(record)
+                    RecordTab.Photos -> photos(state, onFilterMedia, onUploadCategory, onView, onCamera, onGallery)
                     RecordTab.Ledger -> ledger(state)
                 }
             }
         }
     }
+}
+
+/**
+ * The photographs on a file.
+ *
+ * A grid rather than a list: an x-ray is recognised at a glance and read by
+ * opening it, and three to a row is the most a thumb can still hit.
+ *
+ * The camera is the point of having this on a phone at all. A clinical photo
+ * taken chairside and filed in ten seconds is one that gets taken; one that has
+ * to be emailed to a desk later is one that does not.
+ */
+private fun LazyListScope.photos(
+    state: RecordState,
+    onFilter: (String) -> Unit,
+    onCategory: (String) -> Unit,
+    onView: (String?) -> Unit,
+    onCamera: (() -> Unit)?,
+    onGallery: (() -> Unit)?,
+) {
+    state.mediaError?.let { message ->
+        item {
+            Surface(color = T.dangerTint, modifier = Modifier.fillMaxWidth()) {
+                Txt(message, Type.caption, T.danger, Modifier.padding(T.gutter), maxLines = 3)
+            }
+        }
+    }
+
+    if (onCamera != null || onGallery != null) {
+        item { SectionLabel("File it as") }
+        item {
+            Row(
+                Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = T.gutter, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                MEDIA_CATEGORIES.forEach { c ->
+                    SettingsPill(c, solid = state.uploadCategory == c) { onCategory(c) }
+                }
+            }
+        }
+        item {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (state.uploading) {
+                    CircularProgressIndicator(
+                        color = T.inkFaint, strokeWidth = 2.dp, modifier = Modifier.size(20.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Txt("Saving…", Type.caption, T.inkMuted)
+                } else {
+                    onCamera?.let { SettingsPill("Take a photo", solid = true, onClick = it) }
+                    onGallery?.let { SettingsPill("From the gallery", onClick = it) }
+                }
+            }
+        }
+    }
+
+    if (state.media.isNotEmpty()) {
+        item { SectionLabel("Show") }
+        item {
+            Row(
+                Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = T.gutter, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                SettingsPill("Everything", solid = state.mediaFilter.isBlank()) {
+                    if (state.mediaFilter.isNotBlank()) onFilter(state.mediaFilter)
+                }
+                MEDIA_CATEGORIES.forEach { c ->
+                    val n = state.media.count { it.category == c }
+                    if (n > 0) {
+                        SettingsPill("$c · $n", solid = state.mediaFilter == c) { onFilter(c) }
+                    }
+                }
+            }
+        }
+    }
+
+    val shown = state.shownMedia
+    if (shown.isEmpty()) {
+        item {
+            SettingsEmpty(
+                if (state.media.isEmpty()) {
+                    "No photographs on this file yet."
+                } else {
+                    "Nothing filed under that."
+                },
+            )
+        }
+        return
+    }
+
+    // Chunked into rows by hand rather than a nested grid: a LazyVerticalGrid
+    // inside a LazyColumn cannot measure itself, and this list already scrolls.
+    shown.chunked(3).forEachIndexed { rowIndex, row ->
+        item(key = "media-$rowIndex") {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                row.forEach { media ->
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .aspectRatio(1f)
+                            .clip(T.cardShape)
+                            .background(T.surfaceSoft)
+                            .clickable { onView(media.url) },
+                    ) {
+                        AsyncImage(
+                            model = media.url,
+                            contentDescription = media.category.ifBlank { media.filename },
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
+                // Keeps a short last row the same size as a full one instead of
+                // stretching two photos across the screen.
+                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+
+    item { Spacer(Modifier.height(10.dp)) }
 }
 
 @Composable
