@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
@@ -66,12 +67,13 @@ fun RecordScreen(
     onMessage: (String) -> Unit = {},
     onTakePayment: (() -> Unit)? = null,
     onRecordTreatment: (() -> Unit)? = null,
+    onMore: (() -> Unit)? = null,
 ) {
     val record = state.record
 
     Column(Modifier.fillMaxSize().background(T.ground)) {
 
-        RecordSlab(state, record, onBack, onCall, onMessage, onTakePayment, onRecordTreatment)
+        RecordSlab(state, record, onBack, onCall, onMessage, onTakePayment, onRecordTreatment, onMore)
 
         if (record != null) Tabs(state.tab, onTab)
 
@@ -108,6 +110,7 @@ private fun RecordSlab(
     onMessage: (String) -> Unit,
     onTakePayment: (() -> Unit)?,
     onRecordTreatment: (() -> Unit)?,
+    onMore: (() -> Unit)?,
 ) {
     val owed = record?.balance?.owed ?: 0.0
     val credit = record?.balance?.credit ?: 0.0
@@ -130,6 +133,12 @@ private fun RecordSlab(
             onRecordTreatment?.let {
                 Spacer(Modifier.width(8.dp))
                 SlabIcon(Icons.Filled.Add, "Record treatment", onClick = it)
+            }
+            // Everything else this file can do, behind one icon. Five buttons in
+            // a row on a phone is five buttons nobody can hit.
+            onMore?.let {
+                Spacer(Modifier.width(8.dp))
+                SlabIcon(Icons.Filled.MoreHoriz, "More", onClick = it)
             }
         },
         // Nothing at all when the account is settled, which most are.

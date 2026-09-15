@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
@@ -59,6 +60,7 @@ fun LabScreen(
     onBack: () -> Unit,
     onFilter: (LabFilter) -> Unit,
     onOpenCase: (String) -> Unit = {},
+    onNewCase: (() -> Unit)? = null,
 ) {
     Column(Modifier.fillMaxSize().background(T.ground)) {
 
@@ -72,6 +74,9 @@ fun LabScreen(
             bar = {
                 SlabIcon(Icons.AutoMirrored.Filled.ArrowBack, "Back", onClick = onBack)
                 Spacer(Modifier.weight(1f))
+                // Raising a case belongs on the phone: the impression is in the
+                // dentist's hand and the driver is already on the way.
+                onNewCase?.let { SlabIcon(Icons.Filled.Add, "New case", onClick = it) }
             },
             stats = if (state.loading || state.error != null) emptyList() else listOf(
                 Stat("At lab", state.summary.atLab.toString()),

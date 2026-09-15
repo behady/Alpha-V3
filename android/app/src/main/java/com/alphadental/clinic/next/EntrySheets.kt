@@ -70,24 +70,42 @@ fun AddPatientSheet(
 @Composable
 fun BookingSheet(state: Booking, actions: BookingActions) {
     Sheet(
-        title = "New booking",
+        title = if (state.isEditing) "Change this booking" else "New booking",
         caption = state.dateLabel,
         busy = state.saving,
         error = state.error,
-        action = "Book",
+        action = if (state.isEditing) "Save" else "Book",
         ready = state.ready && state.canBook,
         onAction = actions.book,
         onDismiss = actions.close,
     ) {
-        PatientPicker(
-            query = state.query,
-            results = state.results,
-            searching = state.searching,
-            chosen = state.patient,
-            allowNew = true,
-            onQuery = actions.search,
-            onChoose = actions.choose,
-        )
+        if (state.isEditing) {
+            // Who the appointment is for is not up for negotiation here. Moving
+            // a visit to a different patient is not a reschedule, it is two
+            // separate acts, and doing it by retyping a name in this box is how
+            // one patient's history ends up on another's file.
+            Txt(
+                state.patient?.name.orEmpty().ifBlank { "This patient" },
+                Type.rowName, T.ink,
+                Modifier.padding(start = T.gutter, end = T.gutter, top = 14.dp),
+            )
+            Txt(
+                "To book somebody else, close this and start a new booking.",
+                Type.caption, T.inkMuted,
+                Modifier.padding(start = T.gutter, end = T.gutter, top = 2.dp, bottom = 12.dp),
+                maxLines = 2,
+            )
+        } else {
+            PatientPicker(
+                query = state.query,
+                results = state.results,
+                searching = state.searching,
+                chosen = state.patient,
+                allowNew = true,
+                onQuery = actions.search,
+                onChoose = actions.choose,
+            )
+        }
 
         Rule()
 

@@ -260,15 +260,6 @@ fun LabMoveSheet(
             )
         }
 
-        Txt(
-            // The boundary, stated where somebody would otherwise look for the
-            // missing button.
-            "Raising a new case — shades, teeth, the agreed price — is done on the website, " +
-                "where the form is long and there is a keyboard.",
-            Type.caption, T.inkFaint,
-            Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
-            maxLines = 3,
-        )
     }
 }
 

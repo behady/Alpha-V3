@@ -2,6 +2,7 @@ package com.alphadental.clinic.next
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.alphadental.clinic.data.Appointment
 import com.alphadental.clinic.data.Doctor
 import com.alphadental.clinic.data.Patient
 import com.alphadental.clinic.data.Repository
@@ -48,8 +49,22 @@ data class Booking(
     val saving: Boolean = false,
     val error: String? = null,
     val bookedId: String? = null,
+
+    /**
+     * The appointment being changed, when this sheet was opened on one.
+     *
+     * Rescheduling is the same four questions as booking — who, when, what, how
+     * long — so it is the same sheet rather than a second one that would drift
+     * away from it a field at a time.
+     */
+    val editing: Appointment? = null,
 ) {
-    val canBook: Boolean get() = who?.can("appointments.add") == true
+    val isEditing: Boolean get() = editing != null
+
+    /** Creating and changing are different tick-boxes on the website. */
+    val canBook: Boolean
+        get() = if (isEditing) who?.can("appointments.edit") == true
+        else who?.can("appointments.add") == true
 
     /** Enough to write: somebody to see, and a time to see them. */
     val ready: Boolean
@@ -61,7 +76,12 @@ data class Booking(
             if (time.isBlank()) return null
             val start = minutesOf(time) ?: return null
             val end = start + minutes
-            return taken.firstOrNull { visit ->
+            return taken
+                // A visit cannot clash with itself. Without this, reopening a
+                // booking to change its length warns about the very appointment
+                // being edited.
+                .filterNot { it.id == editing?.id }
+                .firstOrNull { visit ->
                 val s = visit.minuteOfDay
                 val e = s + visit.duration.coerceAtLeast(5)
                 start < e && s < end
@@ -88,6 +108,24 @@ data class Booking(
             val d = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(dateKey)!!
             SimpleDateFormat("EEEE d MMMM", Locale.US).format(d)
         }.getOrDefault(dateKey)
+}
+
+/**
+ * "09:30 AM" as the sheet's own "09:30".
+ *
+ * The slot list is 24-hour text, so a stored display time has to be converted or
+ * the chip for the appointment's own time never highlights and the person
+ * rescheduling cannot tell which slot they are currently in.
+ */
+private fun toField(stored: String): String {
+    val m = Regex("""(\d{1,2}):(\d{2})\s*([AaPp][Mm])?""").find(stored.trim()) ?: return ""
+    var hour = m.groupValues[1].toIntOrNull() ?: return ""
+    val minute = m.groupValues[2].toIntOrNull() ?: return ""
+    when (m.groupValues[3].lowercase()) {
+        "pm" -> if (hour != 12) hour += 12
+        "am" -> if (hour == 12) hour = 0
+    }
+    return "%02d:%02d".format(hour, minute)
 }
 
 private fun minutesOf(time: String): Int? {
@@ -148,6 +186,70 @@ class BookingModel : ViewModel() {
         start()
         val who = _state.value.who ?: return
         loadDay(who, _state.value.dateKey)
+    }
+
+    /**
+     * Open the sheet with the patient already chosen.
+     *
+     * Reached from a patient's own file, where the answer to "who" is the whole
+     * reason the screen is open. Searching for somebody whose file is already in
+     * front of you is the kind of step that makes people go back to the desk.
+     */
+    fun openFor(person: Person) {
+        open()
+        _state.value = _state.value.copy(
+            patient = person,
+            query = person.name,
+            results = emptyList(),
+        )
+    }
+
+    /**
+     * Open the sheet on an appointment that already exists.
+     *
+     * Everything is filled from the document rather than from the diary row,
+     * because the row does not carry the notes, the service or the length — and
+     * a reschedule that silently blanked those would be a quiet data loss every
+     * time somebody moved a visit by half an hour.
+     */
+    fun edit(visit: Visit) {
+        _state.value = _state.value.copy(
+            open = true,
+            error = null,
+            bookedId = null,
+            editing = null,
+            patient = Person(id = visit.patientId, name = visit.patientName, phone = "", balance = 0.0),
+            query = visit.patientName,
+            results = emptyList(),
+            dateKey = visit.date.ifBlank { _state.value.dateKey },
+            time = toField(visit.time),
+            minutes = visit.duration.coerceAtLeast(5),
+        )
+        start()
+        viewModelScope.launch {
+            val who = _state.value.who ?: ClinicSource.signedIn().getOrElse { e ->
+                _state.value = _state.value.copy(error = e.message)
+                return@launch
+            }
+            loadDay(who, _state.value.dateKey)
+            val record = runCatching { Repository.loadAppointment(who.clinicId, visit.id) }.getOrNull()
+                ?: run {
+                    _state.value = _state.value.copy(error = "That appointment is no longer on file.")
+                    return@launch
+                }
+            val s = _state.value
+            _state.value = s.copy(
+                editing = record,
+                dateKey = record.date.ifBlank { s.dateKey },
+                time = toField(record.time),
+                minutes = record.duration.coerceAtLeast(5),
+                notes = record.notes,
+                doctor = s.doctors.firstOrNull { it.id == record.doctorId }
+                    ?: s.doctors.firstOrNull { it.name == record.doctor },
+                service = s.services.firstOrNull { it.id == record.serviceId }
+                    ?: s.services.firstOrNull { it.name == record.treatment },
+            )
+        }
     }
 
     fun close() {
@@ -252,6 +354,37 @@ class BookingModel : ViewModel() {
         val s = _state.value
         val who = s.who ?: return
         if (!s.canBook || !s.ready) return
+
+        s.editing?.let { record ->
+            _state.value = s.copy(saving = true, error = null)
+            viewModelScope.launch {
+                Repository.updateAppointment(
+                    clinicId = who.clinicId,
+                    appointment = record,
+                    dateKey = s.dateKey,
+                    time = s.time,
+                    doctor = s.doctor,
+                    durationMinutes = s.minutes,
+                    treatment = s.service?.name ?: record.treatment,
+                    notes = s.notes,
+                    service = s.service,
+                    cost = s.service?.price ?: record.cost,
+                    byName = who.name,
+                )
+                    .onSuccess {
+                        _state.value = _state.value.copy(
+                            saving = false, bookedId = record.id, open = false,
+                        )
+                    }
+                    .onFailure { e ->
+                        _state.value = _state.value.copy(
+                            saving = false,
+                            error = e.message ?: "That change could not be saved.",
+                        )
+                    }
+            }
+            return
+        }
 
         _state.value = s.copy(saving = true, error = null)
         viewModelScope.launch {

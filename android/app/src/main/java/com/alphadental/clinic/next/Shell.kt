@@ -121,6 +121,14 @@ fun Shell(preview: Boolean = false) {
     val bookingState by (booking?.state?.collectAsState()
         ?: androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(Booking()) })
 
+    // Tapping an appointment opens the same sheet from the dashboard and from
+    // the diary, for the same reason booking lives here: a patient who has
+    // arrived gets marked arrived from whichever screen happened to be open.
+    val visits: VisitModel? = if (preview) null else viewModel()
+    val visitState by (visits?.state?.collectAsState()
+        ?: androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(VisitSheetState()) })
+    val context = androidx.compose.ui.platform.LocalContext.current
+
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
         when (tab) {
@@ -128,8 +136,13 @@ fun Shell(preview: Boolean = false) {
                 preview,
                 onOpenAttendance = { openAttendance = true },
                 onBook = { booking?.open() },
+                onOpenVisit = { visits?.open(it) },
             )
-            Tab.Day -> DayTab(preview) { date, time -> booking?.open(date, time) }
+            Tab.Day -> DayTab(
+                preview,
+                onBook = { date, time -> booking?.open(date, time) },
+                onOpenVisit = { visits?.open(it) },
+            )
             Tab.Patients -> PatientsTab(preview) { openRecord = it }
             // Not built yet. Saying so is better than a blank screen that reads
             // as a bug, and better than hiding the tab so the bar keeps moving.
@@ -145,6 +158,27 @@ fun Shell(preview: Boolean = false) {
                 onOpenLeads = { openLeads = true },
                 onOpenStock = { openStock = true },
                 onOpenAttendance = { openAttendance = true },
+            )
+        }
+
+        if (visitState.isOpen && visits != null) {
+            VisitSheet(
+                state = visitState,
+                onMove = visits::move,
+                onOpenFile = {
+                    val id = visitState.visit?.patientId
+                    visits.close()
+                    if (!id.isNullOrBlank()) openRecord = id
+                },
+                onReschedule = {
+                    visitState.visit?.let { visit ->
+                        visits.close()
+                        booking?.edit(visit)
+                    }
+                },
+                onCall = { context.dial(it) },
+                onMessage = { context.whatsapp(it) },
+                onDismiss = visits::close,
             )
         }
 
@@ -180,10 +214,15 @@ fun Shell(preview: Boolean = false) {
 }
 
 @Composable
-private fun TodayTab(preview: Boolean, onOpenAttendance: () -> Unit, onBook: () -> Unit) {
+private fun TodayTab(
+    preview: Boolean,
+    onOpenAttendance: () -> Unit,
+    onBook: () -> Unit,
+    onOpenVisit: (com.alphadental.clinic.next.data.Visit) -> Unit,
+) {
     if (preview) {
         DashboardScreen(
-            state = previewDashboard(), onCheckOut = {},
+            state = previewDashboard(), onCheckOut = {}, onOpenVisit = onOpenVisit,
             onClock = onOpenAttendance, onBook = onBook,
         )
     } else {
@@ -191,7 +230,7 @@ private fun TodayTab(preview: Boolean, onOpenAttendance: () -> Unit, onBook: () 
         val state by model.state.collectAsState()
         androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
         DashboardScreen(
-            state = state, onCheckOut = model::checkOut,
+            state = state, onCheckOut = model::checkOut, onOpenVisit = onOpenVisit,
             onClock = onOpenAttendance, onBook = onBook,
         )
     }
@@ -371,11 +410,16 @@ private fun MoreTab(
 }
 
 @Composable
-private fun DayTab(preview: Boolean, onBook: (String, String) -> Unit) {
+private fun DayTab(
+    preview: Boolean,
+    onBook: (String, String) -> Unit,
+    onOpenVisit: (com.alphadental.clinic.next.data.Visit) -> Unit,
+) {
     if (preview) {
         val state = remember { previewDay() }
         DayScreen(
             state = state, onShiftDay = {}, onToday = {},
+            onOpenVisit = onOpenVisit,
             onBookGap = { gap -> onBook(state.dateKey, clockOf(gap.minute)) },
         )
     } else {
@@ -384,6 +428,7 @@ private fun DayTab(preview: Boolean, onBook: (String, String) -> Unit) {
         androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
         DayScreen(
             state = state, onShiftDay = model::shiftDay, onToday = model::today,
+            onOpenVisit = onOpenVisit,
             // A free slot books into itself: the whole point of tapping one is
             // that the day and time are already decided.
             onBookGap = { gap -> onBook(state.dateKey, clockOf(gap.minute)) },
@@ -456,8 +501,18 @@ private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) 
 
     val model: RecordModel = viewModel()
     val state by model.state.collectAsState()
+    // These are the shell's own view models, reached again from inside the file.
+    // viewModel() resolves against the session rather than the composable, so
+    // the booking sheet opened from here is the same one the diary uses.
+    val prescriptions: PrescriptionModel = viewModel()
+    val script by prescriptions.state.collectAsState()
+    val plans: PlanModel = viewModel()
+    val planState by plans.state.collectAsState()
+    val booking: BookingModel = viewModel()
+    val bookingState by booking.state.collectAsState()
     var taking by remember { mutableStateOf(false) }
     var recording by remember { mutableStateOf(false) }
+    var more by remember { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(patientId) { model.open(patientId) }
 
     androidx.compose.runtime.LaunchedEffect(state.recorded) {
@@ -480,7 +535,89 @@ private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) 
         // A write, so only for someone the server would accept it from.
         onTakePayment = if (state.canTakePayment) ({ taking = true }) else null,
         onRecordTreatment = if (state.canRecord) ({ recording = true }) else null,
+        onMore = { more = true },
     )
+
+    if (more) {
+        state.record?.let { record ->
+            PatientActionsSheet(
+                patientName = record.person.name,
+                onPrescribe = if (state.canRecord) ({
+                    more = false
+                    prescriptions.open(record.person)
+                }) else null,
+                onPlan = if (state.canRecord) ({
+                    more = false
+                    plans.open(record.person)
+                }) else null,
+                onBook = if (bookingState.canBook || state.who?.can("appointments.add") == true) ({
+                    more = false
+                    booking.openFor(record.person)
+                }) else null,
+                onDismiss = { more = false },
+            )
+        }
+    }
+
+    if (script.open) {
+        PrescriptionSheet(
+            state = script,
+            actions = ScriptActions(
+                search = prescriptions::search,
+                add = prescriptions::add,
+                addTyped = prescriptions::addTyped,
+                setDose = prescriptions::setDose,
+                setDoseAr = prescriptions::setDoseAr,
+                setNote = prescriptions::setNote,
+                remove = prescriptions::remove,
+                setDiagnosis = prescriptions::setDiagnosis,
+                setDoctor = prescriptions::setDoctor,
+                save = prescriptions::save,
+                close = prescriptions::close,
+            ),
+        )
+    }
+
+    if (planState.open) {
+        PlanSheet(
+            state = planState,
+            actions = PlanActions(
+                startDraft = plans::startDraft,
+                cancelDraft = plans::cancelDraft,
+                search = plans::search,
+                addStep = plans::addStep,
+                setTeeth = plans::setTeeth,
+                setQuantity = plans::setQuantity,
+                setPrice = plans::setPrice,
+                setVisit = plans::setVisit,
+                removeStep = plans::removeStep,
+                setTitle = plans::setTitle,
+                setDescription = plans::setDescription,
+                setDoctor = plans::setDoctor,
+                setStatus = plans::setStatus,
+                save = plans::save,
+                close = plans::close,
+            ),
+        )
+    }
+
+    if (bookingState.open) {
+        BookingSheet(
+            state = bookingState,
+            actions = BookingActions(
+                search = booking::search,
+                choose = booking::choose,
+                setDoctor = booking::setDoctor,
+                setService = booking::setService,
+                shiftDay = booking::shiftDay,
+                setTime = booking::setTime,
+                setMinutes = booking::setMinutes,
+                setNotes = booking::setNotes,
+                book = booking::book,
+                close = booking::close,
+            ),
+        )
+    }
 
     if (recording) {
         state.record?.let { record ->
@@ -928,12 +1065,15 @@ private fun LabPane(preview: Boolean, onBack: () -> Unit) {
     }
     val model: LabModel = viewModel()
     val state by model.state.collectAsState()
+    val orders: LabOrderModel = viewModel()
+    val order by orders.state.collectAsState()
     androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
     LabScreen(
         state = state,
         onBack = onBack,
         onFilter = model::show,
         onOpenCase = { if (state.canMove) model.openCase(it) },
+        onNewCase = if (state.canMove) ({ orders.open() }) else null,
     )
 
     state.openCase?.let { case ->
@@ -943,6 +1083,39 @@ private fun LabPane(preview: Boolean, onBack: () -> Unit) {
             error = state.error,
             onMove = { model.move(it); model.openCase(null) },
             onDismiss = { model.openCase(null) },
+        )
+    }
+
+    if (order.open) {
+        LabOrderSheet(
+            state = order,
+            actions = LabOrderActions(
+                search = orders::search,
+                choose = orders::choose,
+                chooseLab = orders::chooseLab,
+                chooseBranch = orders::chooseBranch,
+                chooseDoctor = orders::chooseDoctor,
+                setWorkType = orders::setWorkType,
+                toggleTooth = orders::toggleTooth,
+                setUnits = orders::setUnits,
+                setBodyShade = orders::setBodyShade,
+                setCervicalShade = orders::setCervicalShade,
+                setGumShade = orders::setGumShade,
+                setMaterial = orders::setMaterial,
+                setImplantSystem = orders::setImplantSystem,
+                setImplantPlatform = orders::setImplantPlatform,
+                setAbutment = orders::setAbutment,
+                setRetention = orders::setRetention,
+                setGuideType = orders::setGuideType,
+                setSleeve = orders::setSleeve,
+                setNotes = orders::setNotes,
+                setDescription = orders::setDescription,
+                setPrice = orders::setPrice,
+                setSentVia = orders::setSentVia,
+                setTryIn = orders::setTryIn,
+                send = orders::send,
+                close = orders::close,
+            ),
         )
     }
 }
