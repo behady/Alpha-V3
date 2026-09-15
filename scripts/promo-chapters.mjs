@@ -234,6 +234,65 @@ export const CHAPTERS = {
       },
     ],
   },
+  // ---------------------------------------------------------------------
+  record: {
+    title: "The Patient Record",
+    slug: "4-patient-record",
+    /**
+     * Navigates by SEARCHING for the patient rather than by a hard-coded id. Re-seeding the demo
+     * clinic mints new patient documents, so an id baked into a URL dies the next time the diary
+     * is re-centred — and the beat then records a not-found page perfectly happily.
+     */
+    beats: [
+      { n: 0, label: "the-register", url: "/patients", settle: 11000, actions: [{ do: "wait", ms: 3500 }] },
+      {
+        n: 1, label: "find-and-open", settle: 500,
+        actions: [
+          { do: "fill", placeholder: "بحث بالاسم أو الهاتف", text: "Ziad", perChar: 130 },
+          { do: "wait", ms: 2500 },
+          { do: "clickFirst", text: STAR_PATIENT.name },
+          { do: "wait", ms: 6000 },
+        ],
+      },
+      {
+        n: 2, label: "the-file", settle: 1000,
+        actions: [{ do: "wheel", ms: 5000, dy: 70 }],
+      },
+      {
+        n: 3, label: "treatment-plan", settle: 500,
+        actions: [
+          { do: "clickFirst", text: "خطة العلاج" },
+          { do: "wait", ms: 4000 },
+          { do: "wheel", ms: 4000, dy: 70 },
+        ],
+      },
+      {
+        n: 4, label: "the-money", settle: 500,
+        actions: [
+          { do: "clickFirst", text: "المالية" },
+          { do: "wait", ms: 4000 },
+          { do: "wheel", ms: 4000, dy: 70 },
+        ],
+      },
+      {
+        n: 5, label: "the-visits", settle: 500,
+        actions: [
+          { do: "clickFirst", text: "سجل الزيارات" },
+          { do: "wait", ms: 4000 },
+          { do: "wheel", ms: 4000, dy: 70 },
+        ],
+      },
+      {
+        // The chart is its own route, so it goes last — there is no coming back to the tabs.
+        n: 6, label: "the-chart", settle: 500,
+        actions: [
+          { do: "clickFirst", text: "تشخيص" },
+          { do: "wait", ms: 7000 },
+        ],
+      },
+    ],
+  },
+
 };
 
 export function chapter(name) {
