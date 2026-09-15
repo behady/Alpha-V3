@@ -185,49 +185,51 @@ export const CHAPTERS = {
     title: "The Bot and the AI",
     slug: "3-bot-and-ai",
     /**
-     * Explains the two halves, because they are sold and priced apart and a dentist who confuses
-     * them will be disappointed by whichever one he bought. The scripted bot is keyword→reply,
-     * written by the clinic, sent verbatim, free. The AI is the LAST layer in the engine and is
-     * consulted only when nothing cheaper matched — a credit per answer, capped at three per
-     * conversation in "assisted" mode.
+     * Three jobs, each one a setting: receptionist (botEnabled + the facts), salesman
+     * (`botCoaching`, which the UI asks you to write "as you'd brief a new hire"), and first line
+     * on symptoms (`botClinicalMode: "dentist"` — it answers the symptom and THEN offers the
+     * appointment; the default "handoff" sends every symptom to a person).
      *
-     * Shown through the settings screens and real conversations rather than live in the in-app
-     * playground. The playground is the right demo and it refuses to run here: the API answers
-     * {"ok":true,"status":"skipped","reason":"no_gateway"} because the demo clinic has no WhatsApp
-     * gateway configured — even though a rehearsal never sends anything. Give the demo clinic a
-     * gateway (a decision with real consequences: it is the live channel) and this chapter can be
-     * rebuilt with the bot answering on camera.
+     * Shown through the settings screens and real threads rather than live in the playground: that
+     * route answers {"ok":true,"status":"skipped","reason":"no_gateway"}, because a rehearsal that
+     * sends nothing is still gated on the clinic having a WhatsApp gateway.
      */
     beats: [
       {
         n: 0, label: "who-answers", url: "/settings/whatsapp-bot", settle: 12000,
-        actions: [{ do: "wait", ms: 3500 }],
+        actions: [{ do: "wait", ms: 4000 }],
       },
       {
         n: 1, label: "the-four-modes", settle: 500,
-        actions: [{ do: "wheel", ms: 6500, dy: 70 }],
+        actions: [{ do: "wheel", ms: 7000, dy: 60 }],
       },
       {
         n: 2, label: "ready-answers", settle: 500,
         actions: [
-          { do: "click", text: "الردود الجاهزة" },
+          { do: "click", role: "button", text: "الردود الجاهزة" },
           { do: "wait", ms: 3000 },
-          { do: "wheel", ms: 5000, dy: 80 },
+          { do: "wheel", ms: 5500, dy: 80 },
         ],
       },
       {
-        n: 3, label: "clinic-scripts", settle: 500,
-        actions: [{ do: "wheel", ms: 6500, dy: 90 }],
+        // The coaching box lives on the AI tab: the salesman half of the story.
+        n: 3, label: "coaching", url: "/settings/whatsapp-ai", settle: 11000,
+        actions: [{ do: "wheel", ms: 8000, dy: 70 }],
       },
       {
-        n: 4, label: "the-ai-page", url: "/settings/whatsapp-ai", settle: 11000,
-        actions: [{ do: "wheel", ms: 5500, dy: 80 }],
+        // Back to the Bot page for the clinical switch — the "how far does it go" beat.
+        n: 4, label: "clinical-switch", url: "/settings/whatsapp-bot", settle: 11000,
+        actions: [{ do: "wheel", ms: 7000, dy: 75 }],
       },
       {
-        n: 5, label: "ai-in-the-wild", url: "/chats", settle: 10000,
+        n: 5, label: "the-cap", url: "/settings/whatsapp-ai", settle: 11000,
+        actions: [{ do: "wheel", ms: 6000, dy: 90 }],
+      },
+      {
+        n: 6, label: "ai-in-the-wild", url: "/chats", settle: 10000,
         actions: [
           { do: "clickFirst", text: "Heba Gamal" },
-          { do: "wait", ms: 6000 },
+          { do: "wait", ms: 6500 },
         ],
       },
     ],

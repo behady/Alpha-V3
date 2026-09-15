@@ -96,10 +96,19 @@ async function runActions(page, actions, report) {
        */
       if (a.do === "wheel") {
         await page.mouse.move(a.x ?? CSS_WIDTH / 2, a.y ?? CSS_HEIGHT / 2);
-        const steps = Math.max(1, Math.round((a.ms || 3000) / 120));
+        /**
+         * Few, large increments — not many small ones. Each mouse.wheel is a round trip to the
+         * browser, and on a heavy settings page they cost far more than the sleep between them:
+         * a beat asking for 8 seconds of scrolling took 96, because 66 wheel events each took
+         * over a second. Capped at 25 steps, the beat lasts about as long as it says it will.
+         */
+        const want = a.ms || 3000;
+        const steps = Math.max(1, Math.min(25, Math.round(want / 200)));
+        const gap = Math.max(60, Math.round(want / steps));
+        const perStep = Math.round((a.dy ?? 90) * ((want / 120) / steps));
         for (let i = 0; i < steps; i++) {
-          await page.mouse.wheel(0, a.dy ?? 90);
-          await sleep(120);
+          await page.mouse.wheel(0, perStep);
+          await sleep(gap);
         }
         continue;
       }
