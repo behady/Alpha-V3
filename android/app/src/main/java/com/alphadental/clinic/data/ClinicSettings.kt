@@ -72,6 +72,68 @@ object ClinicSettings {
         )
     }
 
+    /**
+     * When the clinic is open.
+     *
+     * Stored nested under `schedule` on `clinic_info`, as times of day rather than
+     * minutes, because that is the shape the website reads and writes. The phone
+     * converts at the edges instead of storing a second shape beside it.
+     */
+    data class Schedule(
+        val start: String = "09:00",
+        val end: String = "21:00",
+        val slotMinutes: Int = 30,
+        /** Lower-case English day names, as the website stores them. */
+        val offDays: Set<String> = emptySet(),
+        val configured: Boolean = false,
+    )
+
+    val WEEK = listOf("saturday", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday")
+
+    @Suppress("UNCHECKED_CAST")
+    suspend fun loadSchedule(clinicId: String): Schedule {
+        val m = (loadDoc(clinicId, "clinic_info")["schedule"] as? Map<String, Any?>).orEmpty()
+        fun time(key: String, fallback: String) =
+            (m[key] as? String)?.trim()?.takeIf { it.isNotBlank() } ?: fallback
+        val slot = when (val v = m["slotDuration"]) {
+            is Number -> v.toInt()
+            is String -> v.toIntOrNull() ?: 30
+            else -> 30
+        }
+        return Schedule(
+            start = time("start", "09:00"),
+            end = time("end", "21:00"),
+            slotMinutes = if (slot <= 0) 30 else slot,
+            offDays = (m["offDays"] as? List<*>)
+                .orEmpty()
+                .mapNotNull { it?.toString()?.trim()?.lowercase()?.takeIf(String::isNotEmpty) }
+                .toSet(),
+            configured = m["configuredAt"] != null,
+        )
+    }
+
+    /**
+     * `configuredAt` is stamped on every save, exactly as the website does it.
+     *
+     * Nothing seeds this document at signup, so without the stamp a clinic that
+     * deliberately kept nine-to-nine is indistinguishable from one that has never
+     * been asked — and the day screen refuses to count free slots for the second.
+     */
+    suspend fun saveSchedule(clinicId: String, sched: Schedule): Result<Unit> = saveDoc(
+        clinicId, "clinic_info",
+        mapOf(
+            "schedule" to mapOf(
+                "start" to sched.start.trim(),
+                "end" to sched.end.trim(),
+                // A string, because that is what the website writes and what its
+                // own parser tolerates either way.
+                "slotDuration" to sched.slotMinutes.coerceIn(5, 240).toString(),
+                "offDays" to sched.offDays.toList(),
+                "configuredAt" to java.time.Instant.now().toString(),
+            ),
+        ),
+    )
+
     suspend fun saveProfile(clinicId: String, p: ClinicProfile): Result<Unit> = saveDoc(
         clinicId, "clinic_info",
         mapOf(

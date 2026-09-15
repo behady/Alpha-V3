@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.PersonSearch
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -47,6 +48,7 @@ enum class Section(
     Branches("Branches", "Where the clinic works from", Icons.Filled.Storefront, SettingsGroup.Clinic),
     Labs("Dental labs", "Who the clinic sends work to", Icons.Filled.Science, SettingsGroup.Clinic),
     Area("Clock-in area", "Where staff may clock in from", Icons.Filled.MyLocation, SettingsGroup.Clinic),
+    Hours("Opening hours", "When the clinic is open, and for how long a slot", Icons.Filled.Schedule, SettingsGroup.Clinic),
 
     Prices("Price list", "What each treatment costs", Icons.Filled.Payments, SettingsGroup.Work),
     Recall("Recall and dormancy", "When a patient is due back", Icons.Filled.EventRepeat, SettingsGroup.Work),
@@ -86,6 +88,7 @@ data class SettingsState(
 
     val profile: ClinicSettings.ClinicProfile? = null,
     val area: ClinicSettings.AttendanceRules? = null,
+    val schedule: ClinicSettings.Schedule? = null,
     val alerts: Map<String, Boolean> = emptyMap(),
     val booking: ClinicSettings.OnlineBooking? = null,
     val recall: ClinicSettings.Recall? = null,
@@ -164,6 +167,7 @@ class SettingsModel : ViewModel() {
             Section.Branches -> load { it.copy(branches = LabCases.loadBranches(id)) }
             Section.Labs -> load { it.copy(labs = LabCases.loadLabs(id)) }
             Section.Area -> load { it.copy(area = ClinicSettings.loadAttendanceRules(id)) }
+            Section.Hours -> load { it.copy(schedule = ClinicSettings.loadSchedule(id)) }
             Section.Prices -> load { it.copy(services = ClinicSettings.loadServices(id)) }
             Section.Recall -> load { it.copy(recall = ClinicSettings.loadRecall(id)) }
             Section.Reasons -> load { it.copy(reasons = ClinicSettings.loadList(id, ClinicSettings.VISIT_REASONS)) }
@@ -191,6 +195,11 @@ class SettingsModel : ViewModel() {
 
     fun saveProfile(p: ClinicSettings.ClinicProfile) =
         write({ ClinicSettings.saveProfile(it, p) }) { s -> s.copy(profile = p) }
+
+    fun saveSchedule(sched: ClinicSettings.Schedule) =
+        write({ ClinicSettings.saveSchedule(it, sched) }) { s ->
+            s.copy(schedule = sched.copy(configured = true))
+        }
 
     fun saveArea(r: ClinicSettings.AttendanceRules) =
         write({ ClinicSettings.saveAttendanceRules(it, r) }) { s -> s.copy(area = r) }

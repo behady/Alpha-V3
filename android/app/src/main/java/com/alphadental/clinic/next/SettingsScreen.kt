@@ -384,6 +384,7 @@ data class SettingsActions(
     val close: () -> Unit,
     val saveProfile: (com.alphadental.clinic.data.ClinicSettings.ClinicProfile) -> Unit,
     val saveArea: (com.alphadental.clinic.data.ClinicSettings.AttendanceRules) -> Unit,
+    val saveSchedule: (com.alphadental.clinic.data.ClinicSettings.Schedule) -> Unit,
     val setAlert: (String, Boolean) -> Unit,
     val saveBooking: (com.alphadental.clinic.data.ClinicSettings.OnlineBooking) -> Unit,
     val saveRecall: (com.alphadental.clinic.data.ClinicSettings.Recall) -> Unit,

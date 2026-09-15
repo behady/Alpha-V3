@@ -50,6 +50,7 @@ fun SettingsSection(
         Section.Branches -> BranchesPage(state, onBack, actions)
         Section.Labs -> LabsPage(state, onBack, actions)
         Section.Area -> AreaPage(state, onBack, actions)
+        Section.Hours -> HoursPage(state, onBack, actions)
         Section.Prices -> PricesPage(state, onBack, actions)
         Section.Recall -> RecallPage(state, onBack, actions)
         Section.Reasons -> ListPage(
@@ -131,6 +132,121 @@ private fun ClinicPage(state: SettingsState, onBack: () -> Unit, actions: Settin
         }
 
         item { SettingsSave(dirty = form != stored, enabled = state.canEdit) { actions.saveProfile(form) } }
+    }
+}
+
+/**
+ * When the clinic is open.
+ *
+ * Not decoration: the diary builds its free-slot rows from these three numbers,
+ * and the booking sheet refuses to offer any time at all until they are set,
+ * because a nine-to-five guess offers times the clinic is shut.
+ */
+@Composable
+private fun HoursPage(state: SettingsState, onBack: () -> Unit, actions: SettingsActions) {
+    val stored = state.schedule
+    var form by remember(stored) { mutableStateOf(stored ?: ClinicSettings.Schedule()) }
+
+    SettingsPage(
+        title = Section.Hours.label,
+        caption = "What the diary offers",
+        state = state,
+        onBack = onBack,
+        ready = stored != null,
+    ) {
+        item {
+            RowGroup {
+                SettingsField(
+                    "Opens at", form.start, { form = form.copy(start = it) }, state.canEdit,
+                    hint = "09:00",
+                )
+                Rule()
+                SettingsField(
+                    "Closes at", form.end, { form = form.copy(end = it) }, state.canEdit,
+                    hint = "21:00",
+                )
+            }
+        }
+        item {
+            Txt(
+                "Both in 24-hour time. A clinic that closes after midnight is understood: an end " +
+                    "before the start rolls over to the next day.",
+                Type.caption, T.inkMuted,
+                Modifier.padding(horizontal = T.gutter, vertical = 10.dp),
+                maxLines = 3,
+            )
+        }
+
+        item { SectionLabel("How long an appointment slot is") }
+        item {
+            Row(
+                Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = T.gutter, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                listOf(10, 15, 20, 30, 45, 60).forEach { minutes ->
+                    SettingsPill("$minutes min", solid = form.slotMinutes == minutes) {
+                        if (state.canEdit) form = form.copy(slotMinutes = minutes)
+                    }
+                }
+            }
+        }
+
+        item { SectionLabel("Closed on") }
+        item {
+            Row(
+                Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = T.gutter, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ClinicSettings.WEEK.forEach { day ->
+                    val off = day in form.offDays
+                    SettingsPill(day.replaceFirstChar(Char::uppercase).take(3), solid = off) {
+                        if (state.canEdit) {
+                            form = form.copy(
+                                offDays = if (off) form.offDays - day else form.offDays + day,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            Txt(
+                if (form.offDays.isEmpty()) {
+                    "Open every day. Booking still allows a closing day if somebody insists — it " +
+                        "warns rather than refuses."
+                } else {
+                    "Closed " + form.offDays.joinToString(", ") { it.replaceFirstChar(Char::uppercase) } +
+                        ". Booking warns before putting somebody in on one of those days."
+                },
+                Type.caption, T.inkMuted,
+                Modifier.padding(horizontal = T.gutter, vertical = 10.dp),
+                maxLines = 3,
+            )
+        }
+
+        if (stored?.configured == false) {
+            item {
+                Txt(
+                    // The difference between "nine to nine" and "nobody has said".
+                    "Nobody has set these yet, so the diary shows no free slots and the booking " +
+                        "sheet asks for a time to be typed. Saving once fixes both.",
+                    Type.caption, T.warn,
+                    Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
+                    maxLines = 4,
+                )
+            }
+        }
+
+        item {
+            SettingsSave(
+                dirty = form != stored,
+                enabled = state.canEdit,
+            ) { actions.saveSchedule(form) }
+        }
     }
 }
 

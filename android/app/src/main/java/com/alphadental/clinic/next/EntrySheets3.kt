@@ -54,7 +54,7 @@ fun VisitSheet(
             .joinToString(" · "),
         busy = state.saving,
         error = state.error,
-        action = chosen?.let { "Mark ${stageLabel(it).lowercase()}" } ?: "Done",
+        action = chosen?.let { "Move to ${stageLabel(it).lowercase()}" } ?: "Done",
         ready = chosen != null,
         onAction = { chosen?.let(onMove) },
         onDismiss = onDismiss,
