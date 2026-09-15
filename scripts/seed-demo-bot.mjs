@@ -64,6 +64,24 @@ const db = getFirestore(getApps()[0], "default");
 const DRY = process.argv.includes("--dry-run");
 const MODE = process.argv.includes("--mode") ? process.argv[process.argv.indexOf("--mode") + 1] : "assisted";
 
+/**
+ * The coaching notes, briefed exactly as the settings page asks for them: like a new hire.
+ *
+ * Everything here is a SALES instruction or a guardrail, because those are the two things a model
+ * will not invent for itself. Note what is deliberately absent: no invented prices, no promises
+ * about outcomes, and complaints still route to a person.
+ */
+const COACHING = [
+  "انتي سارة، موظفة الاستقبال في العيادة.",
+  "ردي بالمصري، جملة أو اتنين، من غير رسميات.",
+  "أي إجابة لازم تنتهي بعرض ميعاد: «تحب أحجزلك؟»",
+  "لو قال السعر غالي: افتكري إن فيه تقسيط من غير فوايد، وإن الاستشارة بتتخصم من العلاج.",
+  "لو المريض متردد، اعرضي عليه أقرب ميعادين بالظبط بدل ما تسأليه هو عايز إمتى.",
+  "لو سأل عن دكتور، قولي تخصصه وخبرته في جملة واحدة.",
+  "متقوليش سعر نهائي لعلاج محتاج كشف — قولي النطاق واعرضي الكشف.",
+  "لو قلقان أو بيشتكي: اعتذري بجملة الأول، وبعدين حوّليه لموظف.",
+].join(String.fromCharCode(10));
+
 /** The clinic's own sticky notes: matched verbatim, before the AI, and free. */
 const SCRIPTS = [
   {
@@ -133,6 +151,21 @@ async function main() {
     // "assisted": scripts and keyword routes answer first, the AI only catches the rest (max 3).
     botMode: MODE === "ai_first" ? "ai_first" : "assisted",
     botAiEnabled: true,
+    /**
+     * The three jobs the assistant is actually being sold as, each one a setting:
+     *
+     *  - receptionist: botEnabled + the facts below.
+     *  - salesman: `botCoaching`, which the UI calls "your coaching notes (as you'd brief a new
+     *    hire)" and which is prepended to the model's brief. This is where a clinic turns a
+     *    polite answerer into something that closes.
+     *  - first line on symptoms: `botClinicalMode: "dentist"`. The default is "handoff" — every
+     *    symptom goes straight to a person. Set to dentist it talks the patient through the
+     *    symptom the way a dentist would and THEN offers the appointment, which is the difference
+     *    between "someone will call you" and a booking.
+     */
+    botClinicalMode: "dentist",
+    botPersonaName: "سارة",
+    botCoaching: COACHING,
     botScripts: SCRIPTS,
     botFacts: FACTS,
     updatedAt: new Date().toISOString(),
@@ -144,6 +177,8 @@ async function main() {
   console.log(`Mode        : ${settings.botMode}${settings.botMode === "assisted" ? "  (bot first, AI catches the rest, capped at 3)" : "  (every message to the model, no cap)"}`);
   console.log(`Scripts     : ${SCRIPTS.length} (${SCRIPTS.map((s) => s.title).join(", ")})`);
   console.log(`Ready answers: ${Object.keys(FACTS).length} filled`);
+  console.log(`Clinical    : dentist (answers symptoms, then offers the appointment)`);
+  console.log(`Coaching    : ${COACHING.split(String.fromCharCode(10)).length} lines, persona "سارة"`);
 
   if (DRY) {
     console.log("\nDry run — nothing written.");
