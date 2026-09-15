@@ -111,7 +111,8 @@ fun SettingsScreen(state: SettingsState, onBack: () -> Unit, actions: SettingsAc
 
             item {
                 Txt(
-                    "Opening hours, the odontogram and message wording are still edited on the website.",
+                    "The odontogram and the wording of automatic messages are still edited on the " +
+                        "website.",
                     Type.caption, T.inkMuted,
                     Modifier.padding(horizontal = T.gutter, vertical = 16.dp),
                     maxLines = 3,

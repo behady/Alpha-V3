@@ -250,7 +250,10 @@ private fun HoursPage(state: SettingsState, onBack: () -> Unit, actions: Setting
 
         item {
             SettingsSave(
-                dirty = form != stored,
+                // `configured` is stamped by the save, not typed by anybody, so
+                // comparing it would leave the button reading "not saved yet"
+                // for ever the first time a clinic sets its hours.
+                dirty = stored == null || form.copy(configured = stored.configured) != stored,
                 enabled = state.canEdit,
             ) { actions.saveSchedule(form) }
         }
