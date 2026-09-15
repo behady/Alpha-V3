@@ -180,6 +180,58 @@ export const CHAPTERS = {
       },
     ],
   },
+  // ---------------------------------------------------------------------
+  botvsai: {
+    title: "The Bot and the AI",
+    slug: "3-bot-and-ai",
+    /**
+     * Explains the two halves, because they are sold and priced apart and a dentist who confuses
+     * them will be disappointed by whichever one he bought. The scripted bot is keyword→reply,
+     * written by the clinic, sent verbatim, free. The AI is the LAST layer in the engine and is
+     * consulted only when nothing cheaper matched — a credit per answer, capped at three per
+     * conversation in "assisted" mode.
+     *
+     * Shown through the settings screens and real conversations rather than live in the in-app
+     * playground. The playground is the right demo and it refuses to run here: the API answers
+     * {"ok":true,"status":"skipped","reason":"no_gateway"} because the demo clinic has no WhatsApp
+     * gateway configured — even though a rehearsal never sends anything. Give the demo clinic a
+     * gateway (a decision with real consequences: it is the live channel) and this chapter can be
+     * rebuilt with the bot answering on camera.
+     */
+    beats: [
+      {
+        n: 0, label: "who-answers", url: "/settings/whatsapp-bot", settle: 12000,
+        actions: [{ do: "wait", ms: 3500 }],
+      },
+      {
+        n: 1, label: "the-four-modes", settle: 500,
+        actions: [{ do: "wheel", ms: 6500, dy: 70 }],
+      },
+      {
+        n: 2, label: "ready-answers", settle: 500,
+        actions: [
+          { do: "click", text: "الردود الجاهزة" },
+          { do: "wait", ms: 3000 },
+          { do: "wheel", ms: 5000, dy: 80 },
+        ],
+      },
+      {
+        n: 3, label: "clinic-scripts", settle: 500,
+        actions: [{ do: "wheel", ms: 6500, dy: 90 }],
+      },
+      {
+        n: 4, label: "the-ai-page", url: "/settings/whatsapp-ai", settle: 11000,
+        actions: [{ do: "wheel", ms: 5500, dy: 80 }],
+      },
+      {
+        n: 5, label: "ai-in-the-wild", url: "/chats", settle: 10000,
+        actions: [
+          { do: "clickFirst", text: "Heba Gamal" },
+          { do: "wait", ms: 6000 },
+        ],
+      },
+    ],
+  },
 };
 
 export function chapter(name) {
