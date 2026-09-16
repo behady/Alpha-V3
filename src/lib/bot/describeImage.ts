@@ -31,27 +31,29 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return Promise.race([p, new Promise<never>((_, reject) => setTimeout(() => reject(new Error("describe_timeout")), ms))]);
 }
 
-export async function describeWhatsappImage(clinicId: string, mediaId: string): Promise<ImageDescription> {
+/**
+ * Read a photo the caller already holds.
+ *
+ * Split from the Meta download for the same reason as the transcriber: the Wapilot gateway posts
+ * the picture with its webhook instead of handing out a media id, and the two channels must read
+ * it with the same prompt or they will describe the same swelling differently. `ref` is only for
+ * the flight recorder.
+ */
+export async function describeImageBytes(
+  clinicId: string,
+  bytes: Buffer,
+  mime: string,
+  ref: string
+): Promise<ImageDescription> {
   const apiKey = process.env.GEMINI_API_KEY || "";
   if (!apiKey) return { ok: false, reason: "no_api_key" };
-  if (!mediaId) return { ok: false, reason: "no_media_id" };
-
-  const config = await loadMetaWhatsappConfig(clinicId);
-  if (!config?.token) return { ok: false, reason: "no_meta_config" };
+  if (!bytes.length || bytes.length > MAX_IMAGE_BYTES) return { ok: false, reason: "image_size" };
 
   const reservation = await reserveAiCredit(clinicId);
   if (!reservation.ok) return { ok: false, reason: reservation.reason };
 
   try {
-    const metaRes = await fetch(`https://graph.facebook.com/v21.0/${mediaId}`, { headers: { Authorization: `Bearer ${config.token}` } });
-    const meta = (await metaRes.json().catch(() => ({}))) as { url?: string; mime_type?: string; file_size?: number };
-    if (!metaRes.ok || !meta.url) return { ok: false, reason: "media_lookup_failed" };
-    if ((meta.file_size || 0) > MAX_IMAGE_BYTES) return { ok: false, reason: "image_too_large" };
-    const fileRes = await fetch(meta.url, { headers: { Authorization: `Bearer ${config.token}` } });
-    if (!fileRes.ok) return { ok: false, reason: "media_download_failed" };
-    const bytes = Buffer.from(await fileRes.arrayBuffer());
-    if (!bytes.length || bytes.length > MAX_IMAGE_BYTES) return { ok: false, reason: "image_size" };
-    const mimeType = (meta.mime_type || "image/jpeg").split(";")[0].trim();
+    const mimeType = (mime || "image/jpeg").split(";")[0].trim();
 
     const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({
       model: MODEL,
@@ -94,9 +96,31 @@ export async function describeWhatsappImage(clinicId: string, mediaId: string): 
     await reservation.charge("whatsapp_photo", summary);
     await adminClinicCollection(clinicId, "ai_debug")
       .doc(new Date().toISOString().replace(/[:.]/g, "-"))
-      .set({ kind: "image", mediaId, summary, urgent: parsed.urgent === true, category, createdAt: FieldValue.serverTimestamp() })
+      .set({ kind: "image", mediaId: ref, summary, urgent: parsed.urgent === true, category, createdAt: FieldValue.serverTimestamp() })
       .catch(() => {});
     return { ok: true, summary, urgent: parsed.urgent === true, interest: String(parsed.interest || "").trim().slice(0, 60), category };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : "describe_failed" };
+  }
+}
+
+/** The Meta leg: exchange the media id for bytes, then read them. */
+export async function describeWhatsappImage(clinicId: string, mediaId: string): Promise<ImageDescription> {
+  if (!mediaId) return { ok: false, reason: "no_media_id" };
+
+  const config = await loadMetaWhatsappConfig(clinicId);
+  if (!config?.token) return { ok: false, reason: "no_meta_config" };
+
+  try {
+    const metaRes = await fetch(`https://graph.facebook.com/v21.0/${mediaId}`, { headers: { Authorization: `Bearer ${config.token}` } });
+    const meta = (await metaRes.json().catch(() => ({}))) as { url?: string; mime_type?: string; file_size?: number };
+    if (!metaRes.ok || !meta.url) return { ok: false, reason: "media_lookup_failed" };
+    if ((meta.file_size || 0) > MAX_IMAGE_BYTES) return { ok: false, reason: "image_too_large" };
+    const fileRes = await fetch(meta.url, { headers: { Authorization: `Bearer ${config.token}` } });
+    if (!fileRes.ok) return { ok: false, reason: "media_download_failed" };
+    const bytes = Buffer.from(await fileRes.arrayBuffer());
+
+    return await describeImageBytes(clinicId, bytes, meta.mime_type || "image/jpeg", mediaId);
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : "describe_failed" };
   }

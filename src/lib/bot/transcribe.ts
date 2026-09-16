@@ -9,14 +9,21 @@ import { reserveAiCredit } from "./aiCredits";
  *
  * Egyptians send voice notes as readily as text, and every one went straight to a person: the
  * bot could not read it, so "عايز أحجز بكره" spoken aloud became a handoff while the same words
- * typed became a booking. The audio is fetched from Meta, transcribed by the model in Egyptian
- * Arabic, and the transcript is handled exactly as if it had been typed — including the clinical
- * triage, which is the reason this is worth a credit: a spoken "وشي وارم" now reaches the
- * emergency path instead of the generic "someone will listen to it".
+ * typed became a booking. The audio is transcribed by the model in Egyptian Arabic, and the
+ * transcript is handled exactly as if it had been typed — including the clinical triage, which is
+ * the reason this is worth a credit: a spoken "وشي وارم" now reaches the emergency path instead
+ * of the generic "someone will listen to it".
  *
  * Costs one credit from the clinic's pool, charged only when a transcript actually comes back.
  * Any failure returns to the old behaviour — acknowledge the note and fetch a person — so a
  * transcription problem can never make a voice note disappear.
+ *
+ * Two channels reach this file and they differ only in where the bytes come from: Meta hands out
+ * a media id to be exchanged for a short-lived URL, while the Wapilot gateway posts the audio
+ * with the webhook. So getting the bytes and reading them are separate functions — the credit,
+ * the prompt, the size limit and the flight recorder live in `transcribeAudioBytes`, and a new
+ * channel only has to arrive with a Buffer. Splitting the prompt across two copies instead is
+ * how the two channels would quietly start transcribing differently.
  */
 
 const MODEL = "gemini-flash-latest";
@@ -30,32 +37,27 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   return Promise.race([p, new Promise<never>((_, reject) => setTimeout(() => reject(new Error("transcribe_timeout")), ms))]);
 }
 
-export async function transcribeWhatsappAudio(clinicId: string, mediaId: string): Promise<TranscriptResult> {
+/**
+ * Read audio the caller already holds.
+ *
+ * `ref` is only for the flight recorder — a Meta media id, or the gateway's message id — so a
+ * transcript that turns out wrong can be traced back to the recording it came from.
+ */
+export async function transcribeAudioBytes(
+  clinicId: string,
+  bytes: Buffer,
+  mime: string,
+  ref: string
+): Promise<TranscriptResult> {
   const apiKey = process.env.GEMINI_API_KEY || "";
   if (!apiKey) return { ok: false, reason: "no_api_key" };
-  if (!mediaId) return { ok: false, reason: "no_media_id" };
-
-  const config = await loadMetaWhatsappConfig(clinicId);
-  if (!config?.token) return { ok: false, reason: "no_meta_config" };
+  if (bytes.length === 0 || bytes.length > MAX_AUDIO_BYTES) return { ok: false, reason: "audio_size" };
 
   const reservation = await reserveAiCredit(clinicId);
   if (!reservation.ok) return { ok: false, reason: reservation.reason };
 
   try {
-    // Meta hands out a short-lived download URL for the media id; the bytes need the same token.
-    const metaRes = await fetch(`https://graph.facebook.com/v21.0/${mediaId}`, {
-      headers: { Authorization: `Bearer ${config.token}` },
-    });
-    const meta = (await metaRes.json().catch(() => ({}))) as { url?: string; mime_type?: string; file_size?: number };
-    if (!metaRes.ok || !meta.url) return { ok: false, reason: "media_lookup_failed" };
-    if ((meta.file_size || 0) > MAX_AUDIO_BYTES) return { ok: false, reason: "audio_too_large" };
-
-    const fileRes = await fetch(meta.url, { headers: { Authorization: `Bearer ${config.token}` } });
-    if (!fileRes.ok) return { ok: false, reason: "media_download_failed" };
-    const bytes = Buffer.from(await fileRes.arrayBuffer());
-    if (bytes.length === 0 || bytes.length > MAX_AUDIO_BYTES) return { ok: false, reason: "audio_size" };
-
-    const mimeType = (meta.mime_type || "audio/ogg").split(";")[0].trim();
+    const mimeType = (mime || "audio/ogg").split(";")[0].trim();
     const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({
       model: MODEL,
       generationConfig: { temperature: 0, maxOutputTokens: 400 },
@@ -78,9 +80,35 @@ export async function transcribeWhatsappAudio(clinicId: string, mediaId: string)
     // Same flight recorder the AI answers use, so a wrong transcript can be read back later.
     await adminClinicCollection(clinicId, "ai_debug")
       .doc(new Date().toISOString().replace(/[:.]/g, "-"))
-      .set({ kind: "transcript", mediaId, text: text.slice(0, 500), createdAt: FieldValue.serverTimestamp() })
+      .set({ kind: "transcript", mediaId: ref, text: text.slice(0, 500), createdAt: FieldValue.serverTimestamp() })
       .catch(() => {});
     return { ok: true, text: text.slice(0, 1000) };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : "transcribe_failed" };
+  }
+}
+
+/** The Meta leg: exchange the media id for bytes, then read them. */
+export async function transcribeWhatsappAudio(clinicId: string, mediaId: string): Promise<TranscriptResult> {
+  if (!mediaId) return { ok: false, reason: "no_media_id" };
+
+  const config = await loadMetaWhatsappConfig(clinicId);
+  if (!config?.token) return { ok: false, reason: "no_meta_config" };
+
+  try {
+    // Meta hands out a short-lived download URL for the media id; the bytes need the same token.
+    const metaRes = await fetch(`https://graph.facebook.com/v21.0/${mediaId}`, {
+      headers: { Authorization: `Bearer ${config.token}` },
+    });
+    const meta = (await metaRes.json().catch(() => ({}))) as { url?: string; mime_type?: string; file_size?: number };
+    if (!metaRes.ok || !meta.url) return { ok: false, reason: "media_lookup_failed" };
+    if ((meta.file_size || 0) > MAX_AUDIO_BYTES) return { ok: false, reason: "audio_too_large" };
+
+    const fileRes = await fetch(meta.url, { headers: { Authorization: `Bearer ${config.token}` } });
+    if (!fileRes.ok) return { ok: false, reason: "media_download_failed" };
+    const bytes = Buffer.from(await fileRes.arrayBuffer());
+
+    return await transcribeAudioBytes(clinicId, bytes, meta.mime_type || "audio/ogg", mediaId);
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : "transcribe_failed" };
   }

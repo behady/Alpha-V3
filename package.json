@@ -49,6 +49,8 @@
   "test:daywords": "npx tsx tests/dayWords.test.mts",
   "test:phone": "npx tsx tests/patientPhone.test.mjs",
   "test:optout": "npx tsx tests/patientMessaging.test.mjs",
+  "_comment_test_wamedia": "Finding the voice note or photo inside a Wapilot webhook. The gateway documents no payload shape, so every wrapper is tried and the declaration may sit in a different one from the bytes. The refusals are the point: reading a file spends a credit, so a plain chat message must never be mistaken for one.",
+  "test:wamedia": "npx tsx tests/wapilotMedia.test.mts",
   "test:sales": "npx tsx tests/sales.test.mts",
   "test:dossier": "npx tsx tests/patientDossier.test.mts",
   "test:drugs": "npx tsx tests/drugGuard.test.mts",

@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
-import { adminClinicCollection } from "@/lib/adminClinicDb";
+import { adminClinicCollection, adminClinicDoc } from "@/lib/adminClinicDb";
 import { conversationKey, markConversationOptedOut } from "@/lib/bot/conversation";
 import { isOptOutReply } from "@/lib/patientMessaging";
 import { patientSendablePhone } from "@/lib/patientPhone";
 import { findPatientByLid, learnPatientLid, lidChatFromEvent } from "@/lib/whatsappLid";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { respondToPatientMessage } from "@/lib/bot/respond";
-import { recordThreadMessage } from "@/lib/bot/thread";
+import { attachTranscript, recordThreadMessage } from "@/lib/bot/thread";
+import { transcribeAudioBytes } from "@/lib/bot/transcribe";
+import { describeImageBytes } from "@/lib/bot/describeImage";
+import { extractInboundMedia, fetchInboundMediaBytes } from "@/lib/bot/wapilotMedia";
 import { applyInboundOptOut } from "@/lib/optOutInbound";
 import { reportServerError } from "@/lib/server/reportError";
 
@@ -129,6 +132,22 @@ function extractReply(body: unknown): { phone: string; text: string } | null {
 }
 
 /**
+ * Who sent this, when there are no words to go with it.
+ *
+ * `extractReply` deliberately demands both a sender and text, because a payload with one and not
+ * the other used to mean "this is not a message". A voice note is exactly that payload — sender,
+ * no text — so the two questions had to come apart before one could be answered without the
+ * other.
+ */
+function extractSender(body: Record<string, any>): string {
+  for (const m of candidateMessages(body)) {
+    const raw = firstString(m.from, m.chat_id, m.chatId, m.author, m.sender, m.participant, m.number);
+    if (raw) return /@lid$/i.test(raw) ? raw : cleanPhone(raw);
+  }
+  return "";
+}
+
+/**
  * A message the clinic itself sent must never be read as the patient opting out.
  *
  * Gateways commonly post both directions to the same webhook, and the outgoing copy carries the
@@ -225,7 +244,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, ignored: "outgoing" });
     }
 
-    const reply = extractReply(body);
+    /*
+     * A voice note or a photo is a message with no words in it.
+     *
+     * Until this, `extractReply` finding no text ended the request as "no_message" — so on a
+     * Wapilot clinic a patient who recorded a voice note, which in Egypt is as common as typing,
+     * was never answered at all. The media is looked for on the same candidate wrappers the text
+     * was looked for on, and the sender is asked for separately, because the sender is the half
+     * of the payload that is still there.
+     */
+    const parsedBody = obj(body);
+    const media = parsedBody ? extractInboundMedia(candidateMessages(parsedBody)) : null;
+
+    let reply = extractReply(body);
+    if (!reply && media && parsedBody) {
+      const sender = extractSender(parsedBody);
+      if (sender) reply = { phone: sender, text: "" };
+    }
     if (!reply) {
       // Not an error: most posts here are delivery receipts and presence updates. Recorded
       // anyway, because this is also what a changed payload format looks like, and the first
@@ -253,17 +288,21 @@ export async function POST(request: NextRequest) {
     }
 
     // Into the chat thread before any decision about answering — received is received.
-    await recordThreadMessage(clinicId, chatId, {
+    const lineId = await recordThreadMessage(clinicId, chatId, {
       direction: "in",
       author: "patient",
       text: reply.text,
+      media: media?.kind,
       channel: "wapilot",
-    }).catch((e) => console.warn("[whatsapp-inbound] thread write failed:", e));
+    }).catch((e) => {
+      console.warn("[whatsapp-inbound] thread write failed:", e);
+      return "";
+    });
 
     // Opt-out first, always. A patient asking to be left alone must never be answered by the
     // assistant instead — that is the single most effective way to turn a stop request into a
     // spam report, which is the outcome this whole endpoint exists to avoid.
-    if (phone) {
+    if (phone && reply.text) {
       const result = await applyInboundOptOut({
         clinicId,
         phone,
@@ -273,7 +312,7 @@ export async function POST(request: NextRequest) {
       if (result.status !== "ignored") {
         return NextResponse.json({ ok: true, result: result.status });
       }
-    } else if (isOptOutReply(reply.text)) {
+    } else if (!phone && isOptOutReply(reply.text)) {
       // A stop request from behind a lid. If the lid has already been learned, the request lands
       // on the real patient record like any other; the conversation flag is the fallback for a
       // sender nobody has identified yet, and messaging_opt_outs keeps the human-readable trace
@@ -304,13 +343,67 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, result: "opted_out_lid" });
     }
 
+    /*
+     * Read the recording or the picture, but only for a message the assistant may actually answer.
+     *
+     * Each of these spends a credit and a Gemini call, so the gates are checked FIRST — the same
+     * order the Meta channel settled on after billing clinics for answers that were then never
+     * sent, to threads a human had taken over and to numbers that had said STOP.
+     */
+    let text = reply.text;
+    let mediaKind = media?.kind as "audio" | "image" | undefined;
+    let mediaNote: { summary: string; urgent: boolean; interest?: string } | undefined;
+
+    if (media && !text) {
+      const gate = await adminClinicDoc(clinicId, "settings", "whatsapp").get().catch(() => null);
+      const conv = await adminClinicDoc(clinicId, "whatsapp_conversations", conversationKey(chatId)).get().catch(() => null);
+      const cg = conv?.data() || {};
+      const mayRead = gate?.data()?.botEnabled === true && cg.optedOut !== true && cg.botPaused !== true;
+
+      if (mayRead) {
+        const got = await fetchInboundMediaBytes(clinicId, media);
+        if (!got.ok) {
+          // A gateway that says "image" and sends nothing is a configuration problem — usually
+          // media download switched off on the instance — and it is invisible from the clinic's
+          // side, so it goes where the other unreadable payloads go.
+          await recordUnparsed(clinicId, { kind: media.kind, ref: media.ref, mime: media.mime }, `media_${got.reason}`);
+        } else if (media.kind === "audio") {
+          const t = await transcribeAudioBytes(clinicId, got.bytes, got.mime, media.ref);
+          if (t.ok) {
+            // The transcript IS the message from here on — triage, intents and booking all read
+            // it as typed words, which is the whole point of transcribing it.
+            text = t.text;
+            mediaKind = undefined;
+            // Under the voice note's own bubble, not as a second message.
+            await attachTranscript(clinicId, chatId, lineId, t.text).catch(() => {});
+          }
+        } else {
+          const d = await describeImageBytes(clinicId, got.bytes, got.mime, media.ref);
+          if (d.ok) {
+            // The description is for the team, never for the patient: a model's reading of a
+            // swelling is exactly the message a clinic must never send.
+            mediaNote = { summary: d.summary, urgent: d.urgent, interest: d.interest || undefined };
+            await recordThreadMessage(clinicId, chatId, {
+              direction: "in",
+              author: "system",
+              text: `🖼️ وصف الصورة (للفريق): ${d.summary}${d.urgent ? " — ⚠️ يبدو عاجل" : ""}`,
+              kind: "image_note",
+              channel: "wapilot",
+            }).catch(() => {});
+          }
+        }
+      }
+    }
+
     // Not a stop request, so it may be a conversation. Off unless the clinic switched it on;
     // respondToPatientMessage re-checks every gate itself and stays silent by default.
     const bot = await respondToPatientMessage({
       clinicId,
       chatId,
       phone,
-      text: reply.text,
+      text,
+      media: mediaKind,
+      mediaNote,
     });
 
     return NextResponse.json({ ok: true, bot: bot.status, why: bot.reason });
