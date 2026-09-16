@@ -120,10 +120,10 @@ export function TourTab() {
               <table className="w-full text-sm">
                 <thead className="text-[11px] font-black uppercase tracking-wider text-slate-400">
                   <tr>
-                    <th className="px-4 py-3 text-left">Stop</th>
-                    <th className="px-4 py-3 text-right">Reached</th>
-                    <th className="px-4 py-3 text-right">Last seen here</th>
-                    <th className="px-4 py-3 text-left">&nbsp;</th>
+                    <th className="px-4 py-3 text-start">Stop</th>
+                    <th className="px-4 py-3 text-end">Reached</th>
+                    <th className="px-4 py-3 text-end">Last seen here</th>
+                    <th className="px-4 py-3 text-start">&nbsp;</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
@@ -133,8 +133,8 @@ export function TourTab() {
                         {row.title}
                         <span className="ms-2 text-[10px] font-medium text-slate-500">{row.stopId}</span>
                       </td>
-                      <td className="px-4 py-2.5 text-right font-black tabular-nums text-slate-200">{row.reached}</td>
-                      <td className="px-4 py-2.5 text-right font-black tabular-nums text-amber-300">{row.lastSeen || ""}</td>
+                      <td className="px-4 py-2.5 text-end font-black tabular-nums text-slate-200">{row.reached}</td>
+                      <td className="px-4 py-2.5 text-end font-black tabular-nums text-amber-300">{row.lastSeen || ""}</td>
                       <td className="w-40 px-4 py-2.5">
                         <div className="h-1.5 w-full rounded-full bg-white/5">
                           <div
