@@ -198,9 +198,9 @@ export default function PatientsPage() {
                   <table className="w-full text-start border-collapse whitespace-nowrap">
                     <thead>
                       <tr className="border-b-2 border-slate-200 bg-slate-100/80">
-                        <th className="py-4 px-6 text-[11px] font-bold text-slate-600 uppercase tracking-widest">{language === 'ar' ? 'المريض' : 'Patient'}</th>
-                        <th className="py-4 px-6 text-[11px] font-bold text-slate-600 uppercase tracking-widest">{language === 'ar' ? 'رقم الهاتف' : 'Phone'}</th>
-                        <th className="py-4 px-6 text-[11px] font-bold text-slate-600 uppercase tracking-widest">{language === 'ar' ? 'العنوان' : 'Address'}</th>
+                        <th className="py-4 px-6 text-[11px] font-bold text-slate-600 uppercase tracking-widest text-center">{language === 'ar' ? 'المريض' : 'Patient'}</th>
+                        <th className="py-4 px-6 text-[11px] font-bold text-slate-600 uppercase tracking-widest text-center">{language === 'ar' ? 'رقم الهاتف' : 'Phone'}</th>
+                        <th className="py-4 px-6 text-[11px] font-bold text-slate-600 uppercase tracking-widest text-center">{language === 'ar' ? 'العنوان' : 'Address'}</th>
                         <th className="py-4 px-6 text-[11px] font-bold text-slate-600 uppercase tracking-widest text-end">{language === 'ar' ? 'إجراء' : 'Action'}</th>
                       </tr>
                     </thead>
@@ -214,7 +214,7 @@ export default function PatientsPage() {
                           style={{ animationDelay: `${(index % PAGE_SIZE) * 30}ms`, animationFillMode: 'both' }}
                         >
                           <td className="py-4 px-6">
-                            <div className="flex items-center gap-4">
+                            <div className="flex items-center justify-center gap-4">
                               <div className="relative shrink-0 transition-transform duration-300 group-hover:scale-105">
                                 <div className={`w-11 h-11 rounded-full ${getAvatarStyle(p.name)} flex items-center justify-center font-black text-base`}>
                                   {p.name.charAt(0).toUpperCase()}
@@ -226,13 +226,13 @@ export default function PatientsPage() {
                               </h3>
                             </div>
                           </td>
-                          <td className="py-4 px-6">
+                          <td className="py-4 px-6 text-center">
                             <span className="text-sm font-semibold text-slate-600" dir="ltr">
                               {p.phone || "---"}
                             </span>
                           </td>
                           <td className="py-4 px-6">
-                            <div className="flex items-center gap-1.5 text-sm font-medium text-slate-500">
+                            <div className="flex items-center justify-center gap-1.5 text-sm font-medium text-slate-500">
                               {p.address ? (
                                 <>
                                   <MapPin size={16} className="text-slate-400" />
