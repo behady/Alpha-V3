@@ -27,7 +27,8 @@ import {
   PlusCircle,
   FileImage,
   CheckCircle2,
-  ScanLine
+  ScanLine,
+  FileText
 } from "lucide-react";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { addDoc, deleteDoc, updateDoc, serverTimestamp } from "firebase/firestore";
@@ -35,7 +36,7 @@ import { storage } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { logActivity } from "@/lib/logger";
 import { useUI } from "@/context/UIContext";
-import { XrayReadButton, XrayReadModal, XrayReportsSection, useMounted } from "./XrayAiReport";
+import { XrayReadButton, XrayReadModal, XrayReportsSection, XrayReportDialog, useMounted, useXrayReports, type SavedXrayReport } from "./XrayAiReport";
 
 export interface MediaItem {
   id: string;
@@ -101,6 +102,11 @@ export default function PatientMediaGallery({
 
   // The lightbox renders through a portal (see below), which needs a document to exist.
   const mounted = useMounted();
+
+  // This patient's AI x-ray reports, live. Shared by the panel, the card badges and the lightbox,
+  // so a report is reachable from the picture it was read from and not only from a list.
+  const xrayReports = useXrayReports(patientId);
+  const [openReport, setOpenReport] = useState<SavedXrayReport | null>(null);
 
   // Category counts
   const categoryCounts = useMemo(() => {
@@ -447,7 +453,7 @@ export default function PatientMediaGallery({
       </div>
 
       {/* AI x-ray reports already written for this patient */}
-      <XrayReportsSection patientId={patientId} language={language} />
+      <XrayReportsSection patientId={patientId} language={language} state={xrayReports} />
 
       {/* Filter & Options Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-surface-subtle p-3 rounded-2xl border border-slate-200/60">
@@ -703,6 +709,23 @@ export default function PatientMediaGallery({
                   <span className="absolute top-2.5 end-2.5 bg-slate-950/80 text-white text-[10px] font-black px-2.5 py-1 rounded-md backdrop-blur-md border border-white/10 shadow-sm">
                     {media.category || "X-Ray"}
                   </span>
+
+                  {/* This picture has been read: the report opens from here */}
+                  {(xrayReports.byMedia.get(media.id) || []).length > 0 && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenReport(xrayReports.byMedia.get(media.id)![0]);
+                      }}
+                      className="absolute bottom-2.5 end-2.5 z-10 inline-flex items-center gap-1 rounded-md bg-accent text-ink text-[10px] font-black px-2 py-1 shadow-md hover:bg-accent-strong"
+                      title={language === "ar" ? "افتح تقرير الذكاء الاصطناعي" : "Open the AI report"}
+                    >
+                      <FileText size={11} />
+                      {language === "ar" ? "تقرير" : "Report"}
+                      {(xrayReports.byMedia.get(media.id) || []).length > 1 ? ` ·${xrayReports.byMedia.get(media.id)!.length}` : ""}
+                    </button>
+                  )}
 
                   {/* Hover Overlay with Open Lightbox button */}
                   <div
@@ -990,6 +1013,9 @@ export default function PatientMediaGallery({
         </div>
       )}
 
+      {/* A SAVED AI REPORT, opened from a card badge or the lightbox */}
+      {openReport && <XrayReportDialog report={openReport} language={language} onClose={() => setOpenReport(null)} />}
+
       {/* AI READING DIALOG */}
       {aiItems && (
         <XrayReadModal
@@ -1114,15 +1140,30 @@ export default function PatientMediaGallery({
                 alt="Fullsize radiograph"
                 className="max-w-full max-h-[82vh] object-contain rounded-2xl shadow-2xl border border-white/10"
               />
-              <button
-                type="button"
-                onClick={() => setAiItems([currentLightboxMedia])}
-                data-tour="xray-ai-read-on-image"
-                className="absolute bottom-4 left-1/2 -translate-x-1/2 inline-flex items-center gap-2 rounded-full bg-accent px-5 py-2.5 text-sm font-black text-ink shadow-[0_8px_30px_rgba(0,0,0,.45)] ring-4 ring-slate-950/40 hover:bg-accent-strong hover:scale-105 transition-all whitespace-nowrap"
-              >
-                <ScanLine size={16} />
-                {language === "ar" ? "قراءة الأشعة بالذكاء الاصطناعي" : "Read this x-ray with AI"}
-              </button>
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 whitespace-nowrap">
+                {(xrayReports.byMedia.get(currentLightboxMedia.id) || []).length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setOpenReport(xrayReports.byMedia.get(currentLightboxMedia.id)![0])}
+                    className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-black text-ink shadow-[0_8px_30px_rgba(0,0,0,.45)] ring-4 ring-slate-950/40 hover:scale-105 transition-all"
+                  >
+                    <FileText size={16} />
+                    {language === "ar" ? "التقرير" : "Report"}
+                    {(xrayReports.byMedia.get(currentLightboxMedia.id) || []).length > 1 && (
+                      <span className="rounded-full bg-slate-900 text-white text-[10px] px-1.5 py-0.5">{xrayReports.byMedia.get(currentLightboxMedia.id)!.length}</span>
+                    )}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setAiItems([currentLightboxMedia])}
+                  data-tour="xray-ai-read-on-image"
+                  className="inline-flex items-center gap-2 rounded-full bg-accent px-5 py-2.5 text-sm font-black text-ink shadow-[0_8px_30px_rgba(0,0,0,.45)] ring-4 ring-slate-950/40 hover:bg-accent-strong hover:scale-105 transition-all"
+                >
+                  <ScanLine size={16} />
+                  {language === "ar" ? "قراءة الأشعة بالذكاء الاصطناعي" : "Read this x-ray with AI"}
+                </button>
+              </div>
             </div>
 
             {/* Next Arrow */}

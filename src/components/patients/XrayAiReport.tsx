@@ -16,6 +16,7 @@ import {
   Trash2,
   X,
   ChevronRight,
+  FileText,
 } from "lucide-react";
 import { auth, storage } from "@/lib/firebase";
 import { getClinicCollection } from "@/lib/db-utils";
@@ -500,6 +501,15 @@ export function XrayReportView({
         {xrayDisclaimer(language)}
       </p>
 
+      {!when && (
+        <p className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 flex items-start gap-2">
+          <FileText size={14} className="mt-0.5 shrink-0" />
+          {ar
+            ? "اتحفظ في ملف المريض: هتلاقيه على الصورة نفسها (زرار «التقرير») وفي لوحة «تقارير قراءة الأشعة» أعلى التبويب."
+            : "Saved to the patient's file: find it on the picture itself (the “Report” button) and in the “AI x-ray reports” panel at the top of the tab."}
+        </p>
+      )}
+
       <div className="flex flex-wrap items-center gap-2 pt-1">
         <button type="button" onClick={pdf} disabled={pdfBusy} className="inline-flex items-center gap-1.5 rounded-xl bg-ink-slab px-4 py-2 text-xs font-black text-white hover:bg-black disabled:opacity-50">
           {pdfBusy ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />}
@@ -522,16 +532,35 @@ export function XrayReportView({
 // Past reports for this patient
 // ----------------------------------------------------------------------------------------------
 
-export function XrayReportsSection({ patientId, language }: { patientId: string; language: Lang }) {
-  const { clinicId, clinic } = useClinic();
-  const ar = language === "ar";
-  const [rows, setRows] = useState<SavedXrayReport[]>([]);
-  const [open, setOpen] = useState<SavedXrayReport | null>(null);
+export type XrayReportsState = {
+  reports: SavedXrayReport[];
+  /** Report ids per picture, newest first — so a card or the lightbox can say "this one has a report". */
+  byMedia: Map<string, SavedXrayReport[]>;
+  /** The listener's error, shown rather than swallowed: a blank panel over a permission error is a bug nobody can report. */
+  error: string | null;
+  loaded: boolean;
+};
+
+/** Live list of this patient's reports. One subscription, shared by the panel, the cards and the lightbox. */
+export function useXrayReports(patientId: string): XrayReportsState {
+  const { clinicId } = useClinic();
+  const [reports, setReports] = useState<SavedXrayReport[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     if (!clinicId || !patientId) return;
-    // No orderBy: that would need a composite index for every clinic. Sorted in the browser.
-    const q = query(getClinicCollection(XRAY_REPORTS_COLLECTION), where("patientId", "==", patientId));
+    let q;
+    try {
+      // No orderBy: that would need a composite index for every clinic. Sorted in the browser.
+      q = query(getClinicCollection(XRAY_REPORTS_COLLECTION), where("patientId", "==", patientId));
+    } catch (e) {
+      // Deferred: a synchronous setState inside an effect is what the hooks lint forbids, and the
+      // only thing that throws here is "no clinic selected", which a re-render does not fix anyway.
+      const message = e instanceof Error ? e.message : String(e);
+      const t = setTimeout(() => setError(message), 0);
+      return () => clearTimeout(t);
+    }
     return onSnapshot(
       q,
       (snap) => {
@@ -539,15 +568,61 @@ export function XrayReportsSection({ patientId, language }: { patientId: string;
           .map((d) => ({ id: d.id, ...(d.data() as Omit<SavedXrayReport, "id">) }))
           .filter((r) => r.report && typeof r.report.summary === "string");
         list.sort((a, b) => (b.createdAt?.toDate?.()?.getTime() || 0) - (a.createdAt?.toDate?.()?.getTime() || 0));
-        setRows(list);
-        setOpen((cur) => (cur ? list.find((r) => r.id === cur.id) || null : cur));
+        setReports(list);
+        setError(null);
+        setLoaded(true);
       },
-      () => setRows([])
+      (e) => {
+        setError(e instanceof Error ? e.message : String(e));
+        setLoaded(true);
+      }
     );
   }, [clinicId, patientId]);
 
-  const sorted = useMemo(() => rows, [rows]);
-  if (sorted.length === 0) return null;
+  const byMedia = useMemo(() => {
+    const m = new Map<string, SavedXrayReport[]>();
+    for (const r of reports) {
+      const ids = Array.isArray((r as any).mediaIds) ? ((r as any).mediaIds as string[]) : (r.media || []).map((x) => x.id);
+      for (const id of ids) m.set(id, [...(m.get(id) || []), r]);
+    }
+    return m;
+  }, [reports]);
+
+  return { reports, byMedia, error, loaded };
+}
+
+/** A saved report in its dialog — what the lightbox, a card badge and the panel all open. */
+export function XrayReportDialog({ report, language, onClose }: { report: SavedXrayReport; language: Lang; onClose: () => void }) {
+  const { clinic } = useClinic();
+  const ar = language === "ar";
+  return (
+    <Shell onClose={onClose} ar={ar} title={ar ? "تقرير قراءة الأشعة" : "X-ray reading report"} wide>
+      <XrayReportView saved={report} language={language} clinicName={clinic?.name} onDeleted={onClose} />
+    </Shell>
+  );
+}
+
+export function XrayReportsSection({
+  patientId,
+  language,
+  state,
+}: {
+  patientId: string;
+  language: Lang;
+  /** From useXrayReports(patientId). The gallery owns it so the cards and the lightbox share it. */
+  state: XrayReportsState;
+}) {
+  const ar = language === "ar";
+  const unlocked = useXrayFeature();
+  const [openId, setOpenId] = useState<string | null>(null);
+  const sorted = state.reports;
+  // Derived, not copied: the dialog always shows the live document, and closes by itself if the
+  // report was deleted elsewhere.
+  const open = openId ? sorted.find((r) => r.id === openId) || null : null;
+  const setOpen = (r: SavedXrayReport | null) => setOpenId(r ? r.id : null);
+
+  // Nothing to say to a clinic without the add-on: the padlocked button explains itself.
+  if (sorted.length === 0 && !state.error && unlocked !== true) return null;
 
   return (
     <div className="bg-surface rounded-2xl border border-slate-200/80 p-4 sm:p-5" data-tour="xray-ai-reports">
@@ -558,6 +633,19 @@ export function XrayReportsSection({ patientId, language }: { patientId: string;
         <h4 className="text-sm font-black text-ink">{ar ? "تقارير قراءة الأشعة" : "AI x-ray reports"}</h4>
         <span className="text-[10px] font-black bg-slate-100 text-slate-600 rounded-full px-2 py-0.5">{sorted.length}</span>
       </div>
+      {state.error && (
+        <p className="mb-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700">
+          {ar ? "تعذّر تحميل التقارير: " : "Could not load the reports: "}
+          {state.error}
+        </p>
+      )}
+      {sorted.length === 0 && !state.error && (
+        <p className="text-xs text-ink-muted leading-relaxed">
+          {ar
+            ? "مفيش تقارير لسه. افتح أي أشعة ودوس «قراءة الأشعة بالذكاء الاصطناعي» — التقرير بيتحفظ هنا وعلى الصورة نفسها."
+            : "No reports yet. Open any x-ray and press “Read this x-ray with AI” — the report is saved here and on the picture itself."}
+        </p>
+      )}
       <ul className="divide-y divide-line">
         {sorted.map((r) => {
           const worst = worstSeverity(r.report);
@@ -595,11 +683,7 @@ export function XrayReportsSection({ patientId, language }: { patientId: string;
         })}
       </ul>
 
-      {open && (
-        <Shell onClose={() => setOpen(null)} ar={ar} title={ar ? "تقرير قراءة الأشعة" : "X-ray reading report"} wide>
-          <XrayReportView saved={open} language={language} clinicName={clinic?.name} onDeleted={() => setOpen(null)} />
-        </Shell>
-      )}
+      {open && <XrayReportDialog report={open} language={language} onClose={() => setOpen(null)} />}
     </div>
   );
 }
