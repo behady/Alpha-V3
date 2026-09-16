@@ -269,9 +269,14 @@ fun ToothSheet(
                 Txt(category.en, Type.eyebrow, T.inkFaint, uppercase = true)
             }
             SheetChoices("") {
-                options.forEach { option ->
-                    SheetChoice(option.en, option.id in tooth.statuses) { onToggle(option.id) }
-                }
+                // Ticked first. These rows scroll sideways, and a condition
+                // already recorded that sits four chips off the right-hand edge
+                // is a condition nobody can see they recorded.
+                options
+                    .sortedByDescending { it.id in tooth.statuses }
+                    .forEach { option ->
+                        SheetChoice(option.en, option.id in tooth.statuses) { onToggle(option.id) }
+                    }
             }
         }
 
