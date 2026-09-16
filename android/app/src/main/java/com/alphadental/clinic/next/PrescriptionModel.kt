@@ -59,8 +59,21 @@ class PrescriptionModel : ViewModel() {
     private val _state = MutableStateFlow(Script())
     val state: StateFlow<Script> = _state.asStateFlow()
 
-    fun open(patient: Person) {
-        _state.value = Script(open = true, who = _state.value.who, patient = patient, loading = true)
+    /**
+     * Open on a patient, optionally with an earlier prescription copied in.
+     *
+     * "Write again" is how a repeat is done: the old one is left exactly as it
+     * was issued, and a new one starts with its medicines, ready to be changed.
+     */
+    fun open(patient: Person, seed: com.alphadental.clinic.data.Prescription? = null) {
+        _state.value = Script(
+            open = true,
+            who = _state.value.who,
+            patient = patient,
+            loading = true,
+            drugs = seed?.drugs.orEmpty(),
+            diagnosis = seed?.diagnosis.orEmpty(),
+        )
         viewModelScope.launch {
             val who = _state.value.who ?: ClinicSource.signedIn().getOrElse { e ->
                 _state.value = _state.value.copy(loading = false, error = e.message)
@@ -79,8 +92,10 @@ class PrescriptionModel : ViewModel() {
                 // Whoever is signed in, if they are one of the dentists. A blank
                 // prescriber on a printed script is the one field a pharmacy
                 // will actually turn somebody away over.
-                doctor = doctors.firstOrNull { it.equals(who.name, ignoreCase = true) }
-                    ?: doctors.firstOrNull().orEmpty(),
+                doctor = _state.value.doctor.ifBlank {
+                    doctors.firstOrNull { it.equals(who.name, ignoreCase = true) }
+                        ?: doctors.firstOrNull().orEmpty()
+                },
             )
         }
     }

@@ -84,6 +84,10 @@ fun RecordScreen(
     onChart: (Int) -> Unit = {},
     onPrescribe: (() -> Unit)? = null,
     onEditDetails: (() -> Unit)? = null,
+    onPrintScript: (com.alphadental.clinic.data.Prescription) -> Unit = {},
+    onShareScript: (com.alphadental.clinic.data.Prescription) -> Unit = {},
+    onSendScript: (com.alphadental.clinic.data.Prescription) -> Unit = {},
+    onCopyScript: ((com.alphadental.clinic.data.Prescription) -> Unit)? = null,
 ) {
     val record = state.record
 
@@ -114,9 +118,9 @@ fun RecordScreen(
                     RecordTab.Chart -> chart(state, record, onSelectTooth, onChart)
                     RecordTab.Notes -> treatments(state, onSetNoteStatus, onRecordTreatment)
                     RecordTab.Visits -> visits(record)
-                    RecordTab.Rx -> scripts(state, onPrescribe)
+                    RecordTab.Rx -> scripts(state, onPrescribe, onPrintScript, onShareScript, onSendScript, onCopyScript)
                     RecordTab.Photos -> photos(state, onFilterMedia, onUploadCategory, onView, onCamera, onGallery)
-                    RecordTab.Ledger -> ledger(state)
+                    RecordTab.Ledger -> statement(state, onTakePayment)
                 }
             }
         }

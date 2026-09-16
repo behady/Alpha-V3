@@ -21,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.alphadental.clinic.next.data.LOWER_LEFT
@@ -164,31 +165,45 @@ private fun ToothCell(
     val leading = tooth?.leading
     val fill = leading?.let { colourOf(it) }
 
+    val upper = number < 30
+    val ink = T.ink
+    val line = T.line
+    val soft = T.surfaceSoft
+    val multi = (tooth?.statuses?.size ?: 0) > 1
+
     Column(
         modifier.clickable { onSelect(if (isSelected) null else number) },
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .aspectRatio(0.72f)
-                .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 6.dp, bottomEnd = 6.dp))
-                .background(fill ?: T.surfaceSoft)
-                .border(
-                    if (isSelected) 2.dp else 1.dp,
-                    when {
-                        isSelected -> T.ink
-                        fill != null -> Color.Transparent
-                        else -> T.line
-                    },
-                    RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 6.dp, bottomEnd = 6.dp),
-                ),
-            contentAlignment = Alignment.Center,
+        // Drawn, not a box. Each tooth is its own kind — an incisor is a blade, a
+        // canine a point, a molar a square with two cusps — and the crown points
+        // the way it does in the mouth: down on the upper arch, up on the lower.
+        // That is what makes a row of sixteen readable at a glance as a jaw
+        // rather than as a bar chart.
+        androidx.compose.foundation.Canvas(
+            Modifier.fillMaxWidth().aspectRatio(0.72f),
         ) {
+            val path = toothPath(number, size.width, size.height, upper)
+            drawPath(path, color = fill ?: soft)
+            drawPath(
+                path,
+                color = when {
+                    isSelected -> ink
+                    fill != null -> Color.Black.copy(alpha = .18f)
+                    else -> line
+                },
+                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                    width = if (isSelected) 2.2.dp.toPx() else 1.dp.toPx(),
+                ),
+            )
             // A tooth carrying more than one condition gets a dot, so the chart
             // does not quietly imply the colour is the whole story.
-            if ((tooth?.statuses?.size ?: 0) > 1) {
-                Box(Modifier.size(5.dp).clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = .85f)))
+            if (multi) {
+                drawCircle(
+                    color = Color.White.copy(alpha = .9f),
+                    radius = 2.4.dp.toPx(),
+                    center = androidx.compose.ui.geometry.Offset(size.width / 2, size.height / 2),
+                )
             }
         }
         Spacer(Modifier.height(3.dp))
@@ -284,4 +299,95 @@ fun ToothDetail(tooth: Tooth?, number: Int?) {
             }
         }
     }
+}
+
+/**
+ * A tooth's outline, by which tooth it is.
+ *
+ * Not anatomy — a chart is a diagram — but the four kinds are told apart the way
+ * a dentist tells them apart at a glance: incisors are flat blades, canines come
+ * to a point, premolars are rounded with one notch, molars are broad with two.
+ * The crown is at the bottom for an upper tooth and at the top for a lower one,
+ * with a root tapering away from it, so the two arches read as facing each other
+ * across the midline the way the mouth does.
+ *
+ * The same shapes serve every screen that draws a tooth, so a molar on the
+ * treatment sheet is the molar from the chart.
+ */
+internal fun toothPath(number: Int, w: Float, h: Float, upper: Boolean): androidx.compose.ui.graphics.Path {
+    val position = number % 10                         // 1..8 from the midline
+    val kind = when (position) {
+        1, 2 -> 0                                      // incisor
+        3 -> 1                                         // canine
+        4, 5 -> 2                                      // premolar
+        else -> 3                                      // molar
+    }
+
+    // Proportions in a unit box: crown height, crown half-width, root half-width.
+    val crownH = when (kind) { 0 -> .40f; 1 -> .42f; 2 -> .44f; else -> .48f }
+    val crownW = when (kind) { 0 -> .34f; 1 -> .36f; 2 -> .42f; else -> .46f }
+    val rootW = when (kind) { 0 -> .16f; 1 -> .17f; 2 -> .20f; else -> .30f }
+    val inset = 0.04f * w
+
+    val path = androidx.compose.ui.graphics.Path()
+    fun x(f: Float) = w / 2 + f * (w - 2 * inset)
+    // Flip vertically for the lower arch so the crown is at the top.
+    fun y(f: Float) = if (upper) inset + f * (h - 2 * inset) else h - inset - f * (h - 2 * inset)
+
+    // Walk clockwise from the root tip (y = 0) round the crown (y = 1) and back.
+    val rootTip = 0f
+    val neck = 1f - crownH
+    val edge = 1f
+
+    path.moveTo(x(-rootW * .5f), y(rootTip))
+    path.lineTo(x(rootW * .5f), y(rootTip))
+    if (kind == 3) {
+        // Two roots on a molar: a notch between them.
+        path.lineTo(x(rootW), y(neck * .55f))
+        path.lineTo(x(rootW * .35f), y(neck * .55f))
+        path.lineTo(x(rootW * .2f), y(neck * .25f))
+        path.lineTo(x(-rootW * .2f), y(neck * .25f))
+        path.lineTo(x(-rootW * .35f), y(neck * .55f))
+        path.lineTo(x(-rootW), y(neck * .55f))
+        path.lineTo(x(-rootW * .5f), y(rootTip))
+        path.close()
+        path.moveTo(x(-rootW), y(neck * .55f))
+    } else {
+        path.lineTo(x(rootW), y(neck))
+        path.lineTo(x(-rootW), y(neck))
+        path.close()
+        path.moveTo(x(-rootW), y(neck))
+    }
+
+    // The crown, from the neck out to the edge and back.
+    path.moveTo(x(-crownW), y(neck))
+    path.lineTo(x(crownW), y(neck))
+    when (kind) {
+        0 -> { // incisor: a flat edge
+            path.lineTo(x(crownW * .9f), y(edge))
+            path.lineTo(x(-crownW * .9f), y(edge))
+        }
+        1 -> { // canine: a point
+            path.lineTo(x(crownW * .85f), y(neck + crownH * .55f))
+            path.lineTo(x(0f), y(edge))
+            path.lineTo(x(-crownW * .85f), y(neck + crownH * .55f))
+        }
+        2 -> { // premolar: two soft cusps with a dip
+            path.lineTo(x(crownW * .95f), y(neck + crownH * .6f))
+            path.lineTo(x(crownW * .5f), y(edge))
+            path.lineTo(x(0f), y(neck + crownH * .8f))
+            path.lineTo(x(-crownW * .5f), y(edge))
+            path.lineTo(x(-crownW * .95f), y(neck + crownH * .6f))
+        }
+        else -> { // molar: broad, two cusps
+            path.lineTo(x(crownW), y(neck + crownH * .7f))
+            path.lineTo(x(crownW * .6f), y(edge))
+            path.lineTo(x(crownW * .2f), y(neck + crownH * .82f))
+            path.lineTo(x(-crownW * .2f), y(neck + crownH * .82f))
+            path.lineTo(x(-crownW * .6f), y(edge))
+            path.lineTo(x(-crownW), y(neck + crownH * .7f))
+        }
+    }
+    path.close()
+    return path
 }

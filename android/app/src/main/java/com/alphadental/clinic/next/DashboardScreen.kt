@@ -1,6 +1,7 @@
 package com.alphadental.clinic.next
 
 import androidx.compose.foundation.background
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.material.icons.filled.PersonSearch
@@ -76,8 +77,13 @@ fun DashboardScreen(
     onOpenVisit: (Visit) -> Unit = {},
     onClock: () -> Unit = {},
     onBook: () -> Unit = {},
-    onChats: () -> Unit = {},
-    onPatients: () -> Unit = {},
+    onLeads: () -> Unit = {},
+    onReports: () -> Unit = {},
+    onBell: () -> Unit = {},
+    onAccount: () -> Unit = {},
+    /** The signed-in person's shift, for the pill on the slab. Null while unknown. */
+    shift: MyShift? = null,
+    onPunch: () -> Unit = {},
 ) {
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
@@ -85,7 +91,7 @@ fun DashboardScreen(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = T.barClearance),
         ) {
-            item { DashboardSlab(state) }
+            item { DashboardSlab(state, onBell, onAccount, shift, onPunch, onClock) }
 
             state.error?.let { message ->
                 item { Notice(message) }
@@ -101,6 +107,8 @@ fun DashboardScreen(
                 }
             }
 
+            item { Tools(onBook, onLeads, onReports) }
+
             if (state.waiting.isNotEmpty()) {
                 item { SectionLabel("Waiting room · ${state.waiting.size}", action = "See the day") }
                 item { VisitRows(state.waiting, onOpen = onOpenVisit) }
@@ -115,7 +123,6 @@ fun DashboardScreen(
                 item { Empty("Nothing booked today.") }
             }
 
-            item { Tools(state, onClock, onBook, onChats, onPatients) }
         }
 
         if (state.loading) {
@@ -127,9 +134,17 @@ fun DashboardScreen(
 }
 
 @Composable
-private fun DashboardSlab(state: Dashboard) {
+private fun DashboardSlab(
+    state: Dashboard,
+    onBell: () -> Unit,
+    onAccount: () -> Unit,
+    shift: MyShift?,
+    onPunch: () -> Unit,
+    onOpenAttendance: () -> Unit,
+) {
     val money = state.takings
     Slab(
+        aside = shift?.let { mine -> { ClockPill(mine, onPunch, onOpenAttendance) } },
         title = if (money != null) "Takings today" else "Today",
         eyebrow = fullDate(),
         bar = {
@@ -142,9 +157,14 @@ private fun DashboardSlab(state: Dashboard) {
                 Modifier.weight(1f, fill = false),
             )
             Spacer(Modifier.weight(1f))
-            SlabIcon(Icons.Filled.Notifications, "Notifications", marked = state.waiting.isNotEmpty())
+            // The dot means somebody is in the waiting room; the tap goes to
+            // the diary, which is where that somebody is dealt with.
+            SlabIcon(
+                Icons.Filled.Notifications, "Waiting room",
+                marked = state.waiting.isNotEmpty(), onClick = onBell,
+            )
             Spacer(Modifier.width(8.dp))
-            Initials(state.who?.name.orEmpty())
+            Box(Modifier.clickable(onClick = onAccount)) { Initials(state.who?.name.orEmpty()) }
         },
         figure = money?.let {
             {
@@ -292,21 +312,17 @@ private fun ChairCard(
  * is broken rather than unfinished.
  */
 @Composable
-private fun Tools(
-    state: Dashboard,
-    onClock: () -> Unit,
-    onBook: () -> Unit,
-    onChats: () -> Unit,
-    onPatients: () -> Unit,
-) {
+private fun Tools(onBook: () -> Unit, onLeads: () -> Unit, onReports: () -> Unit) {
+    // Three, and none of them repeats the bar underneath: patients and messages
+    // already have a tab each, so a tile for them was a second door to the same
+    // room. Clocking in moved up to the slab, beside the day it belongs to.
     val tools = listOf(
         Tool(Icons.Filled.Add, "Book", onBook),
-        Tool(Icons.Filled.PersonSearch, "Find", onPatients),
-        Tool(Icons.AutoMirrored.Filled.Chat, "Messages", onChats),
-        Tool(Icons.Filled.Schedule, "Clock in", onClock),
+        Tool(Icons.Filled.PersonSearch, "Leads", onLeads),
+        Tool(Icons.Filled.BarChart, "Reports", onReports),
     )
 
-    Column(Modifier.padding(top = 22.dp)) {
+    Column(Modifier.padding(top = 4.dp, bottom = 10.dp)) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = T.gutter),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -321,6 +337,56 @@ private data class Tool(
     val label: String,
     val onClick: () -> Unit,
 )
+
+/**
+ * Clocked in or not, and the one tap that changes it.
+ *
+ * Lives on the slab beside the day's title because that is what it is about —
+ * this day, and whether the person holding the phone is on it yet. The
+ * attendance screen still exists for the rest: the week, the roster, the
+ * location permission when Android has refused it. This is the shortcut.
+ */
+@Composable
+private fun ClockPill(mine: MyShift, onPunch: () -> Unit, onOpenAttendance: () -> Unit) {
+    Surface(
+        shape = T.pill,
+        color = if (mine.on) T.slabFill else T.accent,
+        // Android's refusal is the one thing the pill cannot fix in place: the
+        // attendance screen owns the permission button, so go there.
+        modifier = Modifier.clickable(enabled = !mine.busy) {
+            if (mine.needsLocation) onOpenAttendance() else onPunch()
+        },
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (mine.busy) {
+                CircularProgressIndicator(
+                    color = if (mine.on) T.onSlabFaint else T.onAccent,
+                    strokeWidth = 2.dp, modifier = Modifier.size(14.dp),
+                )
+            } else {
+                Icon(
+                    Icons.Filled.Schedule, null,
+                    tint = if (mine.on) T.onSlab else T.onAccent,
+                    modifier = Modifier.size(15.dp),
+                )
+                Spacer(Modifier.width(6.dp))
+                Txt(
+                    when {
+                        mine.needsLocation -> "Allow location"
+                        mine.on -> "Out · ${mine.minutes / 60}h ${mine.minutes % 60}m"
+                        else -> "Clock in"
+                    },
+                    Type.label.copy(fontSize = 12.sp),
+                    if (mine.on) T.onSlab else T.onAccent,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
 
 /**
  * One action: a square of surface with the icon in it, and the word under.

@@ -189,8 +189,10 @@ fun Shell(preview: Boolean = false) {
                 onOpenAttendance = { openAttendance = true },
                 onBook = { booking?.open() },
                 onOpenVisit = { if (preview) shown = it else visits?.open(it) },
-                onChats = { tab = Tab.Chats },
-                onPatients = { tab = Tab.Patients },
+                onLeads = { openLeads = true },
+                onReports = { openReports = true },
+                onBell = { tab = Tab.Day },
+                onAccount = { tab = Tab.More },
             )
             Tab.Day -> DayTab(
                 preview,
@@ -278,23 +280,33 @@ private fun TodayTab(
     onOpenAttendance: () -> Unit,
     onBook: () -> Unit,
     onOpenVisit: (com.alphadental.clinic.next.data.Visit) -> Unit,
-    onChats: () -> Unit,
-    onPatients: () -> Unit,
+    onLeads: () -> Unit,
+    onReports: () -> Unit,
+    onBell: () -> Unit,
+    onAccount: () -> Unit,
 ) {
     if (preview) {
         DashboardScreen(
             state = previewDashboard(), onCheckOut = {}, onOpenVisit = onOpenVisit,
             onClock = onOpenAttendance, onBook = onBook,
-            onChats = onChats, onPatients = onPatients,
+            onLeads = onLeads, onReports = onReports, onBell = onBell, onAccount = onAccount,
+            shift = previewAttendance().mine, onPunch = {},
         )
     } else {
         val model: DashboardModel = viewModel()
         val state by model.state.collectAsState()
-        androidx.compose.runtime.LaunchedEffect(Unit) { model.start() }
+        // The same attendance model the attendance screen uses, so clocking in
+        // here and clocking out there are one shift, not two opinions about it.
+        val attendance: AttendanceModel = viewModel()
+        val shift by attendance.state.collectAsState()
+        val context = LocalContext.current
+        androidx.compose.runtime.LaunchedEffect(Unit) { model.start(); attendance.start() }
         DashboardScreen(
             state = state, onCheckOut = model::checkOut, onOpenVisit = onOpenVisit,
             onClock = onOpenAttendance, onBook = onBook,
-            onChats = onChats, onPatients = onPatients,
+            onLeads = onLeads, onReports = onReports, onBell = onBell, onAccount = onAccount,
+            shift = if (shift.who == null) null else shift.mine,
+            onPunch = { attendance.punch(context) },
         )
     }
 }
@@ -565,6 +577,7 @@ private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) 
             },
             onChart = { n -> state = state.copy(charting = state.record?.teeth?.get(n) ?: com.alphadental.clinic.next.data.Tooth(n, emptyList(), "")) },
             onPrescribe = { previewSheet = "rx" },
+            onCopyScript = { previewSheet = "rx" },
             onEditDetails = { state = state.copy(editing = true) },
             onTakePayment = { previewSheet = "pay" },
             onRecordTreatment = { previewSheet = "treat" },
@@ -796,6 +809,12 @@ private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) 
             state.record?.let { prescriptions.open(it.person) }
         }) else null,
         onEditDetails = if (state.canEditDetails) ({ model.edit(true) }) else null,
+        onPrintScript = { model.printScript(context, it) },
+        onShareScript = { model.shareScript(context, it) },
+        onSendScript = { model.sendScript(context, it) },
+        onCopyScript = if (state.canRecord) ({ rx ->
+            state.record?.let { prescriptions.open(it.person, rx) }
+        }) else null,
         onGallery = if (state.canAddPhoto) ({
             pickImage.launch(
                 androidx.activity.result.PickVisualMediaRequest(
@@ -1668,17 +1687,32 @@ private fun HelpPane(onBack: () -> Unit) {
 private fun previewCounts(span: Span): List<DayCount> {
     if (span == Span.Day) return emptyList()
     val busy = listOf(6, 0, 9, 11, 4, 7, 0, 3, 12, 8, 0, 5, 10, 2)
-    // Month starts on a Monday in this example, so two squares are blank first.
-    val pad = if (span == Span.Month) 2 else 0
-    val days = if (span == Span.Week) 7 else 30
+    // The real calendar, so the demo's week is the week it actually is: an
+    // example that says the 16th falls in a week numbered 1 to 7 teaches the
+    // wrong thing about the screen.
+    val today = java.util.Calendar.getInstance()
+    val start = (today.clone() as java.util.Calendar)
+    val pad: Int
+    val days: Int
+    if (span == Span.Week) {
+        start.add(java.util.Calendar.DAY_OF_YEAR, -((start.get(java.util.Calendar.DAY_OF_WEEK) - java.util.Calendar.SATURDAY + 7) % 7))
+        pad = 0
+        days = 7
+    } else {
+        start.set(java.util.Calendar.DAY_OF_MONTH, 1)
+        pad = (start.get(java.util.Calendar.DAY_OF_WEEK) - java.util.Calendar.SATURDAY + 7) % 7
+        days = start.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
+    }
+    val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
     return List(pad) { DayCount("", 0, 0, 0, inSpan = false) } +
-        (1..days).map { day ->
-            val booked = busy[(day - 1) % busy.size]
+        (0 until days).map { i ->
+            val cal = (start.clone() as java.util.Calendar).apply { add(java.util.Calendar.DAY_OF_YEAR, i) }
+            val day = cal.get(java.util.Calendar.DAY_OF_MONTH)
+            val booked = busy[i % busy.size]
             DayCount(
-                dateKey = "2026-09-%02d".format(day),
+                dateKey = fmt.format(cal.time),
                 dayOfMonth = day,
                 booked = booked,
-                // Every third day is already finished, to show the greyed count.
                 done = if (day % 3 == 0) booked else 0,
             )
         }

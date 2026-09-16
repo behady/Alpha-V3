@@ -86,6 +86,9 @@ data class RecordState(
     val savingTooth: Boolean = false,
     val startingOrtho: Boolean = false,
     val orthoStarted: String? = null,
+    /** The prescription being printed, shared or sent, by id. */
+    val busyScript: String? = null,
+    val scriptResult: String? = null,
 ) {
     /**
      * The photos the filter is showing.
@@ -477,6 +480,95 @@ class RecordModel : ViewModel() {
                     _state.value = _state.value.copy(startingOrtho = false, error = readable(e))
                 }
         }
+    }
+
+    // ------------------------------------------------------------------ scripts, out the door
+
+    /**
+     * The PDF, drawn on the phone.
+     *
+     * The letterhead comes from settings/clinic_info — the same document the
+     * website's printed prescription takes its header from — so a script sent
+     * from a phone carries the clinic's name and number exactly as one printed
+     * at the desk does. The file lands in the cache, which the share and print
+     * intents can read through the FileProvider and which Android sweeps itself.
+     */
+    private suspend fun pdfFor(
+        context: android.content.Context,
+        script: com.alphadental.clinic.data.Prescription,
+    ): java.io.File? {
+        val who = _state.value.who ?: return null
+        val record = _state.value.record ?: return null
+        val clinic = runCatching { com.alphadental.clinic.data.Repository.loadClinicInfo(who.clinicId) }
+            .getOrDefault(com.alphadental.clinic.data.ClinicInfo())
+        return runCatching {
+            com.alphadental.clinic.data.PrescriptionPdf.write(
+                context = context,
+                clinic = clinic,
+                patientName = record.person.name,
+                patientPhone = record.person.phone,
+                prescription = script,
+                arabic = false,
+            )
+        }.getOrNull()
+    }
+
+    private fun withPdf(
+        context: android.content.Context,
+        script: com.alphadental.clinic.data.Prescription,
+        then: (java.io.File) -> Unit,
+    ) {
+        if (_state.value.busyScript != null) return
+        _state.value = _state.value.copy(busyScript = script.id, scriptResult = null, error = null)
+        viewModelScope.launch {
+            val file = pdfFor(context, script)
+            _state.value = _state.value.copy(
+                busyScript = null,
+                error = if (file == null) "The prescription could not be drawn." else null,
+            )
+            if (file != null) then(file)
+        }
+    }
+
+    fun printScript(context: android.content.Context, script: com.alphadental.clinic.data.Prescription) =
+        withPdf(context, script) { com.alphadental.clinic.ui.DocumentActions.print(context, it, "Prescription") }
+
+    fun shareScript(context: android.content.Context, script: com.alphadental.clinic.data.Prescription) =
+        withPdf(context, script) { com.alphadental.clinic.ui.DocumentActions.share(context, it, "Prescription") }
+
+    /**
+     * Straight to the patient's WhatsApp, through the clinic's own number.
+     *
+     * The server route does the sending, because it holds the channel's token
+     * and the phone must not. A document like this is a paid message the moment
+     * the patient has not written in the last day, so the confirmation says
+     * "sent", never "delivered" — the phone does not know, and should not claim.
+     */
+    fun sendScript(context: android.content.Context, script: com.alphadental.clinic.data.Prescription) {
+        val record = _state.value.record ?: return
+        if (_state.value.busyScript != null) return
+        _state.value = _state.value.copy(busyScript = script.id, scriptResult = null, error = null)
+        viewModelScope.launch {
+            val file = pdfFor(context, script)
+            if (file == null) {
+                _state.value = _state.value.copy(busyScript = null, error = "The prescription could not be drawn.")
+                return@launch
+            }
+            com.alphadental.clinic.data.Repository.sendPrescriptionWhatsapp(record.person.id, file.readBytes())
+                .onSuccess {
+                    _state.value = _state.value.copy(busyScript = null, scriptResult = "Sent on WhatsApp.")
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        busyScript = null,
+                        error = e.message ?: "WhatsApp did not accept it.",
+                    )
+                }
+        }
+    }
+
+    fun clearScriptResult() {
+        _state.value = _state.value.copy(scriptResult = null)
     }
 
     fun clearOrtho() {

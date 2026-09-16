@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -331,6 +332,79 @@ private fun Composer(
         if (uri != null) onAttach(uri)
     }
 
+    // A voice note. Tap to start, tap to stop; what was recorded becomes the
+    // attachment, in the same preview row a picked file uses, so it can still
+    // be listened to in the head — or removed — before it goes.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var recorder by remember { mutableStateOf<android.media.MediaRecorder?>(null) }
+    var recordingFile by remember { mutableStateOf<java.io.File?>(null) }
+    var recordedSeconds by remember { mutableStateOf(0) }
+    val recording = recorder != null
+
+    fun stopRecording() {
+        val r = recorder ?: return
+        recorder = null
+        runCatching { r.stop() }
+        runCatching { r.release() }
+        val file = recordingFile ?: return
+        recordingFile = null
+        // Under a second is a mis-tap, not a message.
+        if (recordedSeconds < 1 || file.length() < 1024) {
+            file.delete()
+            return
+        }
+        onAttach(
+            androidx.core.content.FileProvider.getUriForFile(
+                context, com.alphadental.clinic.BuildConfig.APPLICATION_ID + ".files", file,
+            )
+        )
+    }
+
+    fun startRecording() {
+        val dir = java.io.File(context.cacheDir, "voice").apply { mkdirs() }
+        // AAC in an ADTS stream, because "audio/aac" is on the short list of
+        // audio types Meta will deliver; an m4a would be refused at the door.
+        val file = java.io.File(dir, "voice_${System.currentTimeMillis()}.aac")
+        val r = if (android.os.Build.VERSION.SDK_INT >= 31) {
+            android.media.MediaRecorder(context)
+        } else {
+            @Suppress("DEPRECATION") android.media.MediaRecorder()
+        }
+        runCatching {
+            r.setAudioSource(android.media.MediaRecorder.AudioSource.MIC)
+            r.setOutputFormat(android.media.MediaRecorder.OutputFormat.AAC_ADTS)
+            r.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC)
+            r.setAudioEncodingBitRate(64_000)
+            r.setAudioSamplingRate(44_100)
+            r.setOutputFile(file.absolutePath)
+            r.prepare()
+            r.start()
+        }.onSuccess {
+            recorder = r
+            recordingFile = file
+            recordedSeconds = 0
+        }.onFailure {
+            runCatching { r.release() }
+            file.delete()
+        }
+    }
+
+    val askMic = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startRecording()
+    }
+
+    LaunchedEffect(recording) {
+        while (recording) {
+            kotlinx.coroutines.delay(1000)
+            recordedSeconds += 1
+            // Two minutes is a voice note. Longer is a phone call.
+            if (recordedSeconds >= 120) stopRecording()
+        }
+    }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { recorder?.let { runCatching { it.release() } } }
+    }
+
     // Clear the last confirmation once the person starts typing the next reply.
     LaunchedEffect(draft) { if (draft.isNotEmpty()) onClearResult() }
 
@@ -441,7 +515,7 @@ private fun Composer(
                 Surface(
                     shape = CircleShape,
                     color = T.surfaceSoft,
-                    modifier = Modifier.size(46.dp).clickable(enabled = !state.sending) {
+                    modifier = Modifier.size(46.dp).clickable(enabled = !state.sending && !recording) {
                         pick.launch("*/*")
                     },
                 ) {
@@ -450,6 +524,40 @@ private fun Composer(
                             Icons.Filled.AttachFile, "Attach a file",
                             tint = T.inkMuted, modifier = Modifier.size(19.dp),
                         )
+                    }
+                }
+                Spacer(Modifier.width(6.dp))
+                Surface(
+                    shape = CircleShape,
+                    // Red while it is listening. The one state on this screen
+                    // that must be impossible to miss.
+                    color = if (recording) T.danger else T.surfaceSoft,
+                    modifier = Modifier.size(46.dp).clickable(enabled = !state.sending) {
+                        if (recording) {
+                            stopRecording()
+                        } else if (
+                            androidx.core.content.ContextCompat.checkSelfPermission(
+                                context, android.Manifest.permission.RECORD_AUDIO,
+                            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                        ) {
+                            startRecording()
+                        } else {
+                            askMic.launch(android.Manifest.permission.RECORD_AUDIO)
+                        }
+                    },
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        if (recording) {
+                            Txt(
+                                "%d:%02d".format(recordedSeconds / 60, recordedSeconds % 60),
+                                Type.label.copy(fontSize = 11.sp), androidx.compose.ui.graphics.Color.White,
+                            )
+                        } else {
+                            Icon(
+                                Icons.Filled.Mic, "Record a voice note",
+                                tint = T.inkMuted, modifier = Modifier.size(19.dp),
+                            )
+                        }
                     }
                 }
                 Spacer(Modifier.width(8.dp))

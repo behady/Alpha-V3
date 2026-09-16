@@ -75,6 +75,8 @@ fun Slab(
     /** The headline number. [SlabFigure] is the usual thing to put here. */
     figure: @Composable (RowScope.() -> Unit)? = null,
     stats: List<Stat> = emptyList(),
+    /** Something small on the title's right — a state pill, a single action. */
+    aside: @Composable (() -> Unit)? = null,
 ) {
     Column(
         modifier
@@ -97,7 +99,15 @@ fun Slab(
                 Txt(eyebrow, Type.eyebrow, T.onSlabFaint, uppercase = true)
                 Spacer(Modifier.height(6.dp))
             }
-            Txt(title, Type.title, T.onSlab, maxLines = 2)
+            if (aside == null) {
+                Txt(title, Type.title, T.onSlab, maxLines = 2)
+            } else {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Txt(title, Type.title, T.onSlab, Modifier.weight(1f), maxLines = 2)
+                    Spacer(Modifier.width(12.dp))
+                    aside()
+                }
+            }
 
             if (figure != null) {
                 Spacer(Modifier.height(12.dp))

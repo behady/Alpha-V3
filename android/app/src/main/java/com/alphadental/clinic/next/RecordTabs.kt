@@ -164,13 +164,154 @@ private fun NoteRow(
 }
 
 /**
+ * The account, as a statement.
+ *
+ * The old tab was two lists — everything charged, then everything paid — which
+ * answers neither of the questions anybody brings to a patient's money: what
+ * happened, in order, and where does that leave them. A statement answers both:
+ * one line per event, newest first, with the balance after each one down the
+ * right-hand side. That running figure is the column a receptionist's finger
+ * follows.
+ */
+fun LazyListScope.statement(state: RecordState, onTakePayment: (() -> Unit)?) {
+    val record = state.record ?: return
+    val rows = record.ledger.filterNot { it.isExpense }
+
+    item {
+        val b = record.balance
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Figure("Charged", b.charged, Modifier.weight(1f))
+            Figure("Paid", b.paid, Modifier.weight(1f))
+            Figure(
+                if (b.credit > 0) "In credit" else "Owed",
+                if (b.credit > 0) b.credit else b.owed,
+                Modifier.weight(1f),
+                strong = true,
+            )
+        }
+    }
+
+    if (onTakePayment != null && record.balance.owed > 0) {
+        item {
+            Row(Modifier.fillMaxWidth().padding(start = T.gutter, end = T.gutter, bottom = 10.dp)) {
+                SettingsPill("Take a payment", solid = true, onClick = onTakePayment)
+            }
+        }
+    }
+
+    if (rows.isEmpty()) {
+        item { SettingsEmpty("Nothing has been charged to this patient.") }
+        return
+    }
+
+    // Oldest first to accumulate, then shown newest first: the balance beside a
+    // row is the balance AFTER it, which is the number that is true today for
+    // the top row and was true on that day for every row below.
+    // Rows carry a day, not a time. On one day the charge is taken to have
+    // come before the payment for it — that is the order things happen in a
+    // clinic — so the balance beside the payment is the one after it.
+    val ordered = rows.sortedWith(compareBy<com.alphadental.clinic.next.data.Money>({ it.date }, { !it.isCharge }, { it.id }))
+    var running = 0.0
+    val withBalance = ordered.map { m ->
+        running += if (m.isCharge) m.amount else -m.amount
+        m to running
+    }.asReversed()
+
+    withBalance.groupBy { (m, _) -> m.date.take(7) }.forEach { (month, group) ->
+        item(key = "st-$month") { SectionLabel(monthName(month)) }
+        item(key = "sg-$month") {
+            RowGroup {
+                group.forEachIndexed { i, (m, after) ->
+                    if (i > 0) Rule()
+                    StatementRow(m, after)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Figure(label: String, amount: Double, modifier: Modifier, strong: Boolean = false) {
+    Column(modifier) {
+        Txt(label, Type.eyebrow, T.inkFaint, uppercase = true)
+        Spacer(Modifier.height(3.dp))
+        Txt(
+            amount.toLong().toString(),
+            if (strong) Type.heading else Type.label.copy(fontSize = 15.sp),
+            if (strong && amount > 0) T.ink else T.inkMuted,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun StatementRow(m: com.alphadental.clinic.next.data.Money, after: Double) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // A thin mark rather than a coloured amount: payments and charges are
+        // told apart by which column they sit in, the way a bank statement does
+        // it, and the colour is kept for the one figure that matters.
+        Box(
+            Modifier
+                .width(3.dp)
+                .height(34.dp)
+                .background(if (m.isCharge) T.line else T.ok, T.pill),
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Txt(
+                m.description.ifBlank { if (m.isCharge) "Treatment" else "Payment" },
+                Type.rowName, T.ink, maxLines = 2,
+            )
+            Spacer(Modifier.height(2.dp))
+            Txt(
+                listOf(noteDate(m.date), m.method, m.doctor).filter { it.isNotBlank() }.joinToString(" · "),
+                Type.caption, T.inkMuted, maxLines = 1,
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(horizontalAlignment = Alignment.End) {
+            Txt(
+                (if (m.isCharge) "" else "−") + m.amount.toLong().toString(),
+                Type.label.copy(fontSize = 14.sp),
+                if (m.isCharge) T.ink else T.ok,
+            )
+            Spacer(Modifier.height(2.dp))
+            Txt(
+                if (after > 0) "owes ${after.toLong()}" else if (after < 0) "credit ${(-after).toLong()}" else "settled",
+                Type.caption, T.inkFaint, maxLines = 1,
+            )
+        }
+    }
+}
+
+private fun monthName(yyyyMm: String): String {
+    val d = runCatching {
+        java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.US).parse(yyyyMm)
+    }.getOrNull() ?: return yyyyMm.ifBlank { "Undated" }
+    return java.text.SimpleDateFormat("MMMM yyyy", java.util.Locale.US).format(d)
+}
+
+/**
  * The prescriptions already written for this patient.
  *
  * Read-only, and that is the whole job: the phone writes a script from the More
  * menu, and a dentist about to write another one needs to see what the patient is
  * already taking first.
  */
-fun LazyListScope.scripts(state: RecordState, onWrite: (() -> Unit)?) {
+fun LazyListScope.scripts(
+    state: RecordState,
+    onWrite: (() -> Unit)?,
+    onPrint: (Prescription) -> Unit = {},
+    onShare: (Prescription) -> Unit = {},
+    onSend: (Prescription) -> Unit = {},
+    onCopy: ((Prescription) -> Unit)? = null,
+) {
     if (onWrite != null) {
         item {
             Row(Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 12.dp)) {
@@ -207,10 +348,39 @@ fun LazyListScope.scripts(state: RecordState, onWrite: (() -> Unit)?) {
                                 Txt(line, Type.caption, T.inkMuted, maxLines = 3)
                             }
                     }
+
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (state.busyScript == script.id) {
+                            Txt("Working…", Type.caption, T.inkMuted)
+                        } else {
+                            SettingsPill("WhatsApp", solid = true) { onSend(script) }
+                            SettingsPill("Share PDF") { onShare(script) }
+                            SettingsPill("Print") { onPrint(script) }
+                            // A prescription once issued is not rewritten — the
+                            // pharmacy may already hold it. What a dentist wants
+                            // on the second visit is the same script again with
+                            // one line changed, which is a new one.
+                            onCopy?.let { SettingsPill("Write again") { it(script) } }
+                        }
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))
         }
+    }
+
+    item {
+        Txt(
+            "A prescription is not edited once written — a pharmacy may already hold it. " +
+                "\"Write again\" opens a new one with the same medicines, to change and issue.",
+            Type.caption, T.inkFaint,
+            Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
+            maxLines = 3,
+        )
     }
 }
 
