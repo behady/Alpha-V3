@@ -39,8 +39,8 @@ function pcmToWav(pcm, sampleRate, channels = 1, bits = 16) {
 }
 
 /** Pulls the narration column out of the script's markdown table, in order. */
-function readLines() {
-  const md = fs.readFileSync("docs/marketing/promo-reel-script.md", "utf8");
+function readLines(scriptPath) {
+  const md = fs.readFileSync(scriptPath, "utf8");
   const rows = [];
   for (const line of md.split(/\r?\n/)) {
     if (!line.startsWith("|")) continue;
@@ -99,12 +99,15 @@ async function main() {
   const outDir = args[args.indexOf("--out") + 1];
   if (!outDir || outDir.startsWith("--")) throw new Error("Pass --out <dir>.");
   const voice = args.includes("--voice") ? args[args.indexOf("--voice") + 1] : "Charon";
+  const scriptPath = args.includes("--script")
+    ? args[args.indexOf("--script") + 1]
+    : "docs/marketing/promo-reel-script.md";
   const only = args.includes("--only") ? Number(args[args.indexOf("--only") + 1]) : null;
   const key = (process.env.GEMINI_API_KEY || "").trim();
   if (!key) throw new Error("GEMINI_API_KEY missing from .env.local");
 
   fs.mkdirSync(outDir, { recursive: true });
-  const rows = readLines().filter((r) => only === null || r.n === only);
+  const rows = readLines(scriptPath).filter((r) => only === null || r.n === only);
   console.log(`Voice: ${voice} — ${rows.length} line(s)`);
 
   const timings = [];

@@ -47,8 +47,14 @@ function main() {
     const cut = cuts.find((c) => c.n === line.n);
     if (!cut) throw new Error(`No footage recorded for beat ${line.n}`);
 
-    const want = line.seconds + GAP;
     const have = (cut.endMs - cut.startMs) / 1000;
+    /**
+     * A beat that performs a task is as long as the task. Cutting it to the narration would
+     * chop a click or a dialog mid-gesture, so the longer of the two wins and the audio is
+     * padded with silence to match. Beats that merely hold on a page keep the old rule, or
+     * every one of them would inherit the recorder's full hold.
+     */
+    const want = cut.actions ? Math.max(line.seconds + GAP, have) : line.seconds + GAP;
     const take = Math.min(want, have);
     const holdFor = want - take; // frames to freeze on the end, when the voice outlasts the shot
 
@@ -95,7 +101,7 @@ function main() {
     run([
       "-y", "-loglevel", "error",
       "-i", path.join(voDir, line.file),
-      "-af", `apad=pad_dur=${GAP}`,
+      "-af", `apad=whole_dur=${want.toFixed(2)}`,
       "-ar", "48000", "-ac", "2",
       aPath,
     ]);
