@@ -29,6 +29,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material3.Icon
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.CircularProgressIndicator
@@ -168,21 +171,31 @@ private fun LazyListScope.photos(
             }
         }
         item {
+            // Two proper buttons, not two chips in a row of chips. These are the
+            // point of the tab: the camera is why a phone has a photos tab at
+            // all, and a pill that looks like a filter reads as a filter.
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                if (state.uploading) {
-                    CircularProgressIndicator(
-                        color = T.inkFaint, strokeWidth = 2.dp, modifier = Modifier.size(20.dp),
+                onCamera?.let {
+                    PhotoButton(
+                        Icons.Filled.PhotoCamera, "Take a photo",
+                        solid = true, busy = state.uploading, Modifier.weight(1f), it,
                     )
-                    Spacer(Modifier.width(8.dp))
-                    Txt("Saving…", Type.caption, T.inkMuted)
-                } else {
-                    onCamera?.let { SettingsPill("Take a photo", solid = true, onClick = it) }
-                    onGallery?.let { SettingsPill("From the gallery", onClick = it) }
                 }
+                onGallery?.let {
+                    PhotoButton(
+                        Icons.Filled.PhotoLibrary, "From the gallery",
+                        solid = false, busy = state.uploading, Modifier.weight(1f), it,
+                    )
+                }
+            }
+            if (state.uploading) {
+                Txt(
+                    "Saving the photograph…", Type.caption, T.inkMuted,
+                    Modifier.padding(horizontal = T.gutter, vertical = 4.dp),
+                )
             }
         }
     }
@@ -256,6 +269,48 @@ private fun LazyListScope.photos(
     }
 
     item { Spacer(Modifier.height(10.dp)) }
+}
+
+/** A tall button with an icon over its label: the two ways a photo gets onto a file. */
+@Composable
+private fun PhotoButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    solid: Boolean,
+    busy: Boolean,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    Surface(
+        shape = T.cardShape,
+        color = if (solid) T.slab else T.surface,
+        border = if (solid) null else androidx.compose.foundation.BorderStroke(1.dp, T.line),
+        modifier = modifier.clickable(enabled = !busy, onClick = onClick),
+    ) {
+        Column(
+            Modifier.padding(vertical = 18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            if (busy && solid) {
+                CircularProgressIndicator(
+                    color = T.onSlabFaint, strokeWidth = 2.dp, modifier = Modifier.size(24.dp),
+                )
+            } else {
+                Icon(
+                    icon, null,
+                    tint = if (solid) T.onSlab else T.ink,
+                    modifier = Modifier.size(26.dp),
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Txt(
+                label,
+                Type.label.copy(fontSize = 13.sp),
+                if (solid) T.onSlab else T.ink,
+                maxLines = 1,
+            )
+        }
+    }
 }
 
 @Composable
