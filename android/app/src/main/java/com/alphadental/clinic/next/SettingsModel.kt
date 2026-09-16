@@ -15,12 +15,18 @@ import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.PersonSearch
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Medication
+import androidx.compose.material.icons.filled.RestoreFromTrash
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.alphadental.clinic.data.ClinicSettings
+import com.alphadental.clinic.data.Repository
 import com.alphadental.clinic.data.LabCases
 import com.alphadental.clinic.next.data.ClinicSource
 import com.alphadental.clinic.next.data.Who
@@ -47,6 +53,7 @@ enum class Section(
     Branches("Branches", "Where the clinic works from", Icons.Filled.Storefront, SettingsGroup.Clinic),
     Labs("Dental labs", "Who the clinic sends work to", Icons.Filled.Science, SettingsGroup.Clinic),
     Area("Clock-in area", "Where staff may clock in from", Icons.Filled.MyLocation, SettingsGroup.Clinic),
+    Hours("Opening hours", "When the clinic is open, and for how long a slot", Icons.Filled.Schedule, SettingsGroup.Clinic),
 
     Prices("Price list", "What each treatment costs", Icons.Filled.Payments, SettingsGroup.Work),
     Recall("Recall and dormancy", "When a patient is due back", Icons.Filled.EventRepeat, SettingsGroup.Work),
@@ -60,10 +67,14 @@ enum class Section(
     Bot("WhatsApp bot", "What answers patients out of hours", Icons.AutoMirrored.Filled.Chat, SettingsGroup.Patients),
 
     Alerts("Alerts", "What rings the bell on this phone", Icons.Filled.Notifications, SettingsGroup.App),
+    Interface("Where the app opens", "The screen you see first", Icons.Filled.Smartphone, SettingsGroup.App),
     DentistHome("Dentist's home screen", "What a dentist sees of the money", Icons.Filled.LocalHospital, SettingsGroup.App),
 
+    Drugs("Prescription drugs", "The clinic's edits to the built-in list", Icons.Filled.Medication, SettingsGroup.Work),
+    Deleted("Recently deleted", "Thirty days to change your mind", Icons.Filled.RestoreFromTrash, SettingsGroup.Records),
     Logs("Activity log", "The last hundred things people did", Icons.Filled.History, SettingsGroup.Records),
     Ai("AI usage", "What the assistant has cost", Icons.Filled.AutoAwesome, SettingsGroup.Records),
+    Memory("What the assistant learned", "Rules it applies to every answer", Icons.Filled.Psychology, SettingsGroup.Records),
 }
 
 enum class SettingsGroup(val label: String) {
@@ -86,6 +97,12 @@ data class SettingsState(
 
     val profile: ClinicSettings.ClinicProfile? = null,
     val area: ClinicSettings.AttendanceRules? = null,
+    val schedule: ClinicSettings.Schedule? = null,
+    val drugRows: List<com.alphadental.clinic.data.DrugShortcut> = emptyList(),
+    val bin: List<com.alphadental.clinic.data.RecycleBin.Entry> = emptyList(),
+    val facts: List<String> = emptyList(),
+    /** Which tab this account opens on; blank until it has been read. */
+    val homeTab: String? = null,
     val alerts: Map<String, Boolean> = emptyMap(),
     val booking: ClinicSettings.OnlineBooking? = null,
     val recall: ClinicSettings.Recall? = null,
@@ -164,6 +181,18 @@ class SettingsModel : ViewModel() {
             Section.Branches -> load { it.copy(branches = LabCases.loadBranches(id)) }
             Section.Labs -> load { it.copy(labs = LabCases.loadLabs(id)) }
             Section.Area -> load { it.copy(area = ClinicSettings.loadAttendanceRules(id)) }
+            Section.Hours -> load { it.copy(schedule = ClinicSettings.loadSchedule(id)) }
+            Section.Drugs -> load { it.copy(drugRows = ClinicSettings.loadDrugRows(id)) }
+            Section.Deleted -> load { it.copy(bin = com.alphadental.clinic.data.RecycleBin.list(id)) }
+            Section.Interface -> load {
+                it.copy(homeTab = ClinicSettings.loadHomeTab(_state.value.who?.uid.orEmpty()))
+            }
+            Section.Memory -> load {
+                // Per account, not per clinic: the assistant learns from the
+                // person it is talking to, and the server reads the same
+                // ai_preferences/{uid} document.
+                it.copy(facts = Repository.loadAiFacts(id, _state.value.who?.uid.orEmpty()))
+            }
             Section.Prices -> load { it.copy(services = ClinicSettings.loadServices(id)) }
             Section.Recall -> load { it.copy(recall = ClinicSettings.loadRecall(id)) }
             Section.Reasons -> load { it.copy(reasons = ClinicSettings.loadList(id, ClinicSettings.VISIT_REASONS)) }
@@ -191,6 +220,104 @@ class SettingsModel : ViewModel() {
 
     fun saveProfile(p: ClinicSettings.ClinicProfile) =
         write({ ClinicSettings.saveProfile(it, p) }) { s -> s.copy(profile = p) }
+
+    fun saveSchedule(sched: ClinicSettings.Schedule) =
+        write({ ClinicSettings.saveSchedule(it, sched) }) { s ->
+            s.copy(schedule = sched.copy(configured = true))
+        }
+
+    fun saveDrug(docId: String, catalogId: String, name: String, dose: String, doseAr: String) =
+        act({ ClinicSettings.saveDrugRow(it, docId, catalogId, name, dose, doseAr) }) { id ->
+            copy(drugRows = ClinicSettings.loadDrugRows(id))
+        }
+
+    fun hideDrug(docId: String, catalogId: String, name: String) =
+        act({ ClinicSettings.hideBuiltInDrug(it, docId, catalogId, name) }) { id ->
+            copy(drugRows = ClinicSettings.loadDrugRows(id))
+        }
+
+    /** A drug the clinic typed in. It is a real document, so it goes to the bin. */
+    fun binDrug(docId: String) =
+        act({ com.alphadental.clinic.data.RecycleBin.delete(it, "drugs", docId) }) { id ->
+            copy(drugRows = ClinicSettings.loadDrugRows(id))
+        }
+
+    fun restoreDeleted(entryId: String) =
+        act({ com.alphadental.clinic.data.RecycleBin.restore(it, entryId) }) { id ->
+            copy(bin = com.alphadental.clinic.data.RecycleBin.list(id))
+        }
+
+    fun purgeDeleted(entryId: String) =
+        act({ com.alphadental.clinic.data.RecycleBin.purge(it, entryId) }) { id ->
+            copy(bin = com.alphadental.clinic.data.RecycleBin.list(id))
+        }
+
+    /**
+     * A write, then a re-read of whatever it changed.
+     *
+     * Separate from [write] for two reasons. These have nothing to show
+     * optimistically — a restored record is not a switch that can be flipped
+     * ahead of the server — and the recycle-bin routes explain their refusals
+     * properly ("that patient no longer exists", "something with this name is
+     * already there"), so their message is shown as written instead of being
+     * flattened into "that could not be saved".
+     */
+    private fun act(
+        action: suspend (String) -> Result<Unit>,
+        reload: suspend SettingsState.(String) -> SettingsState,
+    ) {
+        val id = _state.value.who?.clinicId ?: return
+        if (!_state.value.canEdit) return
+        _state.value = _state.value.copy(busy = true, error = null)
+        viewModelScope.launch {
+            action(id)
+                .onSuccess {
+                    val next = runCatching { _state.value.reload(id) }.getOrDefault(_state.value)
+                    _state.value = next.copy(busy = false, error = null)
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        busy = false,
+                        error = e.message?.takeIf { it.isNotBlank() } ?: readable(e),
+                    )
+                }
+        }
+    }
+
+    /**
+     * Forget one rule.
+     *
+     * The whole list is rewritten by the repository inside a transaction, because
+     * the field is a plain array with no ids — and re-read there, so a fact
+     * learned while somebody sat on this screen is not dropped by a stale copy.
+     * What comes back is what is now stored, which is what gets shown.
+     */
+    fun forget(fact: String) {
+        val who = _state.value.who ?: return
+        _state.value = _state.value.copy(busy = true, error = null)
+        viewModelScope.launch {
+            runCatching { Repository.forgetAiFact(who.clinicId, who.uid, fact) }
+                .onSuccess { _state.value = _state.value.copy(busy = false, facts = it, error = null) }
+                .onFailure { e -> _state.value = _state.value.copy(busy = false, error = readable(e)) }
+        }
+    }
+
+    /**
+     * A personal preference, so it is not behind [canEdit].
+     *
+     * Everything else on these pages changes the clinic and is admin-only. Which
+     * screen an assistant's own phone opens on is nobody else's decision, and
+     * gating it would mean the person it belongs to could not set it.
+     */
+    fun saveHomeTab(tab: String) {
+        val who = _state.value.who ?: return
+        _state.value = _state.value.copy(homeTab = tab, busy = true, error = null)
+        viewModelScope.launch {
+            ClinicSettings.saveHomeTab(who.uid, tab)
+                .onSuccess { _state.value = _state.value.copy(busy = false) }
+                .onFailure { e -> _state.value = _state.value.copy(busy = false, error = readable(e)) }
+        }
+    }
 
     fun saveArea(r: ClinicSettings.AttendanceRules) =
         write({ ClinicSettings.saveAttendanceRules(it, r) }) { s -> s.copy(area = r) }
@@ -330,6 +457,11 @@ class SettingsModel : ViewModel() {
 fun previewSettings(): SettingsState = SettingsState(
     loading = false,
     who = previewDashboard().who,
+    homeTab = Tab.Today.name,
+    schedule = ClinicSettings.Schedule(
+        start = "09:00", end = "21:00", slotMinutes = 20,
+        offDays = setOf("friday"), configured = true,
+    ),
     profile = ClinicSettings.ClinicProfile(
         name = "Alpha Dental Centre",
         doctorName = "Dr. Youssef Kamal",

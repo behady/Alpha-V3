@@ -1,6 +1,11 @@
 package com.alphadental.clinic.next
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
@@ -17,10 +22,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
@@ -64,12 +73,26 @@ fun RecordScreen(
     onCall: (String) -> Unit = {},
     onMessage: (String) -> Unit = {},
     onTakePayment: (() -> Unit)? = null,
+    onRecordTreatment: (() -> Unit)? = null,
+    onMore: (() -> Unit)? = null,
+    onFilterMedia: (String) -> Unit = {},
+    onUploadCategory: (String) -> Unit = {},
+    onView: (String?) -> Unit = {},
+    onCamera: (() -> Unit)? = null,
+    onGallery: (() -> Unit)? = null,
+    onSetNoteStatus: (String, String) -> Unit = { _, _ -> },
+    onChart: (Int) -> Unit = {},
+    onPrescribe: (() -> Unit)? = null,
+    onEditDetails: (() -> Unit)? = null,
 ) {
     val record = state.record
 
     Column(Modifier.fillMaxSize().background(T.ground)) {
 
-        RecordSlab(state, record, onBack, onCall, onMessage, onTakePayment)
+        RecordSlab(
+            state, record, onBack, onCall, onMessage,
+            onTakePayment, onRecordTreatment, onMore, onEditDetails,
+        )
 
         if (record != null) Tabs(state.tab, onTab)
 
@@ -88,13 +111,147 @@ fun RecordScreen(
             ) {
                 when (state.tab) {
                     RecordTab.Overview -> overview(state, record)
-                    RecordTab.Chart -> chart(state, record, onSelectTooth)
+                    RecordTab.Chart -> chart(state, record, onSelectTooth, onChart)
+                    RecordTab.Notes -> treatments(state, onSetNoteStatus, onRecordTreatment)
                     RecordTab.Visits -> visits(record)
+                    RecordTab.Rx -> scripts(state, onPrescribe)
+                    RecordTab.Photos -> photos(state, onFilterMedia, onUploadCategory, onView, onCamera, onGallery)
                     RecordTab.Ledger -> ledger(state)
                 }
             }
         }
     }
+}
+
+/**
+ * The photographs on a file.
+ *
+ * A grid rather than a list: an x-ray is recognised at a glance and read by
+ * opening it, and three to a row is the most a thumb can still hit.
+ *
+ * The camera is the point of having this on a phone at all. A clinical photo
+ * taken chairside and filed in ten seconds is one that gets taken; one that has
+ * to be emailed to a desk later is one that does not.
+ */
+private fun LazyListScope.photos(
+    state: RecordState,
+    onFilter: (String) -> Unit,
+    onCategory: (String) -> Unit,
+    onView: (String?) -> Unit,
+    onCamera: (() -> Unit)?,
+    onGallery: (() -> Unit)?,
+) {
+    state.mediaError?.let { message ->
+        item {
+            Surface(color = T.dangerTint, modifier = Modifier.fillMaxWidth()) {
+                Txt(message, Type.caption, T.danger, Modifier.padding(T.gutter), maxLines = 3)
+            }
+        }
+    }
+
+    if (onCamera != null || onGallery != null) {
+        item { SectionLabel("File it as") }
+        item {
+            Row(
+                Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = T.gutter, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                MEDIA_CATEGORIES.forEach { c ->
+                    SettingsPill(c, solid = state.uploadCategory == c) { onCategory(c) }
+                }
+            }
+        }
+        item {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (state.uploading) {
+                    CircularProgressIndicator(
+                        color = T.inkFaint, strokeWidth = 2.dp, modifier = Modifier.size(20.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Txt("Saving…", Type.caption, T.inkMuted)
+                } else {
+                    onCamera?.let { SettingsPill("Take a photo", solid = true, onClick = it) }
+                    onGallery?.let { SettingsPill("From the gallery", onClick = it) }
+                }
+            }
+        }
+    }
+
+    if (state.media.isNotEmpty()) {
+        item { SectionLabel("Show") }
+        item {
+            Row(
+                Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = T.gutter, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                SettingsPill("Everything", solid = state.mediaFilter.isBlank()) {
+                    if (state.mediaFilter.isNotBlank()) onFilter(state.mediaFilter)
+                }
+                MEDIA_CATEGORIES.forEach { c ->
+                    val n = state.media.count { it.category == c }
+                    if (n > 0) {
+                        SettingsPill("$c · $n", solid = state.mediaFilter == c) { onFilter(c) }
+                    }
+                }
+            }
+        }
+    }
+
+    val shown = state.shownMedia
+    if (shown.isEmpty()) {
+        item {
+            SettingsEmpty(
+                if (state.media.isEmpty()) {
+                    "No photographs on this file yet."
+                } else {
+                    "Nothing filed under that."
+                },
+            )
+        }
+        return
+    }
+
+    // Chunked into rows by hand rather than a nested grid: a LazyVerticalGrid
+    // inside a LazyColumn cannot measure itself, and this list already scrolls.
+    shown.chunked(3).forEachIndexed { rowIndex, row ->
+        item(key = "media-$rowIndex") {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                row.forEach { media ->
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .aspectRatio(1f)
+                            .clip(T.cardShape)
+                            .background(T.surfaceSoft)
+                            .clickable { onView(media.url) },
+                    ) {
+                        AsyncImage(
+                            model = media.url,
+                            contentDescription = media.category.ifBlank { media.filename },
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
+                // Keeps a short last row the same size as a full one instead of
+                // stretching two photos across the screen.
+                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+
+    item { Spacer(Modifier.height(10.dp)) }
 }
 
 @Composable
@@ -105,6 +262,9 @@ private fun RecordSlab(
     onCall: (String) -> Unit,
     onMessage: (String) -> Unit,
     onTakePayment: (() -> Unit)?,
+    onRecordTreatment: (() -> Unit)?,
+    onMore: (() -> Unit)?,
+    onEditDetails: (() -> Unit)?,
 ) {
     val owed = record?.balance?.owed ?: 0.0
     val credit = record?.balance?.credit ?: 0.0
@@ -121,9 +281,26 @@ private fun RecordSlab(
                 Spacer(Modifier.width(8.dp))
                 SlabIcon(Icons.AutoMirrored.Filled.Chat, "WhatsApp") { onMessage(phone) }
             }
+            // Recording treatment lives in the bar rather than beside the
+            // balance, because it is the one thing on this screen that is done
+            // whether or not the patient owes anything.
+            onRecordTreatment?.let {
+                Spacer(Modifier.width(8.dp))
+                SlabIcon(Icons.Filled.Add, "Record treatment", onClick = it)
+            }
+            // Everything else this file can do, behind one icon. Five buttons in
+            // a row on a phone is five buttons nobody can hit.
+            onEditDetails?.let {
+                Spacer(Modifier.width(8.dp))
+                SlabIcon(Icons.Filled.Edit, "Patient details", onClick = it)
+            }
+            onMore?.let {
+                Spacer(Modifier.width(8.dp))
+                SlabIcon(Icons.Filled.MoreHoriz, "More", onClick = it)
+            }
         },
         // Nothing at all when the account is settled, which most are.
-        figure = if (record == null || (owed <= 0 && credit <= 0)) null else {
+        figure = if (record == null || (owed <= 0 && credit <= 0 && onTakePayment == null)) null else {
             {
                 // The word goes in the currency slot rather than the note
                 // column: with a button on this row there is no note column, and
@@ -133,7 +310,7 @@ private fun RecordSlab(
                     currency = if (owed > 0) "EGP owed" else "EGP credit",
                     compact = onTakePayment != null && owed > 0,
                 )
-                if (owed > 0 && onTakePayment != null) {
+                if (onTakePayment != null) {
                     Spacer(Modifier.weight(1f))
                     Surface(
                         shape = T.pill,
@@ -141,7 +318,7 @@ private fun RecordSlab(
                         modifier = Modifier.padding(bottom = 6.dp).clickable(onClick = onTakePayment),
                     ) {
                         Txt(
-                            "Take payment",
+                            if (owed > 0) "Take payment" else "Take deposit",
                             Type.label.copy(fontSize = 12.5.sp),
                             T.onAccent,
                             Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
@@ -310,6 +487,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.chart(
     state: RecordState,
     record: Record,
     onSelectTooth: (Int?) -> Unit,
+    onChart: (Int) -> Unit,
 ) {
     item {
         ToothChart(
@@ -319,6 +497,17 @@ private fun androidx.compose.foundation.lazy.LazyListScope.chart(
         )
     }
     item { ToothDetail(record.teeth[state.tooth], state.tooth) }
+
+    if (state.canRecord) {
+        item {
+            Row(Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 14.dp)) {
+                SettingsPill(
+                    state.tooth?.let { "Chart tooth $it" } ?: "Pick a tooth to chart",
+                    solid = state.tooth != null,
+                ) { state.tooth?.let(onChart) }
+            }
+        }
+    }
 }
 
 private fun androidx.compose.foundation.lazy.LazyListScope.visits(record: Record) {

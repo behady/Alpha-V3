@@ -1,5 +1,18 @@
 package com.alphadental.clinic.next
 
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -232,6 +245,12 @@ fun ThreadScreen(
     state: Chats,
     onBack: () -> Unit,
     onCall: (String) -> Unit = {},
+    onSend: (String) -> Unit = {},
+    onFollowup: () -> Unit = {},
+    onClearResult: () -> Unit = {},
+    onAttach: (android.net.Uri) -> Unit = {},
+    onClearAttachment: () -> Unit = {},
+    onSendAttachment: (String) -> Unit = {},
 ) {
     val thread = state.open ?: return
     val listState = rememberLazyListState()
@@ -270,7 +289,241 @@ fun ThreadScreen(
             }
         }
 
-        ReadOnlyNote(thread)
+        Composer(
+            state, thread, onSend, onFollowup, onClearResult,
+            onAttach, onClearAttachment, onSendAttachment,
+        )
+    }
+}
+
+/**
+ * Answering a patient.
+ *
+ * Three things decide what this is allowed to be, and all three are said out
+ * loud rather than enforced silently:
+ *
+ *  - Somebody who asked not to be messaged gets nothing, ever. That is not a
+ *    preference to weigh, it is what keeps the clinic's number off a ban list.
+ *  - Free text only arrives within twenty-four hours of the patient's own last
+ *    message. Past that Meta accepts the send and delivers nothing, which is the
+ *    worst possible failure: the receptionist believes they have replied.
+ *  - What does arrive after that is the pre-approved template, and templates are
+ *    the thing Meta charges for. So it is its own button with its own warning,
+ *    never a quiet fallback.
+ */
+@Composable
+private fun Composer(
+    state: Chats,
+    thread: Thread,
+    onSend: (String) -> Unit,
+    onFollowup: () -> Unit,
+    onClearResult: () -> Unit,
+    onAttach: (android.net.Uri) -> Unit,
+    onClearAttachment: () -> Unit,
+    onSendAttachment: (String) -> Unit,
+) {
+    var draft by remember(thread.id) { mutableStateOf("") }
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    // One picker for everything. Two buttons — photos here, files there — is a
+    // choice nobody wants to make about a thing they can already see.
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) onAttach(uri)
+    }
+
+    // Clear the last confirmation once the person starts typing the next reply.
+    LaunchedEffect(draft) { if (draft.isNotEmpty()) onClearResult() }
+
+    Surface(color = T.surface, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.navigationBarsPadding().imePadding()) {
+            Rule()
+
+            if (thread.optedOut) {
+                Note(
+                    "This patient asked not to be messaged. Nothing can be sent to them.",
+                    T.dangerTint, T.danger,
+                )
+                return@Column
+            }
+
+            if (!state.canReply) {
+                Note(
+                    "This account can read the inbox but not answer. Replying is a marketing permission.",
+                    T.surfaceSoft, T.inkMuted,
+                )
+                return@Column
+            }
+
+            state.sendError?.let { Note(it, T.dangerTint, T.danger) }
+            state.sent?.let {
+                val good = it.startsWith("Sent")
+                Note(it, if (good) T.surfaceSoft else T.accentTint, if (good) T.inkMuted else T.accentInk)
+            }
+
+            if (!state.windowOpen) {
+                Note(
+                    "More than a day has passed since they last wrote, so a typed message will not " +
+                        "reach them. The follow-up below is the only thing that will, and it is the " +
+                        "kind of message Meta charges for.",
+                    T.accentTint, T.accentInk,
+                )
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Txt("Ask them to write back", Type.body, T.inkBody, Modifier.weight(1f), maxLines = 2)
+                    Spacer(Modifier.width(10.dp))
+                    Surface(
+                        shape = T.pill,
+                        color = T.slab,
+                        modifier = Modifier.clickable(enabled = !state.sending) { onFollowup() },
+                    ) {
+                        Box(
+                            Modifier.padding(horizontal = 18.dp, vertical = 11.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (state.sending) {
+                                CircularProgressIndicator(
+                                    color = T.onSlabFaint, strokeWidth = 2.dp,
+                                    modifier = Modifier.size(15.dp),
+                                )
+                            } else {
+                                Txt("Send follow-up", Type.label.copy(fontSize = 12.sp), T.onSlab)
+                            }
+                        }
+                    }
+                }
+                return@Column
+            }
+
+            state.windowHoursLeft?.takeIf { it <= 4 }?.let {
+                // Only near the edge. A countdown running all day would be noise.
+                Note(
+                    "About " + (if (it <= 1) "an hour" else "$it hours") +
+                        " left to reply before free messages stop reaching them.",
+                    T.surfaceSoft, T.inkMuted,
+                )
+            }
+
+            state.attachment?.let { file ->
+                Surface(color = T.surfaceSoft, modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Filled.AttachFile, null,
+                            tint = T.inkFaint, modifier = Modifier.size(17.dp),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Txt(file.name, Type.rowName, T.ink, maxLines = 1)
+                            Spacer(Modifier.height(2.dp))
+                            Txt(
+                                listOfNotNull(file.kind, file.readableSize.takeIf { it.isNotBlank() })
+                                    .joinToString(" · "),
+                                Type.caption, T.inkMuted,
+                            )
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Txt(
+                            "Remove", Type.label.copy(fontSize = 12.sp), T.danger,
+                            Modifier.clickable(enabled = !state.sending) { onClearAttachment() },
+                        )
+                    }
+                }
+            }
+
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 10.dp),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = T.surfaceSoft,
+                    modifier = Modifier.size(46.dp).clickable(enabled = !state.sending) {
+                        pick.launch("*/*")
+                    },
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Filled.AttachFile, "Attach a file",
+                            tint = T.inkMuted, modifier = Modifier.size(19.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
+                OutlinedTextField(
+                    value = draft,
+                    // A caption travels with the file and the route caps it lower
+                    // than a plain message, so the box has to cap it too.
+                    onValueChange = { if (it.length <= (if (state.attachment != null) 1000 else 1500)) draft = it },
+                    placeholder = {
+                        Txt(
+                            if (state.attachment != null) "Add a caption" else "Write a reply",
+                            Type.body, T.inkFaint,
+                        )
+                    },
+                    maxLines = 4,
+                    shape = T.cardShape,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = T.surfaceSoft,
+                        unfocusedContainerColor = T.surfaceSoft,
+                        focusedTextColor = T.ink,
+                        unfocusedTextColor = T.ink,
+                        focusedIndicatorColor = T.lineStrong,
+                        unfocusedIndicatorColor = T.line,
+                        cursorColor = T.ink,
+                    ),
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(10.dp))
+                val ready = (draft.isNotBlank() || state.attachment != null) && !state.sending
+                Surface(
+                    shape = CircleShape,
+                    color = if (ready) T.accent else T.line,
+                    modifier = Modifier.size(46.dp).clickable(enabled = ready) {
+                        keyboard?.hide()
+                        if (state.attachment != null) onSendAttachment(draft) else onSend(draft)
+                        draft = ""
+                    },
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        if (state.sending) {
+                            CircularProgressIndicator(
+                                color = T.inkFaint, strokeWidth = 2.dp, modifier = Modifier.size(18.dp),
+                            )
+                        } else {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Send, "Send",
+                                tint = if (ready) T.onAccent else T.inkFaint,
+                                modifier = Modifier.size(19.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
+            Txt(
+                if (state.attachment != null) {
+                    "The file is uploaded to the clinic's own storage first, then WhatsApp fetches " +
+                        "it from there. Up to 20 MB."
+                } else {
+                    "Sent from the clinic's own WhatsApp number. The bot stays out of this thread " +
+                        "for an hour once you answer."
+                },
+                Type.caption, T.inkFaint,
+                Modifier.padding(start = T.gutter, end = T.gutter, bottom = 12.dp),
+                maxLines = 2,
+            )
+        }
+    }
+}
+
+@Composable
+private fun Note(text: String, fill: Color, ink: Color) {
+    Surface(color = fill, modifier = Modifier.fillMaxWidth()) {
+        Txt(text, Type.caption, ink, Modifier.padding(horizontal = T.gutter, vertical = 12.dp), maxLines = 5)
     }
 }
 
@@ -394,26 +647,6 @@ private fun Bubble(line: Line) {
  * Stated rather than hidden: a chat screen with no composer looks broken, and
  * the reason it has none is a decision worth showing.
  */
-@Composable
-private fun ReadOnlyNote(thread: Thread) {
-    Surface(color = T.surface, modifier = Modifier.fillMaxWidth()) {
-        Column {
-            Rule()
-            Txt(
-                if (thread.optedOut) {
-                    "This patient asked not to be messaged. Nothing can be sent to them."
-                } else {
-                    "Replying from the phone is not switched on yet. Answer from the website."
-                },
-                Type.caption,
-                T.inkMuted,
-                Modifier.padding(horizontal = T.gutter, vertical = 14.dp),
-                maxLines = 2,
-            )
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 
 private fun emptyLine(state: Chats): String = when (state.filter) {

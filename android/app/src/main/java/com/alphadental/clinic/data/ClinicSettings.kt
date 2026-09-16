@@ -72,6 +72,154 @@ object ClinicSettings {
         )
     }
 
+    /**
+     * When the clinic is open.
+     *
+     * Stored nested under `schedule` on `clinic_info`, as times of day rather than
+     * minutes, because that is the shape the website reads and writes. The phone
+     * converts at the edges instead of storing a second shape beside it.
+     */
+    data class Schedule(
+        val start: String = "09:00",
+        val end: String = "21:00",
+        val slotMinutes: Int = 30,
+        /** Lower-case English day names, as the website stores them. */
+        val offDays: Set<String> = emptySet(),
+        val configured: Boolean = false,
+    )
+
+    val WEEK = listOf("saturday", "sunday", "monday", "tuesday", "wednesday", "thursday", "friday")
+
+    @Suppress("UNCHECKED_CAST")
+    suspend fun loadSchedule(clinicId: String): Schedule {
+        val m = (loadDoc(clinicId, "clinic_info")["schedule"] as? Map<String, Any?>).orEmpty()
+        fun time(key: String, fallback: String) =
+            (m[key] as? String)?.trim()?.takeIf { it.isNotBlank() } ?: fallback
+        val slot = when (val v = m["slotDuration"]) {
+            is Number -> v.toInt()
+            is String -> v.toIntOrNull() ?: 30
+            else -> 30
+        }
+        return Schedule(
+            start = time("start", "09:00"),
+            end = time("end", "21:00"),
+            slotMinutes = if (slot <= 0) 30 else slot,
+            offDays = (m["offDays"] as? List<*>)
+                .orEmpty()
+                .mapNotNull { it?.toString()?.trim()?.lowercase()?.takeIf(String::isNotEmpty) }
+                .toSet(),
+            configured = m["configuredAt"] != null,
+        )
+    }
+
+    /**
+     * `configuredAt` is stamped on every save, exactly as the website does it.
+     *
+     * Nothing seeds this document at signup, so without the stamp a clinic that
+     * deliberately kept nine-to-nine is indistinguishable from one that has never
+     * been asked — and the day screen refuses to count free slots for the second.
+     */
+    suspend fun saveSchedule(clinicId: String, sched: Schedule): Result<Unit> = saveDoc(
+        clinicId, "clinic_info",
+        mapOf(
+            "schedule" to mapOf(
+                "start" to sched.start.trim(),
+                "end" to sched.end.trim(),
+                // A string, because that is what the website writes and what its
+                // own parser tolerates either way.
+                "slotDuration" to sched.slotMinutes.coerceIn(5, 240).toString(),
+                "offDays" to sched.offDays.toList(),
+                "configuredAt" to java.time.Instant.now().toString(),
+            ),
+        ),
+    )
+
+    /**
+     * The clinic's own rows in `drugs`, which are edits to the built-in list
+     * rather than a list of their own.
+     *
+     * A row carrying `catalogId` stands in front of that built-in; the same row
+     * with `hidden` removes it; a row with no `catalogId` is a drug the clinic
+     * typed in. Nothing is stored for a clinic that has changed nothing, so an
+     * empty collection means "the library as it ships", not "no drugs".
+     */
+    suspend fun loadDrugRows(clinicId: String): List<DrugShortcut> =
+        Repository.loadDrugShortcuts(clinicId)
+
+    /**
+     * Write one row.
+     *
+     * [docId] blank creates; [catalogId] blank means it is the clinic's own drug
+     * rather than an override. `hidden` is written false on every save because
+     * editing a built-in somebody had removed is how they put it back.
+     */
+    suspend fun saveDrugRow(
+        clinicId: String,
+        docId: String,
+        catalogId: String,
+        name: String,
+        dose: String,
+        doseAr: String,
+    ): Result<Unit> = runCatching {
+        val fields = mutableMapOf<String, Any>(
+            "name" to name.trim(),
+            "dose" to dose.trim(),
+            "doseAr" to doseAr.trim(),
+            "hidden" to false,
+        )
+        if (catalogId.isNotBlank()) fields["catalogId"] = catalogId
+        val drugs = Firebase.db().collection("clinics").document(clinicId).collection("drugs")
+        if (docId.isBlank()) drugs.add(fields).await() else drugs.document(docId).set(fields, SetOptions.merge()).await()
+        Unit
+    }
+
+    /**
+     * Take a built-in off the clinic's list.
+     *
+     * Marked hidden, never deleted: until the clinic touches a built-in there is
+     * no document to delete, and the row has to stay restorable afterwards.
+     * A drug the clinic typed in themselves is a real document and goes to the
+     * recycle bin instead — see [com.alphadental.clinic.data.RecycleBin].
+     */
+    suspend fun hideBuiltInDrug(
+        clinicId: String,
+        docId: String,
+        catalogId: String,
+        name: String,
+    ): Result<Unit> = runCatching {
+        val fields = mapOf("catalogId" to catalogId, "name" to name, "hidden" to true)
+        val drugs = Firebase.db().collection("clinics").document(clinicId).collection("drugs")
+        if (docId.isBlank()) drugs.add(fields).await() else drugs.document(docId).set(fields, SetOptions.merge()).await()
+        Unit
+    }
+
+    /**
+     * Which screen this account opens the phone on.
+     *
+     * Stored on the user document beside the website's own `uiPreferences`,
+     * because it is the same kind of thing — a preference belonging to a person
+     * rather than to a clinic — and because somebody with two accounts on one
+     * phone should get their own answer.
+     *
+     * The key is the phone's own. The website's interface settings are about
+     * modals, drawers and a left rail, none of which exist here, and writing
+     * them from a screen that cannot honour them would be a page of switches
+     * that do nothing.
+     */
+    suspend fun loadHomeTab(uid: String): String {
+        val snap = Firebase.db().collection("users").document(uid).get().await()
+        @Suppress("UNCHECKED_CAST")
+        val prefs = snap.get("uiPreferences") as? Map<String, Any?>
+        return prefs?.get("androidHome")?.toString().orEmpty()
+    }
+
+    suspend fun saveHomeTab(uid: String, tab: String): Result<Unit> = runCatching {
+        Firebase.db().collection("users").document(uid)
+            .set(mapOf("uiPreferences" to mapOf("androidHome" to tab)), SetOptions.merge())
+            .await()
+        Unit
+    }
+
     suspend fun saveProfile(clinicId: String, p: ClinicProfile): Result<Unit> = saveDoc(
         clinicId, "clinic_info",
         mapOf(

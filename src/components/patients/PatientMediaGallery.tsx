@@ -33,6 +33,7 @@ import { storage } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { logActivity } from "@/lib/logger";
 import { useUI } from "@/context/UIContext";
+import { XrayReadButton, XrayReadModal, XrayReportsSection } from "./XrayAiReport";
 
 export interface MediaItem {
   id: string;
@@ -92,6 +93,9 @@ export default function PatientMediaGallery({
   const [showBatchDeleteModal, setShowBatchDeleteModal] = useState<boolean>(false);
   const [movingMediaId, setMovingMediaId] = useState<string | null>(null);
   const [stagingFiles, setStagingFiles] = useState<Array<{ file: File; category: string; preview: string }>>([]);
+
+  // AI reading: the pictures handed to the reader, or null when the dialog is closed.
+  const [aiItems, setAiItems] = useState<MediaItem[] | null>(null);
 
   // Category counts
   const categoryCounts = useMemo(() => {
@@ -437,6 +441,9 @@ export default function PatientMediaGallery({
         </div>
       </div>
 
+      {/* AI x-ray reports already written for this patient */}
+      <XrayReportsSection patientId={patientId} language={language} />
+
       {/* Filter & Options Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-surface-subtle p-3 rounded-2xl border border-slate-200/60">
         {/* Category Tabs */}
@@ -555,6 +562,13 @@ export default function PatientMediaGallery({
                 ))}
               </select>
             </div>
+
+            {/* AI reading of the selected pictures */}
+            <XrayReadButton
+              count={selectedIds.length}
+              language={language}
+              onClick={() => setAiItems(filteredMedia.filter((m) => selectedIds.includes(m.id)))}
+            />
 
             {/* Batch Delete */}
             <button
@@ -959,6 +973,17 @@ export default function PatientMediaGallery({
         </div>
       )}
 
+      {/* AI READING DIALOG */}
+      {aiItems && (
+        <XrayReadModal
+          patientId={patientId}
+          patientName={patientName}
+          items={aiItems}
+          language={language}
+          onClose={() => setAiItems(null)}
+        />
+      )}
+
       {/* ENHANCED FULLSCREEN LIGHTBOX PREVIEW */}
       {currentLightboxMedia && (
         <div className="fixed inset-0 bg-slate-950/95 z-[150] flex flex-col items-center justify-between p-4 sm:p-6 backdrop-blur-md animate-in fade-in duration-200 select-none">
@@ -1000,6 +1025,9 @@ export default function PatientMediaGallery({
                   </option>
                 ))}
               </select>
+
+              {/* AI reading of this picture */}
+              <XrayReadButton count={1} compact language={language} onClick={() => setAiItems([currentLightboxMedia])} />
 
               {/* Duplicate */}
               <button

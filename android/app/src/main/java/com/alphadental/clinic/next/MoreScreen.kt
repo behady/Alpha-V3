@@ -18,9 +18,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Language
@@ -281,11 +284,19 @@ enum class Destination(
     Ortho("Ortho", "Cases and adjustments", Icons.Filled.Timeline, Area.Tool, built = true, permission = "access.ortho"),
     Leads("Leads", "Enquiries from ads and calls", Icons.Filled.PersonSearch, Area.Tool, built = true, permission = "access.marketing"),
     Stock("Stock", "What is running out", Icons.Filled.Inventory2, Area.Tool, built = true, permission = "access.inventory"),
-    Attendance("Attendance", "Who is in, and their hours", Icons.Filled.Groups, Area.Admin, permission = "attendance.admin"),
+    Content("Content", "Write a post for the clinic's pages", Icons.Filled.Campaign, Area.Tool, built = true, permission = "access.marketing"),
+    // No permission key of its own: each of its three answers is gated on the
+    // screen it draws from, so an assistant sees the morning and nothing else.
+    Assistant("Assistant", "The morning, who drifted off, money left behind", Icons.Filled.AutoAwesome, Area.Tool, built = true),
+    // No permission key: everybody has a shift of their own, and clocking in
+    // is not an admin act. The screen itself shows the clinic-wide half only
+    // to whoever the website would show it to.
+    Attendance("Attendance", "Your shift, and who is in", Icons.Filled.Groups, Area.Admin, built = true),
     Reminders("Auto SMS", "Reminders sent from a clinic phone", Icons.Filled.Sms, Area.Admin, built = true, permission = "access.settings"),
-    Hours("Opening hours", "When the clinic is open", Icons.Filled.Schedule, Area.Admin, permission = "access.settings"),
     Settings("Settings", "How the clinic runs", Icons.Filled.Settings, Area.Admin, built = true, permission = "access.settings"),
     // Built, and not a website thing: it flips the app's own language.
+    // No permission key: everybody is allowed to read how the thing works.
+    Help("Help", "How the system works, article by article", Icons.AutoMirrored.Filled.HelpOutline, Area.Account, built = true),
     Language("العربية", "Change the app's language", Icons.Filled.Language, Area.Account, built = true),
     ;
 

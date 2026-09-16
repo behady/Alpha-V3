@@ -31,7 +31,14 @@ data class Lab(
     val cases: List<LabCases.LabCase> = emptyList(),
     val filter: LabFilter = LabFilter.Open,
     val error: String? = null,
+    /** The case being looked at, by id. Not `open` — that already means the open cases. */
+    val openId: String? = null,
+    val moving: Boolean = false,
 ) {
+    /** Moving a case along is a clinical write, as the rules have it. */
+    val canMove: Boolean get() = who?.can("clinical.edit") == true
+
+    val openCase: LabCases.LabCase? get() = cases.firstOrNull { it.id == openId }
     val today: String get() = ClinicSource.dateKey()
 
     val summary: LabCases.Summary get() = LabCases.summarise(cases, today)
@@ -127,6 +134,49 @@ class LabModel : ViewModel() {
                         )
                     }
             }
+        }
+    }
+
+    fun openCase(id: String?) {
+        _state.value = _state.value.copy(openId = id, error = null)
+    }
+
+    /**
+     * Move a case to its next stage.
+     *
+     * This is the half of lab tracking that happens away from a desk: a driver
+     * arrives with a bag, a crown is fitted chairside. Raising the order —
+     * shades, teeth, the agreed price — stays on the website, where there is a
+     * keyboard and the form is long.
+     *
+     * The write is LabCases.advance, which stamps the date each stage owns and
+     * only on first arrival: re-entering "back" after a remake must not rewrite
+     * the day the original first came in.
+     */
+    fun move(to: String) {
+        val who = _state.value.who ?: return
+        val case = _state.value.openCase ?: return
+        if (!_state.value.canMove || _state.value.moving) return
+        _state.value = _state.value.copy(moving = true, error = null)
+        viewModelScope.launch {
+            LabCases.advance(who.clinicId, case, to, who.name, ClinicSource.dateKey())
+                .onSuccess {
+                    _state.value = _state.value.copy(moving = false)
+                    // The board is a listener, so the row updates itself. Ringing
+                    // the clinic's bell is best effort: the case has arrived
+                    // either way, and a failed reminder must not undo the move.
+                    if (to == "back") runCatching { LabCases.notifyBack(who.clinicId, case, false) }
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        moving = false,
+                        error = if (e.message?.contains("PERMISSION_DENIED", true) == true) {
+                            "This account is not allowed to move lab cases."
+                        } else {
+                            "That could not be saved."
+                        },
+                    )
+                }
         }
     }
 

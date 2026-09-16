@@ -1,7 +1,11 @@
 package com.alphadental.clinic.next
 
+import android.content.Context
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.alphadental.clinic.ai.ChatReplyClient
 import com.alphadental.clinic.next.data.ClinicSource
 import com.alphadental.clinic.next.data.Line
 import com.alphadental.clinic.next.data.Thread
@@ -20,6 +24,30 @@ enum class Inbox(val label: String) {
     Archived("Archived"),
 }
 
+/**
+ * A file picked on the phone, waiting for its caption.
+ *
+ * Held as a Uri rather than bytes: a twenty-megabyte photograph sitting in the
+ * view model across a rotation is how a phone runs out of memory holding
+ * something it has not decided to send yet.
+ */
+data class Attachment(
+    val uri: android.net.Uri,
+    val name: String,
+    val mime: String,
+    val bytes: Long,
+) {
+    /** What the reply route calls it: image, video, audio or document. */
+    val kind: String get() = com.alphadental.clinic.data.Chats.kindFor(mime)
+
+    val readableSize: String
+        get() = when {
+            bytes >= 1024 * 1024 -> "%.1f MB".format(bytes / 1024.0 / 1024.0)
+            bytes > 0 -> "${bytes / 1024} KB"
+            else -> ""
+        }
+}
+
 data class Chats(
     val loading: Boolean = true,
     val who: Who? = null,
@@ -30,6 +58,13 @@ data class Chats(
     val lines: List<Line> = emptyList(),
     val linesLoading: Boolean = false,
     val error: String? = null,
+    /** A reply is in flight. */
+    val sending: Boolean = false,
+    /** A file chosen but not yet sent, so a caption can be typed against it. */
+    val attachment: Attachment? = null,
+    /** What the last send actually did, in the person's own words. */
+    val sent: String? = null,
+    val sendError: String? = null,
 ) {
     private val live: List<Thread> get() = threads.filterNot { it.archived }
 
@@ -44,6 +79,33 @@ data class Chats(
             Inbox.All -> live
             Inbox.Archived -> threads.filter { it.archived }
         }
+
+    /** Replying is a clinic-facing act; the same key that opens the inbox allows it. */
+    val canReply: Boolean get() = who?.can("access.marketing") == true || who?.isAdmin == true
+
+    /**
+     * When the patient last wrote.
+     *
+     * The whole composer hangs off this. Meta only delivers free text for
+     * twenty-four hours after a patient's own message; past that a typed reply
+     * is accepted, charged for nothing, and never arrives. The one thing that
+     * does deliver is the pre-approved template, whose only job is to make them
+     * write back and re-open the window.
+     */
+    val lastInboundAt: Long
+        get() = lines.filter { it.fromPatient }.maxOfOrNull { it.at }
+            ?: open?.takeIf { it.lastDirection == "in" }?.lastAt
+            ?: 0L
+
+    val hoursSincePatient: Long
+        get() = if (lastInboundAt <= 0) Long.MAX_VALUE
+        else (System.currentTimeMillis() - lastInboundAt) / 3_600_000L
+
+    /** Free text will still be delivered. */
+    val windowOpen: Boolean get() = hoursSincePatient < 24
+
+    /** Hours left before free text stops arriving. Null once it has closed. */
+    val windowHoursLeft: Long? get() = if (windowOpen) (24 - hoursSincePatient) else null
 }
 
 /**
@@ -57,6 +119,9 @@ data class Chats(
  * work at once, and a message answered at the desk must stop showing as unread
  * on the phone without anyone refreshing.
  */
+/** Cloud Storage refuses anything larger, and says so unhelpfully. */
+private const val MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+
 class ChatsModel : ViewModel() {
 
     private val _state = MutableStateFlow(Chats())
@@ -94,6 +159,217 @@ class ChatsModel : ViewModel() {
                         open = _state.value.open?.let { o -> threads.firstOrNull { it.id == o.id } ?: o },
                     )
                 }
+        }
+    }
+
+    /**
+     * Answer a patient.
+     *
+     * The POST is the website's own reply route, which also writes the line into
+     * the thread, tells the bot to stand down for an hour, and files the answer
+     * as a lesson for it. None of that is reimplemented here — and the reply
+     * cannot be written straight to Firestore anyway: the clinic's number lives
+     * on Meta's servers and only the server holds the credentials.
+     */
+    fun send(text: String) {
+        val who = _state.value.who ?: return
+        val thread = _state.value.open ?: return
+        val body = text.trim()
+        if (body.isBlank() || _state.value.sending) return
+        if (!_state.value.canReply) return
+
+        // Nothing may be sent to somebody who asked not to be messaged. Not a
+        // preference — it is the thing that keeps the number off a ban list.
+        if (thread.optedOut) {
+            _state.value = _state.value.copy(
+                sendError = "This person asked not to be messaged. Nothing can be sent to them.",
+            )
+            return
+        }
+
+        _state.value = _state.value.copy(sending = true, sendError = null, sent = null)
+        viewModelScope.launch {
+            runCatching {
+                ChatReplyClient.sendText(
+                    clinicId = who.clinicId,
+                    phone = thread.phone,
+                    patientId = thread.patientId,
+                    patientName = thread.patientName,
+                    text = body,
+                )
+            }
+                .onSuccess { result -> _state.value = _state.value.copy(sending = false, sent = describe(result.mode)) }
+                .onFailure { e -> _state.value = _state.value.copy(sending = false, sendError = readable(e)) }
+        }
+    }
+
+    /**
+     * Take a file the person chose, without reading it yet.
+     *
+     * Its name, type and size come from the content resolver so the composer can
+     * show what is attached and refuse an oversized one before anybody waits on
+     * an upload. Storage caps a file at twenty megabytes; hitting that limit
+     * comes back as a bare "Upload failed", which tells nobody anything.
+     */
+    fun attach(context: Context, uri: android.net.Uri) {
+        val resolver = context.contentResolver
+        val mime = resolver.getType(uri).orEmpty().ifBlank { "application/octet-stream" }
+        var name = "file"
+        var size = 0L
+        runCatching {
+            resolver.query(uri, null, null, null, null)?.use { c ->
+                val nameAt = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                val sizeAt = c.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                if (c.moveToFirst()) {
+                    if (nameAt >= 0) name = c.getString(nameAt).orEmpty().ifBlank { "file" }
+                    if (sizeAt >= 0 && !c.isNull(sizeAt)) size = c.getLong(sizeAt)
+                }
+            }
+        }
+
+        if (size > MAX_UPLOAD_BYTES) {
+            _state.value = _state.value.copy(
+                sendError = "That file is ${size / 1024 / 1024} MB. The limit is 20 MB.",
+                attachment = null,
+            )
+            return
+        }
+
+        _state.value = _state.value.copy(
+            attachment = Attachment(uri, name, mime, size),
+            sendError = null,
+            sent = null,
+        )
+    }
+
+    fun clearAttachment() {
+        _state.value = _state.value.copy(attachment = null)
+    }
+
+    /**
+     * Send the attached file, with whatever was typed as its caption.
+     *
+     * Two steps, and the first is the reason this cannot be one: the file goes
+     * into the clinic's own Storage folder, and the server hands Meta the
+     * resulting download link rather than the bytes. The route accepts links
+     * into that bucket and nowhere else — otherwise the clinic's number would
+     * relay anything on the internet.
+     *
+     * On the unofficial gateway only documents can be forwarded, so a photo
+     * comes back refused rather than delivered as a broken link. That refusal is
+     * the server's own sentence and is shown as written.
+     */
+    fun sendAttachment(context: Context, caption: String) {
+        val who = _state.value.who ?: return
+        val thread = _state.value.open ?: return
+        val file = _state.value.attachment ?: return
+        if (_state.value.sending || !_state.value.canReply) return
+        if (thread.optedOut) {
+            _state.value = _state.value.copy(
+                sendError = "This person asked not to be messaged. Nothing can be sent to them.",
+            )
+            return
+        }
+
+        _state.value = _state.value.copy(sending = true, sendError = null, sent = null)
+        viewModelScope.launch {
+            runCatching {
+                val bytes = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(file.uri)?.use { it.readBytes() }
+                } ?: error("That file could not be read.")
+                if (bytes.size > MAX_UPLOAD_BYTES) error("That file is too large. The limit is 20 MB.")
+
+                val url = com.alphadental.clinic.data.Chats.uploadOutbound(
+                    clinicId = who.clinicId,
+                    bytes = bytes,
+                    mime = file.mime,
+                    name = file.name,
+                )
+                ChatReplyClient.sendMedia(
+                    clinicId = who.clinicId,
+                    phone = thread.phone,
+                    patientId = thread.patientId,
+                    patientName = thread.patientName,
+                    caption = caption.trim(),
+                    url = url,
+                    mime = file.mime,
+                    kind = file.kind,
+                    filename = file.name,
+                )
+            }
+                .onSuccess { result ->
+                    _state.value = _state.value.copy(
+                        sending = false,
+                        attachment = null,
+                        sent = describe(result.mode),
+                    )
+                }
+                .onFailure { e -> _state.value = _state.value.copy(sending = false, sendError = readable(e)) }
+        }
+    }
+
+    /**
+     * Send the re-engagement template.
+     *
+     * The only thing that arrives once the day is up. It costs money — templates
+     * are what Meta bills for, replies inside the window are free — so it is a
+     * separate, deliberate button rather than a silent fallback when a typed
+     * message would not have delivered.
+     */
+    fun sendFollowup() {
+        val who = _state.value.who ?: return
+        val thread = _state.value.open ?: return
+        if (_state.value.sending || !_state.value.canReply) return
+        if (thread.optedOut) {
+            _state.value = _state.value.copy(
+                sendError = "This person asked not to be messaged. Nothing can be sent to them.",
+            )
+            return
+        }
+
+        _state.value = _state.value.copy(sending = true, sendError = null, sent = null)
+        viewModelScope.launch {
+            runCatching {
+                ChatReplyClient.sendFollowupTemplate(
+                    clinicId = who.clinicId,
+                    phone = thread.phone,
+                    patientId = thread.patientId,
+                    patientName = thread.patientName,
+                )
+            }
+                .onSuccess { result -> _state.value = _state.value.copy(sending = false, sent = describe(result.mode)) }
+                .onFailure { e -> _state.value = _state.value.copy(sending = false, sendError = readable(e)) }
+        }
+    }
+
+    /**
+     * What the server did with it, said plainly.
+     *
+     * "queued" is not "sent". It means the message landed in the manual list for
+     * somebody to forward by hand, and a receptionist who reads that as delivered
+     * will tell a patient something untrue. This cost a clinic four replies
+     * nobody ever received.
+     */
+    private fun describe(mode: String): String = when (mode) {
+        "auto" -> "Sent."
+        "queued", "manual" ->
+            "Not sent yet — it is waiting in the manual send list on the website."
+        "blocked" -> "Blocked before sending."
+        else -> "Sent."
+    }
+
+    fun clearSendResult() {
+        _state.value = _state.value.copy(sent = null, sendError = null)
+    }
+
+    private fun readable(e: Throwable): String {
+        val raw = e.message.orEmpty()
+        return when {
+            raw.isBlank() -> "The message could not be sent."
+            raw.contains("offline", true) || raw.contains("Unable to resolve host", true) ->
+                "No connection. Nothing was sent."
+            // The route's own sentences are written for the person reading them.
+            else -> raw
         }
     }
 

@@ -20,9 +20,15 @@ import kotlinx.coroutines.launch
 enum class RecordTab(val label: String) {
     Overview("Overview"),
     Chart("Chart"),
+    Notes("Treatments"),
     Visits("Visits"),
+    Photos("Photos"),
+    Rx("Scripts"),
     Ledger("Ledger"),
 }
+
+/** The website's own gallery filters, stored by their English id. */
+val MEDIA_CATEGORIES = listOf("X-Ray", "Clinical Photo", "Panoramic", "CT Scan", "Periodontal")
 
 /**
  * One thing about a patient that a clinician must know before touching them.
@@ -40,7 +46,69 @@ data class RecordState(
     /** Which tooth the chart is showing the detail of. */
     val tooth: Int? = null,
     val error: String? = null,
+    /** Treatments with money still outstanding, for the payment sheet. */
+    val unpaid: List<com.alphadental.clinic.data.UnpaidProcedure> = emptyList(),
+    val taking: Boolean = false,
+    val payError: String? = null,
+    val paid: String? = null,
+    /** The price list and the dentists, for recording a treatment. */
+    val services: List<com.alphadental.clinic.data.Service> = emptyList(),
+    val doctors: List<com.alphadental.clinic.data.Doctor> = emptyList(),
+    val recording: Boolean = false,
+    val recordError: String? = null,
+    val recorded: String? = null,
+    /** Photos and x-rays on this file, newest first. */
+    val media: List<com.alphadental.clinic.data.PatientMedia> = emptyList(),
+    val mediaFilter: String = "",
+    val uploading: Boolean = false,
+    val uploadCategory: String = "Clinical Photo",
+    val mediaError: String? = null,
+    /** The one being looked at full-size. */
+    val viewing: String? = null,
+
+    /**
+     * Every treatment recorded on this file, newest first.
+     *
+     * This list is why recording a treatment used to feel as though nothing had
+     * happened: the note was written and the ledger row with it, but the file had
+     * nowhere to show either as a treatment. It is the clinical record.
+     */
+    val notes: List<com.alphadental.clinic.data.ClinicalNote> = emptyList(),
+    val busyNote: String? = null,
+    /** Prescriptions already written for this patient. */
+    val scripts: List<com.alphadental.clinic.data.Prescription> = emptyList(),
+    /** Set while the details form is open. */
+    val editing: Boolean = false,
+    val savingDetails: Boolean = false,
+    val detailsError: String? = null,
+    /** The tooth being charted, with its unsaved edits. */
+    val charting: com.alphadental.clinic.next.data.Tooth? = null,
+    val savingTooth: Boolean = false,
+    val startingOrtho: Boolean = false,
+    val orthoStarted: String? = null,
 ) {
+    /**
+     * The photos the filter is showing.
+     *
+     * An empty filter means everything, rather than a sixth category called
+     * "All" that would have to be excluded from every count.
+     */
+    val shownMedia: List<com.alphadental.clinic.data.PatientMedia>
+        get() = if (mediaFilter.isBlank()) media else media.filter { it.category == mediaFilter }
+    val canTakePayment: Boolean get() = who?.can("payments.add") == true
+
+    /** Adding a photo writes to the file, so it wants the clinical key. */
+    val canAddPhoto: Boolean get() = who?.can("clinical.edit") == true
+
+    /** Changing who somebody is, rather than what was done to them. */
+    val canEditDetails: Boolean get() = who?.can("patients.edit") == true
+
+    /** Treatments still only planned — the work this patient is waiting for. */
+    val planned: List<com.alphadental.clinic.data.ClinicalNote>
+        get() = notes.filter { it.status == "Planned" }
+
+    /** Recording treatment is the clinical write, gated on the clinical key. */
+    val canRecord: Boolean get() = who?.can("clinical.edit") == true
     /**
      * What has to be read before treating this patient.
      *
@@ -99,9 +167,431 @@ class RecordModel : ViewModel() {
                 return@launch
             }
             ClinicSource.record(who.clinicId, id)
-                .onSuccess { _state.value = _state.value.copy(loading = false, who = who, record = it) }
+                .onSuccess {
+                    _state.value = _state.value.copy(loading = false, who = who, record = it)
+                    if (who.can("payments.add")) loadUnpaid(who, id)
+                    if (who.can("clinical.edit")) loadLists(who)
+                    loadMedia(who, id)
+                    loadNotes(who, id)
+                    loadScripts(who, id)
+                }
                 .onFailure { _state.value = _state.value.copy(loading = false, who = who, error = it.message) }
         }
+    }
+
+    /**
+     * What this patient still owes, treatment by treatment.
+     *
+     * Read through the old ledger model on purpose: `unpaidProcedures` matches
+     * payments to charges by procedureId and is the same arithmetic the website
+     * and the payment split use. Re-deriving it here from the rebuild's own
+     * ledger type would be a second opinion about what somebody owes.
+     */
+    private fun loadUnpaid(who: Who, patientId: String) = viewModelScope.launch {
+        val rows = runCatching {
+            com.alphadental.clinic.data.Repository.loadLedger(who.clinicId, patientId)
+        }.getOrDefault(emptyList())
+        _state.value = _state.value.copy(
+            unpaid = com.alphadental.clinic.data.unpaidProcedures(rows).filter { it.remaining > 0.009 },
+        )
+    }
+
+    /**
+     * Take money.
+     *
+     * Against a named treatment where there is one, because that is what drives
+     * the dentist's commission and the lab fee coming off it — the split lives in
+     * `recordPayment`, not here. A payment with no treatment named sits against
+     * the account as a whole, which is a real thing a desk does and not a
+     * fallback: it is how a deposit is taken before any work is charged.
+     */
+    fun takePayment(procedure: com.alphadental.clinic.data.UnpaidProcedure?, amount: Double) {
+        val who = _state.value.who ?: return
+        val record = _state.value.record ?: return
+        if (!_state.value.canTakePayment || _state.value.taking) return
+        _state.value = _state.value.copy(taking = true, payError = null, paid = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.Repository.recordPayment(
+                clinicId = who.clinicId,
+                patient = com.alphadental.clinic.data.Patient(
+                    id = record.person.id,
+                    name = record.person.name,
+                    phone = record.person.phone,
+                ),
+                procedure = procedure,
+                amount = amount,
+                byName = who.name,
+                byUid = who.uid,
+            )
+                .onSuccess {
+                    _state.value = _state.value.copy(
+                        taking = false,
+                        paid = "${amount.toLong()} taken.",
+                    )
+                    reload()
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        taking = false,
+                        // require() failures here are sentences worth showing as
+                        // written — "that is more than the 800 still owed".
+                        payError = e.message ?: "That payment could not be recorded.",
+                    )
+                }
+        }
+    }
+
+    fun clearPayment() {
+        _state.value = _state.value.copy(paid = null, payError = null)
+    }
+
+    /** Re-read the file after a write, so the balance and the ledger agree with it. */
+    private fun reload() {
+        val who = _state.value.who ?: return
+        val id = _state.value.record?.person?.id ?: return
+        viewModelScope.launch {
+            ClinicSource.record(who.clinicId, id)
+                .onSuccess { _state.value = _state.value.copy(record = it) }
+            loadUnpaid(who, id)
+            // The treatment list and the ledger are two views of the same act, so
+            // they are re-read together. One refreshed without the other is how a
+            // file shows a charge with no treatment behind it.
+            loadNotes(who, id)
+            loadScripts(who, id)
+        }
+    }
+
+    private fun loadLists(who: Who) = viewModelScope.launch {
+        val services = runCatching {
+            com.alphadental.clinic.data.Repository.loadServices(who.clinicId)
+        }.getOrDefault(emptyList())
+        val doctors = runCatching {
+            com.alphadental.clinic.data.Repository.loadDoctors(who.clinicId)
+        }.getOrDefault(emptyList())
+        _state.value = _state.value.copy(services = services, doctors = doctors)
+    }
+
+    /**
+     * Record what was done, and bill it.
+     *
+     * Two documents linked both ways — the clinical note and a ledger row — and
+     * `addClinicalNote` writes both. That link is the point: a note carrying a
+     * cost with no ledger row is exactly what the website reports as "treated,
+     * never invoiced", so writing the note alone would file the work as lost
+     * revenue.
+     *
+     * The price given is the price for ONE tooth. Multiplying by the number of
+     * teeth is the repository's job, because it knows the service's billing rule
+     * — flat once, per arch per jaw, everything else per tooth. The phone used to
+     * write the single-tooth price whatever was selected, which undercharged for
+     * exactly the treatments worth the most.
+     */
+    fun recordTreatment(
+        procedure: String,
+        teeth: List<String>,
+        note: String,
+        unitCost: Double,
+        doctor: com.alphadental.clinic.data.Doctor?,
+        service: com.alphadental.clinic.data.Service?,
+        done: Boolean,
+    ) {
+        val who = _state.value.who ?: return
+        val record = _state.value.record ?: return
+        if (!_state.value.canRecord || _state.value.recording) return
+        _state.value = _state.value.copy(recording = true, recordError = null, recorded = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.Repository.addClinicalNote(
+                clinicId = who.clinicId,
+                patient = com.alphadental.clinic.data.Patient(
+                    id = record.person.id,
+                    name = record.person.name,
+                    phone = record.person.phone,
+                ),
+                procedure = procedure,
+                teeth = teeth,
+                noteText = note,
+                unitCost = unitCost,
+                status = if (done) "Completed" else "Planned",
+                doctor = doctor,
+                service = service,
+                byName = who.name,
+            )
+                .onSuccess {
+                    _state.value = _state.value.copy(
+                        recording = false,
+                        recorded = if (unitCost > 0) "Recorded and charged." else "Recorded.",
+                    )
+                    reload()
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        recording = false,
+                        recordError = e.message ?: "That treatment could not be recorded.",
+                    )
+                }
+        }
+    }
+
+    fun clearRecorded() {
+        _state.value = _state.value.copy(recorded = null, recordError = null)
+    }
+
+    private fun loadMedia(who: Who, patientId: String) = viewModelScope.launch {
+        val rows = runCatching {
+            com.alphadental.clinic.data.Repository.loadPatientMedia(who.clinicId, patientId)
+        }.getOrDefault(emptyList())
+        _state.value = _state.value.copy(media = rows)
+    }
+
+    private fun loadNotes(who: Who, patientId: String) = viewModelScope.launch {
+        val rows = runCatching {
+            com.alphadental.clinic.data.Repository.loadClinicalNotes(who.clinicId, patientId)
+        }.getOrDefault(emptyList())
+        _state.value = _state.value.copy(notes = rows)
+    }
+
+    private fun loadScripts(who: Who, patientId: String) = viewModelScope.launch {
+        val rows = runCatching {
+            com.alphadental.clinic.data.Repository.loadPrescriptions(who.clinicId, patientId)
+        }.getOrDefault(emptyList())
+        _state.value = _state.value.copy(scripts = rows)
+    }
+
+    /**
+     * Planned becomes done, or the other way round.
+     *
+     * This moves NO money, and that is the system's behaviour rather than an
+     * omission here: `addClinicalNote` writes the ledger row the moment a
+     * treatment is recorded with a price on it, whatever its status. A planned
+     * treatment with a price is therefore already charged, and the status is a
+     * clinical word — has it been carried out — not a financial one. The list
+     * says so on the row, because everybody assumes the opposite.
+     */
+    fun setNoteStatus(noteId: String, status: String) {
+        val who = _state.value.who ?: return
+        if (!_state.value.canRecord || _state.value.busyNote != null) return
+        _state.value = _state.value.copy(busyNote = noteId, error = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.Repository.setNoteStatus(who.clinicId, noteId, status)
+                .onSuccess {
+                    _state.value = _state.value.copy(busyNote = null)
+                    reload()
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(busyNote = null, error = readable(e))
+                }
+        }
+    }
+
+    // ------------------------------------------------------------------ the chart
+
+    /** Open a tooth for charting, or close it. */
+    fun chart(tooth: Int?) {
+        val record = _state.value.record
+        _state.value = _state.value.copy(
+            charting = tooth?.let {
+                record?.teeth?.get(it)
+                    ?: com.alphadental.clinic.next.data.Tooth(it, emptyList(), "")
+            },
+        )
+    }
+
+    fun toggleStatus(id: String) {
+        val tooth = _state.value.charting ?: return
+        _state.value = _state.value.copy(
+            charting = tooth.copy(
+                statuses = if (id in tooth.statuses) tooth.statuses - id else tooth.statuses + id,
+            ),
+        )
+    }
+
+    fun setToothNote(text: String) {
+        val tooth = _state.value.charting ?: return
+        _state.value = _state.value.copy(charting = tooth.copy(notes = text))
+    }
+
+    /**
+     * Write one tooth.
+     *
+     * The repository writes a dotted field path rather than the whole map, so two
+     * dentists charting different teeth on the same patient cannot overwrite each
+     * other — and clearing a tooth deletes its key instead of leaving a hollow
+     * entry the website would still count as charted.
+     */
+    fun saveTooth() {
+        val who = _state.value.who ?: return
+        val record = _state.value.record ?: return
+        val tooth = _state.value.charting ?: return
+        if (!_state.value.canRecord || _state.value.savingTooth) return
+        _state.value = _state.value.copy(savingTooth = true, error = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.Repository.setToothDiagnosis(
+                clinicId = who.clinicId,
+                patientId = record.person.id,
+                tooth = tooth.number.toString(),
+                statuses = tooth.statuses,
+                notes = tooth.notes,
+                byName = who.name,
+            )
+                .onSuccess {
+                    _state.value = _state.value.copy(savingTooth = false, charting = null)
+                    reload()
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(savingTooth = false, error = readable(e))
+                }
+        }
+    }
+
+    // ------------------------------------------------------------------ who they are
+
+    /**
+     * Put this patient into orthodontic treatment.
+     *
+     * The case is keyed by the patient's own id, so pressing it twice is not two
+     * cases — it is the same one, merged. It also sets the flag the website's
+     * patient list badges ortho patients by, which is why this goes through the
+     * repository rather than writing the case document here.
+     */
+    fun startOrtho() {
+        val who = _state.value.who ?: return
+        val record = _state.value.record ?: return
+        if (!_state.value.canRecord || _state.value.startingOrtho) return
+        _state.value = _state.value.copy(startingOrtho = true, error = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.Repository.startOrthoCase(
+                who.clinicId,
+                com.alphadental.clinic.data.Patient(
+                    id = record.person.id,
+                    name = record.person.name,
+                    phone = record.person.phone,
+                ),
+            )
+                .onSuccess {
+                    _state.value = _state.value.copy(
+                        startingOrtho = false,
+                        orthoStarted = "On the ortho board. Adjustments are recorded there.",
+                    )
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(startingOrtho = false, error = readable(e))
+                }
+        }
+    }
+
+    fun clearOrtho() {
+        _state.value = _state.value.copy(orthoStarted = null)
+    }
+
+    fun edit(open: Boolean) {
+        _state.value = _state.value.copy(editing = open, detailsError = null)
+    }
+
+    fun saveDetails(
+        name: String,
+        phone: String,
+        dateOfBirth: String,
+        gender: String,
+        allergies: String,
+        medicalHistory: String,
+        address: String,
+    ) {
+        val who = _state.value.who ?: return
+        val record = _state.value.record ?: return
+        if (!_state.value.canEditDetails || _state.value.savingDetails) return
+        _state.value = _state.value.copy(savingDetails = true, detailsError = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.Repository.updatePatient(
+                clinicId = who.clinicId,
+                patientId = record.person.id,
+                name = name,
+                phone = phone,
+                dateOfBirth = dateOfBirth,
+                gender = gender,
+                allergies = allergies,
+                medicalHistory = medicalHistory,
+                address = address,
+                byName = who.name,
+            )
+                .onSuccess {
+                    _state.value = _state.value.copy(savingDetails = false, editing = false)
+                    reload()
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        savingDetails = false,
+                        detailsError = e.message ?: readable(e),
+                    )
+                }
+        }
+    }
+
+    private fun readable(e: Throwable): String = when {
+        e.message?.contains("PERMISSION_DENIED", true) == true ->
+            "This account is not allowed to change that."
+        e.message?.contains("offline", true) == true -> "No connection. Nothing was changed."
+        else -> "That could not be saved."
+    }
+
+    fun filterMedia(category: String) {
+        _state.value = _state.value.copy(
+            mediaFilter = if (_state.value.mediaFilter == category) "" else category,
+        )
+    }
+
+    fun setUploadCategory(category: String) {
+        _state.value = _state.value.copy(uploadCategory = category)
+    }
+
+    fun view(url: String?) {
+        _state.value = _state.value.copy(viewing = url)
+    }
+
+    /**
+     * A photo taken chairside.
+     *
+     * Written the way the website writes one — the image into Storage under the
+     * patient, then a `patient_media` row pointing at it — so a picture taken on
+     * a phone appears in the website's gallery like any other upload rather than
+     * in a second place only the phone knows about.
+     *
+     * The bytes arrive already downscaled. A 12-megapixel shot of one tooth is
+     * the clinic's storage bill, not a better photograph.
+     */
+    fun addPhoto(bytes: ByteArray) {
+        val who = _state.value.who ?: return
+        val record = _state.value.record ?: return
+        if (!_state.value.canAddPhoto || _state.value.uploading) return
+        _state.value = _state.value.copy(uploading = true, mediaError = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.Repository.uploadPatientMedia(
+                clinicId = who.clinicId,
+                patientId = record.person.id,
+                patientName = record.person.name,
+                bytes = bytes,
+                category = _state.value.uploadCategory,
+                byName = who.name,
+            )
+                .onSuccess {
+                    _state.value = _state.value.copy(uploading = false)
+                    loadMedia(who, record.person.id)
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        uploading = false,
+                        mediaError = when {
+                            e.message?.contains("PERMISSION_DENIED", true) == true ||
+                                e.message?.contains("not authorized", true) == true ->
+                                "This account is not allowed to add photos."
+                            else -> "That photo could not be saved."
+                        },
+                    )
+                }
+        }
+    }
+
+    fun dismissMediaError() {
+        _state.value = _state.value.copy(mediaError = null)
     }
 
     fun show(tab: RecordTab) {

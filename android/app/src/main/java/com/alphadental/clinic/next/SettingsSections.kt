@@ -3,6 +3,9 @@ package com.alphadental.clinic.next
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -50,6 +53,9 @@ fun SettingsSection(
         Section.Branches -> BranchesPage(state, onBack, actions)
         Section.Labs -> LabsPage(state, onBack, actions)
         Section.Area -> AreaPage(state, onBack, actions)
+        Section.Hours -> HoursPage(state, onBack, actions)
+        Section.Drugs -> DrugsPage(state, onBack, actions)
+        Section.Deleted -> DeletedPage(state, onBack, actions)
         Section.Prices -> PricesPage(state, onBack, actions)
         Section.Recall -> RecallPage(state, onBack, actions)
         Section.Reasons -> ListPage(
@@ -74,6 +80,8 @@ fun SettingsSection(
         Section.DentistHome -> DentistHomePage(state, onBack, actions)
         Section.Logs -> LogsPage(state, onBack)
         Section.Ai -> AiPage(state, onBack)
+        Section.Memory -> MemoryPage(state, onBack, actions)
+        Section.Interface -> InterfacePage(state, onBack, actions)
     }
 }
 
@@ -131,6 +139,562 @@ private fun ClinicPage(state: SettingsState, onBack: () -> Unit, actions: Settin
         }
 
         item { SettingsSave(dirty = form != stored, enabled = state.canEdit) { actions.saveProfile(form) } }
+    }
+}
+
+/**
+ * When the clinic is open.
+ *
+ * Not decoration: the diary builds its free-slot rows from these three numbers,
+ * and the booking sheet refuses to offer any time at all until they are set,
+ * because a nine-to-five guess offers times the clinic is shut.
+ */
+@Composable
+private fun HoursPage(state: SettingsState, onBack: () -> Unit, actions: SettingsActions) {
+    val stored = state.schedule
+    var form by remember(stored) { mutableStateOf(stored ?: ClinicSettings.Schedule()) }
+
+    SettingsPage(
+        title = Section.Hours.label,
+        caption = "What the diary offers",
+        state = state,
+        onBack = onBack,
+        ready = stored != null,
+    ) {
+        item {
+            RowGroup {
+                SettingsField(
+                    "Opens at", form.start, { form = form.copy(start = it) }, state.canEdit,
+                    hint = "09:00",
+                )
+                Rule()
+                SettingsField(
+                    "Closes at", form.end, { form = form.copy(end = it) }, state.canEdit,
+                    hint = "21:00",
+                )
+            }
+        }
+        item {
+            Txt(
+                "Both in 24-hour time. A clinic that closes after midnight is understood: an end " +
+                    "before the start rolls over to the next day.",
+                Type.caption, T.inkMuted,
+                Modifier.padding(horizontal = T.gutter, vertical = 10.dp),
+                maxLines = 3,
+            )
+        }
+
+        item { SectionLabel("How long an appointment slot is") }
+        item {
+            Row(
+                Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = T.gutter, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                listOf(10, 15, 20, 30, 45, 60).forEach { minutes ->
+                    SettingsPill("$minutes min", solid = form.slotMinutes == minutes) {
+                        if (state.canEdit) form = form.copy(slotMinutes = minutes)
+                    }
+                }
+            }
+        }
+
+        item { SectionLabel("Closed on") }
+        item {
+            Row(
+                Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = T.gutter, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ClinicSettings.WEEK.forEach { day ->
+                    val off = day in form.offDays
+                    SettingsPill(day.replaceFirstChar(Char::uppercase).take(3), solid = off) {
+                        if (state.canEdit) {
+                            form = form.copy(
+                                offDays = if (off) form.offDays - day else form.offDays + day,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            Txt(
+                if (form.offDays.isEmpty()) {
+                    "Open every day. Booking still allows a closing day if somebody insists — it " +
+                        "warns rather than refuses."
+                } else {
+                    "Closed " + form.offDays.joinToString(", ") { it.replaceFirstChar(Char::uppercase) } +
+                        ". Booking warns before putting somebody in on one of those days."
+                },
+                Type.caption, T.inkMuted,
+                Modifier.padding(horizontal = T.gutter, vertical = 10.dp),
+                maxLines = 3,
+            )
+        }
+
+        if (stored?.configured == false) {
+            item {
+                Txt(
+                    // The difference between "nine to nine" and "nobody has said".
+                    "Nobody has set these yet, so the diary shows no free slots and the booking " +
+                        "sheet asks for a time to be typed. Saving once fixes both.",
+                    Type.caption, T.warn,
+                    Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
+                    maxLines = 4,
+                )
+            }
+        }
+
+        item {
+            SettingsSave(
+                // `configured` is stamped by the save, not typed by anybody, so
+                // comparing it would leave the button reading "not saved yet"
+                // for ever the first time a clinic sets its hours.
+                dirty = stored == null || form.copy(configured = stored.configured) != stored,
+                enabled = state.canEdit,
+            ) { actions.saveSchedule(form) }
+        }
+    }
+}
+
+/**
+ * The clinic's edits to the drug list.
+ *
+ * What is stored is not a list of drugs — it is what this clinic has done to the
+ * built-in one. So the page shows the merged result, marks which rows have been
+ * changed or removed, and lets a built-in be put back exactly as it ships. A
+ * clinic that has changed nothing stores nothing and simply gets the library.
+ */
+@Composable
+private fun DrugsPage(state: SettingsState, onBack: () -> Unit, actions: SettingsActions) {
+    var editing by remember { mutableStateOf<DrugEdit?>(null) }
+    var query by remember { mutableStateOf("") }
+
+    // Two indexes over the clinic's rows: overrides by the built-in they stand
+    // in front of, and the drugs typed in from scratch.
+    val overrides = state.drugRows.filter { it.catalogId.isNotBlank() }.associateBy { it.catalogId }
+    val own = state.drugRows.filter { it.catalogId.isBlank() && it.name.isNotBlank() }
+
+    val needle = query.trim().let { com.alphadental.clinic.data.DrugCatalog.normalize(it) }
+    fun matches(vararg fields: String): Boolean =
+        needle.isEmpty() || fields.any {
+            com.alphadental.clinic.data.DrugCatalog.normalize(it).contains(needle)
+        }
+
+    SettingsPage(
+        title = Section.Drugs.label,
+        caption = "${com.alphadental.clinic.data.DrugCatalog.ALL.size} built in" +
+            if (own.isNotEmpty()) " + ${own.size} of your own" else "",
+        state = state,
+        onBack = onBack,
+        ready = true,
+    ) {
+        item {
+            RowGroup {
+                SettingsField("Search", query, { query = it }, hint = "Name, or what it is for")
+            }
+        }
+
+        if (state.canEdit) {
+            item {
+                Row(Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 10.dp)) {
+                    SettingsPill("Add a drug of your own", solid = true) {
+                        editing = DrugEdit("", "", "", "", "")
+                    }
+                }
+            }
+        }
+
+        if (own.isNotEmpty()) {
+            item { SectionLabel("Yours") }
+            items(own.filter { matches(it.name, it.dose, it.doseAr) }) { row ->
+                DrugRow(
+                    name = row.name,
+                    dose = row.dose,
+                    doseAr = row.doseAr,
+                    note = "Typed in here",
+                    canEdit = state.canEdit,
+                    onEdit = { editing = DrugEdit(row.id, "", row.name, row.dose, row.doseAr) },
+                    onRemove = { actions.binDrug(row.id) },
+                    removeLabel = "Delete",
+                    onRestore = null,
+                )
+            }
+        }
+
+        item { SectionLabel("The built-in list") }
+        items(
+            com.alphadental.clinic.data.DrugCatalog.ALL.filter {
+                matches(it.name, it.doseEn, it.doseAr, it.descEn)
+            }
+        ) { drug ->
+            val doc = overrides[drug.id]
+            val hidden = doc?.hidden == true
+            DrugRow(
+                name = if (hidden) drug.name else doc?.name?.ifBlank { drug.name } ?: drug.name,
+                dose = if (hidden || doc == null) drug.doseEn else doc.dose,
+                doseAr = if (hidden || doc == null) drug.doseAr else doc.doseAr,
+                note = when {
+                    hidden -> "Removed from the list"
+                    doc != null -> "Changed by the clinic"
+                    else -> ""
+                },
+                faded = hidden,
+                canEdit = state.canEdit,
+                onEdit = {
+                    editing = DrugEdit(
+                        doc?.id.orEmpty(), drug.id,
+                        doc?.name?.takeIf { !hidden && it.isNotBlank() } ?: drug.name,
+                        if (hidden || doc == null) drug.doseEn else doc.dose,
+                        if (hidden || doc == null) drug.doseAr else doc.doseAr,
+                    )
+                },
+                onRemove = if (hidden) null else ({
+                    actions.hideDrug(doc?.id.orEmpty(), drug.id, doc?.name?.ifBlank { drug.name } ?: drug.name)
+                }),
+                removeLabel = "Remove",
+                onRestore = if (doc != null) ({
+                    // Back to exactly what ships: the same write an edit makes,
+                    // with the library's own words in it.
+                    actions.saveDrug(doc.id, drug.id, drug.name, drug.doseEn, drug.doseAr)
+                }) else null,
+            )
+        }
+
+        item {
+            Txt(
+                "Removing a built-in hides it rather than deleting it — there is nothing in the " +
+                    "database to delete until you have changed it, and it has to stay restorable. " +
+                    "A drug you typed in yourself goes to Recently deleted.",
+                Type.caption, T.inkFaint,
+                Modifier.padding(horizontal = T.gutter, vertical = 14.dp),
+                maxLines = 5,
+            )
+        }
+    }
+
+    editing?.let { form ->
+        DrugSheet(
+            form = form,
+            onSave = { name, dose, doseAr ->
+                actions.saveDrug(form.docId, form.catalogId, name, dose, doseAr)
+                editing = null
+            },
+            onDismiss = { editing = null },
+        )
+    }
+}
+
+/** What the drug sheet is editing: an existing row, a built-in, or nothing yet. */
+data class DrugEdit(
+    val docId: String,
+    val catalogId: String,
+    val name: String,
+    val dose: String,
+    val doseAr: String,
+)
+
+@Composable
+private fun DrugSheet(
+    form: DrugEdit,
+    onSave: (String, String, String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var name by remember(form) { mutableStateOf(form.name) }
+    var dose by remember(form) { mutableStateOf(form.dose) }
+    var doseAr by remember(form) { mutableStateOf(form.doseAr) }
+
+    Sheet(
+        title = if (form.docId.isBlank() && form.catalogId.isBlank()) "New drug" else name.ifBlank { "Drug" },
+        caption = if (form.catalogId.isNotBlank()) "Your version of a built-in" else "Your own",
+        action = "Save",
+        ready = name.isNotBlank(),
+        onAction = { onSave(name, dose, doseAr) },
+        onDismiss = onDismiss,
+    ) {
+        SheetField("Name", name, { name = it }, hint = "Augmentin 1gm")
+        SheetField("How to take it", dose, { dose = it }, hint = "1 tablet every 12 hours after food")
+        SheetField("In Arabic", doseAr, { doseAr = it }, hint = "قرص كل 12 ساعة بعد الأكل")
+        Txt(
+            // The line that actually reaches the patient.
+            "The Arabic line is what the patient reads off the printed sheet. Left blank, that " +
+                "half of the prescription is blank.",
+            Type.caption, T.inkMuted,
+            Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
+            maxLines = 3,
+        )
+    }
+}
+
+@Composable
+private fun DrugRow(
+    name: String,
+    dose: String,
+    doseAr: String,
+    note: String,
+    canEdit: Boolean,
+    onEdit: () -> Unit,
+    onRemove: (() -> Unit)?,
+    removeLabel: String,
+    onRestore: (() -> Unit)?,
+    faded: Boolean = false,
+) {
+    RowGroup {
+        Column(Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 12.dp)) {
+            Txt(name, Type.rowName, if (faded) T.inkFaint else T.ink, maxLines = 2)
+            listOf(dose, doseAr).filter { it.isNotBlank() }.forEach { line ->
+                Spacer(Modifier.height(2.dp))
+                Txt(line, Type.caption, T.inkMuted, maxLines = 2)
+            }
+            if (note.isNotBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Txt(note, Type.caption, if (faded) T.warn else T.accentInk, maxLines = 1)
+            }
+            if (canEdit) {
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SettingsPill(if (faded) "Put it back" else "Edit", onClick = if (faded) (onRestore ?: onEdit) else onEdit)
+                    if (!faded) onRestore?.let { SettingsPill("Reset", onClick = it) }
+                    if (!faded) onRemove?.let { SettingsPill(removeLabel, danger = true, onClick = it) }
+                }
+            }
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+}
+
+/**
+ * Thirty days to change your mind.
+ *
+ * Nothing in this system is deleted outright — every delete takes a snapshot
+ * first and lands here, which is why the phone cannot delete from Firestore
+ * directly and asks the server instead. Restoring refuses when what the record
+ * pointed at has gone since, and that refusal is shown as the server words it.
+ */
+@Composable
+private fun DeletedPage(state: SettingsState, onBack: () -> Unit, actions: SettingsActions) {
+    var confirming by remember { mutableStateOf<String?>(null) }
+
+    SettingsPage(
+        title = Section.Deleted.label,
+        caption = if (state.bin.isEmpty()) "Nothing waiting" else "${state.bin.size} waiting",
+        state = state,
+        onBack = onBack,
+        ready = true,
+    ) {
+        if (state.bin.isEmpty()) {
+            item { SettingsEmpty("Nothing has been deleted, or nothing you are allowed to see.") }
+        }
+
+        items(state.bin) { entry ->
+            RowGroup {
+                Column(Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 12.dp)) {
+                    Txt(entry.label, Type.rowName, T.ink, maxLines = 2)
+                    Spacer(Modifier.height(2.dp))
+                    Txt(
+                        listOf(
+                            entry.collectionLabel,
+                            "by ${entry.deletedByName}",
+                            entry.deletedAt.take(10),
+                        ).filter { it.isNotBlank() }.joinToString(" · "),
+                        Type.caption, T.inkMuted, maxLines = 2,
+                    )
+                    if (entry.hasFiles) {
+                        Spacer(Modifier.height(2.dp))
+                        Txt("Has files with it", Type.caption, T.inkFaint, maxLines = 1)
+                    }
+                    entry.expiresAt.takeIf { it.isNotBlank() }?.let {
+                        Spacer(Modifier.height(2.dp))
+                        Txt("Gone for good after ${it.take(10)}", Type.caption, T.warn, maxLines = 1)
+                    }
+                    if (state.canEdit) {
+                        Spacer(Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SettingsPill("Put it back", solid = true) { actions.restoreDeleted(entry.id) }
+                            SettingsPill("Delete for good", danger = true) { confirming = entry.id }
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+
+    confirming?.let { id ->
+        AlertDialog(
+            onDismissRequest = { confirming = null },
+            containerColor = T.surface,
+            title = { Txt("Delete for good?", Type.heading, T.ink) },
+            text = {
+                Txt(
+                    "This cannot be undone, and it takes any files stored with it.",
+                    Type.body, T.inkMuted, maxLines = 3,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    actions.purgeDeleted(id)
+                    confirming = null
+                }) { Txt("Delete for good", Type.label, T.danger) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirming = null }) {
+                    Txt("Keep it", Type.label, T.inkMuted)
+                }
+            },
+        )
+    }
+}
+
+/**
+ * What the assistant has taught itself about this clinic.
+ *
+ * Its learn_fact tool writes a rule whenever somebody corrects it or states a
+ * policy — "Dr. Ahmed does not work Tuesdays" — and every answer afterwards is
+ * shaped by that list. A rule recorded wrongly, or one that used to be true,
+ * goes on quietly steering answers until somebody can find it.
+ *
+ * Deliberately read-and-remove. Nothing here adds a rule: rules are meant to be
+ * learned from conversation, not typed into a settings form. The point of the
+ * page is oversight, not entry.
+ */
+@Composable
+private fun MemoryPage(state: SettingsState, onBack: () -> Unit, actions: SettingsActions) {
+    var confirming by remember { mutableStateOf<String?>(null) }
+
+    SettingsPage(
+        title = Section.Memory.label,
+        caption = if (state.facts.isEmpty()) "Nothing learned yet" else "${state.facts.size} rules",
+        state = state,
+        onBack = onBack,
+        ready = true,
+    ) {
+        if (state.facts.isEmpty()) {
+            item {
+                SettingsEmpty(
+                    "The assistant has not been told anything about this clinic yet. It learns " +
+                        "from being corrected in conversation.",
+                )
+            }
+        }
+
+        items(state.facts) { fact ->
+            RowGroup {
+                Column(Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 13.dp)) {
+                    Txt(fact, Type.body, T.ink, maxLines = 6)
+                    Spacer(Modifier.height(10.dp))
+                    Row {
+                        SettingsPill("Forget this", danger = true) { confirming = fact }
+                    }
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+
+        item {
+            Txt(
+                "These are yours, not the clinic's: the assistant learns from whoever it is " +
+                    "talking to, and another account has its own list.",
+                Type.caption, T.inkFaint,
+                Modifier.padding(horizontal = T.gutter, vertical = 14.dp),
+                maxLines = 3,
+            )
+        }
+    }
+
+    confirming?.let { fact ->
+        AlertDialog(
+            onDismissRequest = { confirming = null },
+            containerColor = T.surface,
+            title = { Txt("Forget this?", Type.heading, T.ink) },
+            text = { Txt(fact, Type.body, T.inkMuted, maxLines = 6) },
+            confirmButton = {
+                TextButton(onClick = {
+                    actions.forget(fact)
+                    confirming = null
+                }) { Txt("Forget it", Type.label, T.danger) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirming = null }) {
+                    Txt("Keep it", Type.label, T.inkMuted)
+                }
+            },
+        )
+    }
+}
+
+/**
+ * Which screen the app opens on.
+ *
+ * One switch, and only one, because only one of the website's interface
+ * settings means anything on a phone. The rest are about modals, drawers and a
+ * left rail — none of which exist here — and a page of switches that changed
+ * nothing would be worse than no page at all. The last line says so rather than
+ * leaving somebody hunting for the others.
+ */
+@Composable
+private fun InterfacePage(state: SettingsState, onBack: () -> Unit, actions: SettingsActions) {
+    val current = state.homeTab.orEmpty().ifBlank { Tab.Today.name }
+
+    SettingsPage(
+        title = Section.Interface.label,
+        caption = "Yours, not the clinic's",
+        state = state,
+        onBack = onBack,
+        ready = state.homeTab != null,
+    ) {
+        item { SectionLabel("Open on") }
+        item {
+            Column {
+                listOf(
+                    Tab.Today to "Today — the day's takings, who is waiting, who is in the chair.",
+                    Tab.Day to "The diary — one day at a time, with the free slots in it.",
+                    Tab.Patients to "Patients — straight to the search box.",
+                ).forEach { (tab, why) ->
+                    RowGroup {
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { actions.saveHomeTab(tab.name) }
+                                .padding(horizontal = T.gutter, vertical = 13.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Txt(tab.name, Type.rowName, T.ink, Modifier.weight(1f))
+                                if (current == tab.name) {
+                                    Txt("Opens here", Type.caption, T.accentInk, maxLines = 1)
+                                }
+                            }
+                            Spacer(Modifier.height(2.dp))
+                            Txt(why, Type.caption, T.inkMuted, maxLines = 3)
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
+        }
+
+        item {
+            Txt(
+                "This is yours rather than the clinic's: another account on this phone gets its " +
+                    "own answer, and it follows you to another phone.",
+                Type.caption, T.inkMuted,
+                Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
+                maxLines = 3,
+            )
+        }
+        item {
+            Txt(
+                "The website's other interface settings — whether an editor opens in a panel or " +
+                    "over the page, how dense the note list is — are about a layout this app does " +
+                    "not have, so they are not repeated here.",
+                Type.caption, T.inkFaint,
+                Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
+                maxLines = 4,
+            )
+        }
     }
 }
 

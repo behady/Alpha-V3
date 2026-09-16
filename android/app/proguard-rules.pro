@@ -10,3 +10,11 @@
 -keep class * extends androidx.work.ListenableWorker {
     public <init>(android.content.Context, androidx.work.WorkerParameters);
 }
+
+# ViewModels are built by reflection from a Class, so R8 cannot see the constructor
+# being called. Without this, a minified build opens a screen and dies with
+# "Cannot create an instance of class ...Model" — which reads as the screen being
+# broken rather than as a shrinker rule that was never written.
+-keep class * extends androidx.lifecycle.ViewModel {
+    <init>(...);
+}

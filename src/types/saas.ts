@@ -33,6 +33,8 @@ export interface Clinic {
     aiEmbedded?: boolean;
     /** Tier 3: dictated clinical notes structured into records. */
     aiVoice?: boolean;
+    /** AI reading of x-rays into a structured report. Needs aiChat (it spends AI credits). */
+    aiXray?: boolean;
     aiMonthlyCredits?: number;
     extraAiCredits?: number;
     maxStaff?: number;

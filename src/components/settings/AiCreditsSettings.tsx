@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSettingsText } from "@/lib/useSettingsText";
-import { Sparkles, MessageCircle, Stethoscope, ClipboardList, Languages, Megaphone, HelpCircle, User } from "lucide-react";
+import { Sparkles, MessageCircle, Stethoscope, ClipboardList, Languages, Megaphone, HelpCircle, User, ScanLine } from "lucide-react";
 import { onSnapshot, query, orderBy, limit, where, Timestamp } from "firebase/firestore";
 import { getClinicCollection } from "@/lib/db-utils";
 import { useLanguage } from "@/context/LanguageContext";
@@ -66,6 +66,7 @@ export default function AiCreditsSettings() {
     treatment_plan: { label: ar ? "اقتراح خطط العلاج" : "Treatment plan suggestions", icon: ClipboardList },
     plan_translation: { label: ar ? "ترجمة خطط العلاج" : "Plan translation", icon: Languages },
     diagnosis_chat: { label: ar ? "مناقشة التشخيص" : "Diagnosis discussion", icon: Stethoscope },
+    xray_report: { label: ar ? "قراءة الأشعة" : "X-ray reading", icon: ScanLine },
     marketing: { label: ar ? "المحتوى التسويقي" : "Marketing content", icon: Megaphone },
   };
   const featureMeta = (key: string) =>

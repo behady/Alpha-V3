@@ -136,8 +136,40 @@ fun Gate(preview: Boolean) {
     val owner = remember(uid) { SessionOwner(app) }
     DisposableEffect(owner) { onDispose { owner.viewModelStore.clear() } }
 
+    // Signed in is not the same as belonging somewhere. An account with no
+    // clinic used to reach a dashboard full of the same sentence on every
+    // screen; it now reaches the one screen that can do something about it.
+    var attempt by remember(uid) { mutableStateOf(0) }
+    var homeless by remember(uid) { mutableStateOf<Boolean?>(null) }
+    androidx.compose.runtime.LaunchedEffect(uid, attempt) {
+        homeless = com.alphadental.clinic.next.data.ClinicSource.signedIn().isFailure
+    }
+
+    if (homeless == null) {
+        Box(Modifier.fillMaxSize().background(T.slab), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = T.onSlabFaint, strokeWidth = 2.dp, modifier = Modifier.size(22.dp))
+        }
+        return
+    }
+
     androidx.compose.runtime.CompositionLocalProvider(LocalViewModelStoreOwner provides owner) {
-        Shell(false)
+        if (homeless == true) {
+            val model: JoinModel = androidx.lifecycle.viewmodel.compose.viewModel()
+            val state by model.state.collectAsState()
+            JoinScreen(
+                state = state,
+                onCode = model::setCode,
+                onCheck = model::check,
+                onJoin = model::join,
+                // Re-asks rather than assuming: an owner may have added the
+                // account by hand while this screen was open, which is a
+                // different route in and just as valid.
+                onRetry = { homeless = null; attempt++ },
+                onSignOut = { FirebaseAuth.getInstance().signOut() },
+            )
+        } else {
+            Shell(false)
+        }
     }
 }
 

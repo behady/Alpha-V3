@@ -100,6 +100,15 @@ export const FEATURE_CATALOG: FeatureInfo[] = [
     requires: "aiChat",
   },
   {
+    key: "aiXray",
+    group: "ai",
+    labelEn: "AI X-ray Reading",
+    labelAr: "قراءة الأشعة بالذكاء الاصطناعي",
+    descEn: "Pick a patient's x-rays and get a structured radiographic report — per-tooth findings, bone, pathology and next steps — for the dentist to confirm.",
+    descAr: "اختار أشعة المريض واستلم تقرير أشعة منظم: نتائج لكل سن والعظم والآفات والخطوات التالية، ويأكده الطبيب.",
+    requires: "aiChat",
+  },
+  {
     key: "onlineBooking",
     group: "modules",
     labelEn: "Online Booking",

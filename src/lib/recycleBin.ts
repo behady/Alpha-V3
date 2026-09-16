@@ -40,6 +40,7 @@ export const BIN_COLLECTIONS: Record<string, BinCollectionRule> = {
   prescriptions: { permission: "clinical.delete", adminOnly: false, refFields: ["patientId"] },
   treatment_plans: { permission: "clinical.delete", adminOnly: false, refFields: ["patientId"] },
   diagnosis_chats: { permission: "clinical.delete", adminOnly: false, refFields: ["patientId"] },
+  xray_reports: { permission: "clinical.delete", adminOnly: false, refFields: ["patientId"] },
   inventory: { permission: "inventory.delete", adminOnly: false, refFields: [], uniqueBy: ["name"] },
   drugs: { permission: "access.settings", adminOnly: false, refFields: [], uniqueBy: ["name", "dose"] },
   marketing_content: { permission: "access.marketing", adminOnly: false, refFields: [] },
@@ -319,6 +320,7 @@ export function logModuleFor(collections: string[]): "patients" | "clinical" | "
       case "prescriptions":
       case "treatment_plans":
       case "diagnosis_chats":
+      case "xray_reports":
         return "clinical" as const;
       case "inventory":
         return "inventory" as const;
@@ -352,6 +354,8 @@ export function labelFor(collection: string, snapshot: Record<string, unknown>):
       return s("title") || s("name") || "Treatment plan";
     case "diagnosis_chats":
       return s("title") || "Diagnosis chat";
+    case "xray_reports":
+      return s("patientName") ? `X-ray report — ${s("patientName")}` : "X-ray report";
     case "services":
     case "drugs":
     case "inventory":

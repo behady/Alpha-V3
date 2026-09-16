@@ -431,6 +431,7 @@ object ClinicSource {
                     gender = snap.text("gender"),
                     allergies = snap.text("allergies"),
                     medicalHistory = snap.text("medicalHistory"),
+                    address = snap.text("address"),
                     balance = Balance(charged, paid),
                     upcoming = visits.filter { it.date >= today && !it.status.isFinished }
                         .sortedWith(compareBy({ it.date }, { it.minuteOfDay })),

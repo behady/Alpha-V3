@@ -29,7 +29,12 @@ data class MoneyState(
     /** What the same month before this one collected. Null when there is no history. */
     val previousCollected: Double? = null,
     val error: String? = null,
+    val saving: Boolean = false,
+    val entryError: String? = null,
+    val entered: String? = null,
 ) {
+    /** Adding a money line is a finance write, not merely seeing the screen. */
+    val canAdd: Boolean get() = who?.can("finance.add") == true
     val monthStart: String get() = ClinicSource.dateKey(firstOfMonth(anchor))
     val monthEnd: String get() = ClinicSource.dateKey(lastOfMonth(anchor))
 
@@ -137,6 +142,51 @@ class MoneyModel : ViewModel() {
                 }
                 .onFailure { e -> _state.value = _state.value.copy(loading = false, error = e.message) }
         }
+    }
+
+    /**
+     * A manual line: rent, materials, a lab bill, a payment that came from
+     * outside a patient's file.
+     *
+     * Written in the shape the website's own Manual Ledger Entry form writes, so
+     * both read each other's rows. An expense records its cost and no cash in;
+     * income records the other way round. Getting that backwards is how a month
+     * reads profitable while the bank disagrees.
+     */
+    fun addEntry(income: Boolean, amount: Double, description: String, category: String) {
+        val who = _state.value.who ?: return
+        if (!_state.value.canAdd || _state.value.saving) return
+        _state.value = _state.value.copy(saving = true, entryError = null, entered = null)
+        viewModelScope.launch {
+            com.alphadental.clinic.data.Repository.addFinanceEntry(
+                clinicId = who.clinicId,
+                income = income,
+                amount = amount,
+                description = description,
+                category = category,
+                dateKey = ClinicSource.dateKey(),
+                byName = who.name,
+            )
+                .onSuccess {
+                    _state.value = _state.value.copy(
+                        saving = false,
+                        entered = if (income) "Income recorded." else "Expense recorded.",
+                    )
+                    load()
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        saving = false,
+                        // require() failures here read as written: "Enter an
+                        // amount greater than zero."
+                        entryError = e.message ?: "That could not be saved.",
+                    )
+                }
+        }
+    }
+
+    fun clearEntry() {
+        _state.value = _state.value.copy(entered = null, entryError = null)
     }
 
     fun shiftMonth(months: Int) {

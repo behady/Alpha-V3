@@ -111,7 +111,8 @@ fun SettingsScreen(state: SettingsState, onBack: () -> Unit, actions: SettingsAc
 
             item {
                 Txt(
-                    "Opening hours, the odontogram and message wording are still edited on the website.",
+                    "The odontogram and the wording of automatic messages are still edited on the " +
+                        "website.",
                     Type.caption, T.inkMuted,
                     Modifier.padding(horizontal = T.gutter, vertical = 16.dp),
                     maxLines = 3,
@@ -384,6 +385,14 @@ data class SettingsActions(
     val close: () -> Unit,
     val saveProfile: (com.alphadental.clinic.data.ClinicSettings.ClinicProfile) -> Unit,
     val saveArea: (com.alphadental.clinic.data.ClinicSettings.AttendanceRules) -> Unit,
+    val saveSchedule: (com.alphadental.clinic.data.ClinicSettings.Schedule) -> Unit,
+    val saveDrug: (String, String, String, String, String) -> Unit,
+    val hideDrug: (String, String, String) -> Unit,
+    val binDrug: (String) -> Unit,
+    val restoreDeleted: (String) -> Unit,
+    val purgeDeleted: (String) -> Unit,
+    val forget: (String) -> Unit,
+    val saveHomeTab: (String) -> Unit,
     val setAlert: (String, Boolean) -> Unit,
     val saveBooking: (com.alphadental.clinic.data.ClinicSettings.OnlineBooking) -> Unit,
     val saveRecall: (com.alphadental.clinic.data.ClinicSettings.Recall) -> Unit,
