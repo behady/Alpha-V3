@@ -40,6 +40,12 @@ function assertWapilotReady(config: WapilotConfig): void {
   }
 }
 
+/**
+ * The typing indicator's whole budget. It is decoration in front of a real answer, so it gets a
+ * fraction of the time a send would — a slow gateway must never hold up the reply behind it.
+ */
+const TYPING_TIMEOUT_MS = 3000;
+
 function buildSendUrl(apiRoot: string, instanceId: string, template: string): string {
   const path = template
     .replace(/\{instanceId\}/g, encodeURIComponent(instanceId))
@@ -107,6 +113,61 @@ export async function sendWhatsApp({ clinicId, to, text }: WhatsAppSendArgs) {
   }
 
   return res.json().catch(() => ({}));
+}
+
+/**
+ * "The clinic is typing…", on a gateway that can show it.
+ *
+ * Does nothing at all unless a typing path has been configured, and that is the normal state:
+ * Wapilot has no such endpoint. Probed live 2026-09-16 — `send-message` and `send-file` resolve
+ * and then check the instance, while typing, presence and seen answer NOT_FOUND on v1, v2 and v3.
+ * A clinic pointing this at its own WAHA instance has `/api/startTyping` and can switch it on by
+ * setting `typingPath` in its credentials.
+ *
+ * Purely cosmetic, so it is held to cosmetic rules: never throws, never delays a reply by more
+ * than a moment, and a failure is not worth a log line. The one thing it must not do is become a
+ * wasted round trip in front of every answer, which is why an unset path skips the request
+ * entirely rather than attempting it and being refused.
+ */
+export function typingEndpoint(config: WapilotConfig): string | null {
+  if (!config.token || !config.instanceId) return null;
+  if (config.typingUrlOverride) return config.typingUrlOverride;
+  if (!config.typingPathTemplate) return null;
+  return buildSendUrl(config.apiRoot, config.instanceId, config.typingPathTemplate);
+}
+
+export async function sendWapilotTyping(clinicId: string, to: string): Promise<void> {
+  try {
+    const config = await loadWapilotConfig(clinicId);
+    const url = typingEndpoint(config);
+    if (!url) return;
+
+    let chatId: string;
+    if (isWhatsAppChatId(to)) {
+      chatId = to.trim();
+    } else {
+      const digits = normalizeToInternationalDigits(to);
+      if (!digits) return;
+      chatId = `${digits}@c.us`;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TYPING_TIMEOUT_MS);
+    try {
+      await fetch(url, {
+        method: "POST",
+        headers: { Token: config.token, "Content-Type": "application/json" },
+        // Both spellings: Wapilot's own sends use `chat_id`, WAHA uses `chatId`. An extra field
+        // is ignored by either, and guessing wrong would make this silently do nothing.
+        body: JSON.stringify({ chat_id: chatId, chatId, session: config.instanceId }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    /* cosmetic */
+  }
 }
 
 /**

@@ -6,6 +6,7 @@ import { isOptOutReply } from "@/lib/patientMessaging";
 import { patientSendablePhone } from "@/lib/patientPhone";
 import { findPatientByLid, learnPatientLid, lidChatFromEvent } from "@/lib/whatsappLid";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
+import { sendWapilotTyping } from "@/lib/whatsapp";
 import { respondToPatientMessage } from "@/lib/bot/respond";
 import { attachTranscript, recordThreadMessage, updateThreadStatus } from "@/lib/bot/thread";
 import { extractDeliveryAck } from "@/lib/bot/wapilotAck";
@@ -369,6 +370,15 @@ export async function POST(request: NextRequest) {
      * order the Meta channel settled on after billing clinics for answers that were then never
      * sent, to threads a human had taken over and to numbers that had said STOP.
      */
+    /*
+     * "Typing…", while the answer is being worked out.
+     *
+     * Not awaited: it is decoration in front of a real reply, and the reply must not wait on it.
+     * On most gateways it does nothing — Wapilot publishes no typing endpoint — in which case no
+     * request is made at all. See sendWapilotTyping.
+     */
+    void sendWapilotTyping(clinicId, chatId);
+
     let text = reply.text;
     let mediaKind = media?.kind as "audio" | "image" | undefined;
     let mediaNote: { summary: string; urgent: boolean; interest?: string } | undefined;

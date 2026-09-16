@@ -55,6 +55,10 @@ function configFromEnv(): WapilotConfig {
     sendDocumentPathTemplate:
       (process.env.WAPILOT_SEND_DOCUMENT_PATH || DEFAULT_SEND_DOCUMENT_PATH).trim() ||
       DEFAULT_SEND_DOCUMENT_PATH,
+    // No default: Wapilot has no typing endpoint (see WapilotCredentialsDocument.typingPath).
+    // Unset means the indicator is skipped entirely rather than attempted and 404'd.
+    typingUrlOverride: process.env.WAPILOT_TYPING_URL?.trim() || null,
+    typingPathTemplate: process.env.WAPILOT_TYPING_PATH?.trim() || null,
     source: instanceId && token ? "platform" : "none",
   };
 }
@@ -80,6 +84,8 @@ function configFromStored(
     sendDocumentUrlOverride: str(data.sendDocumentUrl) || fallback.sendDocumentUrlOverride,
     sendPathTemplate: str(data.sendPath) || fallback.sendPathTemplate,
     sendDocumentPathTemplate: str(data.sendDocumentPath) || fallback.sendDocumentPathTemplate,
+    typingUrlOverride: str(data.typingUrl) || fallback.typingUrlOverride,
+    typingPathTemplate: str(data.typingPath) || fallback.typingPathTemplate,
     source,
   };
 }
