@@ -20,11 +20,15 @@ data class Bar(val dateKey: String, val day: Int, val collected: Double)
 /** What the clinic charged for, grouped. */
 data class Earner(val label: String, val total: Double)
 
+/** The site's three views of the money: a day, a month, or the last thirty days. */
+enum class MoneyPeriod(val label: String) { Day("Daily"), Month("Monthly"), Range("30 days") }
+
 data class MoneyState(
     val loading: Boolean = true,
     val who: Who? = null,
     /** Any day inside the month being shown. */
     val anchor: Date = Date(),
+    val period: MoneyPeriod = MoneyPeriod.Month,
     val lines: List<Money> = emptyList(),
     /** What the same month before this one collected. Null when there is no history. */
     val previousCollected: Double? = null,
@@ -37,6 +41,35 @@ data class MoneyState(
     val canAdd: Boolean get() = who?.can("finance.add") == true
     val monthStart: String get() = ClinicSource.dateKey(firstOfMonth(anchor))
     val monthEnd: String get() = ClinicSource.dateKey(lastOfMonth(anchor))
+
+    /** The days the figures cover, by period. */
+    val from: String
+        get() = when (period) {
+            MoneyPeriod.Day -> ClinicSource.dateKey(anchor)
+            MoneyPeriod.Month -> monthStart
+            MoneyPeriod.Range -> ClinicSource.dateKey(
+                Calendar.getInstance().apply { time = anchor; add(Calendar.DAY_OF_YEAR, -29) }.time,
+            )
+        }
+    val to: String
+        get() = when (period) {
+            MoneyPeriod.Day -> ClinicSource.dateKey(anchor)
+            MoneyPeriod.Month -> monthEnd
+            MoneyPeriod.Range -> ClinicSource.dateKey(anchor)
+        }
+
+    /**
+     * The site's own arithmetic, so the two screens never disagree.
+     *
+     * Cash in is what patients paid. Commissions and lab fees come off the cash
+     * rows, where the payment split wrote them; discounts are on the charge
+     * rows, where they were granted. True net is cash in, less commissions and
+     * lab, less the expenses typed into the ledger.
+     */
+    val commissions: Double get() = lines.filter { it.isPayment }.sumOf { it.commission }
+    val labFees: Double get() = lines.filter { it.isPayment }.sumOf { it.labFee }
+    val discounts: Double get() = lines.filter { it.isCharge }.sumOf { it.discount }
+    val trueNet: Double get() = collected - commissions - labFees - expenses
 
     val isThisMonth: Boolean
         get() = monthStart == ClinicSource.dateKey(firstOfMonth(Date()))
@@ -199,6 +232,12 @@ class MoneyModel : ViewModel() {
         load()
     }
 
+    fun show(period: MoneyPeriod) {
+        if (period == _state.value.period) return
+        _state.value = _state.value.copy(period = period, anchor = Date(), lines = emptyList(), loading = true)
+        load()
+    }
+
     fun thisMonth() {
         if (_state.value.isThisMonth) return
         _state.value = _state.value.copy(anchor = Date(), lines = emptyList(), loading = true)
@@ -209,7 +248,7 @@ class MoneyModel : ViewModel() {
         val who = _state.value.who ?: return
         val s = _state.value
         viewModelScope.launch {
-            runCatching { ClinicSource.ledgerBetween(who.clinicId, s.monthStart, s.monthEnd) }
+            runCatching { ClinicSource.ledgerBetween(who.clinicId, s.from, s.to) }
                 .onSuccess { lines ->
                     _state.value = _state.value.copy(loading = false, lines = lines, error = null)
                 }

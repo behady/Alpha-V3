@@ -226,6 +226,8 @@ data class Person(
     val phone: String,
     /** What they still owe, as the website keeps it on the patient document. */
     val balance: Double,
+    /** Under the name on the card, as the site shows it. Often blank. */
+    val address: String = "",
 ) {
     val initials: String
         get() {
@@ -255,6 +257,7 @@ internal fun DocumentSnapshot.toPerson(): Person = Person(
     name = getString("name").orEmpty(),
     phone = PHONE_KEYS.firstNotNullOfOrNull { getString(it)?.takeIf(String::isNotBlank) }.orEmpty(),
     balance = number("balance") ?: 0.0,
+    address = text("address"),
 )
 
 /**
@@ -298,6 +301,11 @@ data class Money(
     val amount: Double,
     val method: String,
     val doctor: String,
+    /** What the dentist keeps of this row, and what the lab took. On cash rows. */
+    val commission: Double = 0.0,
+    val labFee: Double = 0.0,
+    /** Knocked off the list price. On charge rows. */
+    val discount: Double = 0.0,
 ) {
     val isCharge: Boolean get() = type == "procedure"
 

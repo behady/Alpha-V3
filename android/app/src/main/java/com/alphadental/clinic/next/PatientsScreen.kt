@@ -1,6 +1,9 @@
 package com.alphadental.clinic.next
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -64,6 +67,7 @@ fun PatientsScreen(
     onLoadMore: () -> Unit,
     onOpen: (Person) -> Unit = {},
     onAdd: (() -> Unit)? = null,
+    onCall: (String) -> Unit = {},
 ) {
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
@@ -117,12 +121,12 @@ fun PatientsScreen(
                         if (group.label.isNotBlank()) {
                             item(key = "h-${group.label}") { SectionLabel(group.label) }
                         }
-                        item(key = "g-${group.label}") {
-                            RowGroup {
-                                group.people.forEachIndexed { i, person ->
-                                    if (i > 0) Rule()
-                                    PersonRow(person) { onOpen(person) }
-                                }
+                        // One card per person, the site's way — not rows on a
+                        // shared surface. A card is a thing; a row is a line.
+                        items(group.people.size, key = { "p-${group.label}-${group.people[it].id}" }) { i ->
+                            val person = group.people[i]
+                            Box(Modifier.padding(vertical = 5.dp)) {
+                                PersonCard(person, onOpen = { onOpen(person) }, onCall = onCall)
                             }
                         }
                     }
@@ -209,6 +213,64 @@ private fun SearchField(value: String, searching: Boolean, onChange: (String) ->
  * does get colour is a balance owed, at the far end, where it is the one thing
  * on the row anybody has to do something about.
  */
+/**
+ * A patient as the site's phone draws one: a white card, the tinted initial,
+ * the name in heavy type, the address under it when there is one, and a call
+ * button at the end that rings them without opening the file.
+ */
+@Composable
+private fun PersonCard(person: Person, onOpen: () -> Unit, onCall: (String) -> Unit) {
+    androidx.compose.material3.Surface(
+        shape = T.card,
+        color = T.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, T.line),
+        shadowElevation = 1.dp,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).clickable(onClick = onOpen),
+    ) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            com.alphadental.clinic.next.design.Avatar(person.name)
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Txt(
+                    person.name.ifBlank { "No name" },
+                    Type.heading.copy(fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold),
+                    T.ink,
+                )
+                val line = person.address.ifBlank { person.phone }
+                if (line.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            if (person.address.isNotBlank()) Icons.Filled.LocationOn else Icons.Filled.Phone,
+                            null, tint = T.inkFaint, modifier = Modifier.size(12.dp),
+                        )
+                        Spacer(Modifier.width(5.dp))
+                        Txt(line, Type.caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), T.inkMuted)
+                    }
+                }
+                if (person.balance > 0) {
+                    Spacer(Modifier.height(4.dp))
+                    Txt("Owes ${money(person.balance)} EGP", Type.chip.copy(fontSize = 10.sp), T.danger, uppercase = true)
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            if (person.phone.isNotBlank()) {
+                Box(
+                    Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(T.surfaceSoft)
+                        .border(1.dp, T.line, CircleShape)
+                        .clickable { onCall(person.phone) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Filled.Phone, "Call", tint = T.inkMuted, modifier = Modifier.size(14.dp))
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun PersonRow(person: Person, onClick: () -> Unit) {
     Row(

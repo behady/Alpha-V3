@@ -252,14 +252,142 @@ fun BrandMark(size: Int = 28) {
 // Rows
 // ---------------------------------------------------------------------------
 
-/** A run of rows on one white surface, ruled top and bottom. */
+/**
+ * A run of rows on one white card.
+ *
+ * This is the website's mobile surface: a rounded white card inset from the
+ * ground with a hairline border, rather than an edge-to-edge band ruled top
+ * and bottom. Every list in the app draws through here, so the whole app
+ * changed shape when this did — which is the point of having one place.
+ */
 @Composable
 fun RowGroup(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    val rule = T.line
-    Column(modifier.fillMaxWidth().background(T.surface)) {
-        Box(Modifier.fillMaxWidth().height(1.dp).background(rule))
-        content()
-        Box(Modifier.fillMaxWidth().height(1.dp).background(rule))
+    Surface(
+        modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp),
+        shape = T.card,
+        color = T.surface,
+        border = BorderStroke(1.dp, T.line),
+        shadowElevation = 1.dp,
+    ) {
+        Column(Modifier.fillMaxWidth(), content = content)
+    }
+}
+
+/**
+ * The tinted circle with an initial in it, as the website draws a patient.
+ *
+ * Five tints, chosen by the first letter so the same person is the same colour
+ * on every screen and on the site — a fact about them rather than about the
+ * row they happen to be in.
+ */
+@Composable
+fun Avatar(name: String, size: Int = 48) {
+    val palette = listOf(
+        Color(0xFFDBEAFE) to Color(0xFF1D4ED8),
+        Color(0xFFCCFBF1) to Color(0xFF0F766E),
+        Color(0xFFE0E7FF) to Color(0xFF4338CA),
+        Color(0xFFEDE9FE) to Color(0xFF6D28D9),
+        Color(0xFFE0F2FE) to Color(0xFF0369A1),
+    )
+    val (fill, ink) = palette[(name.firstOrNull()?.code ?: 0) % palette.size]
+    Box(
+        Modifier
+            .size(size.dp)
+            .clip(CircleShape)
+            .background(fill)
+            .border(1.dp, Color.White.copy(alpha = .6f), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Txt(
+            name.trim().take(1).uppercase().ifBlank { "•" },
+            Type.heading.copy(
+                fontSize = (size * 0.38f).sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+            ),
+            ink,
+        )
+    }
+}
+
+/** A rounded square with a tinted icon in it: the website's stat-card badge. */
+@Composable
+fun IconTile(icon: ImageVector, fill: Color, ink: Color, size: Int = 44) {
+    Box(
+        Modifier.size(size.dp).clip(RoundedCornerShape((size * 0.36f).dp)).background(fill),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, null, tint = ink, modifier = Modifier.size((size * 0.45f).dp))
+    }
+}
+
+/** The site's pill-in-a-tray switch: one option lifted white, the rest flat. */
+@Composable
+fun Segmented(options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = T.surfaceSoft,
+        border = BorderStroke(1.dp, T.line),
+        modifier = Modifier.padding(horizontal = 12.dp),
+    ) {
+        Row(Modifier.padding(4.dp)) {
+            options.forEachIndexed { i, label ->
+                val on = i == selected
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (on) T.surface else Color.Transparent,
+                    shadowElevation = if (on) 1.dp else 0.dp,
+                    modifier = Modifier.weight(1f).clickable { onSelect(i) },
+                ) {
+                    Txt(
+                        label,
+                        Type.chip.copy(fontSize = 10.5.sp, letterSpacing = 0.9.sp),
+                        if (on) T.accentInk else T.inkMuted,
+                        Modifier.padding(vertical = 10.dp).fillMaxWidth(),
+                        uppercase = true,
+                        align = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A big full-width action, the way the site's dashboard stacks them: a round
+ * icon at the start, the words centred, and a matching blank at the end so the
+ * words really are centred.
+ */
+@Composable
+fun BigAction(icon: ImageVector, label: String, primary: Boolean, onClick: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(19.dp),
+        color = if (primary) T.accent else T.surface,
+        border = if (primary) null else BorderStroke(1.dp, T.line),
+        shadowElevation = if (primary) 2.dp else 1.dp,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).clickable(onClick = onClick),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(if (primary) Color.White.copy(alpha = .4f) else T.surfaceSoft),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, null, tint = T.ink, modifier = Modifier.size(16.dp))
+            }
+            Txt(
+                label,
+                Type.heading.copy(fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold),
+                T.ink,
+                Modifier.weight(1f),
+                align = androidx.compose.ui.text.style.TextAlign.Center,
+            )
+            Spacer(Modifier.size(32.dp))
+        }
     }
 }
 

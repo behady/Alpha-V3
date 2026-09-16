@@ -108,6 +108,77 @@ fun VisitRow(visit: Visit, showPatient: Boolean = true, onClick: () -> Unit) {
     }
 }
 
+/**
+ * One appointment as the site's phone draws it: a white card, the time in a
+ * column at the start, a coloured stripe, the name over the treatment, and the
+ * stage as a small outlined pill at the end.
+ */
+@Composable
+fun VisitCard(visit: Visit, onClick: () -> Unit) {
+    val stripe = stageColours(visit.status).stripe
+    val struck = visit.status == Stage.Cancelled || visit.status == Stage.NoShow
+    androidx.compose.material3.Surface(
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+        color = T.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, T.line),
+        shadowElevation = 1.dp,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp).clickable(onClick = onClick),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.width(58.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                val parts = visit.time.trim().split(" ", limit = 2)
+                Txt(
+                    parts.getOrElse(0) { "—" },
+                    Type.label.copy(fontSize = 15.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold),
+                    if (struck) T.inkFaint else T.ink,
+                )
+                parts.getOrNull(1)?.let {
+                    Spacer(Modifier.height(2.dp))
+                    Txt(it, Type.chip, T.inkFaint, uppercase = true)
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            Box(
+                Modifier
+                    .width(4.dp)
+                    .height(46.dp)
+                    .background(stripe, androidx.compose.foundation.shape.RoundedCornerShape(2.dp)),
+            )
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Txt(
+                    visit.patientName.ifBlank { "No name" },
+                    Type.heading.copy(fontSize = 16.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold),
+                    if (struck) T.inkMuted else T.ink,
+                )
+                Spacer(Modifier.height(3.dp))
+                Txt(
+                    listOf(visit.treatment, visit.doctor).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "—" },
+                    Type.caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                    T.inkMuted,
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            androidx.compose.material3.Surface(
+                shape = T.pill,
+                color = T.surfaceSoft,
+                border = androidx.compose.foundation.BorderStroke(1.dp, T.line),
+            ) {
+                Txt(
+                    stageLabel(visit.status),
+                    Type.chip.copy(fontSize = 9.sp),
+                    T.inkBody,
+                    Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+                    uppercase = true,
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun StageChip(stage: Stage) {
     val c = stageColours(stage)

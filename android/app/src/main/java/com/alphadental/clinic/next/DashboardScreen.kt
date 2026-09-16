@@ -1,6 +1,15 @@
 package com.alphadental.clinic.next
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.ui.graphics.Color
+import com.alphadental.clinic.next.design.BigAction
+import com.alphadental.clinic.next.design.IconTile
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
@@ -84,6 +93,10 @@ fun DashboardScreen(
     /** The signed-in person's shift, for the pill on the slab. Null while unknown. */
     shift: MyShift? = null,
     onPunch: () -> Unit = {},
+    onNewPatient: (() -> Unit)? = null,
+    onQuickPay: (() -> Unit)? = null,
+    /** A day tapped on the strip: the diary opens on it. */
+    onPickDay: (String) -> Unit = {},
 ) {
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
@@ -97,9 +110,71 @@ fun DashboardScreen(
                 item { Notice(message) }
             }
 
+            // ---- Daily overview: income beside a two-by-two of the day's stages.
+            item {
+                Txt(
+                    "Daily overview",
+                    Type.eyebrow.copy(letterSpacing = 1.6.sp),
+                    T.ink,
+                    Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 8.dp),
+                    uppercase = true,
+                )
+            }
+            item {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    IncomeCard(state, Modifier.weight(1f))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            MiniStat(Icons.Filled.Check, Color(0xFF0EA5E9), "Confirm", state.confirmed, Modifier.weight(1f))
+                            MiniStat(Icons.Filled.Schedule, Color(0xFFF59E0B), "Delay", state.delayed, Modifier.weight(1f))
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            MiniStat(Icons.Filled.Check, Color(0xFF10B981), "Done", state.done, Modifier.weight(1f))
+                            MiniStat(Icons.Filled.Close, Color(0xFFF43F5E), "Cancel", state.cancelled, Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+
+            // ---- The three things a desk does, stacked, the site's way.
+            item {
+                Column(
+                    Modifier.padding(top = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    onNewPatient?.let { BigAction(Icons.Filled.Person, "New Patient", primary = true, onClick = it) }
+                    BigAction(Icons.Filled.CalendarMonth, "New Visit", primary = false, onClick = onBook)
+                    onQuickPay?.let { BigAction(Icons.Filled.AccountBalanceWallet, "Quick Pay", primary = false, onClick = it) }
+                }
+            }
+
+            // ---- The day: a strip of dates over the appointments.
+            item {
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Txt("Today, ${shortDate()}", Type.heading, T.ink, Modifier.weight(1f))
+                    androidx.compose.material3.Surface(
+                        shape = T.pill,
+                        color = Color(0xFFECFDF5),
+                        modifier = Modifier.clickable { onPickDay(com.alphadental.clinic.next.data.ClinicSource.dateKey()) },
+                    ) {
+                        Txt(
+                            "Today", Type.chip.copy(fontSize = 10.sp), Color(0xFF047857),
+                            Modifier.padding(horizontal = 14.dp, vertical = 8.dp), uppercase = true,
+                        )
+                    }
+                }
+            }
+            item { WeekStrip(onPickDay) }
+
             state.inChair?.let { visit ->
                 item {
-                    Box(Modifier.padding(horizontal = T.gutter, vertical = 14.dp)) {
+                    Box(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                         ChairCard(visit, state.who?.can("appointments.edit") == true, onCheckOut) {
                             onOpenVisit(visit)
                         }
@@ -107,22 +182,14 @@ fun DashboardScreen(
                 }
             }
 
-            item { Tools(onBook, onLeads, onReports) }
-
-            if (state.waiting.isNotEmpty()) {
-                item { SectionLabel("Waiting room · ${state.waiting.size}", action = "See the day") }
-                item { VisitRows(state.waiting, onOpen = onOpenVisit) }
+            val listed = (state.waiting + state.upcoming).distinctBy { it.id }
+            if (listed.isEmpty() && !state.loading && state.inChair == null) {
+                item { Empty("No appointments") }
             }
-
-            if (state.upcoming.isNotEmpty()) {
-                item { SectionLabel("Next up") }
-                item { VisitRows(state.upcoming.take(6), onOpen = onOpenVisit) }
+            items(listed.size) { i ->
+                Box(Modifier.padding(vertical = 5.dp)) { VisitCard(listed[i]) { onOpenVisit(listed[i]) } }
             }
-
-            if (!state.loading && state.visits.isEmpty()) {
-                item { Empty("Nothing booked today.") }
-            }
-
+            item { Spacer(Modifier.height(8.dp)) }
         }
 
         if (state.loading) {
@@ -142,10 +209,9 @@ private fun DashboardSlab(
     onPunch: () -> Unit,
     onOpenAttendance: () -> Unit,
 ) {
-    val money = state.takings
     Slab(
         aside = shift?.let { mine -> { ClockPill(mine, onPunch, onOpenAttendance) } },
-        title = if (money != null) "Takings today" else "Today",
+        title = "Dashboard",
         eyebrow = fullDate(),
         bar = {
             BrandMark()
@@ -165,25 +231,6 @@ private fun DashboardSlab(
             )
             Spacer(Modifier.width(8.dp))
             Box(Modifier.clickable(onClick = onAccount)) { Initials(state.who?.name.orEmpty()) }
-        },
-        figure = money?.let {
-            {
-                val delta = state.deltaPercent
-                SlabFigure(
-                    amount = figure(it),
-                    currency = state.currency,
-                    note = delta?.let { "vs. ${weekday()} avg" },
-                    noteValue = delta?.let { d -> if (d >= 0) "+$d%" else "$d%" },
-                )
-            }
-        },
-        stats = buildList {
-            add(Stat("Booked", state.visits.size.toString()))
-            add(Stat("Seen", state.seen.toString()))
-            add(Stat("Waiting", state.waiting.size.toString()))
-            // Only once it is known and there is any. A permanent "0 owed" teaches
-            // people to stop reading the strip.
-            state.owed?.takeIf { it > 0 }?.let { add(Stat("Owed", figure(it))) }
         },
     )
 }
@@ -337,6 +384,122 @@ private data class Tool(
     val label: String,
     val onClick: () -> Unit,
 )
+
+/** Today's income, the site's card: a wallet badge, the figure large in the middle. */
+@Composable
+private fun IncomeCard(state: Dashboard, modifier: Modifier) {
+    androidx.compose.material3.Surface(
+        shape = T.card, color = T.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, T.line), shadowElevation = 1.dp,
+        modifier = modifier,
+    ) {
+        Column(Modifier.padding(16.dp).height(148.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Txt("Today's income", Type.chip.copy(fontSize = 9.5.sp), T.inkMuted, Modifier.weight(1f), uppercase = true)
+                IconTile(Icons.Filled.AccountBalanceWallet, Color(0xFFECFDF5), Color(0xFF059669), size = 28)
+            }
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    // The unit on its own line: beside a six-figure sum at this
+                    // size it was the thing that got cut to "E…".
+                    Txt(
+                        state.takings?.let { figure(it) } ?: "—",
+                        Type.figure.copy(fontSize = 34.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold),
+                        T.ink,
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Txt(state.currency, Type.chip, T.inkMuted, uppercase = true)
+                }
+            }
+        }
+    }
+}
+
+/** One of the four small stage counters. */
+@Composable
+private fun MiniStat(icon: ImageVector, tint: Color, label: String, value: Int, modifier: Modifier) {
+    androidx.compose.material3.Surface(
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(19.dp), color = T.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White), shadowElevation = 1.dp,
+        modifier = modifier.height(70.dp),
+    ) {
+        Column(
+            Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, null, tint = tint, modifier = Modifier.size(12.dp))
+                Spacer(Modifier.width(4.dp))
+                Txt(label, Type.chip.copy(fontSize = 9.5.sp), T.ink, uppercase = true)
+            }
+            Spacer(Modifier.height(4.dp))
+            Txt(
+                value.toString(),
+                Type.stat.copy(fontSize = 22.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold),
+                T.ink,
+            )
+        }
+    }
+}
+
+/**
+ * Two weeks of dates, today in the middle and black.
+ *
+ * The site scrolls this strip; here it scrolls too, and a tap opens the diary on
+ * that day, which is the screen that can show it.
+ */
+@Composable
+private fun WeekStrip(onPickDay: (String) -> Unit) {
+    val today = java.util.Calendar.getInstance()
+    val fmt = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+    val dayName = java.text.SimpleDateFormat("EEE", java.util.Locale.US)
+    val scroll = androidx.compose.foundation.rememberScrollState()
+    androidx.compose.material3.Surface(color = T.surface, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.horizontalScroll(scroll).padding(horizontal = 12.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            (-7..7).forEach { offset ->
+                val cal = (today.clone() as java.util.Calendar).apply { add(java.util.Calendar.DAY_OF_YEAR, offset) }
+                val key = fmt.format(cal.time)
+                val isToday = offset == 0
+                androidx.compose.material3.Surface(
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                    color = if (isToday) T.slab else T.surfaceSoft,
+                    border = if (isToday) null else androidx.compose.foundation.BorderStroke(1.dp, T.line),
+                    shadowElevation = if (isToday) 3.dp else 0.dp,
+                    modifier = Modifier.width(48.dp).height(56.dp).clickable { onPickDay(key) },
+                ) {
+                    Column(
+                        Modifier.fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Txt(
+                            if (isToday) "Today" else dayName.format(cal.time),
+                            Type.chip.copy(fontSize = 8.sp),
+                            if (isToday) T.onSlabSoft else T.inkMuted,
+                            uppercase = true,
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Txt(
+                            cal.get(java.util.Calendar.DAY_OF_MONTH).toString(),
+                            Type.label.copy(fontSize = 13.sp),
+                            if (isToday) T.onSlab else T.ink,
+                        )
+                    }
+                }
+            }
+        }
+    }
+    // Land on today rather than on last week: seven days back is what scrolls
+    // into view first otherwise, which reads as the wrong week.
+    androidx.compose.runtime.LaunchedEffect(Unit) { scroll.scrollTo(7 * 56 * 3 / 2) }
+}
+
+private fun shortDate(): String =
+    java.text.SimpleDateFormat("MMM d", java.util.Locale.US).format(java.util.Date())
 
 /**
  * Clocked in or not, and the one tap that changes it.

@@ -136,8 +136,10 @@ fun Txt(
     modifier: Modifier = Modifier,
     maxLines: Int = 1,
     uppercase: Boolean = false,
+    align: androidx.compose.ui.text.style.TextAlign? = null,
 ) {
     Text(
+        textAlign = align,
         text = if (uppercase) text.uppercase() else text,
         modifier = modifier,
         style = LocalTextStyle.current.merge(style),

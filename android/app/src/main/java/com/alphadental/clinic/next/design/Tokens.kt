@@ -72,6 +72,8 @@ data class Palette(
     val badge: Color,
 ) {
     val cardShape = RoundedCornerShape(14.dp)
+    /** The site's card radius on a phone: 1.25rem. */
+    val card = RoundedCornerShape(20.dp)
     val pill = RoundedCornerShape(999.dp)
     val barShape = RoundedCornerShape(32.dp)
 

@@ -1,6 +1,16 @@
 package com.alphadental.clinic.next
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.automirrored.filled.TrendingDown
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.PieChart
+import androidx.compose.material3.Icon
+import com.alphadental.clinic.next.design.IconTile
+import com.alphadental.clinic.next.design.Segmented
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -62,12 +72,17 @@ fun MoneyScreen(
     onShiftMonth: (Int) -> Unit,
     onThisMonth: () -> Unit,
     onAdd: (() -> Unit)? = null,
+    onPeriod: (MoneyPeriod) -> Unit = {},
 ) {
     Column(Modifier.fillMaxSize().background(T.ground)) {
 
         Slab(
-            title = "Money",
-            eyebrow = monthLabel(state),
+            title = "Finance",
+            eyebrow = when (state.period) {
+                MoneyPeriod.Day -> "Today"
+                MoneyPeriod.Month -> monthLabel(state)
+                MoneyPeriod.Range -> "The last 30 days"
+            },
             bar = {
                 SlabIcon(Icons.Filled.ChevronLeft, "Previous month") { onShiftMonth(-1) }
                 Spacer(Modifier.width(8.dp))
@@ -92,22 +107,6 @@ fun MoneyScreen(
                     }
                 }
             },
-            figure = if (state.loading || state.error != null) null else {
-                {
-                    val delta = state.deltaPercent
-                    SlabFigure(
-                        amount = money(state.collected),
-                        currency = "EGP in",
-                        note = delta?.let { "vs. last month" },
-                        noteValue = delta?.let { d -> if (d >= 0) "+$d%" else "$d%" },
-                    )
-                }
-            },
-            stats = if (state.loading || state.error != null) emptyList() else listOf(
-                Stat("Charged", money(state.charged)),
-                Stat("Expenses", money(state.expenses)),
-                Stat("Kept", money(state.net)),
-            ),
         )
 
         when {
@@ -122,18 +121,42 @@ fun MoneyScreen(
                 Txt(state.error, Type.body, T.inkFaint, maxLines = 3)
             }
 
-            state.lines.isEmpty() -> Box(
-                Modifier.fillMaxSize().padding(T.gutter),
-                contentAlignment = Alignment.Center,
-            ) {
-                Txt("No money moved in this month.", Type.body, T.inkFaint, maxLines = 2)
-            }
 
             else -> LazyColumn(
                 Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = T.barClearance),
             ) {
-                item { DailyChart(state) }
+                item { Spacer(Modifier.height(14.dp)) }
+                item { TrueNetCard(state) }
+                item { Spacer(Modifier.height(12.dp)) }
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        StatCard(
+                            "Cash in", "Payments received", money(state.collected),
+                            Color(0xFF059669), Icons.AutoMirrored.Filled.TrendingUp, Color(0xFFECFDF5), Color(0xFF059669),
+                        )
+                        StatCard(
+                            "Discounts granted", "On treatments charged", money(state.discounts),
+                            Color(0xFF7C3AED), Icons.Filled.PieChart, Color(0xFFF5F3FF), Color(0xFF7C3AED),
+                        )
+                        StatCard(
+                            "Deductions", "From cash-in", "−" + money(state.commissions + state.labFees),
+                            Color(0xFFEA580C), Icons.Filled.Groups, Color(0xFFFFF7ED), Color(0xFFEA580C),
+                        )
+                        StatCard(
+                            "Expenses", "Manual ledger", "−" + money(state.expenses),
+                            Color(0xFFDC2626), Icons.AutoMirrored.Filled.TrendingDown, Color(0xFFFEF2F2), Color(0xFFDC2626),
+                        )
+                    }
+                }
+                item { Spacer(Modifier.height(14.dp)) }
+                item {
+                    Segmented(
+                        MoneyPeriod.entries.map { it.label },
+                        MoneyPeriod.entries.indexOf(state.period),
+                    ) { onPeriod(MoneyPeriod.entries[it]) }
+                }
+                if (state.period == MoneyPeriod.Month) item { DailyChart(state) }
 
                 if (state.earners.isNotEmpty()) {
                     item { SectionLabel("What was charged for") }
@@ -159,6 +182,126 @@ fun MoneyScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * The site's hero: near-black, the net large, and the four lines that make it.
+ *
+ * The figure is what the clinic actually kept after dentists, labs and bills —
+ * the number an owner wants and the one no other tile gives.
+ */
+@Composable
+private fun TrueNetCard(state: MoneyState) {
+    androidx.compose.material3.Surface(
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+        color = Color(0xFF0F172A),
+        shadowElevation = 8.dp,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+    ) {
+        Box {
+            // The soft glows the site puts in the corners.
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .size(220.dp)
+                    .offset(x = 70.dp, y = (-70).dp)
+                    .background(
+                        androidx.compose.ui.graphics.Brush.radialGradient(
+                            listOf(Color(0xFFFDE68A).copy(alpha = .16f), Color.Transparent),
+                        ),
+                        CircleShape,
+                    ),
+            )
+            Box(
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .size(180.dp)
+                    .offset(x = (-50).dp, y = 50.dp)
+                    .background(
+                        androidx.compose.ui.graphics.Brush.radialGradient(
+                            listOf(Color(0xFF10B981).copy(alpha = .12f), Color.Transparent),
+                        ),
+                        CircleShape,
+                    ),
+            )
+            Column(Modifier.padding(24.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Filled.AccountBalanceWallet, null,
+                        tint = Color(0xFFFDE68A), modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Txt("True net", Type.chip.copy(fontSize = 11.sp), Color(0xFF94A3B8), uppercase = true)
+                }
+                Spacer(Modifier.height(10.dp))
+                Txt(
+                    money(state.trueNet),
+                    Type.figure.copy(fontSize = 44.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold),
+                    if (state.trueNet >= 0) Color.White else Color(0xFFF87171),
+                )
+                Spacer(Modifier.height(8.dp))
+                Txt(
+                    "After doctor & lab deductions and recorded expenses",
+                    Type.body, Color(0xFF64748B), maxLines = 2,
+                )
+                Spacer(Modifier.height(22.dp))
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = .1f)))
+                Spacer(Modifier.height(16.dp))
+                NetLine("Cash in", "+" + money(state.collected), Color(0xFF34D399))
+                NetLine("Discounts", money(state.discounts), Color(0xFFC4B5FD))
+                NetLine("Commissions + lab", "−" + money(state.commissions + state.labFees), Color(0xFFFCD34D))
+                NetLine("Expenses", "−" + money(state.expenses), Color(0xFFFCA5A5))
+            }
+        }
+    }
+}
+
+@Composable
+private fun NetLine(label: String, value: String, tint: Color) {
+    Row(
+        Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Txt(label, Type.body.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), Color(0xFF94A3B8), Modifier.weight(1f))
+        Txt(value, Type.label.copy(fontSize = 15.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold), tint)
+    }
+}
+
+/** One of the site's four metric tiles: label, hint, a tinted icon, the figure. */
+@Composable
+private fun StatCard(
+    label: String,
+    hint: String,
+    value: String,
+    valueInk: Color,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tileFill: Color,
+    tileInk: Color,
+) {
+    androidx.compose.material3.Surface(
+        shape = T.card,
+        color = T.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, T.line),
+        shadowElevation = 1.dp,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                Column(Modifier.weight(1f)) {
+                    Txt(label, Type.chip.copy(fontSize = 11.sp), T.inkFaint, uppercase = true)
+                    Spacer(Modifier.height(3.dp))
+                    Txt(hint, Type.caption.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold), T.inkMuted)
+                }
+                IconTile(icon, tileFill, tileInk)
+            }
+            Spacer(Modifier.height(14.dp))
+            Txt(
+                value,
+                Type.stat.copy(fontSize = 30.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold),
+                valueInk,
+            )
         }
     }
 }

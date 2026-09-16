@@ -7,6 +7,17 @@ import com.alphadental.clinic.next.design.Type
 import com.alphadental.clinic.next.design.Txt
 import com.alphadental.clinic.next.design.Slab
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.People
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -40,7 +51,8 @@ import com.alphadental.clinic.next.design.FloatingBar
 import com.alphadental.clinic.next.design.T
 
 /** Where the bar can take you. */
-enum class Tab { Today, Day, Patients, Chats, More }
+/** The site's mobile bar, in its order: dashboard, chats, AI, calendar, money, patients, menu. */
+enum class Tab { Today, Chats, Assistant, Day, Money, Patients, More }
 
 /**
  * The app's frame: one bar, one screen at a time.
@@ -68,6 +80,10 @@ fun Shell(preview: Boolean = false) {
         Tab.entries.firstOrNull { it.name == wanted }?.let { tab = it }
     }
     var openRecord by rememberSaveable { mutableStateOf<String?>(null) }
+    /** Quick Pay opens the file straight onto the payment sheet. */
+    var payOnOpen by rememberSaveable { mutableStateOf(false) }
+    var addingPatient by rememberSaveable { mutableStateOf(false) }
+    var quickPay by rememberSaveable { mutableStateOf(false) }
     var openMoney by rememberSaveable { mutableStateOf(false) }
     var openReports by rememberSaveable { mutableStateOf(false) }
     var openLab by rememberSaveable { mutableStateOf(false) }
@@ -88,7 +104,7 @@ fun Shell(preview: Boolean = false) {
     // belongs to whatever opened it, and the bar has no business offering to
     // navigate away in the middle of reading someone's allergies.
     openRecord?.let { id ->
-        RecordPane(id, preview) { openRecord = null }
+        RecordPane(id, preview, payOnOpen = payOnOpen) { openRecord = null; payOnOpen = false }
         return
     }
 
@@ -167,6 +183,10 @@ fun Shell(preview: Boolean = false) {
     // Tapping an appointment opens the same sheet from the dashboard and from
     // the diary, for the same reason booking lives here: a patient who has
     // arrived gets marked arrived from whichever screen happened to be open.
+    val dayModel: DayModel? = if (preview) null else viewModel()
+    val patientsModel: PatientsModel? = if (preview) null else viewModel()
+    val patientsState by (patientsModel?.state?.collectAsState()
+        ?: androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(previewPatients()) })
     val visits: VisitModel? = if (preview) null else viewModel()
     // Preview has no view model, so the sheet is driven straight from the row
     // that was tapped. Without this the diary looks like nothing happens when
@@ -181,6 +201,14 @@ fun Shell(preview: Boolean = false) {
     }
     val context = androidx.compose.ui.platform.LocalContext.current
 
+    // The chats badge: the same model the Chats tab reads, started here so the
+    // count is right before anybody opens that tab.
+    val chatsModel: ChatsModel? = if (preview) null else viewModel()
+    val chatsState by (chatsModel?.state?.collectAsState()
+        ?: androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(Chats()) })
+    androidx.compose.runtime.LaunchedEffect(chatsModel) { chatsModel?.start() }
+    val unread = if (preview) 3 else chatsState.unread
+
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
         when (tab) {
@@ -193,6 +221,9 @@ fun Shell(preview: Boolean = false) {
                 onReports = { openReports = true },
                 onBell = { tab = Tab.Day },
                 onAccount = { tab = Tab.More },
+                onNewPatient = { addingPatient = true },
+                onQuickPay = { quickPay = true },
+                onPickDay = { date -> dayModel?.openDay(date); tab = Tab.Day },
             )
             Tab.Day -> DayTab(
                 preview,
@@ -200,6 +231,12 @@ fun Shell(preview: Boolean = false) {
                 onOpenVisit = { if (preview) shown = it else visits?.open(it) },
             )
             Tab.Patients -> PatientsTab(preview) { openRecord = it }
+            Tab.Money -> MoneyPane(preview) { tab = Tab.Today }
+            Tab.Assistant -> AssistantPane(
+                preview,
+                onOpenPatient = { openRecord = it },
+                onBack = { tab = Tab.Today },
+            )
             // Not built yet. Saying so is better than a blank screen that reads
             // as a bug, and better than hiding the tab so the bar keeps moving.
             Tab.Chats -> ChatsTab(preview) { immersive = it }
@@ -218,6 +255,62 @@ fun Shell(preview: Boolean = false) {
                 onOpenAssistant = { openAssistant = true },
                 onOpenHelp = { openHelp = true },
             )
+        }
+
+        // New Patient from the dashboard: the same sheet the Patients tab uses,
+        // and the same model, so a name typed here is found there.
+        if (addingPatient && patientsModel != null) {
+            androidx.compose.runtime.LaunchedEffect(Unit) { patientsModel.start() }
+            androidx.compose.runtime.LaunchedEffect(patientsState.added) {
+                patientsState.added?.let { id ->
+                    addingPatient = false
+                    patientsModel.clearAdded()
+                    openRecord = id
+                }
+            }
+            AddPatientSheet(
+                busy = patientsState.adding,
+                error = patientsState.addError,
+                onAdd = patientsModel::addPatient,
+                onDismiss = { addingPatient = false; patientsModel.clearAdded() },
+            )
+        }
+
+        // Quick Pay: find the person, land on their file with the payment sheet
+        // already up. The site's modal does the same two steps in one box.
+        if (quickPay && patientsModel != null) {
+            androidx.compose.runtime.LaunchedEffect(Unit) { patientsModel.start() }
+            Sheet(
+                title = "Quick pay",
+                caption = "Who is paying?",
+                action = "Close",
+                ready = true,
+                onAction = { quickPay = false; patientsModel.search("") },
+                onDismiss = { quickPay = false; patientsModel.search("") },
+            ) {
+                PatientPicker(
+                    query = patientsState.query,
+                    results = if (patientsState.query.trim().length >= 2) patientsState.people.take(8) else patientsState.debtors.take(8),
+                    searching = patientsState.searching,
+                    chosen = null,
+                    allowNew = false,
+                    onQuery = patientsModel::search,
+                    onChoose = { person ->
+                        person?.let {
+                            quickPay = false
+                            patientsModel.search("")
+                            payOnOpen = true
+                            openRecord = it.id
+                        }
+                    },
+                )
+                Txt(
+                    "Nothing typed shows who owes money.",
+                    Type.caption, T.inkFaint,
+                    Modifier.padding(horizontal = T.gutter, vertical = 12.dp),
+                    maxLines = 2,
+                )
+            }
         }
 
         if (visitState.isOpen) {
@@ -261,14 +354,46 @@ fun Shell(preview: Boolean = false) {
             )
         }
 
+        // The assistant's launcher, as the site floats it: a frosted white disc
+        // above the bar's end. Not on Chats, whose composer owns that corner.
+        if (!immersive && tab != Tab.Assistant && tab != Tab.Chats) {
+            Surface(
+                shape = CircleShape,
+                color = T.surface.copy(alpha = .92f),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = .7f)),
+                shadowElevation = 10.dp,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(end = 20.dp, bottom = T.barHeight + T.barInset * 2 + 6.dp)
+                    .size(56.dp)
+                    .clickable { tab = Tab.Assistant },
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Box(
+                        Modifier
+                            .size(26.dp)
+                            .clip(CircleShape)
+                            .background(
+                                androidx.compose.ui.graphics.Brush.radialGradient(
+                                    listOf(Color(0xFF99F6E4), Color(0xFF14B8A6), Color(0xFF0F766E)),
+                                )
+                            )
+                    )
+                }
+            }
+        }
+
         if (!immersive) FloatingBar(
             modifier = Modifier.align(Alignment.BottomCenter),
             items = listOf(
-                BarItem(Icons.Filled.Home, "Today", tab == Tab.Today) { tab = Tab.Today },
-                BarItem(Icons.Filled.CalendarMonth, "Day", tab == Tab.Day) { tab = Tab.Day },
-                BarItem(Icons.Filled.PersonSearch, "Patients", tab == Tab.Patients) { tab = Tab.Patients },
-                BarItem(Icons.AutoMirrored.Filled.Chat, "Chats", tab == Tab.Chats) { tab = Tab.Chats },
-                BarItem(Icons.Filled.Menu, "More", tab == Tab.More) { tab = Tab.More },
+                BarItem(Icons.Filled.Dashboard, "Dashboard", tab == Tab.Today) { tab = Tab.Today },
+                BarItem(Icons.AutoMirrored.Filled.Chat, "Chats", tab == Tab.Chats, badge = unread) { tab = Tab.Chats },
+                BarItem(Icons.Filled.AutoAwesome, "Assistant", tab == Tab.Assistant) { tab = Tab.Assistant },
+                BarItem(Icons.Filled.CalendarMonth, "Calendar", tab == Tab.Day) { tab = Tab.Day },
+                BarItem(Icons.Filled.AccountBalanceWallet, "Money", tab == Tab.Money) { tab = Tab.Money },
+                BarItem(Icons.Filled.People, "Patients", tab == Tab.Patients) { tab = Tab.Patients },
+                BarItem(Icons.Filled.Menu, "Menu", tab == Tab.More) { tab = Tab.More },
             ),
         )
     }
@@ -284,6 +409,9 @@ private fun TodayTab(
     onReports: () -> Unit,
     onBell: () -> Unit,
     onAccount: () -> Unit,
+    onNewPatient: () -> Unit,
+    onQuickPay: () -> Unit,
+    onPickDay: (String) -> Unit,
 ) {
     if (preview) {
         DashboardScreen(
@@ -291,6 +419,7 @@ private fun TodayTab(
             onClock = onOpenAttendance, onBook = onBook,
             onLeads = onLeads, onReports = onReports, onBell = onBell, onAccount = onAccount,
             shift = previewAttendance().mine, onPunch = {},
+            onNewPatient = onNewPatient, onQuickPay = onQuickPay, onPickDay = onPickDay,
         )
     } else {
         val model: DashboardModel = viewModel()
@@ -307,12 +436,16 @@ private fun TodayTab(
             onLeads = onLeads, onReports = onReports, onBell = onBell, onAccount = onAccount,
             shift = if (shift.who == null) null else shift.mine,
             onPunch = { attendance.punch(context) },
+            onNewPatient = if (state.who?.can("patients.add") == true) onNewPatient else null,
+            onQuickPay = if (state.who?.can("payments.add") == true) onQuickPay else null,
+            onPickDay = onPickDay,
         )
     }
 }
 
 @Composable
 private fun PatientsTab(preview: Boolean, onOpen: (String) -> Unit) {
+    val context = LocalContext.current
     if (preview) {
         val state = remember { previewPatients() }
         PatientsScreen(state = state, onSearch = {}, onLoadMore = {}, onOpen = { onOpen(it.id) }, onAdd = {})
@@ -340,6 +473,7 @@ private fun PatientsTab(preview: Boolean, onOpen: (String) -> Unit) {
             // Adding a patient is a write; only offer it to someone the server
             // would accept it from.
             onAdd = if (state.canAdd) ({ adding = true }) else null,
+            onCall = { context.dial(it) },
         )
 
         if (adding) {
@@ -547,7 +681,7 @@ private fun Unbuilt(name: String) {
  * safer default when a wrong tap costs a patient a confusing call.
  */
 @Composable
-private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) {
+private fun RecordPane(patientId: String, preview: Boolean, payOnOpen: Boolean = false, onBack: () -> Unit) {
     BackHandler { onBack() }
     val context = LocalContext.current
 
@@ -740,7 +874,7 @@ private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) 
     val planState by plans.state.collectAsState()
     val booking: BookingModel = viewModel()
     val bookingState by booking.state.collectAsState()
-    var taking by remember { mutableStateOf(false) }
+    var taking by remember { mutableStateOf(payOnOpen) }
     var recording by remember { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
 
@@ -1041,6 +1175,7 @@ private fun MoneyPane(preview: Boolean, onBack: () -> Unit) {
         onShiftMonth = model::shiftMonth,
         onThisMonth = model::thisMonth,
         onAdd = if (state.canAdd) ({ adding = true }) else null,
+        onPeriod = model::show,
     )
 
     if (adding) {

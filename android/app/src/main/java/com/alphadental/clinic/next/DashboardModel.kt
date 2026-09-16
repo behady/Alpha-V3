@@ -42,6 +42,12 @@ data class Dashboard(
     val inChair: Visit? get() = visits.firstOrNull { it.status == Stage.InChair }
     val seen: Int get() = visits.count { it.status.isSeen }
 
+    /** The site's four: confirmed, running late, done, cancelled. */
+    val confirmed: Int get() = visits.count { it.status == Stage.Confirmed }
+    val delayed: Int get() = visits.count { it.status == Stage.Delayed || it.status == Stage.Late }
+    val done: Int get() = visits.count { it.status == Stage.Completed }
+    val cancelled: Int get() = visits.count { it.status == Stage.Cancelled }
+
     /** What is still to come, with whoever is in the chair taken out — they are the card. */
     val upcoming: List<Visit>
         get() = active.filterNot { it.status == Stage.CheckedIn || it.id == inChair?.id }
