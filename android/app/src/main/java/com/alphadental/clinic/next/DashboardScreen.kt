@@ -1,6 +1,9 @@
 package com.alphadental.clinic.next
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.material.icons.filled.PersonSearch
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -73,6 +76,8 @@ fun DashboardScreen(
     onOpenVisit: (Visit) -> Unit = {},
     onClock: () -> Unit = {},
     onBook: () -> Unit = {},
+    onChats: () -> Unit = {},
+    onPatients: () -> Unit = {},
 ) {
     Box(Modifier.fillMaxSize().background(T.ground)) {
 
@@ -110,7 +115,7 @@ fun DashboardScreen(
                 item { Empty("Nothing booked today.") }
             }
 
-            item { Tools(state, onClock, onBook) }
+            item { Tools(state, onClock, onBook, onChats, onPatients) }
         }
 
         if (state.loading) {
@@ -274,27 +279,39 @@ private fun ChairCard(
  * every tool in the product is a menu, and the appointments underneath it stop
  * being the point of the screen.
  */
+/**
+ * The four things somebody opens the app to do.
+ *
+ * One row rather than a two-by-two block of captioned rows. The captions were
+ * explaining words that need no explaining — everybody knows what "Clock in"
+ * means — and four tall cells with hairlines between them read as a settings
+ * table that had wandered onto the dashboard.
+ *
+ * Every one of them goes somewhere. Two of these used to be drawn and wired to
+ * nothing, which is the worst state a button can be in: it looks like the app
+ * is broken rather than unfinished.
+ */
 @Composable
-private fun Tools(state: Dashboard, onClock: () -> Unit, onBook: () -> Unit) {
-    val tools = listOfNotNull(
-        Tool(Icons.Filled.Add, "New booking", "Book a patient in", onBook),
-        Tool(Icons.AutoMirrored.Filled.Chat, "WhatsApp", "Messages from patients"),
-        Tool(Icons.Filled.People, "Find a patient", "Search the register"),
-        // The only one wired so far. A tile that does nothing when tapped is
-        // worse than one that is not there, so the rest go as they are built.
-        Tool(Icons.Filled.Schedule, "Clock in", "Start or end your shift", onClock),
+private fun Tools(
+    state: Dashboard,
+    onClock: () -> Unit,
+    onBook: () -> Unit,
+    onChats: () -> Unit,
+    onPatients: () -> Unit,
+) {
+    val tools = listOf(
+        Tool(Icons.Filled.Add, "Book", onBook),
+        Tool(Icons.Filled.PersonSearch, "Find", onPatients),
+        Tool(Icons.AutoMirrored.Filled.Chat, "Messages", onChats),
+        Tool(Icons.Filled.Schedule, "Clock in", onClock),
     )
-    Column(Modifier.padding(top = 20.dp)) {
-        RowGroup {
-            tools.chunked(2).forEachIndexed { i, pair ->
-                if (i > 0) Rule()
-                Row(Modifier.height(IntrinsicSize.Min)) {
-                    ToolCell(pair[0], Modifier.weight(1f))
-                    Box(Modifier.width(1.dp).fillMaxHeight().background(T.line))
-                    if (pair.size > 1) ToolCell(pair[1], Modifier.weight(1f))
-                    else Spacer(Modifier.weight(1f))
-                }
-            }
+
+    Column(Modifier.padding(top = 22.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = T.gutter),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            tools.forEach { tool -> ToolCell(tool, Modifier.weight(1f)) }
         }
     }
 }
@@ -302,24 +319,33 @@ private fun Tools(state: Dashboard, onClock: () -> Unit, onBook: () -> Unit) {
 private data class Tool(
     val icon: ImageVector,
     val label: String,
-    val caption: String,
-    val onClick: (() -> Unit)? = null,
+    val onClick: () -> Unit,
 )
 
+/**
+ * One action: a square of surface with the icon in it, and the word under.
+ *
+ * Square rather than round because the rest of the app is built from rectangles
+ * with a 14dp radius, and a row of circles here would be the only circles on the
+ * screen.
+ */
 @Composable
 private fun ToolCell(tool: Tool, modifier: Modifier = Modifier) {
-    Row(
-        modifier
-            .then(if (tool.onClick != null) Modifier.clickable(onClick = tool.onClick) else Modifier)
-            .padding(horizontal = 16.dp, vertical = 15.dp)
+    Column(
+        modifier.clickable(onClick = tool.onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(tool.icon, null, tint = T.inkFaint, modifier = Modifier.size(18.dp).padding(top = 1.dp))
-        Spacer(Modifier.width(11.dp))
-        Column(Modifier.weight(1f)) {
-            Txt(tool.label, Type.label, T.ink)
-            Spacer(Modifier.height(3.dp))
-            Txt(tool.caption, Type.caption.copy(fontSize = 11.5.sp), T.inkMuted, maxLines = 2)
+        Surface(
+            color = T.surface,
+            shape = T.cardShape,
+            modifier = Modifier.fillMaxWidth().aspectRatio(1.15f),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(tool.icon, null, tint = T.ink, modifier = Modifier.size(21.dp))
+            }
         }
+        Spacer(Modifier.height(7.dp))
+        Txt(tool.label, Type.caption, T.inkMuted, maxLines = 1)
     }
 }
 

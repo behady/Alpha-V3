@@ -283,16 +283,7 @@ private fun LabTeeth(chosen: Set<Int>, onToggle: (Int) -> Unit) {
             Modifier.padding(start = T.gutter, end = T.gutter, top = 14.dp, bottom = 4.dp),
             uppercase = true,
         )
-        listOf(
-            UPPER_RIGHT + UPPER_LEFT,
-            LOWER_RIGHT + LOWER_LEFT,
-        ).forEach { row ->
-            SheetChoices("") {
-                row.forEach { number ->
-                    SheetChoice(number.toString(), number in chosen) { onToggle(number) }
-                }
-            }
-        }
+        ToothPickerChart(chosen = chosen, onToggle = onToggle)
         Spacer(Modifier.height(4.dp))
     }
 }

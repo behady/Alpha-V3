@@ -92,6 +92,50 @@ private fun ArchLabel(text: String) {
     }
 }
 
+/**
+ * The same mouth, used to pick teeth for a treatment or a lab case.
+ *
+ * Several at once, and it keeps the chart's own colours underneath: choosing
+ * teeth for a filling while being able to see which of them are already charted
+ * as decayed is the whole reason a dentist looks at a chart rather than a list of
+ * numbers.
+ */
+@Composable
+fun ToothPickerChart(
+    chosen: Set<Int>,
+    teeth: Map<Int, Tooth> = emptyMap(),
+    onToggle: (Int) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
+        ArchLabel("Upper")
+        Spacer(Modifier.height(8.dp))
+        PickArch(UPPER_RIGHT, UPPER_LEFT, teeth, chosen, onToggle)
+
+        Spacer(Modifier.height(12.dp))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(T.line))
+        Spacer(Modifier.height(12.dp))
+
+        PickArch(LOWER_RIGHT, LOWER_LEFT, teeth, chosen, onToggle)
+        Spacer(Modifier.height(8.dp))
+        ArchLabel("Lower")
+    }
+}
+
+@Composable
+private fun PickArch(
+    right: List<Int>,
+    left: List<Int>,
+    teeth: Map<Int, Tooth>,
+    chosen: Set<Int>,
+    onToggle: (Int) -> Unit,
+) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        right.forEach { ToothCell(it, teeth[it], it in chosen, Modifier.weight(1f)) { n -> onToggle(n ?: it) } }
+        Box(Modifier.width(2.dp).height(46.dp).background(T.line))
+        left.forEach { ToothCell(it, teeth[it], it in chosen, Modifier.weight(1f)) { n -> onToggle(n ?: it) } }
+    }
+}
+
 @Composable
 private fun Arch(
     right: List<Int>,

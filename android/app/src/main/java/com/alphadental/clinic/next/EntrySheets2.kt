@@ -19,6 +19,7 @@ import com.alphadental.clinic.next.data.LOWER_LEFT
 import com.alphadental.clinic.next.data.LOWER_RIGHT
 import com.alphadental.clinic.next.data.UPPER_LEFT
 import com.alphadental.clinic.next.data.UPPER_RIGHT
+import com.alphadental.clinic.next.design.Rule
 import com.alphadental.clinic.next.design.T
 import com.alphadental.clinic.next.design.Txt
 import com.alphadental.clinic.next.design.Type
@@ -35,6 +36,8 @@ fun TreatmentSheet(
     patientName: String,
     services: List<Service>,
     doctors: List<Doctor>,
+    /** What is already charted on this patient, so the picker can show it. */
+    charted: Map<Int, com.alphadental.clinic.next.data.Tooth> = emptyMap(),
     busy: Boolean,
     error: String?,
     onRecord: (String, List<String>, String, Double, Doctor?, Service?, Boolean) -> Unit,
@@ -47,6 +50,8 @@ fun TreatmentSheet(
     var doctor by remember { mutableStateOf(doctors.firstOrNull()) }
     var note by remember { mutableStateOf("") }
     var done by remember { mutableStateOf(true) }
+    /** True while the search results are worth showing under the box. */
+    var picking by remember { mutableStateOf(false) }
 
     val unit = price.toDoubleOrNull() ?: 0.0
     val mode = service?.pricingMode.orEmpty()
@@ -72,23 +77,64 @@ fun TreatmentSheet(
         onAction = { onRecord(procedure, teeth.map(Int::toString), note, unit, doctor, service, done) },
         onDismiss = onDismiss,
     ) {
-        if (services.isNotEmpty()) {
-            SheetChoices("From the price list") {
-                services.take(24).forEach { s ->
-                    SheetChoice(s.name, service?.id == s.id) {
-                        if (service?.id == s.id) {
-                            service = null
-                        } else {
-                            service = s
-                            procedure = s.name
-                            if (s.price > 0) price = s.price.toLong().toString()
-                        }
-                    }
-                }
+        // One box that both searches the price list and holds the answer.
+        // A separate row of chips above a separate text field asked the same
+        // question twice, and could only ever show the first two dozen prices —
+        // a clinic with a hundred of them could not reach the rest.
+        SheetField(
+            label = "What was done",
+            value = procedure,
+            onChange = { typed ->
+                procedure = typed
+                // Typing over a chosen treatment un-chooses it: the price on the
+                // line must not go on belonging to something no longer named.
+                if (service != null && !typed.equals(service?.name, ignoreCase = true)) service = null
+                picking = true
+            },
+            hint = "Composite filling",
+        )
+
+        val needle = procedure.trim().lowercase()
+        val matches = remember(needle, services, service) {
+            when {
+                service != null -> emptyList()
+                needle.isEmpty() -> services.take(8)
+                else -> services.filter { it.name.lowercase().contains(needle) }.take(8)
             }
         }
 
-        SheetField("What was done", procedure, { procedure = it }, hint = "Composite filling")
+        if (picking && matches.isNotEmpty()) {
+            matches.forEach { s ->
+                Rule()
+                SheetAction(
+                    s.name,
+                    if (s.price > 0) "${s.price.toLong()} EGP" else "No price set",
+                ) {
+                    service = s
+                    procedure = s.name
+                    if (s.price > 0) price = s.price.toLong().toString()
+                    picking = false
+                }
+            }
+            Rule()
+            Txt(
+                "Or leave it typed as it is — a treatment that is not on the price list is still " +
+                    "recorded, it just brings no price with it.",
+                Type.caption, T.inkFaint,
+                Modifier.padding(horizontal = T.gutter, vertical = 10.dp),
+                maxLines = 3,
+            )
+        }
+
+        service?.let { chosen ->
+            Txt(
+                "From the price list: ${chosen.name}" +
+                    (if (chosen.price > 0) " · lists at ${chosen.price.toLong()}" else ""),
+                Type.caption, T.accentInk,
+                Modifier.padding(horizontal = T.gutter, vertical = 8.dp),
+                maxLines = 2,
+            )
+        }
 
         SheetField(
             label = if (units > 1) "Price for one tooth" else "Price",
@@ -121,7 +167,7 @@ fun TreatmentSheet(
             )
         }
 
-        ToothPicker(teeth) { teeth = it }
+        ToothPicker(teeth, charted) { teeth = it }
 
         if (doctors.isNotEmpty()) {
             SheetChoices("Done by") {
@@ -156,34 +202,28 @@ fun TreatmentSheet(
 }
 
 /**
- * Which teeth.
+ * Which teeth — the mouth, not a row of numbers.
  *
- * FDI numbers in their four quadrants, upper row first, because that is how a
- * chart is read and how a dentist says them out loud. Typing "36, 37" would be
- * fewer pixels and more mistakes — and every one of those mistakes is a bill.
+ * The same chart the patient's file draws, with whatever is already charted on
+ * each tooth still coloured underneath. Picking the teeth for a filling while
+ * being able to see which of them are recorded as decayed is the entire reason a
+ * dentist looks at a chart instead of reading out numbers.
  */
 @Composable
-private fun ToothPicker(chosen: Set<Int>, onChange: (Set<Int>) -> Unit) {
+private fun ToothPicker(
+    chosen: Set<Int>,
+    charted: Map<Int, com.alphadental.clinic.next.data.Tooth>,
+    onChange: (Set<Int>) -> Unit,
+) {
     Column(Modifier.fillMaxWidth()) {
         Txt(
             if (chosen.isEmpty()) "TEETH" else "TEETH · ${chosen.sorted().joinToString(", ")}",
             Type.eyebrow, T.inkFaint,
-            Modifier.padding(start = T.gutter, end = T.gutter, top = 14.dp, bottom = 4.dp),
+            Modifier.padding(start = T.gutter, end = T.gutter, top = 14.dp, bottom = 2.dp),
             uppercase = true,
         )
-        // 18 → 11, then 21 → 28. The patient's right is on the reader's left,
-        // which is how a chart is drawn and how a dentist reads one out.
-        listOf(
-            UPPER_RIGHT + UPPER_LEFT,
-            LOWER_RIGHT + LOWER_LEFT,
-        ).forEach { row ->
-            SheetChoices("") {
-                row.forEach { number ->
-                    SheetChoice(number.toString(), number in chosen) {
-                        onChange(if (number in chosen) chosen - number else chosen + number)
-                    }
-                }
-            }
+        ToothPickerChart(chosen = chosen, teeth = charted) { number ->
+            onChange(if (number in chosen) chosen - number else chosen + number)
         }
         if (chosen.isEmpty()) {
             Txt(

@@ -189,6 +189,8 @@ fun Shell(preview: Boolean = false) {
                 onOpenAttendance = { openAttendance = true },
                 onBook = { booking?.open() },
                 onOpenVisit = { if (preview) shown = it else visits?.open(it) },
+                onChats = { tab = Tab.Chats },
+                onPatients = { tab = Tab.Patients },
             )
             Tab.Day -> DayTab(
                 preview,
@@ -276,11 +278,14 @@ private fun TodayTab(
     onOpenAttendance: () -> Unit,
     onBook: () -> Unit,
     onOpenVisit: (com.alphadental.clinic.next.data.Visit) -> Unit,
+    onChats: () -> Unit,
+    onPatients: () -> Unit,
 ) {
     if (preview) {
         DashboardScreen(
             state = previewDashboard(), onCheckOut = {}, onOpenVisit = onOpenVisit,
             onClock = onOpenAttendance, onBook = onBook,
+            onChats = onChats, onPatients = onPatients,
         )
     } else {
         val model: DashboardModel = viewModel()
@@ -289,6 +294,7 @@ private fun TodayTab(
         DashboardScreen(
             state = state, onCheckOut = model::checkOut, onOpenVisit = onOpenVisit,
             onClock = onOpenAttendance, onBook = onBook,
+            onChats = onChats, onPatients = onPatients,
         )
     }
 }
