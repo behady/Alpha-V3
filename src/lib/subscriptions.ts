@@ -27,6 +27,8 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
     aiEmbedded: boolean;
     /** Dictated clinical notes transcribed and structured into records. */
     aiVoice: boolean;
+    /** AI reading of a patient's x-rays into a structured report the dentist confirms. */
+    aiXray: boolean;
     /**
      * Marketing add-on, level 1 (Text & Strategy). False on every tier on purpose: it is sold as
      * a separate add-on, switched on per clinic via the feature overrides in the superadmin panel.
@@ -70,6 +72,7 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiProactive: false,
       aiEmbedded: false,
       aiVoice: false,
+      aiXray: true,
       marketingText: false,
       marketingDesign: false,
       whatsappBot: false,
@@ -93,6 +96,7 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiProactive: false,
       aiEmbedded: false,
       aiVoice: false,
+      aiXray: false,
       marketingText: false,
       marketingDesign: false,
       whatsappBot: false,
@@ -117,6 +121,7 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiProactive: false,
       aiEmbedded: false,
       aiVoice: false,
+      aiXray: true,
       marketingText: false,
       marketingDesign: false,
       whatsappBot: false,
@@ -141,6 +146,7 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
       aiProactive: true,
       aiEmbedded: true,
       aiVoice: true,
+      aiXray: true,
       marketingText: false,
       marketingDesign: false,
       whatsappBot: true,

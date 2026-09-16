@@ -168,6 +168,10 @@ const MUST_BE_EXCLUDED = [
   "drugs",
   "marketing_content",
   "attendance",
+  // Written by /api/ai/xray-report after charging credits. A member who could write here could
+  // forge or edit an AI report; the block below says `allow write: if false`, which only holds
+  // while the name is also out of the blanket grant.
+  "xray_reports",
 ];
 
 const rules = readFileSync(join(REPO, "firestore.rules"), "utf8");

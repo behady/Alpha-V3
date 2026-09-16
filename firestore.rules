@@ -229,7 +229,12 @@ service cloud.firestore {
         && sub != 'prescriptions' && sub != 'treatment_plans'
         && sub != 'diagnosis_chats' && sub != 'inventory'
         && sub != 'drugs' && sub != 'marketing_content'
-        && sub != 'attendance';
+        && sub != 'attendance'
+        // AI x-ray reports are written by /api/ai/xray-report after the credits were charged. A
+        // client that could write here could forge a "report" nobody paid for, or edit what the
+        // model said after the fact and leave it looking machine-written. Read by the clinic,
+        // deleted through the recycle bin only.
+        && sub != 'xray_reports';
     }
 
     // Two accounts that work at the same clinic. Used to scope who may read whose profile.
@@ -607,6 +612,14 @@ service cloud.firestore {
       }
 
       match /ai_usage_log/{entryId} {
+        allow read: if isSuperAdmin() || hasClinicRole(clinicId);
+        allow write: if false;
+      }
+
+      // AI radiograph reports. Created only by /api/ai/xray-report (Admin SDK), which is where
+      // the credits are charged; deleted only through /api/records/delete so the recycle bin
+      // keeps a copy. Any clinic member may read them — they sit in the patient's file.
+      match /xray_reports/{reportId} {
         allow read: if isSuperAdmin() || hasClinicRole(clinicId);
         allow write: if false;
       }
