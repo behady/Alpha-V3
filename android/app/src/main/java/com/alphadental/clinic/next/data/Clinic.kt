@@ -335,6 +335,8 @@ data class Record(
      * "not recorded" rather than inventing a clean bill of health.
      */
     val medicalHistory: String,
+    /** Only ever shown on the details form; nothing else reads it. */
+    val address: String = "",
     val balance: Balance,
     val upcoming: List<Visit>,
     val past: List<Visit>,

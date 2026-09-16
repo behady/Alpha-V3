@@ -534,7 +534,11 @@ private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) 
     val context = LocalContext.current
 
     if (preview) {
-        var state by remember { mutableStateOf(previewRecord().copy(media = previewMedia())) }
+        var state by remember {
+            mutableStateOf(
+                previewRecord().copy(media = previewMedia(), notes = previewNotes(), scripts = previewScripts())
+            )
+        }
         var previewSheet by remember { mutableStateOf("") }
         RecordScreen(
             state = state,
@@ -548,10 +552,43 @@ private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) 
             onView = { state = state.copy(viewing = it) },
             onCamera = {},
             onGallery = {},
+            onSetNoteStatus = { id, status ->
+                state = state.copy(
+                    notes = state.notes.map { if (it.id == id) it.copy(status = status) else it },
+                )
+            },
+            onChart = { n -> state = state.copy(charting = state.record?.teeth?.get(n) ?: com.alphadental.clinic.next.data.Tooth(n, emptyList(), "")) },
+            onPrescribe = { previewSheet = "rx" },
+            onEditDetails = { state = state.copy(editing = true) },
             onTakePayment = { previewSheet = "pay" },
             onRecordTreatment = { previewSheet = "treat" },
             onMore = { previewSheet = "more" },
         )
+        if (state.charting != null) {
+            ToothSheet(
+                state = state,
+                onToggle = { id ->
+                    val t = state.charting!!
+                    state = state.copy(
+                        charting = t.copy(
+                            statuses = if (id in t.statuses) t.statuses - id else t.statuses + id,
+                        ),
+                    )
+                },
+                onNote = { text -> state = state.copy(charting = state.charting?.copy(notes = text)) },
+                onSave = { state = state.copy(charting = null) },
+                onDismiss = { state = state.copy(charting = null) },
+            )
+        }
+
+        if (state.editing) {
+            DetailsSheet(
+                state = state,
+                onSave = { _, _, _, _, _, _, _ -> state = state.copy(editing = false) },
+                onDismiss = { state = state.copy(editing = false) },
+            )
+        }
+
         val person = state.record?.person
         when (previewSheet) {
             "more" -> PatientActionsSheet(
@@ -559,6 +596,7 @@ private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) 
                 onPrescribe = { previewSheet = "rx" },
                 onPlan = { previewSheet = "plan" },
                 onBook = { previewSheet = "" },
+                onOrtho = { previewSheet = "" },
                 onDismiss = { previewSheet = "" },
             )
             "rx" -> person?.let {
@@ -746,6 +784,12 @@ private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) 
             }
             Unit
         }) else null,
+        onSetNoteStatus = model::setNoteStatus,
+        onChart = { model.chart(it) },
+        onPrescribe = if (state.canRecord) ({
+            state.record?.let { prescriptions.open(it.person) }
+        }) else null,
+        onEditDetails = if (state.canEditDetails) ({ model.edit(true) }) else null,
         onGallery = if (state.canAddPhoto) ({
             pickImage.launch(
                 androidx.activity.result.PickVisualMediaRequest(
@@ -754,6 +798,24 @@ private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) 
             )
         }) else null,
     )
+
+    if (state.charting != null) {
+        ToothSheet(
+            state = state,
+            onToggle = model::toggleStatus,
+            onNote = model::setToothNote,
+            onSave = model::saveTooth,
+            onDismiss = { model.chart(null) },
+        )
+    }
+
+    if (state.editing) {
+        DetailsSheet(
+            state = state,
+            onSave = model::saveDetails,
+            onDismiss = { model.edit(false) },
+        )
+    }
 
     // Full size, over everything. A thumbnail of an x-ray is a grey square.
     state.viewing?.let { url ->
@@ -790,6 +852,10 @@ private fun RecordPane(patientId: String, preview: Boolean, onBack: () -> Unit) 
                 onBook = if (bookingState.canBook || state.who?.can("appointments.add") == true) ({
                     more = false
                     booking.openFor(record.person)
+                }) else null,
+                onOrtho = if (state.canRecord) ({
+                    more = false
+                    model.startOrtho()
                 }) else null,
                 onDismiss = { more = false },
             )
@@ -1635,3 +1701,41 @@ private fun previewMedia(): List<com.alphadental.clinic.data.PatientMedia> {
         )
     }
 }
+
+/** A few treatments and a script, so the preview's file is not an empty shell. */
+private fun previewNotes(): List<com.alphadental.clinic.data.ClinicalNote> = listOf(
+    com.alphadental.clinic.data.ClinicalNote(
+        id = "n1", procedure = "Root canal · session 2", tooth = "16",
+        note = "Working length confirmed.", cost = 3200.0, status = "Completed",
+        doctor = "Dr. Youssef Kamal", date = "2026-09-08",
+    ),
+    com.alphadental.clinic.data.ClinicalNote(
+        id = "n2", procedure = "Zirconia crown", tooth = "16",
+        note = "After the root canal settles.", cost = 4500.0, status = "Planned",
+        doctor = "Dr. Youssef Kamal", date = "2026-09-08",
+    ),
+    com.alphadental.clinic.data.ClinicalNote(
+        id = "n3", procedure = "Scale & polish", tooth = "",
+        note = "", cost = 350.0, status = "Completed",
+        doctor = "Dr. Nour Hassan", date = "2026-08-21",
+    ),
+)
+
+private fun previewScripts(): List<com.alphadental.clinic.data.Prescription> = listOf(
+    com.alphadental.clinic.data.Prescription(
+        id = "rx1", date = "2026-09-08", doctor = "Dr. Youssef Kamal",
+        diagnosis = "Acute pulpitis, upper right 6",
+        drugs = listOf(
+            com.alphadental.clinic.data.RxItem(
+                name = "Augmentin 1gm",
+                dose = "1 tablet every 12 hours after food for 5 to 7 days",
+                doseAr = "قرص كل 12 ساعة بعد الأكل لمدة 5 إلى 7 أيام",
+            ),
+            com.alphadental.clinic.data.RxItem(
+                name = "Brufen 400mg",
+                dose = "1 tablet every 8 hours when needed",
+                doseAr = "قرص كل 8 ساعات عند اللزوم",
+            ),
+        ),
+    ),
+)

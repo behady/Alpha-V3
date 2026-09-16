@@ -163,6 +163,7 @@ fun PatientActionsSheet(
     onPrescribe: (() -> Unit)?,
     onPlan: (() -> Unit)?,
     onBook: (() -> Unit)?,
+    onOrtho: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
     Sheet(
@@ -185,7 +186,11 @@ fun PatientActionsSheet(
             SheetAction("Book an appointment", "Opens the booking sheet on this patient", it)
             Rule()
         }
-        if (onPrescribe == null && onPlan == null && onBook == null) {
+        onOrtho?.let {
+            SheetAction("Start orthodontic treatment", "Puts them on the ortho board", it)
+            Rule()
+        }
+        if (onPrescribe == null && onPlan == null && onBook == null && onOrtho == null) {
             Txt(
                 "This account has nothing else it can do on a patient's file.",
                 Type.caption, T.inkMuted,

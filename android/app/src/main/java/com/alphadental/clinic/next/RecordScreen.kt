@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.CircularProgressIndicator
@@ -79,12 +80,19 @@ fun RecordScreen(
     onView: (String?) -> Unit = {},
     onCamera: (() -> Unit)? = null,
     onGallery: (() -> Unit)? = null,
+    onSetNoteStatus: (String, String) -> Unit = { _, _ -> },
+    onChart: (Int) -> Unit = {},
+    onPrescribe: (() -> Unit)? = null,
+    onEditDetails: (() -> Unit)? = null,
 ) {
     val record = state.record
 
     Column(Modifier.fillMaxSize().background(T.ground)) {
 
-        RecordSlab(state, record, onBack, onCall, onMessage, onTakePayment, onRecordTreatment, onMore)
+        RecordSlab(
+            state, record, onBack, onCall, onMessage,
+            onTakePayment, onRecordTreatment, onMore, onEditDetails,
+        )
 
         if (record != null) Tabs(state.tab, onTab)
 
@@ -103,8 +111,10 @@ fun RecordScreen(
             ) {
                 when (state.tab) {
                     RecordTab.Overview -> overview(state, record)
-                    RecordTab.Chart -> chart(state, record, onSelectTooth)
+                    RecordTab.Chart -> chart(state, record, onSelectTooth, onChart)
+                    RecordTab.Notes -> treatments(state, onSetNoteStatus, onRecordTreatment)
                     RecordTab.Visits -> visits(record)
+                    RecordTab.Rx -> scripts(state, onPrescribe)
                     RecordTab.Photos -> photos(state, onFilterMedia, onUploadCategory, onView, onCamera, onGallery)
                     RecordTab.Ledger -> ledger(state)
                 }
@@ -254,6 +264,7 @@ private fun RecordSlab(
     onTakePayment: (() -> Unit)?,
     onRecordTreatment: (() -> Unit)?,
     onMore: (() -> Unit)?,
+    onEditDetails: (() -> Unit)?,
 ) {
     val owed = record?.balance?.owed ?: 0.0
     val credit = record?.balance?.credit ?: 0.0
@@ -279,6 +290,10 @@ private fun RecordSlab(
             }
             // Everything else this file can do, behind one icon. Five buttons in
             // a row on a phone is five buttons nobody can hit.
+            onEditDetails?.let {
+                Spacer(Modifier.width(8.dp))
+                SlabIcon(Icons.Filled.Edit, "Patient details", onClick = it)
+            }
             onMore?.let {
                 Spacer(Modifier.width(8.dp))
                 SlabIcon(Icons.Filled.MoreHoriz, "More", onClick = it)
@@ -472,6 +487,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.chart(
     state: RecordState,
     record: Record,
     onSelectTooth: (Int?) -> Unit,
+    onChart: (Int) -> Unit,
 ) {
     item {
         ToothChart(
@@ -481,6 +497,17 @@ private fun androidx.compose.foundation.lazy.LazyListScope.chart(
         )
     }
     item { ToothDetail(record.teeth[state.tooth], state.tooth) }
+
+    if (state.canRecord) {
+        item {
+            Row(Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 14.dp)) {
+                SettingsPill(
+                    state.tooth?.let { "Chart tooth $it" } ?: "Pick a tooth to chart",
+                    solid = state.tooth != null,
+                ) { state.tooth?.let(onChart) }
+            }
+        }
+    }
 }
 
 private fun androidx.compose.foundation.lazy.LazyListScope.visits(record: Record) {

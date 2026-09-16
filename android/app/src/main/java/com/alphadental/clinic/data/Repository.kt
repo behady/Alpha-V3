@@ -2300,6 +2300,51 @@ object Repository {
      * database and syncs later; registering a patient waits for signal, and says so rather than
      * failing with a shrug.
      */
+    /**
+     * Change what is on a patient's file.
+     *
+     * Only the fields a person edited, never the whole document: a patient record
+     * carries balances, teethData and counters that no form on this screen has
+     * ever read, and writing the document back whole would erase whatever it did
+     * not know about.
+     *
+     * Allergies and medical history are written even when blank, because
+     * clearing them is a real edit — somebody corrected a wrong allergy — and
+     * dropping empty strings would make that edit silently impossible. `fileId`
+     * is never touched: it is issued once by the clinic's counter.
+     */
+    suspend fun updatePatient(
+        clinicId: String,
+        patientId: String,
+        name: String,
+        phone: String,
+        dateOfBirth: String,
+        gender: String,
+        allergies: String,
+        medicalHistory: String,
+        address: String,
+        byName: String,
+    ): Result<Unit> = runCatching {
+        require(name.isNotBlank()) { "A patient needs a name." }
+        Firebase.db().collection("clinics").document(clinicId)
+            .collection("patients").document(patientId)
+            .update(
+                mapOf(
+                    "name" to name.trim(),
+                    "phone" to phone.trim(),
+                    "dateOfBirth" to dateOfBirth.trim(),
+                    "gender" to gender.trim(),
+                    "allergies" to allergies.trim(),
+                    "medicalHistory" to medicalHistory.trim(),
+                    "address" to address.trim(),
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                    "updatedBy" to byName,
+                )
+            )
+            .queueLocally("patient details")
+        Unit
+    }
+
     suspend fun createPatient(clinicId: String, name: String, phone: String): Result<Patient> = runCatching {
         val clinic = Firebase.db().collection("clinics").document(clinicId)
         val counterRef = clinic.collection("settings").document("counters")
