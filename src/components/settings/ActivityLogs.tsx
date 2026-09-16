@@ -164,7 +164,7 @@ export default function ActivityLogs() {
         </div>
 
         <div className="overflow-x-auto rounded-2xl border border-line">
-          <table className="w-full text-left">
+          <table className="w-full text-start">
             <thead className="bg-surface-subtle border-b border-line">
               <tr>
                 <th className="px-4 py-3 text-[11px] font-bold text-ink-muted uppercase">User</th>

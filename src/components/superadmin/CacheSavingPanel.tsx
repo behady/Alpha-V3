@@ -117,14 +117,14 @@ export function CacheSavingPanel({ egpPerUsd = 50 }: { egpPerUsd?: number }) {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-start text-xs">
                 <thead className="text-slate-500">
                   <tr>
                     <th className="py-1 font-medium">Day</th>
-                    <th className="py-1 text-right font-medium">Replies</th>
-                    <th className="py-1 text-right font-medium">Cached</th>
-                    <th className="py-1 text-right font-medium">Cost</th>
-                    <th className="py-1 text-right font-medium">Per reply</th>
+                    <th className="py-1 text-end font-medium">Replies</th>
+                    <th className="py-1 text-end font-medium">Cached</th>
+                    <th className="py-1 text-end font-medium">Cost</th>
+                    <th className="py-1 text-end font-medium">Per reply</th>
                   </tr>
                 </thead>
                 <tbody className="tabular-nums">
@@ -134,10 +134,10 @@ export function CacheSavingPanel({ egpPerUsd = 50 }: { egpPerUsd?: number }) {
                         {r.day}
                         {report.cutoverDay === r.day ? <span className="ml-2 rounded bg-indigo-500 px-1.5 py-px text-[10px] font-black text-white">cache on</span> : null}
                       </td>
-                      <td className="py-1 text-right text-slate-400">{r.replies}</td>
-                      <td className={`py-1 text-right ${r.cachedShare > 0.5 ? "text-emerald-400" : "text-slate-500"}`}>{pct(r.cachedShare)}</td>
-                      <td className="py-1 text-right text-slate-400">${r.usd.toFixed(3)}</td>
-                      <td className="py-1 text-right font-bold text-slate-200">{usd(r.usdPerReply)}</td>
+                      <td className="py-1 text-end text-slate-400">{r.replies}</td>
+                      <td className={`py-1 text-end ${r.cachedShare > 0.5 ? "text-emerald-400" : "text-slate-500"}`}>{pct(r.cachedShare)}</td>
+                      <td className="py-1 text-end text-slate-400">${r.usd.toFixed(3)}</td>
+                      <td className="py-1 text-end font-bold text-slate-200">{usd(r.usdPerReply)}</td>
                     </tr>
                   ))}
                 </tbody>

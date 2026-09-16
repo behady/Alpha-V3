@@ -195,13 +195,13 @@ export default function PatientsPage() {
               {/* PREMIUM DATA TABLE (Desktop) */}
               <div className="hidden md:block bg-white border border-slate-200 shadow-sm rounded-[1.5rem] overflow-hidden">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse whitespace-nowrap">
+                  <table className="w-full text-start border-collapse whitespace-nowrap">
                     <thead>
                       <tr className="border-b-2 border-slate-200 bg-slate-100/80">
                         <th className="py-4 px-6 text-[11px] font-bold text-slate-600 uppercase tracking-widest">{language === 'ar' ? 'المريض' : 'Patient'}</th>
                         <th className="py-4 px-6 text-[11px] font-bold text-slate-600 uppercase tracking-widest">{language === 'ar' ? 'رقم الهاتف' : 'Phone'}</th>
                         <th className="py-4 px-6 text-[11px] font-bold text-slate-600 uppercase tracking-widest">{language === 'ar' ? 'العنوان' : 'Address'}</th>
-                        <th className="py-4 px-6 text-[11px] font-bold text-slate-600 uppercase tracking-widest text-right">{language === 'ar' ? 'إجراء' : 'Action'}</th>
+                        <th className="py-4 px-6 text-[11px] font-bold text-slate-600 uppercase tracking-widest text-end">{language === 'ar' ? 'إجراء' : 'Action'}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -243,9 +243,9 @@ export default function PatientsPage() {
                               )}
                             </div>
                           </td>
-                          <td className="py-4 px-6 text-right">
+                          <td className="py-4 px-6 text-end">
                             <div className="inline-flex w-9 h-9 rounded-full bg-slate-50 items-center justify-center border border-slate-200 group-hover:bg-slate-900 group-hover:border-slate-800 group-hover:shadow-md transition-all duration-300">
-                              <ChevronRight size={18} strokeWidth={2.5} className="text-slate-400 group-hover:text-white" />
+                              <ChevronRight size={18} strokeWidth={2.5} className={`text-slate-400 group-hover:text-white ${isRTL ? "rotate-180" : ""}`} />
                             </div>
                           </td>
                         </tr>

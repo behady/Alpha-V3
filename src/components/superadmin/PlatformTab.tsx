@@ -361,7 +361,7 @@ export function PlatformTab() {
                 </p>
 
                 <div className="mt-4 overflow-x-auto rounded-2xl border border-line">
-                  <table className="w-full text-left text-xs">
+                  <table className="w-full text-start text-xs">
                     <thead className="bg-surface-subtle text-[10px] font-black uppercase tracking-widest text-ink-muted">
                       <tr>
                         <th className="px-4 py-2.5">Clinic</th>

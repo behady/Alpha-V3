@@ -331,14 +331,14 @@ export default function SuperAdminDashboard() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
+                  <table className="w-full text-start border-collapse">
                     <thead>
                       <tr className="bg-surface-subtle border-b border-slate-100 text-xs font-black text-slate-400 uppercase tracking-widest">
                         <th className="px-6 py-4">Clinic Info</th>
                         <th className="px-6 py-4">Owner</th>
                         <th className="px-6 py-4">Status & Tier</th>
                         <th className="px-6 py-4">Expiry</th>
-                        <th className="px-6 py-4 text-right">Actions</th>
+                        <th className="px-6 py-4 text-end">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -408,7 +408,7 @@ export default function SuperAdminDashboard() {
                               <span className="text-xs text-slate-400">Not set</span>
                             )}
                           </td>
-                          <td className="px-6 py-4 text-right">
+                          <td className="px-6 py-4 text-end">
                             <div className="flex justify-end gap-2">
                               <a
                                 href={`/?clinic=${clinic.id}`}

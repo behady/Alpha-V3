@@ -134,14 +134,14 @@ export const PersonalWorksheet = ({
                     </div>
                 </div>
                 <div className="overflow-x-auto flex-1 p-2">
-                    <table className="w-full text-left text-sm border-separate border-spacing-y-1">
+                    <table className="w-full text-start text-sm border-separate border-spacing-y-1">
                         <thead className="text-ink-muted font-black text-[10px] uppercase tracking-widest sticky top-0 bg-surface z-10">
                             <tr>
                                 <th className="py-3 px-5">{t("attDate")}</th>
                                 <th className="py-3 px-4 text-center">{t("attClockIn")}</th>
                                 <th className="py-3 px-4 text-center">{t("attClockOut")}</th>
                                 <th className="py-3 px-4 text-center">{t("attTotalTime")}</th>
-                                <th className="py-3 px-5 text-right">{t("attStatus")}</th>
+                                <th className="py-3 px-5 text-end">{t("attStatus")}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -150,11 +150,11 @@ export const PersonalWorksheet = ({
                             ) : (
                                 personalLogs.map((log: any) => (
                                     <tr key={log.id} className="group hover:bg-surface-subtle transition-colors">
-                                        <td className="py-3 px-5 font-bold text-ink rounded-l-2xl group-hover:bg-surface-subtle transition-colors">{log.date || (log.checkIn && log.checkIn.toDate().toISOString().split('T')[0])}</td>
+                                        <td className="py-3 px-5 font-bold text-ink rounded-s-2xl group-hover:bg-surface-subtle transition-colors">{log.date || (log.checkIn && log.checkIn.toDate().toISOString().split('T')[0])}</td>
                                         <td className="py-3 px-4 font-bold text-ink-body text-center group-hover:bg-surface-subtle transition-colors">{formatTime(log.checkIn)}</td>
                                         <td className="py-3 px-4 font-bold text-ink-body text-center group-hover:bg-surface-subtle transition-colors">{formatTime(log.checkOut)}</td>
                                         <td className="py-3 px-4 font-black text-ink text-center group-hover:bg-surface-subtle transition-colors">{log.status === 'active' ? <span className="text-emerald-500 animate-pulse">{t("attInProgress")}</span> : formatDuration(log.durationMinutes)}</td>
-                                        <td className="py-3 px-5 text-right rounded-r-2xl group-hover:bg-surface-subtle transition-colors">
+                                        <td className="py-3 px-5 text-end rounded-e-2xl group-hover:bg-surface-subtle transition-colors">
                                             {log.status === 'active' ? (
                                                 <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-600 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border border-emerald-100 shadow-sm">
                                                     <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span></span>
@@ -237,16 +237,16 @@ export const TeamOverview = ({
             </div>
             
             <div className="overflow-x-auto p-2">
-                <table className="w-full text-left text-sm min-w-[900px] border-separate border-spacing-y-1">
+                <table className="w-full text-start text-sm min-w-[900px] border-separate border-spacing-y-1">
                     <thead className="text-ink-muted font-black text-[10px] uppercase tracking-widest sticky top-0 bg-surface z-10">
                         <tr>
                             <th className="py-3 px-5 whitespace-nowrap">{t("attStaffMember")}</th>
                             <th className="py-3 px-4 whitespace-nowrap text-center">{t("attSettingsLogs")}</th>
-                            <th className="py-3 px-4 whitespace-nowrap text-right">{t("attRegMissed")}</th>
-                            <th className="py-3 px-4 whitespace-nowrap text-right">{t("attApprPendOt")}</th>
-                            <th className="py-3 px-4 whitespace-nowrap text-right">{t("attBasePay")}</th>
-                            <th className="py-3 px-4 whitespace-nowrap text-right">{t("attCommissions")}</th>
-                            <th className="py-3 px-5 whitespace-nowrap text-right text-emerald-600">{t("attNetPayout")}</th>
+                            <th className="py-3 px-4 whitespace-nowrap text-end">{t("attRegMissed")}</th>
+                            <th className="py-3 px-4 whitespace-nowrap text-end">{t("attApprPendOt")}</th>
+                            <th className="py-3 px-4 whitespace-nowrap text-end">{t("attBasePay")}</th>
+                            <th className="py-3 px-4 whitespace-nowrap text-end">{t("attCommissions")}</th>
+                            <th className="py-3 px-5 whitespace-nowrap text-end text-emerald-600">{t("attNetPayout")}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -255,7 +255,7 @@ export const TeamOverview = ({
                         ) : (
                             payrollData.map((staff: any, idx: number) => (
                                 <tr key={idx} className="group hover:bg-surface-subtle transition-colors">
-                                    <td className="py-4 px-5 rounded-l-2xl group-hover:bg-surface-subtle transition-colors">
+                                    <td className="py-4 px-5 rounded-s-2xl group-hover:bg-surface-subtle transition-colors">
                                         <div className="flex items-center gap-3">
                                             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 border border-white shadow-sm flex items-center justify-center shrink-0">
                                                 <Users size={16} className="text-slate-500"/>
@@ -284,19 +284,19 @@ export const TeamOverview = ({
                                             </button>
                                         </div>
                                     </td>
-                                    <td className="py-4 px-4 text-right group-hover:bg-surface-subtle transition-colors">
+                                    <td className="py-4 px-4 text-end group-hover:bg-surface-subtle transition-colors">
                                         <p className="font-black text-ink-body">{formatDuration(staff.regularMinutes)}</p>
                                         {staff.missingMinutes > 0 && <p className="text-[10px] font-bold text-red-500 flex justify-end items-center gap-1"><TrendingDown size={10}/> {formatDuration(staff.missingMinutes)}</p>}
                                     </td>
-                                    <td className="py-4 px-4 text-right group-hover:bg-surface-subtle transition-colors">
+                                    <td className="py-4 px-4 text-end group-hover:bg-surface-subtle transition-colors">
                                         <p className="font-black text-accent">{formatDuration(staff.approvedOvertimeMinutes)}</p>
                                         {staff.pendingOvertimeMinutes > 0 && <p className="text-[10px] font-bold text-amber-500 flex justify-end items-center gap-1">Pend: {formatDuration(staff.pendingOvertimeMinutes)}</p>}
                                     </td>
-                                    <td className="py-4 px-4 text-right font-bold text-ink-muted group-hover:bg-surface-subtle transition-colors tabular-nums">{Math.floor(staff.estimatedBasePay).toLocaleString()}</td>
-                                    <td className="py-4 px-4 text-right group-hover:bg-surface-subtle transition-colors tabular-nums">
+                                    <td className="py-4 px-4 text-end font-bold text-ink-muted group-hover:bg-surface-subtle transition-colors tabular-nums">{Math.floor(staff.estimatedBasePay).toLocaleString()}</td>
+                                    <td className="py-4 px-4 text-end group-hover:bg-surface-subtle transition-colors tabular-nums">
                                         {staff.earnedCommissions > 0 ? <span className="text-accent font-bold flex items-center justify-end gap-1.5"><TrendingUp size={12}/> {Math.floor(staff.earnedCommissions).toLocaleString()}</span> : <span className="text-slate-300">-</span>}
                                     </td>
-                                    <td className="py-4 px-5 rounded-r-2xl text-right font-black text-emerald-600 text-lg tracking-tight group-hover:bg-surface-subtle transition-colors tabular-nums">{Math.floor(staff.finalTotalPay).toLocaleString()}</td>
+                                    <td className="py-4 px-5 rounded-e-2xl text-end font-black text-emerald-600 text-lg tracking-tight group-hover:bg-surface-subtle transition-colors tabular-nums">{Math.floor(staff.finalTotalPay).toLocaleString()}</td>
                                 </tr>
                             ))
                         )}
@@ -325,19 +325,19 @@ export const TeamOverview = ({
             </div>
 
             <div className="overflow-x-auto p-2">
-                <table className="w-full text-left text-sm min-w-[1200px] border-separate border-spacing-y-1">
+                <table className="w-full text-start text-sm min-w-[1200px] border-separate border-spacing-y-1">
                     <thead className="text-ink-muted font-black text-[10px] uppercase tracking-widest sticky top-0 bg-surface z-10">
                         <tr>
                             <th className="py-3 px-5 whitespace-nowrap">{t("attDate")}</th>
                             <th className="py-3 px-4 whitespace-nowrap">{t("attDoctor")}</th>
                             <th className="py-3 px-4 whitespace-nowrap">{t("attPatient")}</th>
                             <th className="py-3 px-4 whitespace-nowrap">{t("attServiceSource")}</th>
-                            <th className="py-3 px-4 whitespace-nowrap text-right">{t("attPayment")}</th>
-                            <th className="py-3 px-4 whitespace-nowrap text-right">{t("attLabFee")}</th>
-                            <th className="py-3 px-4 whitespace-nowrap text-right">{t("attNet")}</th>
+                            <th className="py-3 px-4 whitespace-nowrap text-end">{t("attPayment")}</th>
+                            <th className="py-3 px-4 whitespace-nowrap text-end">{t("attLabFee")}</th>
+                            <th className="py-3 px-4 whitespace-nowrap text-end">{t("attNet")}</th>
                             <th className="py-3 px-4 whitespace-nowrap text-center">% Split</th>
-                            <th className="py-3 px-4 whitespace-nowrap text-right text-accent">{t("attDoctorComm")}</th>
-                            <th className="py-3 px-5 whitespace-nowrap text-right text-emerald-600">{t("attClinicProfit")}</th>
+                            <th className="py-3 px-4 whitespace-nowrap text-end text-accent">{t("attDoctorComm")}</th>
+                            <th className="py-3 px-5 whitespace-nowrap text-end text-emerald-600">{t("attClinicProfit")}</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -350,7 +350,7 @@ export const TeamOverview = ({
                         ) : (
                             commissionBreakdownRows.map((row: any) => (
                                 <tr key={row.id} className="group hover:bg-surface-subtle transition-colors">
-                                    <td className="py-4 px-5 rounded-l-2xl font-bold text-ink tabular-nums group-hover:bg-surface-subtle transition-colors">{row.date || "—"}</td>
+                                    <td className="py-4 px-5 rounded-s-2xl font-bold text-ink tabular-nums group-hover:bg-surface-subtle transition-colors">{row.date || "—"}</td>
                                     <td className="py-4 px-4 group-hover:bg-surface-subtle transition-colors">
                                         <p className="font-black text-ink">{row.staffName}</p>
                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-0.5">{row.staffRole}</p>
@@ -364,13 +364,13 @@ export const TeamOverview = ({
                                             {row.procedureId ? `${t("attServiceSource")}: ${row.procedureId}` : t("attLedger")} · {row.id.substring(0, 8)}...
                                         </p>
                                     </td>
-                                    <td className="py-4 px-4 text-right font-black text-ink tabular-nums group-hover:bg-surface-subtle transition-colors">
+                                    <td className="py-4 px-4 text-end font-black text-ink tabular-nums group-hover:bg-surface-subtle transition-colors">
                                         {Math.floor(Number(row.paidAmount || 0)).toLocaleString()}
                                     </td>
-                                    <td className="py-4 px-4 text-right font-bold text-ink-muted tabular-nums group-hover:bg-surface-subtle transition-colors">
+                                    <td className="py-4 px-4 text-end font-bold text-ink-muted tabular-nums group-hover:bg-surface-subtle transition-colors">
                                         {Math.floor(Number(row.labFee || 0)).toLocaleString()}
                                     </td>
-                                    <td className="py-4 px-4 text-right font-bold text-ink-body tabular-nums group-hover:bg-surface-subtle transition-colors">
+                                    <td className="py-4 px-4 text-end font-bold text-ink-body tabular-nums group-hover:bg-surface-subtle transition-colors">
                                         {Math.floor(Number(row.netAmount || 0)).toLocaleString()}
                                     </td>
                                     <td className="py-4 px-4 text-center group-hover:bg-surface-subtle transition-colors">
@@ -392,10 +392,10 @@ export const TeamOverview = ({
                                             <span className="text-xs font-black text-slate-400">%</span>
                                         </div>
                                     </td>
-                                    <td className="py-4 px-4 text-right font-black text-accent tabular-nums group-hover:bg-surface-subtle transition-colors text-base">
+                                    <td className="py-4 px-4 text-end font-black text-accent tabular-nums group-hover:bg-surface-subtle transition-colors text-base">
                                         {Math.floor(Number(row.doctorCommissionAmount || 0)).toLocaleString()}
                                     </td>
-                                    <td className="py-4 px-5 rounded-r-2xl text-right font-black text-emerald-600 tabular-nums group-hover:bg-surface-subtle transition-colors text-base">
+                                    <td className="py-4 px-5 rounded-e-2xl text-end font-black text-emerald-600 tabular-nums group-hover:bg-surface-subtle transition-colors text-base">
                                         {Math.floor(Number(row.clinicProfit || 0)).toLocaleString()}
                                     </td>
                                 </tr>

@@ -57,13 +57,13 @@ export function UsersTab({ users, onToggleSuperAdmin }: UsersTabProps) {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full text-start border-collapse">
               <thead>
                 <tr className="bg-surface-subtle border-b border-slate-100 text-xs font-black text-slate-400 uppercase tracking-widest">
                   <th className="px-6 py-4">User</th>
                   <th className="px-6 py-4">Created At</th>
                   <th className="px-6 py-4 text-center">Clinics</th>
-                  <th className="px-6 py-4 text-right">Super Admin</th>
+                  <th className="px-6 py-4 text-end">Super Admin</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -99,7 +99,7 @@ export function UsersTab({ users, onToggleSuperAdmin }: UsersTabProps) {
                           {clinicCount}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-right">
+                      <td className="px-6 py-4 text-end">
                         <div className="flex justify-end items-center gap-3">
                           {isSuperAdmin && (
                             <span className="flex items-center gap-1 text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md">

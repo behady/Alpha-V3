@@ -696,7 +696,7 @@ export function MigrateTab({ clinics }: { clinics: Clinic[] }) {
                         <span className="text-ink-muted font-sans"> + {entry.nested} inner list{entry.nested > 1 ? "s" : ""}</span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-right text-ink-muted tabular-nums">
+                    <td className="px-3 py-2 text-end text-ink-muted tabular-nums">
                       {entry.count.toLocaleString()}
                     </td>
                     <td className="px-3 py-2 text-xs">

@@ -858,9 +858,9 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
 
         <div className="bg-surface rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
             <div className="overflow-x-auto custom-scrollbar">
-                <table className="w-full text-sm text-left min-w-[700px]">
+                <table className="w-full text-sm text-start min-w-[700px]">
                     <thead className="bg-gray-50 text-gray-500 font-black text-[10px] uppercase tracking-wider">
-                    <tr><th className="p-4 whitespace-nowrap">{txt.date}</th><th className="p-4 whitespace-nowrap">{txt.description}</th><th className="p-4 text-center whitespace-nowrap">{txt.type}</th><th className="p-4 text-right whitespace-nowrap">{txt.cost}</th><th className="p-4 text-right whitespace-nowrap">{txt.paid}</th><th className="p-4 text-center whitespace-nowrap no-print">{txt.action}</th></tr>
+                    <tr><th className="p-4 whitespace-nowrap">{txt.date}</th><th className="p-4 whitespace-nowrap">{txt.description}</th><th className="p-4 text-center whitespace-nowrap">{txt.type}</th><th className="p-4 text-end whitespace-nowrap">{txt.cost}</th><th className="p-4 text-end whitespace-nowrap">{txt.paid}</th><th className="p-4 text-center whitespace-nowrap no-print">{txt.action}</th></tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                     {transactions.length === 0 ? (
@@ -956,8 +956,8 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                    </div>
                                                 </td>
                                                 <td className="p-4 text-center"><span className="px-2 py-1 rounded-lg text-[10px] font-black uppercase bg-blue-50 text-blue-600">{item.type}</span></td>
-                                                <td className="p-4 text-right font-bold text-gray-900">{item.cost > 0 ? item.cost.toLocaleString() : "-"}</td>
-                                                <td className="p-4 text-right font-bold text-green-600">{item.paidForThis > 0 ? item.paidForThis.toLocaleString() : "-"}</td>
+                                                <td className="p-4 text-end font-bold text-gray-900">{item.cost > 0 ? item.cost.toLocaleString() : "-"}</td>
+                                                <td className="p-4 text-end font-bold text-green-600">{item.paidForThis > 0 ? item.paidForThis.toLocaleString() : "-"}</td>
                                                 <td className="p-4 text-center no-print">
                                                     <div className="flex items-center justify-center gap-2 transition-opacity">
                                                         <button
@@ -1016,8 +1016,8 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                         </div>
                                                     </td>
                                                     <td className="p-4 text-center"><span className="px-2 py-1 rounded-lg text-[10px] font-black uppercase bg-green-50 text-green-600">{payment.type}</span></td>
-                                                    <td className="p-4 text-right font-bold text-gray-400">-</td>
-                                                    <td className="p-4 text-right font-bold text-green-600">{payment.paid > 0 ? payment.paid.toLocaleString() : "-"}</td>
+                                                    <td className="p-4 text-end font-bold text-gray-400">-</td>
+                                                    <td className="p-4 text-end font-bold text-green-600">{payment.paid > 0 ? payment.paid.toLocaleString() : "-"}</td>
                                                     <td className="p-4 text-center no-print">
                                                         <div className="flex items-center justify-center gap-2">
                                                             {hasEditAccess && (
@@ -1067,8 +1067,8 @@ export default function PatientFinance({ patientId }: { patientId: string }) {
                                                </div>
                                             </td>
                                             <td className="p-4 text-center"><span className="px-2 py-1 rounded-lg text-[10px] font-black uppercase bg-green-50 text-green-600">{payment.type}</span></td>
-                                            <td className="p-4 text-right font-bold text-gray-900">-</td>
-                                            <td className="p-4 text-right font-bold text-green-600">{payment.paid > 0 ? payment.paid.toLocaleString() : "-"}</td>
+                                            <td className="p-4 text-end font-bold text-gray-900">-</td>
+                                            <td className="p-4 text-end font-bold text-green-600">{payment.paid > 0 ? payment.paid.toLocaleString() : "-"}</td>
                                             <td className="p-4 text-center no-print">
                                                 <div className="flex items-center justify-center gap-2">
                                                     <button
