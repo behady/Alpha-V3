@@ -408,8 +408,9 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
     labelAr: "رصيد الذكاء الاصطناعي",
     // `ai_usage` and `ai_usage_log` are `allow write: if false` — the meter and its spend log are
     // written only by the server. A member who could write these could refill their own clinic's
-    // credits and erase the record of what was spent.
-    writes: [{ kind: "readOnly", reads: "ai_usage" }],
+    // credits and erase the record of what was spent. The one thing this screen writes is the
+    // read-x-rays-on-upload switch, a settings document (Admin-only in the rules, as all are).
+    writes: [{ kind: "readOnly", reads: "ai_usage" }, { kind: "settingsDoc", docId: "ai_xray" }],
     view: ADMIN,
     edit: ADMIN,
   },

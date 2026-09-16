@@ -6,8 +6,9 @@ import {
   arrayUnion, getDoc, getDocs, limit, onSnapshot, orderBy, query, serverTimestamp, updateDoc, where,
 } from "firebase/firestore";
 import {
-  Armchair, ArrowUpRight, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, FlaskConical, Loader2, PenLine,
+  Armchair, ArrowUpRight, CalendarDays, CalendarPlus, Check, ChevronLeft, ChevronRight, FlaskConical, Loader2, PenLine, ScanLine,
 } from "lucide-react";
+import { XRAY_REPORTS_COLLECTION, worstSeverity, SEVERITY_COLORS, type XrayReport, type XraySeverity } from "@/lib/xrayReport";
 import { auth } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { useAuth } from "@/context/AuthContext";
@@ -120,6 +121,8 @@ export default function DentistHome() {
   const [config, setConfig] = useState<ClinicScheduleConfig | null>(null);
   const [showShare, setShowShare] = useState(true);
   const [loaded, setLoaded] = useState(false);
+  /** AI x-ray reports nobody has signed yet. Clinic-wide: a report waits for whichever dentist owns the patient. */
+  const [unsignedXrays, setUnsignedXrays] = useState<Row[]>([]);
 
   useEffect(() => {
     if (!me || !clinicId) return;
@@ -152,6 +155,13 @@ export default function DentistHome() {
         )
       ),
       onSnapshot(getClinicCollection("services"), (s) => setServices(rows(s) as unknown as Service[])),
+      // `signed` is a flat boolean on the report for exactly this query: no composite index, and
+      // a report the dentist has not confirmed is the one thing on this screen that is theirs to do.
+      onSnapshot(
+        query(getClinicCollection(XRAY_REPORTS_COLLECTION), where("signed", "==", false), limit(30)),
+        (s) => setUnsignedXrays(rows(s)),
+        () => setUnsignedXrays([])
+      ),
       onSnapshot(getClinicDoc("settings", "clinic_info"), (snap) => {
         const data = (snap.data() || {}) as Record<string, unknown>;
         setConfig(parseClinicSchedule(data));
@@ -599,6 +609,39 @@ export default function DentistHome() {
               </div>
             )}
           </Card>
+
+          {unsignedXrays.length > 0 && (
+            <Card>
+              <CardHead title={isAr ? "تقارير أشعة مستنية تأكيدي" : "X-ray reports awaiting my confirmation"} right={`${unsignedXrays.length}`} eyebrow={eyebrow} />
+              <div className="flex flex-col">
+                {[...unsignedXrays]
+                  .sort((a, b) => ((b.createdAt as { toDate?: () => Date })?.toDate?.()?.getTime() || 0) - ((a.createdAt as { toDate?: () => Date })?.toDate?.()?.getTime() || 0))
+                  .slice(0, 8)
+                  .map((x) => {
+                    const report = x.report as XrayReport | undefined;
+                    const worst: XraySeverity = report ? worstSeverity(report) : "normal";
+                    const when = (x.createdAt as { toDate?: () => Date })?.toDate?.();
+                    const pid = String(x.patientId || "");
+                    return (
+                      <div key={String(x.id)} className="flex flex-wrap items-center gap-3 px-6 py-3 border-t border-surface-muted first:border-t-0">
+                        <span className="inline-block h-2.5 w-2.5 rounded-sm shrink-0" style={{ background: SEVERITY_COLORS[worst] }} />
+                        <div className="min-w-0 flex-1 cursor-pointer" onClick={() => router.push(`/patients/${pid}?tab=xrays`)}>
+                          <p className="text-sm font-bold text-ink truncate">{String(x.patientName || patientName(pid))}</p>
+                          <p className="text-xs font-semibold text-ink-muted truncate">
+                            {report ? `${report.teeth.length} ${isAr ? "نتيجة" : "finding(s)"}` : ""}
+                            {when ? ` · ${when.toLocaleDateString(isAr ? "ar-EG" : "en-GB")}` : ""}
+                            {x.createdByName ? ` · ${String(x.createdByName)}` : ""}
+                          </p>
+                        </div>
+                        <button onClick={() => router.push(`/patients/${pid}?tab=xrays`)} className={ghost}>
+                          <ScanLine size={13} /> {isAr ? "راجع ووقّع" : "Review & sign"}
+                        </button>
+                      </div>
+                    );
+                  })}
+              </div>
+            </Card>
+          )}
 
           <Card>
             <CardHead title={isAr ? "خطط سايبها مفتوحة" : "Plans I left open"} right={plans.length ? (isAr ? "من غير موعد جاي" : "No next visit booked") : ""} eyebrow={eyebrow} />

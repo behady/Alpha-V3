@@ -15,10 +15,25 @@
  * still leave it out on the day it matters.
  */
 
+import { DIAGNOSIS_OPTIONS } from "@/lib/diagnosisCatalog";
+
 export const XRAY_REPORT_FEATURE = "xray_report";
 
 /** The Firestore subcollection under the clinic. Server-only writes; see firestore.rules. */
 export const XRAY_REPORTS_COLLECTION = "xray_reports";
+
+/**
+ * Read-on-upload: `clinics/{c}/settings/ai_xray`. Admin-only, like every settings document.
+ * Off unless switched on — it spends credits without anybody pressing a button.
+ */
+export const XRAY_AUTO_READ_DOC = "ai_xray";
+export interface XrayAutoReadSettings {
+  enabled?: boolean;
+  /** Use the Pro model for automatic readings (triple credits). */
+  deep?: boolean;
+}
+/** The media categories that are radiographs. Clinical photos are not read automatically. */
+export const XRAY_AUTO_READ_CATEGORIES = ["X-Ray", "Panoramic", "CT Scan"] as const;
 
 /** Up to four images per report: a bitewing pair plus two periapicals is the realistic maximum. */
 export const XRAY_MAX_IMAGES = 4;
@@ -62,6 +77,18 @@ export interface XrayToothFinding {
   box?: XrayBox;
   /** Which of the pictures read (1-based) the box belongs to. Absent means the first. */
   image?: number;
+  /**
+   * The finding in the clinic's own vocabulary: an id from DIAGNOSIS_OPTIONS ("caries_severe",
+   * "peri_asymp"), so a confirmed row can be charted on the odontogram with one tap and no
+   * retyping. Absent when nothing in the catalogue fits (bone levels, sinus findings).
+   */
+  category?: string;
+}
+
+/** What changed between an older and a newer picture of the same area. */
+export interface XrayComparison {
+  verdict: "improved" | "stable" | "worse" | "mixed" | "not_comparable";
+  changes: string[];
 }
 
 export interface XrayReport {
@@ -75,7 +102,18 @@ export interface XrayReport {
   recommendations: string[];
   chartDiscrepancies: string[];
   limitations: string;
+  /**
+   * The same findings in words a patient can follow — no jargon, no numbers, no alarm — for the
+   * explanation the dentist may choose to send after signing. Never shown to the patient
+   * unreviewed: the send route refuses an unsigned report.
+   */
+  patientSummary: string;
+  /** Only on a compare-over-time reading (two pictures, older first). */
+  comparison?: XrayComparison;
 }
+
+/** Catalogue ids the model may use for `category`. "healthy" is excluded: a finding is never "healthy". */
+export const XRAY_CATEGORY_IDS: string[] = DIAGNOSIS_OPTIONS.map((o) => o.id).filter((id) => id !== "healthy");
 
 export const XRAY_IMAGE_TYPES: XrayImageType[] = [
   "periapical",
@@ -115,8 +153,9 @@ export const XRAY_RESPONSE_SCHEMA = {
           severity: { type: "STRING", enum: SEVERITIES, format: "enum" },
           box: { type: "ARRAY", items: { type: "INTEGER" } },
           image: { type: "INTEGER" },
+          category: { type: "STRING" },
         },
-        required: ["tooth", "finding", "confidence", "severity", "box", "image"],
+        required: ["tooth", "finding", "confidence", "severity", "box", "image", "category"],
       },
     },
     general: { type: "ARRAY", items: { type: "STRING" } },
@@ -124,8 +163,17 @@ export const XRAY_RESPONSE_SCHEMA = {
     recommendations: { type: "ARRAY", items: { type: "STRING" } },
     chartDiscrepancies: { type: "ARRAY", items: { type: "STRING" } },
     limitations: { type: "STRING" },
+    patientSummary: { type: "STRING" },
+    comparison: {
+      type: "OBJECT",
+      properties: {
+        verdict: { type: "STRING", enum: ["improved", "stable", "worse", "mixed", "not_comparable"], format: "enum" },
+        changes: { type: "ARRAY", items: { type: "STRING" } },
+      },
+      required: ["verdict", "changes"],
+    },
   },
-  required: ["imageType", "quality", "summary", "teeth", "general", "recommendations", "limitations"],
+  required: ["imageType", "quality", "summary", "teeth", "general", "recommendations", "limitations", "patientSummary"],
 } as const;
 
 /** The instruction block. Language decides the prose; FDI numbers and enum values never change. */
@@ -135,6 +183,13 @@ export function buildXrayPrompt(opts: {
   imageCategories: string[];
   dentistNote?: string;
   deep?: boolean;
+  /**
+   * Compare-over-time: exactly two pictures, image 1 OLDER and image 2 NEWER, with the dates
+   * they were taken. The report then carries a `comparison` block.
+   */
+  compare?: { olderDate: string; newerDate: string };
+  /** Earlier reports on this patient, newest first, as short dated lines. Reference only. */
+  priorReports?: string[];
 }): string {
   const lang =
     opts.language === "ar"
@@ -156,7 +211,9 @@ HOW TO READ:
 - Grade each finding's confidence by how clearly the image shows it, and its severity by clinical weight: "urgent" only for things that need attention within days (large periapical abscess with swelling risk, fracture, aggressive lesion, pathology needing referral).
 - NEVER invent a finding. If the image cannot settle a question, say so in limitations and name what would (a periapical of which tooth, a bitewing, CBCT, clinical tests).
 - The patient's chart below is reference data, not gospel: list, in chartDiscrepancies, every place the image contradicts it (a tooth charted as missing that is present, a filling on the chart that is not in the image, caries the chart does not know about). An empty list means the image agrees with the chart on everything you can see.
+- category: for every tooth finding, the ONE id from this list that best names it, or an empty string when none fits: ${XRAY_CATEGORY_IDS.join(", ")}. Use "surg_missing" for a missing tooth, "rest_*" for existing restorations in good state, "rest_defective_margin"/"rest_overhang"/"rest_fractured" for failing ones, "pulp_prev_treated" for a root-filled tooth, "peri_*" for periapical findings, "dev_impaction_*" for impactions. Never invent an id.
 - recommendations: concrete next steps the dentist can act on — further imaging, clinical tests to correlate, referral, monitoring intervals. No prices, no treatment plan.
+- patientSummary: three to five short sentences FOR THE PATIENT, in everyday words (no tooth numbers, no jargon, no millimetres, nothing alarming), saying what the picture shows and why the dentist may suggest treatment. Warm and plain. The dentist reads and approves it before anyone sees it.${opts.priorReports && opts.priorReports.length ? `\n- EARLIER REPORTS on this patient (reference only, newest first): note in the summary what has changed since, if the same teeth are in view.\n  ${opts.priorReports.join("\n  ")}` : ""}${opts.compare ? `\n\nCOMPARE OVER TIME: image 1 was taken ${opts.compare.olderDate} (OLDER) and image 2 on ${opts.compare.newerDate} (NEWER), of the same patient. Besides the ordinary reading (of the NEWER picture — put the tooth boxes on image 2), fill \`comparison\`: \`verdict\` is improved / stable / worse / mixed, or not_comparable when the views do not cover the same area or the older one is unreadable; \`changes\` lists every tooth-level or bone-level difference you can see ("periapical radiolucency on 36 smaller, ~4 mm → ~2 mm", "new distal caries on 45", "crestal bone 46 unchanged"), and says explicitly when a treated tooth is healing or not. Never call a difference in angulation a clinical change.` : ""}
 - This report is decision support for a licensed dentist who will confirm it against the patient. Do not address the patient. Do not add a disclaimer; the system adds its own.
 ${opts.deep ? "\nDEEP READ: the dentist asked for an exhaustive reading. Be maximally meticulous — every tooth in the field of view gets considered, incidental findings are listed rather than skipped, and every differential worth naming is named with what would discriminate it.\n" : ""}
 - ${lang}`;
@@ -197,12 +254,14 @@ export function normalizeXrayReport(raw: unknown, imageCount = 1): XrayReport | 
           const box = normalizeBox(tt.box);
           const imageRaw = Number(tt.image);
           const image = Number.isInteger(imageRaw) && imageRaw >= 1 && imageRaw <= imageCount ? imageRaw : 1;
+          const category = normalizeCategory(tt.category);
           return {
             tooth,
             finding,
             confidence: oneOf(tt.confidence, CONFIDENCES, "moderate"),
             severity: oneOf(tt.severity, SEVERITIES, "mild"),
             ...(box ? { box, image } : {}),
+            ...(category ? { category } : {}),
           };
         })
         .filter((t): t is XrayToothFinding => t !== null)
@@ -220,7 +279,24 @@ export function normalizeXrayReport(raw: unknown, imageCount = 1): XrayReport | 
     recommendations: strList(r.recommendations, 15, 400),
     chartDiscrepancies: strList(r.chartDiscrepancies, 20, 400),
     limitations: str(r.limitations, 1000),
+    patientSummary: str(r.patientSummary, 1200),
+    ...(normalizeComparison(r.comparison) ? { comparison: normalizeComparison(r.comparison)! } : {}),
   };
+}
+
+/** A catalogue id the chart understands, or nothing. The model is told the list; this checks it. */
+export function normalizeCategory(v: unknown): string | undefined {
+  const id = str(v, 60);
+  return id && XRAY_CATEGORY_IDS.includes(id) ? id : undefined;
+}
+
+function normalizeComparison(v: unknown): XrayComparison | null {
+  if (!v || typeof v !== "object") return null;
+  const c = v as Record<string, unknown>;
+  const verdict = oneOf(c.verdict, ["improved", "stable", "worse", "mixed", "not_comparable"] as const, "not_comparable");
+  const changes = strList(c.changes, 25, 400);
+  if (!changes.length && verdict === "not_comparable" && !c.verdict) return null;
+  return { verdict, changes };
 }
 
 /**
@@ -278,6 +354,122 @@ export function sortTeeth(teeth: XrayToothFinding[]): XrayToothFinding[] {
   return [...numbered, ...regions];
 }
 
+// ----------------------------------------------------------------------------------------------
+// The dentist's review: what turns AI text into a clinical document
+// ----------------------------------------------------------------------------------------------
+
+export type XrayVerdict = "confirmed" | "rejected" | "edited";
+
+/**
+ * Stored on the report as `review`, written only by /api/ai/xray-report/review. Keys of the
+ * per-row maps are the row's index in `report.teeth` as a string — the rows are never reordered
+ * after normalisation, and an index survives a tooth number being corrected.
+ */
+export interface XrayReview {
+  verdicts: Record<string, XrayVerdict>;
+  /** The dentist's wording where the verdict is "edited". */
+  edits: Record<string, string>;
+  /** A redrawn outline, or null to remove one the model drew in the wrong place. */
+  boxes: Record<string, XrayBox | null>;
+  /** Rows already pushed to the odontogram, with the catalogue id that was charted. */
+  charted: Record<string, string>;
+  /** The dentist's own wording of the patient explanation, when they changed it. */
+  patientSummary?: string;
+  signed: boolean;
+  signedBy?: string;
+  signedByName?: string;
+  /** ISO. */
+  signedAt?: string;
+}
+
+export const EMPTY_REVIEW: XrayReview = { verdicts: {}, edits: {}, boxes: {}, charted: {}, signed: false };
+
+/** The review as the client sends it: partial, merged onto what is stored. */
+export type XrayReviewPatch = Partial<Pick<XrayReview, "verdicts" | "edits" | "boxes" | "patientSummary">> & {
+  sign?: boolean;
+  /** Rows to push to the odontogram now: index → catalogue id (may differ from the model's). */
+  chart?: Record<string, string>;
+};
+
+const VERDICTS: XrayVerdict[] = ["confirmed", "rejected", "edited"];
+
+/**
+ * Cleans a client patch against the report it belongs to: unknown rows, unknown verdicts and
+ * unknown catalogue ids are dropped rather than stored. Pure, so the route's decisions are tested.
+ */
+export function normalizeReviewPatch(raw: unknown, report: XrayReport): XrayReviewPatch {
+  const out: XrayReviewPatch = {};
+  if (!raw || typeof raw !== "object") return out;
+  const r = raw as Record<string, unknown>;
+  const rowOk = (k: string) => /^\d{1,3}$/.test(k) && Number(k) < report.teeth.length;
+  const pick = <T>(v: unknown, keep: (x: unknown) => T | undefined): Record<string, T> | undefined => {
+    if (!v || typeof v !== "object") return undefined;
+    const m: Record<string, T> = {};
+    for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+      if (!rowOk(k)) continue;
+      const kept = keep(x);
+      if (kept !== undefined) m[k] = kept;
+    }
+    return m;
+  };
+  const verdicts = pick<XrayVerdict>(r.verdicts, (x) => (typeof x === "string" && (VERDICTS as string[]).includes(x) ? (x as XrayVerdict) : undefined));
+  if (verdicts) out.verdicts = verdicts;
+  const edits = pick<string>(r.edits, (x) => (typeof x === "string" && x.trim() ? x.trim().slice(0, 600) : undefined));
+  if (edits) out.edits = edits;
+  const boxes = pick<XrayBox | null>(r.boxes, (x) => (x === null ? null : normalizeBox(x) ?? undefined));
+  if (boxes) out.boxes = boxes;
+  const chart = pick<string>(r.chart, (x) => normalizeCategory(x));
+  if (chart) out.chart = chart;
+  if (typeof r.patientSummary === "string") out.patientSummary = r.patientSummary.trim().slice(0, 1200);
+  if (r.sign === true) out.sign = true;
+  return out;
+}
+
+/** Merges a cleaned patch onto the stored review. Signing stamps who and when. */
+export function applyReviewPatch(
+  current: XrayReview | null | undefined,
+  patch: XrayReviewPatch,
+  signer: { uid: string; name: string; nowIso: string }
+): XrayReview {
+  const base: XrayReview = { ...EMPTY_REVIEW, ...(current || {}) };
+  const next: XrayReview = {
+    ...base,
+    verdicts: { ...base.verdicts, ...(patch.verdicts || {}) },
+    edits: { ...base.edits, ...(patch.edits || {}) },
+    boxes: { ...base.boxes, ...(patch.boxes || {}) },
+    charted: { ...base.charted, ...(patch.chart || {}) },
+  };
+  if (patch.patientSummary !== undefined) next.patientSummary = patch.patientSummary;
+  // An edited row without new wording is just "confirmed with a note missing" — keep the verdict
+  // honest by demoting it.
+  for (const [k, v] of Object.entries(next.verdicts)) if (v === "edited" && !next.edits[k]) next.verdicts[k] = "confirmed";
+  if (patch.sign) {
+    next.signed = true;
+    next.signedBy = signer.uid;
+    next.signedByName = signer.name;
+    next.signedAt = signer.nowIso;
+  }
+  return next;
+}
+
+/** The row as the dentist left it: their wording and their outline win over the model's. */
+export function effectiveFinding(report: XrayReport, review: XrayReview | null | undefined, index: number): XrayToothFinding & { verdict: XrayVerdict | null } {
+  const t = report.teeth[index];
+  const k = String(index);
+  const verdict = review?.verdicts[k] ?? null;
+  const finding = verdict === "edited" && review?.edits[k] ? review.edits[k] : t.finding;
+  const boxOverride = review?.boxes[k];
+  const box = boxOverride === null ? undefined : boxOverride || t.box;
+  return { ...t, finding, ...(box ? { box, image: t.image || 1 } : { box: undefined }), verdict };
+}
+
+/** A report is a clinical document once every row has a verdict and the dentist signed it. */
+export function reviewProgress(report: XrayReport, review: XrayReview | null | undefined): { decided: number; total: number; complete: boolean } {
+  const total = report.teeth.length;
+  const decided = report.teeth.filter((_, i) => review?.verdicts[String(i)]).length;
+  return { decided, total, complete: decided === total };
+}
+
 /** The most serious severity in the report, for the list row's badge. */
 export function worstSeverity(report: XrayReport): XraySeverity {
   const rank: Record<XraySeverity, number> = { normal: 0, mild: 1, moderate: 2, severe: 3, urgent: 4 };
@@ -309,6 +501,18 @@ export const XRAY_LABELS = {
     moderate: { en: "Moderate", ar: "متوسطة" },
     low: { en: "Low", ar: "منخفضة" },
   },
+  comparison: {
+    improved: { en: "Improved", ar: "تحسّن" },
+    stable: { en: "Unchanged", ar: "مستقر" },
+    worse: { en: "Worse", ar: "أسوأ" },
+    mixed: { en: "Mixed", ar: "متباين" },
+    not_comparable: { en: "Not comparable", ar: "غير قابل للمقارنة" },
+  },
+  verdict: {
+    confirmed: { en: "Confirmed", ar: "مؤكد" },
+    rejected: { en: "Rejected", ar: "مرفوض" },
+    edited: { en: "Edited", ar: "معدّل" },
+  },
   severity: {
     normal: { en: "Normal", ar: "طبيعي" },
     mild: { en: "Mild", ar: "بسيط" },
@@ -328,7 +532,7 @@ export function xrayDisclaimer(language: "ar" | "en"): string {
 /**
  * The report as plain text, for copying into a note or a message. Same order as the screen.
  */
-export function xrayReportToText(report: XrayReport, language: "ar" | "en"): string {
+export function xrayReportToText(report: XrayReport, language: "ar" | "en", review?: XrayReview | null): string {
   const ar = language === "ar";
   const L = (k: keyof typeof XRAY_LABELS, v: string) =>
     ((XRAY_LABELS[k] as Record<string, { en: string; ar: string }>)[v] || { en: v, ar: v })[ar ? "ar" : "en"];
@@ -343,9 +547,17 @@ export function xrayReportToText(report: XrayReport, language: "ar" | "en"): str
   if (report.teeth.length) {
     lines.push("");
     lines.push(ar ? "النتائج لكل سن:" : "Findings per tooth:");
-    for (const t of report.teeth) {
-      lines.push(`- ${t.tooth}: ${t.finding} [${L("severity", t.severity)} · ${ar ? "الثقة" : "confidence"} ${L("confidence", t.confidence)}]`);
-    }
+    report.teeth.forEach((_, i) => {
+      const t = effectiveFinding(report, review, i);
+      if (t.verdict === "rejected") return;
+      const mark = t.verdict ? ` (${L("verdict", t.verdict)})` : "";
+      lines.push(`- ${t.tooth}: ${t.finding} [${L("severity", t.severity)} · ${ar ? "الثقة" : "confidence"} ${L("confidence", t.confidence)}]${mark}`);
+    });
+  }
+  if (report.comparison) {
+    lines.push("");
+    lines.push(`${ar ? "المقارنة مع الصورة الأقدم" : "Compared with the older picture"}: ${L("comparison", report.comparison.verdict)}`);
+    for (const c of report.comparison.changes) lines.push(`- ${c}`);
   }
   const section = (title: string, items: string[]) => {
     if (!items.length) return;
@@ -362,6 +574,9 @@ export function xrayReportToText(report: XrayReport, language: "ar" | "en"): str
     lines.push(`${ar ? "حدود القراءة" : "Limitations"}: ${report.limitations}`);
   }
   lines.push("");
+  if (review?.signed && review.signedByName) {
+    lines.push(ar ? `راجعه وأكده: ${review.signedByName} — ${review.signedAt || ""}` : `Reviewed and confirmed by ${review.signedByName} — ${review.signedAt || ""}`);
+  }
   lines.push(xrayDisclaimer(language));
   return lines.join("\n");
 }

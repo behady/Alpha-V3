@@ -31,7 +31,10 @@ const TIMEOUT_MS = 80_000;
 /**
  * AI radiograph reading.
  *
- * POST { clinicId, patientId, mediaIds: string[1..4], language?: "ar"|"en", note?, mode?: "deep" }
+ * POST { clinicId, patientId, mediaIds: string[1..4], language?: "ar"|"en", note?, mode?: "deep", compare?: boolean }
+ *
+ * `compare` is the over-time reading: exactly two pictures, sorted by the date they were taken
+ * (older first), and the report carries a `comparison` block on top of the ordinary read.
  *
  * The images are named by their `patient_media` document ids, never by URL: the server looks each
  * one up, checks it belongs to this patient in this clinic, and downloads it itself. A client that
@@ -54,6 +57,7 @@ export async function POST(req: Request) {
     const language: "ar" | "en" = body?.language === "ar" ? "ar" : "en";
     const note = typeof body?.note === "string" ? body.note.trim().slice(0, 500) : "";
     const deep = body?.mode === "deep";
+    const compare = body?.compare === true;
     const rawIds: unknown[] = Array.isArray(body?.mediaIds) ? body.mediaIds : [];
     const mediaIds: string[] = [
       ...new Set(rawIds.filter((s): s is string => typeof s === "string" && s.trim().length > 0).map((s) => s.trim())),
@@ -64,6 +68,9 @@ export async function POST(req: Request) {
     }
     if (mediaIds.length === 0) {
       return NextResponse.json({ ok: false, error: "Pick at least one image." }, { status: 400 });
+    }
+    if (compare && mediaIds.length !== 2) {
+      return NextResponse.json({ ok: false, error: "Comparing over time needs exactly two pictures." }, { status: 400 });
     }
 
     const authz = await requireStaffUser(req, clinicId);
@@ -118,7 +125,7 @@ export async function POST(req: Request) {
 
     // The images, by id, each checked against this patient.
     const mediaSnaps = await Promise.all(mediaIds.map((id) => adminClinicDoc(clinicId, "patient_media", id).get()));
-    const media: { id: string; url: string; category: string; filename: string }[] = [];
+    const media: { id: string; url: string; category: string; filename: string; takenAt: Date | null }[] = [];
     for (const snap of mediaSnaps) {
       const d = snap.data() as Record<string, unknown> | undefined;
       if (!snap.exists || !d || String(d.patientId || "") !== patientId) {
@@ -128,7 +135,31 @@ export async function POST(req: Request) {
       if (!/^https:\/\/firebasestorage\.googleapis\.com\//.test(url)) {
         return NextResponse.json({ ok: false, error: "One of the images has no readable file." }, { status: 400 });
       }
-      media.push({ id: snap.id, url, category: String(d.category || ""), filename: String(d.filename || d.fileName || "") });
+      const takenAt = (d.createdAt as { toDate?: () => Date } | undefined)?.toDate?.() ?? null;
+      media.push({ id: snap.id, url, category: String(d.category || ""), filename: String(d.filename || d.fileName || ""), takenAt });
+    }
+    if (compare) {
+      // Older first, so "image 1" in the prompt is the earlier picture whatever order they were ticked in.
+      media.sort((a, b) => (a.takenAt?.getTime() || 0) - (b.takenAt?.getTime() || 0));
+    }
+
+    // Earlier readings of this patient, so the summary can say what changed since. Newest first,
+    // three at most, one line each — reference for the model, never re-read as images.
+    const priorReports: string[] = [];
+    try {
+      const priorSnap = await adminClinicCollection(clinicId, XRAY_REPORTS_COLLECTION).where("patientId", "==", patientId).get();
+      const rows = priorSnap.docs
+        .map((d) => d.data() as Record<string, any>)
+        .filter((r) => r.report && typeof r.report.summary === "string")
+        .sort((a, b) => (b.createdAt?.toDate?.()?.getTime() || 0) - (a.createdAt?.toDate?.()?.getTime() || 0))
+        .slice(0, 3);
+      for (const r of rows) {
+        const when = r.createdAt?.toDate?.()?.toISOString().slice(0, 10) || "";
+        const teeth = Array.isArray(r.report.teeth) ? r.report.teeth.map((t: any) => `${t.tooth}: ${String(t.finding || "").slice(0, 90)}`).join("; ") : "";
+        priorReports.push(`${when} (${r.report.imageType || "image"}): ${String(r.report.summary).slice(0, 240)}${teeth ? ` — ${teeth}` : ""}`.slice(0, 700));
+      }
+    } catch {
+      /* a missing history costs nothing */
     }
 
     const imageParts: { inlineData: { data: string; mimeType: string } }[] = [];
@@ -146,12 +177,15 @@ export async function POST(req: Request) {
       imageParts.push({ inlineData: { data: buf.toString("base64"), mimeType } });
     }
 
+    const fmtDate = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "an unknown date");
     const prompt = buildXrayPrompt({
       language,
       imageCount: media.length,
       imageCategories: media.map((m) => m.category),
       dentistNote: note,
       deep,
+      compare: compare ? { olderDate: fmtDate(media[0].takenAt), newerDate: fmtDate(media[1].takenAt) } : undefined,
+      priorReports,
     });
 
     const model = new GoogleGenerativeAI(apiKey).getGenerativeModel({
@@ -196,9 +230,14 @@ export async function POST(req: Request) {
       mediaIds: media.map((m) => m.id),
       // A snapshot of the pictures as they were: if one is later deleted or re-filed, the report
       // still shows what was read.
-      media: media.map((m) => ({ id: m.id, url: m.url, category: m.category, filename: m.filename })),
+      media: media.map((m) => ({ id: m.id, url: m.url, category: m.category, filename: m.filename, takenAt: m.takenAt ? m.takenAt.toISOString() : "" })),
       language,
       mode: deep ? "deep" : "standard",
+      compare,
+      // The dentist's review lives here once they give one; `signed` is flat so the home screen
+      // can query "awaiting confirmation" without a composite index.
+      review: null,
+      signed: false,
       model: modelName,
       note,
       report,
@@ -217,7 +256,7 @@ export async function POST(req: Request) {
       userName: authz.name,
       patientId,
       patientName,
-      detail: [`${media.length} image${media.length === 1 ? "" : "s"}`, report.imageType, deep ? "deep read" : ""].filter(Boolean).join(" · "),
+      detail: [`${media.length} image${media.length === 1 ? "" : "s"}`, report.imageType, deep ? "deep read" : "", compare ? "compare" : ""].filter(Boolean).join(" · "),
       usage: meter.snapshot(),
     });
 

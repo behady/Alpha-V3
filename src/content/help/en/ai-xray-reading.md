@@ -37,6 +37,28 @@ Below the picture the report has fixed sections, in this order:
 
 Every report ends with the same line: *AI-assisted reading — not a diagnosis. It must be reviewed and confirmed by the treating dentist together with the clinical examination.* That line is added by the system, not by the AI, so it cannot be forgotten.
 
+## Confirming the report (signing)
+
+Every finding row has three buttons: **✓ correct**, **✗ wrong**, and **✎ reword**. Give each one a verdict, then press **Sign report**. The signature is what turns the AI text into a clinical document: the PDF gets a "Reviewed and confirmed by Dr …" stamp, and rejected rows are struck through. Unsigned reports appear on the dentist home screen under **X-ray reports awaiting my confirmation**.
+
+If an outline sits on the wrong tooth, press the **pen** button on that row and drag the correct box on the picture. Scroll to zoom in first for precision. The sliders button on the picture adjusts brightness and contrast.
+
+## Adding a finding to the teeth chart
+
+Press the **+** button on a row to chart it. The AI suggests the matching diagnosis from the clinic's own list; pick it or choose another. The diagnosis lands on the odontogram with a dated note naming the report. Nothing is charted unless you press the button.
+
+## Comparing two x-rays over time
+
+Tick exactly two pictures and press **Compare over time** in the dark bar. The older one (by upload date) is read as "before" and the newer as "after", and the report adds a section: improved, unchanged, worse or mixed, with every change listed. Use it to check healing after a root canal or the progress of bone loss.
+
+## Explaining it to the patient
+
+Each report ends with **For the patient**: the same findings in plain words, with no tooth numbers or jargon. Edit the wording if you wish. Once the report is signed, **Send to patient on WhatsApp** sends the outlined picture and that explanation as a PDF. It cannot be sent before signing, and it needs the Clinical PDFs on WhatsApp add-on.
+
+## Reading new x-rays automatically
+
+Under **Settings → AI credits** an admin can switch on **Read x-rays automatically on upload**. Every new X-Ray, Panoramic or CT picture is then read in the background as soon as it is filed. It spends credits per picture, which is why it is off by default.
+
 ## Keeping and printing it
 
 Reports are saved into the patient's file automatically. They appear in the **AI x-ray reports** panel at the top of the X-Rays & Photos tab; tap one to reopen it.

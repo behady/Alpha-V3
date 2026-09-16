@@ -162,3 +162,83 @@ assert.equal(TIER_LIMITS.Basic.features.aiXray, false, "Basic has no AI credits,
 assert.equal(TIER_LIMITS.Premium.features.aiXray, true);
 
 console.log("xrayReport: ok");
+
+// --- Round 4: categories, the patient explanation, comparison, and the dentist's review ----------
+import {
+  applyReviewPatch,
+  effectiveFinding,
+  normalizeCategory,
+  normalizeReviewPatch,
+  reviewProgress,
+  XRAY_CATEGORY_IDS,
+} from "../src/lib/xrayReport";
+
+assert.ok(XRAY_CATEGORY_IDS.includes("caries_severe") && !XRAY_CATEGORY_IDS.includes("healthy"), "catalogue ids minus healthy");
+assert.equal(normalizeCategory("caries_severe"), "caries_severe");
+assert.equal(normalizeCategory("made_up_id"), undefined, "an invented id is dropped, never charted");
+assert.equal(normalizeCategory(""), undefined);
+
+const full = normalizeXrayReport(
+  {
+    summary: "S",
+    patientSummary: "Your back tooth has a deep cavity.",
+    teeth: [
+      { tooth: "36", finding: "Deep distal caries", confidence: "high", severity: "severe", box: [100, 100, 300, 300], image: 2, category: "caries_severe" },
+      { tooth: "37", finding: "Sound", confidence: "high", severity: "normal", box: [], image: 2, category: "nonsense" },
+    ],
+    comparison: { verdict: "improved", changes: ["Lesion on 36 smaller"] },
+  },
+  2
+)!;
+assert.equal(full.patientSummary, "Your back tooth has a deep cavity.");
+assert.equal(full.teeth[0].category, "caries_severe");
+assert.equal(full.teeth[1].category, undefined);
+assert.deepEqual(full.comparison, { verdict: "improved", changes: ["Lesion on 36 smaller"] });
+assert.equal(normalizeXrayReport({ summary: "S" })!.comparison, undefined, "no comparison block on an ordinary reading");
+assert.ok(xrayReportToText(full, "en").includes("Compared with the older picture"));
+
+// Review patches: unknown rows and values are dropped, not stored.
+const patch = normalizeReviewPatch(
+  {
+    verdicts: { "0": "confirmed", "1": "maybe", "9": "confirmed" },
+    edits: { "0": "  Deep distal caries reaching the pulp  ", "1": "" },
+    boxes: { "0": [50, 50, 400, 400], "1": null, "9": [1, 2, 3, 4] },
+    chart: { "0": "caries_severe", "1": "bogus" },
+    patientSummary: "  plain words  ",
+    sign: "yes",
+  },
+  full
+);
+assert.deepEqual(patch.verdicts, { "0": "confirmed" });
+assert.deepEqual(patch.edits, { "0": "Deep distal caries reaching the pulp" });
+assert.deepEqual(patch.boxes, { "0": [50, 50, 400, 400], "1": null });
+assert.deepEqual(patch.chart, { "0": "caries_severe" });
+assert.equal(patch.patientSummary, "plain words");
+assert.equal(patch.sign, undefined, "sign must be literally true");
+
+const signer = { uid: "u1", name: "Dr Ahmed", nowIso: "2026-09-16T15:00:00.000Z" };
+const r1 = applyReviewPatch(null, { verdicts: { "0": "edited" }, edits: { "0": "reworded" } }, signer);
+assert.equal(r1.verdicts["0"], "edited");
+assert.equal(r1.signed, false, "a verdict is not a signature");
+const r2 = applyReviewPatch(r1, { verdicts: { "1": "edited" } }, signer);
+assert.equal(r2.verdicts["1"], "confirmed", "edited without wording demotes to confirmed");
+assert.equal(r2.edits["0"], "reworded", "earlier edits survive later patches");
+const r3 = applyReviewPatch(r2, { sign: true, chart: { "0": "caries_severe" } }, signer);
+assert.equal(r3.signed, true);
+assert.equal(r3.signedByName, "Dr Ahmed");
+assert.equal(r3.charted["0"], "caries_severe");
+
+// The row as the dentist left it.
+const e0 = effectiveFinding(full, r3, 0);
+assert.equal(e0.finding, "reworded");
+assert.equal(e0.verdict, "edited");
+assert.deepEqual(e0.box, [100, 100, 300, 300], "no box override keeps the model's");
+const r4 = applyReviewPatch(r3, { boxes: { "0": null } }, signer);
+assert.equal(effectiveFinding(full, r4, 0).box, undefined, "a null override removes the outline");
+const r5 = applyReviewPatch(r4, { boxes: { "0": [10, 10, 200, 200] } }, signer);
+assert.deepEqual(effectiveFinding(full, r5, 0).box, [10, 10, 200, 200]);
+assert.deepEqual(reviewProgress(full, r1), { decided: 1, total: 2, complete: false });
+assert.deepEqual(reviewProgress(full, r3), { decided: 2, total: 2, complete: true });
+assert.ok(xrayReportToText(full, "en", r3).includes("Reviewed and confirmed by Dr Ahmed"));
+
+console.log("xrayReport review: ok");

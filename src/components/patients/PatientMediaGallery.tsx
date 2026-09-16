@@ -28,7 +28,8 @@ import {
   FileImage,
   CheckCircle2,
   ScanLine,
-  FileText
+  FileText,
+  GitCompareArrows
 } from "lucide-react";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { addDoc, deleteDoc, updateDoc, serverTimestamp } from "firebase/firestore";
@@ -36,7 +37,10 @@ import { storage } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { logActivity } from "@/lib/logger";
 import { useUI } from "@/context/UIContext";
-import { XrayReadButton, XrayReadModal, XrayReportsSection, XrayReportDialog, useMounted, useXrayReports, type SavedXrayReport } from "./XrayAiReport";
+import { XrayReadButton, XrayReadModal, XrayReportsSection, XrayReportDialog, useMounted, useXrayReports, useXrayFeature, type SavedXrayReport } from "./XrayAiReport";
+import { XRAY_AUTO_READ_DOC, XRAY_AUTO_READ_CATEGORIES, type XrayAutoReadSettings } from "@/lib/xrayReport";
+import { onSnapshot } from "firebase/firestore";
+import { auth } from "@/lib/firebase";
 
 export interface MediaItem {
   id: string;
@@ -99,6 +103,38 @@ export default function PatientMediaGallery({
 
   // AI reading: the pictures handed to the reader, or null when the dialog is closed.
   const [aiItems, setAiItems] = useState<MediaItem[] | null>(null);
+  const [aiCompare, setAiCompare] = useState(false);
+
+  // Read-on-upload: a clinic switch (Settings → AI credits). When on, every new radiograph is
+  // read in the background right after it is filed, so the report is waiting when the dentist
+  // opens the picture. Costs credits, hence a switch and not a default.
+  const xrayUnlocked = useXrayFeature();
+  const [autoRead, setAutoRead] = useState<XrayAutoReadSettings | null>(null);
+  useEffect(() => {
+    if (!clinicId) return;
+    try {
+      return onSnapshot(getClinicDoc("settings", XRAY_AUTO_READ_DOC), (snap) => setAutoRead((snap.data() as XrayAutoReadSettings) || null), () => setAutoRead(null));
+    } catch {
+      return;
+    }
+  }, [clinicId]);
+  const readInBackground = async (mediaId: string) => {
+    const u = auth.currentUser;
+    if (!u || !clinicId) return;
+    try {
+      const token = await u.getIdToken();
+      const res = await fetch("/api/ai/xray-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ clinicId, patientId, mediaIds: [mediaId], language, mode: autoRead?.deep ? "deep" : "standard" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) throw new Error(String(data?.error || "read failed"));
+      showToast(language === "ar" ? "الذكاء الاصطناعي قرأ الأشعة الجديدة — التقرير على الصورة" : "The AI read the new x-ray — the report is on the picture", "success");
+    } catch (e) {
+      showToast(language === "ar" ? `القراءة التلقائية فشلت: ${e instanceof Error ? e.message : ""}` : `Automatic reading failed: ${e instanceof Error ? e.message : ""}`, "error");
+    }
+  };
 
   // The lightbox renders through a portal (see below), which needs a document to exist.
   const mounted = useMounted();
@@ -229,7 +265,7 @@ export default function PatientMediaGallery({
         await uploadBytes(storageRef, staged.file);
         const downloadURL = await getDownloadURL(storageRef);
 
-        await addDoc(getClinicCollection("patient_media"), {
+        const mediaRef = await addDoc(getClinicCollection("patient_media"), {
           patientId,
           patientName: patientName || "",
           url: downloadURL,
@@ -239,6 +275,10 @@ export default function PatientMediaGallery({
           uploadedBy: user?.name || "Staff",
           createdAt: serverTimestamp(),
         });
+        if (autoRead?.enabled && xrayUnlocked && (XRAY_AUTO_READ_CATEGORIES as readonly string[]).includes(staged.category)) {
+          // Not awaited: the upload loop must not wait a minute per picture for the model.
+          void readInBackground(mediaRef.id);
+        }
       }
 
       await logActivity(
@@ -578,8 +618,25 @@ export default function PatientMediaGallery({
             <XrayReadButton
               count={selectedIds.length}
               language={language}
-              onClick={() => setAiItems(filteredMedia.filter((m) => selectedIds.includes(m.id)))}
+              onClick={() => {
+                setAiCompare(false);
+                setAiItems(filteredMedia.filter((m) => selectedIds.includes(m.id)));
+              }}
             />
+            {selectedIds.length === 2 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setAiCompare(true);
+                  setAiItems(filteredMedia.filter((m) => selectedIds.includes(m.id)));
+                }}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-white/10 px-3.5 py-1.5 text-xs font-black text-white hover:bg-white/20"
+                title={language === "ar" ? "إيه اللي اتغير بين الصورتين" : "What changed between the two pictures"}
+              >
+                <GitCompareArrows size={15} />
+                {language === "ar" ? "مقارنة زمنية" : "Compare over time"}
+              </button>
+            )}
 
             {/* Batch Delete */}
             <button
@@ -1023,6 +1080,7 @@ export default function PatientMediaGallery({
           patientName={patientName}
           items={aiItems}
           language={language}
+          compareByDefault={aiCompare}
           onClose={() => setAiItems(null)}
         />
       )}

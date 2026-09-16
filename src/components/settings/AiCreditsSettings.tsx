@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSettingsText } from "@/lib/useSettingsText";
 import { Sparkles, MessageCircle, Stethoscope, ClipboardList, Languages, Megaphone, HelpCircle, User, ScanLine } from "lucide-react";
-import { onSnapshot, query, orderBy, limit, where, Timestamp } from "firebase/firestore";
-import { getClinicCollection } from "@/lib/db-utils";
+import { onSnapshot, query, orderBy, limit, where, Timestamp, setDoc } from "firebase/firestore";
+import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
+import { isUnlocked } from "@/lib/featureCatalog";
+import { XRAY_AUTO_READ_DOC, XRAY_REPORT_CREDITS, XRAY_DEEP_MULTIPLIER, type XrayAutoReadSettings } from "@/lib/xrayReport";
 import { useLanguage } from "@/context/LanguageContext";
 import { useClinic } from "@/context/ClinicContext";
 import { getAiCreditLimit } from "@/lib/subscriptions";
@@ -51,6 +53,30 @@ export default function AiCreditsSettings() {
   const [months, setMonths] = useState<UsageMonth[]>([]);
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey);
   const [logRows, setLogRows] = useState<LogRow[]>([]);
+
+  // Read-x-rays-on-upload. A clinic switch because it spends credits with nobody pressing a
+  // button; lives here because this is the screen that shows what those credits cost.
+  const [autoRead, setAutoRead] = useState<XrayAutoReadSettings>({});
+  const [autoReadBusy, setAutoReadBusy] = useState(false);
+  useEffect(() => {
+    if (!clinic?.id) return;
+    try {
+      return onSnapshot(getClinicDoc("settings", XRAY_AUTO_READ_DOC), (snap) => setAutoRead((snap.data() as XrayAutoReadSettings) || {}), () => setAutoRead({}));
+    } catch {
+      return;
+    }
+  }, [clinic?.id]);
+  const saveAutoRead = async (next: XrayAutoReadSettings) => {
+    setAutoReadBusy(true);
+    try {
+      await setDoc(getClinicDoc("settings", XRAY_AUTO_READ_DOC), { enabled: next.enabled === true, deep: next.deep === true }, { merge: true });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setAutoReadBusy(false);
+    }
+  };
+  const xrayUnlocked = isUnlocked(clinic, "aiXray");
 
   const txt = {
     ...useSettingsText("aiCredits"),
@@ -232,6 +258,33 @@ export default function AiCreditsSettings() {
           </div>
         </div>
       </div>
+
+      {/* Read x-rays on upload. Lives on the credits screen because it is the one switch that spends
+          credits with nobody pressing a button, and this is where the bill is visible. */}
+      {xrayUnlocked && (
+        <div className="rounded-2xl border border-line bg-surface p-5 space-y-3" data-tour="ai-xray-auto-read">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-black text-ink">{ar ? "قراءة الأشعة تلقائياً عند الرفع" : "Read x-rays automatically on upload"}</p>
+              <p className="mt-1 text-xs leading-relaxed text-ink-body">
+                {ar
+                  ? `كل أشعة جديدة (X-Ray، بانوراما، مقطعية) تتقرأ في الخلفية أول ما تترفع، والتقرير يكون مستني الدكتور على الصورة. بتكلّف ${XRAY_REPORT_CREDITS} رصيد لكل صورة (${XRAY_REPORT_CREDITS * XRAY_DEEP_MULTIPLIER} بالقراءة العميقة). الصور السريرية العادية ما بتتقراش تلقائياً.`
+                  : `Every new radiograph (X-Ray, Panoramic, CT Scan) is read in the background as soon as it is filed, and the report is waiting on the picture when the dentist opens it. Costs ${XRAY_REPORT_CREDITS} credits per picture (${XRAY_REPORT_CREDITS * XRAY_DEEP_MULTIPLIER} with Deep read). Ordinary clinical photos are not read automatically.`}
+              </p>
+            </div>
+            <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+              <input type="checkbox" checked={autoRead.enabled === true} disabled={autoReadBusy} onChange={(e) => saveAutoRead({ ...autoRead, enabled: e.target.checked })} className="h-5 w-5 accent-[var(--accent)]" />
+              <span className="text-xs font-black text-ink">{autoRead.enabled ? (ar ? "شغّال" : "On") : ar ? "مقفول" : "Off"}</span>
+            </label>
+          </div>
+          {autoRead.enabled && (
+            <label className="inline-flex items-center gap-2 cursor-pointer select-none text-xs font-bold text-ink-body">
+              <input type="checkbox" checked={autoRead.deep === true} disabled={autoReadBusy} onChange={(e) => saveAutoRead({ ...autoRead, deep: e.target.checked })} className="h-4 w-4 accent-[var(--accent)]" />
+              {ar ? "استخدم القراءة العميقة (النموذج الأكبر، ثلاثة أضعاف الرصيد)" : "Use Deep read (the larger model, triple the credits)"}
+            </label>
+          )}
+        </div>
+      )}
 
       {/* Where it went. Six arbitrary hues used to distinguish six features; the bars are already
           sorted by size, so one colour fading with rank says the same thing without inventing a
