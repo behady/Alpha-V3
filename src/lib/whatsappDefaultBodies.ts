@@ -227,6 +227,25 @@ export const WHATSAPP_ARABIC_BODIES: Record<WhatsAppTemplateType, string> = {
 };
 
 /** The starting bodies for one pack. */
+/**
+ * How to confirm, in words, for a channel that cannot draw a button.
+ *
+ * The official channel sends the reminder as a template carrying "تأكيد الحضور" and "تعديل
+ * الميعاد" as taps. Nothing else can: WhatsApp withdrew interactive buttons from every
+ * non-official sender, so on the gateway the same reminder arrived as a statement with no way to
+ * answer it — and the calendar's whole self-confirming behaviour depends on an answer coming
+ * back. The assistant already understands both of these written out (quickAnswers), so a patient
+ * who replies with either lands in exactly the same place as a patient who tapped.
+ *
+ * Only appended where there are no buttons, never alongside them: telling somebody holding two
+ * buttons to type a word reads as a bot that does not know what it just sent.
+ */
+export const REMINDER_CONFIRM_CTA: Record<WhatsAppTemplatePack, string> = {
+  arabic: 'للتأكيد ابعتلنا "تأكيد الحضور" — ولو محتاج تغيّر الميعاد ابعت "تعديل الميعاد".',
+  bilingual:
+    'للتأكيد ابعتلنا "تأكيد الحضور" — ولو محتاج تغيّر الميعاد ابعت "تعديل الميعاد".\nReply "تأكيد الحضور" to confirm, or "تعديل الميعاد" to change it.',
+};
+
 export function templatePackBodies(pack: WhatsAppTemplatePack): Record<WhatsAppTemplateType, string> {
   return pack === "arabic" ? WHATSAPP_ARABIC_BODIES : WHATSAPP_DEFAULT_BODIES;
 }

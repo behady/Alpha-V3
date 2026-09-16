@@ -5,10 +5,11 @@ import { adminClinicCollection, adminClinicDoc, resolveUserClinicId } from "@/li
 import { forEachActiveClinic } from "@/lib/automation/forEachActiveClinic";
 import { clinicTimeZone, tomorrowYmdInTimeZone } from "@/lib/clinicDate";
 import { pickPatientPhone } from "@/lib/patientPhone";
-import { resolveWhatsappTemplateForPatient } from "@/lib/whatsappDefaultBodies";
+import { isTemplatePack, REMINDER_CONFIRM_CTA, resolveWhatsappTemplateForPatient } from "@/lib/whatsappDefaultBodies";
 import { mergeWhatsAppTemplate } from "@/lib/whatsappTemplateMerge";
 import { normalizeToE164 } from "@/lib/whatsapp";
 import { deliverWhatsAppMessage } from "@/lib/whatsappDelivery";
+import { loadMetaWhatsappConfig } from "@/lib/metaWhatsapp";
 import { getClinicProfileAdmin } from "@/lib/clinicProfileServer";
 import { isSmsBlocked, isWhatsAppBlocked, type PatientContactPreferences } from "@/lib/patientMessaging";
 import { channelIncludesSms, channelIncludesWhatsApp } from "@/lib/sms/config";
@@ -142,7 +143,9 @@ async function buildReminderText(
   clinicId: string,
   appointment: AppointmentRecord,
   patientName: string,
-  clinicName: string
+  clinicName: string,
+  /** True when the patient will see something other than this text — an approved Meta template. */
+  sentAsTemplate: boolean
 ): Promise<{ text: string; skipped?: string }> {
   const settingsSnap = await adminClinicDoc(clinicId, "settings", "whatsapp").get();
   const settings = settingsSnap.exists ? settingsSnap.data() : {};
@@ -163,7 +166,22 @@ async function buildReminderText(
     doctor: appointment.doctor || "—",
     clinic_name: clinicName,
   });
-  return { text: merged };
+
+  /*
+   * A reminder with no way to answer it is half a reminder.
+   *
+   * The appointment confirming itself depends on the patient replying, and on the official
+   * channel the template's buttons are what prompt that. WhatsApp withdrew interactive buttons
+   * from every other sender, so on the gateway the same reminder arrived as a statement — nothing
+   * to tap, nothing asked, and the calendar never learned whether anyone was coming. The two
+   * choices are spelled out instead; the assistant already reads either wording identically.
+   *
+   * Appended rather than written into the clinic's own template, so a clinic that has customised
+   * its reminder still gets the behaviour and changing channels cannot silently remove it.
+   */
+  if (sentAsTemplate) return { text: merged };
+  const pack = isTemplatePack(settings?.templatePack) ? settings.templatePack : "bilingual";
+  return { text: `${merged}\n\n${REMINDER_CONFIRM_CTA[pack]}` };
 }
 
 /** One channel's outcome for one appointment. `queued` means handed to the clinic phone, not sent. */
@@ -186,10 +204,25 @@ async function sendWhatsAppLeg(args: {
   const already = await reminderRef.get();
   if (already.exists && !force) return { status: "skipped", reason: "already_sent" };
 
-  const { text, skipped } = await buildReminderText(clinicId, appointment, patientName, clinicName);
-  if (skipped) return { status: "skipped", reason: skipped };
   // Button variant of the template, once the clinic has switched it on (after Meta approval).
   const settings = (await adminClinicDoc(clinicId, "settings", "whatsapp").get()).data() || {};
+  const meta = await loadMetaWhatsappConfig(clinicId);
+  const hasButtons = settings?.useReminderButtons === true && Boolean(meta);
+
+  /*
+   * Whether this text is the message, or only the record of it.
+   *
+   * On the official channel the words that reach the patient are Meta's approved template, and
+   * `text` below is what gets written into the chat thread. Everywhere else — the gateway, and
+   * the morning queue a clinic works through by hand — `text` IS the message. The written-out
+   * confirm instruction may only be added in the second case: appending it to a Meta send would
+   * put a line in the thread that the patient was never shown, which is worse than the gap it
+   * was meant to close.
+   */
+  const textIsTheMessage = !meta;
+
+  const { text, skipped } = await buildReminderText(clinicId, appointment, patientName, clinicName, !textIsTheMessage);
+  if (skipped) return { status: "skipped", reason: skipped };
 
   const msg =
     text.trim() ||
@@ -223,7 +256,7 @@ async function sendWhatsAppLeg(args: {
     // Read the way a patient reads: "الثلاثاء 1/9" and "6:30 م", not the stored ISO date and
     // "06:30 PM". This is the one message that goes out unprompted to everybody.
     metaTemplate: {
-      kind: settings?.useReminderButtons === true ? "reminder24h_btn" : "reminder24h",
+      kind: hasButtons ? "reminder24h_btn" : "reminder24h",
       params: [
         clinicName,
         arabicDayLabel(appointment.date ?? "") || "—",

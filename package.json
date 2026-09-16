@@ -51,6 +51,8 @@
   "test:optout": "npx tsx tests/patientMessaging.test.mjs",
   "_comment_test_wamedia": "Finding the voice note or photo inside a Wapilot webhook. The gateway documents no payload shape, so every wrapper is tried and the declaration may sit in a different one from the bytes. The refusals are the point: reading a file spends a credit, so a plain chat message must never be mistaken for one.",
   "test:wamedia": "npx tsx tests/wapilotMedia.test.mts",
+  "_comment_test_waack": "Ticks on the gateway channel: the send remembering the gateway's message id, and an ack event being told apart from a patient writing in. The second is the dangerous one - reading a patient's message as a receipt consumes it, and they are never answered.",
+  "test:waack": "npx tsx tests/wapilotAck.test.mts",
   "test:sales": "npx tsx tests/sales.test.mts",
   "test:dossier": "npx tsx tests/patientDossier.test.mts",
   "test:drugs": "npx tsx tests/drugGuard.test.mts",

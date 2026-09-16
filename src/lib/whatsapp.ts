@@ -110,6 +110,44 @@ export async function sendWhatsApp({ clinicId, to, text }: WhatsAppSendArgs) {
 }
 
 /**
+ * The gateway's id for a message it just accepted.
+ *
+ * This is the handle its later delivered/read events arrive under, so without it the ticks in the
+ * chat screen can never move off "sent" on this channel — there is nothing to match an ack to.
+ *
+ * Read defensively for the same reason the inbound route is: the gateway publishes no response
+ * schema, and the shape differs between whatsapp-web.js-style ids (`true_201…@c.us_3EB0…`) and a
+ * plain `{ data: { id } }` envelope. An id that cannot be found is not an error — the message
+ * was still delivered, the ticks simply stay where Meta's would if it had never answered.
+ */
+export function wapilotMessageId(response: unknown): string | undefined {
+  const seen = new Set<unknown>();
+
+  const walk = (node: unknown, depth: number): string | undefined => {
+    if (depth > 4 || !node || typeof node !== "object" || seen.has(node)) return undefined;
+    seen.add(node);
+    const o = node as Record<string, unknown>;
+
+    // `id` may itself be the object whatsapp-web.js serialises ids into.
+    for (const key of ["_serialized", "id", "messageId", "message_id", "key", "msgId", "wamid"]) {
+      const v = o[key];
+      if (typeof v === "string" && v.trim()) return v.trim();
+      if (v && typeof v === "object") {
+        const nested = walk(v, depth + 1);
+        if (nested) return nested;
+      }
+    }
+    for (const key of ["data", "message", "result", "payload"]) {
+      const nested = walk(o[key], depth + 1);
+      if (nested) return nested;
+    }
+    return undefined;
+  };
+
+  return walk(response, 0);
+}
+
+/**
  * Best-effort: the phone number behind an anonymised `@lid` sender.
  *
  * Wapilot has the endpoint for this — `GET /{instanceId}/lids/{lid}` — but as of 2026-08-29 it

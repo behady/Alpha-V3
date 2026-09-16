@@ -15,7 +15,7 @@ import {
   sendMetaWhatsappText,
   type MetaInteractive,
 } from "@/lib/metaWhatsapp";
-import { sendWhatsApp } from "@/lib/whatsapp";
+import { sendWhatsApp, wapilotMessageId } from "@/lib/whatsapp";
 import { enqueueWhatsapp } from "@/lib/whatsapp/outbox";
 import { recordThreadMessage } from "@/lib/bot/thread";
 import { recordWhatsappSend } from "@/lib/whatsappCostLog";
@@ -124,8 +124,10 @@ export async function sendPatientWhatsAppAuto(clinicId: string, to: string, text
     // Meta's id for the message: the handle its delivered/read/failed statuses arrive under.
     return result.messageId;
   }
-  await sendWhatsApp({ clinicId, to, text });
-  return undefined;
+  // The gateway's own id, for the same reason Meta's is kept: it is what its later delivered and
+  // read events are addressed to, and without it the ticks on this channel can never move.
+  const response = await sendWhatsApp({ clinicId, to, text });
+  return wapilotMessageId(response);
 }
 
 /**

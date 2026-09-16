@@ -7,7 +7,8 @@ import { patientSendablePhone } from "@/lib/patientPhone";
 import { findPatientByLid, learnPatientLid, lidChatFromEvent } from "@/lib/whatsappLid";
 import { normalizeToE164AssumingCountry } from "@/lib/phoneNumber";
 import { respondToPatientMessage } from "@/lib/bot/respond";
-import { attachTranscript, recordThreadMessage } from "@/lib/bot/thread";
+import { attachTranscript, recordThreadMessage, updateThreadStatus } from "@/lib/bot/thread";
+import { extractDeliveryAck } from "@/lib/bot/wapilotAck";
 import { transcribeAudioBytes } from "@/lib/bot/transcribe";
 import { describeImageBytes } from "@/lib/bot/describeImage";
 import { extractInboundMedia, fetchInboundMediaBytes } from "@/lib/bot/wapilotMedia";
@@ -203,6 +204,24 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json().catch(() => null);
+
+    /*
+     * A delivery report, before anything else.
+     *
+     * It has to come first because an ack carries `fromMe: true` and would otherwise be swallowed
+     * by the outgoing-echo branch below, which would read it as the clinic's own message and
+     * spend its time trying to learn a lid from a payload that has no text in it.
+     */
+    const ackBody = obj(body);
+    if (ackBody) {
+      const ack = extractDeliveryAck(ackBody, candidateMessages(ackBody));
+      if (ack) {
+        await updateThreadStatus(clinicId, ack.chatId, ack.messageId, ack.status).catch((e) =>
+          console.warn("[whatsapp-inbound] status update failed:", e)
+        );
+        return NextResponse.json({ ok: true, ignored: "status", status: ack.status });
+      }
+    }
 
     if (isFromMe(body)) {
       /*
