@@ -214,14 +214,14 @@ export default function PatientsPage() {
                           style={{ animationDelay: `${(index % PAGE_SIZE) * 30}ms`, animationFillMode: 'both' }}
                         >
                           <td className="py-4 px-6">
-                            <div className="flex items-center justify-center gap-4">
+                            <div className="flex items-center gap-4 w-[260px] mx-auto text-start">
                               <div className="relative shrink-0 transition-transform duration-300 group-hover:scale-105">
                                 <div className={`w-11 h-11 rounded-full ${getAvatarStyle(p.name)} flex items-center justify-center font-black text-base`}>
                                   {p.name.charAt(0).toUpperCase()}
                                 </div>
                                 {renderSourceBadge(p.referral || p.source)}
                               </div>
-                              <h3 className="text-base font-bold text-slate-800 tracking-tight capitalize group-hover:text-slate-900 transition-colors">
+                              <h3 className="text-base font-bold text-slate-800 tracking-tight capitalize group-hover:text-slate-900 transition-colors min-w-0 truncate">
                                 {p.name}
                               </h3>
                             </div>
