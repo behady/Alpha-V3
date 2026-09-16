@@ -20,7 +20,9 @@ A dialog shows the pictures you picked. You can type a question for the reader (
 
 ## What comes back
 
-The report has fixed sections, in this order:
+The picture comes back at the top of the report with each finding **outlined in a colour** — green for normal, grey for mild, amber for moderate, orange for severe, red for urgent — and the tooth number on the outline. Hover a row in the findings table and its outline lights up on the picture. If the reader was not confident where something sits, it draws nothing rather than guessing.
+
+Below the picture the report has fixed sections, in this order:
 
 | Section | What it holds |
 |---|---|
@@ -41,7 +43,7 @@ Reports are saved into the patient's file automatically. They appear in the **AI
 
 From an open report you can:
 
-- **Download PDF** — an A4 report with the clinic logo and a signature line for the treating dentist.
+- **Download PDF** — an A4 report with the outlined pictures, the clinic logo and a signature line for the treating dentist.
 - **Copy text** — to paste into a clinical note or a message to a colleague.
 - **Delete** — it goes to **Settings → Recently Deleted** like any other record, and can be restored from there.
 

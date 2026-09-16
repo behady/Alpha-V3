@@ -1,7 +1,9 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { onSnapshot, query, where } from "firebase/firestore";
+import { getBlob, ref as storageRef } from "firebase/storage";
 import {
   AlertTriangle,
   ClipboardCopy,
@@ -15,7 +17,7 @@ import {
   X,
   ChevronRight,
 } from "lucide-react";
-import { auth } from "@/lib/firebase";
+import { auth, storage } from "@/lib/firebase";
 import { getClinicCollection } from "@/lib/db-utils";
 import { useClinic } from "@/context/ClinicContext";
 import { useUI } from "@/context/UIContext";
@@ -27,11 +29,13 @@ import {
   XRAY_MAX_IMAGES,
   XRAY_REPORT_CREDITS,
   XRAY_REPORTS_COLLECTION,
+  SEVERITY_COLORS,
   xrayDisclaimer,
   xrayReportToText,
   worstSeverity,
   type XrayReport,
   type XraySeverity,
+  type XrayToothFinding,
 } from "@/lib/xrayReport";
 import type { MediaItem } from "./PatientMediaGallery";
 
@@ -46,6 +50,10 @@ import type { MediaItem } from "./PatientMediaGallery";
  */
 
 type Lang = "ar" | "en";
+
+/** True once on the client, false during server rendering — without a setState-in-effect. */
+const noSubscribe = () => () => {};
+export const useMounted = () => useSyncExternalStore(noSubscribe, () => true, () => false);
 
 const errMessage = (e: unknown, lang: Lang) =>
   e instanceof Error && e.message ? e.message : lang === "ar" ? "حصل خطأ. جرّب تاني." : "Something went wrong. Please try again.";
@@ -331,7 +339,9 @@ export function XrayReportView({
   const r = saved.report;
   const [pdfBusy, setPdfBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [activeTooth, setActiveTooth] = useState<string | null>(null);
   const worst = worstSeverity(r);
+  const hasBoxes = r.teeth.some((t) => t.box);
   const when = saved.createdAt?.toDate ? saved.createdAt.toDate() : null;
 
   const copy = async () => {
@@ -389,14 +399,29 @@ export function XrayReportView({
         </span>
       </div>
 
-      {/* The pictures that were read */}
+      {/* The pictures that were read, with every localised finding outlined in its severity colour */}
       {saved.media && saved.media.length > 0 && (
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {saved.media.map((m) => (
-            <a key={m.id} href={m.url} target="_blank" rel="noreferrer" className="relative h-20 w-32 shrink-0 rounded-lg overflow-hidden bg-slate-900 border border-slate-200">
-              <img src={m.url} alt={m.filename || ""} className="w-full h-full object-cover" />
-            </a>
-          ))}
+        <div className="space-y-3">
+          <div className={saved.media.length > 1 ? "grid grid-cols-1 sm:grid-cols-2 gap-3" : ""}>
+            {saved.media.map((m, i) => (
+              <AnnotatedImage
+                key={m.id}
+                src={m.url}
+                alt={m.filename || ""}
+                findings={r.teeth.filter((t) => t.box && (t.image || 1) === i + 1)}
+                activeTooth={activeTooth}
+                onHover={setActiveTooth}
+                caption={saved.media!.length > 1 ? `${i + 1} · ${m.category || ""}` : undefined}
+              />
+            ))}
+          </div>
+          {hasBoxes ? (
+            <SeverityLegend language={language} />
+          ) : (
+            <p className="text-[11px] text-ink-muted">
+              {ar ? "القارئ ما قدرش يحدد مكان النتائج على الصورة دي." : "The reader could not place its findings on this picture."}
+            </p>
+          )}
         </div>
       )}
 
@@ -432,8 +457,18 @@ export function XrayReportView({
               </thead>
               <tbody>
                 {r.teeth.map((t, i) => (
-                  <tr key={`${t.tooth}-${i}`} className="border-t border-line align-top">
-                    <td className="px-3 py-2 font-display font-black tabular-nums text-ink">{t.tooth}</td>
+                  <tr
+                    key={`${t.tooth}-${i}`}
+                    onMouseEnter={() => setActiveTooth(t.tooth)}
+                    onMouseLeave={() => setActiveTooth(null)}
+                    className={`border-t border-line align-top transition-colors ${activeTooth === t.tooth ? "bg-surface-subtle" : ""}`}
+                  >
+                    <td className="px-3 py-2 font-display font-black tabular-nums text-ink">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="inline-block h-2.5 w-2.5 rounded-sm shrink-0" style={{ background: SEVERITY_COLORS[t.severity], opacity: t.box ? 1 : 0.25 }} />
+                        {t.tooth}
+                      </span>
+                    </td>
                     <td className="px-3 py-2 text-ink-body leading-relaxed">{t.finding}</td>
                     <td className="px-3 py-2">
                       <span className={`inline-block rounded-md border px-2 py-0.5 text-[11px] font-black ${SEVERITY_TONE[t.severity]}`}>
@@ -574,6 +609,10 @@ export function XrayReportsSection({ patientId, language }: { patientId: string;
 // ----------------------------------------------------------------------------------------------
 
 function Shell({ title, ar, onClose, children, wide }: { title: string; ar: boolean; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
+  // Rendered through a portal: the dashboard's <main> is a stacking context, and a fixed dialog
+  // drawn inline inside it sits under the black band with its head cut off (see the note on
+  // <main> in the dashboard layout). document.body is the only ancestor that outranks nothing.
+  const mounted = useMounted();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -581,7 +620,8 @@ function Shell({ title, ar, onClose, children, wide }: { title: string; ar: bool
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
-  return (
+  if (!mounted) return null;
+  return createPortal(
     <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center bg-slate-950/70 backdrop-blur-sm p-0 sm:p-6 animate-in fade-in duration-150" dir={ar ? "rtl" : "ltr"}>
       <div className={`w-full ${wide ? "max-w-3xl" : "max-w-xl"} max-h-[92vh] overflow-hidden rounded-t-3xl sm:rounded-3xl bg-surface shadow-2xl flex flex-col`}>
         <div className="flex items-center justify-between gap-3 bg-ink-slab text-white px-5 py-4">
@@ -597,8 +637,143 @@ function Shell({ title, ar, onClose, children, wide }: { title: string; ar: bool
         </div>
         <div className="overflow-y-auto p-5 space-y-4">{children}</div>
       </div>
+    </div>,
+    document.body
+  );
+}
+
+// ----------------------------------------------------------------------------------------------
+// The picture with its outlines
+// ----------------------------------------------------------------------------------------------
+
+/**
+ * Boxes are percentages of the rendered image (box/10), so they follow the picture at any size.
+ * The image keeps its own aspect ratio (no object-fit cropping) or the outlines would drift.
+ */
+export function AnnotatedImage({
+  src,
+  alt,
+  findings,
+  activeTooth,
+  onHover,
+  caption,
+}: {
+  src: string;
+  alt?: string;
+  findings: XrayToothFinding[];
+  activeTooth?: string | null;
+  onHover?: (tooth: string | null) => void;
+  caption?: string;
+}) {
+  return (
+    <figure className="m-0">
+      <div className="relative inline-block w-full rounded-xl overflow-hidden bg-slate-950 border border-slate-200 leading-[0]">
+        <img src={src} alt={alt || ""} className="w-full h-auto block select-none" draggable={false} />
+        {findings.map((t, i) => {
+          if (!t.box) return null;
+          const [ymin, xmin, ymax, xmax] = t.box;
+          const color = SEVERITY_COLORS[t.severity];
+          const active = activeTooth === t.tooth;
+          const dim = activeTooth !== null && activeTooth !== undefined && !active;
+          return (
+            <div
+              key={`${t.tooth}-${i}`}
+              onMouseEnter={() => onHover?.(t.tooth)}
+              onMouseLeave={() => onHover?.(null)}
+              title={`${t.tooth}: ${t.finding}`}
+              className="absolute rounded-md transition-all duration-150 cursor-help"
+              style={{
+                top: `${ymin / 10}%`,
+                left: `${xmin / 10}%`,
+                width: `${(xmax - xmin) / 10}%`,
+                height: `${(ymax - ymin) / 10}%`,
+                border: `${active ? 3 : 2}px solid ${color}`,
+                boxShadow: active ? `0 0 0 2px rgba(255,255,255,.55), 0 0 18px ${color}` : `0 0 0 1px rgba(0,0,0,.55)`,
+                background: active ? `${color}22` : "transparent",
+                opacity: dim ? 0.35 : 1,
+              }}
+            >
+              <span
+                className="absolute -top-2.5 start-0 -translate-y-full rounded-md px-1.5 py-0.5 text-[10px] font-black leading-none shadow"
+                style={{ background: color, color: t.severity === "mild" ? "#0f172a" : "#fff" }}
+              >
+                {t.tooth}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {caption && <figcaption className="mt-1 text-[11px] font-bold text-ink-muted">{caption}</figcaption>}
+    </figure>
+  );
+}
+
+function SeverityLegend({ language }: { language: Lang }) {
+  const order: XraySeverity[] = ["normal", "mild", "moderate", "severe", "urgent"];
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] font-bold text-ink-muted">
+      {order.map((sv) => (
+        <span key={sv} className="inline-flex items-center gap-1.5">
+          <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: SEVERITY_COLORS[sv] }} />
+          {label("severity", sv, language)}
+        </span>
+      ))}
     </div>
   );
+}
+
+/**
+ * The picture with its outlines burned in, as a JPEG data URL for the PDF.
+ *
+ * Fetched through the Storage SDK rather than an <img>: html2canvas cannot rasterise a remote
+ * Storage URL (it times out and drops the picture — see diagnosisReportPdf.ts), and a canvas drawn
+ * from a cross-origin <img> is tainted. getBlob() goes through the SDK's own authenticated
+ * request, and a blob is same-origin, so the canvas can export it.
+ */
+export async function renderAnnotatedJpeg(url: string, findings: XrayToothFinding[], maxWidth = 1400): Promise<string | null> {
+  try {
+    const blob = await getBlob(storageRef(storage, url));
+    const bitmap = await createImageBitmap(blob);
+    const scale = Math.min(1, maxWidth / bitmap.width);
+    const w = Math.round(bitmap.width * scale);
+    const h = Math.round(bitmap.height * scale);
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    const stroke = Math.max(2, Math.round(w / 300));
+    const fontPx = Math.max(12, Math.round(w / 45));
+    for (const t of findings) {
+      if (!t.box) continue;
+      const [ymin, xmin, ymax, xmax] = t.box;
+      const x = (xmin / 1000) * w;
+      const y = (ymin / 1000) * h;
+      const bw = ((xmax - xmin) / 1000) * w;
+      const bh = ((ymax - ymin) / 1000) * h;
+      const color = SEVERITY_COLORS[t.severity];
+      ctx.lineWidth = stroke + 2;
+      ctx.strokeStyle = "rgba(0,0,0,.6)";
+      ctx.strokeRect(x, y, bw, bh);
+      ctx.lineWidth = stroke;
+      ctx.strokeStyle = color;
+      ctx.strokeRect(x, y, bw, bh);
+      ctx.font = `900 ${fontPx}px system-ui, sans-serif`;
+      const padX = Math.round(fontPx * 0.4);
+      const tw = ctx.measureText(t.tooth).width + padX * 2;
+      const th = fontPx * 1.4;
+      const ly = y - th - 2 < 0 ? y + 2 : y - th - 2;
+      ctx.fillStyle = color;
+      ctx.fillRect(x, ly, tw, th);
+      ctx.fillStyle = t.severity === "mild" ? "#0f172a" : "#ffffff";
+      ctx.textBaseline = "middle";
+      ctx.fillText(t.tooth, x + padX, ly + th / 2);
+    }
+    return canvas.toDataURL("image/jpeg", 0.86);
+  } catch {
+    return null;
+  }
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -665,8 +840,8 @@ const esc = (s: string) => (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;"
 
 /**
  * The report as an A4 PDF, through the same iframe + html2canvas path the diagnosis report uses.
- * Text only: the pictures are remote Storage URLs, which that renderer times out on and drops
- * (see diagnosisReportPdf.ts), so the PDF names the images and leaves them in the patient's file.
+ * The pictures go in with their outlines burned in as data URLs (renderAnnotatedJpeg) — a remote
+ * Storage URL would time out inside html2canvas and be dropped, as diagnosisReportPdf.ts notes.
  */
 export async function downloadXrayReportPdf(saved: SavedXrayReport, language: Lang, clinicName?: string): Promise<void> {
   const ar = language === "ar";
@@ -680,6 +855,21 @@ export async function downloadXrayReportPdf(saved: SavedXrayReport, language: La
       ? `<h3 style="font-size:13px;font-weight:800;color:#334155;margin:18px 0 6px;border-bottom:2px solid #e2e8f0;padding-bottom:4px;">${esc(title)}</h3>
          <ul style="margin:0;padding-${ar ? "right" : "left"}:18px;font-size:12px;line-height:1.6;color:#1e293b;">${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>`
       : "";
+
+  const pictures: string[] = [];
+  for (const [i, m] of (saved.media || []).entries()) {
+    const data = await renderAnnotatedJpeg(m.url, r.teeth.filter((t) => t.box && (t.image || 1) === i + 1));
+    if (data) pictures.push(data);
+  }
+  const legend = (["normal", "mild", "moderate", "severe", "urgent"] as XraySeverity[])
+    .map((sv) => `<span style="display:inline-flex;align-items:center;gap:5px;margin-${ar ? "left" : "right"}:14px;"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${SEVERITY_COLORS[sv]};"></span>${L("severity", sv)}</span>`)
+    .join("");
+  const picturesHtml = pictures.length
+    ? `<div style="display:grid;grid-template-columns:${pictures.length > 1 ? "1fr 1fr" : "1fr"};gap:10px;margin:0 0 8px;">${pictures
+        .map((p) => `<img src="${p}" style="width:100%;height:auto;border-radius:10px;border:1px solid #cbd5e1;display:block;" />`)
+        .join("")}</div>
+       <div style="font-size:10.5px;color:#475569;margin-bottom:16px;">${legend}</div>`
+    : "";
 
   const { htmlToPdfBlob, buildReportHtmlBase } = await import("@/components/reports/reportPdfHtmlUtils");
   const { getClinicLogo, clinicLogoImgHtml } = await import("@/lib/clinicLogo");
@@ -716,6 +906,8 @@ export async function downloadXrayReportPdf(saved: SavedXrayReport, language: La
         ${saved.note ? `<tr><td style="padding:6px 0;color:#64748b;">${ar ? "سؤال الطبيب" : "Dentist's question"}</td><td style="padding:6px 0;">${esc(saved.note)}</td></tr>` : ""}
       </table>
 
+      ${picturesHtml}
+
       <h3 style="font-size:13px;font-weight:800;color:#334155;margin:14px 0 6px;border-bottom:2px solid #e2e8f0;padding-bottom:4px;">${ar ? "الملخص" : "Summary"}</h3>
       <p style="font-size:12.5px;line-height:1.7;margin:0;white-space:pre-line;">${esc(r.summary)}</p>
 
@@ -732,7 +924,7 @@ export async function downloadXrayReportPdf(saved: SavedXrayReport, language: La
           <tbody>${r.teeth
             .map(
               (t) => `<tr>
-              <td style="padding:8px;text-align:center;border-bottom:1px solid #e2e8f0;font-weight:900;">${esc(t.tooth)}</td>
+              <td style="padding:8px;text-align:center;border-bottom:1px solid #e2e8f0;font-weight:900;"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${SEVERITY_COLORS[t.severity]};margin-${ar ? "left" : "right"}:5px;vertical-align:middle;"></span>${esc(t.tooth)}</td>
               <td style="padding:8px;border-bottom:1px solid #e2e8f0;line-height:1.5;">${esc(t.finding)}</td>
               <td style="padding:8px;border-bottom:1px solid #e2e8f0;font-weight:700;">${L("severity", t.severity)}</td>
               <td style="padding:8px;border-bottom:1px solid #e2e8f0;color:#475569;">${L("confidence", t.confidence)}</td>

@@ -4,6 +4,7 @@ import { patientMediaPath } from "@/lib/storagePaths";
 import { deleteRecords, RecycleBinError } from "@/lib/recycleBinApi";
 import { useClinic } from "@/context/ClinicContext";
 import React, { useState, useMemo, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   Camera,
   UploadCloud,
@@ -25,7 +26,8 @@ import {
   ArrowUpDown,
   PlusCircle,
   FileImage,
-  CheckCircle2
+  CheckCircle2,
+  ScanLine
 } from "lucide-react";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { addDoc, deleteDoc, updateDoc, serverTimestamp } from "firebase/firestore";
@@ -33,7 +35,7 @@ import { storage } from "@/lib/firebase";
 import { getClinicCollection, getClinicDoc } from "@/lib/db-utils";
 import { logActivity } from "@/lib/logger";
 import { useUI } from "@/context/UIContext";
-import { XrayReadButton, XrayReadModal, XrayReportsSection } from "./XrayAiReport";
+import { XrayReadButton, XrayReadModal, XrayReportsSection, useMounted } from "./XrayAiReport";
 
 export interface MediaItem {
   id: string;
@@ -96,6 +98,9 @@ export default function PatientMediaGallery({
 
   // AI reading: the pictures handed to the reader, or null when the dialog is closed.
   const [aiItems, setAiItems] = useState<MediaItem[] | null>(null);
+
+  // The lightbox renders through a portal (see below), which needs a document to exist.
+  const mounted = useMounted();
 
   // Category counts
   const categoryCounts = useMemo(() => {
@@ -708,6 +713,18 @@ export default function PatientMediaGallery({
                       <Eye size={14} className="text-accent" />
                       {language === "ar" ? "تكبير / معاينة" : "Inspect"}
                     </span>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setAiItems([media]);
+                      }}
+                      className="bg-accent text-ink text-xs font-black px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-lg hover:scale-105 transition-transform"
+                      title={language === "ar" ? "قراءة بالذكاء الاصطناعي" : "Read with AI"}
+                    >
+                      <ScanLine size={14} />
+                      AI
+                    </button>
                   </div>
                 </div>
 
@@ -984,9 +1001,13 @@ export default function PatientMediaGallery({
         />
       )}
 
-      {/* ENHANCED FULLSCREEN LIGHTBOX PREVIEW */}
-      {currentLightboxMedia && (
-        <div className="fixed inset-0 bg-slate-950/95 z-[150] flex flex-col items-center justify-between p-4 sm:p-6 backdrop-blur-md animate-in fade-in duration-200 select-none">
+      {/* ENHANCED FULLSCREEN LIGHTBOX PREVIEW
+          Through a portal: the dashboard's <main> is a stacking context, so a fixed overlay drawn
+          inline here was clipped under the black band and started below the page header — the
+          picture sat in the lower half of the screen with the toolbar hidden behind the header.
+          document.body outranks nothing, so inset-0 finally means the whole screen. */}
+      {mounted && currentLightboxMedia && createPortal(
+        <div className="fixed inset-0 bg-slate-950/95 z-[150] flex flex-col items-center justify-between p-4 sm:p-6 backdrop-blur-md animate-in fade-in duration-200 select-none" dir={isRTL ? "rtl" : "ltr"}>
           {/* Top Bar */}
           <div className="w-full max-w-6xl flex items-center justify-between text-white shrink-0 mb-3 bg-slate-900/60 p-3.5 rounded-2xl border border-white/10 backdrop-blur-md">
             <div className="flex items-center gap-3 min-w-0">
@@ -1086,12 +1107,23 @@ export default function PatientMediaGallery({
               </button>
             )}
 
-            {/* Image display */}
-            <img
-              src={currentLightboxMedia.url}
-              alt="Fullsize radiograph"
-              className="max-w-full max-h-[75vh] object-contain rounded-2xl shadow-2xl border border-white/10"
-            />
+            {/* Image display, with the one action a dentist opens a radiograph for sitting on it */}
+            <div className="relative max-w-full max-h-full">
+              <img
+                src={currentLightboxMedia.url}
+                alt="Fullsize radiograph"
+                className="max-w-full max-h-[82vh] object-contain rounded-2xl shadow-2xl border border-white/10"
+              />
+              <button
+                type="button"
+                onClick={() => setAiItems([currentLightboxMedia])}
+                data-tour="xray-ai-read-on-image"
+                className="absolute bottom-4 left-1/2 -translate-x-1/2 inline-flex items-center gap-2 rounded-full bg-accent px-5 py-2.5 text-sm font-black text-ink shadow-[0_8px_30px_rgba(0,0,0,.45)] ring-4 ring-slate-950/40 hover:bg-accent-strong hover:scale-105 transition-all whitespace-nowrap"
+              >
+                <ScanLine size={16} />
+                {language === "ar" ? "قراءة الأشعة بالذكاء الاصطناعي" : "Read this x-ray with AI"}
+              </button>
+            </div>
 
             {/* Next Arrow */}
             {filteredMedia.length > 1 && (
@@ -1107,7 +1139,8 @@ export default function PatientMediaGallery({
               </button>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

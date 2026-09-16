@@ -183,7 +183,7 @@ export async function POST(req: Request) {
     } catch {
       parsed = null;
     }
-    const report = normalizeXrayReport(parsed);
+    const report = normalizeXrayReport(parsed, media.length);
     if (!report) {
       return NextResponse.json({ ok: false, error: "The AI returned an unreadable report. Please try again." }, { status: 502 });
     }

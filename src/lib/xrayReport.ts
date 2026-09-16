@@ -45,12 +45,23 @@ export type XrayQuality = "good" | "acceptable" | "poor";
 export type XrayConfidence = "high" | "moderate" | "low";
 export type XraySeverity = "normal" | "mild" | "moderate" | "severe" | "urgent";
 
+/**
+ * Where on the picture a finding sits: [ymin, xmin, ymax, xmax] on a 0–1000 scale of that image,
+ * the convention Gemini localises in. Percentages of width/height are box/10. Optional — a model
+ * that cannot place a finding says nothing rather than drawing a box in the wrong place.
+ */
+export type XrayBox = [number, number, number, number];
+
 export interface XrayToothFinding {
   /** FDI number as a string ("36"), or a region when a tooth cannot be named ("lower right"). */
   tooth: string;
   finding: string;
   confidence: XrayConfidence;
   severity: XraySeverity;
+  /** The outline drawn over the picture, colour-coded by severity. */
+  box?: XrayBox;
+  /** Which of the pictures read (1-based) the box belongs to. Absent means the first. */
+  image?: number;
 }
 
 export interface XrayReport {
@@ -102,8 +113,10 @@ export const XRAY_RESPONSE_SCHEMA = {
           finding: { type: "STRING" },
           confidence: { type: "STRING", enum: CONFIDENCES, format: "enum" },
           severity: { type: "STRING", enum: SEVERITIES, format: "enum" },
+          box: { type: "ARRAY", items: { type: "INTEGER" } },
+          image: { type: "INTEGER" },
         },
-        required: ["tooth", "finding", "confidence", "severity"],
+        required: ["tooth", "finding", "confidence", "severity", "box", "image"],
       },
     },
     general: { type: "ARRAY", items: { type: "STRING" } },
@@ -138,6 +151,7 @@ HOW TO READ:
 - Judge quality honestly (exposure, angulation, cone-cut, elongation/foreshortening, overlap, motion, coverage). Poor quality is a finding in itself: say exactly what limits the read and what retake would fix it.
 - Then read systematically: teeth present/missing/impacted/supernumerary; crowns (caries — interproximal, occlusal, recurrent under restorations; depth relative to the pulp); existing restorations, crowns, root canal fillings and their quality (voids, short/long, missed canals); pulp chambers and canals (calcification, resorption); periapical regions (widened PDL, loss of lamina dura, radiolucency with size in mm where estimable, radiopacity); alveolar bone (crestal levels — horizontal/vertical loss, furcation involvement, calculus spurs); roots (fracture, dilaceration, resorption); and on wide views the maxillary sinuses, nasal floor, mandibular canal, TMJ condyles, and any cyst-like or mixed-density lesion.
 - Use FDI notation for every tooth. Order the teeth list by quadrant then by tooth number. One entry per tooth; combine several findings on the same tooth into one sentence.
+- LOCALISE every tooth finding on the picture: "image" is which of the ${opts.imageCount} picture${opts.imageCount === 1 ? "" : "s"} it is on (1 = the first), and "box" is [ymin, xmin, ymax, xmax] on a 0–1000 scale of that image (0,0 top-left; 1000,1000 bottom-right), drawn tightly around the tooth or the lesion you are describing — the region a colleague should look at. The clinic draws these outlines over the radiograph, colour-coded by severity, so a wrong box is worse than none: if you cannot place a finding, return box as an empty list.
 - Separate observation from interpretation inside each finding ("distal radiolucency on 36 reaching the pulp — consistent with deep caries; irreversible pulpitis cannot be excluded").
 - Grade each finding's confidence by how clearly the image shows it, and its severity by clinical weight: "urgent" only for things that need attention within days (large periapical abscess with swelling risk, fracture, aggressive lesion, pathology needing referral).
 - NEVER invent a finding. If the image cannot settle a question, say so in limitations and name what would (a periapical of which tooth, a bitewing, CBCT, clinical tests).
@@ -166,7 +180,7 @@ const oneOf = <T extends string>(v: unknown, allowed: readonly T[], fallback: T)
  * never cost the dentist a reading that was otherwise fine. Returns null only when there is no
  * summary at all — that is a failed call, and the caller must not charge for it.
  */
-export function normalizeXrayReport(raw: unknown): XrayReport | null {
+export function normalizeXrayReport(raw: unknown, imageCount = 1): XrayReport | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   const summary = str(r.summary, 2000);
@@ -180,11 +194,15 @@ export function normalizeXrayReport(raw: unknown): XrayReport | null {
           const tooth = normalizeToothLabel(tt.tooth);
           const finding = str(tt.finding, 600);
           if (!tooth || !finding) return null;
+          const box = normalizeBox(tt.box);
+          const imageRaw = Number(tt.image);
+          const image = Number.isInteger(imageRaw) && imageRaw >= 1 && imageRaw <= imageCount ? imageRaw : 1;
           return {
             tooth,
             finding,
             confidence: oneOf(tt.confidence, CONFIDENCES, "moderate"),
             severity: oneOf(tt.severity, SEVERITIES, "mild"),
+            ...(box ? { box, image } : {}),
           };
         })
         .filter((t): t is XrayToothFinding => t !== null)
@@ -204,6 +222,35 @@ export function normalizeXrayReport(raw: unknown): XrayReport | null {
     limitations: str(r.limitations, 1000),
   };
 }
+
+/**
+ * A box is kept only when it is four finite numbers, inside the 0–1000 frame, with a positive
+ * area of some size — a 2×2 speck is noise, and a box covering the whole image says nothing.
+ * Values are rounded and clamped rather than rejected for being 1003.
+ */
+export function normalizeBox(v: unknown): XrayBox | null {
+  if (!Array.isArray(v) || v.length !== 4) return null;
+  const nums = v.map((x) => Number(x));
+  if (nums.some((n) => !Number.isFinite(n))) return null;
+  const clamp = (n: number) => Math.max(0, Math.min(1000, Math.round(n)));
+  let [ymin, xmin, ymax, xmax] = nums.map(clamp);
+  if (ymin > ymax) [ymin, ymax] = [ymax, ymin];
+  if (xmin > xmax) [xmin, xmax] = [xmax, xmin];
+  const h = ymax - ymin;
+  const w = xmax - xmin;
+  if (h < 10 || w < 10) return null;
+  if (h >= 980 && w >= 980) return null;
+  return [ymin, xmin, ymax, xmax];
+}
+
+/** The outline colours, one per severity, shared by the screen overlay, the legend and the PDF. */
+export const SEVERITY_COLORS: Record<XraySeverity, string> = {
+  normal: "#10b981",
+  mild: "#94a3b8",
+  moderate: "#f59e0b",
+  severe: "#f97316",
+  urgent: "#f43f5e",
+};
 
 /**
  * "36", "tooth 36", "#36", "36 (LL6)" → "36". Anything without an FDI number is kept as a short

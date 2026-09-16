@@ -11,7 +11,9 @@
 import assert from "node:assert/strict";
 import {
   buildXrayPrompt,
+  normalizeBox,
   normalizeToothLabel,
+  SEVERITY_COLORS,
   normalizeXrayReport,
   sortTeeth,
   worstSeverity,
@@ -69,6 +71,36 @@ assert.equal(normalizeToothLabel("59"), "59", "not a valid FDI number → kept a
 assert.equal(normalizeToothLabel("upper left"), "upper left");
 assert.equal(normalizeToothLabel(""), "");
 assert.equal(normalizeToothLabel(36), "");
+
+// --- Outlines: where a finding sits on the picture ---------------------------------------------
+assert.deepEqual(normalizeBox([120, 300, 480, 620]), [120, 300, 480, 620]);
+assert.deepEqual(normalizeBox([480, 620, 120, 300]), [120, 300, 480, 620], "swapped corners are put back in order");
+assert.deepEqual(normalizeBox([-5, 0, 1003.6, 400]), [0, 0, 1000, 400], "out-of-frame values clamp rather than reject");
+assert.equal(normalizeBox([]), null, "an empty list is the model saying it could not place it");
+assert.equal(normalizeBox([1, 2, 3]), null);
+assert.equal(normalizeBox([100, 100, 104, 104]), null, "a speck is noise");
+assert.equal(normalizeBox([0, 0, 1000, 1000]), null, "the whole picture says nothing");
+assert.equal(normalizeBox(["a", 1, 2, 3]), null);
+
+const placed = normalizeXrayReport(
+  {
+    summary: "S",
+    teeth: [
+      { tooth: "36", finding: "a", confidence: "high", severity: "severe", box: [100, 100, 400, 400], image: 2 },
+      { tooth: "37", finding: "b", confidence: "high", severity: "mild", box: [100, 100, 400, 400], image: 9 },
+      { tooth: "38", finding: "c", confidence: "high", severity: "mild", box: [], image: 1 },
+    ],
+  },
+  2
+)!;
+assert.deepEqual(placed.teeth[0].box, [100, 100, 400, 400]);
+assert.equal(placed.teeth[0].image, 2);
+assert.equal(placed.teeth[1].image, 1, "an image index past the pictures read falls back to the first");
+assert.equal(placed.teeth[2].box, undefined, "no box → no image either; the row still stands");
+assert.equal(placed.teeth[2].image, undefined);
+for (const sv of ["normal", "mild", "moderate", "severe", "urgent"] as const) assert.match(SEVERITY_COLORS[sv], /^#[0-9a-f]{6}$/);
+assert.ok(XRAY_RESPONSE_SCHEMA.properties.teeth.items.required.includes("box"), "the model is asked for a box on every row");
+assert.ok(/LOCALISE/.test(buildXrayPrompt({ language: "en", imageCount: 2, imageCategories: [] })));
 
 // --- Severity roll-up --------------------------------------------------------------------------
 const report = normalizeXrayReport({
