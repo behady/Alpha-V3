@@ -245,7 +245,7 @@ export default function PatientsPage() {
                           </td>
                           <td className="py-4 px-6 text-end">
                             <div className="inline-flex w-9 h-9 rounded-full bg-slate-50 items-center justify-center border border-slate-200 group-hover:bg-slate-900 group-hover:border-slate-800 group-hover:shadow-md transition-all duration-300">
-                              <ChevronRight size={18} strokeWidth={2.5} className="text-slate-400 group-hover:text-white" />
+                              <ChevronRight size={18} strokeWidth={2.5} className={`text-slate-400 group-hover:text-white ${isRTL ? "rotate-180" : ""}`} />
                             </div>
                           </td>
                         </tr>
