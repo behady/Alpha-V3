@@ -1285,13 +1285,13 @@ export default function PatientProfile() {
                           </p>
                         </div>
                       ) : (
-                        <table className="w-full text-left text-sm">
+                        <table className="w-full text-start text-sm">
                           <thead>
                             <tr className="bg-slate-50/80 text-[10px] font-black uppercase tracking-widest text-ink-muted border-b border-slate-100">
                               <th className="px-6 py-3">{t("date") || "Date"}</th>
                               <th className="px-4 py-3">{t("type") || "Type"}</th>
                               <th className="px-4 py-3 min-w-[200px]">{t("message") || "Snippet"}</th>
-                              <th className="px-6 py-3 text-right">{t("status") || "Status"}</th>
+                              <th className="px-6 py-3 text-end">{t("status") || "Status"}</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
@@ -1362,7 +1362,7 @@ export default function PatientProfile() {
                                       {messageSnippet(row.message)}
                                     </span>
                                   </td>
-                                  <td className="px-6 py-3.5 text-right">
+                                  <td className="px-6 py-3.5 text-end">
                                     <span
                                       className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wide border ${tone}`}
                                     >

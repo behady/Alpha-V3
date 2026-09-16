@@ -746,10 +746,10 @@ export default function FinancePage() {
                     {discountsByReason.map((row) => (
                       <tr key={row.reason} className="border-b border-slate-100 last:border-0">
                         <td className="py-2.5 pr-3 font-bold text-slate-700">{row.reason}</td>
-                        <td className="py-2.5 px-3 text-right text-xs font-medium text-slate-400 tabular-nums whitespace-nowrap">
+                        <td className="py-2.5 px-3 text-end text-xs font-medium text-slate-400 tabular-nums whitespace-nowrap">
                           {row.count} {language === "ar" ? "بند" : row.count === 1 ? "item" : "items"}
                         </td>
-                        <td className="py-2.5 pl-3 text-right font-black text-slate-800 tabular-nums whitespace-nowrap">
+                        <td className="py-2.5 pl-3 text-end font-black text-slate-800 tabular-nums whitespace-nowrap">
                           {formatCurrency(row.amount)}
                         </td>
                       </tr>

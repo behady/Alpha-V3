@@ -438,7 +438,7 @@ export default function SupplyStoreTab() {
 
         {months.length > 0 && (
           <div className="mb-6 overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <table className="w-full text-start text-sm">
               <thead>
                 <tr className="text-[11px] font-black uppercase tracking-wide text-slate-500">
                   <th className="pb-2">Month</th>
@@ -465,7 +465,7 @@ export default function SupplyStoreTab() {
           <p className="py-6 text-center text-sm font-bold text-slate-500">No orders have gone through the store yet.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <table className="w-full text-start text-sm">
               <thead>
                 <tr className="text-[11px] font-black uppercase tracking-wide text-slate-500">
                   <th className="pb-2">Order</th>

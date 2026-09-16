@@ -489,7 +489,7 @@ export default function IsolatedOrthoWorkspace() {
                 </div>
               ) : (
                 <div className="overflow-x-auto rounded-2xl border border-slate-100">
-                  <table className="w-full text-left border-collapse">
+                  <table className="w-full text-start border-collapse">
                     <tbody className="divide-y divide-slate-100">
                       {localVisits.map((visit, idx) => (
                         <tr key={visit.visitNo} className="group hover:bg-slate-50/50 transition-colors">
@@ -605,7 +605,7 @@ export default function IsolatedOrthoWorkspace() {
         </div>
 
         {/* Visits Table */}
-        <table className="w-full text-left border-collapse border border-line-strong">
+        <table className="w-full text-start border-collapse border border-line-strong">
           <tbody>
             {localVisits.map((visit) => (
               <tr key={visit.visitNo} className="text-sm">
