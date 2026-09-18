@@ -60,28 +60,35 @@ export const TIER_LIMITS: Record<SubscriptionTier, {
   }
 }> = {
   'Free Trial': {
-    maxStaff: 3,
-    // Fourteen days, so this is deliberately more per-day than Pro: the trial has to show what
-    // the assistant can do, and it costs about a dollar.
-    aiMonthlyCredits: 150,
+    /**
+     * Everything open, for a month (decided 2026-09-18). A trial is a demonstration, and a locked
+     * screen with an "upgrade" card demonstrates nothing: the clinic should feel the full system
+     * and then choose what to keep. Unlimited staff for the same reason — a clinic that cannot
+     * add its own receptionist during the trial never sees how the roles work.
+     *
+     * 200 credits for the thirty days: at the measured ~$0.01 a credit that is about two dollars
+     * per trial clinic, and enough for the assistant to be used every working day.
+     */
+    maxStaff: 0, // unlimited
+    aiMonthlyCredits: 200,
     features: {
-      whatsappIntegration: false,
-      inventory: false,
-      attendance: false,
+      whatsappIntegration: true,
+      inventory: true,
+      attendance: true,
       aiChat: true,
-      aiProactive: false,
-      aiEmbedded: false,
-      aiVoice: false,
+      aiProactive: true,
+      aiEmbedded: true,
+      aiVoice: true,
       aiXray: true,
-      marketingText: false,
-      marketingDesign: false,
-      whatsappBot: false,
+      marketingText: true,
+      marketingDesign: true,
+      whatsappBot: true,
       onlineBooking: true,
       leads: true,
       lab: true,
       ortho: true,
       reports: true,
-      multiBranch: false,
+      multiBranch: true,
       clinicalPdfs: true,
     }
   },

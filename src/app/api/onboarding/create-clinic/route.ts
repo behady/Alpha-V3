@@ -28,7 +28,7 @@ import {
  *
  * A failure to read it falls back rather than aborting. Signup is the one request in the system
  * that must not fail for a reason the person can neither understand nor act on, and the fallback
- * is the same fourteen days the platform has always meant by "free trial". The alternative — a
+ * is the default month `lib/trialPolicy.ts` describes. The alternative — a
  * 500 on "Create clinic" because a settings document is unreachable — costs a customer.
  */
 async function readTrialPolicy(db: ReturnType<typeof adminDb>): Promise<TrialPolicy> {

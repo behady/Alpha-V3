@@ -374,7 +374,7 @@ const DAY = 86400000;
   );
   eq(t.totalDays, TRIAL_DAYS, "with no expiry, the window is TRIAL_DAYS long");
   eq(t.endsAt!.getTime(), created.getTime() + TRIAL_DAYS * DAY, "…ending TRIAL_DAYS after signup");
-  eq(t.daysLeft, TRIAL_DAYS - 5, "five days in, nine left of fourteen");
+  eq(t.daysLeft, TRIAL_DAYS - 5, "five days in, five fewer days left");
   eq(t.dayNumber, 6, "the sixth day is day six, not day five");
 }
 
@@ -509,9 +509,9 @@ ok(COACH_SNOOZE_MS >= 60 * 60 * 1000, "'Later' means at least an hour — a toke
   // A single day is a day, not "1 days" — the line people read on the last day of the trial.
   const lastDay = trialStatus(
     { subscriptionTier: "Free Trial", createdAt: new Date("2026-09-01T00:00:00Z") },
-    new Date("2026-09-14T12:00:00Z")
+    new Date(Date.UTC(2026, 8, 1, 12) + (TRIAL_DAYS - 1) * DAY)
   );
-  eq(lastDay.daysLeft, 1, "the 14th of a trial started on the 1st has one day left");
+  eq(lastDay.daysLeft, 1, "the last day of a trial started on the 1st has one day left");
   ok(coachGreeting({ progress, trial: lastDay, isAr: false }).includes("1 day left"), "…said as '1 day left'");
 
   // A paying clinic still gets the guide, without a countdown that would make no sense.

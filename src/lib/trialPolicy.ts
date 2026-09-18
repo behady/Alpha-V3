@@ -29,11 +29,11 @@ export const TRIAL_POLICY_DOC = "trials";
 /**
  * The fallback when nobody has saved a policy yet.
  *
- * Fourteen because that is what `lib/subscriptions.ts` has always sized the trial's AI allowance
- * against ("Fourteen days, so this is deliberately more per-day than Pro"). It was a comment
- * describing a number that existed nowhere; this is that number, once.
+ * Thirty since 2026-09-18: a full month with every add-on open and 200 AI credits, which is what
+ * the Free Trial tier in `lib/subscriptions.ts` is now sized for. Only a fallback — the saved
+ * policy in `platform_settings/trials` (Super Admin → Platform) is what signup actually reads.
  */
-export const DEFAULT_TRIAL_DAYS = 14;
+export const DEFAULT_TRIAL_DAYS = 30;
 
 /** Bounds, so a typo in the dashboard cannot create a one-hour trial or a thousand-year one. */
 export const MIN_TRIAL_DAYS = 1;
