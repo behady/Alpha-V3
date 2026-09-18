@@ -306,6 +306,10 @@ fun Shell(preview: Boolean = false) {
                 patientsState.added?.let { id ->
                     addingPatient = false
                     patientsModel.clearAdded()
+                    // The file exists now, so the half-typed one is finished with. Closing the
+                    // sheet deliberately does NOT do this — that is what makes the draft worth
+                    // keeping.
+                    SheetDrafts.clear(DRAFT_NEW_PATIENT)
                     openRecord = id
                 }
             }
@@ -516,6 +520,7 @@ private fun PatientsTab(preview: Boolean, onOpen: (String) -> Unit) {
             state.added?.let { id ->
                 adding = false
                 model.clearAdded()
+                SheetDrafts.clear(DRAFT_NEW_PATIENT)
                 onOpen(id)
             }
         }
@@ -962,7 +967,12 @@ private fun RecordPane(
     androidx.compose.runtime.LaunchedEffect(patientId) { model.open(patientId) }
 
     androidx.compose.runtime.LaunchedEffect(state.recorded) {
-        if (state.recorded != null) recording = false
+        if (state.recorded != null) {
+            recording = false
+            // On the file, so the draft has served its purpose. Keyed by patient, the same way
+            // the sheet keyed it.
+            state.record?.person?.name?.let { SheetDrafts.clear("$DRAFT_TREATMENT:$it") }
+        }
     }
 
     // Close the sheet once the money is in, and leave the confirmation on the

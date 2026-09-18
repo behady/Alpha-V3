@@ -1,6 +1,19 @@
 package com.alphadental.clinic.next
 
 import androidx.compose.foundation.BorderStroke
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.MutableState
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -74,28 +87,71 @@ fun Sheet(
         containerColor = T.surface,
         dragHandle = null,
     ) {
+        // The keyboard swallows the first back swipe, the way it does everywhere else on the
+        // phone. See [DismissKeyboardOnBack] for why this is not simply a BackHandler.
+        DismissKeyboardOnBack()
+
         Column(
             Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
-                .imePadding(),
+                // ONE of the two, whichever is taller, rather than both stacked. The keyboard
+                // already covers the navigation bar, so adding its height on top of the keyboard's
+                // put a finger's width of dead space under an open sheet.
+                .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
         ) {
+            Column(Modifier.fillMaxWidth().padding(start = T.gutter, end = T.gutter, top = 20.dp)) {
+                Txt(title, Type.heading, T.ink, maxLines = 2)
+                if (caption.isNotBlank()) {
+                    Spacer(Modifier.height(3.dp))
+                    Txt(caption, Type.caption, T.inkMuted, maxLines = 2)
+                }
+            }
+
+            /*
+             * Save lives at the TOP of the sheet, under the title.
+             *
+             * It used to sit at the bottom, below the fields, which is where a save button
+             * belongs right up until a keyboard opens over it. The only way back to it was to
+             * dismiss the keyboard, and on a gesture phone dismissing the keyboard means swiping
+             * from the edge — which closed the whole sheet and threw away the form.
+             *
+             * Up here it cannot be covered by anything, and the label stays long enough to keep
+             * saying what pressing it will charge.
+             */
             Row(
-                Modifier.fillMaxWidth().padding(start = T.gutter, end = T.gutter, top = 20.dp, bottom = 14.dp),
+                Modifier.fillMaxWidth().padding(start = T.gutter, end = T.gutter, top = 14.dp, bottom = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(Modifier.weight(1f)) {
-                    Txt(title, Type.heading, T.ink, maxLines = 2)
-                    if (caption.isNotBlank()) {
-                        Spacer(Modifier.height(3.dp))
-                        Txt(caption, Type.caption, T.inkMuted, maxLines = 2)
+                Txt(
+                    "Close", Type.label.copy(fontSize = 13.sp), T.inkMuted,
+                    Modifier
+                        .clip(T.pill)
+                        .clickable(enabled = !busy, onClick = onDismiss)
+                        .padding(horizontal = 14.dp, vertical = 11.dp),
+                )
+                Spacer(Modifier.weight(1f))
+                Surface(
+                    shape = T.pill,
+                    color = if (ready && !busy) T.accent else T.line,
+                    modifier = Modifier.clickable(enabled = ready && !busy, onClick = onAction),
+                ) {
+                    Box(
+                        Modifier.padding(horizontal = 24.dp, vertical = 13.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (busy) {
+                            CircularProgressIndicator(
+                                color = T.inkFaint, strokeWidth = 2.dp, modifier = Modifier.size(17.dp),
+                            )
+                        } else {
+                            Txt(
+                                action, Type.label.copy(fontSize = 14.sp),
+                                if (ready) T.onAccent else T.inkFaint,
+                                maxLines = 1,
+                            )
+                        }
                     }
                 }
-                Spacer(Modifier.width(12.dp))
-                Txt(
-                    "Close", Type.label.copy(fontSize = 12.sp), T.inkMuted,
-                    Modifier.clickable(enabled = !busy, onClick = onDismiss),
-                )
             }
             Rule()
 
@@ -109,43 +165,121 @@ fun Sheet(
                 }
             }
 
+            /*
+             * As tall as there is room for, rather than a fixed 520dp.
+             *
+             * The fixed cap is what actually hid the Save button: 520dp of fields plus a header
+             * plus a footer is taller than a phone with a keyboard open, so the sheet could not
+             * shrink and its bottom simply fell off the screen. Measured against the screen with
+             * the keyboard's own height taken off, so the sheet gets smaller as the keyboard
+             * arrives instead of being pushed under it.
+             */
+            val screen = LocalConfiguration.current.screenHeightDp.dp
+            val keyboard = with(LocalDensity.current) { WindowInsets.ime.getBottom(this).toDp() }
             Column(
                 Modifier
-                    .heightIn(max = 520.dp)
+                    .heightIn(max = (screen - keyboard - 150.dp).coerceAtLeast(150.dp))
                     .verticalScroll(rememberScrollState()),
             ) { content() }
-
-            Rule()
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = T.gutter, vertical = 14.dp),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Surface(
-                    shape = T.pill,
-                    color = if (ready && !busy) T.accent else T.line,
-                    modifier = Modifier.clickable(enabled = ready && !busy, onClick = onAction),
-                ) {
-                    Box(
-                        Modifier.padding(horizontal = 26.dp, vertical = 13.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (busy) {
-                            CircularProgressIndicator(
-                                color = T.inkFaint, strokeWidth = 2.dp, modifier = Modifier.size(17.dp),
-                            )
-                        } else {
-                            Txt(
-                                action, Type.label.copy(fontSize = 14.sp),
-                                if (ready) T.onAccent else T.inkFaint,
-                            )
-                        }
-                    }
-                }
-            }
         }
     }
 }
+
+/**
+ * The first back swipe closes the keyboard, not the form.
+ *
+ * On a phone with no buttons, closing the keyboard IS a back swipe — and the sheet took that swipe
+ * as "throw this away", mid-form, with no warning and nothing kept. Android's own behaviour is that
+ * the keyboard eats the first one; this puts that back.
+ *
+ * Registered by hand rather than with `BackHandler`, for two reasons. `BackHandler` throws outright
+ * if the window it lands in has no dispatcher, and a bottom sheet is its own window — a crash on
+ * every sheet would be a far worse bug than the one being fixed. And if the keyboard insets read
+ * zero for any reason, this simply stays switched off and the sheet behaves exactly as it did
+ * before, which is the right way for something like this to fail.
+ */
+@Composable
+private fun DismissKeyboardOnBack() {
+    val owner = LocalOnBackPressedDispatcherOwner.current ?: return
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val open = with(LocalDensity.current) { WindowInsets.ime.getBottom(this) } > 0
+
+    val callback = remember {
+        object : androidx.activity.OnBackPressedCallback(false) {
+            override fun handleOnBackPressed() {
+                // Clearing focus is what actually retracts the keyboard on most devices; hiding it
+                // as well covers the ones where a field holds focus with the keyboard down.
+                focus.clearFocus()
+                keyboard?.hide()
+            }
+        }
+    }
+    callback.isEnabled = open
+
+    DisposableEffect(owner) {
+        // Added last, so it is consulted first: the dispatcher walks its callbacks in reverse.
+        // That is what lets this beat the sheet's own dismiss-on-back.
+        owner.onBackPressedDispatcher.addCallback(callback)
+        onDispose { callback.remove() }
+    }
+}
+
+/**
+ * What was typed, kept when a form closes.
+ *
+ * A sheet's fields live in `remember`, which dies the moment the sheet leaves the screen — so an
+ * accidental close took eight fields of typing with it. These outlive the sheet: reopening the same
+ * form finds everything where it was left, and a successful save is what clears it.
+ *
+ * In memory only, deliberately. A half-typed patient is worth keeping for the minute it takes to
+ * get back to it; it is not worth writing to disk, where it would outlive the shift, the clinic and
+ * the person it half-describes.
+ */
+object SheetDrafts {
+
+    private val kept = mutableMapOf<String, MutableMap<String, String>>()
+
+    fun read(form: String, field: String): String? = kept[form]?.get(field)
+
+    fun write(form: String, field: String, value: String) {
+        kept.getOrPut(form) { mutableMapOf() }[field] = value
+    }
+
+    /** Called when the form was saved, or deliberately abandoned. */
+    fun clear(form: String) {
+        kept.remove(form)
+    }
+}
+
+private class DraftState(
+    private val form: String,
+    // Not `field`: that is Kotlin's name for a property's backing field, and using it inside the
+    // setter below makes the compiler insist this property has one.
+    private val key: String,
+    initial: String,
+) : MutableState<String> {
+    private val backing = mutableStateOf(initial)
+    override var value: String
+        get() = backing.value
+        set(next) {
+            backing.value = next
+            SheetDrafts.write(form, key, next)
+        }
+
+    override fun component1(): String = value
+    override fun component2(): (String) -> Unit = { value = it }
+}
+
+/**
+ * One field of a form, remembered across an accidental close.
+ *
+ * [initial] is used only the first time — once anything has been typed, what was typed wins, even
+ * if it is now empty. A field somebody deliberately cleared must not refill itself.
+ */
+@Composable
+fun draft(form: String, field: String, initial: String = ""): MutableState<String> =
+    remember(form, field) { DraftState(form, field, SheetDrafts.read(form, field) ?: initial) }
 
 /** A labelled box inside a sheet. */
 @Composable

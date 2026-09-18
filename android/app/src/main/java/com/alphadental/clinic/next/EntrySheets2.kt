@@ -29,6 +29,9 @@ import com.alphadental.clinic.next.design.T
 import com.alphadental.clinic.next.design.Txt
 import com.alphadental.clinic.next.design.Type
 
+/** Where a half-recorded treatment waits. Suffixed with the patient, and cleared once saved. */
+const val DRAFT_TREATMENT = "treatment"
+
 /**
  * Record what was done, and bill it.
  *
@@ -48,12 +51,25 @@ fun TreatmentSheet(
     onRecord: (String, List<String>, String, Double, Doctor?, Service?, Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var service by remember { mutableStateOf<Service?>(null) }
-    var procedure by remember { mutableStateOf("") }
-    var price by remember { mutableStateOf("") }
-    var teeth by remember { mutableStateOf(setOf<Int>()) }
-    var doctor by remember { mutableStateOf(doctors.firstOrNull()) }
-    var note by remember { mutableStateOf("") }
+    // Kept across an accidental close, per patient: a half-recorded treatment must come back on
+    // the file it was being written on, never on whoever's file is open next.
+    val form = "$DRAFT_TREATMENT:$patientName"
+    var procedure by draft(form, "procedure")
+    var price by draft(form, "price")
+    var note by draft(form, "note")
+    // The chosen teeth and the chosen dentist are stored as ids and looked up again, because the
+    // objects themselves come from lists that are reloaded every time the sheet opens.
+    var toothText by draft(form, "teeth")
+    var doctorId by draft(form, "doctor", doctors.firstOrNull()?.id.orEmpty())
+    var serviceId by draft(form, "service")
+
+    val teeth = remember(toothText) {
+        toothText.split(',').mapNotNull { it.trim().toIntOrNull() }.toSet()
+    }
+    val setTeeth = { next: Set<Int> -> toothText = next.sorted().joinToString(",") }
+    val service = remember(serviceId, services) { services.firstOrNull { it.id == serviceId } }
+    val doctor = remember(doctorId, doctors) { doctors.firstOrNull { it.id == doctorId } }
+
     var done by remember { mutableStateOf(true) }
     /** True while the search results are worth showing under the box. */
     var picking by remember { mutableStateOf(false) }
@@ -96,7 +112,7 @@ fun TreatmentSheet(
                 procedure = typed
                 // Typing over a chosen treatment un-chooses it: the price on the
                 // line must not go on belonging to something no longer named.
-                if (service != null && !typed.equals(service?.name, ignoreCase = true)) service = null
+                if (service != null && !typed.equals(service.name, ignoreCase = true)) serviceId = ""
                 picking = true
             },
             hint = "Composite filling",
@@ -114,7 +130,7 @@ fun TreatmentSheet(
                             // Reopening after a treatment was chosen means changing the choice,
                             // so the chosen one is released rather than filtering the list down
                             // to itself.
-                            if (!picking) service = null
+                            if (!picking) serviceId = ""
                             picking = !picking
                         }
                         .padding(10.dp),
@@ -166,7 +182,7 @@ fun TreatmentSheet(
                             s.category.takeIf { it.isNotBlank() },
                         ).joinToString(" · "),
                     ) {
-                        service = s
+                        serviceId = s.id
                         procedure = s.name
                         if (s.price > 0) price = s.price.toLong().toString()
                         picking = false
@@ -224,12 +240,12 @@ fun TreatmentSheet(
             )
         }
 
-        ToothPicker(teeth, charted) { teeth = it }
+        ToothPicker(teeth, charted, setTeeth)
 
         if (doctors.isNotEmpty()) {
             SheetChoices("Done by") {
                 doctors.forEach { d ->
-                    SheetChoice(d.name, doctor?.id == d.id) { doctor = d }
+                    SheetChoice(d.name, doctor?.id == d.id) { doctorId = d.id }
                 }
             }
             if (doctor == null) {

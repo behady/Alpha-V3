@@ -50,17 +50,21 @@ fun AddPatientSheet(
     onAdd: (NewPatient) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var name by remember { mutableStateOf("") }
-    var phone by remember { mutableStateOf("") }
-    var source by remember { mutableStateOf("") }
-    var address by remember { mutableStateOf("") }
-    var gender by remember { mutableStateOf("") }
-    var dob by remember { mutableStateOf("") }
-    var email by remember { mutableStateOf("") }
-    var allergies by remember { mutableStateOf("") }
-    var history by remember { mutableStateOf("") }
-    /** The optional half stays folded until somebody wants it. */
-    var more by remember { mutableStateOf(false) }
+    // Kept if the sheet is closed by accident. Eight fields of typing is a real loss, and on a
+    // gesture phone the swipe that dismisses the keyboard is the same swipe that closed this.
+    var name by draft(DRAFT_NEW_PATIENT, "name")
+    var phone by draft(DRAFT_NEW_PATIENT, "phone")
+    var source by draft(DRAFT_NEW_PATIENT, "source")
+    var address by draft(DRAFT_NEW_PATIENT, "address")
+    var gender by draft(DRAFT_NEW_PATIENT, "gender")
+    var dob by draft(DRAFT_NEW_PATIENT, "dob")
+    var email by draft(DRAFT_NEW_PATIENT, "email")
+    var allergies by draft(DRAFT_NEW_PATIENT, "allergies")
+    var history by draft(DRAFT_NEW_PATIENT, "history")
+    /** The optional half stays folded until somebody wants it — unless it holds something. */
+    var more by remember {
+        mutableStateOf(listOf(dob, email, allergies, history).any { it.isNotBlank() })
+    }
 
     Sheet(
         title = "New patient",
@@ -132,6 +136,9 @@ fun AddPatientSheet(
         }
     }
 }
+
+/** Where an unfinished new patient waits. Cleared when one is actually created. */
+const val DRAFT_NEW_PATIENT = "new-patient"
 
 /** Everything the new-patient sheet collected, carried in one piece. */
 data class NewPatient(
